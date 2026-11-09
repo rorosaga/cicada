@@ -42,7 +42,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from api.services import episode_ids, episode_staging, evidence
-from api.services.connectors import base, linear_mcp, tier2
+from api.services.connectors import base, linear_mcp, scope, tier2
 from api.services.id_utils import sanitize_id
 
 CHANNEL_ID = "linear-api"
@@ -75,6 +75,53 @@ REREAD_DAYS = 7
 TITLE_CAP = 200
 TURN_CAP = 12000
 _FILTERS = ({"creator": "me"}, {"assignee": "me"})
+#: A chosen item narrows both filters to its team or project (the picker's `kind`, the argument `list_issues` takes).
+_SCOPE_ARG = {"team": "team", "project": "project"}
+LIST_LIMIT = 100
+
+
+CHOOSE_NOUN = "teams and projects"
+CHOOSE_EVERYTHING = "Every issue I created or hold"
+CHOOSE_CHOSEN = "Only in the teams and projects I pick"
+
+
+def can_choose() -> bool:
+    return linear_mcp.is_app_token()
+
+
+def filters_for(sel: dict) -> list[dict]:
+    """The ``list_issues`` filters for a choice: the two "mine" filters, once for everything, or once per chosen team or
+    project. A chosen scope reads the issues the person created or holds *inside* it, never a colleague's alone."""
+    if sel.get("mode") != scope.CHOSEN:
+        return [dict(f) for f in _FILTERS]
+    out = []
+    for item in sel.get("items") or []:
+        arg = _SCOPE_ARG.get(item.get("kind"), "team")
+        out.extend({**f, arg: item["id"]} for f in _FILTERS)
+    return out or [dict(f) for f in _FILTERS]
+
+
+async def containers(client: tier2.Client, query: str = "") -> dict:
+    """What the picker lists: the teams and projects the person can see (``list_teams``, ``list_projects``), narrowed by
+    what they type. Reads only. ``{"items": [{id, title, kind}], "more": bool}``."""
+    session = linear_mcp.Session(client)
+    needle = " ".join(str(query or "").split()).lower()[:100]
+    items: list[dict] = []
+    for tool, kind, keys in (("list_teams", "team", ("teams",)), ("list_projects", "project", ("projects",))):
+        try:
+            data = await session.call(tool, {"limit": LIST_LIMIT})
+        except (tier2.Refused, linear_mcp.WriteToolRefused):
+            raise
+        except base.ConnectorError:
+            continue
+        for row in _rows(data, *keys):
+            rid = str(row.get("id") or row.get("uuid") or "").strip()
+            name = " ".join(str(row.get("name") or row.get("title") or "").split())[:200]
+            if not rid or not name or (needle and needle not in name.lower() and needle not in str(row.get("key") or "").lower()):
+                continue
+            label = f"{name} ({row['key']})" if kind == "team" and row.get("key") else name
+            items.append({"id": rid, "title": label, "kind": kind})
+    return {"items": items[:LIST_LIMIT], "more": len(items) > LIST_LIMIT}
 _BOT_KEYS = ("isBot", "bot", "app", "isApp", "isAgent", "agent", "botActor")
 _BOT_TYPES = frozenset({"app", "bot", "agent", "integration", "application"})
 #: What an agent leaves in text it writes. Used only to demote: a match never makes anything the person's.
@@ -198,9 +245,9 @@ def _since(high_water, reread: str) -> str | None:
     return high_water if a is not None and b is not None and a < b else reread
 
 
-async def _page(session, since: str | None, which: int, cursor: str | None) -> tuple[list[dict], str | None]:
+async def _page(session, since: str | None, flt: dict, cursor: str | None) -> tuple[list[dict], str | None]:
     """One page of one ``list_issues`` filter, newest edit first: (rows, the next cursor or None when it was the last)."""
-    args = {**_FILTERS[which], "orderBy": "updatedAt", "limit": PAGE_SIZE, "fields": ISSUE_FIELDS}
+    args = {**flt, "orderBy": "updatedAt", "limit": PAGE_SIZE, "fields": ISSUE_FIELDS}
     if since:
         args["updatedAt"] = since
     if cursor:
@@ -212,7 +259,7 @@ async def _page(session, since: str | None, which: int, cursor: str | None) -> t
     except base.ConnectorError:
         if not cursor:
             raise
-        return await _page(session, since, which, None)      # a cursor Linear no longer takes: start again
+        return await _page(session, since, flt, None)      # a cursor Linear no longer takes: start again
     nxt = data.get("cursor") if data.get("hasNextPage") else None
     return _rows(data, "issues"), (nxt if isinstance(nxt, str) and nxt else None)
 
@@ -284,23 +331,28 @@ async def fetch(client: tier2.Client, cursor: dict, memory_path: Path) -> tier2.
     session = linear_mcp.Session(client)
     me = me_of(await session.call("whoami", {}))
     reread = (datetime.now(timezone.utc) - timedelta(days=REREAD_DAYS)).isoformat()
+    sel = scope.read(CHANNEL_ID)
+    sig = scope.signature(sel)
+    filters = filters_for(sel)
     high_water = cursor.get("high_water")
-    walk = dict(cursor.get("walk") or {})       # {"since", "cursors": [str|None, str|None], "done": [bool, bool]}
+    walk = dict(cursor.get("walk") or {})       # {"since", "cursors": [str|None, ...], "done": [bool, ...]}
+    if (cursor.get("sig") or scope.EVERYTHING) != sig or len(walk.get("cursors") or filters) != len(filters):
+        high_water, walk = None, {}             # another choice than the one this position was made under: from the top
     since = walk["since"] if walk else _since(high_water, reread)
-    cursors = list(walk.get("cursors") or [None, None])
-    done = list(walk.get("done") or [False, False])
+    cursors = list(walk.get("cursors") or [None] * len(filters))
+    done = list(walk.get("done") or [False] * len(filters))
     newest = high_water or ""
     batch = tier2.Batch()
     unreadable = 0
     listed = 0                                  # every issue costs a read, whether or not it has words to keep
     stopped = False
     account = False
-    for which in (0, 1):
+    for which, flt in enumerate(filters):
         while not done[which] and not stopped:
             if listed + PAGE_SIZE > MAX_ISSUES_PER_SYNC and listed:
                 break                           # the budget: this page waits for the next sync
             try:
-                rows, nxt = await _page(session, since, which, cursors[which])
+                rows, nxt = await _page(session, since, flt, cursors[which])
             except linear_mcp.RequestLimit:
                 stopped = True
                 break
@@ -333,14 +385,15 @@ async def fetch(client: tier2.Client, cursor: dict, memory_path: Path) -> tier2.
     finished = all(done)
     failed = bool(walk.get("failed")) or unreadable > 0
     # The mark moves only once both listings are whole and every issue in them was read, to the newest edit seen.
-    batch.cursor = {"high_water": (newest or high_water) if finished and not failed else high_water}
+    batch.cursor = {"high_water": (newest or high_water) if finished and not failed else high_water, "sig": sig}
     if not finished:
         batch.cursor["walk"] = {"since": since, "cursors": cursors, "done": done, "failed": failed}
     words = []
     if not finished:
         words.append(f"Reading your Linear issues: {batch.seen} this time; the next sync carries on.")
     elif not batch.seen and not high_water:
-        words.append("Linear listed no issues you created or hold.")
+        words.append("Linear listed no issues you created or hold" + (" in what you chose." if sel["mode"] == scope.CHOSEN
+                                                                      else "."))
     if account:
         words.append(ACCOUNT_WORDS)
     if unreadable:

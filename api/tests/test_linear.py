@@ -200,7 +200,7 @@ def test_no_write_tool_can_be_called_and_nothing_is_sent_for_one(bank):
         with pytest.raises(linear_mcp.WriteToolRefused):
             asyncio.run(session.call(name, {}))
     assert server.messages == []
-    assert linear_mcp.ALLOWED_TOOLS == {"whoami", "list_issues", "list_comments"}
+    assert linear_mcp.ALLOWED_TOOLS == {"whoami", "list_issues", "list_comments", "list_teams", "list_projects"}
 
 
 def test_only_the_read_only_endpoint_can_be_a_target(bank):

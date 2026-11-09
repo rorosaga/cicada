@@ -8,7 +8,7 @@ client for this backend's callback, asks for ``scope=read`` on that resource, th
 browser, and Linear redirects to ``/sources/connectors/linear-api/callback`` (the nonce-gated route every sign-in shares).
 
 **Read-only three times over.** The grant is scope ``read``; the only URL ever posted to is ``/mcp/readonly``; and
-:class:`Session` calls only tools in :data:`ALLOWED_TOOLS` (``whoami``, ``list_issues``, ``list_comments``) and speaks
+:class:`Session` calls only tools in :data:`ALLOWED_TOOLS` (``whoami``, ``list_issues``, ``list_comments``, and the picker's ``list_teams`` / ``list_projects``) and speaks
 only ``initialize``, ``notifications/initialized`` and ``tools/call``: any other tool is refused before a byte is sent
 (:class:`WriteToolRefused`, a test), so no write tool can be called even if the endpoint offered one.
 
@@ -35,20 +35,21 @@ from urllib.parse import urlencode, urlparse
 from loguru import logger
 
 from api.services.connections import secrets
-from api.services.connectors import base, tier2
+from api.services.connectors import base, scope, tier2
 
 ORIGIN = "https://mcp.linear.app"
 MCP_URL = ORIGIN + "/mcp/readonly"
 METADATA_URL = ORIGIN + "/.well-known/oauth-authorization-server"
 REVOKE_FALLBACK = ORIGIN + "/token"
 HOST = "mcp.linear.app"
+CHANNEL_ID = "linear-api"
 CALLBACK_PATH = "/sources/connectors/linear-api/callback"
 CLIENT_NAME = "Cicada"
 PROTOCOL_VERSION = "2025-06-18"
 
 SCOPE = "read"
 #: Every tool this module may ever call: reads only. The hosted server's save_* / create_* / delete_* tools are not here.
-ALLOWED_TOOLS = frozenset({"whoami", "list_issues", "list_comments"})
+ALLOWED_TOOLS = frozenset({"whoami", "list_issues", "list_comments", "list_teams", "list_projects"})
 _RPC_METHODS = frozenset({"initialize", "notifications/initialized", "tools/call"})
 
 TOKEN_ENV = "CICADA_LINEAR_TOKEN"
@@ -178,6 +179,7 @@ def _save_grant(payload: dict, client_id: str) -> None:
 
 async def exchange_code(code: str, *, state: str = "", http_fn=None, base_url: str = "") -> None:
     pending = _pending.pop(state, None)
+    fresh = not (secrets.load_secrets().get(TOKEN_ENV) or "").strip()
     if pending is None or pending["expires"] < time.time():
         raise base.ConnectorError("The Linear sign-in expired. Start again.")
     resp = await _send("POST", pending["token_url"], data={
@@ -186,6 +188,8 @@ async def exchange_code(code: str, *, state: str = "", http_fn=None, base_url: s
     if resp.status >= 400 or not isinstance(resp.body, dict):
         raise base.ConnectorError(NOT_REACHED)
     _save_grant(resp.body, pending["client_id"])
+    if fresh:
+        scope.mark_pending(CHANNEL_ID)      # a new connection reads nothing until the person chooses (`scope.py`)
 
 
 def how() -> str | None:

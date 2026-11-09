@@ -113,6 +113,21 @@ revoke = notion_mcp.revoke
 prepare = notion_mcp.prepare
 
 
+#: The picker (`scope.py`, `routers/connectors.py`): what a signed-in connection can be narrowed to.
+CHOOSE_NOUN = "pages and databases"
+CHOOSE_EVERYTHING = "Everything I can open in Notion"
+CHOOSE_CHOSEN = "Only the pages and databases I pick"
+
+
+def can_choose() -> bool:
+    """Only a sign-in has a workspace to choose from; a pasted internal-connection token already sees just what was shared."""
+    return notion_mcp.is_app_token()
+
+
+async def containers(client: tier2.Client, query: str = "") -> dict:
+    return await notion_mcp.containers(client, query)
+
+
 def auth_headers(token: str) -> dict:
     if notion_mcp.is_app_token():
         return {"Authorization": f"Bearer {token}", "Accept": "application/json, text/event-stream"}
