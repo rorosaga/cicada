@@ -1856,6 +1856,28 @@ async def get_contributor_commits(
     return commits
 
 
+#: (name, bank) -> ((git head, extra), value): a `git log` walk of the whole history, kept until the head moves. The
+#: `/consumption/*` and `/contributors/*` reads each ran one per request (their ETag already follows the head, but only
+#: spares the client). One entry per name and bank, so it never grows; process-local and disposable.
+_head_memo: dict[tuple[str, str], tuple[tuple[str, str], object]] = {}
+
+
+async def head_memo(name: str, memory_path: Path, build, *, extra: str = ""):
+    """``await build()``, kept while the bank's git head and ``extra`` stand. A bank with no readable head, and a ``None`` (a failed walk), is never
+    cached. The value is shared between callers: they read it, never change it."""
+    from api.services import sync_service
+
+    head = sync_service.git_head(memory_path)
+    slot = (name, str(memory_path))
+    hit = _head_memo.get(slot)
+    if head and hit is not None and hit[0] == (head, extra):
+        return hit[1]
+    value = await build()
+    if head and value is not None:
+        _head_memo[slot] = ((head, extra), value)
+    return value
+
+
 async def top_written_entities(memory_path: Path, *, limit: int = 10) -> tuple[list[dict], int]:
     """Entity pages ranked by how many commits touched them (G124 R13).
 
@@ -1867,6 +1889,15 @@ async def top_written_entities(memory_path: Path, *, limit: int = 10) -> tuple[l
     """
     if not (memory_path / ".git").exists():
         return [], 0
+    # Counted once per head for every limit; each call slices its own top rows.
+    counted = await head_memo("top_written", memory_path, lambda: _count_written(memory_path))
+    if counted is None:
+        return [], 0
+    rows, scanned = counted
+    return rows[: max(1, int(limit or 10))], scanned
+
+
+async def _count_written(memory_path: Path) -> tuple[list[dict], int] | None:
     rec = "\x1e"
     try:
         out = await _run_git(
@@ -1874,7 +1905,7 @@ async def top_written_entities(memory_path: Path, *, limit: int = 10) -> tuple[l
             f"--format={rec}%ad", "--date=short", "--name-only",
         )
     except GitError:
-        return [], 0
+        return None
     counts: dict[str, int] = {}
     last: dict[str, str] = {}
     scanned = 0
@@ -1896,7 +1927,7 @@ async def top_written_entities(memory_path: Path, *, limit: int = 10) -> tuple[l
     # count show the page that was written most recently first, then by id.
     rows.sort(key=lambda r: (r["last_written"], r["entity_id"]), reverse=True)
     rows.sort(key=lambda r: -r["commits"])
-    return rows[: max(1, int(limit or 10))], scanned
+    return rows, scanned
 
 
 _MANIFEST_LINE_RE = re.compile(r"^(?P<path>[^:\s][^:]*?):\s+(?P<action>\w+)\s*\((?P<rest>.*)\)\s*$")

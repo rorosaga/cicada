@@ -853,13 +853,16 @@ def refresh(
         # G132 phase 1 (51e2): a replica never refreshes the cursor; the home does, commits it alone, and the copy
         # follows — so the primer read here is the home's, never an older one written locally.
         return {"written": False, "reason": "replica", "path": str(path)}
-    previous = read_state(memory_path)
-    if not force and previous is not None and previous.get("inputs_version") == inputs_version(memory_path):
-        return {"written": False, "reason": "inputs unchanged", "path": str(path)}
-    if connected_ids is None:
-        connected_ids = cached_connected_ids(settings)
-    fm, body = build(memory_path, settings, today=today, now=now,
-                     repo_resolver=repo_resolver, connected_ids=connected_ids)
+    # One listing of each folder for the whole read (2026-11-09: a rebuild listed `entities/` ~70 times, ~1.8 s of 3.4 s
+    # on a 9,000-page bank); nothing in this block writes a page.
+    with bank_index.shared_scans():
+        previous = read_state(memory_path)
+        if not force and previous is not None and previous.get("inputs_version") == inputs_version(memory_path):
+            return {"written": False, "reason": "inputs unchanged", "path": str(path)}
+        if connected_ids is None:
+            connected_ids = cached_connected_ids(settings)
+        fm, body = build(memory_path, settings, today=today, now=now,
+                         repo_resolver=repo_resolver, connected_ids=connected_ids)
     text = render(fm, body)
     if path.exists() and _masked(path.read_text(encoding="utf-8")) == _masked(text):
         if force and (previous or {}).get("inputs_version") != fm["inputs_version"]:

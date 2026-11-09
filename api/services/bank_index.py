@@ -305,6 +305,22 @@ def derived(memory_path: Path, subdir: str, name: str, build):
     return value
 
 
+def derived_over(memory_path: Path, subdirs: tuple[str, ...], name: str, build):
+    """:func:`derived` over several folders: ``build(*entries)`` (one list per folder, in order), kept until any of
+    those folders' cached headers change. For a read model that joins pages with episodes."""
+    parts = [_files(memory_path, d) for d in subdirs]
+    gens = tuple(gen for _entries, gen in parts)
+    slot = (str(memory_path), "+".join(subdirs), name)
+    with _lock:
+        hit = _DERIVED.get(slot)
+    if hit is not None and hit[0] == gens:
+        return hit[1]
+    value = build(*[entries for entries, _gen in parts])
+    with _lock:
+        _DERIVED[slot] = (gens, value)
+    return value
+
+
 def stamps(memory_path: Path, subdir: str, *, fresh: bool = False) -> dict[str, tuple[int, int]]:
     """``{filename: (mtime_ns, size)}`` for ``subdir``'s ``*.md`` files: one scandir, no parse.
 

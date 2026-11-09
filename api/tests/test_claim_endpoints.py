@@ -411,3 +411,18 @@ def test_the_model_join_never_runs_on_the_event_loop(tmp_path, monkeypatch):
     run(claims_router.get_entity_timeline("cicada", predicate="uses", context="engineering", settings=s))
     run(claims_router.get_transclusion(ref="cicada", settings=s))
     assert seen and not any(seen), "the model join must not run on the event loop"
+
+
+def test_claims_endpoint_answer_is_kept_until_the_page_moves(tmp_path):
+    """A page's claim list is kept between reads (2026-11-09) and rebuilt the moment the page is written."""
+    from api.routers import claims as claims_router
+
+    claims_router._MEMO.clear()
+    settings = _FakeSettings(tmp_path)
+    one = Claim(id="clm_a", text="Alpha uses sqlite-vec.", subject="alpha-project", predicate="uses", object="sqlite-vec")
+    _write_page(tmp_path, "alpha-project", "Alpha Project", [one])
+    first = run(claims_router.get_entity_claims("alpha-project", settings=settings))
+    assert run(claims_router.get_entity_claims("alpha-project", settings=settings)) is first
+    two = Claim(id="clm_b", text="Alpha uses FTS5.", subject="alpha-project", predicate="uses", object="fts5")
+    _write_page(tmp_path, "alpha-project", "Alpha Project", [one, two])
+    assert [c.id for c in run(claims_router.get_entity_claims("alpha-project", settings=settings)).claims] == ["clm_a", "clm_b"]
