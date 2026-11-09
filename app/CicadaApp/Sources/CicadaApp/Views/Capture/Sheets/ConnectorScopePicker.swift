@@ -243,3 +243,57 @@ private struct ItemRow: View {
         .rowHover($hovering)
     }
 }
+
+/// The picker on a connected source's own page (owner 2026-11-09: "that should be right after connecting"): a
+/// connection with nothing chosen yet shows the picker open, with nothing read behind it; a chosen one is a line and
+/// "Change". Draws nothing for a source with nothing to choose from. The sign-in sheet (`ConnectorSetupPanel`) shows
+/// the same picker, so the page steps aside while the sheet is up.
+struct ConnectorScopeBlock: View {
+    let connectorId: String
+    /// Changes when the page's connection did (connected, synced), so the block reads its state again.
+    let refreshID: String
+    var suppressed = false
+
+    @Environment(Store.self) private var store
+    @State private var status: ConnectorStatus?
+    @State private var choosing = false
+    @State private var note: String?
+
+    var body: some View {
+        Group {
+            if !suppressed, let status, status.connected, status.chooses == true {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                    if ConnectorScopeState.isPending(status) || choosing {
+                        ConnectorScopePicker(status: status,
+                                             onCancel: ConnectorScopeState.isPending(status) ? nil : { choosing = false }) {
+                            choosing = false
+                            do {
+                                note = ConnectorSetupState.syncSummary(try await APIClient.shared.syncConnector(connectorId))
+                            } catch {
+                                note = AddSourceSheet.friendlyError(error)
+                            }
+                            await store.refresh([.channels, .sources, .sourcesOverview, .status])
+                            await load()
+                        }
+                    } else if let line = ConnectorScopeState.summaryLine(status) {
+                        HStack(spacing: CicadaTheme.spacingSM) {
+                            Text(line)
+                                .font(CicadaTheme.captionFont)
+                                .foregroundStyle(CicadaTheme.textSecondary)
+                            TextButton(title: Copy.Connect.chooseChange, inline: true) { choosing = true }
+                                .accessibilityLabel("Change what \(status.label) is read for")
+                        }
+                    }
+                    if let note {
+                        Text(note).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
+                    }
+                }
+            }
+        }
+        .task(id: refreshID + (suppressed ? "-sheet" : "")) { await load() }
+    }
+
+    private func load() async {
+        status = try? await APIClient.shared.fetchConnectors().first { $0.id == connectorId }
+    }
+}
