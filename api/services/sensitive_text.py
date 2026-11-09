@@ -371,7 +371,11 @@ _VENDOR_RES: tuple[re.Pattern[str], ...] = tuple(re.compile(p) for p in (
 _PEM_RE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----\s*[A-Za-z0-9+/=\s]{64,}?-----END [A-Z ]*PRIVATE KEY-----")
 _URL_CRED_RE = re.compile(
     r"\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|rediss|amqps?|ftp|sftp|ssh|smb|https?)"
-    r"://[^\s:/@]*:(?P<value>[^\s:/@]{2,})@[^\s/]+", re.IGNORECASE)
+    r"://[^\s:/@]*:(?P<value>[^\s:/@]{2,})@(?P<host>[^\s/]+)", re.IGNORECASE)
+#: A host that is only a stand-in ("postgres://admin:pw@…", "@<host>", "@HOST"): a connection string written as an
+#: example, in a brief or a bug report, names no server and holds no credential.
+_PLACEHOLDER_HOST_RE = re.compile(r"^(?:…|\.{2,}|<[^>]*>|\{[^}]*\}|\[[^\]]*\]|\$\{?\w+\}?|host(?:name)?|example(?:\.\w+)?)[.,;:!?)\]]*$",
+                                  re.IGNORECASE)
 #: A database's own name doubling as its dev password: every local connection string in every README.
 _URL_DEFAULTS = frozenset({"postgres", "postgresql", "mysql", "root", "redis", "mongo", "mongodb", "guest", "rabbitmq",
                            "localhost", "pass", "pwd", "user"})
@@ -408,6 +412,8 @@ def _keys(line: str, base: int, ctx: Context) -> Iterable[Hit]:
     for m in _URL_CRED_RE.finditer(line):
         value = m.group("value")
         if value.casefold() in _URL_DEFAULTS or (value.isdigit() and len(value) <= 5):     # a default, or a port
+            continue
+        if _PLACEHOLDER_HOST_RE.match(re.sub(r":\d*$", "", m.group("host"))):
             continue
         if not _CODE_CHARS_RE.search(value) and not episode_scrub.placeholder_value(value) and value.casefold() not in _CODE_VALUE:
             yield Hit(KEY, base + m.start("value"), base + m.end("value"))

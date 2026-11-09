@@ -575,3 +575,23 @@ def test_a_late_read_of_an_old_conversation_does_not_bump_but_a_later_saying_doe
     assert result["bumped"] == 1
     assert opts["a"]["last_referenced"] == "2026-03-02"            # the late read did not make it fresh
     assert opts["b"]["last_referenced"] == "2026-05-01"            # a later re-saying did
+
+
+# --------------------------------------------------------------------------- bank-inbox: one wording on every door
+
+def test_a_stored_generic_conflict_has_no_predicate_slug_on_any_door():
+    stored = "Which is true about Alpha Project (value-of-team-size)?"
+    spoken = "Which is right for Alpha Project's team size: 6 or 10?"
+    assert inbox_wording.without_slug(stored, spoken) == spoken
+    body = "Conflicting beliefs about Alpha Project (value-of-team-size): '6' vs '10'."
+    assert inbox_wording.without_slug(body) == "Conflicting beliefs about Alpha Project's team size: '6' vs '10'."
+    assert inbox_wording.without_slug("Is Alpha your lead or your peer?") == "Is Alpha your lead or your peer?"
+
+
+def test_a_pair_where_one_page_lists_the_others_name_is_a_proposal_to_join_not_a_question():
+    fm = {"kind": "merge_suggestion", "entity_id": "alpha-tool", "entity_name": "Alpha Tool",
+          "merge_target_hint": "alpha"}
+    said = inbox_wording.spoken(fm, TODAY, page_fm={"type": "tool", "aliases": []},
+                                other_fm={"type": "tool", "name": "Alpha", "aliases": ["alpha tool"]})
+    assert said.question.startswith("Join Alpha Tool and Alpha")
+    assert "nothing is joined until you do" in said.reason

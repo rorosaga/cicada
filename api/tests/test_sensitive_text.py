@@ -256,3 +256,9 @@ def test_by_value_a_closing_bang_is_found_with_or_without_it_and_only_for_a_mixe
     assert st.holds("at Cocodrilo today", "Cocodrilo!") is False
     assert st.holds("code 48210957 today", "48210957!") is False
     assert st.holds("Zanate2-Xq7!", "Zanate2-Xq7") is True
+
+
+def test_a_connection_string_written_as_an_example_holds_no_credential():
+    assert st.find("user: the bug: postgres://admin:pw@… passes the scrub") == []
+    assert st.find("user: postgres://admin:Kp92mQzxL@<host>:5432/main") == []
+    assert st.find("user: postgres://admin:Kp92mQzxL@db.internal:5432/main")      # a real host still holds

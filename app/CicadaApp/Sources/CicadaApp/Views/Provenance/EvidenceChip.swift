@@ -139,6 +139,9 @@ struct EvidencePreview: View {
     }
 
     @State private var phase: Phase = .loading
+    /// The conversation's header when the card's `/provenance` rows did not carry it (a page cites more than the
+    /// rows it lists): fetched once for a note with no quote, so the hover still says which conversation.
+    @State private var fetched: EvidenceDocMeta?
 
     private static let context = 240
 
@@ -198,7 +201,7 @@ struct EvidencePreview: View {
 
     private var headerLine: String {
         var parts = [speakerLine]
-        if let title = meta?.title, !title.isEmpty { parts.append(title) }
+        if let title = (meta ?? fetched)?.title, !title.isEmpty { parts.append(title) }
         if let day = ReaderTime.day(timestamp: nil, episode: model.episode, withYear: false) { parts.append(day) }
         return parts.joined(separator: " · ")
     }
@@ -226,11 +229,19 @@ struct EvidencePreview: View {
         }
     }
 
+    private func fetchHeader() async {
+        guard meta == nil, let cache else { return }
+        if case let .loaded(doc) = await cache.document(episode: model.episode, focus: .none), !doc.title.isEmpty {
+            fetched = EvidenceDocMeta(title: doc.title, harness: doc.harness, origin: doc.origin)
+        }
+    }
+
     private func load() async {
         switch model.source {
         case let .stored(ev):
             guard ev.isSpan else {
                 phase = .note(Copy.Provenance.inferred)
+                await fetchHeader()
                 return
             }
             guard let cache else { return }
@@ -257,6 +268,7 @@ struct EvidencePreview: View {
             case let .loaded(doc):
                 guard let range = doc.focus?.range else {
                     phase = .note(Copy.Provenance.previewNotFound)
+                    if meta == nil, !doc.title.isEmpty { fetched = EvidenceDocMeta(title: doc.title, harness: doc.harness, origin: doc.origin) }
                     return
                 }
                 let parts = ScalarText(doc.text).around(range.lowerBound, range.upperBound, radius: Self.context)
