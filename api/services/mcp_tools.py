@@ -2420,14 +2420,14 @@ def _recall(ctx: ToolContext, query: str) -> str:
     if ctx.raw_excerpts:
         ep_lines = ["**Related conversation excerpts:**"]
         quoted: set[str] = set()
+        quoted_heads: set[str] = set()   # conversations whose id, label and day an excerpt line already gave
         # 2026-11-06: the turn that says it comes first (Ask's search leg, `_turn_excerpts`), then the fused passages.
         turns_shown: dict[str, list[str]] = {}
         for excerpt in _turn_excerpts(memory_path, query):
             who = episode_actor.actor_for(memory_path, excerpt.episode)
             text = " ".join(excerpt.text.split())
             turns_shown.setdefault(excerpt.episode, []).append(text)
-            ep_lines.append(f"- [{excerpt.episode}]{_unread_label(memory_path, excerpt.episode)}"
-                            + (f" with {who}:" if who else "") + f" {_speaker_word(excerpt)}: {text}")
+            ep_lines.append(_excerpt_head(memory_path, excerpt.episode, who, quoted_heads) + f" {_speaker_word(excerpt)}: {text}")
         episode_hits = _fuse_episode_hits(_leann_search_episodes(memory_path, query, top_k=3),
                                           _lexical_search_episodes(memory_path, query, top_k=3), top_k=3)
         for ep in episode_hits:
@@ -2445,8 +2445,7 @@ def _recall(ctx: ToolContext, query: str) -> str:
                 continue   # ROR-133: the turn above already said it
             # 2026-10-27: who the person was talking to, from the episode's own fields (`episode_actor`).
             who = episode_actor.actor_for(memory_path, ep_id)
-            ep_lines.append(f"- [{ep_id}]{_unread_label(memory_path, ep_id)}" + (f" with {who}:" if who else "")
-                            + f" {snippet}")
+            ep_lines.append(_excerpt_head(memory_path, ep_id, who, quoted_heads) + f" {snippet}")
         if len(ep_lines) > 1:
             if ctx.can("cicada_sources") and not ctx.is_cli:
                 ep_lines.append('_Read one whole with `cicada_sources(entity_id="<episode id>")`._')
@@ -2691,7 +2690,7 @@ def _hints_block(
 def _render_hints(payload: dict | None) -> str:
     if payload is None:
         return ""
-    return "```cicada-hints\n" + json.dumps(payload, indent=2) + "\n```"
+    return "```cicada-hints\n" + json.dumps(payload, separators=(",", ":")) + "\n```"
 
 
 def _hints_payload(
@@ -5275,6 +5274,16 @@ def unread_matches(memory_path: Path, query: str, limit: int) -> list[str]:
         if ep and ep not in ids:
             ids.append(ep)
     return ids
+
+
+def _excerpt_head(memory_path: Path, episode_id: str, who: str | None, shown: set[str]) -> str:
+    """The head of one excerpt line. A conversation's first line gives its id, who was on the other side and whether
+    Sleep has read it; its later lines give the id alone (ROR-100: the label repeated on every line was a quarter of
+    the excerpts' tokens, and says nothing a reader of the first line lacks)."""
+    if episode_id in shown:
+        return f"- [{episode_id}]"
+    shown.add(episode_id)
+    return f"- [{episode_id}]{_unread_label(memory_path, episode_id)}" + (f" with {who}:" if who else "")
 
 
 def _unread_label(memory_path: Path, episode_id: str) -> str:

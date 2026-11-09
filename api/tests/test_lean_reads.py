@@ -358,3 +358,24 @@ def test_a_page_the_query_names_exactly_survives_the_floor_and_the_cap(tmp_path)
         shown = [h["entity_id"] for h in mcp_tools._above_floor(merged, semantic, keyword, claims, named=named)]
         assert "zeta-tool" in shown and len(shown) == mcp_tools.RECALL_PAGES_SHOWN, query
     assert mcp_tools._named_hits(memory / "entities", "zetas", merged) == set()   # never inside a longer word
+
+
+def test_saved_link_shows_its_address_without_the_tracking_a_share_added():
+    # ROR-100: a click id alone is ~40 tokens a line; the page's own query (a video id) stays.
+    from api.services import saved_lookup
+
+    assert saved_lookup.shown_url("https://example.com/p/a-post?fbclid=AbC123&utm_source=x&ref=zz") == "https://example.com/p/a-post"
+    assert saved_lookup.shown_url("https://example.com/watch?v=abc123&si=track") == "https://example.com/watch?v=abc123"
+    assert saved_lookup.shown_url("https://example.com/plain") == "https://example.com/plain"
+
+
+def test_an_excerpt_conversation_gives_its_label_once():
+    from pathlib import Path
+
+    from api.services import mcp_tools
+
+    shown: set[str] = set()
+    first = mcp_tools._excerpt_head(Path("/nonexistent"), "ep_2026-01-01_001", "a Claude Code session", shown)
+    again = mcp_tools._excerpt_head(Path("/nonexistent"), "ep_2026-01-01_001", "a Claude Code session", shown)
+    assert first.startswith("- [ep_2026-01-01_001]") and first.endswith("with a Claude Code session:")
+    assert again == "- [ep_2026-01-01_001]"
