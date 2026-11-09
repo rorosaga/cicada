@@ -1438,7 +1438,7 @@ LoCoMo with nothing slept was not re-graded.
 
 **Ask reads a wider window, on every question (G148, 2026-11-06).** A count needs every conversation holding one, and the window
 was built for one fact: LongMemEval_S multi-session answered 5 of 20. `window_limits` gives every question 8 conversations, 12 lines
-and 6,000 characters instead of 4, 6 and 3,000 (`SEARCH_*`). No shape decides it, since the shapes are word lists. `person_first`: an
+and 6,000 characters instead of 4, 6 and 3,000 (`SEARCH_*`). **2026-11-09 (beat-control):** 12 conversations, 24 lines and 12,000 characters, and the search model ranks every retrieved page's items on every question (`Searched.similar` is no longer limited to lists, inference, advice or another language): slept LoCoMo 156 → 163 of 200 (12 gained, 5 lost, p = .14) at 11,688 tokens a question; LongMemEval_S 80 → 79; `docs/research/2026-11-09-why-full-context-wins-on-locomo.md`. No shape decides it, since the shapes are word lists. `person_first`: an
 agent's turn only fills what the people's turns leave, by a turn's role. Nothing slept, haiku, 100 questions, one run each:
 
 | Window | Right | Multi-session of 20 | Tokens per question | Per right answer | Prompt chars p50 |

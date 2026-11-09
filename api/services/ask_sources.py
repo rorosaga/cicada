@@ -395,9 +395,9 @@ ENUM_EXCERPT_CHARS = 300
 ENUM_CHARS = 3600
 #: What Ask reads of the search leg, for every question in every language (2026-11-06, G148): no shape decides it, since the
 #: shapes are word lists. Twice as much as one fact takes; measured in `mcp.md`. A caller with a budget of its own (recall) passes its own.
-ASK_WINDOW_EPISODES = 8
-ASK_WINDOW_EXCERPTS = 12
-ASK_WINDOW_CHARS = 6_000
+ASK_WINDOW_EPISODES = 12
+ASK_WINDOW_EXCERPTS = 24
+ASK_WINDOW_CHARS = 12_000
 #: A count or a list about one speaker ("how many … have I …", "what books has <name> read"): another speaker's turn
 #: counts this share of its words' weight — the other side of a chat repeats the words ("did you enjoy the wedding?")
 #: but never did the thing.
@@ -1744,8 +1744,7 @@ def _search_words(memory_path: Path, question: str, *, terms: set[str] | None = 
                                                                        if ep not in first}
     advice = question_intent.asks_advice(indexer, question)
     similar = None
-    if indexer is not None and (shape == SHAPE_ENUMERATE or meaning or asks_inference(question)
-                                or asks_implied(question) or advice):
+    if indexer is not None:
         similar = _similarity(indexer, question, MEANING_TEXTS if meaning else SIMILAR_TEXTS)
     by = ({"meaning": meaning, "adds": not meaning, "passages": passages, "record_lang": record_lang,
            "advice": advice, "turn_similar": _similarity(indexer, _without(question, common), MEANING_TURNS)

@@ -9,6 +9,7 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 
 | ID | Feature | Status | PR | Updated |
 |---|---|---|---|---|
+| [G148](memory-evolution.md#g148) | Ask: why the whole conversation beats it on LoCoMo (14 of 20 losses are facts in the bank that the prompt did not carry), a wider window and every page's items ranked by meaning: slept LoCoMo 156 → 163 of 200, LongMemEval_S 80 → 79 | PR open | branch `perf/beat-control` | 2026-11-09 |
 | [G148](memory-evolution.md#g148) | Ask answers a request for help and keeps the record strict, the model deciding which in any language, no detector: PersonaMem-v2 18 → 45 of 90, translated 10 → 42 of 120, LongMemEval_S 76 → 80, wrong person 15 → 15, slept LoCoMo 159 → 159 | PR open | branch `catchup/ask-taste` | 2026-11-07 |
 | [G148](memory-evolution.md#g148) | Benchmark: PersonalizationV4 and PersonaMem-v2 pilots, a no-model leak check, grading against the reference answer, and paths where an agent answers with its own knowledge plus one door's words | Merged | #740 | 2026-11-07 |
 | [G148](memory-evolution.md#g148) | Ask searches by meaning in every language, filling only the room the prompt has: unslept LoCoMo 123 → 138 of 200, slept 159 → 159, the wrong person's memory 15 → 15. Recall stays on the words. | PR #738 | #738 | 2026-11-07 |

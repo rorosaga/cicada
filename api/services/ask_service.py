@@ -927,7 +927,6 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
                 _ground(grounds, pointed)
                 if weight:
                     found += pointed
-        similar = similar if (meaning or _asked_page(ent, query, asked)) else None
         prose, pointed = _page_lines(ent, terms, int(_PROSE_CHARS * scale), similar, memory_path)
         _ground(grounds, pointed)
         found += [p for p in pointed if p.weight > 0]
