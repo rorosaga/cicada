@@ -456,6 +456,8 @@ struct InboxItem: Identifiable, Codable {
     /// and a fold's two names. Derived by the server at read; optional, so an older server or cache still decodes.
     var subject: InboxSubject? = nil
     var fold: InboxFold? = nil
+    /// A merge question's other page, so the chat can say both pages side by side (`CatchupContext`).
+    var otherSubject: InboxSubject? = nil
     /// G205 — an `agent_request`'s agent, site, reason and notification words. Lenient; nil on every other kind.
     var request: AgentRequestInfo? = nil
     /// G61 "Where to check" — the links waiting (`asks: "sources"`), and whether this is the ONE grouped review.
@@ -492,7 +494,7 @@ struct InboxItem: Identifiable, Codable {
         case extractorConfidence, extractorModel, recommendedKey, informational, checks
         case subject, fold, request, rows, review, spokenQuestion, spokenReason, sensitiveRows, replaced
         case chain, chainQuestion, chainReason, chainPairs
-        case entityDisplayName, mergeTargetDisplayName, sameTitle, orderIndex
+        case entityDisplayName, mergeTargetDisplayName, sameTitle, orderIndex, otherSubject
     }
 
     init(from decoder: Decoder) throws {
@@ -563,6 +565,7 @@ struct InboxItem: Identifiable, Codable {
         mergeTargetDisplayName = (try? c.decodeIfPresent(String.self, forKey: .mergeTargetDisplayName)) ?? nil
         sameTitle = (try? c.decodeIfPresent([String].self, forKey: .sameTitle)) ?? nil
         orderIndex = (try? c.decodeIfPresent(Int.self, forKey: .orderIndex)) ?? nil
+        otherSubject = (try? c.decodeIfPresent(InboxSubject.self, forKey: .otherSubject)) ?? nil
     }
 
     /// G61 — the one grouped "Confirm N links" review, drawn as its own card above the questions.

@@ -16,7 +16,7 @@ from api.services import decay_policy
 from api.services.inbox_generator import fold_claims
 
 #: The kinds whose card carries a ``subject`` block.
-SUBJECT_KINDS = frozenset({"decay", "normalization"})
+SUBJECT_KINDS = frozenset({"decay", "normalization", "merge_suggestion"})
 
 #: A summary or an example sentence longer than this is cut on a word boundary.
 CLIP_CHARS = 200

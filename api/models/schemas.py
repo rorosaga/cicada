@@ -3098,6 +3098,8 @@ class InboxItem(CamelModel):
     # The quick review (owner 2026-10-19): decay and normalization only, derived at read; additive (an older app
     # build ignores both).
     subject: Optional[InboxSubject] = None
+    # A merge question's other page, so the catch-up chat can say both pages side by side (derived at read, never stored).
+    other_subject: Optional[InboxSubject] = None
     fold: Optional[InboxFold] = None
     # G205: set on an ``agent_request`` item only.
     request: Optional[AgentRequestInfo] = None

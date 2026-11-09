@@ -1,5 +1,5 @@
-# The backend's crucial tier (docs/goals/working-method.md, "Test tiers") and its whole suite, on every push to dev and
-# every PR into it, so a background agent's PR shows red before the coordinator reviews it. The crucial job is the same
+# The backend's crucial tier (docs/goals/working-method.md, "Test tiers") on every PR into dev and every push to it; the
+# whole suite in six shards on a push to dev only. The crucial job is the same
 # command as `make test-crucial-backend`: `api/tests/crucial.txt` names the tests that guard CLAUDE.md's rails, and it
 # answers first. On a PR, the app's Swift lint tests run too, on a hosted macOS runner (`swift-lint`); the rest of the Swift tier needs the owner's Mac.
 # Cost: the repo is public, so standard GitHub-hosted runners, macOS included, are free.
@@ -42,6 +42,10 @@ jobs:
   # The whole backend suite, split so no shard takes long: under 9 minutes, about what a PR waits for swift-lint. A bug
   # two merges make together shows on the second PR or on the push to dev. The default run leaves out the `bench` budgets.
   backend-shard:
+    # The whole suite runs on a push to dev only (owner 2026-11-09: "cut down on useless tests … simple things take so
+    # long now"). A PR waits on the crucial tier and the Swift lint (~2-4 min), which hold the rails and the route
+    # inventories; a dev push that goes red is fixed by the next PR.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:

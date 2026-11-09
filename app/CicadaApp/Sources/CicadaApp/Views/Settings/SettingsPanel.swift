@@ -73,9 +73,13 @@ struct SettingsPanel: View {
                     sidebar
                         .frame(width: CicadaTheme.scaled(SettingsPanelLayout.sidebarWidth))
                         .frame(maxHeight: .infinity)
+                        .layoutPriority(1)
                         .background(CicadaTheme.bgPane)
                     detail
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
+                        // Item 3 (app-fixes-1109): a page that cannot shrink further is cut at its own edge, never spilled
+                        // over the sidebar or past the panel.
+                        .clipped()
                         .columnEdge(.leading)
                 }
                 .frame(width: size.width, height: size.height)

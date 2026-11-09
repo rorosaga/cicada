@@ -118,7 +118,7 @@ Sleep cycle (Claude plan, haiku), the CLI and a second copy of the app (a per-ru
 feature with its recipe. `--checkout <path>` runs another worktree's branch. Use it instead of driving the person's
 app or backend.
 
-**The whole suite on CI (2026-11-06).** A merge of two PRs put an `UnboundLocalError` on `dev` that 27 tests could see, and
+**PRs wait on the quick checks only (owner 2026-11-09):** "cut down on useless tests … simple things take so long now". `backend-shard` runs on a push to `dev` only; a PR waits on the crucial tier (which holds the route inventories and the rails) and `swift-lint`. A red `dev` push is fixed by the next PR. **The whole suite on CI (2026-11-06).** A merge of two PRs put an `UnboundLocalError` on `dev` that 27 tests could see, and
 no CI job ran any of them. `backend-shard` now runs every backend test file except the `bench` budgets, on every push and PR,
 split by `api/tests/_ci_shard.py`. The shard split is by file size, a cheap guess at time. Selecting tests by what a PR changed
 was tried and dropped: on the last 40 merges it ran a median of ~80 of 830 files and still couldn't see two PRs' interaction;

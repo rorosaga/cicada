@@ -402,6 +402,8 @@ struct NeedsYouSection: View {
     var answerIsPrimary = true
     let openPage: (String) -> Void
     let startCatchup: ([String]) -> Void
+    /// Item 1 — *Answer* opens the chat on the lead question (the lead first, then the rest of the queue).
+    var startAnswer: ([String]) -> Void = { _ in }
 
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
@@ -417,8 +419,8 @@ struct NeedsYouSection: View {
                              total: figures.total, catchUp: figures.catchUp, pages: figures.catchUpPages,
                              answerIsPrimary: answerIsPrimary, openPage: openPage, startCatchup: startCatchup,
                              open: {
-                                 router.pendingInboxItem = lead.id
-                                 selectedTab = .inbox
+                                 // The lead first, then the rest of what Catch me up would ask.
+                                 startAnswer([lead.id] + figures.catchUp.filter { $0 != lead.id })
                              })
         } else {
             // Only the list's own kinds wait (an agent's request, the link review): the list says what they are.

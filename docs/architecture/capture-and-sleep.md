@@ -1632,7 +1632,8 @@ the app's and the agent door's rename). A removed alias (`aliases_removed`) is n
 | RSS, Substack feeds (`feed_registry.note_feed_title`) | the title filled once and never moved | the channel's newest title replaces it; the old one stays in `aka` |
 | Notes, Calendar, Reminders, Linear, Notion, chats, transcript folders (episodes) | the title followed only when the body changed | `episode_staging` also shows a changed title when no word moved: frontmatter only, not re-queued, nothing a revision |
 
-Not built: a project's name from its repository (the person's, ruling 56); Apple Books entries whose title is a file name.
+Not built: a project's name from its repository (the person's, ruling 56).
+**Apple Books file entries (app-fixes-1109):** a file the person added to Apple Books has no store metadata — its title is the file name (dashes or underscores, no spaces, cut at 32 characters by Apple, observed on one title) and its author the literal `UnknownAuthor`. `apple_books.clean_title` makes the name words, drops the extension and a final word cut at the limit (a title with spaces is left alone); `clean_author` makes Apple's placeholders no author. Both run where the record is built, so a re-sync rewrites the record and the page's title follows by ruling 69. With no author, ruling 71's exact lookup cannot match and is not guessed; the page says so in words (`bookNoAuthor`).
 
 #### Books: a scanned ISBN, Apple Books, a Goodreads export (G39, G233, 2026-11-04)
 

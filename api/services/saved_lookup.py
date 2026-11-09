@@ -234,12 +234,31 @@ def by_meaning(memory_path: Path, text: str, *, k: int = 2, exclude: frozenset[s
     return out
 
 
+def shown_url(url: str) -> str:
+    """The link as an agent reads it: the page's own address without the tracking a share added (``fbclid``, ``utm_*``,
+    ``ref``…; the set the save path strips, ``media_ingestor``). Display only — the stored link is untouched. A
+    click id alone is 40 tokens a line (ROR-100); a query that is the page's own (a video id) stays."""
+    from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+    from api.services.media_ingestor import _TRACKING_PARAMS
+
+    try:
+        parts = urlsplit(url)
+        if not parts.query:
+            return url
+        kept = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+                if k.lower() not in _TRACKING_PARAMS and not k.lower().startswith(("utm_", "_aem_"))]
+        return urlunsplit(parts._replace(query=urlencode(kept)))
+    except ValueError:
+        return url
+
+
 def line(hit: Hit) -> str:
     """One hit as an agent reads it: what it is, where it came from, how to look further."""
     bits = ", ".join(b for b in (hit.site, f"saved {hit.day}" if hit.day else None) if b)
     head = f"- {hit.title}" + (f" ({bits})" if bits else "")
     if hit.url:
-        head += f" {hit.url}"
+        head += f" {shown_url(hit.url)}"
     head += f" — `{hit.page or hit.episode}`"
     if hit.about:
         about = hit.about if len(hit.about) <= LINE_ABOUT_CHARS else hit.about[:LINE_ABOUT_CHARS - 1].rstrip() + "…"
@@ -247,4 +266,4 @@ def line(hit: Hit) -> str:
     return head
 
 
-__all__ = ["Hit", "by_meaning", "find", "line", "page_hit", "subject_stems"]
+__all__ = ["Hit", "by_meaning", "find", "line", "page_hit", "shown_url", "subject_stems"]

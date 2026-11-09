@@ -28,6 +28,11 @@ def resolve_range(range_: str, today: date) -> date | None:
 
 
 async def _commit_days(memory_path: Path) -> list[tuple[str, list[str]]]:
+    """Kept per git head (:func:`git_service.head_memo`): the walk is the whole history, and four reads shared it."""
+    return await git_service.head_memo("commit_days", memory_path, lambda: _walk_commit_days(memory_path))
+
+
+async def _walk_commit_days(memory_path: Path) -> list[tuple[str, list[str]]]:
     """``(utc_day, authors)`` for every commit in the memory repo.
 
     ``authors`` is the parsed ``Cicada-Author`` trailer list — EMPTY for a
