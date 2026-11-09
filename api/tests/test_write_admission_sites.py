@@ -616,6 +616,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "PUT /sources/connectors/{connector_id}/credentials": (OUTSIDE, None),
     "DELETE /sources/connectors/{connector_id}/credentials": (OUTSIDE, None),
     "POST /sources/connectors/{connector_id}/authorize": (OUTSIDE, None),
+    "PUT /sources/connectors/{connector_id}/scope": (OUTSIDE, None),
     "POST /sources/connectors/{connector_id}/sync": (INTAKE, None),
     "POST /maintenance/dedup-sweep": (PER_WRITE, "api.services.dedup_sweep._merge_and_commit"),
     "POST /maintenance/enrich-links": (PROBE, None),

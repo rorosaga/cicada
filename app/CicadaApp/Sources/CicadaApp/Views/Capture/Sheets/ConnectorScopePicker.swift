@@ -206,7 +206,7 @@ private struct ModeRow: View {
                 }
                 .frame(width: CicadaTheme.scaled(16), height: CicadaTheme.scaled(16))
                 Text(label)
-                    .font(CicadaTheme.font(size: 13, weight: .medium))
+                    .font(CicadaTheme.metaMediumFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                 Spacer(minLength: 0)
             }
@@ -230,7 +230,7 @@ private struct ItemRow: View {
         HStack(spacing: CicadaTheme.spacingSM) {
             Toggle(isOn: Binding(get: { isOn }, set: { _ in action() })) {
                 Text(item.title)
-                    .font(CicadaTheme.font(size: 13))
+                    .font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(1)
             }
