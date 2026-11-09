@@ -160,6 +160,8 @@ struct BookCoverThumb: View {
     var reservesSlot = true
     /// Space after the picture, only once it is drawn.
     var trailing: CGFloat = 0
+    /// The page's head asks ahead of the rows (`SourcePictureStore.image(priority:)`).
+    var priority = false
 
     @Environment(Store.self) private var store: Store?
     @State private var image: NSImage?
@@ -184,7 +186,7 @@ struct BookCoverThumb: View {
         .accessibilityHidden(true)
         .task(id: "\(store?.bank ?? "")|\(path ?? "")") {
             guard let path else { image = nil; return }
-            image = await SourcePictureStore.shared.image(path: path, bank: store?.bank ?? "")
+            image = await SourcePictureStore.shared.image(path: path, bank: store?.bank ?? "", priority: priority)
         }
     }
 }
@@ -198,7 +200,11 @@ struct BookPageHead: View {
     let cover: String?
     /// ROR-138: a list row draws its cover from `/entities/<id>/preview`, so the head asks the same place when the
     /// page itself named none (it draws nothing on a 404, `reservesSlot: false`).
-    private var coverPath: String { cover ?? "/entities/\(entityId)/preview" }
+    /// `open=1` — the page the person opened asks through its own slots, never behind the list rows' first fetches.
+    private var coverPath: String {
+        let path = cover ?? "/entities/\(entityId)/preview"
+        return path + (path.contains("?") ? "&" : "?") + "open=1"
+    }
     /// The page's markdown: its `## Summary` is the description the box under the head draws.
     var markdown: String = ""
     let changed: () -> Void
@@ -218,7 +224,7 @@ struct BookPageHead: View {
 
     private var head: some View {
         HStack(alignment: .top, spacing: 0) {
-            BookCoverThumb(path: coverPath, points: 168, reservesSlot: false, trailing: CicadaTheme.spacingLG)
+            BookCoverThumb(path: coverPath, points: 168, reservesSlot: false, trailing: CicadaTheme.spacingLG, priority: true)
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 if let subtitle = card?.subtitle {
                     Text(subtitle).font(CicadaTheme.detailBodyFont).foregroundStyle(CicadaTheme.textSecondary)

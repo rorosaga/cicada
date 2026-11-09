@@ -139,3 +139,15 @@ def test_get_inbox_carries_the_review_context_in_camel_case_and_writes_nothing(m
     assert by_id["inbox-002"]["fold"]["canonical"] == "uses"
     assert by_id["inbox-003"]["subject"] is None
     assert before == after
+
+
+def test_a_merge_card_carries_both_pages_leads_for_the_chat(memory):
+    """app-fixes-1109: Answer opens the chat on a possible duplicate and says what each page says, from the record."""
+    markdown_parser.write(memory / "inbox" / "inbox-004.md", {
+        "kind": "merge_suggestion", "required_input": "choice", "status": "pending", "priority": 0.5,
+        "entity_id": "beta-library", "entity_name": "Beta Library", "merge_target_hint": "gamma-tool",
+        "title": "Are these the same?", "created_date": "2026-10-01", "options": ["Same", "Different"]}, "ctx")
+    bank_index.invalidate()
+    item = {i.id: i for i in inbox_service.load_inbox(memory)}["inbox-004"]
+    assert item.subject is not None and item.subject.summary == "A synthetic library."
+    assert item.other_subject is not None and item.other_subject.summary == "Another."

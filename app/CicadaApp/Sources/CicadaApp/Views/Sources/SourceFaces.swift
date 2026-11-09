@@ -106,7 +106,9 @@ actor SourcePictureStore {
         misses = misses.filter { !$0.contains(marker) }
     }
 
-    func image(path: String, bank: String) async -> NSImage? {
+    /// `priority`: the page the person opened (a book's head) skips the line the list rows wait in, and a miss is not
+    /// remembered for the session (a cover still on its way is asked again on the next open).
+    func image(path: String, bank: String, priority: Bool = false) async -> NSImage? {
         let started = generation
         let key = "\(bank)|\(path)"
         if let hit = images[key] { return hit }
@@ -114,8 +116,8 @@ actor SourcePictureStore {
         if let running = inFlight[key] { return await running.value }
         let fetch = self.fetch
         let task = Task<NSImage?, Never> {
-            await self.acquire()
-            defer { self.release() }
+            if !priority { await self.acquire() }
+            defer { if !priority { self.release() } }
             if Task.isCancelled { return nil }
             do {
                 guard let data = try await fetch(path) else { return nil }
@@ -128,7 +130,7 @@ actor SourcePictureStore {
         let answer = await task.value
         inFlight[key] = nil
         guard started == generation else { return nil }
-        if let answer { images[key] = answer } else { misses.insert(key) }
+        if let answer { images[key] = answer } else if !priority { misses.insert(key) }
         return answer
     }
 }

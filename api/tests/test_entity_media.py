@@ -162,3 +162,14 @@ def test_media_block_absent_when_type_media_but_no_block(tmp_path, monkeypatch):
     resp = client.get("/entities/media-orphan")
     assert resp.status_code == 200, resp.text
     assert resp.json()["media"] is None
+
+
+def test_book_with_no_link_still_gets_a_media_block(tmp_path, monkeypatch):
+    """A book added with no ISBN has no catalogue link; without the block the app drew no head, cover or description."""
+    client, memory = _make_client(tmp_path, monkeypatch)
+    _write_media_entity(memory, "media-no-isbn-book", {"url": "", "media_type": "book", "kind": "book"})
+    media = client.get("/entities/media-no-isbn-book").json()["media"]
+    assert media is not None and media["kind"] == "book" and media["url"] == ""
+    # the same shape without the book marker stays dropped
+    _write_media_entity(memory, "media-empty-link", {"url": "", "media_type": "article"})
+    assert client.get("/entities/media-empty-link").json()["media"] is None
