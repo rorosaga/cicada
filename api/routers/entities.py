@@ -18,7 +18,9 @@ from api.models.schemas import (
     EntityContextResponse,
     EntityBands,
     EntityDecay,
+    ClaimModel,
     EntityDecayUpdate,
+    FactKeepRequest,
     EntityDiff,
     EntityHistoryEntry,
     EntityMedia,
@@ -773,6 +775,28 @@ async def update_entity_decay(
         _rewrite_page_and_commit, settings.memory_path, entity_id, lambda fm: fm.update(fields), message)
 
     return await get_entity(entity_id, settings=settings)
+
+
+@router.post("/entities/{entity_id}/claims/{claim_id}/keep", response_model=ClaimModel)
+@_admits(PAGE_BUSY)
+async def keep_fact(
+    entity_id: str,
+    claim_id: str,
+    request: FactKeepRequest,
+    settings: Settings = Depends(get_settings),
+):
+    """"Keep this fact" (ROR-129, owner 2026-11-06): mark ONE fact evergreen as the person's word (``keep`` true), or let
+    it fade again by its page's class (false — also the undo of an evergreen the extraction model proposed). A fact
+    has its own relevance apart from its page: a kept fact never fades or asks, never holds its page up, and a
+    retrieval never revives the page. Committed alone, ``Cicada-Author: user``, trigger ``user/companion_app``
+    (`fact_keep`). 404: no such page or open fact; 409 while Sleep holds the pages (G177)."""
+    from api.services import fact_keep, transclusion_resolver
+
+    try:
+        claim = await run_in_threadpool(fact_keep.set_keep, settings.memory_path, entity_id, claim_id, request.keep)
+    except fact_keep.FactNotFound as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return transclusion_resolver.claim_to_model(claim, turns=None)
 
 
 # --- Places (ruling 48 part 6; vision item 5 part B) -------------------------------------------------------------------

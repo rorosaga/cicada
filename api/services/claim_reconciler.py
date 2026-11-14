@@ -76,6 +76,8 @@ _HUMAN_ORIGINS = {"manual_edit", "clarification", "companion_app"}
 # `decayed_through` backfill migration: a future outage/paused-schedule gap
 # degrades gradually over several cycles instead of one cliff.
 MAX_DECAY_DAYS_PER_CYCLE = 7
+#: A fact on a page that never fades is charged once this many days are owed (ROR-129, git size measured).
+FACT_CHARGE_MIN_DAYS = 7
 
 
 # --------------------------------------------------------------------------- #
@@ -196,6 +198,14 @@ def _said(claim: Claim, untimed=frozenset()) -> str | None:
     return decay_policy.latest_said(_said_refs(claim), untimed=untimed)
 
 
+def _merge_fact_class(existing: Claim, incoming: Claim) -> None:
+    """ROR-129: the fact's own class follows the newest word, except that the person's (``class_by: user``) is never
+    replaced by a model's. A restatement carrying none leaves the stored class alone."""
+    if existing.class_by == "user" or not incoming.decay_class:
+        return
+    existing.decay_class, existing.class_by = incoming.decay_class, incoming.class_by or "model"
+
+
 def _reinforce(existing: Claim, incoming: Claim, *, today: str | None = None, untimed=frozenset()) -> None:
     """Reaffirmation/duplicate: bump confidence + merge episodes; no new claim.
 
@@ -215,6 +225,7 @@ def _reinforce(existing: Claim, incoming: Claim, *, today: str | None = None, un
       (``_place_on_time``), never lowered — a restatement from long ago leaves it where its age puts it;
     * a memory export entry alone, or a conversation the claim already credits, gains the source only.
     """
+    _merge_fact_class(existing, incoming)
     if today is None:
         existing.confidence = max(existing.confidence, incoming.confidence)
         _merge_episodes(existing, incoming)
@@ -1317,7 +1328,7 @@ def _place_on_time(c: Claim, subject: str, pending, settings, decay_class_fn, su
     claim's watermark plus at most one pass of live silence. Only raises. A claim the restatement leaves below the
     question line, heard late, is ``faded_by_age`` — never asked; one it takes back above the line is asked like any
     claim."""
-    multiplier = max(0.0, decay_policy.claim_multiplier(decay_class_fn(subject)))
+    multiplier = max(0.0, fact_multiplier(c, subject, decay_class_fn, subject_fn))
     alpha, floor = decay_policy.spacing_params(settings)
     rate = claim_rate(c, subject_fn(subject), multiplier, untimed=untimed, alpha=alpha, floor=floor)
     nudge = float(getattr(settings, "decay_nudge_threshold", 0.4) or 0.4)
@@ -1347,7 +1358,7 @@ def _lift_to_repeat_floor(c: Claim, subject: str, settings, decay_class_fn, subj
     was settled — when that is higher. Only raises."""
     if decay_policy.conversations(_said_refs(c), untimed=untimed) < 2:
         return
-    multiplier = decay_policy.claim_multiplier(decay_class_fn(subject))
+    multiplier = fact_multiplier(c, subject, decay_class_fn, subject_fn)
     if multiplier <= 0:
         return
     alpha, floor = decay_policy.spacing_params(settings)
@@ -1375,6 +1386,13 @@ def claim_rate(c: Claim, about, multiplier: float, *, untimed=frozenset(),
         decay_policy.claim_mention_weeks(c, about.kept_on, untimed=untimed), alpha=alpha, floor=floor
     )
     return base * factor * multiplier * about.type_multiplier * spacing
+
+
+def fact_multiplier(c: Claim, subject: str, decay_class_fn, subject_fn) -> float:
+    """The class multiplier ONE FACT fades by (ROR-129): its own class when it has one, else its page's; an evergreen
+    page that is not media lends ``active``; a media page's facts never fade (`decay_policy.fact_class`)."""
+    about = subject_fn(subject)
+    return decay_policy.fact_multiplier(c.decay_class, c.class_by, decay_class_fn(subject), about.entity_type)
 
 
 def claim_silence(c: Claim, today: date, cap_days: int, *, untimed=frozenset()) -> decay_policy.Silence | None:
@@ -1410,17 +1428,27 @@ def _decay_claims(
         # silence their own conversations prove (last said -> the day Cicada read
         # it), never live silence — the clock starts today.
         cap = 0 if subject in referenced_subjects else MAX_DECAY_DAYS_PER_CYCLE
-        # One lookup per subject, not per claim.
-        multiplier = decay_policy.claim_multiplier(decay_class_fn(subject))
-        if multiplier <= 0:
-            continue  # evergreen subject: its claims are artifacts, they don't fade
         # G147: the subject's per-type pace (the person's choice, R-FD5) and its
         # "keep" weeks — read once per subject, like the class above.
         about = subject_fn(subject)
+        page_class = decay_class_fn(subject)
+        # ROR-129: a page that never fades (evergreen) still has facts that do, by their own class — but it never
+        # raises the page-level "No recent mentions" question: a long-term fact asks about itself (`still_questions`).
+        quiet_page = page_class is DecayClass.evergreen
         for c in claims:
             if not open_(c) or is_event(c):
                 # Closed claims are history; events are asked about (the G141
                 # follow-up), never faded (R-PJ12).
+                continue
+            multiplier = decay_policy.fact_multiplier(c.decay_class, c.class_by, page_class, about.entity_type)
+            if multiplier <= 0:
+                # Never fades (a kept or evergreen fact, a media page's fact). Its clock is never stamped with the day
+                # it was read: it stays at when it was said, so a fact the person later lets fade is charged its real age.
+                said = _said(c, untimed)
+                if said is not None:
+                    c.decayed_through = said
+                if getattr(c, "_placed", False):
+                    delattr(c, "_placed")
                 continue
             if getattr(c, "_placed", False):
                 delattr(c, "_placed")
@@ -1433,6 +1461,12 @@ def _decay_claims(
                 owed = decay_policy.Silence(0, 0, today_date)
             if cap == 0 and owed.days == 0:
                 continue  # read this pass, nothing proven: untouched, as before
+            if quiet_page and owed.proven_days == 0 and owed.live_days < FACT_CHARGE_MIN_DAYS:
+                # Git size (ROR-129, measured): a fact on a page that never fades is charged once a week, not nightly.
+                # Ruling 1 caps a pass's live silence at one week, so the total is the same; the bytes are not — a
+                # nightly pass rewrote every line of the owner's ledger (9.8 MB packed a quarter against 1.5 MB).
+                # The watermark stays where it was, so the days are owed, not lost.
+                continue
             rate = claim_rate(c, about, multiplier, untimed=untimed, alpha=alpha, floor=floor)
             if rate > 0 and owed.days > 0:
                 # One-offs fall freely; a claim restated across 2+ conversations floors where a page would
@@ -1454,7 +1488,7 @@ def _decay_claims(
                     # Decay never closes a claim and never touches a human
                     # claim's validity — it only lowers the retrieval weight
                     # + may nudge.
-                    if asks:
+                    if asks and not quiet_page:
                         nudges.append({
                             "id": subject,
                             "action": "decay_nudge",

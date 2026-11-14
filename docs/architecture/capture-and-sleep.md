@@ -3949,6 +3949,11 @@ constraining the prose; git is the safety net, the claims and the dated timeline
   5. Running it again continues: finished pages are already articles.
 
 ### Temporal decay
+**A fact fades by its own class (ruling 74, ROR-129):** the page's class is not the fact's (`storage.md`, "Decay classes").
+An evergreen page never fades, asks or archives, but `_decay_claims` charges each of its facts at the fact's multiplier
+(its own class, else `active`; a media page's never). It raises no page-level question; a fact the model judged long-term
+asks about itself after a year unsaid through `still_questions` (`long_term`). Stage 1 proposes the class per fact in any
+language (`fact_class`). A fact that never fades keeps its clock at when it was said; the read day is never stamped.
 Absence of mention IS a signal, and **how often something came up sets how fast its absence
 counts** (G147). **Age counts from when it was said** (owner ruling 2026-10-09, amending G170's "an import is not
 silence"). Silence is measured from `max(last_referenced, decayed_through)` in two parts (`decay_policy.silence`):

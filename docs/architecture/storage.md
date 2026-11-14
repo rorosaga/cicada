@@ -289,20 +289,35 @@ decaying classes; `evergreen` pins its rate to `0.0` unconditionally.
 
 | Class | Base entity rate/wk | Claim multiplier | Meaning |
 |---|---|---|---|
-| `evergreen` | 0.0 | 0.0 | Never fades. Artifacts (media/bookmarks) + anything the user pins. |
+| `evergreen` | 0.0 | 0.0 | Never fades — the *page*. Artifacts (media/bookmarks) + anything the user pins. Its facts fade by their own class, except on media (ruling 74). |
 | `durable` | 0.02 | 0.5 | Stable preferences, skills, long-lived concepts. |
 | `active` | 0.05 | 1.0 | Default for a belief about the user's life. |
 | `volatile` | 0.15 | 2.0 | Expected to change within weeks (role, status, current focus). |
 
-**Anti-pollution rail** (mirrors `PRODUCIBLE_ENTITY_TYPES`): Stage-1 may propose
+**Anti-pollution rail** (mirrors `PRODUCIBLE_ENTITY_TYPES`): for a *page*, Stage-1 may propose
 `durable|active|volatile` and **never `evergreen`** (`AGENT_PRODUCIBLE_DECAY_CLASSES`, enforced at
 extraction AND again in the create branch). Evergreen is reserved for ingest writers and the user,
 so an over-eager extractor can never stop the graph from archiving.
 
+**A fact has its own class (ruling 74, ROR-129).** `Claim.decay_class` (`evergreen|durable|active|volatile`, omitted when
+unset) and `Claim.class_by` (`model|user`). The extraction model proposes one per relationship and per value (`fact_class`,
+any language, no word list; `decay_policy.fact_class_proposal`) and **may say evergreen for a fact**; a restatement carrying
+a class replaces a model's, never a person's (`claim_reconciler._merge_fact_class`). One resolver, `decay_policy.fact_class`:
+a media page's facts never fade; otherwise the fact's own class, else its page's, and **an evergreen page that is not media
+lends `active`** (the page never fades; its facts do). A fact that never fades keeps its clock at when it was said (the read
+day is never stamped), so letting it fade later charges its real age. **"Keep this fact"** (`fact_keep.set_keep`,
+`POST /entities/{id}/claims/{claim_id}/keep`, `{keep: bool}`): evergreen as the person's word, confidence at least 0.6, one
+commit as `user`; `keep: false` undoes it (or a model's evergreen) and the model cannot propose it again. A kept fact never
+holds its page up. **Fading never closes a fact:** `ClaimModel.faded` (`claims.is_faded`, below 0.2, not evergreen, not an
+event) is the page's cue to dim it and fold it under "older"; `cicada_get_perspective` lists it last under "Older, faded".
+A page that never fades raises no page-level "No recent mentions" item; a fact on it is charged **weekly**, not nightly
+(`FACT_CHARGE_MIN_DAYS`, measured: 1.5 MB against 9.8 MB packed a quarter on a 8.7k-line ledger). The one-time reset by real
+age is `api/scripts/reset_fact_clocks.py` (`fact_clock_reset`; dry run by default; marks a page `fact_clocks_reset`).
+
 **Both engines honor it.** `conflict_resolver.resolve_and_prune` skips evergreen entities outright —
 no decay math, no nudge, never auto-archived, so a bookmark can't generate a "still interested?"
 question. `claim_reconciler._decay_claims` multiplies its per-epistemic × source_trust rate by the
-SUBJECT's class multiplier. Since G147 the class rate is the *base*: both engines multiply it by the
+fact's class multiplier (its own, else its SUBJECT's; see above). Since G147 the class rate is the *base*: both engines multiply it by the
 spacing factor and the per-type pace (see Temporal decay).
 
 ### Claims, evidence and provenance

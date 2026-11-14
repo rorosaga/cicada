@@ -49,8 +49,14 @@ def test_the_enums_are_the_rails():
 def test_no_schema_can_carry_a_forbidden_value():
     blob = json.dumps([engine_schemas.extraction_schema(strict=True),
                        engine_schemas.extraction_schema(strict=False)])
-    for word in ("evergreen", "deadline", "media"):
+    for word in ("deadline", "media"):
         assert f'"{word}"' not in blob
+    # A PAGE is never proposed evergreen (G66); a FACT may be (ROR-129, owner 2026-11-06), in `fact_class` alone.
+    for strict in (True, False):
+        schema = engine_schemas.extraction_schema(strict=strict)["properties"]
+        assert "evergreen" not in json.dumps(schema["entities"])
+        for part in ("relationships", "values"):
+            assert "evergreen" in schema[part]["items"]["properties"]["fact_class"]["enum"]
 
 
 def test_the_strict_extraction_shape_matches_the_live_verified_one():

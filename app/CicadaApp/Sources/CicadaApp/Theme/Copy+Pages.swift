@@ -45,6 +45,9 @@ extension Copy {
         static func citeSpoken(_ n: Int) -> String { "Source \(n)" }
         static let readingSource = "Reading where this came from…"
         static let sourceUnavailable = "Couldn't read this source."
+        /// ROR-129: the person's word that one fact stays, whatever its page does.
+        static let keepFact = "Keep this fact"
+        static let factKept = "Kept"
         static let sourceMoved = "This line changed since the page was drawn. Its sources are being read again."
         static let fromConversation = "From this conversation"
         static let lookedUp = "Looked up"
