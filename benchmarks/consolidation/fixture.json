@@ -287,6 +287,17 @@
     "Sounds like you're becoming the go-to reviewer. Is that a good thing?",
     "Mostly, but I need to block time for my own work."
    ]
+  },
+  {
+   "id": "c25",
+   "phase": 2,
+   "day": -4,
+   "title": "Lucía changes course",
+   "turns": [
+    "Lucía changed her mind about her master's. She is doing urban design now, not architecture.",
+    "That's a big change. Does she know where she will study it?",
+    "Same university in Valencia, they offer both."
+   ]
   }
  ],
  "gold": {
@@ -699,7 +710,8 @@
       "data engineer at",
       "role"
      ]
-    ]
+    ],
+    "on_owner": true
    },
    {
     "id": "U2",
@@ -775,6 +787,24 @@
       "brandt"
      ],
      "product manager"
+    ]
+   },
+   {
+    "id": "U7",
+    "why": "what someone else is going to study changes",
+    "current": [
+     [
+      "lucía",
+      "lucia"
+     ],
+     "urban design"
+    ],
+    "stale": [
+     [
+      "lucía",
+      "lucia"
+     ],
+     "architecture"
     ]
    }
   ],
@@ -906,8 +936,7 @@
    ],
    "not_expected": [
     "pell",
-    "duarte",
-    "priya"
+    "duarte"
    ]
   },
   "dated": [

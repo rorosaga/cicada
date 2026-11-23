@@ -224,3 +224,70 @@ def test_one_person_must_stay_one_a_second_page_or_a_held_titled_line_is_a_false
     # a plain held line (no title) is the one person, held; a project of the same name is no person
     assert check([owner], [{"name": "idris", "type": "person"}])["ok"] is True
     assert check([owner, _page("idris", "Idris"), _page("idris-2", "Idris", type_="project")], [])["ok"] is True
+
+
+def test_a_claim_held_under_a_waiting_name_is_not_on_a_page_but_is_not_lost(tmp_path):
+    """Sam Reyes is one conversation: below the promotion bar, so what Stage 1 wrote of him waits in the pending store.
+    The scorer keeps ``claim`` as "on a page" and reports the held one apart, never as prose."""
+    fx = bench.load_fixture()
+    held = {"name": "Sam Reyes", "type": "person", "held_claims": [
+        {"id": "clm_1", "text": "Sam Reyes cousin of Ines Varga", "subject": "sam-reyes", "predicate": "cousin-of",
+         "object": "ines-varga", "object_kind": "node"}]}
+    (tmp_path / "pending_entities.jsonl").write_text(json.dumps(held) + "\n")
+    (tmp_path / "entities").mkdir()
+    snap = {"model": "t", "clock": CLOCK.isoformat(), "claims": [_claim("Ines works at Kestrel Robotics")],
+            "pages": [_page("ines-varga", "Ines Varga", owner=True)], "questions": [], "phases": [],
+            "episodes_unprocessed": 0}
+    s = bench.score(snap, tmp_path, fx)
+    p22 = next(p for p in s["points"] if p["id"] == "P22")
+    assert (p22["claim"], p22["held_waiting"]) == (False, True) and "cousin" in p22["matched"][0]
+    assert s["summary"]["points_held"] == 1 and s["summary"]["points_claim"] == 0
+    # a claim on a page is never also counted as held
+    snap["claims"].append(_claim("Sam Reyes cousin of Ines Varga"))
+    p22 = next(p for p in bench.score(snap, tmp_path, fx)["points"] if p["id"] == "P22")
+    assert (p22["claim"], p22["held_waiting"]) == (True, False)
+
+
+def _claim_on(subject, text, *, observer="ines-varga"):
+    c = _claim(text, page=subject, observer=observer)
+    c["subject"] = subject
+    return c
+
+
+def test_an_owner_update_ignores_a_colleagues_claim_naming_the_same_employer(tmp_path):
+    """U1 is the owner's job change: a colleague's own true "works at <the old employer>" is neither value."""
+    fx = bench.load_fixture()
+    assert next(u for u in fx["gold"]["updates"] if u["id"] == "U1").get("on_owner") is True
+    (tmp_path / "entities").mkdir()
+    claims = [_claim_on("ines-varga", "Ines works at Kestrel Robotics as a senior data engineer"),
+              _claim_on("ines-varga", "Ines works at Halvard Analytics", ) | {"valid_to": "2026-11-03"},
+              _claim_on("priya", "Priya works at Halvard Analytics")]
+    pages = [_page("ines-varga", "Ines Varga", owner=True), _page("priya", "Priya")]
+    snap = {"model": "t", "clock": CLOCK.isoformat(), "claims": claims, "pages": pages, "questions": [], "phases": [],
+            "episodes_unprocessed": 0}
+    u1 = next(u for u in bench.score(snap, tmp_path, fx)["updates"] if u["id"] == "U1")
+    assert u1["verdict"] == "correct" and u1["stale_current"] == []
+    # the owner's own old job, still open, is still caught
+    claims[1] = _claim_on("ines-varga", "Ines works at Halvard Analytics")
+    u1 = next(u for u in bench.score(snap, tmp_path, fx)["updates"] if u["id"] == "U1")
+    assert u1["verdict"] == "both_current"
+
+
+def test_a_claim_that_records_a_refusal_with_a_bare_no_is_not_a_violation(tmp_path):
+    fx = bench.load_fixture()
+    (tmp_path / "entities").mkdir()
+    refused = _claim_on("half-marathon", "Half marathon racing shoes: no carbon-plated shoes")
+    taken = _claim_on("half-marathon", "Half marathon racing shoes: carbon-plated shoes")
+    snap = {"model": "t", "clock": CLOCK.isoformat(), "claims": [refused], "pages": [_page("ines-varga", "Ines", owner=True)],
+            "questions": [], "phases": [], "episodes_unprocessed": 0}
+    f6 = lambda: next(f for f in bench.score(snap, tmp_path, fx)["forbid"] if f["id"] == "F6")  # noqa: E731
+    assert f6()["ok"] is True
+    snap["claims"] = [taken]
+    assert f6()["ok"] is False
+
+
+def test_stage_ones_standing_facts_rule_covers_what_the_user_says_of_someone_else():
+    from api.services.entity_extractor import EXTRACTION_SYSTEM_PROMPT as prompt
+
+    assert "about themselves or about someone else" in prompt
+    assert "only when they said it of" not in prompt   # the sentence the model read as "the owner's facts alone"

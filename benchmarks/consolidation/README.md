@@ -10,11 +10,11 @@ checks the rules that are specific to Cicada.
 
 Two invented people, each on a bank of their own; a leg's score is the sum over them (`--people` picks).
 
-`fixture.json` holds Ines Varga's two months, 25 conversations:
+`fixture.json` holds Ines Varga's two months, 26 conversations:
 
 - **Phase 1** (13 conversations, days −60 to −31): a side project, a job, a race, people, a partner's own hobby, and a
   move the person asks about and decides against.
-- **Phase 2** (11 later conversations, plus one phase-1 conversation edited in place): the values that change, a
+- **Phase 2** (12 later conversations, plus one phase-1 conversation edited in place): the values that change, a
   silent edit that moves a date, a long conversation where the person takes one of the assistant's four suggestions,
   changes another and refuses two, "in two weeks", and a third Sam with no surname.
 
@@ -32,8 +32,8 @@ the conversation's own day.
 
 | Check | Graded by | The question |
 |---|---|---|
-| facts (52) | code, then the judge | Is each fact held as a claim? A fact the spelling missed is put to the judge with every claim (`match.json`), reported apart as "judge-matched". Also reported: held anywhere on a page. |
-| updates (12) | code | Is the new value current and the old one closed? Each one is *correct*, *both current*, *stale only* or *missing*. U4 is the silent edit (a revision). |
+| facts (52) | code, then the judge | Is each fact held as a claim (on a page)? A fact whose claim waits under a one-off name below the promotion bar (`pending_entities.jsonl` `held_claims`) is reported apart as `points_held`: a claim, not prose, just not on a page yet. A fact the spelling missed is put to the judge with every claim (`match.json`), reported apart as "judge-matched". Also reported: held anywhere on a page. |
+| updates (13) | code | Is the new value current and the old one closed? An update marked `on_owner` (U1) counts only claims on the owner's own page or about it, never a colleague's "works at <the same employer>". Each one is *correct*, *both current*, *stale only* or *missing*. U4 is the silent edit (a revision). |
 | two values kept apart (2) | code | Two real attributes of one thing said apart (a postcard's price and an A4 print's, a trip's budget and its flights) must both stay current: the counter-case to an update closing the wrong value (`apart_values` in the gold; Noor only). |
 | others' words (7) | code | A suggestion the person declined or changed, a book only the assistant named, a partner's hobby, a move asked about and refused, and a third Sam are not held as the person's facts or joined to the wrong Sam. A claim that says the thing was declined is not a violation. |
 | a role reads true (2) | code | A role someone holds to the person ("my brother-in-law Marc", "my landlord") must read true as the claim is written: never the person as the holder ("<person> brother-in-law of Marc"), never the holder as having it (`roles` in the gold). |
@@ -78,5 +78,5 @@ api/.venv/bin/python -m benchmarks.consolidation.run report OUT
 about a quarter of their exact claims (`engine_parity`, 2026-11-04). A gap between two models means something only
 when it is wider than each model's own spread across repeats.
 
-**Cost.** Each leg runs two drains over 25 conversations. The judge makes one call per group of cited
+**Cost.** Each leg runs two drains over 26 conversations. The judge makes one call per group of cited
 conversations, about 20 per leg. `report` prints the calls and tokens for each leg.
