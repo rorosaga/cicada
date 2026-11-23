@@ -61,13 +61,13 @@ def _header(memory_path: Path, subdir: str, name: str) -> dict:
 
 
 def _conversation(memory_path: Path, name: str) -> SleepConsolidatedConversation:
-    from api.services.sleep_cycle import _derive_origin
+    from api.services.sleep_cycle import queue_origin
 
     fm = _header(memory_path, "episodes", name)
     return SleepConsolidatedConversation(
         id=str(fm.get("id") or name[:-3]),
         title=(str(fm.get("title")).strip() or None) if fm.get("title") else None,
-        origin=str(fm.get("origin") or _derive_origin(fm.get("source"))) if fm else "unknown",
+        origin=queue_origin(fm) if fm else "unknown",
         timestamp=str(fm.get("timestamp")) if fm.get("timestamp") else None,
     )
 

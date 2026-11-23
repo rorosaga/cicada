@@ -110,6 +110,8 @@ enum EvidenceSpeaker {
             return Copy.Videos.mediaTurnMeta(time: mediaTime(turn.t), fidelity: turn.fidelity)
         case "speaker":
             // G179 — the other side of a message conversation, by the name the person sees.
+            // ROR-142 — a meeting's group track is "Others on the call"; a numbered voice or a name arrives as words.
+            if turn.speakerKind == "group" { return Copy.Provenance.othersOnTheCall }
             return correspondent ?? named(turn.speaker) ?? Copy.Provenance.someoneElse
         case "gap":
             // G110 gate B2 — the dropped-middle marker: Cicada's own line, never "You" or the agent.

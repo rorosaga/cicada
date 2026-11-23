@@ -54,7 +54,7 @@ from api.services import (
 )
 from api.services.connections.registry import get_registry
 from api.services.sleep_cycle import (
-    _derive_origin,
+    queue_origin,
     _episode_sort_key,
     cancelled_is_visible,
     configured_batch_size,
@@ -418,7 +418,7 @@ async def sleep_queue(
             continue
         if processed and (ds is None or ep_id not in ds.filed_ids):
             continue
-        o = str(fm.get("origin") or _derive_origin(fm.get("source")))
+        o = queue_origin(fm)
         st, reason, attempts = "waiting", None, 0
         if ds is not None and (ep_id in frozen or ep_id in ds.filed_ids):
             st, reason, attempts = sleep_drain.episode_state(ds, ep_id)

@@ -43,6 +43,11 @@ struct SourceSpansView<Pinned: View, Below: View>: View {
         ScrollViewReader { proxy in
             VStack(alignment: .leading, spacing: 0) {
                 pinned()
+                // A meeting's summary and facts sit under its title, pinned like the banners below (never in the
+                // history, which opens at its newest message).
+                if layout.chat != nil, let meeting = ReaderChat.meetingHeader(doc: doc, blocks: blocks) {
+                    ReaderMeetingHeaderView(header: meeting, revealed: state.washVisible)
+                }
                 // A chat opens at its newest message, so what the banners say ("only the first part is shown", "the
                 // words may have moved") is pinned here rather than left at the top of the history.
                 if layout.chat != nil, !presentation.banners.isEmpty {
