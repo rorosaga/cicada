@@ -975,6 +975,14 @@
       "disposition": "refresh_or_preserve"
     }
   ],
+  "services/fact_fold_heal.py": [
+    {
+      "function": "_apply_page",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "refresh_or_preserve"
+    }
+  ],
   "services/page_quality_repair.py": [
     {
       "function": "apply",

@@ -4167,6 +4167,52 @@ is about, who did it, and never say one thing twice. Four mechanisms, each engin
   answered "yes" to everything, folds none of the 9 that a number, date, name, negation or another person tells apart.
   The ask also tells the judge to answer every NEW line first (older lines may only name a new one that says them in full):
   without it a small judge often answered about an older line and skipped the new one.
+- **Pages written before the fold are healed once, by the person (`fact_fold_heal`, `api/scripts/fact_fold_heal.py`, G148;
+  owner 2026-11-23: one-time, per-page result read before anything is written).** The live fold acts only when a write brings
+  a fact, and one big ask under-proposes: the reported page replayed as ONE write of twelve new lines had the judge propose 7
+  pairs, the second reader turn down 4, 16 → 13. So the heal **replays the page**: its Key Facts arrive oldest first,
+  `CHUNK` (3) new lines an ask against the bullets that survived so far — the shape the incremental path asks in — through
+  the live module's own ask, guard (`covers`), second reader and link rule (`orient`); a second sweep (`PASSES` 2) asks again
+  about what the first left, only when the first folded something. A bullet that resembles no survivor (`MIN_OVERLAP` 3: a
+  shared name or number, or three words, names read as the page's neighbours' — `fact_fold.People`) costs no call, so a
+  page with none costs none; a translated line sharing no name or number is left (a miss, never a loss; the live path
+  finds it only by showing the judge the newest bullets). Equal and word-for-word-extending bullets fold by the rule every
+  write applies (`rule-equal`, `rule-extends`), never by a paraphrase rule. A page over `MAX_BULLETS` (300) Key Facts is
+  left alone and counted (the resemblance test is quadratic; a page of thousands is a separate decision). **Two steps.** `plan` writes nothing to the
+  bank: before the first model call it prints counts only — pages by why they are left alone, pages a rule alone folds,
+  pages it would ask about, **the most calls that could be** — then (`--judge`, the Claude plan, `--model haiku`) appends one
+  row a page to `<out>/pages.jsonl` and writes `review.txt`, most-repeated pages first, `--limit` pages, `--max-calls` a run,
+  `--max-calls-page` (40) a page, resumable (a page already in the file is not asked again; a stop for a plan limit is
+  exit 5). `--out` must be outside the repo and the bank: a row carries the line kept, the line dropped, the path
+  (`rule-equal` / `rule-extends` / `judged` with the guard path, "turned round", "second reader agreed"), the conversations
+  whose rows move, what the judge named and a later stage refused, and the page's bullets before and after; stdout never
+  carries a word of the bank. The person strikes a fold or a page (delete it, `"strike": true`, `--skip-fold <page>#<n>`,
+  `--skip-page`). `apply` makes **no model call** and writes exactly the folds the file holds, after `--check` (the same
+  counts, nothing written): a page whose Key Facts changed since the plan (hash) is skipped and counted, never re-judged,
+  as is a page a person edited or one dirty in git, and a fold the guard would no longer pass. **Loss-free by
+  construction**: a bullet takes part only when G118's rows prove Sleep wrote it (a typed, edited or legacy line has no rows —
+  it is never dropped, and as a holder it could not receive the sources); a pinned correction is never dropped; a person's page
+  is left alone; every fold passes the live guard and link rule again on the page's whole neighbourhood, and a line already
+  holding others moves them on only when the new holder covers every one; the dropped bullets' source rows move to the
+  kept line (`section_provenance.refresh`); only those bullets' lines leave the Key Facts section — the claims fence,
+  History, Open Questions, the article and every frontmatter field but the provenance rows are as they were (a page write
+  through the parser normalises trailing whitespace, as every write does). **Writing**: in process under write admission,
+  `page_lock` and the git lock, like `repair_page_quality` (ruling 21a: it asks the backend whether Sleep is idle and refuses
+  when it cannot say — exit 3 —, a demo bank is refused — exit 4); one `cicada` commit of only its paths, no `Cicada-Engine`
+  (nothing ran an engine at apply), undone by a plain `git revert`. **Measured** (`benchmarks/system/fact_fold_eval.py
+  --variants heal`, invented names, haiku on the plan): the reported page rebuilt as it is written today (16 Key Facts):
+  16 → 5, 6, 6, 6, 7, 7 in six runs of the shipped settings (13-16 calls a run; 5 with one new line an ask, 30 calls;
+  15 with twelve at once, 3 calls), every date, number, name and link of every dropped line in its kept line (a
+  reader sharing no code with the guard), all 16 conversations still sources of a kept line; a 64-bullet page (eight facts
+  said three to five ways, the rest one-off): 64 → 53 and 49 (21 and 19 calls, at most 40 lines shown an ask, no marker lost) —
+  its second reader refused pairs that differ only by the subject's own name (5 of 15 refusals; telling it so, in a trial
+  run, gave 64 → 48 with 3 refused: a live-path prompt question, not changed here); the invented pairs as two-bullet pages:
+  0 false folds of 12 pairs a person would keep (four runs), 4 or 5 of the 6 they would let go folded (the translated one
+  is the limit above; the judge's variance misses one more in two runs). **The article** above Key Facts repeats the same facts in prose: the heal never touches it (a healed
+  page keeps its stamp — Key Facts is outside the stamped halves). Sleep rewrites it from the healed record when the
+  page next gets an update that brings a source or a fact (one article-writer call, in place of the synthesis call), or
+  on demand with `rebuild_page_articles --rewrite --entity <id>` — one call a page at the engine the person chose; on the
+  16-bullet page its prompt goes 4,951 → 3,780 characters after the heal.
 - **Who said it, who did it.** A claim resting only on the other side's words is theirs (`entity_extractor
   .assistant_observer`): a texted agent's (G179), and now a harness session's agent (`external:<harness>`) and a chat
   export's assistant (`external:chatgpt|claude|gemini`); a relayed episode (`evidence_kind`) keeps its own rail. Such
