@@ -148,12 +148,18 @@ OPEN QUESTIONS (## Open Questions):
 - Capture unresolved points the user or system still needs to settle about this entity
   (an unconfirmed identity, an undecided choice, a missing date). Leave empty if none.
 
-DECAY CLASS (optional, per entity) — how fast this belief should fade if it stops
-being mentioned:
-- volatile: a fact you expect to change within weeks (a current role, a status, a
-  current focus, an in-flight decision).
-- durable: a stable preference, a skill, or a long-lived concept that rarely moves.
-- active: everything else — the default. Omit the field when unsure.
+DECAY CLASS (optional, per entity) — how fast THIS PAGE should fade if the person stops mentioning the
+entity. The class belongs to the entity, never to a fact about it: a fact in motion (a new role, a move, a
+promotion, a status, a price) is written as a fact or a value on the page and is closed when it changes; it
+never makes the person, company, place or tool itself volatile.
+- volatile: the entity is itself short-lived and stops mattering once it is over — an event, a trip, a race,
+  an application, an errand, a decision still being made, something the person is trying for a week. Never a
+  person or a company, and never because a fact about it is changing: a sister who is moving flats, a friend
+  who was promoted, an employer the person has just joined are not volatile.
+- durable: a stable preference, a skill, a language, a city, or a long-lived concept that rarely moves.
+- active: everything else — the default, and the right class for the people in the person's life, the
+  companies they work for or with, the projects they are working on and the tools they use. Omit the field
+  when unsure.
 - NEVER EVERGREEN a belief here: "evergreen" is reserved for ingested artifacts
   (bookmarks, saved media) and the user — an extraction may only propose
   durable|active|volatile.
@@ -414,12 +420,13 @@ def sanitize_decay_class(entity: dict) -> None:
 
     The extractor may PROPOSE ``durable|active|volatile``. Anything else — junk,
     a missing key, or ``evergreen`` (reserved for the ingest writers and the
-    user) — is removed so the downstream writer falls back to its own default.
+    user) — is removed so the downstream writer falls back to its own default;
+    so is ``volatile`` on a person or a company (``decay_policy.ENDURING_TYPES``).
     Mutates in place; never raises.
     """
     if "decay_class" not in entity:
         return
-    cls = decay_policy.agent_class(entity.pop("decay_class"))
+    cls = decay_policy.agent_class(entity.pop("decay_class"), entity.get("type"))
     if cls is not None:
         entity["decay_class"] = cls.value
 

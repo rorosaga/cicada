@@ -764,9 +764,9 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 entity_type = project_birth.FALLBACK_TYPE
                 change[project_birth.PROPOSED_KEY] = "project"
             # Stage-1 may PROPOSE a class; `agent_class` re-applies the rail here
-            # so an `evergreen` that slipped past extraction can never be written.
+            # so an `evergreen` that slipped past extraction can never be written, nor a `volatile` person or company.
             decay_class = (
-                decay_policy.agent_class(entity.get("decay_class"))
+                decay_policy.agent_class(entity.get("decay_class"), entity_type)
                 or decay_policy.default_class_for(entity_type)
             )
             frontmatter = {
