@@ -200,7 +200,8 @@ def test_offered_one_list_at_a_time_after_every_other_sites_list(reading):
     later = datetime.now(timezone.utc) + timedelta(hours=21)
     assert substack_lists.due(memory, now=later) == []        # X's list is due again first
     reading_settings.update(saved_lists_={"x": False})
-    assert substack_lists.due(memory, now=later) == ["saved"]
+    # G245: History was never read, Saved a day ago: the one read longest ago (never) is offered first.
+    assert substack_lists.due(memory, now=later) == ["history"]
     assert saved_lists.reads_today(memory) == 2               # the Substack read spent the shared day bound
 
 
