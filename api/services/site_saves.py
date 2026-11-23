@@ -14,8 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
-from api.services import episode_ids, episode_scrub, markdown_parser, saved_lists
-from api.services.episode_staging import STAGE_LOCK
+from api.services import episode_scrub, episode_staging, saved_lists
 
 #: The episode key an unsave leaves: when the person took the post off their list on the site.
 LEFT_KEY = "left_site_at"
@@ -88,19 +87,16 @@ def title_for(text: str, fallback: str) -> str:
 
 
 def _set_left(path: Path, at: str | None) -> bool:
-    with STAGE_LOCK, episode_ids.episode_lock(Path(path).parent):
-        parsed = markdown_parser.parse(path)
-        fm = dict(parsed.frontmatter)
+    def edit(fm: dict) -> bool:
         if (fm.get(LEFT_KEY) or None) == at:
             return False
         if at is None:
             fm.pop(LEFT_KEY, None)
         else:
             fm[LEFT_KEY] = at
-        if "turns" in fm:
-            fm["turns"] = fm.pop("turns")  # the sidecar stays the last key
-        markdown_parser.write(path, fm, parsed.body)
         return True
+
+    return episode_staging.amend_frontmatter(path, edit)
 
 
 def mark_left(path: Path, at: str) -> bool:

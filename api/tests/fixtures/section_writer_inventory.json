@@ -489,6 +489,12 @@
       "disposition": "uninstrumented_guarded"
     },
     {
+      "function": "amend_frontmatter",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
       "function": "revise_section",
       "method": "write",
       "frontmatter": "fm",

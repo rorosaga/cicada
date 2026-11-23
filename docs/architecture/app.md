@@ -1606,8 +1606,7 @@ and the answer is posted with `via` the site's origin. An unsave goes to `POST /
 about, the save stays and shows "no longer on …" (`leftBrowser`). Logs (`site-save`) hold an outcome word, what
 settled it and milliseconds, never a link or a label.
 
-*Connecting a site.* Nothing is watched until the person connects a site, per Mac (`SiteSavePrefs`): in Settings →
-Integrations → Browsers, under the bookmark question ("Also ask when I save a post on", one tick per site, with the
+*Connecting a site.* Nothing is watched until the person connects a site, per Mac (`SiteSavePrefs`): on the Sources page → Browsers, under the bookmark question ("Also ask when I save a post on", one tick per site, with the
 Accessibility permission named and one click to its pane when missing — never a prompt), or from the notch: when the
 pointer rests on a page of a site not yet connected, the connect offer (G231's panel and rules: its switch, once a
 day, No is kept and listed in Settings, Not now waits) asks "Connect X to Cicada?" with the site's mark. A site's Yes
