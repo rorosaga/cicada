@@ -76,8 +76,9 @@ STATE_TTL_S = 600
 MAX_CALLS_PER_SYNC = 220
 MAX_FETCH_PER_SYNC = 60
 ROWS_PER_DATABASE = 100
-#: Bumped when what a stored page looks like changes; a cursor of another format reads every page once more.
-FORMAT = 2
+#: Bumped when what a stored page looks like changes; a cursor of another format reads every page once more. 3 (A.4):
+#: a page keeps its parent path and database in frontmatter.
+FORMAT = 3
 MAX_QUEUE = 2000
 LIST_LIMIT = 100
 
@@ -343,6 +344,38 @@ _CHILD = re.compile(r"<(?:page|database)\b[^>]*?\burl=\"([^\"]+)\"", re.IGNORECA
 _COLLECTION = re.compile(r"collection://([0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12})", re.IGNORECASE)
 _DB_TYPES = frozenset({"database", "data_source", "data-source", "collection"})
 DS = "ds:"          # a queue/tree key for a data source (a database's table of rows), never a page
+#: A.4: the parents a fetched page prints ahead of its properties — ``<parent-page url=".." title=".."/>`` nearest, then
+#: ``<ancestor-2-page …/>`` and so on up (also ``-database`` and ``-data-source``). The page's own reply, so nothing is
+#: fetched to learn them.
+_ANCESTOR_BLOCK = re.compile(r"<ancestor-path>(.*?)</ancestor-path>", re.DOTALL | re.IGNORECASE)
+_ANCESTOR_TAG = re.compile(r"<((?:parent|ancestor-(\d+))-(?:page|database|data-source))\b([^>]*?)(/?)>", re.IGNORECASE)
+
+
+def _tag_attr(name: str, attrs: str) -> str:
+    m = re.search(rf"\b{name}=\"([^\"]*)\"", attrs)
+    return m.group(1) if m else ""
+
+
+def ancestors(raw: str) -> list[tuple[str, str]]:
+    """The parents a fetched page names, outermost first: ``[(hex id, title)]``. Empty when it names none. A parent with
+    no id or no title in the tag is skipped, never guessed."""
+    import html
+
+    block = _ANCESTOR_BLOCK.search(str(raw or ""))
+    if not block:
+        return []
+    found: list[tuple[int, str, str]] = []
+    text = block.group(1)
+    for m in _ANCESTOR_TAG.finditer(text):
+        title = html.unescape(_tag_attr("title", m.group(3)) or "")
+        if not title and not m.group(4):
+            end = text.find("</", m.end())
+            title = html.unescape(text[m.end():end]) if end > m.end() else ""
+        rid = hex_id(_tag_attr("url", m.group(3)) or _tag_attr("id", m.group(3)))
+        if rid and title.strip():
+            found.append((int(m.group(2) or 1), rid, " ".join(title.split())))
+    found.sort(key=lambda t: -t[0])
+    return [(rid, title) for _, rid, title in found]
 
 
 def hex_id(raw) -> str | None:
@@ -455,6 +488,7 @@ class _Run:
         self.queue: list[str] = [i for i in (cursor.get("queue") or []) if i not in self.known]
         self.tree: dict = {k: list(v) for k, v in (cursor.get("tree") or {}).items()}
         self.titles: dict = dict(cursor.get("titles") or {})        # a row's / data source's database title
+        self.dbs: dict = dict(cursor.get("dbs") or {})              # a row's / data source's database page id (A.4)
         self.checked: dict = dict(cursor.get("checked") or {})
         self.batch = tier2.Batch()
         self.fetched = 0
@@ -489,17 +523,49 @@ async def _read_page(session: Session, run: _Run, rid: str, listed_edited: str, 
             kids.append(child)
             if is_db:
                 run.titles.setdefault(child, title)         # a row of this database, by the table's name
+                run.dbs.setdefault(child, rid)
     for cid in sources:
         key = DS + cid
         run.titles.setdefault(key, title)
+        run.dbs.setdefault(key, rid)
         kids.append(key)
     edited = page["last_edited_time"] if (data.get("page_last_edited_at") or listed_edited) else ""
     if not is_db and not (edited and run.known.get(rid) == edited):
-        run.batch.drafts.extend(notion.drafts_for(page, md, db_title=run.titles.get(rid), mine=rid in mine))
+        run.batch.drafts.extend(notion.drafts_for(page, md, db_title=run.titles.get(rid), mine=rid in mine,
+                                                  chain=_chain(run, rid, raw)))
         run.batch.replaced.append(notion.SOURCE_PREFIX + rid)
         run.batch.seen += 1
     run.known[rid] = edited
     return kids
+
+
+def _allowed(run: _Run) -> set[str]:
+    """What a chosen scope covers: the pages and databases the person picked and everything the read has found under them.
+    A parent outside it (a teamspace page above the one chosen) is never kept, though the fetched page names it."""
+    out = {i["id"] for i in run.sel["items"]}
+    for node, kids in run.tree.items():
+        out.add(node)
+        out.update(kids)
+    return {k[len(DS):] if k.startswith(DS) else k for k in out}
+
+
+def _chain(run: _Run, rid: str, raw: str) -> list[tuple[str, str]]:
+    """A.4: where this page sits — its parents (only those the person's scope covers: everything they can open when they
+    chose Everything, else what they picked and what lies under it), then its database when it is a row. Read from the
+    page's own reply; no parent is ever fetched to name it."""
+    parents = ancestors(raw)
+    if run.chosen:
+        covered = _allowed(run)
+        parents = [(i, t) for i, t in parents if i in covered]
+    parents = [(i, t) for i, t in parents if i != rid]
+    db_title, db_id = run.titles.get(rid), run.dbs.get(rid)
+    if run.chosen and db_title and db_id and db_id not in _allowed(run):
+        db_title = None
+    if db_title:
+        db_id = db_id or hashlib.sha256(db_title.encode()).hexdigest()[:32]
+        if not any(i == db_id or t == db_title for i, t in parents[-1:]):
+            parents.append((db_id, db_title))
+    return parents
 
 
 async def _read_rows(session: Session, run: _Run, key: str) -> list[str]:
@@ -514,6 +580,7 @@ async def _read_rows(session: Session, run: _Run, key: str) -> list[str]:
     for rid in ids:
         if title:
             run.titles.setdefault(rid, title)
+            run.dbs.setdefault(rid, run.dbs.get(key) or cid)
     return ids
 
 
@@ -623,6 +690,6 @@ def _finish(run: _Run, todo: list[str], credited: bool) -> tier2.Batch:
     if run.unreadable:
         words.append(f"{run.unreadable} page(s) could not be read.")
     run.batch.cursor = {"fmt": FORMAT, "sig": run.sig, "known": run.known, "queue": run.queue, "tree": run.tree,
-                        "titles": run.titles, "checked": run.checked}
+                        "titles": run.titles, "dbs": run.dbs, "checked": run.checked}
     run.batch.words = " ".join(words) or None
     return run.batch
