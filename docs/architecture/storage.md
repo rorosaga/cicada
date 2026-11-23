@@ -401,7 +401,7 @@ before it is written; a rerun finishes an interrupted run, committing the pages 
 migration's bytes and nothing else; a Related link that is no edge and no `related:` slug keeps its line as it was;
 `hub_pages`).
 
-**A standing fact about someone else is a value too (2026-11-23, `others` worker).** The "standing facts" rule in Stage 1's
+**A standing fact about someone else is a value too (2026-11-23).** The "standing facts" rule in Stage 1's
 prompt ended "it is theirs only when they said it of themselves", which the model read as the owner's facts alone: what
 the user says of a sister (she is starting a master's) reached her page as a Key Facts sentence and, in 3 of 4 reads of one
 conversation, never as a claim, so a later "she changed course" had nothing to replace. The rule now says the value rests on
