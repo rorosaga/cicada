@@ -220,7 +220,7 @@ struct EpisodeCard: View {
                         .lineLimit(1)
                 }
                 if let preview = EpisodeRowText.preview(item) {
-                    Text(preview)
+                    PageLineText(preview, excerpt: true)
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .lineLimit(2)

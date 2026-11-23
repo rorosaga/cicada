@@ -71,12 +71,15 @@ struct StorySentence: View {
     /// screen is torn down and comes back folded. Folded is the default and "+N more" is one click, so the row forgets
     /// rather than the column carrying a set of expanded ids for every happening it has ever shown.
     @State private var expanded = false
+    @Environment(Store.self) private var store: Store?
 
     private var font: Font { lead ? CicadaTheme.detailBodyFont : CicadaTheme.bodyFont }
     private var ink: Color { lead ? CicadaTheme.textPrimary : CicadaTheme.textSecondary }
 
     var body: some View {
-        let parts = ProjectStory.chips(text, participants: participants, total: total, expanded: expanded)
+        // The sentence is page text: a link in it is the page's own name before the participants are found in it.
+        let parts = ProjectStory.chips(PageLine.plain(text, links: store.links), participants: participants, total: total,
+                                       expanded: expanded)
         SentenceFlowLayout(space: CicadaTheme.scaled(4), lineSpacing: CicadaTheme.scaled(3)) {
             ForEach(parts.tokens) { token in
                 tokenView(token).layoutValue(key: SpaceBefore.self, value: token.spaceBefore)

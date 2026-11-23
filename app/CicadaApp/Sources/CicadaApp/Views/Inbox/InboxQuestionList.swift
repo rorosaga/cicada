@@ -207,6 +207,7 @@ struct InboxRow: View {
     let open: () -> Void
 
     @State private var hovering = false
+    @Environment(Store.self) private var store: Store?
 
     private var questionColor: Color { selected ? CicadaTheme.textPrimary : CicadaTheme.textSecondary }
     private var metaColor: Color { selected ? CicadaTheme.textTertiaryOnFill : CicadaTheme.textTertiary }
@@ -228,7 +229,8 @@ struct InboxRow: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.cicadaPlain)
-            .accessibilityLabel(Copy.Inbox.rowAccessibility(kind: item.kind.label, question: item.askText,
+            .accessibilityLabel(Copy.Inbox.rowAccessibility(kind: item.kind.label,
+                                                             question: PageLine.plain(item.askText, links: store.links),
                                                              open: selected))
             .accessibilityAddTraits(selected ? .isSelected : [])
             if style == .wide && showsOpenButton {
@@ -253,7 +255,7 @@ struct InboxRow: View {
     }
 
     private var question: some View {
-        Text(item.askText)
+        PageLineText(item.askText)
             .font(questionFont)
             .foregroundStyle(questionColor)
             .lineLimit(1)
@@ -344,7 +346,7 @@ struct InboxRow: View {
             KindGlyph(kind: item.kind)
             question
         }
-        .help(item.askText)
+        .pageHelp(item.askText)
     }
 }
 
@@ -375,7 +377,7 @@ struct InboxUndoRow: View {
     }
 
     private var question: some View {
-        Text(item.askText)
+        PageLineText(item.askText)
             .font(CicadaTheme.metaFont)
             .foregroundStyle(CicadaTheme.textTertiary)
             .lineLimit(1)

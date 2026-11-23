@@ -156,6 +156,8 @@ struct ClusterRow: View {
     var reservesPicture = true
     let open: () -> Void
 
+    @Environment(Store.self) private var store: Store?
+
     private var nameColor: Color {
         selected ? CicadaTheme.textPrimary : entity.quiet ? CicadaTheme.quietName : CicadaTheme.textSecondary
     }
@@ -201,7 +203,7 @@ struct ClusterRow: View {
                               collapsesWhenEmpty: !reservesPicture)
                     .opacity(pictureOpacity)
                 name.frame(maxWidth: CicadaTheme.scaled(ColumnLayout.textMaxWidth), alignment: .leading)
-                if let detail = ClustersModel.detail(entity, showsType: showsType) {
+                if let detail = ClustersModel.detail(entity, showsType: showsType, links: store.links) {
                     Text(detail).font(CicadaTheme.metaFont).foregroundStyle(metaColor).lineLimit(1)
                 }
                 Spacer(minLength: 0)
@@ -220,7 +222,7 @@ struct ClusterRow: View {
                             .monospacedDigit()
                             .foregroundStyle(metaColor)
                     }
-                    if let detail = ClustersModel.detail(entity, showsType: showsType) {
+                    if let detail = ClustersModel.detail(entity, showsType: showsType, links: store.links) {
                         Text(detail).font(CicadaTheme.metaFont).foregroundStyle(metaColor).lineLimit(1)
                     }
                 }

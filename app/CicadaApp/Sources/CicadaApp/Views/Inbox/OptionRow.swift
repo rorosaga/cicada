@@ -18,6 +18,7 @@ struct OptionRow: View {
 
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(Store.self) private var store: Store?
 
     static var hoverFill: Color { CicadaTheme.mode == .dark ? CicadaTheme.bgButton : CicadaTheme.bgHover }
 
@@ -28,14 +29,14 @@ struct OptionRow: View {
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(1)) {
                     HStack(spacing: CicadaTheme.spacingSM) {
                         // G227: one of several pages with a name — the plain name and its qualifier as a `Tag`.
-                        Text(option.pageName ?? shownLabel)
+                        PageLineText(option.pageName ?? shownLabel)
                             .font(CicadaTheme.font(size: 14, weight: .medium))
                             .foregroundStyle(CicadaTheme.textPrimary)
                             .lineLimit(1)
                         if option.pageName != nil { QualifierTag(qualifier: option.qualifier) }
                     }
                     if let description = option.description, !description.isEmpty {
-                        Text(description)
+                        PageLineText(description)
                             .font(CicadaTheme.metaFont)
                             .foregroundStyle(CicadaTheme.textTertiary)
                             .lineLimit(1)
@@ -59,9 +60,10 @@ struct OptionRow: View {
                 .strokeBorder(highlighted ? CicadaTheme.accent : CicadaTheme.ring(.resting), lineWidth: highlighted ? 1.5 : 1))
         }
         .buttonStyle(.cicadaPlain)
-        .help(option.description ?? shownLabel)
+        .pageHelp(option.description ?? shownLabel)
         .onHover { hovering = $0; if $0 { onHover() } }
-        .accessibilityLabel(option.recommended ? "\(shownLabel), \(Copy.Inbox.recommended.lowercased())" : shownLabel)
+        .accessibilityLabel(PageLine.plain(option.recommended ? "\(shownLabel), \(Copy.Inbox.recommended.lowercased())" : shownLabel,
+                                           links: store.links))
         .accessibilityHint(number.map(Copy.Inbox.pressKey) ?? "")
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
     }

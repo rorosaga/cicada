@@ -57,7 +57,7 @@ final class FindSnippetCleanTests: XCTestCase {
     func testThePaletteRowUsesTheCleanSnippet() throws {
         let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first { $0.path.hasSuffix("Views/Find/FindRowView.swift") })
         let text = try String(contentsOf: file, encoding: .utf8)
-        XCTAssertTrue(text.contains("ExcerptText.cleanAttributed(snippet"))
+        XCTAssertTrue(text.contains("PageLineText(snippet, bold: row.snippetRanges, excerpt: true)"))
         XCTAssertFalse(text.contains("ExcerptText.attributed(snippet"))
     }
 
@@ -65,6 +65,6 @@ final class FindSnippetCleanTests: XCTestCase {
     func testTheRowsAccessibilityLabelIsClean() throws {
         let file = try XCTUnwrap(ThemeTokenTests.swiftSources().first { $0.path.hasSuffix("Search/FindMerge.swift") })
         let text = try String(contentsOf: file, encoding: .utf8)
-        XCTAssertTrue(text.contains("row.snippet.map { ExcerptText.stripMarkup($0, keepLines: false).text }"))
+        XCTAssertTrue(text.contains("row.snippet.map { PageLine.plain($0, links: links, excerpt: true) }"))
     }
 }

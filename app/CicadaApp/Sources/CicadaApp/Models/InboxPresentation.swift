@@ -234,7 +234,7 @@ extension ExcerptText {
     /// `atLineStart: false` is for a segment that begins mid-line (the span, the text after it): its
     /// first line is not a line start, so a "- " there is a minus, not a bullet. A link the mention
     /// split in two leaves a stray `[[`, `[[target|` or `]]` at a segment's edge; those go too.
-    static func clean(_ text: String, atLineStart: Bool = true) -> String {
+    static func clean(_ text: String, atLineStart: Bool = true, links: PageLinkIndex = .empty) -> String {
         let linePrefix = try? NSRegularExpression(pattern: #"^\s*(?:#{1,6}\s+|[-*+]\s+|>\s?|\d+\.\s+)"#)
         let lines = text.components(separatedBy: "\n").enumerated().map { index, line -> String in
             guard let linePrefix, index > 0 || atLineStart else { return line }
@@ -242,31 +242,10 @@ extension ExcerptText {
             return linePrefix.stringByReplacingMatches(in: line, range: NSRange(location: 0, length: ns.length),
                                                        withTemplate: "")
         }
-        var joined = lines.joined(separator: " ")
-        if let link = try? NSRegularExpression(pattern: #"\[\[([^\[\]|]+)(?:\|([^\[\]]+))?\]\]"#) {
-            let ns = joined as NSString
-            var out = ""
-            var last = 0
-            for m in link.matches(in: joined, range: NSRange(location: 0, length: ns.length)) {
-                out += ns.substring(with: NSRange(location: last, length: m.range.location - last))
-                if m.range(at: 2).location != NSNotFound {
-                    out += ns.substring(with: m.range(at: 2)).trimmingCharacters(in: .whitespaces)
-                } else {
-                    out += humanised(ns.substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespaces))
-                }
-                last = m.range.location + m.range.length
-            }
-            out += ns.substring(from: last)
-            joined = out
-        }
-        joined = joined.replacingOccurrences(of: #"\[\[(?:[^\[\]|]*\|)?|\]\]"#, with: "", options: .regularExpression)
+        // The links are the page-text door's (`PageLine`): the page's own name when the graph is in reach, else the
+        // words they were written under; a link a split cut in two leaves its words and no bracket.
+        let joined = PageLine.resolvingLinks(lines.joined(separator: " "), links: links)
         return joined.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-    }
-
-    /// A slug reads as its page's name ("alpha-project-notes" → "Alpha Project Notes").
-    private static func humanised(_ name: String) -> String {
-        guard name.range(of: #"^[a-z0-9]+(?:-[a-z0-9]+)+$"#, options: .regularExpression) != nil else { return name }
-        return name.split(separator: "-").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
     }
 }
 
@@ -274,7 +253,7 @@ extension ExcerptText {
 /// each piece cleaned (DR-56). An asserted G118 span is washed and underlined (DR-18); a mention
 /// found by name is semibold and unwashed (DR-57, G118 §4.9) — the words were found, not quoted.
 enum QuoteSegments {
-    static func of(_ item: InboxItem) -> [CitedSpan.Segment]? {
+    static func of(_ item: InboxItem, links: PageLinkIndex = .empty) -> [CitedSpan.Segment]? {
         guard item.hasCause, let cause = item.cause, !cause.excerpt.isEmpty else { return nil }
         let raw = QuoteBlock.parts(excerpt: cause.excerpt, mentionOffsets: cause.mentionOffsets)
         // R-DL2 — markup and role labels leave the WHOLE excerpt first, the mention mapped through the cut, so a
@@ -284,7 +263,7 @@ enum QuoteSegments {
         let pieces: [(String, CitedSpan.Mark)] = [(parts.before, .plain), (parts.span, mark), (parts.after, .plain)]
         // Only `before` opens on a real line start; the span and the rest begin mid-line (R-DI22).
         let segments = pieces.enumerated()
-            .map { i, piece in CitedSpan.Segment(text: ExcerptText.clean(piece.0, atLineStart: i == 0), mark: piece.1) }
+            .map { i, piece in CitedSpan.Segment(text: ExcerptText.clean(piece.0, atLineStart: i == 0, links: links), mark: piece.1) }
             .filter { !$0.text.isEmpty }
         return segments.isEmpty ? nil : segments
     }

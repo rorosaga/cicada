@@ -53,7 +53,7 @@ struct InboxFocusCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Text(item.askText)
+            PageLineText(item.askText)
                 .font(CicadaTheme.displayFont(size: 22))
                 .tracking(CicadaTheme.displayTracking(size: 22))
                 .foregroundStyle(CicadaTheme.textPrimary)
@@ -170,7 +170,7 @@ struct InboxFocusCard: View {
 
     @ViewBuilder
     private var quote: some View {
-        if let segments = QuoteSegments.of(item) {
+        if let segments = QuoteSegments.of(item, links: store.linkIndex) {
             // Selectable and washed: a selectable `Text` never reaches the span renderer, so the washes ride `CitedPassage`.
             RevealingPassage(segments: segments)
                 .quoteBlock()
@@ -182,12 +182,12 @@ struct InboxFocusCard: View {
                     .padding(.top, CicadaTheme.spacingXS)
             }
         }
-        if InboxBodyPreview.shows(item, hasQuote: QuoteSegments.of(item) != nil) {
+        if InboxBodyPreview.shows(item, hasQuote: QuoteSegments.of(item, links: store.linkIndex) != nil) {
             // Owner defect 2 (2026-09-03) survives: a long legacy body shows three lines and "Show all N".
             // Cleaned line by line: `clean` joins lines with a space, which would fold the three kept
             // lines back into the one run-on paragraph the collapse exists to prevent.
             let collapsed = CollapsedLines(item.body)
-            Text((showAllLines ? collapsed.lines : collapsed.head).map { ExcerptText.clean($0) }.joined(separator: "\n"))
+            Text((showAllLines ? collapsed.lines : collapsed.head).map { ExcerptText.clean($0, links: store.linkIndex) }.joined(separator: "\n"))
                 .font(CicadaTheme.detailBodyFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -233,7 +233,7 @@ struct InboxFocusCard: View {
         }
         .frame(minHeight: CicadaTheme.scaled(22))
         .help(InboxSourceLine.help(item) ?? "")
-        .padding(.top, CicadaTheme.scaled(QuoteSegments.of(item) == nil ? 10 : 12))
+        .padding(.top, CicadaTheme.scaled(QuoteSegments.of(item, links: store.linkIndex) == nil ? 10 : 12))
     }
 
     // MARK: The answers

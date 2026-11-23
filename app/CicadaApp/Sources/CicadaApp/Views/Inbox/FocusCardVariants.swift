@@ -27,7 +27,7 @@ struct InformationalBody: View {
                         .font(CicadaTheme.icon(.list))
                         .foregroundStyle(CicadaTheme.textTertiary)
                         .accessibilityHidden(true)
-                    Text(names.display(option.label))
+                    PageLineText(names.display(option.label))
                         .font(CicadaTheme.font(size: 14, weight: .medium))
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(1)
@@ -38,7 +38,7 @@ struct InformationalBody: View {
                 .frame(height: CicadaTheme.scaled(RowMetrics.oneLine))
                 .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgOption))
                 .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
-                .help(option.description ?? names.display(option.label))
+                .pageHelp(option.description ?? names.display(option.label))
             }
             HStack {
                 Spacer(minLength: 0)
@@ -245,7 +245,7 @@ struct MergeBody: View {
                         .accessibilityHidden(true)
                 }
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(1)) {
-                    Text(side.name.isEmpty ? "—" : names.display(side.name))
+                    PageLineText(side.name.isEmpty ? "—" : names.display(side.name))
                         .font(CicadaTheme.font(size: 14, weight: .medium))
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .lineLimit(2)
@@ -255,7 +255,7 @@ struct MergeBody: View {
                     }
                 }
             }
-            Text(side.summary ?? (side.hasPage ? Copy.Inbox.Duplicate.noSummary : missing))
+            PageLineText(side.summary ?? (side.hasPage ? Copy.Inbox.Duplicate.noSummary : missing))
                 .font(CicadaTheme.metaFont)
                 .foregroundStyle(side.summary == nil ? CicadaTheme.textTertiary : CicadaTheme.textSecondary)
                 .lineLimit(3)

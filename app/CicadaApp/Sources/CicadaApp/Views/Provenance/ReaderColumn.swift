@@ -406,7 +406,7 @@ struct ReaderColumnHeader: View {
             mark
                 .padding(.top, CicadaTheme.scaled(2))
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
+                PageLineText(title)
                     .font(CicadaTheme.displayFont(size: 20))
                     .tracking(CicadaTheme.displayTracking(size: 20))
                     .foregroundStyle(CicadaTheme.textPrimary)
@@ -600,6 +600,7 @@ private struct ReaderNotedRow: View {
     let onShowOnGraph: () -> Void
 
     @Environment(\.revealedNumbers) private var numbers
+    @Environment(Store.self) private var store: Store?
     @State private var hovering = false
 
     var body: some View {
@@ -608,7 +609,7 @@ private struct ReaderNotedRow: View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
             Button { onJump(.event) } label: {
                 VStack(alignment: .leading, spacing: RowMetrics.twoLineGap) {
-                    Text(renderWikilinks(row.text.isEmpty ? name : NumberTokens.shown(row.text, numbers)))
+                    Text(renderWikilinks(row.text.isEmpty ? name : NumberTokens.shown(row.text, numbers), links: store.links))
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .strikethrough(!row.current)

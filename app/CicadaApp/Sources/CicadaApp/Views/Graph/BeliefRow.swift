@@ -15,11 +15,12 @@ struct BeliefRow: View {
     var onLookUp: ((PageSource) -> Void)? = nil
     @State private var showAllEvidence = false
     @State private var hovering = false
+    @Environment(Store.self) private var store: Store?
 
     var body: some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
-                Text(renderWikilinks(claim.text))
+                Text(renderWikilinks(claim.text, links: store.links))
                     .font(CicadaTheme.detailBodyFont)
                     .strikethrough(!claim.isValid)
                     .foregroundStyle(claim.isValid ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)

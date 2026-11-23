@@ -227,7 +227,7 @@ struct HistoryRow: View {
                                 Text(line.sign == "+" ? "+" : "−")
                                     .font(CicadaTheme.metaFont.weight(.semibold))
                                     .foregroundStyle(CicadaTheme.textSecondary)
-                                Text(line.text)
+                                PageLineText(line.text)
                                     .font(CicadaTheme.metaFont)
                                     .foregroundStyle(CicadaTheme.textSecondary)
                                     .lineLimit(1)
@@ -312,7 +312,7 @@ struct HistoryHoverCard: View {
             if let lines = entry.summary?.lines, !lines.isEmpty {
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                     ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                        Text("\(line.sign == "+" ? "+" : "−") \(line.text)")   // count-lint:ok — a sign and prose
+                        PageLineText("\(line.sign == "+" ? "+" : "−") \(line.text)")   // count-lint:ok — a sign and prose
                             .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(2)
                     }
                 }

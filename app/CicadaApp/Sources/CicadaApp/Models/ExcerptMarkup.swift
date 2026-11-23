@@ -60,7 +60,11 @@ extension ExcerptText {
     /// `keepLines: false` is a quote's (the focus card, "Where this came from", a chip's preview): list markers and
     /// numbering go. `true` is the Reader's, which keeps a turn's lines: a bullet is drawn "•" and numbering stays,
     /// because a numbered list's order is words, not markup.
-    static func stripMarkup(_ raw: String, keepLines: Bool) -> Stripped {
+    ///
+    /// `lines: false` leaves every line's start alone (a page's own sentence is no turn: "System: Linux" is words, a
+    /// leading "-" a minus) and only the inline markers go; `underscores: true` also pairs `_em_` and `__strong__`,
+    /// flanked the CommonMark way, so `snake_case` and `a_b_c` stay (`PageLine`, the page-text door).
+    static func stripMarkup(_ raw: String, keepLines: Bool, lines: Bool = true, underscores: Bool = false) -> Stripped {
         let s = Array(raw.unicodeScalars)
         var drop = [Bool](repeating: false, count: s.count)
         var dot = [Bool](repeating: false, count: s.count)
@@ -68,8 +72,8 @@ extension ExcerptText {
         while start <= s.count {
             var end = start
             while end < s.count, s[end] != "\n" { end += 1 }
-            let words = MarkupScan.linePrefix(s, start, end, keepLines: keepLines, drop: &drop, dot: &dot)
-            MarkupScan.inline(s, words, end, drop: &drop)
+            let words = lines ? MarkupScan.linePrefix(s, start, end, keepLines: keepLines, drop: &drop, dot: &dot) : start
+            MarkupScan.inline(s, words, end, drop: &drop, underscores: underscores)
             start = end + 1
         }
         var text = String.UnicodeScalarView()
@@ -169,10 +173,46 @@ enum MarkupScan {
         return p
     }
 
+    /// `[[target|words]]`, `[[words]]` and `![[page]]`: the brackets and the ref half go and the words stay — deletion only,
+    /// so a cited span's offsets still map (the Reader, a quote). A link a cut left open at the line's end loses its
+    /// opener; a `]]` with no `[` before it on the line loses itself. `a[[0]]`, `df[["a"]]` and `x[i[j]]` are code.
+    static func links(_ s: [Unicode.Scalar], _ from: Int, _ end: Int, drop: inout [Bool]) {
+        var i = from
+        var seenBracket = false
+        while i < end {
+            if s[i] == "[", i + 1 < end, s[i + 1] == "[", !PageLine.indexesCode(s, before: i) {
+                var j = i + 2
+                var bar = -1
+                while j < end, s[j] != "[", s[j] != "]" {
+                    if s[j] == "|" { bar = j }
+                    j += 1
+                }
+                let start = i > from && s[i - 1] == "!" ? i - 1 : i
+                mark(&drop, start, bar >= 0 ? bar + 1 : i + 2)
+                if j + 1 < end, s[j] == "]", s[j + 1] == "]", j > i + 2 {
+                    mark(&drop, j, j + 2)
+                    i = j + 2
+                } else {
+                    i = max(j, i + 2)
+                }
+                seenBracket = true
+                continue
+            }
+            if s[i] == "]", i + 1 < end, s[i + 1] == "]", !seenBracket {
+                mark(&drop, i, i + 2)
+                i += 2
+                continue
+            }
+            if s[i] == "[" { seenBracket = true }
+            i += 1
+        }
+    }
+
     /// `code`, **strong** and *emphasis* on one line, CommonMark-flanked; only the markers are removed.
-    static func inline(_ s: [Unicode.Scalar], _ from: Int, _ end: Int, drop: inout [Bool]) {
+    static func inline(_ s: [Unicode.Scalar], _ from: Int, _ end: Int, drop: inout [Bool], underscores: Bool = false) {
         func alnum(_ i: Int) -> Bool { i >= 0 && i < s.count && CharacterSet.alphanumerics.contains(s[i]) }
         func blank(_ i: Int) -> Bool { i < from || i >= end || s[i] == " " || s[i] == "\t" }
+        links(s, from, end, drop: &drop)
         var code = Set<Int>()
         var i = from
         while i < end {
@@ -205,6 +245,23 @@ enum MarkupScan {
             drop[i] = true
             drop[c] = true
             i = c + 1
+        }
+        guard underscores else { return }
+        // `__strong__` then `_em_`: an opener is not glued to a word before it, a closer not to one after it, and
+        // neither touches a space inside — so `snake_case`, `a_b_c` and a lone `_` stay as written.
+        for width in [2, 1] {
+            i = from
+            while i + width <= end {
+                let run = (0..<width).allSatisfy { s[i + $0] == "_" && !drop[i + $0] && !code.contains(i + $0) }
+                let opens = run && !alnum(i - 1) && (i == from || s[i - 1] != "_") && !blank(i + width)
+                    && (i + width >= end || s[i + width] != "_")
+                guard opens, let c = (i + width + 1..<max(i + width + 1, end - width + 1)).first(where: { j in
+                    (0..<width).allSatisfy { s[j + $0] == "_" && !drop[j + $0] && !code.contains(j + $0) }
+                        && !blank(j - 1) && s[j - 1] != "_" && !alnum(j + width) && (j + width >= end || s[j + width] != "_")
+                }) else { i += 1; continue }
+                for k in 0..<width { drop[i + k] = true; drop[c + k] = true }
+                i = c + width
+            }
         }
     }
 }

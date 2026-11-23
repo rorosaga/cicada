@@ -174,7 +174,7 @@ struct AskPanel: View {
                     ForEach(answer.gapRows, id: \.id) { row in
                         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
                             Text("•").foregroundStyle(CicadaTheme.textTertiary)
-                            Text(row.text)
+                            PageLineText(row.text)
                                 .font(CicadaTheme.metaFont)
                                 .foregroundStyle(CicadaTheme.textSecondary)
                         }
@@ -191,7 +191,8 @@ struct AskPanel: View {
             HStack(spacing: 6) {
                 EntityPicture(id: citation.entityId, name: citation.entityName,
                               type: graphVM.nodes.first { $0.id == citation.entityId }?.type ?? .concept, size: 20)
-                Text("[[\(citation.entityName)]]")
+                // The page's own name, as the article's chip draws it — never `[[…]]` (2026-11-23).
+                Text(citation.entityName)
                     .font(CicadaTheme.metaMediumFont)
                     .foregroundStyle(CicadaTheme.accent)
             }
@@ -201,7 +202,7 @@ struct AskPanel: View {
             .background(Capsule().fill(CicadaTheme.accent.opacity(0.12)))
         }
         .buttonStyle(.cicadaPlain)
-        .help(citation.snippet)
+        .pageHelp(citation.snippet)
         .accessibilityLabel("Open \(citation.entityName)")
     }
 

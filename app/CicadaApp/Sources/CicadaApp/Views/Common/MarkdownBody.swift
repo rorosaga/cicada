@@ -42,6 +42,9 @@ import SwiftUI
 struct MarkdownBody: View {
     let text: String
 
+    /// A link reads as the page's own name (2026-11-23), never the id it was written with.
+    @Environment(Store.self) private var store: Store?
+
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             ForEach(Array(MarkdownBlockParser.parse(text).enumerated()), id: \.offset) { _, block in
@@ -55,7 +58,7 @@ struct MarkdownBody: View {
     private func blockView(_ block: MarkdownBlock) -> some View {
         switch block {
         case .heading(let level, let raw):
-            Text(Self.inlineAttributed(raw))
+            Text(Self.inlineAttributed(raw, links: store.links))
                 .font(Self.headingFont(level))
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .textSelection(.enabled)
@@ -63,7 +66,7 @@ struct MarkdownBody: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
         case .paragraph(let raw):
-            Text(Self.inlineAttributed(raw))
+            Text(Self.inlineAttributed(raw, links: store.links))
                 .font(CicadaTheme.bodyFont)
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .textSelection(.enabled)
@@ -77,7 +80,7 @@ struct MarkdownBody: View {
                             .font(CicadaTheme.bodyFont)
                             .foregroundStyle(CicadaTheme.textTertiary)
                             .frame(minWidth: 16, alignment: .trailing)
-                        Text(Self.inlineAttributed(item.text))
+                        Text(Self.inlineAttributed(item.text, links: store.links))
                             .font(CicadaTheme.bodyFont)
                             .foregroundStyle(CicadaTheme.textPrimary)
                             .textSelection(.enabled)
@@ -114,7 +117,7 @@ struct MarkdownBody: View {
                 Rectangle()
                     .fill(CicadaTheme.accent.opacity(0.6))
                     .frame(width: 3)
-                Text(Self.inlineAttributed(raw))
+                Text(Self.inlineAttributed(raw, links: store.links))
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .italic()
@@ -146,8 +149,11 @@ struct MarkdownBody: View {
     /// inline code, real `[text](url)` links) after rewriting wikilinks into
     /// ordinary markdown links. Falls back to a plain (but still-linkified)
     /// string if the markdown parse throws on malformed input.
-    static func inlineAttributed(_ raw: String) -> AttributedString {
-        let prepped = linkifyWikilinks(raw)
+    ///
+    /// `links` (a screen with the graph in reach) makes each wikilink read as the page's own name; nil keeps the
+    /// words it was written under (the entity article's own flow resolves a link from its URL, not its text).
+    static func inlineAttributed(_ raw: String, links: PageLinkIndex? = nil) -> AttributedString {
+        let prepped = linkifyWikilinks(raw, links: links)
         var attr: AttributedString
         if let parsed = try? AttributedString(
             markdown: prepped,
@@ -179,7 +185,7 @@ struct MarkdownBody: View {
     /// Internal (not `private`) so `MarkdownWikilinkTests` can assert the
     /// rewrite directly, including the `[[id|Alias]]` and encoding cases,
     /// without round-tripping through `AttributedString(markdown:)`.
-    static func linkifyWikilinks(_ text: String) -> String {
+    static func linkifyWikilinks(_ text: String, links: PageLinkIndex? = nil) -> String {
         guard let regex = try? NSRegularExpression(pattern: "\\[\\[([^\\[\\]|]+)(?:\\|([^\\[\\]]+))?\\]\\]") else {
             return text
         }
@@ -192,11 +198,22 @@ struct MarkdownBody: View {
             let alias = match.range(at: 2).location != NSNotFound
                 ? ns.substring(with: match.range(at: 2)).trimmingCharacters(in: .whitespaces)
                 : nil
-            let display = alias ?? name
+            let display = links.map { $0.resolve(name).map { escaped($0.name) } ?? alias ?? PageLine.humanised(name) }
+                ?? alias ?? name
             out += "[\(display)](\(entityLink(for: name)))"
             lastEnd = match.range.location + match.range.length
         }
         out += ns.substring(from: lastEnd)
+        return out
+    }
+
+    /// A page's own name as the text of a markdown link: its brackets and emphasis marks are the name's, not syntax.
+    private static func escaped(_ name: String) -> String {
+        var out = ""
+        for ch in name {
+            if "\\[]*_`".contains(ch) { out.append("\\") }
+            out.append(ch)
+        }
         return out
     }
 

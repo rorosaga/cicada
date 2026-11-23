@@ -137,7 +137,7 @@ struct CatchupView: View {
                     .font(CicadaTheme.icon(.list))
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .accessibilityHidden(true)
-                Text(text)
+                PageLineText(text)
                     .font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                 if session.undoableId == heldId {
@@ -147,7 +147,7 @@ struct CatchupView: View {
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         case .aside(let text):
-            Text(text)
+            PageLineText(text)
                 .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -174,7 +174,7 @@ struct CatchupView: View {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 SectionLabel(Copy.Catchup.speaker)
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    Text(text)
+                    PageLineText(text)
                         .font(CicadaTheme.detailBodyFont)
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .textSelection(.enabled)
@@ -211,7 +211,7 @@ struct CatchupView: View {
                 // Only their raw words with no model to read them wait for a tap; a clear reading has already applied.
                 if let pending = session.confirmation {
                     HStack(spacing: CicadaTheme.spacingSM) {
-                        Text(pending.label)
+                        PageLineText(pending.label)
                             .font(CicadaTheme.bodyFont)
                             .foregroundStyle(CicadaTheme.textPrimary)
                         NeutralButton(title: Copy.Catchup.yes, size: .compact) { session.confirm() }
@@ -227,9 +227,9 @@ struct CatchupView: View {
                         ForEach(chips) { chip in
                             switch chip.role {
                             case .answer:
-                                NeutralButton(title: chip.label, size: .compact) { session.tap(chip) }
+                                NeutralButton(title: PageLine.plain(chip.label, links: store.linkIndex), size: .compact) { session.tap(chip) }
                             case .notNow, .skip:
-                                TextButton(title: chip.label) { session.tap(chip) }
+                                TextButton(title: PageLine.plain(chip.label, links: store.linkIndex)) { session.tap(chip) }
                             }
                         }
                         if chips.allSatisfy({ $0.role != .answer }), FocusCardVariant.of(item) != .freeText {

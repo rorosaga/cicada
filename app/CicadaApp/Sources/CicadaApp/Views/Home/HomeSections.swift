@@ -454,10 +454,13 @@ struct LeadQuestionCard: View {
     let startCatchup: ([String]) -> Void
     let open: () -> Void
 
+    @Environment(Store.self) private var store: Store?
+
     /// The question's hover and, for a reader with no pointer, its hint: what it is, the reason, the page, the age, how
     /// many more wait.
     private var help: String {
-        var lines: [String?] = [Copy.Catchup.answerHelp + " · " + row.kind.label, row.reason]
+        var lines: [String?] = [Copy.Catchup.answerHelp + " · " + row.kind.label,
+                                row.reason.map { PageLine.plain($0, links: store.links) }]
         if !row.entityId.isEmpty { lines.append(row.entityName) }
         if row.age != "—" { lines.append(row.ageHelp) }
         if total > 1 { lines.append(Copy.Catchup.allQuestions(total)) }
@@ -479,7 +482,7 @@ struct LeadQuestionCard: View {
                     // 15 pt medium: under the field's 17 pt, so the field leads and this is what it asks. Balanced, so
                     // the lines come out even whatever the string (no word left alone on the last line).
                     BalancedLines {
-                        Text(row.question)
+                        PageLineText(row.question)
                             .font(CicadaTheme.font(size: 15, weight: .medium))
                             .foregroundStyle(CicadaTheme.textPrimary)
                             .fixedSize(horizontal: false, vertical: true)
