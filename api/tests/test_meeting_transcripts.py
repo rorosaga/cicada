@@ -478,8 +478,10 @@ def test_stage_1_names_the_speakers_before_it_reads_and_never_asks_without_a_pla
     monkeypatch.setattr(entity_extractor, "_extract_chunk", chunk)
     ep = {"id": "ep_2026-11-23_001", "content": TRANSCRIPT, "timestamp": "2026-11-23T10:00:00", "origin": "folder",
           **_meeting("Speaker 1", "Speaker 2")}
-    asyncio.run(entity_extractor.extract([ep], Settings()))
+    out = asyncio.run(entity_extractor.extract([ep], Settings()))
     assert len(calls) == 1 and 'Lines starting "speaker:speaker-1:" are Dana' in notes[0]
+    # Slice 2: the voice left unnamed travels to Stage 5.4c, which asks the person.
+    assert out[0][meeting_speakers.RESULT_KEY] == {"named": ["Dana"], "unnamed": ["speaker:speaker-2"]}
     calls.clear(); notes.clear()
     asyncio.run(entity_extractor.extract([{**ep, **_meeting("Dana Example")}], Settings()))
     assert calls == [] and "placeholder" not in notes[0]
