@@ -89,7 +89,8 @@ THING: {name}
 Reply with JSON only, one answer per line you can name: {{"answers": [{{"line": <line number>, "in_full_by": <the other \
 line's number>}}]}}"""
 
-CHECK = """A page may delete a line (DROP) only if another line (KEEP) already says everything it says.
+CHECK = """A page about ONE thing ({thing}) may delete a line (DROP) only if another line (KEEP) already says everything \
+it says. Every line is about {thing}: a line that names it and a line that leaves its name out say the same.
 
 For each pair, list what DROP says that KEEP does not: each date, number, name, amount, qualifier, reason, relation, \
 tense or negation. Write [] when there is nothing. {names}
@@ -303,6 +304,9 @@ def covers(keep: str, drop: str, *, allowed=frozenset(), people: "People | None"
     ``people`` (`People`): the pages this page relates to. Every mention of one, linked or plain, is first read as that
     page's name, and a neighbour the drop means must be one the keep means too.
 
+    Last, the keeper must use most of the dropped line's own words (``MIN_SHARED``): the reader's word that two lines
+    say the same is not taken when they share only their names and numbers. A translated repeat is therefore kept.
+
     Language-bound where a word list is: negation and tense words are English and Spanish (`fact_policy`), months and
     weekdays six languages; the digits and the names hold in every language."""
     if people:
@@ -314,7 +318,26 @@ def covers(keep: str, drop: str, *, allowed=frozenset(), people: "People | None"
         return False
     if not _calendar(drop) <= _calendar(keep):
         return False
-    return anchors(drop) <= (_words(keep) | frozenset(allowed))
+    if not anchors(drop) <= (_words(keep) | frozenset(allowed)):
+        return False
+    return _shared(drop, keep, frozenset(allowed)) >= MIN_SHARED
+
+
+#: The least share of a dropped line's own words its keeper must also use. Read on real pages (2026-11-24): the folds
+#: that lost something shared 0.38 and 0.50 (a line saying ALL of a set was of one kind, folded into a count of that
+#: kind; a run's name dropped), every sound one 0.67 or more. A reworded line shares most of its words; a line that
+#: shares few is another fact about the same names and numbers, or a translation, and both are kept.
+MIN_SHARED = 0.6
+MIN_WORDS = 4
+
+
+def _shared(drop: str, keep: str, allowed: frozenset[str]) -> float:
+    """The share of ``drop``'s content words (`fact_policy._profile`) that ``keep`` uses too, the allowed names aside."""
+    mine = {w for w in fact_policy._profile(drop)[0] if len(w) > 2} - allowed
+    if len(mine) < MIN_WORDS:
+        return 1.0    # a line of two or three words is one synonym away from any floor; its names and numbers guard it
+    theirs = fact_policy._profile(keep)[0] | _words(keep)
+    return len(mine & theirs) / len(mine)
 
 
 # --------------------------------------------------------------------------- what to ask
@@ -463,7 +486,8 @@ def checks(pairs: list[tuple[Line, Line]], ask: Ask, judge: Callable[[str], dict
     if not pairs:
         return []
     rows = [f"{i}. DROP: {d.text}\n   KEEP: {k.text}" for i, (d, k) in enumerate(pairs, 1)]
-    reply = judge(CHECK.format(names=_names_block(ask).replace("\n", " ").strip(), pairs="\n".join(rows)))
+    reply = judge(CHECK.format(thing=ask.name, names=_names_block(ask).replace("\n", " ").strip(),
+                                pairs="\n".join(rows)))
     raw = reply.get("pairs") if isinstance(reply, dict) else None
     ok: set[int] = set()
     for answer in raw if isinstance(raw, list) else []:

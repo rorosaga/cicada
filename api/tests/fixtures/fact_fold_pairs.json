@@ -20,7 +20,7 @@
       "keep": "Likes jazz and plays the saxophone on weekends.",
       "drop": "Le gusta el jazz y toca el saxofón los fines de semana.",
       "fold": true,
-      "guard": true
+      "guard": false
     },
     {
       "id": "alias_and_owner",

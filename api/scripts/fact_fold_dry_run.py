@@ -4,6 +4,8 @@
     api/.venv/bin/python -m api.scripts.fact_fold_dry_run --bank <copy> --out <dir> --judge --limit 20  # + the judge
     api/.venv/bin/python -m api.scripts.fact_fold_dry_run --pairs --out <dir> [--judge]                  # invented pairs
 
+(The one-time heal of pages already written, with its own plan and apply steps, is ``fact_fold_heal``.)
+
 **What is replayed.** A write folds a fact the page already says only when that write brings a fact no bullet equals.
 To show what the next write of each page would do, each machine page with 2+ Key Facts is replayed as one: its newest
 bullets that an earlier, different bullet resembles (shared words, names or numbers) arrive as NEW (at most

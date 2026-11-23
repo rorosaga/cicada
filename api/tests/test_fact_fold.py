@@ -54,7 +54,8 @@ def test_a_yes_to_everything_still_loses_no_date_number_name_or_negation():
         if found and not pair["fold"]:
             (blind_slips if pair.get("blind") else folded).append(pair["id"])
         if pair["fold"]:
-            assert found == {pair["drop"]: pair["keep"]}, pair["id"]
+            # A translated repeat shares too few words with its keeper (`MIN_SHARED`): kept, a miss and never a loss.
+            assert found == ({pair["drop"]: pair["keep"]} if pair["guard"] else {}), pair["id"]
     assert folded == []                      # nothing the code can see is ever lost
     assert sorted(blind_slips) == ["artist_for_album", "done_for_plan", "other_relation"]   # the model's alone
 
@@ -444,3 +445,15 @@ def test_a_chain_across_writes_still_ends_with_one_line_holding_every_conversati
     assert _facts(parsed) == ["Moved to Berlin in March 2026"]
     assert _episodes(parsed, "Moved to Berlin in March 2026") == {
         "ep_2026-11-01_001", "ep_2026-11-10_001", "ep_2026-11-19_001"}
+
+
+def test_two_lines_that_share_only_their_names_and_numbers_do_not_fold():
+    """Read on a real page (invented words here): a line saying ALL of a set is of one kind is not a count of that kind."""
+    keep = "The app recorded 11 saved posts, 19 history posts and 9 subscribed publications from the Example account."
+    drop = "All nine of the followed feeds in the app are Example feeds."
+    assert not fact_fold.covers(keep, drop)
+    # a reworded line shares most of its words and still folds
+    assert fact_fold.covers("Listed as head of sales at Example Labs in the conference contacts note.",
+                            "Listed in the conference contacts note as head of sales at Example Labs.")
+    # a very short line is left to its names and numbers
+    assert fact_fold.covers("Enjoys jazz a lot, and says so often", "Likes jazz")
