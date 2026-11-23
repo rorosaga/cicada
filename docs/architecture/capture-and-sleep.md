@@ -2107,6 +2107,34 @@ to cascade, but being aware tho. This is smth that should extend to all sources"
   events (`happened`/`milestone`) stay `progress.py`'s; the live bank's one pre-existing duplicate meeting is not
   repaired.
 
+**An agent's edit of a source is a contribution (G244, owner 2026-11-23: "if you come and change something in the
+transcript for example … that 'contribution' should be documented, with your model, harness, etc. even if it is the raw
+file directly"; TODO ruling 76; plan `docs/plans/2026-11-23-agent-source-edits.md`).** An agent that edits a raw file in a
+watched folder was invisible: the app posts the new bytes, the folder stager records a revision, and the corrected words
+read as the recorder's. Now the edit is recorded by a hook, never by the agent's memory (G105's rule):
+- **The door.** Claude Code's `PostToolUse` on `Edit|Write|MultiEdit|NotebookEdit` runs `cicada-hook source-edit`
+  (`api/hooks/source_edit.py`, stdlib, run by path). It matches the edited file against `GET /sources/folders` (cached in
+  `$CICADA_HOME/state/source-edit-folders.json` for 60 s, so an edit outside every folder costs no request and no log
+  line), requires a regular file under a folder's resolved root (a symlink is never followed; the longest root wins; a
+  file the folder's globs exclude or past the app's 2 MB sync cap posts nothing), hashes its bytes (sha256, the app's
+  `FolderScanner.sha256`) and posts `{folder_id, relpath, sha256, harness, session_id, transcript_path?, tool, at}` to
+  `POST /capture/source-edit`. The backend never opens the path and the post carries no word of the file. The log line is
+  an outcome and a count (`attached: 1 episode`), never a path. A shell command's edit is not seen by a hook: the agent
+  declares it with `cicada source-edit <file>` (the CLI names the calling session). Never a heuristic over mtimes: a wrong
+  attribution is worse than none.
+- **Matched by content, either order** (`source_edits`): the record waits outside every bank and git keyed by
+  `(folder_id, sha256)` for 7 days; the stager attaches it to the episode(s) it writes for a file with that hash, or, when
+  the sync landed first, it attaches at once to the episodes whose `content_sha` and folder match (one commit, the agent
+  as `Cicada-Author`, its session as `Cicada-Session`). A split note's contribution lands on each section whose body
+  changed. The episode keeps `contributions: [{harness, model, effort, session, at, content_hash, ranges}]` (`storage.md`).
+- **Said where the words are drawn.** A span that overlaps a contribution's `ranges` while the body is still the one it
+  edited is `correctedBy {harness, model?, at}`; the app notes it beside the citation, "Corrected by <harness> · <model>",
+  and the Corrections section of a run says "Edited by <harness>". The line stays its speaker's words: trust, evidence
+  kind and speaker are unchanged, and the agent is named, never trusted more or less.
+- **Left:** Cursor (`afterFileEdit`), Codex and Gemini hooks post the same record (G244 follow-ups); an agent's direct
+  edit of the bank itself is already forbidden by the contract and is not detected here; a folder added in the last
+  minute is seen after the hook's cache expires.
+
 **A title is never joined on the name alone when it could be two things (G227, 2026-10-29).** Stage 2's exact-title
 join used to take whichever page held the name (one per title in `existing_by_name`, last writer wins), whatever its
 kind: a program said where only an IDE had the name landed on the IDE's page. Now an exact title joins only the one page

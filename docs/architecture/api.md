@@ -692,6 +692,14 @@ the person so the rule never archives it again; demo-gated and forwarded by a re
 answers `resend` (relpaths): files of a meeting whose held file was deleted, which the app drops from its manifest and
 posts again (or reports deleted). A span, provenance row and page citation carry `sourceRemoved` (boolean) when the
 source episode was deleted (`source_spans` shape `spans2`, `page_blocks` `blocks-6`, provenance `removed1`).
+**`POST /capture/source-edit`** (G244, TODO ruling 76; demo-gated, Awake: no Sleep gate, no model, the capture token or a
+device token) `{folder_id, relpath, sha256, harness, session_id, transcript_path?, tool, at}` → `{status: "attached" |
+"held" | "refused", episodes, reason?}`: an agent's own file tool edited a file in a watched folder, and its hook posts the
+file's hash and never its words; `held` waits for the folder sync to stage that hash (7 days), `refused` names an enum
+(`reason`: an unknown folder, a path outside its globs, a session or harness the route will not take). The backend never
+opens `relpath` (the `~/Library` rail). A span, provenance row and page citation carry `correctedBy`
+(`{harness, model?, at} | null`) beside `sourceRemoved` (`source_spans`); a run's `corrections.revised` entries may carry
+`by` (the harness). The route is a capture write, so `/v1` generation and `/mcp` have no tool for it.
 
 **What one consolidation read and wrote (owner 2026-10-26, the run card).** `GET /sleep/runs/{id}/items` (a run's batch
 commits, from its `sleep_run` ledger rows; 404 for an unknown run) and `GET /sleep/history/{commit}/items` (one Sleep

@@ -37,6 +37,10 @@ MCP_SHIM = PLUGIN / "scripts" / "cicada-mcp"
 
 CAPTURE_EVENTS = {"Stop", "PreCompact", "SessionEnd"}
 RECALL_EVENTS = {"SessionStart", "UserPromptSubmit"}
+#: G244: the tool event that records an agent's edit of a watched source file, matched on Claude Code's file tools.
+SOURCE_EDIT_EVENTS = {"PostToolUse"}
+SOURCE_EDIT_MATCHER = "Edit|Write|MultiEdit|NotebookEdit"
+ALL_EVENTS = CAPTURE_EVENTS | RECALL_EVENTS | SOURCE_EDIT_EVENTS
 USER_CONFIG_FIELDS = {"type", "title", "description", "required", "default", "options", "multiple", "sensitive",
                       "min", "max"}
 
@@ -114,25 +118,29 @@ def _commands() -> dict[str, list[str]]:
 
 def test_every_capture_and_recall_event_runs_the_plugin_s_own_hook_script():
     commands = _commands()
-    assert set(commands) == CAPTURE_EVENTS | RECALL_EVENTS, "the same five events install.sh registers"
+    assert set(commands) == ALL_EVENTS, "the same events install.sh registers"
     for event, cmds in commands.items():
         assert len(cmds) == 1, f"{event}: one entry per event, never a second firing"
-        kind = "capture" if event in CAPTURE_EVENTS else "recall"
+        kind = ("capture" if event in CAPTURE_EVENTS else "source-edit" if event in SOURCE_EDIT_EVENTS else "recall")
         assert cmds[0] == f'"${{CLAUDE_PLUGIN_ROOT}}"/scripts/cicada-hook {kind} --harness claude-code'
-    for entries in _json(HOOKS)["hooks"].values():
+    for event, entries in _json(HOOKS)["hooks"].items():
         for entry in entries:
-            assert "matcher" not in entry and all(h["timeout"] == hook_registry.DEFAULT_TIMEOUT_S
-                                                  for h in entry["hooks"])
+            if event in SOURCE_EDIT_EVENTS:
+                assert entry["matcher"] == SOURCE_EDIT_MATCHER, "only Claude Code's file tools fire it"
+            else:
+                assert "matcher" not in entry
+            assert all(h["timeout"] == hook_registry.DEFAULT_TIMEOUT_S for h in entry["hooks"])
 
 
 def test_the_hook_and_mcp_scripts_exist_are_executable_and_reach_cicada_s_own_scripts():
     for shim in (HOOK_SHIM, MCP_SHIM):
         assert shim.is_file() and os.access(shim, os.X_OK), shim
         assert subprocess.run(["sh", "-n", str(shim)]).returncode == 0
-    for name in ("capture", "recall"):
+    for name in ("capture", "recall", "source_edit"):
         assert (ROOT / "api" / "hooks" / f"{name}.py").is_file()
     launchers = (ROOT / "scripts" / "release" / "write-launchers.sh").read_text()
     assert "capture|recall|registry|cursor|cursor_registry)" in launchers, "the app's cicada-hook takes these names"
+    assert "source-edit) name=source_edit; shift ;;" in launchers, "and the source-edit hook (G244) by its dashed name"
     server = _json(MCP)["mcpServers"]
     assert list(server) == ["cicada"]
     assert server["cicada"]["command"] == "${CLAUDE_PLUGIN_ROOT}/scripts/cicada-mcp"
@@ -226,6 +234,22 @@ def test_cicada_recall_off_silences_the_plugin_s_recall_too(tmp_path):
     off = _run(HOOK_SHIM, ["recall", "--harness", "claude-code"], _env(home, CICADA_RECALL="off"))
     assert (off.returncode, off.stdout) == (0, "")
     assert "argv:capture" in _run(HOOK_SHIM, ["capture"], _env(home, CICADA_RECALL="off")).stdout
+
+
+def test_the_source_edit_hook_runs_the_launcher_and_a_checkout_s_underscored_script(tmp_path):
+    home, repo = tmp_path / "home", tmp_path / "checkout"
+    _echo_exe(home / ".cicada" / "bin" / "cicada-hook")
+    payload = '{"session_id":"s","tool_name":"Edit"}'
+    done = _run(HOOK_SHIM, ["source-edit", "--harness", "claude-code"], _env(home, CICADA_CAPTURE="off"), stdin=payload)
+    assert "argv:source-edit --harness claude-code" in done.stdout and f"stdin:{payload}" in done.stdout
+    _echo_exe(repo / "api" / ".venv" / "bin" / "python")
+    (repo / "api" / "hooks").mkdir(parents=True)
+    (repo / "api" / "hooks" / "source_edit.py").write_text("")
+    done = _run(HOOK_SHIM, ["source-edit", "--harness", "claude-code"],
+                _env(home, CLAUDE_PLUGIN_OPTION_CICADA_REPO=str(repo)), stdin=payload)
+    assert f"argv:{repo}/api/hooks/source_edit.py --harness claude-code" in done.stdout
+    off = _run(HOOK_SHIM, ["source-edit"], _env(home, CLAUDE_PLUGIN_OPTION_RECALL="off"))
+    assert "argv:source-edit" in off.stdout, "Remember automatically (recall) never silences the source-edit hook"
 
 
 def test_an_unknown_hook_name_runs_nothing(tmp_path):
@@ -428,7 +452,7 @@ def test_an_enabled_plugin_that_cannot_run_keeps_install_sh_s_entries(tmp_path, 
     capture and no tools. They stay, and install.sh says how to finish the switch."""
     out, settings = _install(tmp_path, plugin=True, installed=installed, launcher=launcher)
     events = sorted(re.search(r"--event (\S+)", line).group(1) for line in _claude_registrations(out, settings))
-    assert events == sorted(CAPTURE_EVENTS | RECALL_EVENTS), "install.sh registers Claude Code as before"
+    assert events == sorted(ALL_EVENTS), "install.sh registers Claude Code as before"
     assert f"registry.py uninstall --settings {settings}" not in out and "claude mcp remove" not in out
     assert "enabled but" in out and why in out and "keeping this script's Claude Code entries" in out
     assert "fix: /plugin install cicada@cicada" in out
@@ -451,7 +475,9 @@ def test_handing_over_keeps_a_recall_off_choice(tmp_path):
 def test_with_the_plugin_off_install_sh_registers_claude_code_as_before(tmp_path):
     out, settings = _install(tmp_path, plugin=False)
     events = sorted(re.search(r"--event (\S+)", line).group(1) for line in _claude_registrations(out, settings))
-    assert events == sorted(CAPTURE_EVENTS | RECALL_EVENTS)
+    assert events == sorted(ALL_EVENTS)
+    assert any("--event PostToolUse" in line and f"--matcher {SOURCE_EDIT_MATCHER}" in line and "source_edit.py" in line
+               for line in _claude_registrations(out, settings)), "with the file tools' matcher"
     assert "claude mcp remove" not in out and "through its plugin" not in out
 
 
@@ -629,3 +655,27 @@ def test_check_version_holds_the_plugin_manifest_to_version(tmp_path):
     manifest.write_text(json.dumps({"name": "cicada", "version": "1.2.2"}))
     with pytest.raises(check_version.VersionError, match="plugin.json"):
         check_version.agree(tmp_path)
+
+
+def test_the_registry_installs_the_source_edit_hook_with_its_matcher_and_removes_it_with_the_others(tmp_path):
+    """G244: the one PostToolUse entry carries a matcher; a second install is idempotent; ``uninstall`` takes it with the
+    capture and recall entries and leaves another tool's PostToolUse hook; ``--hook source-edit`` takes only it."""
+    settings = tmp_path / "settings.json"
+    other = {"matcher": "Bash", "hooks": [{"type": "command", "command": "some-other-tool --after-bash"}]}
+    settings.write_text(json.dumps({"hooks": {"PostToolUse": [other]}}))
+    command = '"/x/api/.venv/bin/python" "/x/api/hooks/source_edit.py" --harness claude-code'
+    assert hook_registry.install(settings, event="PostToolUse", command=command, matcher=SOURCE_EDIT_MATCHER) == "added"
+    assert hook_registry.install(settings, event="PostToolUse", command=command, matcher=SOURCE_EDIT_MATCHER) == "present"
+    entries = _json(settings)["hooks"]["PostToolUse"]
+    assert entries[0] == other and entries[1]["matcher"] == SOURCE_EDIT_MATCHER
+    assert hook_registry.status(settings, event="PostToolUse", command=command) == "present"
+    hook_registry.install(settings, event="Stop", command='"/x/.venv/bin/python" "/x/api/hooks/capture.py" '
+                                                        "--harness claude-code")
+    assert hook_registry.uninstall(settings, hook="recall") == 0, "turning recall off never touches the source-edit hook"
+    assert hook_registry.uninstall(settings, hook="source-edit") == 1
+    assert _json(settings)["hooks"]["PostToolUse"] == [other] and "Stop" in _json(settings)["hooks"]
+    hook_registry.install(settings, event="PostToolUse", command=command, matcher=SOURCE_EDIT_MATCHER)
+    release = '"/Users/x/.cicada/bin/cicada-hook" source-edit --harness claude-code'
+    assert hook_registry.install(settings, event="PostToolUse", command=release, matcher=SOURCE_EDIT_MATCHER) == "updated"
+    assert hook_registry.uninstall(settings) == 2, "the release launcher's form is ours too, and so is capture"
+    assert _json(settings)["hooks"] == {"PostToolUse": [other]}

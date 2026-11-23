@@ -23,6 +23,12 @@ struct CorrectionsSection: View {
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if let edited = CorrectionsPresentation.editedByLine(c) {
+                    Text(edited)   // G244: who edited the source files, in the same quiet line (DR-38: said once)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if let archived = CorrectionsPresentation.archivedLine(c) {
                     Text(archived)
                         .font(CicadaTheme.metaFont)

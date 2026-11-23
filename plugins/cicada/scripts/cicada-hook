@@ -1,7 +1,7 @@
 #!/bin/sh
 # Cicada's Claude Code plugin: run one of Cicada's own hooks with the hook's stdin, unchanged.
 #
-#   cicada-hook capture|recall --harness claude-code
+#   cicada-hook capture|recall|source-edit --harness claude-code
 #
 # Which Cicada runs it, in order: the source checkout named in the plugin's settings (cicada_repo: a developer
 # build, its api/.venv), else the Cicada app's launcher in $CICADA_HOME/bin (a release, G182). With neither, one line
@@ -11,9 +11,12 @@
 # only under the harness root (G105).
 name="${1:-}"
 case "$name" in
-  capture|recall) shift ;;
-  *) echo "cicada plugin: usage: cicada-hook capture|recall [args]" >&2; exit 0 ;;
+  capture|recall|source-edit) shift ;;
+  *) echo "cicada plugin: usage: cicada-hook capture|recall|source-edit [args]" >&2; exit 0 ;;
 esac
+# source-edit (G244, a PostToolUse hook on Claude Code's file tools) is api/hooks/source_edit.py; the launcher takes
+# the dashed name as the plugin does.
+file="$(printf '%s' "$name" | tr - _)"
 
 # Recall off — the plugin's Remember automatically setting, or CICADA_RECALL=off (the person's switch everywhere else,
 # which recall.py also honours): the recall hooks do nothing. Capture is unaffected.
@@ -35,7 +38,7 @@ esac
 
 if [ -n "$repo" ]; then
   py="$repo/api/.venv/bin/python"
-  script="$repo/api/hooks/$name.py"
+  script="$repo/api/hooks/$file.py"
   if [ -x "$py" ] && [ -f "$script" ]; then
     exec "$py" "$script" "$@"
   fi
