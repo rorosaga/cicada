@@ -11,17 +11,26 @@ struct SavedWhyWrite: Mutation {
     let answer: SavedWhyAnswer
     let answers: Binding<[SavedWhyRecord]>
     let labels: [String: String]
+    /// 2026-11-23 (owner: "inside the app I tried adding it but it gave me an error because Cicada is currently
+    /// sleeping") — where an answer the backend cannot take yet goes (the notch panel's outbox, sent when Sleep lets
+    /// go). Nil: a refusal fails the write as before.
+    let hold: (@MainActor (SavedWhyAnswer, String?) -> Void)?
     private let previous = MutationMemo<[SavedWhyRecord]>()
     private let failure = MutationMemo<any Error>()
+    private let heldMemo = MutationMemo<Bool>()
 
     init(url: String, at: String?, answer: SavedWhyAnswer, answers: Binding<[SavedWhyRecord]>,
-         labels: [String: String] = [:]) {
+         labels: [String: String] = [:], hold: (@MainActor (SavedWhyAnswer, String?) -> Void)? = nil) {
         self.url = url
         self.at = at
         self.answer = answer
         self.answers = answers
         self.labels = labels
+        self.hold = hold
     }
+
+    /// The backend could not take it (Sleep writing, the backend away): it is held and goes when Sleep lets go.
+    var wasHeld: Bool { heldMemo.value == true }
 
     func optimistic(_ store: Store) async {
         previous.value = answers.wrappedValue
@@ -35,6 +44,13 @@ struct SavedWhyWrite: Mutation {
             else { answers.wrappedValue = Self.applying(answer, at: at, to: previous.value ?? [], labels: labels,
                                                         record: reply.savedWhy) }
         } catch {
+            if let hold, SaveWhyOutbox.verdict(for: error, editing: at != nil) == .hold {
+                // Never an error for a wait: the page keeps the backend's list and shows the held answer beside it.
+                hold(answer, at)
+                heldMemo.value = true
+                if let previous = previous.value { answers.wrappedValue = previous }
+                return
+            }
             failure.value = error
             throw error
         }

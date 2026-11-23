@@ -586,8 +586,26 @@ struct SavedWhyRecord: Codable, Equatable, Sendable, Hashable {
     var at: String? = nil
     var addedAt: String? = nil
     var editedAt: String? = nil
+    /// 2026-11-23 — where it was given, as an origin key ("chrome-bookmark", "cicada"); nil before this was recorded.
+    var via: String? = nil
+    /// 2026-11-23 — what this answer said before each edit, oldest first (`at`: when those words were set).
+    var before: [SavedWhyEarlier]? = nil
+    /// Client-only: an answer the app holds because the backend could not take it yet (Sleep writing, the backend
+    /// away) — shown on the page, sent when Sleep lets go. Never on the wire.
+    var held: Bool? = nil
 
     var answer: SavedWhyAnswer { SavedWhyAnswer(reasons: reasons, project: project, text: text) }
+    var isHeld: Bool { held == true }
+}
+
+/// 2026-11-23 — an edited answer's earlier wording, for the page's history.
+struct SavedWhyEarlier: Codable, Equatable, Sendable, Hashable {
+    var reasons: [String] = []
+    var labels: [String] = []
+    var project: String? = nil
+    var text: String? = nil
+    var at: String? = nil
+    var via: String? = nil
 }
 
 /// G191 v3 — `POST`/`PUT /sources/saved-why`'s answer: the answer written and every answer on the link now.
@@ -610,13 +628,26 @@ struct SavedWhyAnswer: Codable, Equatable, Sendable {
     var reasons: [String] = []
     var project: String? = nil
     var text: String? = nil
+    /// 2026-11-23 — where the person gave it (an origin key: the browser's bookmark origin, or "cicada" for the
+    /// bookmark's page). Stamped when it is sent, never part of what the person chose.
+    var via: String? = nil
 
     var isEmpty: Bool { reasons.isEmpty && project == nil && (text?.isEmpty ?? true) }
+
+    /// The same answer, given in `origin`.
+    func given(in origin: String?) -> SavedWhyAnswer { var out = self; out.via = origin; return out }
+
+    /// Two answers are the same answer when the person chose the same things; where it was given (`via`) is a stamp on
+    /// the way out, so a panel left unchanged is never an edit and a held answer is found again by what it says.
+    static func == (lhs: SavedWhyAnswer, rhs: SavedWhyAnswer) -> Bool {
+        lhs.reasons == rhs.reasons && lhs.project == rhs.project && lhs.text == rhs.text
+    }
 
     var body: [String: Any] {
         var out: [String: Any] = ["reasons": reasons]
         if let project { out["project"] = project }
         if let text, !text.isEmpty { out["text"] = text }
+        if let via { out["via"] = via }
         return out
     }
 }
@@ -2642,19 +2673,35 @@ actor APIClient {
 
     /// G191 — the person's answer, attached by the backend to that bookmark's episode (`POST /sources/saved-why`).
     func saveWhy(url: String, answer: SavedWhyAnswer, at: Date, addedAt: String?) async throws {
-        var body = answer.body
-        body["url"] = url
-        body["at"] = ISO8601DateFormatter().string(from: at)
-        if let addedAt { body["addedAt"] = addedAt }
-        try await post("/sources/saved-why", body: body)
+        try await Self.withoutViaOnAnOlderBackend(answer) { answer in
+            var body = answer.body
+            body["url"] = url
+            body["at"] = ISO8601DateFormatter().string(from: at)
+            if let addedAt { body["addedAt"] = addedAt }
+            try await self.post("/sources/saved-why", body: body)
+        }
+    }
+
+    /// 2026-11-23 — `via` is new on the wire, and the saved-why routes refuse a field they do not know (422), which
+    /// the outbox reads as "never retry". A backend older than the app (a headless home not yet updated) must still
+    /// get the person's words: on a 422 that names `via`, the answer goes once more without it.
+    static func withoutViaOnAnOlderBackend<T>(_ answer: SavedWhyAnswer,
+                                              _ send: (SavedWhyAnswer) async throws -> T) async throws -> T {
+        do {
+            return try await send(answer)
+        } catch APIError.httpError(422, let detail) where answer.via != nil && detail.contains("via") {
+            return try await send(answer.given(in: nil))
+        }
     }
 
     /// G191 v3 — the person changes one answer (`PUT /sources/saved-why`), named by when it was given.
     func editSavedWhy(url: String, at: String, answer: SavedWhyAnswer) async throws -> SavedWhyReply {
-        var body = answer.body
-        body["url"] = url
-        body["at"] = at
-        return try await put("/sources/saved-why", body: body)
+        try await Self.withoutViaOnAnOlderBackend(answer) { answer in
+            var body = answer.body
+            body["url"] = url
+            body["at"] = at
+            return try await self.put("/sources/saved-why", body: body)
+        }
     }
 
     /// G191 v3 — the bookmark page's write: an edit when `at` names an answer, else a new one.
@@ -2665,10 +2712,12 @@ actor APIClient {
 
     /// G191 v3 — a reason added from the bookmark's page (`POST /sources/saved-why`), answered now.
     func addSavedWhy(url: String, answer: SavedWhyAnswer) async throws -> SavedWhyReply {
-        var body = answer.body
-        body["url"] = url
-        body["at"] = ISO8601DateFormatter().string(from: Date())
-        return try await post("/sources/saved-why", body: body)
+        try await Self.withoutViaOnAnOlderBackend(answer) { answer in
+            var body = answer.body
+            body["url"] = url
+            body["at"] = ISO8601DateFormatter().string(from: Date())
+            return try await self.post("/sources/saved-why", body: body)
+        }
     }
 
     /// G191 v3 — forget a bookmark in Cicada (`POST /sources/bookmarks/remove`): the page archived, never deleted.

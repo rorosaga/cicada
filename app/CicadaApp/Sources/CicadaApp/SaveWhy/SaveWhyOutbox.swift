@@ -16,6 +16,8 @@ import Foundation
 /// rail: no answer until a sync confirms the bookmark), and a 404 holds it for the next sync rather than dropping it.
 struct SaveWhyOutbox {
     static let key = "cicada.saveWhy.pending"
+    /// Posted whenever the held answers change, so a bookmark's page shows what waits (2026-11-23).
+    static let didChange = Notification.Name("cicada.saveWhy.outboxChanged")
     /// Matches `saved_why.MAX_CLIENT_AGE`: an older `at` would be refused anyway.
     static let maxAge: TimeInterval = 24 * 60 * 60
     /// A small queue: one answer per link, and a stuck backend must not grow it forever.
@@ -68,6 +70,7 @@ struct SaveWhyOutbox {
             return (try? JSONDecoder().decode([Entry].self, from: data)) ?? []
         }
         nonmutating set {
+            defer { NotificationCenter.default.post(name: Self.didChange, object: nil) }
             if newValue.isEmpty { defaults.removeObject(forKey: Self.key); return }
             defaults.set(try? JSONEncoder().encode(Array(newValue.suffix(Self.capacity))), forKey: Self.key)
         }
@@ -103,4 +106,58 @@ struct SaveWhyOutbox {
     func discardAwaiting(url: String) { entries = entries.filter { !($0.isAwaiting && $0.url == url) } }
 
     func expired(_ entry: Entry, now: Date) -> Bool { now.timeIntervalSince(entry.at) > Self.maxAge }
+
+    /// 2026-11-23 (owner: "every time I write a reason for saving something, it should save in the app") — an answer
+    /// written on a bookmark's page while the backend could not take it. A second edit of the same answer replaces the
+    /// first held one; an edit of an answer that is itself still held changes that one in place (it is not on the
+    /// backend yet, so there is nothing there to edit).
+    func holdFromPage(url: String, answer: SavedWhyAnswer, editAt: String?, at: Date, bank: String?) {
+        if let editAt, let i = entries.firstIndex(where: { $0.url == url && $0.editAt == nil
+                                                            && Self.stamp($0.at) == editAt }) {
+            var all = entries
+            all[i] = Entry(url: url, answer: answer, at: all[i].at, addedAt: all[i].addedAt, channel: all[i].channel,
+                           awaiting: all[i].awaiting, bank: all[i].bank)
+            entries = all
+            return
+        }
+        let kept = editAt == nil ? entries : entries.filter { !($0.url == url && $0.editAt == editAt) }
+        entries = kept + [Entry(url: url, answer: answer, at: at, editAt: editAt, bank: bank)]
+    }
+
+    /// The answers held about `url` in memory `bank` (or stamped with none).
+    func held(url: String, bank: String?) -> [Entry] {
+        entries.filter { $0.url == url && ($0.bank == nil || bank == nil || $0.bank == bank) }
+    }
+
+    /// How a held answer's time is named on the page (and by an edit of it): the backend's own form, seconds, UTC.
+    static func stamp(_ date: Date) -> String {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f.string(from: date)
+    }
+
+    /// The page's list: the backend's answers, each held edit shown in place of the answer it changes, and each held
+    /// new answer after them — every held one marked, so the page says it is waiting.
+    static func merge(_ records: [SavedWhyRecord], held: [Entry], labels: [String: String]) -> [SavedWhyRecord] {
+        var out = records
+        for entry in held {
+            var shaped = SavedWhyRecord(reasons: entry.answer.reasons,
+                                        labels: entry.answer.reasons.map { labels[$0] ?? $0 },
+                                        project: entry.answer.project, text: entry.answer.text,
+                                        at: stamp(entry.at), addedAt: entry.addedAt, via: entry.answer.via,
+                                        held: true)
+            if let editAt = entry.editAt, let i = out.firstIndex(where: { $0.at == editAt }) {
+                shaped.at = out[i].at
+                shaped.addedAt = out[i].addedAt
+                shaped.before = (out[i].before ?? []) + [SavedWhyEarlier(reasons: out[i].reasons, labels: out[i].labels,
+                                                                         project: out[i].project, text: out[i].text,
+                                                                         at: out[i].editedAt ?? out[i].at,
+                                                                         via: out[i].via)]
+                out[i] = shaped
+            } else if entry.editAt == nil {
+                out.append(shaped)
+            }
+        }
+        return out
+    }
 }

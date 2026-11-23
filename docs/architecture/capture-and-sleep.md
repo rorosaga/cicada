@@ -173,7 +173,9 @@ Seven rails hold across all of them:
   answer (G191 v3):** the newest is `saved_why`, the older ones `saved_why_earlier` (oldest first, at most 20 in all),
   the section lists them all, oldest first; an answer replaces another only when it is the same one again (the same
   `at`, the app's retry; or the same `addedAt`, the same save) or the person edits it (`PUT /sources/saved-why`,
-  `edited_at`), `processed: false` so Sleep reads it again, committed
+  `edited_at`; the words it replaced stay on the answer as `before`, oldest first, at most 10, dated when they were
+  set — for the app's history only, never in the section Sleep reads, 2026-11-23), `processed: false` so Sleep reads it
+  again — on any later cycle, however long after the first read — committed
   alone as `user` (trigger `user/saved_why`) inside the write admission (409 while Sleep holds the pages, 409 in a demo
   bank, 404 for a link not saved, 422 for an empty or unknown answer). Reason ids are a closed, stable set —
   offered (G191 v4, owner 2026-10-15: "keep options to a minimal"): `design` "The design", `product` "The product",
@@ -183,7 +185,8 @@ Seven rails hold across all of them:
   (≤ 500). `GET /sources/saved-why/options` serves the four reasons and an always-empty `projects` — deterministic, no
   model. `explore_plan` reads `someday` as the minimal capture, like `read_later` (the page as it looked when saved). The wire for a later
   reader is the source record: `GET /sources` → `items[].savedWhy` `{reasons, labels, project, text, at, addedAt,
-  editedAt}`, read from the episode (null when nobody was asked), with `savedWhyHistory` (every answer, oldest first,
+  editedAt, via, before}` (`via`: where the answer was given, an origin key the app draws — `chrome-bookmark`, `cicada`;
+  422 for anything else), read from the episode (null when nobody was asked), with `savedWhyHistory` (every answer, oldest first,
   when there are several) and `lastSavedAt` (the newest moment of saving the record knows). **Remove (G191 v3):**
   `POST /sources/bookmarks/remove` archives the media page and tombstones the episode (`bookmark_forget`), never an
   unlink; the person's answers stay. The browser's copy is the app's to remove (Chrome through Apple Events on the

@@ -667,13 +667,14 @@ async def save_why(request: SavedWhyRequest, settings: Settings = Depends(get_se
     try:
         answer = saved_why.validate(memory_path, reasons=request.reasons, project=request.project, text=request.text)
         said_at = saved_why.client_at(request.at)
+        via = saved_why.via_of(request.via)
         saved_why.find_episode(memory_path, request.url)
     except saved_why.SavedWhyError as e:
         raise HTTPException(status_code=e.status, detail=str(e))
 
     async def write() -> dict:
         result = await run_in_threadpool(saved_why.attach, memory_path, url=request.url, answer=answer, at=said_at,
-                                         added_at=request.added_at)
+                                         added_at=request.added_at, via=via)
         if result["changed"]:
             from api.services import git_service
 
@@ -708,12 +709,14 @@ async def edit_saved_why(request: SavedWhyEditRequest, settings: Settings = Depe
     try:
         answer = saved_why.validate(memory_path, reasons=request.reasons, project=request.project, text=request.text,
                                     editing=True)
+        via = saved_why.via_of(request.via)
         saved_why.find_episode(memory_path, request.url)
     except saved_why.SavedWhyError as e:
         raise HTTPException(status_code=e.status, detail=str(e))
 
     async def write() -> dict:
-        result = await run_in_threadpool(saved_why.edit, memory_path, url=request.url, at=request.at, answer=answer)
+        result = await run_in_threadpool(saved_why.edit, memory_path, url=request.url, at=request.at, answer=answer,
+                                         via=via)
         if result["changed"]:
             from api.services import git_service
 
@@ -919,8 +922,9 @@ def _capture_thumbs(memory_path: Path) -> dict[str, str]:
 #: The `/sources` payload's shape version, folded into its ETag: `saved-why-2` added `savedWhyHistory`,
 #: `lastSavedAt` and `captureThumb` (G191 v3); `saved-why-3` added `leftBrowser` (G191 v4) and the four reason labels;
 #: `device-1` added `device` (G181 phase 3: which of the person's devices posted the save); `site-key-1` added
-#: `siteKey` (owner 2026-10-20: the key every surface draws the item's own site mark under).
-SHAPE = "site-key-1"
+#: `siteKey` (owner 2026-10-20: the key every surface draws the item's own site mark under); `why-before-1` added each
+#: answer's `before` (2026-11-23: the words an edit replaced, for the app's history).
+SHAPE = "why-before-1"
 
 
 def _device_of(fm: dict) -> str | None:
