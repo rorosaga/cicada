@@ -21,6 +21,9 @@ from api.models.schemas import (
     BookmarkSyncRequest,
     BookmarkSyncResponse,
     BookmarkTreePreview,
+    FolderReasonRequest,
+    FolderReasonResponse,
+    FolderWhy,
     MediaSourceItem,
     NotesSyncRequest,
     NotesSyncResponse,
@@ -30,6 +33,7 @@ from api.models.schemas import (
     SafariTabsPreview,
     SafariTabsSyncRequest,
     SafariTabsSyncResponse,
+    SaveFolderRef,
     SavedWhyEditRequest,
     SavedWhyOptions,
     SavedWhyRecord,
@@ -37,6 +41,7 @@ from api.models.schemas import (
     SavedWhyResponse,
     SavedWhySuggestRequest,
     SavedWhySuggestResponse,
+    SiteFoldersResponse,
     SourceChannel,
     SourceChannelsResponse,
     SourceListResponse,
@@ -71,6 +76,7 @@ from api.services import (
     reader_catch_up,
     safari_tabs,
     saved_at as saved_at_service,
+    save_folders,
     saved_why,
     site_captures,
     source_collections,
@@ -645,6 +651,11 @@ class SiteSaveRequest(BaseModel):
     #: The post's own words as its page showed them to the person, when the app could read them: a preview of the
     #: post, never the person's words.
     text: str | None = Field(None, max_length=4000)
+    #: G221 (owner 2026-11-23): the site's own folders the post is filed in, as the site shows them. Joined to the
+    #: folders the save already has, on that one save, in place; filing a saved post later is never a second row.
+    folders: list[str] = Field(default_factory=list, max_length=save_folders.MAX_PER_SAVE)
+    #: Folders the person took the post out of.
+    removeFolders: list[str] = Field(default_factory=list, max_length=save_folders.MAX_PER_SAVE)
 
 
 class SiteSaveResponse(BaseModel):
@@ -657,6 +668,11 @@ class SiteSaveResponse(BaseModel):
     mediaEntityId: str
     #: This moment of saving, as the answer's ``added_at`` (a save made again later is a new moment).
     addedAt: str
+    #: The post's folders under this site now.
+    folders: list[str] = []
+    #: Whether the post already has a reason: `own` (the person said why they saved it), `folder` (only a folder's
+    #: reason covers it), or null. A client has no need to ask again for either.
+    reason: str | None = None
 
 
 class SiteUnsaveResponse(BaseModel):
@@ -707,12 +723,16 @@ async def save_site_item(request: SiteSaveRequest, settings: Settings = Depends(
             if result.status != "created" and result.episode_id:
                 episode = memory_path / "episodes" / f"{result.episode_id}.md"
                 cleared = episode.is_file() and site_saves.clear_left(episode)
-            return result, cleared
+            # G221: the folders the site shows for it — on this one save, in place (also what makes it readable when a
+            # folder carries the person's reason).
+            filed = save_folders.file_save(memory_path, result.episode_id, target.origin,
+                                           add=request.folders, remove=request.removeFolders)
+            return result, cleared, filed
 
-        result, cleared = await run_in_threadpool(stage)
-        paths = (["sources/url_index.json", f"entities/{result.media_entity_id}.md",
-                  f"episodes/{result.episode_id}.md"] if result.status == "created"
-                 else [f"episodes/{result.episode_id}.md"] if cleared else [])
+        result, cleared, filed = await run_in_threadpool(stage)
+        paths = (["sources/url_index.json", f"entities/{result.media_entity_id}.md", f"episodes/{result.episode_id}.md"]
+                 if result.status == "created"
+                 else [filed["path"] or f"episodes/{result.episode_id}.md"] if (cleared or filed["path"]) else [])
         if paths:
             try:
                 await media_ingestor._commit_media(memory_path, 1, paths, author="user", sessions=None,
@@ -720,7 +740,8 @@ async def save_site_item(request: SiteSaveRequest, settings: Settings = Depends(
             except Exception as e:  # noqa: BLE001 — a non-git bank (tests) keeps the save
                 logger.warning(f"Site save commit failed: {type(e).__name__}: {e}")
         return SiteSaveResponse(status=result.status, url=url, title=result.title or title, origin=target.origin,
-                                episodeId=result.episode_id, mediaEntityId=result.media_entity_id, addedAt=added_at)
+                                episodeId=result.episode_id, mediaEntityId=result.media_entity_id, addedAt=added_at,
+                                folders=filed["folders"], reason=filed["reason"])
 
     return await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(SITE_SAVE_BUSY))
 
@@ -855,6 +876,97 @@ async def edit_saved_why(request: SavedWhyEditRequest, settings: Settings = Depe
     except saved_why.SavedWhyError as e:
         raise HTTPException(status_code=e.status, detail=str(e))
     return _saved_why_response(result)
+
+
+#: G221 — a folder's reason that finds Sleep holding the pages.
+FOLDER_REASON_BUSY = "Sleep is updating your memory — the folder's reason wasn't saved. Try again in a moment."
+
+
+@router.get("/sources/save-folders", response_model=SiteFoldersResponse)
+async def list_save_folders(site: str = Query(..., min_length=1, max_length=40),
+                            settings: Settings = Depends(get_settings)) -> SiteFoldersResponse:
+    """G221 — the folders a site's saves are filed in (X bookmark folders, Instagram collections, Pinterest boards,
+    TikTok collections, YouTube playlists): each with how many saves it holds, how many of those no model would read
+    yet (`indexOnly`: what a reason given to the folder would make readable) and its reason when it has one. A folder
+    is a filing label, never a page. 422 for a site Cicada keeps no saves for."""
+    try:
+        return SiteFoldersResponse.model_validate(
+            await run_in_threadpool(save_folders.list_folders, settings.memory_path, site))
+    except saved_why.SavedWhyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+
+async def _commit_folder_paths(memory_path: Path, paths: list[str]) -> None:
+    """The folder reason's files, committed alone as the person — in chunks, because a commit names each path three
+    times on the command line (`history_index.COMMIT_STEP`)."""
+    from api.services import git_service, history_index
+
+    step = history_index.COMMIT_STEP
+    for i in range(0, len(paths), step):
+        chunk = paths[i:i + step]
+        try:
+            await git_service.commit_paths(memory_path, save_folders.commit_message(chunk), chunk)
+        except Exception as e:  # noqa: BLE001 — a non-git bank (tests) keeps the change
+            logger.warning(f"folder reason commit failed: {type(e).__name__}: {e}")
+
+
+@router.post("/sources/save-folder-reason", response_model=FolderReasonResponse, dependencies=_DEMO_GATE)
+@router.put("/sources/save-folder-reason", response_model=FolderReasonResponse, dependencies=_DEMO_GATE)
+async def set_folder_reason(request: FolderReasonRequest,
+                            settings: Settings = Depends(get_settings)) -> FolderReasonResponse:
+    """G221 (owner 2026-11-23) — give a site's folder ONE reason, or change the one it has (POST and PUT are the same
+    upsert; the words it replaced stay under `reason.before`). Same shape as a save's own answer: reason keys and/or a
+    few words, scrubbed, the person's own words about the FOLDER. A save filed there with no answer of its own inherits
+    it, marked as the folder's (`folderWhy`, `From its folder "…"`), never as said about that save; its own answer
+    always wins.
+
+    The saves it makes readable are paid model work at the next Sleep (ruling 62: a bare save is index-only), so the
+    answer says how many (`counts.makesReadable`) and the route never does it silently: `dryRun` writes nothing and
+    only counts; more than 100 saves write nothing until the request says `confirm` (`needsConfirm: true`, 200).
+    422 for an empty or unknown reason or a site without saves, 409 in a demo bank or while Sleep holds the pages.
+    Committed alone, as the person (`Cicada-Author: user`)."""
+    memory_path = settings.memory_path
+    try:
+        answer = saved_why.validate(memory_path, reasons=request.reasons, project=None, text=request.text)
+        save_folders.resolve(request.site, request.folder)
+    except saved_why.SavedWhyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+    async def write() -> dict:
+        result = await run_in_threadpool(lambda: save_folders.set_reason(
+            memory_path, site=request.site, folder=request.folder, answer=answer, dry_run=request.dry_run,
+            confirm=request.confirm))
+        if result["paths"]:
+            await _commit_folder_paths(memory_path, result["paths"])
+        return result
+
+    try:
+        result = await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(FOLDER_REASON_BUSY))
+    except saved_why.SavedWhyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+    return FolderReasonResponse.model_validate({k: v for k, v in result.items() if k != "paths"})
+
+
+@router.delete("/sources/save-folder-reason", response_model=FolderReasonResponse, dependencies=_DEMO_GATE)
+async def clear_folder_reason(site: str = Query(..., min_length=1, max_length=40),
+                              folder: str = Query(..., min_length=1, max_length=200),
+                              settings: Settings = Depends(get_settings)) -> FolderReasonResponse:
+    """G221 — take a folder's reason away. The saves it made readable lose that (`counts.noLongerReadable`); one no model
+    read goes back to index-only at Sleep's next retirement, one a model read keeps what it made. 404 for a folder with
+    no reason, 409 in a demo bank or while Sleep holds the pages. Committed alone, as the person."""
+    memory_path = settings.memory_path
+
+    async def write() -> dict:
+        result = await run_in_threadpool(lambda: save_folders.clear_reason(memory_path, site=site, folder=folder))
+        if result["paths"]:
+            await _commit_folder_paths(memory_path, result["paths"])
+        return result
+
+    try:
+        result = await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(FOLDER_REASON_BUSY))
+    except saved_why.SavedWhyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+    return FolderReasonResponse.model_validate({k: v for k, v in result.items() if k != "paths"})
 
 
 #: G191 v3 — a removal that finds Sleep holding the pages.
@@ -1001,6 +1113,16 @@ def _saved_why_of(fm: dict) -> SavedWhyRecord | None:
         return None
 
 
+def _save_folders_of(memory_path: Path, fm: dict) -> tuple[list[SaveFolderRef], list[FolderWhy]]:
+    """G221: the folders the save is filed in and the reasons they carry, marked as the folders' — never raises."""
+    try:
+        folders = [SaveFolderRef(origin=o, name=n) for o, n in save_folders.folders_of(fm)]
+        why = [FolderWhy.model_validate(e) for e in save_folders.inherited(memory_path, fm)]
+        return folders, why
+    except Exception:  # noqa: BLE001
+        return [], []
+
+
 def _saved_why_history_of(fm: dict) -> list[SavedWhyRecord]:
     """G191 v3: every answer on the episode, oldest first — never raises."""
     try:
@@ -1061,8 +1183,9 @@ def _capture_thumbs(memory_path: Path) -> dict[str, str]:
 #: `device-1` added `device` (G181 phase 3: which of the person's devices posted the save); `site-key-1` added
 #: `siteKey` (owner 2026-10-20: the key every surface draws the item's own site mark under); `why-before-1` added each
 #: answer's `before` (2026-11-23: the words an edit replaced, for the app's history); `site-key-2`: `siteKey` is the
-#: link's own host, not its registrable domain (owner 2026-11-23).
-SHAPE = "site-key-2"
+#: link's own host, not its registrable domain (owner 2026-11-23); `save-folders-1` added `saveFolders` and
+#: `folderWhy` (G221: the site's folders a save is filed in and the reasons they carry).
+SHAPE = "site-key-2+save-folders-1"
 
 
 def _device_of(fm: dict) -> str | None:
@@ -1236,6 +1359,7 @@ async def list_sources(
                 # unless it is a wall an agent can be asked to read, or an agent already read it —
                 # the person can find it, ask for it, or see what the agent brought back.
                 continue
+            _folders = _save_folders_of(memory_path, episode_fm.get(str(entry.get("episode_id") or "")) or {})
             items.append(
                 MediaSourceItem(
                     media_entity_id=entity_id,
@@ -1256,6 +1380,8 @@ async def list_sources(
                     left_browser=_left_browser(left_by_hash, raw_key, entry)
                     + _left_site(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
                     device=_device_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
+                    save_folders=_folders[0],
+                    folder_why=_folders[1],
                     tags=tags,
                     status=status,
                     related_count=related_count,

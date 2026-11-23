@@ -183,6 +183,7 @@ ROUTES: dict[str, str] = {
     "DELETE /files/{file_id}": FORWARD,
     "DELETE /reading/asks/{url_hash}": FORWARD,
     "DELETE /sources/calendars": FORWARD,
+    "DELETE /sources/save-folder-reason": FORWARD,
     "DELETE /sources/connectors/{connector_id}/credentials": REFUSE,   # the home's sign-ins
     "POST /sources/github/repos/project": FORWARD,        # G230: the person's link of a repository to a project
     "POST /sources/github/connect": REFUSE,               # G230: the home's sign-ins (a device code is the home's)
@@ -274,6 +275,7 @@ ROUTES: dict[str, str] = {
     "POST /sources/saved-why": FORWARD,
     "POST /sources/site-save": FORWARD,
     "POST /sources/site-unsave": FORWARD,
+    "POST /sources/save-folder-reason": FORWARD,      # G221: a folder's reason, on the home's bank
     "POST /sources/telegram/code": REFUSE,          # Telegram's session lives on the home (ruling 47a)
     "POST /sources/telegram/connect": REFUSE,
     "POST /sources/telegram/disconnect": REFUSE,
@@ -300,6 +302,7 @@ ROUTES: dict[str, str] = {
     "PUT /sources/folders/{folder_id}": FORWARD,
     "PUT /sources/messages/settings": FORWARD,
     "PUT /sources/saved-why": FORWARD,
+    "PUT /sources/save-folder-reason": FORWARD,
     "PUT /sources/telegram/settings": FORWARD,
     "PUT /sources/whatsapp/settings": FORWARD,
     "PUT /videos/queue/{key}": FORWARD,

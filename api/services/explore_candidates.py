@@ -82,6 +82,22 @@ def _why(fm: dict) -> dict | None:
     return out if (reasons or out.get("project") or out.get("text")) else None
 
 
+def _folder_why(memory_path: Path, fm: dict) -> dict | None:
+    """G221: with no answer of its own, what the save inherits from its folders (``save_folders``) in the same shape,
+    plus ``inherited_from`` naming them so the plan says whose reason it is. None when no folder has one."""
+    from api.services import save_folders
+
+    held = save_folders.inherited(memory_path, fm)
+    if not held:
+        return None
+    reasons = [r for e in held for r in e["reasons"] if r in WHY_DEPTH]
+    words = " ".join(str(e["text"]).strip() for e in held if e.get("text"))
+    out: dict = {"reasons": list(dict.fromkeys(reasons)), "inherited_from": [e["folder"] for e in held]}
+    if words:
+        out["text"] = words
+    return out if (out["reasons"] or words) else None
+
+
 def excluded_reason(url: str, *, never: dict | None = None) -> str | None:
     """Why ``url`` is never offered for exploring, or None. Pure string work plus the person's settings."""
     verdict = reading_hosts.classify(url)
@@ -138,7 +154,7 @@ def saved_sites(memory_path: Path, *, include_excluded: bool = False) -> dict[st
             folder=str(ep.get("folder") or "") or None,
             # The browser's own instant when G191's sync recorded one (``added_at``), else the save day.
             saved_at=str(ep.get("added_at") or entry.get("content_saved_at") or ep.get("saved_at") or "") or None,
-            why=_why(ep), excluded=reason)
+            why=_why(ep) or _folder_why(memory_path, ep), excluded=reason)
     return out
 
 

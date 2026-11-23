@@ -725,6 +725,9 @@ a post an archive, a connector or a pasted link already saved is a duplicate; th
 for. The post's words become the title (≤ 80) and description (≤ 500), scrubbed; they are the post's, never the
 person's (no `note`). Committed alone as the harness with its session trailer. **Not built:** a post unsaved on the site
 stays saved here (the read only adds); the app's switch (spec in `app.md`, "Saved lists in your browser").
+**Folders (G221, 2026-11-23).** A row of `items` may carry `folders`: the site's own folders, collections or boards the post
+is filed in, as the page shows them. They are joined to the post's folders on its one save — a post saved before is filed,
+never saved again — and only label it (`storage.md`, "The folders a platform's own save is filed in").
 **Who and where it stands (ROR-114, 2026-11-05).** `cicada_record_saved_list` also takes `handle` and `profile_url`
 (CLI `--handle`, `--profile-url`): the person's name on the site and the link to their own profile, kept beside the last
 attempt in this machine's state, never a bank. `saved_lists.clean_handle` keeps one short token; `clean_profile_url`

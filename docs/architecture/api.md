@@ -1110,3 +1110,15 @@ index-only until the person says why (ruling 62), and `POST /sources/saved-why` 
 queues it for Sleep. Answers `{status: created|duplicate, url, title, origin, episodeId, mediaEntityId, addedAt}`;
 422 for an unknown site or a link that is not a post of it; 409 in a demo bank or while Sleep holds the pages.
 Committed alone as the person (`user/site_save`). Tests: `api/tests/test_site_save.py`.
+
+**Folders of a save (G221, 2026-11-23).** `POST /sources/site-save` also takes `folders` (the site's own folder names the
+post is filed in, joined to the save's folders on that one episode) and `removeFolders`, and answers `folders` (the post's
+folders under that site now) and `reason` (`own`, `folder` or null: a client need not ask again for either); a post saved
+before is a `duplicate` that is filed, never a second row. `GET /sources/save-folders?site=x` lists a site's folders —
+`{site, origin, saves, unfiled, folders: [{name, saves, indexOnly, reason}]}`, `indexOnly` being what a reason would make
+readable. `POST` and `PUT /sources/save-folder-reason` `{site, folder, reasons, text, dryRun, confirm}` give a folder ONE
+reason or change it (the earlier words stay under `reason.before`) and answer `{origin, folder, reason, changed, applied,
+needsConfirm, counts: {saves, makesReadable, alreadyReadable, noLongerReadable}}`; `DELETE ?site=&folder=` clears it (404
+for none). 422 for an empty or unknown reason or a site with no saves, 409 in a demo bank or while Sleep holds the pages;
+committed alone as the person. `GET /sources` items gain `saveFolders` and `folderWhy` (the shape version `save-folders-1`).
+Design in `storage.md`.

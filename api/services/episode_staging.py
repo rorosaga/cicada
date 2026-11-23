@@ -888,6 +888,24 @@ def drop_keys(path: Path, keys: tuple[str, ...]) -> bool:
         return True
 
 
+def amend_frontmatter(path: Path, edit: Callable[[dict], bool]) -> bool:
+    """One frontmatter-only change to an episode that exists (G221's folders and the readiness a folder's reason gives
+    a save): ``edit(frontmatter)`` mutates a copy of the CURRENT frontmatter, inside the same locks as every in-place
+    edit, and returns whether it changed anything. The body, ``content_hash`` and every span are untouched. Whatever
+    ``edit`` does to ``processed`` is its own decision (a wake queues the save for Sleep; nothing else does). Returns
+    whether the file changed."""
+    with STAGE_LOCK, episode_ids.episode_lock(Path(path).parent):
+        parsed = markdown_parser.parse(path)
+        fm = dict(parsed.frontmatter)
+        before = dict(fm)
+        if not edit(fm) or fm == before:
+            return False
+        if "turns" in fm:
+            fm["turns"] = fm.pop("turns")  # R-PB4: the sidecar stays the last key
+        markdown_parser.write(path, fm, parsed.body)
+        return True
+
+
 def _section_bounds(body: str, heading: str) -> tuple[int, int] | None:
     """``(start, end)`` of the ``## heading`` section in ``body`` — from its heading line to the next ``## `` heading
     (or the end) — or ``None`` when the body has none. Only a whole line matches."""
