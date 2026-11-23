@@ -751,7 +751,8 @@ saved choice (first, so a tap keeps it), then the small, standard and top tiers,
 key's own Models API answer (`catalogue.source: your key`) or a documented floor (`documented`); `modelNote` says when a saved id
 moved forward. `POST /sleep/engine/models/refresh` with `byok` re-reads it when a Claude key is held (422 otherwise, as for any
 other key). A key's save reads it in the background, and a run on the key once a day. `modelPrices[…].basis` names where a price
-Cicada keeps was read (ruling 12); `providers[…].defaultModel` for Anthropic is the list's small tier.
+Cicada keeps was read (ruling 12); `providers[…].defaultModel` for Anthropic is the list's standard tier (Sonnet, owner 2026-11-23, as the plan's
+`agent_model`); Sleep's judge on a Claude key stays the small tier (`anthropic_models.default_judge`).
 
 **The model catalogue on every card (vision item 4, 2026-10-28; `model_catalogue`).** Each candidate gains an
 optional `catalogue`: `{engine, source, asOf, drift, models: [{id, source, asOf, family, firstSeen, new, resolvesTo,

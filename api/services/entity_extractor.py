@@ -306,7 +306,9 @@ EXTRACTION GUIDELINES:
 - STARTS (optional): the day a relationship began, when the conversation states that day — a first day at a
   job, the day someone joined or moved. An absolute YYYY-MM-DD resolved from the conversation's date as TIME
   says: said on 2026-05-20, "as of yesterday, joined" is 2026-05-19. Omit it when no day is stated or it is
-  unclear, and on an ending or a past tense ("left", "worked at") — never a relative phrase, never a guess.
+  unclear, and on an ending or a past state ("left", "worked at") — never a relative phrase, never a guess.
+  A one-off act — passed, ran, finished, bought, met, submitted — STARTS on the day it happened (G148,
+  2026-11-23): said on 2026-10-10, "I passed the exam yesterday" is 2026-10-09.
 - AT (optional, only on "reports to", "managed by" and "manages"): the organisation that working relationship
   belongs to, when the conversation says it (the user's manager at the company they work at: "at" is that
   company).

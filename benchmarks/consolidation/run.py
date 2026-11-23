@@ -114,7 +114,7 @@ def claim_text(c: dict) -> str:
 
 
 NEGATION = re.compile(r"\b(?:not|never|no longer|declined|decided against|rejected|against|won't|doesn't|didn't|"
-                      r"too expensive|instead of|stayed? on|staying|hypothetical|if)\b")
+                      r"too expensive|instead of|stayed? on|staying|hypothetical|if|ruled out|refused|skipped)\b")
 
 
 def is_current(c: dict) -> bool:
@@ -533,7 +533,8 @@ def report(out: Path) -> str:
                     "input_k": round((snap["usage"]["input"]) / 1000, 1), "output_k": round(snap["usage"]["output"] / 1000, 1),
                     "minutes": round(sum(p["seconds"] for p in snap["phases"]) / 60, 1),
                     "cost_usd": snap["usage"].get("cost_usd") or None})
-        by_model.setdefault(s["model"], []).append(row)
+        # One column per folder name less its repeat suffix, so legs of one setting group whatever their label.
+        by_model.setdefault(re.sub(r"-r\d+$", "", leg.name), []).append(row)
     first = next(iter(by_model.values()), [{}])[0]
     cols = [("points_claim", f"facts held as claims /{first.get('points', '?')}"),
             ("points_anywhere", "facts anywhere on a page"),
@@ -557,6 +558,10 @@ def report(out: Path) -> str:
         cells = []
         for m in models:
             vals = [r[key] for r in by_model[m] if r.get(key) is not None]
+            if key == "cost_usd" and vals:
+                mean = sum(vals) / len(vals)
+                cells.append(f"${mean:.2f}" + ("" if min(vals) == max(vals) else f" (${min(vals):.2f}–${max(vals):.2f})"))
+                continue
             cells.append(_spread(vals))
         lines.append(f"| {label} | " + " | ".join(cells) + " |")
     return "\n".join(lines)
