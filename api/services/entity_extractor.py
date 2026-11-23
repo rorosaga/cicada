@@ -302,6 +302,10 @@ EXTRACTION GUIDELINES:
   "evaluated against", "dropped", "due"). Use short verb phrases, not full sentences or generic "related to".
 - WHO SOMEONE IS TO THE USER ("my partner X", "my cousin X") is a relationship of its own ("partner of", "cousin of"),
   whatever the conversation is about; an act they share ("travels with") is never a substitute.
+- A ROLE IN A LABEL BELONGS TO THE SOURCE. "<source> <label> <target>" must read as a true sentence, so a label that
+  names a role ("aunt of", "mentor of", "client of", "manager of") says what the source IS to the target — in any
+  language. "My aunt X" is source X, label "aunt of", target the user; "I am X's manager" is source the user, label
+  "manager of", target X. Never put the user first just because the words are the user's ("my aunt").
 - "works at" says the place is CURRENT. A job or role that ended is labelled by its ending — "left",
   "previously worked at" — never "works at". Two places at once (a job and a lab, a day job and a side
   project) are two "works at" relationships; one never replaces the other.

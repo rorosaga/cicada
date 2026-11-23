@@ -988,6 +988,20 @@
      "casero",
      "proprietaire"
     ]
+   },
+   {
+    "id": "R3",
+    "why": "Teo is above the owner in the hierarchy; the owner is not above him",
+    "holder": [
+     "teo"
+    ],
+    "role": [
+     "above",
+     "senior to",
+     "boss",
+     "manager",
+     "supervisor"
+    ]
    }
   ],
   "fading": {
