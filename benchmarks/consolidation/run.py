@@ -202,8 +202,26 @@ def entity_rows(bank: Path) -> tuple[list[dict], list[dict]]:
     return pages, claims
 
 
-def run_leg(model: str, out: Path, *, clock: date) -> dict:
-    """One model, both phases, on a fresh bank under ``out``. Runs in its own process (see ``main``)."""
+#: The plan's names for the three tiers, and the tier each is on a Claude key.
+TIERS = {"haiku": "small", "sonnet": "standard", "opus": "top"}
+
+
+def engine_model(engine: str, name: str) -> str:
+    """What ``settings_for`` takes: the plan's alias as is, a key's full id for the same tier."""
+    if engine == "plan":
+        return name
+    from api.services import anthropic_models
+
+    return anthropic_models.tier(TIERS.get(name, name)) or name if name in TIERS else name
+
+
+def leg_label(engine: str, model: str, judge: str) -> str:
+    return f"{engine}:{model}" + ("" if judge == model else f" judge:{judge}")
+
+
+def run_leg(model: str, out: Path, *, clock: date, engine: str = "plan", judge: str | None = None) -> dict:
+    """One model, both phases, on a fresh bank under ``out``. Runs in its own process (see ``main``). ``judge`` is
+    Sleep's own Stage 2 judge; unset, the product's default for the engine (the small tier on both)."""
     from benchmarks.engine_parity import _leg_environment, _refuse_real_paths
 
     _refuse_real_paths(out)
@@ -211,10 +229,11 @@ def run_leg(model: str, out: Path, *, clock: date) -> dict:
     home.mkdir(parents=True, exist_ok=True)
     fixture = load_fixture()
     with _leg_environment(home, bank):
-        return _run_leg(model, out, bank, home, fixture, clock)
+        return _run_leg(model, out, bank, home, fixture, clock, engine, judge or "haiku")
 
 
-def _run_leg(model: str, out: Path, bank: Path, home: Path, fixture: dict, clock: date) -> dict:
+def _run_leg(model: str, out: Path, bank: Path, home: Path, fixture: dict, clock: date, engine: str,
+             judge: str) -> dict:
     import asyncio
     from unittest.mock import patch
 
@@ -223,7 +242,8 @@ def _run_leg(model: str, out: Path, bank: Path, home: Path, fixture: dict, clock
     from benchmarks.system.engine import embed
 
     init_bank(bank, fixture["owner"])
-    settings = settings_for("plan", bank, model=model, judge=None)
+    settings = settings_for("plan" if engine == "plan" else "key", bank, model=engine_model(engine, model),
+                            judge=engine_model(engine, judge))
     fake_embed = lambda *a, **k: (embed, "fake-hash-v1")  # noqa: E731 — the search model is not what is compared
     phases = []
     for phase in sorted({c["phase"] for c in fixture["conversations"]}):
@@ -252,13 +272,14 @@ def _run_leg(model: str, out: Path, bank: Path, home: Path, fixture: dict, clock
                       if not (markdown_parser.parse(p).frontmatter or {}).get("processed"))
     events = _usage_events(home)
     snap = {
-        "model": model, "clock": clock.isoformat(), "phases": phases, "pages": pages, "claims": claims,
+        "model": leg_label(engine, model, judge), "engine": engine, "clock": clock.isoformat(), "phases": phases, "pages": pages, "claims": claims,
         "questions": questions, "episodes_unprocessed": unprocessed,
         "usage": {"calls": len(events), "failed": sum(1 for e in events if not e.get("ok", True)),
                   "input": sum(e.get("input_tokens") or 0 for e in events),
                   "cache_read": sum(e.get("cache_read_tokens") or 0 for e in events),
                   "output": sum(e.get("output_tokens") or 0 for e in events),
                   "models": sorted({e["model"] for e in events if e.get("model")}),
+                  "cost_usd": round(sum(e.get("cost_usd") or 0.0 for e in events), 4),
                   "by_stage": _by_stage(events)},
     }
     (out / "snapshot.json").write_text(json.dumps(snap, indent=1, ensure_ascii=False), encoding="utf-8")
@@ -508,7 +529,8 @@ def report(out: Path) -> str:
                     "calls": snap["usage"]["calls"], "failed_calls": snap["usage"]["failed"],
                     "unread": snap.get("episodes_unprocessed") or 0,
                     "input_k": round((snap["usage"]["input"]) / 1000, 1), "output_k": round(snap["usage"]["output"] / 1000, 1),
-                    "minutes": round(sum(p["seconds"] for p in snap["phases"]) / 60, 1)})
+                    "minutes": round(sum(p["seconds"] for p in snap["phases"]) / 60, 1),
+                    "cost_usd": snap["usage"].get("cost_usd") or None})
         by_model.setdefault(s["model"], []).append(row)
     first = next(iter(by_model.values()), [{}])[0]
     cols = [("points_claim", f"facts held as claims /{first.get('points', '?')}"),
@@ -525,7 +547,7 @@ def report(out: Path) -> str:
             ("span_rate", "claims with a located span"), ("integrity_breaks", "integrity breaks"),
             ("claims_total", "claims"), ("pages_total", "pages"), ("questions", "inbox questions"),
             ("calls", "model calls"), ("failed_calls", "failed calls"), ("unread", "conversations left unread"), ("input_k", "input tokens (k)"),
-            ("output_k", "output tokens (k)"), ("minutes", "minutes")]
+            ("output_k", "output tokens (k)"), ("minutes", "minutes"), ("cost_usd", "cost on a key (USD)")]
     models = list(by_model)
     lines = ["| measure | " + " | ".join(f"{m} (n={len(by_model[m])})" for m in models) + " |",
              "|---|" + "---|" * len(models)]
@@ -544,7 +566,11 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="benchmarks.consolidation.run", description=__doc__.split("\n\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="run each model REPEATS times, each leg in its own process")
-    r.add_argument("--models", default="haiku", help="plan models, comma separated (opus,sonnet,haiku)")
+    r.add_argument("--models", default="haiku", help="tiers, comma separated (opus,sonnet,haiku)")
+    r.add_argument("--engine", choices=("plan", "key"), default="plan",
+                   help="plan: the signed-in Claude plan; key: ANTHROPIC_API_KEY from --key-file (spends money)")
+    r.add_argument("--sleep-judge", default="haiku", help="Sleep's Stage 2 judge tier (the product default: haiku)")
+    r.add_argument("--key-file", type=Path, default=Path("~/.cicada/secrets.env"))
     r.add_argument("--repeats", type=int, default=1)
     r.add_argument("--out", type=Path, required=True)
     r.add_argument("--clock", help="the day the fixture's days count from (default today, UTC)")
@@ -552,6 +578,8 @@ def main(argv: list[str] | None = None) -> int:
     leg.add_argument("--model", required=True)
     leg.add_argument("--out", type=Path, required=True)
     leg.add_argument("--clock", required=True)
+    leg.add_argument("--engine", choices=("plan", "key"), default="plan")
+    leg.add_argument("--sleep-judge", default="haiku")
     sc = sub.add_parser("score", help="re-score legs from their banks, no model")
     sc.add_argument("out", type=Path)
     j = sub.add_parser("judge", help="grade each leg's claims against the conversations they cite")
@@ -563,23 +591,33 @@ def main(argv: list[str] | None = None) -> int:
     a = p.parse_args(argv)
 
     if a.cmd == "leg":
-        snap = run_leg(a.model, a.out, clock=date.fromisoformat(a.clock))
+        snap = run_leg(a.model, a.out, clock=date.fromisoformat(a.clock), engine=a.engine, judge=a.sleep_judge)
         print(json.dumps({"model": a.model, "phases": snap["phases"], "claims": len(snap["claims"]),
                           "pages": len(snap["pages"]), "calls": snap["usage"]["calls"]}, ensure_ascii=False))
         return 0
     if a.cmd == "run":
         clock = a.clock or datetime.now(timezone.utc).date().isoformat()
         a.out.mkdir(parents=True, exist_ok=True)
+        if a.engine == "key":
+            from benchmarks.engine_parity import read_key_file
+
+            key = read_key_file(a.key_file) if a.key_file.expanduser().exists() else os.environ.get("ANTHROPIC_API_KEY")
+            if not key:
+                print("No ANTHROPIC_API_KEY in --key-file or the environment.", file=sys.stderr)
+                return 2
+            os.environ["ANTHROPIC_API_KEY"] = key   # the legs inherit it; never printed or written
         status = 0
         for k in range(1, a.repeats + 1):
             for model in [m.strip() for m in a.models.split(",") if m.strip()]:
-                out = a.out / f"{model}-r{k}"
+                out = a.out / (f"{a.engine}-{model}" + ("" if a.sleep_judge == model else f"-j{a.sleep_judge}")
+                               + f"-r{k}")
                 if (out / "score.json").exists():
                     print(f"{out.name}: done already, skipped")
                     continue
                 print(f"{out.name}: running", flush=True)
                 proc = subprocess.run([sys.executable, "-m", "benchmarks.consolidation.run", "leg", "--model", model,
-                                       "--out", str(out), "--clock", clock], cwd=REPO)
+                                       "--out", str(out), "--clock", clock, "--engine", a.engine,
+                                       "--sleep-judge", a.sleep_judge], cwd=REPO)
                 status = status or proc.returncode
         print(report(a.out))
         return status
