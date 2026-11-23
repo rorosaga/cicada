@@ -52,7 +52,7 @@ from typing import Callable
 from loguru import logger
 
 from api.services import (episode_revision, markdown_parser, owner_identity, pending_store, phone_numbers, telemetry,
-                          value_alignment)
+                          value_alignment, value_ended)
 from api.services.claim_reconciler import reconcile_stage3
 from api.services.claims import Claim, is_event, parse_claims, route_values_to_their_thing, write_claims
 from api.services.entity_extractor import entities_to_claims
@@ -580,6 +580,11 @@ def run_claim_pipeline(
     # the predicate of the one it restates; Stage 3 then closes the older as it does for any same-attribute value.
     routed.extend(value_alignment.align(incoming, existing_by_subject, value_judge, memory_path))
 
+    # G148 (2026-11-23): a value that names what a conversation dropped ("Python with Pillow", after "dropped Python"),
+    # asked once beside that ending's own words; Stage 3 closes the ones the judge says it made out of date.
+    ended_values, ended_audit = value_ended.plan(incoming, existing_by_subject, value_judge, memory_path)
+    routed.extend(ended_audit)
+
     # ---- G104: an edited conversation's spans re-anchored, what only its removed text said marked ----
     revision_plan = episode_revision.reanchor(existing_by_subject, revisions or {})
     # A date the revision's changed lines moved, on a claim whose span they did not touch (page claims and the ones just
@@ -595,6 +600,7 @@ def run_claim_pipeline(
         settings,
         now_date=today,
         **({} if decay else {"decay": False}),
+        **({"ended_values": ended_values} if ended_values else {}),
         **({"revised": revision_plan.revised_out} if revision_plan.revised_out else {}),
         **({"redated": redated} if redated else {}),
     )
