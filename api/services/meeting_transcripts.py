@@ -137,6 +137,25 @@ def is_own(label: str) -> bool:
     return bool(label) and label.strip().casefold() in OWN_LABELS
 
 
+#: A label a recorder or a diarizer gives someone it could not name (ROR-142): Hex's ``Them`` (everything the call's
+#: audio carried), ``Speaker 1``/``SPEAKER_00``/``Speaker A`` from a diarizer, ``Unknown``, ``Guest 3``… A role word
+#: alone or followed by one number or letter, matched whole, so a real name that merely contains one never is.
+_PLACEHOLDER = re.compile(r"(?:them|others?|other side|remote|caller|unknown|unnamed|speaker|spk|guest|participant"
+                          r"|attendee|person|voice)(?:[\s_-]*\d{1,3}|[\s_-]+[a-z])?", re.IGNORECASE)
+#: The placeholders that may stand for several people at once — one recorder track, not one voice.
+_GROUP_PLACEHOLDERS = frozenset({"them", "others", "other", "other side", "remote"})
+
+
+def is_placeholder(label: str) -> bool:
+    """Whether ``label`` is a stand-in for an unnamed speaker rather than a name (ROR-142)."""
+    return bool(label) and not is_own(label) and _PLACEHOLDER.fullmatch(" ".join(label.split())) is not None
+
+
+def is_group_placeholder(label: str) -> bool:
+    """A placeholder that names a recording track, so its lines may be several different people (Hex's ``Them``)."""
+    return is_placeholder(label) and " ".join(label.split()).casefold() in _GROUP_PLACEHOLDERS
+
+
 def marker(label: str) -> str:
     """``user`` for a line the recorder labels as the person's own (``You``/``Me``), else ``speaker:<slug>`` — never
     containing ``:`` so ``evidence._SPEAKER_RE`` reads it back."""

@@ -324,6 +324,46 @@ def test_sleep_is_told_whose_lines_they_are():
     assert entity_extractor.meeting_note({"source": "claude-code"}) is None
 
 
+# --- Unnamed speakers (ROR-142) --------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("label", ["Them", "them", "Speaker 1", "SPEAKER_00", "speaker-2", "Speaker A", "Unknown",
+                                   "Unnamed", "Guest 3", "Participant 2", "Remote", "Spk 1", "Other side"])
+def test_a_label_a_recorder_gives_someone_it_could_not_name_is_a_placeholder(label):
+    assert mt.is_placeholder(label)
+
+
+@pytest.mark.parametrize("label", ["You", "Me", "Dana Example", "Speakerman", "Guest Speaker Bob", "Theme",
+                                   "Speaker 1 Dana", "Remote Team Lead", ""])
+def test_a_name_is_never_a_placeholder(label):
+    assert not mt.is_placeholder(label)
+
+
+def test_them_is_one_placeholder_that_may_be_several_people():
+    note = entity_extractor.meeting_note({"meeting": {"recorder": "hex", "own_labels": ["You"],
+                                                      "speakers": ["You", "Them"]}})
+    assert '"speaker:them"' in note and "not a name" in note
+    assert "may be several different people" in note
+    assert "never create a page" in note and "someone in the meeting" in note
+
+
+def test_numbered_speakers_are_placeholders_and_the_attendees_help_name_them():
+    meeting = {"recorder": "hex", "own_labels": ["You"], "speakers": ["You", "Speaker 1", "Speaker 2"],
+               "attendees": ["Dana Example", "Bob Example"]}
+    note = entity_extractor.meeting_note({"meeting": meeting})
+    assert '"speaker:speaker-1"' in note and '"speaker:speaker-2"' in note
+    assert "Dana Example, Bob Example" in note
+    assert "only when the transcript makes it clear" in note
+    assert "may be several different people" not in note   # a numbered voice is one person
+
+
+def test_named_speakers_leave_the_note_as_it_was():
+    named = {"recorder": "hex", "own_labels": ["You"], "speakers": ["You", "Dana Example"]}
+    assert (entity_extractor.meeting_note({"meeting": named})
+            == entity_extractor.meeting_note({"meeting": {"recorder": "hex", "own_labels": ["You"]}}))
+    assert "placeholder" not in entity_extractor.meeting_note({"meeting": named})
+
+
 # --- The routes ------------------------------------------------------------------------------------------------------
 
 

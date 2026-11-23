@@ -579,7 +579,33 @@ def meeting_note(episode: dict) -> str | None:
     return (f'{MEETING_NOTE_PREFIX}{by}.{own_line} Each line starting "speaker:<label>:" is someone else in the '
             'meeting, labelled by the recorder: their words, never the person\'s, and "I" in such a line is that '
             'speaker. Lines starting "assistant:" are the recorder\'s own model-written summary, never the person\'s '
-            "words. What someone says about the person is that speaker's statement, not something the person said.]\n\n")
+            "words. What someone says about the person is that speaker's statement, not something the person said."
+            f"{_unnamed_speakers_line(meeting)}]\n\n")
+
+
+def _unnamed_speakers_line(meeting: dict) -> str:
+    """ROR-142: name the labels the recorder gave people it could not name, so Stage 1 works out who they are from the
+    transcript itself — never a page for the label, never a guess. Empty when every speaker has a name."""
+    from api.services import meeting_transcripts
+
+    speakers = [str(s) for s in meeting.get("speakers") or [] if str(s).strip()]
+    unnamed = [s for s in speakers if meeting_transcripts.is_placeholder(s)]
+    if not unnamed:
+        return ""
+    markers = ", ".join(f'"{meeting_transcripts.marker(s)}"' for s in unnamed)
+    group = [f'"{meeting_transcripts.marker(s)}"' for s in unnamed if meeting_transcripts.is_group_placeholder(s)]
+    attendees = [str(a) for a in meeting.get("attendees") or [] if str(a).strip()]
+    line = (f" {markers} {'is a placeholder' if len(unnamed) == 1 else 'are placeholders'} the recorder gave people "
+            "it could not name, not a name: never create a page for such a label or call anyone by it. Work out who "
+            "each one is from the transcript itself (someone addressing them by name, a speaker introducing "
+            "themselves, what they say about their own work")
+    line += f", the meeting's attendees: {', '.join(attendees)})" if attendees else ")"
+    line += (" and credit that person only when the transcript makes it clear; otherwise say \"someone in the "
+             "meeting\".")
+    if group:
+        line += (f" {', '.join(group)} may be several different people, everything the call's audio carried: tell "
+                 "them apart by what the lines say, never by the label.")
+    return line
 
 
 def linear_note(episode: dict) -> str | None:

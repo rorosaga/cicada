@@ -724,7 +724,14 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   `own_labels`, `duration_s`, `summary_writer`, `attendees` — a calendar's invitees as the file lists them, never G179's
   `participants` rows) reaches Stage 1 (`sleep_cycle` passes it), whose `meeting_note` says which lines are the
   person's, that `speaker:` lines are someone else's, and that the summary is the recorder's; `consent: unknown` (G95's
-  rail). An edited transcript carries the stager's `revised` record (above), so Sleep reads it as a revision. Wispr Flow's meetings stay
+  rail). **Unnamed speakers (ROR-142):** a label the recorder gave someone it could not name — Hex's `Them`, a
+  diarizer's `Speaker 1`/`SPEAKER_00`/`Speaker A`, `Unknown`, `Guest 3`… (`meeting_transcripts.is_placeholder`: a role
+  word alone or with one number or letter, matched whole, so a name never is) — is listed in the note as a placeholder:
+  Stage 1 never makes a page for it or calls anyone by it, works out who each one is from the transcript (being
+  addressed by name, an introduction, what they say about their own work, the `attendees`) and credits that person
+  only when the transcript makes it clear, else "someone in the meeting". `Them` and the other track-wide labels
+  (`is_group_placeholder`) are said to be possibly several people. Identification happens in Sleep's one existing
+  read, no extra call; the stored labels and markers never change, so episodes already staged get it too. An edited transcript carries the stager's `revised` record (above), so Sleep reads it as a revision. Wispr Flow's meetings stay
   on their own reader (above), now under the same Sources section; their summary and notes blocks are quoted through the
   same `summary_text` (#579 review, 2026-11-03), so a model line reading `User: …` opens no turn there either.
 - **Messages conversations the person ticks (G179, 2026-10-15).** The app lists `chat.db`'s 200 most recent chats for
