@@ -152,6 +152,10 @@ struct ChatConversationColumn: View {
     @State private var docs: [String: EpisodeText] = [:]
     @State private var failed: Set<String> = []
     @State private var pages = 1
+    /// Scrolled up from the newest message (`JumpToLatest`).
+    @State private var awayFromLatest = false
+    @State private var latestY: CGFloat?
+    @State private var scroller = JumpToLatestScroller()
 
     private var item: ChannelItem { target.item }
 
@@ -235,12 +239,15 @@ struct ChatConversationColumn: View {
                         ForEach(shown) { sitting in
                             sittingView(sitting)
                         }
+                        JumpToLatestAnchor(anchorY: $latestY, away: $awayFromLatest)
                     }
                     .padding(.horizontal, CicadaTheme.scaled(ReaderColumn.inset))
                     .padding(.bottom, CicadaTheme.spacingXL)
+                    .jumpToLatestSpace(scroller)
                 }
                 // DESIGN_RULES 2026-10-19 (5): a chat opens at the newest message, history above.
                 .defaultScrollAnchor(.bottom)
+                .jumpToLatest(anchorY: latestY, away: $awayFromLatest, scroller: scroller)
             }
         } else if cache?.sittingsFailed(item.id) == true {
             InPlaceNote(text: Copy.ChatPage.failed).padding(.horizontal, CicadaTheme.scaled(ReaderColumn.inset))

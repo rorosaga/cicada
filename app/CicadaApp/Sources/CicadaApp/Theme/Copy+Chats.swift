@@ -101,6 +101,8 @@ extension Copy {
 
     /// 2026-11-03 — a chat source's page: the chats Cicada holds, and one chat's stored conversation in the panel.
     enum ChatPage {
+        /// The round down-arrow button over a chat scrolled up from its newest message (`JumpToLatestButton`).
+        static let jumpToLatest = "Jump to the newest message"
         static let today = "Today"
         static let yesterday = "Yesterday"
         static let synced = "Synced"
