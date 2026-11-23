@@ -571,6 +571,20 @@ def test_a_newer_copy_of_the_same_stamp_revises_the_episode_in_place(bank):
     assert fs.live_file_count(bank, folder["id"]) == 1
 
 
+def test_a_meeting_whose_file_was_replaced_counts_as_one_conversation_for_promotion(bank):
+    """G104 slice 3 (T4): the 2+ rule counts conversations, and a corrected copy of one meeting is that meeting."""
+    folder = _meeting_folder(bank)
+    _sync(bank, folder, [_file(NAME_A, TEXT_A, mtime=T0)])
+    (first,) = _live(bank)
+    _sync(bank, folder, [_file(NAME_B, TEXT_B, mtime=T0 + 60)])
+    eps = _live(bank)
+    assert [e.frontmatter["id"] for e in eps] == [first.frontmatter["id"]]
+    # Everything a page made from this meeting could cite — the id before the correction and the one after.
+    cited = [first.frontmatter["id"], *(e.frontmatter["id"] for e in eps)]
+    assert promotion.conversation_keys(cited, bank) == {first.frontmatter["id"]}
+    assert len(promotion.conversation_keys(cited, bank)) < 2     # never the "2+ conversations" rung on its own
+
+
 def test_an_older_copy_changes_no_word_and_is_only_remembered(bank):
     folder = _meeting_folder(bank)
     _sync(bank, folder, [_file(NAME_B, TEXT_B, mtime=T0 + 60)])

@@ -11,7 +11,7 @@ from loguru import logger
 
 from api.config import Settings
 from api.services import authorship, bank_index, episode_ids, episode_revision, episode_scrub, evidence, git_service, machine_state, markdown_parser
-from api.services import sleep_drain, sleep_reserve, sleep_spend
+from api.services import corrections_record, sleep_drain, sleep_reserve, sleep_spend
 
 
 @dataclass
@@ -62,6 +62,9 @@ class SleepState:
     # G104 slice 3 (T3): the latest batch's `revision_cascade.Report.as_dict()` (ids, enums and counts only), for the
     # run record T4 folds; ``None`` when no revision removed words.
     revision_cascade: dict | None = None
+    # G104 slice 3 (T4): this batch's Corrections record (`corrections_record.batch_entry`), folded into the drain when
+    # the batch commits; ``None`` when no conversation was revised.
+    corrections_batch: dict | None = None
     # G141 PJ-0 (R-CS3): claims Stage 5.56 could neither write nor hold (PJ-0b)
     # because their subject has no page, and how many page-less subjects there
     # were. Counts only — G141's M3 measure, carried into the `sleep_run`
@@ -2155,6 +2158,7 @@ def _reset_batch_counters() -> None:
     _state.decay_nudges_refreshed = 0
     _state.inbox_settled = 0
     _state.revision_cascade = None
+    _state.corrections_batch = None
     _state.write_started = False
 
 
@@ -2478,6 +2482,8 @@ async def _drain(
                 if name != "episodes_requeued":   # distinct ids below: a retried id is one, not two
                     ds.totals[name] = ds.totals.get(name, 0) + int(getattr(_state, name, 0) or 0)
             ds.filed_ids |= outcome.filed_ids
+            if _state.corrections_batch:
+                ds.corrections = corrections_record.merge(ds.corrections, _state.corrections_batch)
             ds.settled |= outcome.filed_ids
             for i in outcome.filed_ids:
                 ds.unread.pop(i, None)
@@ -3626,6 +3632,7 @@ async def _run_stages(
     # page at most, never over the person's or an agent's own words (those become one inbox question a page), History
     # keeping the change dated. Provenance rows into a revised conversation move onto its new body. Before the hubs and
     # index, so they project the corrected pages; committed with this batch under Sleep's trailers.
+    prose_report = None
     if revisions_read:
         try:
             from api.services import revision_prose
@@ -3637,6 +3644,30 @@ async def _run_stages(
                 logger.info(f"Stage 5.58: revised conversations — {revision_prose.summary(prose_report)}")
         except Exception as e:  # noqa: BLE001 - prose correction never costs the cycle
             logger.warning(f"Stage 5.58 revision prose failed: {type(e).__name__}")
+
+    # Stage 5.585 (G104 slice 3, T4): the person is told, not asked — this batch's Corrections record (folded into the run
+    # when the batch commits, listed in the commit body) and one dated History line on every page a correction changed,
+    # none for a page and conversation Stage 5.58 already wrote one for. Ids and counts only; never costs the cycle.
+    _state.corrections_batch = None
+    if revisions_read:
+        try:
+            from api.services import revision_prose
+
+            audit = claim_result.get("audit") or []
+            entry = corrections_record.batch_entry(
+                _state.revision_cascade,
+                withdrawn=sum(1 for a in audit if a.get("action") == "revision_withdrew"),
+                superseded=sum(1 for a in audit if a.get("action") == "revised"),
+                rewritten=prose_report.rewritten if prose_report is not None else 0,
+                revised_out=claim_result.get("revised_out") or {})
+            if entry:
+                _state.corrections_batch = entry
+                await asyncio.to_thread(
+                    corrections_record.write_history, memory_path, _state.revision_cascade, today=str(date.today()),
+                    skip=prose_report.history_pages if prose_report is not None else None,
+                    days=revision_prose.revised_days(episodes))
+        except Exception as e:  # noqa: BLE001 - a record is never worth the batch
+            logger.warning(f"Stage 5.585 corrections record failed: {type(e).__name__}")
 
     # Stage 5.6: Regenerate the hub tier + root _index.md from current entities.
     # Deterministic, no LLM; gives small LLMs a filesystem traversal path.
@@ -3785,6 +3816,7 @@ async def _run_stages(
         authors=engine_models or None,
         sessions=_collect_session_ids(processed_episodes),
         episode_sessions=_episode_session_map(processed_episodes),
+        corrections=_state.corrections_batch,
         **({} if batch is None else {
             "drain": (batch.drain_id, batch.index, batch.of),
             "subject_suffix": (" (finishing)" if decay_only else
@@ -4183,6 +4215,7 @@ async def _finalize(
     episode_sessions: dict[str, str] | None = None,
     drain: tuple[str, int, int] | None = None,
     subject_suffix: str = "",
+    corrections: dict | None = None,
 ) -> None:
     """Commit all changes from the sleep cycle with a structured message.
 
@@ -4416,7 +4449,8 @@ async def _finalize(
             trigger = _infer_trigger_for_path(path)
         extra_lines.append(f"{path}: {action} (trigger: {trigger})")
 
-    body_lines = entity_lines + extra_lines
+    # G104 slice 3 (T4): the conversations a correction revised and the pages it archived, ids only.
+    body_lines = entity_lines + extra_lines + corrections_record.commit_lines(corrections)
 
     # Author trailers: the models that actually wrote this consolidation.
     # `authors` (G74(a)) is what the engine REPORTED using; without it we

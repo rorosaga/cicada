@@ -74,6 +74,12 @@ def record_leg(memory_path: Path, ds, *, state: str, stop=None, reason: str | No
     sensitive = {**(prev.get("sensitive") if isinstance(prev.get("sensitive"), dict) else {}),
                  **(getattr(ds, "sensitive", None) or {})}
     replaced = sorted({*(prev.get("replaced_ids") or []), *(getattr(ds, "replaced_ids", None) or ())})
+    # G104 slice 3 (T4): a leg's Corrections add to the earlier legs' (a Continue is a fresh state), once: the base is
+    # what the run held when this leg began, so the several records one leg writes never count it twice.
+    from api.services import corrections_record
+
+    base = prev.get("corrections") if state == "running" else prev.get("corrections_base")
+    corrections = corrections_record.merge(base, getattr(ds, "corrections", None))
     summary = {
         "id": ds.drain_id,
         "started_by": ds.started_by,
@@ -97,6 +103,8 @@ def record_leg(memory_path: Path, ds, *, state: str, stop=None, reason: str | No
         "catch_up_for": getattr(ds, "catch_up_for", None) or prev.get("catch_up_for"),
         "sensitive": sensitive,
         "replaced_ids": replaced,
+        "corrections": corrections,
+        "corrections_base": base,
     }
     data["runs"][ds.drain_id] = summary
     if ds.drain_id in data["order"]:

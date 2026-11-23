@@ -3845,6 +3845,36 @@ class SleepRunPages(CamelModel):
     first: list[str] = Field(default_factory=list)   # page ids (at most 8) the run created first
 
 
+class SleepRunCorrectedPage(CamelModel):
+    """A page a correction archived: its id, the conversation whose correction did it, and whether the restore route
+    still applies (the page is archived by a correction right now)."""
+    page: str
+    episode: str
+    restorable: bool = False
+
+
+class SleepRunKeptPage(CamelModel):
+    """A page a correction could have archived and kept, with the ``revision_cascade.SUPPORTS`` enum that held it."""
+    page: str
+    episode: str
+    support: str
+
+
+class SleepRunCorrections(CamelModel):
+    """G104 slice 3 (T4): what the run's corrections reached — ids, counts and enums only; ``None`` on the run when no
+    conversation was revised, never zeros."""
+    conversations_revised: int
+    revised: list[str] = Field(default_factory=list)
+    claims_withdrawn: int = 0
+    claims_superseded: int = 0
+    passages_rewritten: int = 0
+    pages_archived: list[SleepRunCorrectedPage] = Field(default_factory=list)
+    pages_kept: list[SleepRunKeptPage] = Field(default_factory=list)
+    aliases_dropped: int = 0
+    held_dropped: int = 0
+    questions_withdrawn: int = 0
+
+
 class SleepRunDetail(CamelModel):
     """``GET /sleep/runs/{id}`` — one whole run, engine-free (ids, counts and enums; never a
     title or a line of text). Unknown is ``null``, never zero. Plan windows are per batch:
@@ -3870,6 +3900,7 @@ class SleepRunDetail(CamelModel):
     models: list["CycleUsageModel"] = Field(default_factory=list)
     usage: Optional["CycleUsage"] = None
     pages: Optional[SleepRunPages] = None
+    corrections: Optional[SleepRunCorrections] = None
 
 
 class SleepCycleEntity(CamelModel):

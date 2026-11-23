@@ -1832,5 +1832,13 @@
       "frontmatter": "{'kind': 'merge_suggestion', 'required_input': 'merge', 'status': 'pending', 'priority': guess, 'entity_id': asked, 'entity_name': name_a, 'title': f'Is {name_a} the same as {name_b}?', 'uncertainty_type': f'Possible duplicate of {name_b}', 'suggested_classification': 'person', 'suggested_confidence': guess, 'created_date': today.isoformat(), 'merge_target_hint': target, 'detected': 'person_duplicate', 'signals': pair.signals, **({'source_episode': verdict.episode} if verdict.episode else {})}",
       "disposition": "fresh_frontmatter_untracked"
     }
+  ],
+  "services/corrections_record.py": [
+    {
+      "function": "write_history",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
   ]
 }

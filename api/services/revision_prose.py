@@ -172,6 +172,8 @@ class Report:
     rows_moved: int = 0
     refused: int = 0
     refused_why: dict = field(default_factory=dict)
+    #: ``{page id: the conversations its History line was written for}`` — T4 never adds a second line for these.
+    history_pages: dict = field(default_factory=dict)
     failed: int = 0
     left: int = 0
     paths: list = field(default_factory=list)
@@ -754,6 +756,8 @@ async def run(memory_path: Path, settings, revisions: dict, *, closed: dict[str,
                     report.rewritten += sum(1 for t in edits.values() if t)
                     report.removed += sum(1 for t in edits.values() if not t)
                     report.history += len(events)
+                    if events:
+                        report.history_pages.setdefault(job.entity_id, set()).update(c.episode for c in job.changes)
                     written.add(job.path)
             if proposals and await asyncio.to_thread(propose, memory_path, job, proposals, events, today):
                 report.proposals += 1
