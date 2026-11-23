@@ -76,8 +76,8 @@ final class ConnectSuggestPanelController: ConnectSuggestPresenting {
     }
 }
 
-/// G231 — the suggestion itself: the bookworm beside the app's own icon, the question, what is read, two or three
-/// things Cicada does with it, and No · Not now · Yes. Notch-black in both appearances with the dark ladder's text
+/// G231 — the suggestion itself: the bookworm beside the app's own icon, the question, what is read, and
+/// No · Not now · Yes (owner 2026-11-23: no chips of what Cicada does with it, and bigger answers). Notch-black in both appearances with the dark ladder's text
 /// (`CicadaTheme.Notch`), the notch's shape growing on its spring and only fading under Reduce Motion (DR-66).
 struct ConnectSuggestPanelView: View {
     let center: ConnectSuggestCenter
@@ -115,7 +115,7 @@ struct ConnectSuggestPanelView: View {
     }
 
     private func card(_ state: ConnectSuggestPanelState) -> some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             HStack(alignment: .center, spacing: CicadaTheme.spacingSM) {
                 // The mascot, curious, on the sheet's own clock; decorative — the question says it all. After a
                 // site's Yes it is pleased, inside a ring that closes into a check (owner 2026-11-23).
@@ -143,32 +143,13 @@ struct ConnectSuggestPanelView: View {
                         .lineLimit(1)
                 }
             }
-            SaveWhyChipRows(spacing: CicadaTheme.scaled(6), lineSpacing: CicadaTheme.scaled(6)) {
-                ForEach(Copy.ConnectSuggest.uses(state.target.kind), id: \.self) { use in
-                    Text(use)
-                        .font(CicadaTheme.metaFont)
-                        .foregroundStyle(CicadaTheme.Notch.textSecondary)
-                        .lineLimit(1)
-                        .fixedSize()
-                        .padding(.horizontal, CicadaTheme.scaled(8))
-                        .padding(.vertical, CicadaTheme.scaled(5))
-                        .overlay(Capsule().strokeBorder(CicadaTheme.Notch.chipRing, lineWidth: 1))
-                }
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(Copy.ConnectSuggest.usesLabel)
             HStack(spacing: CicadaTheme.spacingSM) {
                 Spacer()
-                quiet(Copy.ConnectSuggest.no, tone: CicadaTheme.Notch.textTertiary) { center.input(.no) }
-                quiet(Copy.ConnectSuggest.notNow, tone: CicadaTheme.Notch.textSecondary) { center.input(.notNow) }
-                Button(Copy.ConnectSuggest.yes) { center.input(.yes) }
-                    .buttonStyle(.cicadaPlain)
-                    .font(CicadaTheme.font(size: 12, weight: .semibold))
-                    .foregroundStyle(CicadaTheme.Notch.textPrimary)
-                    .padding(.horizontal, CicadaTheme.scaled(14))
-                    .padding(.vertical, CicadaTheme.scaled(6))
-                    .background(Capsule().fill(CicadaTheme.Notch.chipSelected))
-                    .overlay(Capsule().strokeBorder(CicadaTheme.Notch.chipSelectedRing, lineWidth: 1))
+                answer(Copy.ConnectSuggest.no, tone: CicadaTheme.Notch.textTertiary) { center.input(.no) }
+                answer(Copy.ConnectSuggest.notNow, tone: CicadaTheme.Notch.textSecondary) { center.input(.notNow) }
+                answer(Copy.ConnectSuggest.yes, tone: CicadaTheme.Notch.textPrimary, filled: true) {
+                    center.input(.yes)
+                }
             }
         }
         .padding(.horizontal, CicadaTheme.spacingMD)
@@ -179,13 +160,28 @@ struct ConnectSuggestPanelView: View {
         .allowsHitTesting(state.confirmedAt == nil)
     }
 
-    private func quiet(_ title: String, tone: Color, action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
-            .buttonStyle(.cicadaPlain)
-            .font(CicadaTheme.font(size: 12, weight: .medium))
-            .foregroundStyle(tone)
-            .padding(.horizontal, CicadaTheme.scaled(8))
-            .padding(.vertical, CicadaTheme.scaled(6))
+    /// The answers' size (owner 2026-11-23: "make the no, not now and yes buttons bigger"): the row face, in a pill whose
+    /// whole shape takes the click — the padding is the button's, never air around it.
+    static let answerFont: CGFloat = 14
+    static let answerInsets = EdgeInsets(top: 9, leading: 16, bottom: 9, trailing: 16)
+
+    /// One answer. Yes is the notch's one filled capsule (`chipSelected` with its ring); No and Not now are words of
+    /// the same size, quieter by ink alone.
+    private func answer(_ title: String, tone: Color, filled: Bool = false, action: @escaping () -> Void) -> some View {
+        let insets = Self.answerInsets
+        return Button(action: action) {
+            Text(title)
+                .font(CicadaTheme.font(size: Self.answerFont, weight: filled ? .semibold : .medium))
+                .foregroundStyle(tone)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.vertical, CicadaTheme.scaled(insets.top))
+                .padding(.horizontal, CicadaTheme.scaled(filled ? insets.leading + 4 : insets.leading))
+                .background(Capsule().fill(filled ? CicadaTheme.Notch.chipSelected : Color.clear))
+                .overlay(Capsule().strokeBorder(filled ? CicadaTheme.Notch.chipSelectedRing : Color.clear, lineWidth: 1))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.cicadaPlain)
     }
 }
 

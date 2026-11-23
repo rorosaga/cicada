@@ -2,33 +2,16 @@ import Foundation
 
 /// G231 — the notch's suggestion to connect the app in front, and its Settings row. Short and provider-neutral (owner
 /// 2026-09-30): the app named is the person's own; no model or provider is named doing anything. Said once (owner
-/// 2026-11-03: no title that repeats its body): the title asks, the chips say what Cicada does with it, the one line
-/// under them says what is read — none repeats another.
+/// 2026-11-03: no title that repeats its body): the title asks and the one line under it says what is read. The chips
+/// of what Cicada does with it are gone (owner 2026-11-23).
 extension Copy {
     enum ConnectSuggest {
         static func title(_ app: String) -> String { "Connect \(app) to Cicada?" }
         static let no = "No"
         static let notNow = "Not now"
         static let yes = "Yes"
-        static let usesLabel = "What Cicada does with it"
         /// G221 — a site's Yes, said back: it is connected now, with nothing more to do.
         static func connected(_ site: String) -> String { "Connected. Saving on \(site) will ask why." }
-
-        /// Two or three concrete things Cicada does with that kind of source.
-        static func uses(_ kind: ConnectSuggestApps.Kind) -> [String] {
-            switch kind {
-            case .chats: ["Remember what friends tell you", "Find that link someone sent", "Recall plans you made"]
-            case .notes: ["Find a note by what it means", "Tie notes to your projects"]
-            case .calendar: ["Know who you met and when", "Tie meetings to your projects"]
-            case .reminders: ["Keep track of what you planned", "Notice to-dos gone quiet"]
-            case .contacts: ["Put a face to people you mention", "Know who's who across chats"]
-            case .browser: ["Remember why you saved a page", "Find a bookmark by what it's about"]
-            case .meetings: ["Remember what a meeting decided", "Find who said what"]
-            case .dictation: ["Remember what you said aloud", "Find a thought you dictated"]
-            case .notion: ["Find a page by what it means", "Tie docs to your projects"]
-            case .saves: ["Ask why at the moment you save", "Find a saved post by what it's about"]
-            }
-        }
 
         /// What Yes leads to being read — never more or less than the source's own page then offers. A browser says
         /// what its own entry reads (`BrowserSpec.reads` and its extra switches): Chrome's tab groups and watched

@@ -230,20 +230,26 @@ final class ConnectSuggestTests: XCTestCase {
         let targets = ConnectSuggestApps.Kind.allCases.filter { $0 != .browser }
             .map { ConnectSuggestApps.Target(entryId: "x", kind: $0) } + browsers
         for target in targets {
-            let kind = target.kind
-            let uses = Copy.ConnectSuggest.uses(kind)
-            XCTAssertTrue((2...3).contains(uses.count), "\(kind)")
-            XCTAssertEqual(Set(uses).count, uses.count, "\(kind)")
             let reads = Copy.ConnectSuggest.reads(target)
-            for line in uses + [reads] {
-                XCTAssertFalse(title.localizedCaseInsensitiveContains(line), line)
-                XCTAssertFalse(line.localizedCaseInsensitiveContains("connect"), "the title already asks: \(line)")
-                for provider in ["Claude", "ChatGPT", "OpenAI", "Gemini", "Ollama", "Anthropic"] {
-                    XCTAssertFalse(line.contains(provider), line)
-                }
+            XCTAssertFalse(title.localizedCaseInsensitiveContains(reads), reads)
+            XCTAssertFalse(reads.localizedCaseInsensitiveContains("connect"), "the title already asks: \(reads)")
+            for provider in ["Claude", "ChatGPT", "OpenAI", "Gemini", "Ollama", "Anthropic"] {
+                XCTAssertFalse(reads.contains(provider), reads)
             }
-            XCTAssertFalse(uses.contains(reads))
         }
+    }
+
+    /// Owner 2026-11-23 — "make the no, not now and yes buttons bigger, and remove the two label things, for all
+    /// notifications of connect": the offer is the question, what is read and the three answers, at the row size.
+    func testTheAnswersAreTheRowSizeAndNoChipsStand() throws {
+        XCTAssertGreaterThanOrEqual(ConnectSuggestPanelView.answerFont, 14)
+        XCTAssertGreaterThanOrEqual(ConnectSuggestPanelView.answerInsets.top, 9)
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/CicadaApp")
+        let panel = try String(contentsOf: root.appendingPathComponent("ConnectSuggest/ConnectSuggestPanel.swift"),
+                               encoding: .utf8)
+        XCTAssertFalse(panel.contains("SaveWhyChipRows"), "no chips of what Cicada does with it")
+        XCTAssertTrue(panel.contains(".contentShape(Capsule())"), "the whole pill takes the click, not only its word")
     }
 
     /// Review of #585 — a browser's line says what its own entry reads: Chrome's extra switches, Safari's Reading

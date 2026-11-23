@@ -1662,8 +1662,8 @@ question — `SaveWhyNotch` placement on the front app's screen, `SaveWhyNotchSh
 468 pt card: the bookworm (`curious`) beside the app's own icon as macOS draws it, the question "Connect Notes to
 Cicada?", one tertiary line on what is read ("macOS asks you first.", "Only the chats you tick are read."; a browser
 its own entry's: Chrome "Bookmarks; tab groups and watched videos only if you turn them on.", Safari "Bookmarks and
-Reading List; iCloud tabs only if you import them.", any other "Only your bookmarks are read."), two or three ringed chips of what Cicada does with it (`Copy.ConnectSuggest.uses`, e.g.
-"Remember what friends tell you · Find that link someone sent · Recall plans you made"), and **No · Not now · Yes**.
+Reading List; iCloud tabs only if you import them.", any other "Only your bookmarks are read."), and **No · Not now · Yes** at the row size (14 pt, each a pill whose whole
+shape takes the click; owner 2026-11-23, who also removed the chips of what Cicada does with it).
 It **never takes the keyboard**: `ConnectSuggestNSPanel.canBecomeKey` is always false (there is no field), its buttons
 answer the first click (`ConnectSuggestHostingView.acceptsFirstMouse`), it is shown with `orderFrontRegardless`, and a
 button pressed within `armDelay` (0.5 s) of it showing is ignored. *Yes* opens Sources on that entry
