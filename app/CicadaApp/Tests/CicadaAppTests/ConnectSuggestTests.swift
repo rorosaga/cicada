@@ -73,28 +73,47 @@ final class ConnectSuggestTests: XCTestCase {
         XCTAssertEqual(decide(whatsApp, memory, context(t0.addingTimeInterval(400 * day))), .skip(.answered))
     }
 
-    func testNotNowWaitsFourteenDaysThenOnceMoreAndThatIsTheLast() {
-        var memory = ConnectSuggestPolicy.shown("whatsapp", at: t0, in: .init())
-        memory = ConnectSuggestPolicy.answered("whatsapp", .notNow, at: t0, in: memory)
-        XCTAssertEqual(decide(whatsApp, memory, context(t0.addingTimeInterval(13 * day))), .skip(.snoozed))
-        let second = t0.addingTimeInterval(14 * day)
-        XCTAssertEqual(decide(whatsApp, memory, context(second)), .suggest)
-        memory = ConnectSuggestPolicy.shown("whatsapp", at: second, in: memory)
-        memory = ConnectSuggestPolicy.answered("whatsapp", .notNow, at: second, in: memory)
-        XCTAssertEqual(decide(whatsApp, memory, context(second.addingTimeInterval(400 * day))), .skip(.shownEnough))
+    func testNotNowWaitsLongerEachTimeAndTheOfferAfterTwoWeeksIsTheLast() {
+        // Owner 2026-11-23: two hours, a day, three days, a week, two weeks.
+        let hour: TimeInterval = 3600
+        XCTAssertEqual(ConnectSuggestPolicy.waits, [2 * hour, day, 3 * day, 7 * day, 14 * day])
+        var memory = ConnectSuggestMemory()
+        var at = t0
+        for wait in ConnectSuggestPolicy.waits {
+            memory = ConnectSuggestPolicy.shown("whatsapp", at: at, in: memory)
+            memory = ConnectSuggestPolicy.answered("whatsapp", .notNow, at: at, in: memory)
+            XCTAssertEqual(decide(whatsApp, memory, context(at.addingTimeInterval(wait - 60))), .skip(.snoozed))
+            at = at.addingTimeInterval(wait)
+            XCTAssertEqual(decide(whatsApp, memory, context(at)), .suggest)
+        }
+        memory = ConnectSuggestPolicy.shown("whatsapp", at: at, in: memory)
+        memory = ConnectSuggestPolicy.answered("whatsapp", .notNow, at: at, in: memory)
+        XCTAssertEqual(memory.sources["whatsapp"]?.shown, ConnectSuggestPolicy.maxShows)
+        XCTAssertEqual(decide(whatsApp, memory, context(at.addingTimeInterval(400 * day))), .skip(.shownEnough))
     }
 
     func testAShowWithNoAnswerCountsAsNotNowFromWhenItShowed() {
-        // The app quit while the panel showed: counted at showing, so it never comes back the next day.
+        // The app quit while the panel showed: counted at showing, so it is never free again at once.
         let memory = ConnectSuggestPolicy.shown("whatsapp", at: t0, in: .init())
-        XCTAssertEqual(decide(whatsApp, memory, context(t0.addingTimeInterval(2 * day))), .skip(.snoozed))
-        XCTAssertEqual(decide(whatsApp, memory, context(t0.addingTimeInterval(14 * day))), .suggest)
+        XCTAssertEqual(decide(whatsApp, memory, context(t0.addingTimeInterval(3600))), .skip(.snoozed))
+        XCTAssertEqual(decide(whatsApp, memory, context(t0.addingTimeInterval(2 * 3600))), .suggest)
     }
 
-    func testAtMostOneSuggestionADayAcrossSources() {
+    func testAtMostOneSuggestionADayBetweenDifferentSources() {
         let memory = ConnectSuggestPolicy.shown("whatsapp", at: t0, in: .init())
         XCTAssertEqual(decide(notes, memory, context(t0.addingTimeInterval(23 * 3600))), .skip(.dailyCap))
         XCTAssertEqual(decide(notes, memory, context(t0.addingTimeInterval(day))), .suggest)
+    }
+
+    func testASourcesOwnReturnIsNotHeldByTheDailyCapButAnotherSourcesOfferIs() {
+        var memory = ConnectSuggestPolicy.shown("whatsapp", at: t0, in: .init())
+        memory = ConnectSuggestPolicy.answered("whatsapp", .notNow, at: t0, in: memory)
+        let later = t0.addingTimeInterval(2 * 3600)
+        XCTAssertEqual(decide(whatsApp, memory, context(later)), .suggest)
+        // Another source showed in between: the cap is back for this one.
+        memory = ConnectSuggestPolicy.shown("notes", at: later, in: memory)
+        XCTAssertEqual(decide(whatsApp, memory, context(later.addingTimeInterval(3600))), .skip(.dailyCap))
+        XCTAssertEqual(decide(whatsApp, memory, context(later.addingTimeInterval(day))), .suggest)
     }
 
     func testNeverInTheFirstMinuteAfterTheAppOrCicadaLaunched() {
