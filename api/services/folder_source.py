@@ -57,7 +57,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import (bank_index, decay_policy, episode_ids, episode_staging, markdown_parser, meeting_transcripts,
-                          project_birth)
+                          project_birth, source_edits)
 from api.services.id_utils import sanitize_id
 
 FOLDERS_FILENAME = "folders.json"
@@ -585,6 +585,9 @@ def _sync_locked(memory_path: Path, folder: dict, files: list[IncomingFile], del
             out["errors"].append({"relpath": p.rel, "reason": "not a meeting transcript"})
             return None
         out["files_changed" if existing else "files_new"] += 1
+        edits = source_edits.pending_for(memory_path, folder["id"], p.rel, p.sha)   # G244: an agent's edit of these bytes
+        for d in new:
+            d.edits = edits
         if who == "agent":
             out["agent_files"] += 1
         else:
@@ -605,6 +608,7 @@ def _sync_locked(memory_path: Path, folder: dict, files: list[IncomingFile], del
         for sid, e in vanished:
             if sid not in matched.values():
                 drafts.append(_emptied(folder, p.rel, e, sid, mtime_iso=p.mtime, sha=p.sha))
+                drafts[-1].edits = edits
         return new[0] if new else None
 
     def gone(rel: str) -> list[str]:
@@ -658,6 +662,10 @@ def _sync_locked(memory_path: Path, folder: dict, files: list[IncomingFile], del
     staged = episode_staging.stage(drafts, episodes_dir, deleted_source_ids=deleted_sids, bank=memory_path.name)
     out.update(created=staged.created, updated=staged.updated, renamed=staged.renamed,
                tombstoned=staged.tombstoned)
+    # G244: an edit an episode carries now is no longer waiting; one whose words the stager left alone still is (it
+    # expires), because nothing carried it.
+    source_edits.consume(memory_path, [(folder["id"], d.extra["relpath"], d.content_sha) for d in drafts
+                                       if d.edits and d.source_id in staged.touched])
     if meetings:
         _write_records(episodes_dir, records, staged)
         out["resend"] = _resend(episodes_dir, folder["id"])
@@ -927,21 +935,22 @@ def _refused_by_git(stderr: str, rels) -> set[str]:
     return out
 
 
-def _commit_message(subject: str, trigger: str, author: str, rels: list[str]) -> str:
+def _commit_message(subject: str, trigger: str, author: str, rels: list[str], session: str | None = None) -> str:
     from api.services import git_service
 
     lines = [f"{p}: updated (trigger: {trigger})" for p in rels[:200]]
     if len(rels) > 200:
         lines.append(f"… and {len(rels) - 200} more (trigger: {trigger})")
-    return git_service.build_commit_message(subject, lines, authors=[author])
+    return git_service.build_commit_message(subject, lines, authors=[author],
+                                            sessions=[session] if session else None)
 
 
 async def _try_commit(memory_path: Path, subject: str, trigger: str, author: str,
-                      rels: list[str]) -> Exception | None:
+                      rels: list[str], session: str | None = None) -> Exception | None:
     from api.services import git_service
 
     try:
-        await git_service.commit_paths(memory_path, _commit_message(subject, trigger, author, rels), rels)
+        await git_service.commit_paths(memory_path, _commit_message(subject, trigger, author, rels, session), rels)
     except Exception as e:  # noqa: BLE001 - kept and said, never raised into a sync
         return e
     return None
@@ -949,7 +958,7 @@ async def _try_commit(memory_path: Path, subject: str, trigger: str, author: str
 
 async def commit_paths_for(memory_path: Path, paths: list[str], *, subject: str, trigger: str,
                            author: str = "user", channel: str | None = None,
-                           land_siblings: bool = True) -> bool:
+                           land_siblings: bool = True, session: str | None = None) -> bool:
     """A commit scoped to exactly ``paths`` — never ``git add -A`` (R-LS30) — plus
     whatever this same writer could not commit last time (F2-back R-B5).
 
@@ -971,7 +980,10 @@ async def commit_paths_for(memory_path: Path, paths: list[str], *, subject: str,
     After a success, ``land_siblings`` lands every other writer kept on the
     same ``channel`` under its own subject, trigger and author (final review
     F3): the channel carries one failure line, so it is cleared only once no
-    writer on it is waiting."""
+    writer on it is waiting.
+
+    ``session`` (G244): the conversation an agent's commit names as ``Cicada-Session``; kept with the writer's entry, so a
+    commit that had to wait lands under it too."""
     from api.services import git_service, sync_state
 
     memory_path = Path(memory_path)
@@ -988,10 +1000,12 @@ async def commit_paths_for(memory_path: Path, paths: list[str], *, subject: str,
         _update_pending(memory_path, key, drop=gone)
         return True
     meta = {"subject": subject, "trigger": trigger, "author": author, "channel": channel}
+    if session:
+        meta["session"] = session
     # Written ahead of the commit (the `.decay_watermarked.pending` shape): a
     # crash mid-commit still leaves the next run a list to finish.
     _update_pending(memory_path, key, add=rels, drop=gone, meta=meta)
-    err = await _try_commit(memory_path, subject, trigger, author, rels)
+    err = await _try_commit(memory_path, subject, trigger, author, rels, session)
     if err is None:
         _update_pending(memory_path, key, drop=rels)
     else:
@@ -1002,7 +1016,7 @@ async def commit_paths_for(memory_path: Path, paths: list[str], *, subject: str,
         _update_pending(memory_path, key, add=rels, meta=meta)
         if not git_service._index_lock_busy(str(err)):
             await _settle_lasting_refusal(memory_path, key, str(err), rels, fresh, subject=subject,
-                                          trigger=trigger, author=author)
+                                          trigger=trigger, author=author, session=session)
     if key in pending_commits(memory_path):
         if channel:
             sync_state.record_error(memory_path, channel, COMMIT_FAILED_MESSAGE)
@@ -1015,14 +1029,16 @@ async def commit_paths_for(memory_path: Path, paths: list[str], *, subject: str,
                 await commit_paths_for(
                     memory_path, [], subject=str(entry.get("subject") or "Saved changes"),
                     trigger=str(entry.get("trigger") or other.split("|", 1)[0]),
-                    author=str(entry.get("author") or "cicada"), channel=channel, land_siblings=False)
+                    author=str(entry.get("author") or "cicada"), channel=channel, land_siblings=False,
+                    session=entry.get("session") or None)
         if not any(e.get("channel") == channel for e in pending_commits(memory_path).values()):
             sync_state.clear_error(memory_path, channel, COMMIT_FAILED_MESSAGE)
     return True
 
 
 async def _settle_lasting_refusal(memory_path: Path, key: str, stderr: str, rels: list[str],
-                                  fresh: list[str], *, subject: str, trigger: str, author: str) -> None:
+                                  fresh: list[str], *, subject: str, trigger: str, author: str,
+                                  session: str | None = None) -> None:
     """A refusal that is not the index lock (final review F2): let go of what git
     named as never committable, land what can still land in one retry, and
     count the refusal against every path still kept."""
@@ -1036,7 +1052,7 @@ async def _settle_lasting_refusal(memory_path: Path, key: str, stderr: str, rels
     retry = sorted(set(rels) - refused) if refused else fresh
     left = [p for p in rels if p not in refused]
     if retry and retry != rels:
-        if await _try_commit(memory_path, subject, trigger, author, retry) is None:
+        if await _try_commit(memory_path, subject, trigger, author, retry, session) is None:
             _update_pending(memory_path, key, drop=retry)
             left = [p for p in left if p not in retry]
     given_up = _update_pending(memory_path, key, failed=left)
@@ -1059,7 +1075,7 @@ async def flush_pending_commits(memory_path: Path) -> int:
                 author=str(entry.get("author") or "cicada"), channel=entry.get("channel") or None,
                 # This loop reaches every writer itself; a sibling landed from
                 # inside one call would be counted again by the next.
-                land_siblings=False)
+                land_siblings=False, session=entry.get("session") or None)
         except Exception as e:  # noqa: BLE001
             logger.warning(f"kept commit not landed: {type(e).__name__}")
             continue

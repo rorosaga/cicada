@@ -3006,6 +3006,9 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
             gone = _removed_sources_line(memory_path, path, page_text)
             if gone:       # G104 slice 3: derived on read, never written; the claims stay open and counted
                 text = text.rstrip("\n") + "\n\n" + gone + "\n"
+            edited = _corrected_sources_line(memory_path, page_text)
+            if edited:     # G244 (ruling 76): derived on read, never written; trust and the speaker are unchanged
+                text = text.rstrip("\n") + "\n\n" + edited + "\n"
             heard = None if ctx.is_remote and not ctx.raw_excerpts else media_pages.transcript_line(memory_path, cid)
             if heard:      # ROR-117: how much transcript a recording's page has — never a word of it
                 text = text.rstrip("\n") + "\n\n" + heard + "\n"
@@ -3080,6 +3083,25 @@ def _removed_sources_line(memory_path: Path, path: Path, page_text: str) -> str 
         gone = "; ".join(f"`{ep}`: {source_spans.removed_sentence(day)}" for ep, day in removed.items()
                          if any(ep in eps for _, eps in rows))
         return f"{len(rows):,} claim(s) cite a conversation removed from its source ({ids}{more}). {gone}"
+    except Exception:  # noqa: BLE001 — a derived line never fails a page read
+        return None
+
+
+def _corrected_sources_line(memory_path: Path, page_text: str) -> str | None:
+    """G244 (ruling 76): which conversations this page cites had a source file an agent edited — who, in the words the
+    app's citation note uses ("corrected by <harness> · <model>"). One derived line, never written to the page; ids and
+    labels only. ``None`` (and no page parsed) when none was, or on any failure."""
+    try:
+        rows: list[str] = []
+        for ep_id in dict.fromkeys(_EPISODE_MENTION.findall(page_text)):
+            indexed = bank_index.file(memory_path, "episodes", f"{ep_id}.md")
+            editor = source_spans.edited_by(indexed.frontmatter) if indexed is not None else None
+            if editor is not None:
+                rows.append(f"`{ep_id}` corrected by {source_spans.editor_words(editor)}")
+        if not rows:
+            return None
+        more = f" and {len(rows) - _REMOVED_LINE_IDS:,} more" if len(rows) > _REMOVED_LINE_IDS else ""
+        return "Edited source files: " + "; ".join(rows[:_REMOVED_LINE_IDS]) + more + ". The words stay their speaker's."
     except Exception:  # noqa: BLE001 — a derived line never fails a page read
         return None
 

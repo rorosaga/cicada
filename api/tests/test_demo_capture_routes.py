@@ -23,6 +23,7 @@ from api.services import bank_registry, demo_guard, sleep_cycle
 GATED = {
     ("POST", "/sources/save"): "/sources/save",
     ("POST", "/capture/isbn"): "/capture/isbn",                                  # G233: a scanned book
+    ("POST", "/capture/source-edit"): "/capture/source-edit",                    # G244: an agent's edit of a source file
     ("POST", "/sources/apple-books/sync"): "/sources/apple-books/sync",          # G39
     ("PUT", "/sources/apple-books/settings"): "/sources/apple-books/settings",
     ("POST", "/sources/apple-books/covers"): "/sources/apple-books/covers",      # ruling 61

@@ -888,6 +888,63 @@ def cmd_projects_new(boot, args) -> Result:
                   warnings=_warn(boot))
 
 
+def watched_file(path: Path, folders: list[dict], device: str | None) -> tuple[dict, str] | None:
+    """``(folder, relpath)`` for the watched folder of this device that holds ``path`` and would stage it (the folder's
+    include/exclude rules), else ``None`` — the longest folder path when two nest. Pure path arithmetic on the real paths;
+    it runs in the agent's own process, which may open its own file (the backend never does)."""
+    from api.services import folder_source
+
+    real = Path(os.path.realpath(path))
+    best: tuple[int, dict, str] | None = None
+    for f in folders:
+        if device and f.get("device") and f.get("device") != device:
+            continue
+        root = Path(os.path.realpath(os.path.expanduser(str(f.get("path") or ""))))
+        if not f.get("path") or root not in real.parents:
+            continue
+        rel = folder_source.clean_relpath(real.relative_to(root).as_posix())
+        if rel is None or not folder_source.is_included(rel, f.get("include") or folder_source.DEFAULT_INCLUDE,
+                                                        f.get("exclude") or folder_source.DEFAULT_EXCLUDE):
+            continue
+        if best is None or len(root.parts) > best[0]:
+            best = (len(root.parts), f, rel)
+    return None if best is None else (best[1], best[2])
+
+
+def cmd_source_edit(boot, args) -> Result:
+    """G244 (ruling 76): an agent declares that a command of its own shell edited a file of a watched folder, so the words
+    it changed are its contribution — the harness, session and time its shell names (`caller`). For agents only: the
+    person's own terminal names no harness, and a guess over file times would be worse than none. The file is read here,
+    in the agent's process, only to hash it and match it against the folders the backend lists; the backend gets the hash
+    and the relative path, never the words, and never opens the path."""
+    import hashlib
+
+    from api.services import episode_ids, local_refs
+
+    session, harness = caller()
+    if harness == "unknown":
+        raise Refusal("refused", "This command is for an agent's shell: it records which harness and session edited a "
+                                 "file, and this shell names none. Nothing was recorded.")
+    path = _readable_file(args.file)
+    folders = call(boot, "GET", "/sources/folders").get("folders") or []
+    found = watched_file(path, folders, local_refs.current_device_id())
+    if found is None:
+        return Result(text="That file is not in a watched folder, so there is nothing to record.",
+                      data={"status": "outside"}, warnings=_warn(boot))
+    folder, rel = found
+    body = {"folder_id": folder["id"], "relpath": rel, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "harness": harness, "tool": "cli", "at": episode_ids.utc_now_iso()}
+    if session:
+        body["session_id"] = session
+    out = call(boot, "POST", "/capture/source-edit", body=body)
+    status = out.get("status")
+    if status == "refused":
+        raise Refusal("refused", f"The backend did not record it ({out.get('reason')}).")
+    said = {"attached": "Recorded: your edit is marked on the conversation it changed.",
+            "held": "Recorded: it is kept until the folder's next sync reads the file."}.get(status, "Recorded.")
+    return Result(text=said, data=out, warnings=_warn(boot))
+
+
 def cmd_feed_remove(boot, args) -> Result:
     result = call(boot, "DELETE", "/sources/feeds", body={"url": args.url})
     return Result(text=f"Unsubscribed from {args.url}.", data=result, warnings=_warn(boot))
@@ -1828,6 +1885,7 @@ COMMANDS = {
     "index status": cmd_index_status, "index rebuild": cmd_index_rebuild, "index use": cmd_index_use,
     "index install": cmd_index_install,
     "projects new": cmd_projects_new,
+    "source-edit": cmd_source_edit,
     "feed list": cmd_feed_list, "feed add": cmd_feed_add, "feed remove": cmd_feed_remove, "feed poll": cmd_feed_poll,
     "connector list": cmd_connector_list, "connector connect": cmd_connector_connect,
     "connector disconnect": cmd_connector_disconnect, "connector sync": cmd_connector_sync,

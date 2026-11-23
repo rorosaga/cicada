@@ -41,13 +41,13 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
-from api.models.schemas import SourceSpan, SourceSpanGroup, SourceSpans, SpanAt
+from api.models.schemas import SourceCorrection, SourceSpan, SourceSpanGroup, SourceSpans, SpanAt
 from api.services import authorship, bank_index, evidence, markdown_parser
 from api.services.claims import Claim, is_current, is_event, is_record, parse_claims, current_day
 
 CURRENT, GROWN, STALE, DERIVED, HELD, UNLOCATED = "current", "grown", "stale", "derived", "held", "unlocated"
 #: Rides each route's ETag ``extra``: what these fields mean moved.
-SHAPE = "spans2"
+SHAPE = "spans3"   # spans3: a span of words an agent edited carries ``corrected_by`` (G244)
 
 #: What a source is, for the words a citation opens it with and for the layout that draws it.
 CONVERSATION, NOTE, MEETING, BOOK, SAVE, PAGE, WEB, VIDEO, ITEM = (
@@ -63,6 +63,48 @@ def removed_at(fm: dict | None) -> str | None:
     one derived fact a citation says about them, read each time and never written to a page."""
     at = (fm or {}).get("source_deleted_at")
     return (str(at)[:10] or None) if at else None
+
+
+def contributions(fm: dict | None) -> list[dict]:
+    """The agent edits an episode carries (``episode_staging.CONTRIBUTIONS_KEY``), newest first; tolerant of a hand-edited
+    file."""
+    rows = (fm or {}).get("contributions")
+    return [c for c in rows if isinstance(c, dict) and c.get("harness")] if isinstance(rows, list) else []
+
+
+def _correction(c: dict) -> SourceCorrection:
+    return SourceCorrection(harness=str(c["harness"]), model=str(c["model"]) if c.get("model") else None,
+                            at=str(c["at"]) if c.get("at") else None)
+
+
+def edited_by(fm: dict | None) -> SourceCorrection | None:
+    """Who last edited this source file, at the episode level: the newest contribution, whether or not the body has moved
+    on since (G244, ruling 76). ``None`` when no agent did."""
+    rows = contributions(fm)
+    return _correction(rows[0]) if rows else None
+
+
+def editor_words(who) -> str:
+    """``claude-code · <model>`` — one editor as a person or an agent reads it (``who``: a :class:`SourceCorrection` or its
+    wire dict)."""
+    get = who.get if isinstance(who, dict) else lambda k: getattr(who, k, None)
+    return " · ".join(str(x) for x in (get("harness"), get("model")) if x)
+
+
+def corrected_by(fm: dict | None, start: int, end: int) -> SourceCorrection | None:
+    """The one decision behind ``SourceSpan.corrected_by``: the contribution whose edit made the episode's CURRENT body
+    (``content_hash`` equal) and whose changed ranges the span overlaps. A body that moved on since marks no span (the
+    episode-level :func:`edited_by` stays). Derived on read, never stored."""
+    digest = (fm or {}).get("content_hash")
+    if not digest:
+        return None
+    for c in contributions(fm):
+        if c.get("content_hash") != digest:
+            continue
+        for r in c.get("ranges") or []:
+            if isinstance(r, (list, tuple)) and len(r) == 2 and start < r[1] and r[0] < end:
+                return _correction(c)
+    return None
 
 
 def removed_sentence(day: str) -> str:
@@ -197,9 +239,10 @@ class Source:
              claim_id: str | None = None, current: bool = True) -> SourceSpan:
         """The wire shape of a stored span. Only what may be drawn carries an ``at``."""
         status = self.status(start, end, hash)
+        drawn = status in (CURRENT, GROWN)
         return SourceSpan(source=self.id, status=status, kind=kind, hash=hash or "", claim_id=claim_id, current=current,
-                          at=SpanAt(start=start, end=end) if status in (CURRENT, GROWN) else None,
-                          source_removed=self.removed)
+                          at=SpanAt(start=start, end=end) if drawn else None, source_removed=self.removed,
+                          corrected_by=corrected_by(self.fm, start, end) if drawn and self.is_episode else None)
 
     def derived(self, start: int, end: int) -> SourceSpan:
         """A name match found at read (R-PB9). A secret is not a name, but the same door holds it."""

@@ -711,6 +711,15 @@ class PageBlocks(CamelModel):
     history: Optional[PageBlockHistory] = None
 
 
+class SourceCorrection(CamelModel):
+    """G244 (ruling 76): an agent edited the source file these words are in — who, and when. Trust, ``evidence_kind`` and the
+    speaker are unchanged: the words stay their speaker's, marked as corrected by this harness (and its model, when known)."""
+
+    harness: str
+    model: Optional[str] = None
+    at: Optional[str] = None
+
+
 class PageCitationRef(CamelModel):
     """One numbered source of a page's article (``page_citations``): a conversation (a session's or an import's
     episodes together), a looked-up page (``web``) or another page of the bank (``page``); who and when, in fields."""
@@ -729,6 +738,8 @@ class PageCitationRef(CamelModel):
     source_kind: str = "conversation"
     #: G104 slice 3: every conversation this reference holds was removed from its source (kept as evidence).
     source_removed: bool = False
+    #: G244: an agent edited a source file this reference holds — the newest such edit (``source_spans.edited_by``).
+    edited_by: Optional[SourceCorrection] = None
 
 
 class PageCitationBelief(CamelModel):
@@ -1488,6 +1499,9 @@ class SourceSpan(CamelModel):
     #: G104 slice 3: the source was removed from where it came from. Beside ``status``, never one of its values: the
     #: stored words are kept, so the span still reads what its offsets say. Derived on read, never written.
     source_removed: bool = False
+    #: G244: the words of this span were changed by an agent's edit of the source file (``source_spans.corrected_by``):
+    #: derived on read while the episode's body is the one that edit made, ``None`` otherwise.
+    corrected_by: Optional[SourceCorrection] = None
 
 
 class SourceSpanGroup(CamelModel):
@@ -1639,6 +1653,9 @@ class ProvenanceSpan(CamelModel):
     held: bool = False
     #: G104 slice 3: the conversation was removed from its source (``source_spans.removed_at``); the words are kept.
     source_removed: bool = False
+    #: G244: an agent's edit of the source file changed these words (``source_spans.corrected_by``), while the body is the
+    #: one that edit made.
+    corrected_by: Optional[SourceCorrection] = None
 
 
 class PageCitationDetail(PageCitationRef):
@@ -3873,6 +3890,9 @@ class SleepRunCorrections(CamelModel):
     aliases_dropped: int = 0
     held_dropped: int = 0
     questions_withdrawn: int = 0
+    #: G244 (ruling 76): ``{episode id: harness}`` for a revised conversation whose source file an agent edited — the
+    #: harness label only, never a word. Absent for a run no agent edit reached.
+    by: dict[str, str] = Field(default_factory=dict)
 
 
 class SleepRunDetail(CamelModel):

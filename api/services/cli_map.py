@@ -332,6 +332,10 @@ ROWS: tuple[Row, ...] = (
     _app(("projects", "new"), "Start a project of your own: a name and a description.",
          (_p("project"), _f("description")), via="backend", mutates=True, person=True),
     # Sources and imports.
+    # G244 (ruling 76): an agent's own shell edit of a watched file, declared so the change is its contribution.
+    _app(("source-edit",), "Record that you (an agent) edited this file of a watched folder, so the words you changed "
+                           "are marked as your contribution: your harness, model and session.",
+         (_p("file"),), via="backend", mutates=True),
     _app(("feed", "list"), "The RSS/Atom feeds this memory follows."),
     _app(("feed", "add"), "Follow an RSS/Atom feed.", (_p("url"), _f("tag", "list")), via="backend", mutates=True),
     _app(("feed", "remove"), "Stop following a feed.", (_p("url"),), via="backend", mutates=True),

@@ -484,6 +484,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "DELETE /sources/folders/{folder_id}": (REGISTRY, None),
     "POST /sources/folders/{folder_id}/sync": (HELD, None),
     "POST /capture/agent-memory": (HELD, None),   # ruling 43: notes stage while Sleep runs, as a session does
+    "POST /capture/source-edit": (HELD, None),   # G244: a few labels held, or frontmatter on episodes it names; never refused
     "PUT /capture/agent-memory/settings": (HELD, None),   # ruling 43: the source switch, its own commit
     "PUT /capture/local-source/wispr-flow/settings": (REGISTRY, None),
     "POST /capture/local-source/wispr-flow": (HELD, None),

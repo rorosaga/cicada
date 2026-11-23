@@ -11,7 +11,7 @@ from loguru import logger
 
 from api.config import Settings
 from api.services import authorship, bank_index, episode_ids, episode_revision, episode_scrub, evidence, git_service, machine_state, markdown_parser
-from api.services import corrections_record, sleep_drain, sleep_reserve, sleep_spend
+from api.services import corrections_record, sleep_drain, sleep_reserve, sleep_spend, source_edits
 
 
 @dataclass
@@ -3679,7 +3679,10 @@ async def _run_stages(
                 withdrawn=sum(1 for a in audit if a.get("action") == "revision_withdrew"),
                 superseded=sum(1 for a in audit if a.get("action") == "revised"),
                 rewritten=prose_report.rewritten if prose_report is not None else 0,
-                revised_out=claim_result.get("revised_out") or {})
+                revised_out=claim_result.get("revised_out") or {},
+                editors=source_edits.editors(memory_path, sorted({
+                    *((_state.revision_cascade or {}).get("revised") or []),
+                    *(claim_result.get("revised_out") or {}).values()})))
             if entry:
                 _state.corrections_batch = entry
                 await asyncio.to_thread(
