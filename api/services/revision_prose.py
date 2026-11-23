@@ -133,6 +133,10 @@ def changes_of(rev) -> list[Change]:
         # A value with no hit of its own (an echo of one flagged elsewhere) must not be quoted to a model either.
         before = _unmarked(sensitive_flags.masked_against(sensitive_flags.masked_for_engine(rev.prior[i1:i2]), rev.body[j1:j2]))
         gone = tokens(before) - body
+        if not any(any(c.isdigit() for c in t) for t in tokens(after)):
+            # A number is a corrected value only where a number replaces it: the numerals of a removed line ("12:30",
+            # "step 2") are incidental, and every unrelated "2 items" on a page would otherwise be flagged (review B3).
+            gone = {t for t in gone if not t.isdigit()}
         if gone:
             out.append(Change(rev.episode_id, before, after, frozenset(gone), frozenset(tokens(after) - prior)))
     return out

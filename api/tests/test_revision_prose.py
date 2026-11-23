@@ -674,3 +674,24 @@ def test_a_corrected_number_is_a_removed_word_whatever_its_length():
     assert {"5", "december"} <= revision_prose.tokens("the move is on 5 December")
     assert "5" not in revision_prose.tokens("the move is on 12 December")
     assert "de" not in revision_prose.tokens("el 5 de diciembre")  # short words without a digit still don't count
+
+
+def test_the_numerals_of_a_removed_line_are_not_a_corrected_number():
+    """Review B3: "12:30" or "step 2" on a line that was dropped are incidental; only a number replaced by a number is
+    a corrected value, so an unrelated "2 items" on a page is never flagged."""
+    from api.services import revision_prose
+    head = "user: Notes for the trip."
+    removed = episode_revision.build({"id": EP["a"], "content": head},
+                                     f"{head}\nuser: Lunch was at 12:30, then step 2 of the plan, alpha-project.")
+    (change,) = revision_prose.changes_of(removed)
+    assert "plan" in change.gone and not {"12", "30", "2"} & change.gone
+    reworded = episode_revision.build({"id": EP["a"], "content": f"{head}\nuser: Lunch was later."},
+                                      f"{head}\nuser: Lunch was at 12:30.")
+    assert revision_prose.changes_of(reworded) == []         # nothing but the numerals went
+    only_numbers = episode_revision.build({"id": EP["a"], "content": head}, f"{head}\nuser: 12:30 and 2.")
+    assert revision_prose.changes_of(only_numbers) == []
+    # a number replaced by a number is still a corrected value
+    fixed = episode_revision.build({"id": EP["a"], "content": f"{head}\nuser: The move is on 12 December."},
+                                   f"{head}\nuser: The move is on 5 December.")
+    (change,) = revision_prose.changes_of(fixed)
+    assert "5" in change.gone and "12" in change.fresh
