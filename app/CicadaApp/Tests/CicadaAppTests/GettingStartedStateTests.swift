@@ -4,7 +4,7 @@ import XCTest
 /// Track I part b (R-IB17) — the Getting started record, per bank, in defaults.
 final class GettingStartedStateTests: XCTestCase {
     private var defaults: UserDefaults!
-    override func setUp() { defaults = UserDefaults(suiteName: "gs-\(UUID().uuidString)") }
+    override func setUp() { defaults = TestDefaults.suite("gs-\(UUID().uuidString)") }
 
     func testFoundItemIDsRoundTripThroughTheirKey() {
         for id in [FoundItemID.agent("claude-code"), .browser("chrome-bookmarks"), .app("md.obsidian"), .dropped("a:b")] {
@@ -48,7 +48,7 @@ final class GettingStartedStateTests: XCTestCase {
     }
 
     func testRemoveDropsOneRowAndNeverCreatesARecord() throws {
-        let d = try XCTUnwrap(UserDefaults(suiteName: "cicada.test.gs.remove.\(UUID().uuidString)"))
+        let d = try XCTUnwrap(TestDefaults.suite("cicada.test.gs.remove.\(UUID().uuidString)"))
         GettingStartedState.remove(.browser("chrome-bookmarks"), bank: "b", defaults: d)
         XCTAssertNil(GettingStartedState.load(bank: "b", defaults: d), "no card for a bank the flow never ran on")
         GettingStartedState.record(bank: "b", enabled: [.browser("chrome-bookmarks"), .app("notes")], defaults: d)

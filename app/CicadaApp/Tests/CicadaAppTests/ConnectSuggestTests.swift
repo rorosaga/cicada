@@ -265,7 +265,7 @@ final class ConnectSuggestTests: XCTestCase {
     // MARK: - The store and the center
 
     private func store() -> ConnectSuggestStore {
-        ConnectSuggestStore(defaults: UserDefaults(suiteName: "ConnectSuggestTests.\(UUID().uuidString)")!)
+        ConnectSuggestStore(defaults: TestDefaults.suite("ConnectSuggestTests.\(UUID().uuidString)")!)
     }
 
     func testTheSwitchIsOnByDefaultAndTheMemoryRoundTrips() {
@@ -403,7 +403,7 @@ final class ConnectSuggestTests: XCTestCase {
         let (offer, offerPanel) = center(clock: clock, front: { self.whatsAppPid })
         var order: [String] = []
         offerPanel.onHide = { order.append("offer hides") }
-        let prefs = SaveWhyPrefs(defaults: UserDefaults(suiteName: "ConnectSuggestTests.\(UUID().uuidString)")!)
+        let prefs = SaveWhyPrefs(defaults: TestDefaults.suite("ConnectSuggestTests.\(UUID().uuidString)")!)
         prefs.enabled = true
         let questionPanel = QuestionPresenter { order.append("question shows") }
         let question = SaveWhyCenter(prefs: prefs, api: QuietSavedWhyAPI(), presenter: questionPanel,

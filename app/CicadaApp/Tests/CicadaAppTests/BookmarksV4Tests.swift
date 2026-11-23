@@ -141,7 +141,7 @@ final class BookmarksV4Tests: XCTestCase {
         try "refused".write(to: plist, atomically: false, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: safariDir.path)
 
-        let defaults = UserDefaults(suiteName: "cicada.v4.\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("cicada.v4.\(UUID().uuidString)")!
         defaults.set(true, forKey: BrowserWatchPolicy.enabledKey("chrome-bookmarks"))
         defaults.set(true, forKey: BrowserWatchPolicy.enabledKey("safari-bookmarks"))
         let prefs = SaveWhyPrefs(defaults: defaults)
@@ -255,7 +255,7 @@ final class BookmarksV4Tests: XCTestCase {
     func testTheWatcherReadsTheWindowListOnlyInTheBurstAfterAToolbarClick() async throws {
         var shown: [ListedWindow] = [window]
         var bubbles: [String] = []
-        let watcher = BookmarkBubbleWatcher(defaults: UserDefaults(suiteName: "cicada.v4.\(UUID().uuidString)")!,
+        let watcher = BookmarkBubbleWatcher(defaults: TestDefaults.suite("cicada.v4.\(UUID().uuidString)")!,
                                             windows: { _ in shown })
         watcher.isWanted = { _ in true }
         watcher.onBubble = { bubbles.append($0) }
@@ -294,7 +294,7 @@ final class BookmarksV4Tests: XCTestCase {
     /// `CICADA_IDLE_SECONDS` (default 2 s; the report's run used 60 s) as this process's CPU time.
     func testIdleWithChromeInFrontCostsNothing() async throws {
         let seconds = Double(ProcessInfo.processInfo.environment["CICADA_IDLE_SECONDS"] ?? "") ?? 2
-        let watcher = BookmarkBubbleWatcher(defaults: UserDefaults(suiteName: "cicada.v4.\(UUID().uuidString)")!,
+        let watcher = BookmarkBubbleWatcher(defaults: TestDefaults.suite("cicada.v4.\(UUID().uuidString)")!,
                                             windows: { _ in [] })
         watcher.isWanted = { _ in true }
         watcher.arm(pid: 77, bundleId: "com.google.Chrome", channel: "chrome-bookmarks")
@@ -315,14 +315,14 @@ final class BookmarksV4Tests: XCTestCase {
     }
 
     func testTheLearnedSizesOfV3AreForgotten() {
-        let defaults = UserDefaults(suiteName: "cicada.v4.\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("cicada.v4.\(UUID().uuidString)")!
         defaults.set(Data("{}".utf8), forKey: "cicada.saveWhy.bubble.com.google.Chrome")
         BookmarkBubbleWatcher.forgetLearnedSizes(defaults)
         XCTAssertNil(defaults.object(forKey: "cicada.saveWhy.bubble.com.google.Chrome"))
     }
 
     private func center() -> (SaveWhyCenter, ClockPresenter, SilentAPI) {
-        let defaults = UserDefaults(suiteName: "cicada.v4.\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("cicada.v4.\(UUID().uuidString)")!
         let prefs = SaveWhyPrefs(defaults: defaults)
         prefs.enabled = true
         let presenter = ClockPresenter()

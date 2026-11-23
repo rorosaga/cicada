@@ -27,7 +27,7 @@ final class ExportWaitsTests: XCTestCase {
                    remindAt: now.addingTimeInterval(remindIn * 3600))
     }
 
-    private func suite() -> UserDefaults { UserDefaults(suiteName: "waits-\(UUID().uuidString)")! }
+    private func suite() -> UserDefaults { TestDefaults.suite("waits-\(UUID().uuidString)")! }
 
     /// Ruling 58: exports are one-time. A saved weekly nudge goes with its notification, once; a one-off wait stays.
     func testARetiredWeeklyNudgeIsRemovedOnceAndAWaitStays() throws {

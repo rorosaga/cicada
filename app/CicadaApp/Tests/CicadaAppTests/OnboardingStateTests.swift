@@ -31,8 +31,8 @@ final class OnboardingStateTests: XCTestCase {
 
     private func scratchDefaults() throws -> UserDefaults {
         let name = "cicada.onboarding-state-tests"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
-        defaults.removePersistentDomain(forName: name)
+        let defaults = try XCTUnwrap(TestDefaults.suite(name))
+        defaults.removePersistentDomain(forName: TestDefaults.path(name))
         return defaults
     }
 

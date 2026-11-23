@@ -27,7 +27,7 @@ final class TabGroupWatcherTests: XCTestCase {
     override func setUp() async throws {
         dir = FileManager.default.temporaryDirectory.appendingPathComponent("TabGroups-\(UUID().uuidString)/Sessions")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defaults = UserDefaults(suiteName: "TabGroups-\(UUID().uuidString)")!
+        defaults = TestDefaults.suite("TabGroups-\(UUID().uuidString)")!
     }
 
     override func tearDown() async throws { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }

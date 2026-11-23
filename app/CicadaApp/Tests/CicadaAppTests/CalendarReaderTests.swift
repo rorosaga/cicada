@@ -45,7 +45,7 @@ final class CalendarReaderTests: XCTestCase {
     private let madrid = TimeZone(identifier: "Europe/Madrid")!
     private let now = ISO8601DateFormatter().date(from: "2026-09-24T08:00:00Z")!
 
-    private func defaults() -> UserDefaults { UserDefaults(suiteName: "calendar-\(UUID())")! }
+    private func defaults() -> UserDefaults { TestDefaults.suite("calendar-\(UUID())")! }
 
     private func reader(_ store: FakeCalendarStore, _ api: FakeCalendarAPI, _ defaults: UserDefaults,
                         debounce: Duration = .seconds(10)) -> CalendarReader {

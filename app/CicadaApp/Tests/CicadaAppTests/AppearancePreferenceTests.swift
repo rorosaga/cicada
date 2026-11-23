@@ -28,8 +28,8 @@ final class AppearancePreferenceTests: XCTestCase {
 
     func testThemeStoreResolvesAStoredSystemPreference() {
         let suite = "appearance-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.suite(suite)!
+        defer { defaults.removePersistentDomain(forName: TestDefaults.path(suite)) }
         defaults.set("system", forKey: ThemeStore.defaultsKey)
         XCTAssertEqual(ThemeStore(defaults: defaults, systemIsDark: false).mode, .light)
         XCTAssertEqual(ThemeStore(defaults: defaults, systemIsDark: true).mode, .dark)
@@ -44,8 +44,8 @@ final class AppearancePreferenceTests: XCTestCase {
     /// suite also reads the real global domain.
     func testRefreshFollowsTheSystemOnlyForASystemPreference() {
         let suite = "appearance-refresh-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.suite(suite)!
+        defer { defaults.removePersistentDomain(forName: TestDefaults.path(suite)) }
         defaults.set("system", forKey: ThemeStore.defaultsKey)
         defaults.set("Light", forKey: "AppleInterfaceStyle")
         let store = ThemeStore(defaults: defaults)
@@ -62,8 +62,8 @@ final class AppearancePreferenceTests: XCTestCase {
     /// A fresh install (no stored value) follows the Mac; an upgrade with the toggle's "dark" stays dark.
     func testAFreshInstallFollowsTheMacAndAnUpgradeKeepsItsChoice() {
         let suite = "appearance-default-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.suite(suite)!
+        defer { defaults.removePersistentDomain(forName: TestDefaults.path(suite)) }
         XCTAssertEqual(ThemeStore(defaults: defaults, systemIsDark: false).mode, .light)
         XCTAssertEqual(ThemeStore(defaults: defaults, systemIsDark: true).mode, .dark)
         defaults.set("dark", forKey: ThemeStore.defaultsKey)
@@ -126,8 +126,8 @@ final class AppearancePreferenceTests: XCTestCase {
 
     func testTheSystemReadIsTheGlobalInterfaceStyle() {
         let suite = "appearance-style-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.suite(suite)!
+        defer { defaults.removePersistentDomain(forName: TestDefaults.path(suite)) }
         defaults.set("Dark", forKey: "AppleInterfaceStyle")
         XCTAssertTrue(AppearancePreference.systemIsDark(defaults))
         defaults.removeObject(forKey: "AppleInterfaceStyle")

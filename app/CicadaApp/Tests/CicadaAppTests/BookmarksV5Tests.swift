@@ -88,7 +88,7 @@ final class BookmarksV5Tests: XCTestCase {
     // MARK: - The confirmed-shape memory
 
     func testMemoryKeepsOnlyConfirmedShapesAndNeverARefusal() throws {
-        let defaults = UserDefaults(suiteName: "cicada.v5.\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("cicada.v5.\(UUID().uuidString)")!
         let bundle = "com.google.Chrome"
         XCTAssertEqual(BubbleShapeMemory.shapes(defaults, bundleId: bundle), BookmarkBubblePolicy.measuredShapes)
         XCTAssertFalse(BubbleShapeMemory.learn(BubbleShape(width: 450, height: 222), defaults, bundleId: bundle),
@@ -159,7 +159,7 @@ final class BookmarksV5Tests: XCTestCase {
     /// The bug: the puzzle piece opens the Extensions menu — again and again, then a ⌘D a few seconds later — and the
     /// question never opens, nothing is learned, and the real bubble still opens it at once.
     func testTheExtensionsMenuNeverOpensTheQuestionAndTeachesNothing() async throws {
-        let defaults = UserDefaults(suiteName: "cicada.v5.\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("cicada.v5.\(UUID().uuidString)")!
         var shown: [ListedWindow] = [window]
         var bubbles: [String] = []
         var now = Date(timeIntervalSince1970: 1_800_000_000.2)
@@ -201,7 +201,7 @@ final class BookmarksV5Tests: XCTestCase {
     /// ⌘D); the bookmark it made confirms the shape; the next click is instant again. Other toolbar menus still never
     /// open it, and another browser's bookmark teaches nothing.
     func testAResizedBubbleIsLearnedFromTheBookmarkItMade() async throws {
-        let defaults = UserDefaults(suiteName: "cicada.v5.\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("cicada.v5.\(UUID().uuidString)")!
         var shown: [ListedWindow] = [window]
         var bubbles: [String] = []
         var now = Date(timeIntervalSince1970: 1_800_000_000.25)
@@ -242,7 +242,7 @@ final class BookmarksV5Tests: XCTestCase {
     /// instant falling where both windows could have come with it: neither shape is learned. A bookmark made before
     /// the second click is the first window's alone.
     func testTwoWindowsThatFitOneBookmarkTeachNothing() async throws {
-        let defaults = UserDefaults(suiteName: "cicada.v5.\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("cicada.v5.\(UUID().uuidString)")!
         var shown: [ListedWindow] = [window]
         let start = Date(timeIntervalSince1970: 1_800_000_000.25)
         var now = start
@@ -293,7 +293,7 @@ final class BookmarksV5Tests: XCTestCase {
     /// A menu of an unknown shape, then the star's measured bubble: the bookmark that follows is the bubble's, so the
     /// held menu is dropped and can never claim it.
     func testAMeasuredBubbleDropsTheHeldWindows() async throws {
-        let defaults = UserDefaults(suiteName: "cicada.v5.\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("cicada.v5.\(UUID().uuidString)")!
         var shown: [ListedWindow] = [window]
         var bubbles: [String] = []
         let start = Date(timeIntervalSince1970: 1_800_000_000.25)
@@ -321,7 +321,7 @@ final class BookmarksV5Tests: XCTestCase {
 
     /// The center hands every bookmark its diff names to the watcher's teacher, whatever it decides to ask.
     func testTheCenterHandsEveryNamedBookmarkToTheTeacher() {
-        let defaults = UserDefaults(suiteName: "cicada.v5.\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("cicada.v5.\(UUID().uuidString)")!
         let prefs = SaveWhyPrefs(defaults: defaults)
         prefs.enabled = true
         prefs.mutedHosts = ["alpha.example"]

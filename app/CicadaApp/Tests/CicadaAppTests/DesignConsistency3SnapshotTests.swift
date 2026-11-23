@@ -78,7 +78,7 @@ final class DesignConsistency3SnapshotTests: XCTestCase {
             .environment(graph)
             .environment(ProvenanceRouter())
             .environment(AppRouter())
-            .environment(ExportWaitStore(defaults: UserDefaults(suiteName: "snapshot-\(UUID().uuidString)")!,
+            .environment(ExportWaitStore(defaults: TestDefaults.suite("snapshot-\(UUID().uuidString)")!,
                                          scheduler: FakeReminders(grant: true)))
             .environment(\.colorScheme, mode == .dark ? .dark : .light)
         let host = NSHostingView(rootView: root)

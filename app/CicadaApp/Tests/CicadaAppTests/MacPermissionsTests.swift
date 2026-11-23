@@ -71,8 +71,8 @@ final class MacPermissionsTests: XCTestCase {
         XCTAssertEqual(MacPermissionRows.automationState(-1744), .notYet)
         XCTAssertNil(MacPermissionRows.automationState(-600), "not running: the preflight cannot say")
 
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "MacPermissionsTests.automation"))
-        defaults.removePersistentDomain(forName: "MacPermissionsTests.automation")
+        let defaults = try XCTUnwrap(TestDefaults.suite("MacPermissionsTests.automation"))
+        defaults.removePersistentDomain(forName: TestDefaults.path("MacPermissionsTests.automation"))
         let memory = AutomationMemory(defaults: defaults)
         XCTAssertNil(memory.last(MacPermission.notesBundleId))
         memory.note(MacPermission.notesBundleId, .granted)

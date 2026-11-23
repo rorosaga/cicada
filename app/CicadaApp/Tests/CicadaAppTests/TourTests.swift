@@ -12,11 +12,11 @@ final class TourTests: XCTestCase {
     override func setUp() {
         super.setUp()
         suite = "tour-tests-\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suite)
+        defaults = TestDefaults.suite(suite)
     }
 
     override func tearDown() {
-        defaults.removePersistentDomain(forName: suite)
+        defaults.removePersistentDomain(forName: TestDefaults.path(suite))
         super.tearDown()
     }
 

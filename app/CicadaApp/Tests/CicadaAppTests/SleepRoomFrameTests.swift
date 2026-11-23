@@ -102,8 +102,8 @@ final class SleepRoomEdgeTests: XCTestCase {
 
     func test_theRoomsFloorIsOpaqueToItsLastRow() throws {
         let suite = "com.cicada.room-edge.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = try XCTUnwrap(TestDefaults.suite(suite))
+        defer { defaults.removePersistentDomain(forName: TestDefaults.path(suite)) }
         defaults.set(SceneryMode.choose.rawValue, forKey: SceneryMode.defaultsKey)
         for time in ["day", "night"] {
             defaults.set(time, forKey: ManualScenery.timeKey)

@@ -187,7 +187,7 @@ final class WatchHistoryWatcherTests: XCTestCase {
         history.visit("https://www.youtube.com/watch?v=aaaaaaaaaaa", title: "Bridge design - YouTube",
                       at: "2026-10-14T09:14:03Z")
         history.visit("https://example.com/a-private-page", title: "A private page", at: "2026-10-14T09:15:00Z")
-        defaults = UserDefaults(suiteName: "WatchHistory-\(UUID().uuidString)")!
+        defaults = TestDefaults.suite("WatchHistory-\(UUID().uuidString)")!
     }
 
     override func tearDown() async throws { history.remove() }

@@ -98,7 +98,7 @@ final class ChannelSyncRoutingTests: XCTestCase {
             try? FileManager.default.removeItem(at: root)
             try? FileManager.default.removeItem(at: root.appendingPathExtension("manifests"))
         }
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "ChannelSyncRouting-\(UUID().uuidString)"))
+        let defaults = try XCTUnwrap(TestDefaults.suite("ChannelSyncRouting-\(UUID().uuidString)"))
         let folder = FolderRegistration(id: "alpha-1", label: "alpha-project", path: root.path, include: ["**/*.md"])
         let api = FakeLocalSourcesAPI(folders: [folder])
         let watcher = makeWatcher(api, root: root, defaults: defaults)
@@ -122,7 +122,7 @@ final class ChannelSyncRoutingTests: XCTestCase {
 
     func testWisprSyncWhileTurnedOffSaysSoInsteadOfSynced() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("ChannelSyncRouting-\(UUID().uuidString)")
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "ChannelSyncRouting-\(UUID().uuidString)"))
+        let defaults = try XCTUnwrap(TestDefaults.suite("ChannelSyncRouting-\(UUID().uuidString)"))
         let watcher = makeWatcher(FakeLocalSourcesAPI(folders: []), root: root, defaults: defaults)
         do {
             _ = try await watcher.syncWisprNowReporting()
@@ -135,8 +135,8 @@ final class ChannelSyncRoutingTests: XCTestCase {
     /// G142: Sync now on the Calendar card never starts the first EventKit read — Connect in Settings does.
     func testCalendarSyncNowBeforeConnectSaysSoInWords() async {
         let suite = "ChannelSyncRoutingTests.calendar.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.suite(suite)!
+        defer { defaults.removePersistentDomain(forName: TestDefaults.path(suite)) }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("ChannelSyncRouting-cal-\(UUID().uuidString)")
         let reader = CalendarReader(store: FakeCalendarStore(), defaults: defaults)
         let store = Store(cache: SnapshotCache(root: root.appendingPathComponent("cache")), api: FakeSyncAPI())
@@ -153,8 +153,8 @@ final class ChannelSyncRoutingTests: XCTestCase {
     /// G154: Sync now on a Contacts card never starts the first address-book read — Connect in Settings does.
     func testContactsSyncNowBeforeConnectSaysSoInWords() async {
         let suite = "ChannelSyncRoutingTests.contacts.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.suite(suite)!
+        defer { defaults.removePersistentDomain(forName: TestDefaults.path(suite)) }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("ChannelSyncRouting-contacts-\(UUID().uuidString)")
         let reader = ContactsReader(store: FakeContactStore(), api: FakeContactsAPI(), defaults: defaults)
         let store = Store(cache: SnapshotCache(root: root.appendingPathComponent("cache")), api: FakeSyncAPI())

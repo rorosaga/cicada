@@ -88,13 +88,13 @@ final class MascotRegistryTests: XCTestCase {
     @MainActor
     func testAppStorageChoicePersistsAndUnknownIDFallsBackWithoutTouchingViewerDefaults() throws {
         let suite = "com.cicada.mascot-test.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = try XCTUnwrap(TestDefaults.suite(suite))
+        defer { defaults.removePersistentDomain(forName: TestDefaults.path(suite)) }
         let choice = AppStorage(wrappedValue: MascotRegistry.bookworm.id, MascotPreference.defaultsKey, store: defaults)
         XCTAssertEqual(choice.wrappedValue, "bookworm")
         XCTAssertEqual(MascotPreference.selected(in: defaults), MascotRegistry.bookworm)
         choice.wrappedValue = "bookworm"
-        let reopened = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let reopened = try XCTUnwrap(TestDefaults.suite(suite))
         XCTAssertEqual(reopened.string(forKey: MascotPreference.defaultsKey), "bookworm")
         choice.wrappedValue = "missing-character"
         XCTAssertEqual(reopened.string(forKey: MascotPreference.defaultsKey), "missing-character")

@@ -87,7 +87,7 @@ final class MessagesWatcherTests: XCTestCase {
     override func setUp() async throws {
         ContactsTrap.install()   // never this Mac's Contacts service (#527 review)
         synthetic = try SyntheticChatDB()
-        defaults = UserDefaults(suiteName: "Messages-\(UUID().uuidString)")!
+        defaults = TestDefaults.suite("Messages-\(UUID().uuidString)")!
         instinct = synthetic.chat("+15550000001")
         let other = synthetic.chat("+15550000003")
         synthetic.message(instinct, minute: 0, fromMe: true, text: "Plan the alpha-project launch?")

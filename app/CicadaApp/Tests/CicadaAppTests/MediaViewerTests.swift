@@ -10,7 +10,7 @@ import XCTest
 @MainActor
 final class MediaViewerTests: XCTestCase {
     private var dir: URL!
-    private let places = MediaFilePlaces(defaults: UserDefaults(suiteName: "viewer-places-\(UUID().uuidString)")!)
+    private let places = MediaFilePlaces(defaults: TestDefaults.suite("viewer-places-\(UUID().uuidString)")!)
 
     override func setUp() async throws {
         dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("viewer-\(UUID().uuidString)")

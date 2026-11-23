@@ -509,7 +509,7 @@ final class BookmarksV3Tests: XCTestCase {
 
     @MainActor
     private func center(_ api: V3FakeAPI, clock: Date) async -> (SaveWhyCenter, V3Presenter, [Bool]) {
-        let defaults = UserDefaults(suiteName: "BookmarksV3Tests.\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("BookmarksV3Tests.\(UUID().uuidString)")!
         let prefs = SaveWhyPrefs(defaults: defaults)
         prefs.enabled = true
         let presenter = V3Presenter()

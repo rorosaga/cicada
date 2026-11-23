@@ -117,13 +117,13 @@ final class BrowserWatcherTests: XCTestCase {
         dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cicada-watch-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defaults = UserDefaults(suiteName: suite)
-        defaults.removePersistentDomain(forName: suite)
+        defaults = TestDefaults.suite(suite)
+        defaults.removePersistentDomain(forName: TestDefaults.path(suite))
         store = Store.withActiveMemory()
     }
 
     override func tearDown() async throws {
-        defaults.removePersistentDomain(forName: suite)
+        defaults.removePersistentDomain(forName: TestDefaults.path(suite))
         try? FileManager.default.removeItem(at: dir)
     }
 

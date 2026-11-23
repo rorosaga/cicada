@@ -88,7 +88,7 @@ final class ChannelItemsTests: XCTestCase {
     func testTheListStartsCollapsedUnderItsOwnKey() {
         XCTAssertEqual(CapturedItems.openKey("notes"), "cicada.sources.capturedOpen.notes")
         XCTAssertNotEqual(CapturedItems.openKey("notes"), CapturedItems.openKey("calendar-local"))
-        let defaults = UserDefaults(suiteName: "g161-\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("g161-\(UUID().uuidString)")!
         XCTAssertFalse(defaults.bool(forKey: CapturedItems.openKey("notes")), "collapsed until the viewer opens it")
         XCTAssertEqual(CapturedItems.pageSize, 20)
     }
