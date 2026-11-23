@@ -1,6 +1,6 @@
 """G148: how well a model consolidates, measured on what Sleep wrote rather than on the answers Ask gives.
 
-An invented person's two months (``fixture.json``) go through the production stager and ``sleep_cycle.run(drain=True)``
+Invented people's two months (``fixture.json``, ``fixture_noor.json``; one bank each, ``PEOPLE``) go through the production stager and ``sleep_cycle.run(drain=True)``
 on a scratch bank in two phases: the first conversations, one drain; then later conversations plus one conversation
 edited in place (a revision), and a second drain on the same bank. Then the bank is scored against what the
 conversations said, mostly in code with no model:
