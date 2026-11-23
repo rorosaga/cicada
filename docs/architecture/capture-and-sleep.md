@@ -2236,7 +2236,13 @@ two facts that make them look like two), or no entry (the same person; a thin de
 groups' descriptions, else the groups are one person (the old behaviour, never a guess); a verdict joining two groups through
 a third is incoherent and splits nothing. A new conversation goes where its group's filed conversations are; a group nobody
 on record is in is a new person, apart on a contrast and in doubt on a tension; each side of a new person needs 15 words of
-description (a thin one is the plain person's, as before). `plan` **never changes a page that exists**. When its re-read shows
+description (a thin one is the plain person's, as before). **A second reading** (`plan(..., strong)`, the engine's main model,
+`same_name_tend.main_tier`): when the small judge calls two or more of this batch's conversations one person (where a silent
+join hides: it reads the speaker being named in both descriptions, or "a later move", as a link), or divides them against a
+person on record with three or more filed conversations, the same prompt is put to the main model once and its grouping replaces
+the small judge's when it divides them; its answer failing, unreadable or calling it one person leaves the small judge's
+reading, so a located split is never lost to it. A single new conversation against a person on record is not read again. `plan`
+**never changes a page that exists**. When its re-read shows
 that a page's own conversations fall in two groups (`page-holds-two-people`), or that two people held in doubt fall in one
 (`doubt-may-be-one`), or that a doubt still stands, it only **flags** the name (`same_name_doubts.flag`, a deferred Stage 2
 write like the split pairs, committed with the batch).
@@ -2264,14 +2270,31 @@ only the person's own words do (move 1). `merge_rejections.kept_apart` includes 
 catch-up proposers and `person_duplicates` never ask about one; a merge of either page (`entity_merge.merge_entities`) folds the
 pair away.
 
-*Cost.* Stage 2: one call per bare name with something to compare, as before (the prompt is longer by the filed
-conversations, at most 20 descriptions in all); nothing is added on a batch with no such name. The tail: one main-model call per flagged page
+*Cost.* Stage 2: one small-judge call per bare name with something to compare, as before (the prompt is longer by the filed
+conversations, at most 20 descriptions in all), plus one main-model call (about 13 times the small one's price, $0.004) for a name
+with two or more new conversations the small judge calls one person, or a split against a person with three conversations on
+record; nothing is added on a batch with no such name. The tail: one main-model call per flagged page
 and per flagged doubt pair, at most 8 a drain (`MAX_LOOKS`), and none when nothing was flagged. On a bank with 200 people pages and a
 100-conversation batch the Stage 2 bound is 20 names; the tail's is 8.
 
 **Measured** (`benchmarks/consolidation/same_name_stories.py`, `same_name_battery.py`; numbers at the end of this paragraph are filled by the PR that landed it).
 
-@@MEASURED@@
+**Measured (2026-11-23).** *The replay battery* (`same_name_battery.py`, 71 labelled single judge inputs, the small judge on a key
+at about $0.0003 a call): the code before (`origin/dev`, 10 replays a case) kept 216 of 240 two-person replays apart (90%) and cut
+no one of 460 one-person replays; an established page against a different person's mention was kept apart in 69 of 90 (77%; an
+established family page against a colleague's mention in 0 of 10). With this design and the second reading: 248 of 250 two-person
+replays kept apart (99%), the established-page cases 89 of 90 (99%), and **0 false splits of one person in 460 replays** (0 of 460 and 0
+of 920 in two earlier versions of the prompt, 1 of 920 in a third: one input, not reproduced in 60 replays). *The stories*
+(`same_name_stories.py`, 30 stories in English, Spanish and French; the code before 20 replays each, this design 8 each; ok =
+the expected end state and number of questions): two people new in one batch 59 of 60 → 24 of 24; two people already joined on one
+page then a clarifying conversation **0 of 100 → 38 of 40** (the page split by conversation, one commit); two people the record never tells
+apart **0 of 60 → 24 of 24**, one question each (the code before blended them in 41 of 60 and asked nothing); a doubt a later
+conversation settles as one person **33 of 60 → 24 of 24** (the code before cut one person in 27), no question; one person in many
+settings, one whose life moves on, a thin first mention, an established page re-read: all ok before and after (240 of 240; 96 of 96),
+**no question**. Where the code before already did well (an established page, then a different person's mention, in the stories)
+it still does: 80 of 80 → 32 of 32. *The benchmark* (3 runs, both people): the fixture's two Marcs apart 3 of 3 runs (the code before: 2 of
+3, and about 1 run in 3 joined by a silent one-person answer that the second reading now catches), one person kept as one 5 of 5 each run, others' words kept off the person 13 of 13; questions 5, 2, 4 a run (the code before
+5, 3, 3), the second Marc's pair being asked once only when the second look cannot tell them apart.
 
 **Which way a relationship points (2026-11-23).** A role the other side holds toward the person ("my <role> X") was
 sometimes written backwards at Stage 1: `<user> | <role> of | X`, the person as the holder. Nothing downstream can catch it
