@@ -229,6 +229,18 @@ states as true at the time; when it states two for the same thing, the later one
 - value: as stated, with its unit ("25:50", "4", "$1,200 a month"). Never a guess, never a list (several things
   held at once are relationships), never the date something happened (that is history).
 - evidence_quote: as for relationships below. The value stays in key_facts too.
+- A value about a thing (a race, a project, an application) goes on that thing's entity, even when the conversation
+  says "my goal" or "my plan"; the attribute names only what is measured ("goal time", not "half marathon goal time").
+  A value about the person themselves (their weight, their salary) goes on the person.
+- A CHANGED VALUE IS THE NEW VALUE. "I lowered my goal to 1:45", "we're at 120 users now", "it moved to the 12th":
+  one values[] entry with the new value, never only a relationship like "lowered" or "changed".
+- PLANS AND DECISIONS ARE VALUES TOO (G148, 2026-11-23). What the user decided or plans for something they are doing
+  — which option, how long, how much, whether — is a value on that thing, so a later change replaces it: "taper
+  length": "ten days", "carb loading": "planned", "approach": "Python rewrite in TypeScript". A suggestion the user
+  declined is not their value; the decision they took instead is.
+- A SCHEDULED DATE IS A VALUE: when something is set for a day ahead ("my review is in two weeks", "the move is on the
+  12th"), write it as "<what> date": "YYYY-MM-DD", resolved from the conversation's date as TIME says, on the thing
+  scheduled. When the day is unclear, write the month and year ("2026-12") — never a guess.
 
 EXTRACTION GUIDELINES:
 - The agent's own runtime (its working directory, platform, shell, git status, the date of the session)
@@ -323,6 +335,8 @@ def owner_block(name: str | None) -> str:
         f'  history entries, open questions — call them "{name}". When you mean them, never write\n'
         f'  {self_reference_list()}; write "{name}" in a conversation in any language.\n'
         f'- Their own facts go on one entity named exactly "{name}" (type person); never a second entity for them.\n'
+        "- The tool running you may be signed in under another person's account. That person is not in this\n"
+        f'  transcript: never write their name, and never use any name for the user but "{name}".\n'
         "- A real company, product, tool or concept that happens to be called one of those words keeps its own\n"
         "  name and type.\n"
         f"- A person the conversation names only by their relation to {name} (a partner, a parent, a friend, a\n"

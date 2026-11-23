@@ -365,6 +365,12 @@ endings:
       - backed-by
       - runs-on
       - hosted-on
+      # 2026-11-23 (benchmarks/consolidation U3): "dropped Python" left "written in Python" current in 4 of 6 runs.
+      - written-in
+      - implemented-in
+      - coded-in
+      - programmed-in
+      - developed-in
       - deployed-on
       - stores-data-in
       - stores-in

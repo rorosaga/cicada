@@ -261,7 +261,7 @@ def test_from_openrouter_the_api_key_card_writes_a_key_model(client):
     assert next(c for c in client.get("/sleep/engine").json()["candidates"] if c["id"] == "byok")["models"] == []
     client.put("/sleep/engine", json={"mode": "byok", "model": "openrouter/openai/gpt-oss-120b"})
     key = next(c for c in client.get("/sleep/engine").json()["candidates"] if c["id"] == "byok")
-    assert key["models"] == ["anthropic/claude-haiku-5-5"]      # no key stored: the picker's first provider
+    assert key["models"] == ["anthropic/claude-sonnet-5-5"]     # no key stored: the picker's first provider
     assert client.put("/sleep/engine", json={"mode": "byok", "model": key["models"][0]}).json()["selected"] == "byok"
 
 

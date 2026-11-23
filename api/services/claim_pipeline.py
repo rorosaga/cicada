@@ -53,7 +53,7 @@ from loguru import logger
 
 from api.services import episode_revision, markdown_parser, owner_identity, pending_store, phone_numbers, telemetry
 from api.services.claim_reconciler import reconcile_stage3
-from api.services.claims import Claim, is_event, parse_claims, write_claims
+from api.services.claims import Claim, is_event, parse_claims, route_values_to_their_thing, write_claims
 from api.services.entity_extractor import entities_to_claims
 from api.services.entity_resolver import HELD_ENDPOINT, endpoint_id
 from api.services.id_utils import bank_file, sanitize_id
@@ -567,6 +567,10 @@ def run_claim_pipeline(
     # Ruling 55: what the person's line says of each number, and whether its page may take it (held ones too).
     incoming, number_audit = phone_numbers.annotate(incoming, memory_path, owner_id)
 
+    # G148 (2026-11-23): a value that names another page's thing, and matches a value open there, is that page's.
+    routed = [{"action": "value_routed", "claim": claim_id, "from": was, "to": now}
+              for claim_id, was, now in route_values_to_their_thing(incoming, existing_by_subject)]
+
     # ---- G104: an edited conversation's spans re-anchored, what only its removed text said marked ----
     revision_plan = episode_revision.reanchor(existing_by_subject, revisions or {})
     # A date the revision's changed lines moved, on a claim whose span they did not touch (page claims and the ones just
@@ -586,6 +590,7 @@ def run_claim_pipeline(
         **({"redated": redated} if redated else {}),
     )
     audit.extend(number_audit)
+    audit.extend(routed)
     withdrawn = episode_revision.settle(reconciled, revision_plan, revisions or {}, today, audit)
     if revisions:
         superseded = sum(1 for a in audit if a.get("action") == "revised")

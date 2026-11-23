@@ -475,6 +475,46 @@ def same_value_attribute(a: str, b: str) -> bool:
     return group is not None and group == value_attribute_group(b)
 
 
+def route_values_to_their_thing(incoming: list, existing_by_subject: dict[str, list]) -> list[tuple[str, str, str]]:
+    """A stated value moves to the page of the thing it measures, when it names that thing and the page already holds
+    the same attribute (G148, 2026-11-23). The extractor reads each conversation alone: "my half marathon goal is now
+    1:45" lands on the person as "half marathon goal time", while the race's own page holds "goal finish time: under
+    1:50" — two subjects, so the newer never closed the older (`benchmarks/consolidation` U2, 4 of 6 runs).
+
+    For each incoming value claim, the words its attribute has beyond another page's open value attribute must all be
+    words of that page's id, and what is left must be the same attribute (`same_value_attribute`). Exactly one page and
+    one value may match, else nothing moves. The claim takes that page as subject and that value's predicate, so Stage
+    3 replaces it there. Mutates ``incoming``; returns ``(claim id, from, to)`` for each move."""
+    def words(slug: str) -> frozenset[str]:
+        return value_key(VALUE_PREFIX + (slug or ""))
+
+    moved: list[tuple[str, str, str]] = []
+    for new in incoming:
+        if not is_value_claim(new) or getattr(new, "valid_to", None) or getattr(new, "superseded_by", None):
+            continue
+        k_new = value_key(new.predicate)
+        hits = []
+        for subject, claims in existing_by_subject.items():
+            if subject == new.subject:
+                continue
+            page_words = words(subject)
+            for old in claims:
+                if not is_value_claim(old) or old.valid_to or old.superseded_by:
+                    continue
+                k_old = value_key(old.predicate)
+                extra = k_new - k_old
+                rest = k_new - extra
+                if (extra and extra <= page_words and len(rest) >= 1
+                        and same_value_attribute(VALUE_PREFIX + "-".join(sorted(rest)), old.predicate)
+                        and len(rest) >= min(2, len(k_old))):
+                    hits.append((subject, old))
+        if len({s for s, _ in hits}) == 1 and len(hits) == 1:
+            subject, old = hits[0]
+            moved.append((new.id, new.subject, subject))
+            new.subject, new.predicate = subject, old.predicate
+    return moved
+
+
 def is_event(claim) -> bool:
     """The one test the history readers call (R-PJ3), like `is_record`. An
     event is NOT a record: it stays in FTS and in citations, where it reads as

@@ -480,7 +480,7 @@ def _one_provider_key(settings, updates: dict) -> dict:
                 or "").strip()
     pinned = "litellm_disambiguation_model" in getattr(settings, "model_fields_set", ())
     if judge and byok.provider_for_model(judge) != provider and not pinned:
-        out["litellm_disambiguation_model"] = anthropic_models.default_model()
+        out["litellm_disambiguation_model"] = anthropic_models.default_judge()
     return out
 
 

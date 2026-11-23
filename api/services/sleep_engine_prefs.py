@@ -269,7 +269,7 @@ async def _candidates(settings: Settings, reg, *, mode: str, model: str | None) 
 
 
 def _provider_default(provider) -> str:
-    """The model a provider's key starts on: for Claude, the small tier of the key's own list (G237), the table's
+    """The model a provider's key starts on: for Claude, the standard tier of the key's own list (G237), the table's
     default for every other provider."""
     return anthropic_models.default_model() if provider.id == "anthropic" else provider.default_model
 
@@ -594,5 +594,5 @@ def validate_and_write(body: SleepEngineChoice, reg) -> None:
     if (body.mode == "byok" and "model" in body.model_fields_set and body.model
             and "disambiguation_model" not in body.model_fields_set):
         # G237: on a Claude key the judge is the small tier, as on the plan, whatever the main model is.
-        judge = anthropic_models.default_model() if anthropic_models.is_claude(body.model) else body.model
+        judge = anthropic_models.default_judge() if anthropic_models.is_claude(body.model) else body.model
         reg.set_pref(PREF_KEY, "disambiguation_model", judge)

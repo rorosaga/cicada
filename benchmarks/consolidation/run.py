@@ -346,7 +346,9 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
     for row in gold["dated"]:
         want = _day(clock, row["date"]).isoformat()
         hit = held(expand_groups(row["says"], clock))
-        froms = sorted({str(c.get(k) or "")[:10] for c in hit for k in ("valid_from", "expected_end", "target")} - {""})
+        froms = sorted(({str(c.get(k) or "")[:10] for c in hit for k in ("valid_from", "expected_end", "target")}
+                        | {d for c in hit for d in re.findall(r"\d{4}-\d{2}-\d{2}", str(c.get("object") or ""))})
+                       - {""})
         dated.append({"id": row["id"], "why": row["why"], "want": want, "ok": want in froms, "valid_from": froms,
                       "on_run_day": date.today().isoformat() in froms})
 
