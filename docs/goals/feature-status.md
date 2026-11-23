@@ -9,7 +9,7 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 
 | ID | Feature | Status | PR | Updated |
 |---|---|---|---|---|
-| [G148](memory-evolution.md#g148) | Consolidation benchmark: what Sleep wrote, per model (facts, updates, others' words, people, pages, dates, integrity, judge precision) on an invented person's two phases; a held name now joins the page its own batch creates (U1 0 → 6 of 6 legs) | Merged | branch `feat/g148-consolidation-bench` | 2026-11-23 |
+| [G148](memory-evolution.md#g148) | Consolidation benchmark: what Sleep wrote, per model (facts, updates, others' words, people, pages, dates, integrity, judge precision) on an invented person's two phases; a held name now joins the page its own batch creates (U1 0 → 6 of 6 legs) | Merged | #775 | 2026-11-23 |
 | [G148](memory-evolution.md#g148) | Ask: why the whole conversation beats it on LoCoMo (14 of 20 losses are facts in the bank that the prompt did not carry), a wider window and every page's items ranked by meaning: slept LoCoMo 156 → 163 of 200, LongMemEval_S 80 → 79 | PR open | branch `perf/beat-control` | 2026-11-09 |
 | [G148](memory-evolution.md#g148) | Ask answers a request for help and keeps the record strict, the model deciding which in any language, no detector: PersonaMem-v2 18 → 45 of 90, translated 10 → 42 of 120, LongMemEval_S 76 → 80, wrong person 15 → 15, slept LoCoMo 159 → 159 | PR open | branch `catchup/ask-taste` | 2026-11-07 |
 | [G148](memory-evolution.md#g148) | Benchmark: PersonalizationV4 and PersonaMem-v2 pilots, a no-model leak check, grading against the reference answer, and paths where an agent answers with its own knowledge plus one door's words | Merged | #740 | 2026-11-07 |
