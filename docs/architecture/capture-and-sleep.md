@@ -2272,6 +2272,25 @@ bare name with something to compare (the fixture's second person: 5 across both 
 batch's bare names, never by the bank. The G209 first-name guard (`_first_name_across`, a one-word name heard outside a chat
 against a full-name page) and the promotion bar are unchanged.
 
+**Which way a relationship points (2026-11-23).** A role the other side holds toward the person ("my <role> X") was
+sometimes written backwards at Stage 1: `<user> | <role> of | X`, the person as the holder. Nothing downstream can catch it
+(`entities_to_claims` writes the triple as given; the claim's text is `<source> <label> <target>`), and a reversed
+relation reads right. Cause: the prompt asked for "who someone is to the user" as a relationship ("partner of",
+"cousin of": labels with no wrong side) and said nothing of which side holds the role, so the model put the speaker first
+because the words were the speaker's. Measured on stored benchmark banks, per extraction of the two conversations that state
+the in-law: 3 of 24 on the dev code, 6 of 74 on the recent branches, 67 of 104 before the "relationship of its own" line; no
+reversal among about 340 relations of landlord, tenant, manager, referral, hand-over and a service the person used. The
+prompt now carries one rule, not a list: **a role in a label belongs to the source** ("<source> <label> <target>" must read
+as a true sentence, in any language; two examples of other roles). There is no code backstop: telling a role noun from any
+other label in any language would be a word list, and a symmetric or owner-held relation must never be flipped.
+**The replay** (`benchmarks/consolidation/direction_battery.py`, `direction_cases.json`; engine-free tests in
+`test_direction_battery.py`) runs Stage 1 alone through the real `entity_extractor.extract` (its prompt, owner block and
+date note, on a scratch bank) over 20 cases of kinship, work, housing, clients and mentoring in English, Spanish and French,
+plus symmetric relations and ones the owner holds, and counts a role written the wrong way round, a symmetric relation
+said in both directions, and a relation not stated. About $0.012 an extraction on Sonnet; `rescore` judges saved answers
+again with no model. A case names the holder, the other side, the role in its language and the role the other side holds
+back (the gold of the case, not a product rule). The benchmark's `gold.roles` check now also guards the hierarchy (R3).
+
 **Pick the page (G227, owner ruling 2026-10-29).** A mention that could be any of two or more same-titled pages is ONE
 question for the mention — never one per pair: `ClarificationManager.create` finds an open question about the same
 mention through any of its `same_title` pages before writing a second, and stores "Which <name> is this?". The question
