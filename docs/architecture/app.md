@@ -1559,6 +1559,49 @@ label). An older backend sends no `more`, and the panel then suggests nothing (i
 the budget, no download path in the panel's sources); the backend in `test_saved_why.py`. Shots (render harness — the real
 panel needs a Chrome bookmark): `~/cicada-redesign-2026-10-22/shots/save-notch/`. Detecting saves in other apps is G221.
 
+**The source's mark in the notch (2026-11-23, branch `feat/notch-source-mark`; owner: "a small logo of the app that is
+being read, so there is some sort of confirmation … chrome for chrome bookmarks, x for things saved on x, and so on").**
+The subject line starts with the mark of the source the save was noticed in (`SaveWhySourceMark`, 14 pt, DR-52): the
+installed app's icon, else the bundled logo, else nothing — never a stand-in glyph. It is keyed by the origin the save
+is stored under (`SavedBookmarkLookup.origin(forChannel:)`), so a later trigger for another source (G221: X,
+Instagram, …) draws its own mark with no new wiring. It reads no `Store` (the notch's hosting view carries none).
+Test: `SaveWhyTests.testTheNotchShowsTheSourcesOwnMarkOrNothing`.
+
+**A save inside a site, noticed from the control the person clicked (G221 option B, 2026-11-23, same branch; owner:
+"if accessibility solves all this, it should be the one we implement, but also important to have it work on different
+languages"). Developer-only and write-nothing so far.** `SaveWhy/SiteSave.swift`: `SiteSaveRule` (pure) recognises a
+save control by where it sits and a save by what changes, **never by a word in any language** — on X, in a timeline,
+the first plain button after the post's own views link (`/<user>/status/<id>/analytics`); on a post's own page, the
+last plain button of a row with at least three, the post being the page. A save is that control's label differing a
+moment after the click; the direction is read from the row's counts (one count up by one, or a new count of 1, is a
+save; the reverse an unsave; counts that say nothing leave the direction unknown). `SiteSaveReader` is the one place
+that asks macOS about another app's interface for this: the element under the click and the row of controls around it,
+off the main thread with a 0.25 s timeout, and it asks a Chromium browser for its page tree once when it comes forward
+(`AXManualAccessibility`). `SiteSaveWatcher` arms one monitor (mouse moves and mouse-downs) while a supported browser
+is in front and only when Accessibility is already granted (never asked for here). **The state before a click is read
+when the pointer comes to rest on a save control (70 ms still), not at the click** — kept in memory only when it is a
+save control, never stored, dropped when the browser leaves the front — and a click within 24 pt and 60 s of it is
+compared with the row read again at 0.6, 1.2 and 2.0 s. Three things measured live on the owner's Chrome made that
+the design (2026-11-23): X's save button is 17 × 19 pt to macOS inside a ~35 pt round click area, so the reader takes
+the plain button whose frame, widened 14 pt, holds the point (`nearestButton`; a click inside a link or a menu button
+is never handed to its neighbour); Chrome's first answer about a point nobody asked about before is often a nearby
+element and the same question 60 ms later is exact, so a read that names no save control is asked once more
+(`settledRead`) — before this every save was missed and every unsave caught, the unsave being the second click at the
+same point; and a tap is over before a read at the click could finish. A save and an unsave were then both read
+correctly from a real click (label changed, one count ±1). **A noticed save is real (same day):**
+`SaveWhyCenter.siteSaved` first stores it through `POST /sources/site-save` (`api.md`: the site's own origin and list
+label, the canonical link, index-only until a reason — ruling 62), then asks through the ordinary confirmed path
+(`noticed`), so the same rules apply (the Ask-why switch, "Don't ask for this site", one save one question) and the
+answer is posted against the stored link with `via: x-bookmarks`; an unsave is never asked about and removes nothing
+yet; a save the backend cannot take (Sleep writing, an older backend) is not asked about. **Still gated to a developer
+build** by `SiteSaveObserve` (`defaults write com.rorosaga.cicada cicada.debug.siteSaveObserve -bool YES`) until the
+connect flow and a per-site switch exist. Logs (`site-save`) hold an outcome word and milliseconds, never a link.
+**Not built yet:** the connect flow from the notch, the per-site switch, the post's own words on its row, folders, any
+site but X; the rail line and ruling land with the switch. **The notch's mascot is the worm's small head (`WormFace`,
+asking) in both notch panels — a trial on the owner's word (2026-11-23), pending their look; DESIGN_RULES gets its dated
+line when they confirm.** The room worm's "?" is dark ink for a light wall, so on the notch's black only its light
+pixels showed. Tests: `SiteSaveTests`, `api/tests/test_site_save.py`.
+
 **Connect from the notch (G231, 2026-11-03; owner: "when you enter an app they support a connection for, they suggest
 from the notch to connect to it … with our own aesthetic").** When the person brings to the front an app whose source
 is not set up in the active memory, the notch offers it once. *Trigger:* `NSWorkspace.didActivateApplicationNotification`

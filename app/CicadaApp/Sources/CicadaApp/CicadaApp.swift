@@ -105,6 +105,9 @@ struct CicadaApp: App {
     @State private var connectSuggestPanel = ConnectSuggestPanelController()
     /// G191 v3 — Chrome's bookmark bubble, seen from the window list (no permission), opens the question at once.
     @State private var bookmarkBubbles = BookmarkBubbleWatcher()
+    /// G221 — a save made inside a site (X first), noticed from the control the person clicked. Developer-only and
+    /// write-nothing for now (`SiteSaveObserve`).
+    @State private var siteSaves = SiteSaveWatcher()
     /// G191 v3 — the menu bar's bookmark history.
     @State private var bookmarkHistory = BookmarkHistoryController()
     /// G133 / G134: watched folders and Wispr Flow, read by the app (the backend
@@ -566,6 +569,13 @@ struct CicadaApp: App {
         // G191 v7 — the person's earlier answers in the active memory rank the suggested reasons (nothing new stored).
         saveWhy.pastPicks = { [store] in SaveWhySuggest.picks(from: store.sources.value ?? []) }
         bookmarkBubbles.start()
+        siteSaves.isWanted = { SiteSaveObserve.isAvailable() }
+        siteSaves.onOutcome = { [saveWhy] item, outcome in
+            // An unsave is never asked about (and, for now, removes nothing here).
+            guard outcome != .unsaved else { return }
+            Task { await saveWhy.siteSaved(item) }
+        }
+        siteSaves.start()
         startConnectSuggest()
         // G191 v3 — the app's own diff needs a "before" for each watched browser: read once now, so the
         // first bookmark after launch is named from the file without waiting for the backend.

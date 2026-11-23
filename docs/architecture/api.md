@@ -1096,3 +1096,13 @@ page (~2 s at 4,400 links on a 9,000-page memory) and was an `async def` doing t
 waited behind it (2.6 s measured). The build runs in `run_in_threadpool` and the built list is kept per `(bank, sort)`
 under the ETag it was built for (the one a 304 already trusts), for five minutes at most because relevance decays with
 the day. Warm `?sort=relevance` 1,938 → 128 ms; a page read during a rebuild waits ≤ 565 ms, not 2.6 s.
+
+**`POST /sources/site-save` (G221, 2026-11-23)** — a save the person made inside a site, noticed by the app from the
+control they clicked (`app.md`, "A save inside a site"). Body `{site, url}`: `site` a key of `saved_lists.PLATFORMS`,
+`url` the post's own link in any spelling. Stored as one saved item under the site's own origin and list label with
+`saved_lists.canonical`'s link and aliases — the row `cicada_record_saved_list` and the site's connector write for the
+same post, never a second. Nothing is fetched and no model runs; like every save from a platform's list it is
+index-only until the person says why (ruling 62), and `POST /sources/saved-why` against the returned `url` is what
+queues it for Sleep. Answers `{status: created|duplicate, url, title, origin, episodeId, mediaEntityId, addedAt}`;
+422 for an unknown site or a link that is not a post of it; 409 in a demo bank or while Sleep holds the pages.
+Committed alone as the person (`user/site_save`). Tests: `api/tests/test_site_save.py`.

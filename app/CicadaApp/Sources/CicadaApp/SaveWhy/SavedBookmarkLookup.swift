@@ -39,8 +39,11 @@ struct ExistingBookmark: Equatable, Sendable {
 
 enum SavedBookmarkLookup {
     /// `chrome-bookmarks` → `chrome-bookmark`: the origin a channel's sync stamps on its saved items.
+    /// A source that is not a browser's bookmark file (G221: `x-bookmarks`) is its own origin already.
     static func origin(forChannel channel: String) -> String {
-        channel.hasSuffix("s") ? String(channel.dropLast()) : channel
+        if BrowserInventory.spec(forBookmarksChannel: channel) == nil,
+           OriginIconography.allKnownOrigins.contains(channel) { return channel }
+        return channel.hasSuffix("s") ? String(channel.dropLast()) : channel
     }
 
     /// The live lookup: nothing unless Automation of the browser is already allowed; then the front tab's link,

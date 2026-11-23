@@ -118,7 +118,7 @@ struct ConnectSuggestPanelView: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             HStack(alignment: .center, spacing: CicadaTheme.spacingSM) {
                 // The mascot, curious, on the sheet's own clock; decorative — the question says it all.
-                BookwormView(state: .curious(count: 1), pointSize: SaveWhyPanelView.mascotPoints)
+                WormFace(mood: .asking, size: SaveWhyPanelView.headPoints)
                     .accessibilityHidden(true)
                 // The app's own icon, as macOS draws it (DR-52: the real mark, never a stand-in).
                 if let icon = center.icon {

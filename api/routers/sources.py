@@ -636,6 +636,80 @@ async def sync_bookmarks_fresh(
 SAVED_WHY_BUSY = "Sleep is updating your memory — your answer wasn't saved. Try again in a moment."
 
 
+class SiteSaveRequest(BaseModel):
+    """A save the person just made inside a site, noticed by the app from the control they clicked (G221)."""
+    #: The site's key in ``saved_lists.PLATFORMS`` (``x``).
+    site: str = Field(..., min_length=1, max_length=20)
+    #: The post's own link, in any spelling of that site's.
+    url: str = Field(..., min_length=1, max_length=2000)
+
+
+class SiteSaveResponse(BaseModel):
+    status: str
+    #: The link as stored (the site's canonical spelling), which is what an answer is posted against.
+    url: str
+    title: str
+    origin: str
+    episodeId: str
+    mediaEntityId: str
+    #: This moment of saving, as the answer's ``added_at`` (a save made again later is a new moment).
+    addedAt: str
+
+
+#: A save noticed while Sleep holds the pages (the app tries again with the next save; nothing is written).
+SITE_SAVE_BUSY = "Sleep is updating your memory — this save is not in Cicada yet."
+
+
+@router.post("/sources/site-save", response_model=SiteSaveResponse, dependencies=_DEMO_GATE)
+async def save_site_item(request: SiteSaveRequest, settings: Settings = Depends(get_settings)) -> SiteSaveResponse:
+    """G221 (owner 2026-11-23) — the person saved a post inside a site (X's Bookmark) and the app noticed their own
+    click. The post becomes one saved item under that site's own origin and list label — the row
+    ``cicada_record_saved_list`` and the site's connector write for the same post, by the same canonical link and
+    aliases, so a later list read is this row and never a second one.
+
+    Nothing is fetched (the post is behind a login) and no model runs: the row is the link and a title made from it.
+    Like every save from a platform's list it is index-only until the person says why (ruling 62); the notch's answer
+    (``POST /sources/saved-why``, by the returned ``url``) is what makes Sleep read it. 422 for a site with no saved
+    list or a link that is not a post of it, 409 in a demo bank or while Sleep holds the pages. Committed alone, as
+    the person."""
+    from api.services import episode_ids, saved_lists
+    from api.services.media_ingestor import MediaMeta, PreparedItem
+
+    platform = saved_lists.PLATFORMS.get(request.site)
+    found = saved_lists.canonical(request.site, request.url) if platform is not None else None
+    if platform is None or found is None:
+        raise HTTPException(status_code=422, detail="That is not a post of a site Cicada keeps saves for.")
+    url, aliases = found
+    memory_path = Path(settings.memory_path)
+    title = media_ingestor._fallback_title(url)
+    added_at = episode_ids.utc_now_seconds()
+    item = RawItem(url=url, title=title, folder=platform.folder, origin=platform.origin, aliases=list(aliases),
+                   defer_enrich=True, added_at=added_at)
+    meta = MediaMeta(title=title, site=media_ingestor._site_of(url), media_type=media_ingestor._classify(url))
+
+    async def write() -> SiteSaveResponse:
+        def stage():
+            idx = media_ingestor.load_url_index(memory_path)
+            result = media_ingestor.write_prepared(PreparedItem(item, meta), memory_path, idx, append_list=True)
+            media_ingestor.save_url_index(memory_path, idx)
+            return result
+
+        result = await run_in_threadpool(stage)
+        if result.status == "created":
+            try:
+                await media_ingestor._commit_media(
+                    memory_path, 1,
+                    ["sources/url_index.json", f"entities/{result.media_entity_id}.md",
+                     f"episodes/{result.episode_id}.md"],
+                    author="user", sessions=None, trigger="user/site_save")
+            except Exception as e:  # noqa: BLE001 — a non-git bank (tests) keeps the save
+                logger.warning(f"Site save commit failed: {type(e).__name__}: {e}")
+        return SiteSaveResponse(status=result.status, url=url, title=result.title or title, origin=platform.origin,
+                                episodeId=result.episode_id, mediaEntityId=result.media_entity_id, addedAt=added_at)
+
+    return await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(SITE_SAVE_BUSY))
+
+
 @router.get("/sources/saved-why/options", response_model=SavedWhyOptions)
 async def saved_why_options(settings: Settings = Depends(get_settings)) -> SavedWhyOptions:
     """G191 — the one-tap answers to "What made you save this?": the four fixed reasons (v4), the bank the panel
