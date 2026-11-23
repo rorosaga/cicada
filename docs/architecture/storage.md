@@ -579,6 +579,25 @@ checks a batch, inside Sleep's spend line (`value_match`, `sleep_spend.LINE_STAG
 batch its joins and nothing else (`value_aligned` in the audit; the capture path calls no model). A relationship and a
 value that say one fact (`lives-in` Grenoble beside `value-of-city-of-residence`: Grenoble) are not joined here: that
 needs a value to be recognised as a restatement of a relationship's object, a different write than a rename.
+**A value that names what a conversation dropped (2026-11-23; `value_ended`):** the join above compares two values, and
+"core language: TypeScript" beside "implementation language: Python with Pillow" reads, fairly, as a part against a whole
+(40 replays of that pair: 24 refused, every reason "scope"; the benchmark's U3, 4 of 12 runs). What settles it is on the
+page, not in either value: the conversation also said it *dropped Python*, so Stage 3 had already closed the link to
+Python — and, since #779, a value whose WHOLE literal is "Python". For each ending an incoming claim brings (an `over`
+label on a node), the open older values on that page whose literal NAMES the dropped thing (its page id's words, whole and
+in order, among the literal's own; no attribute words, any language; never one the person wrote against an agent's
+ending, never one said in the ending's own conversation) are asked of Sleep's small judge **once each**, with the value's
+sentence and the ending's, and the person's own located words behind both (`value_alignment.Words`): does the ending
+make the value out of date, or can it still be true (a part, another purpose, a passing mention, it says more than what
+was dropped; "when unsure, it can still be true")? Only a plain yes is handed to Stage 3 (`reconcile_stage3(ended_values=)`),
+which closes the value exactly as it closes the link (`_place_ending`: `valid_to`, `superseded_by`, the owner's-words
+rail, an ending older than the value closing nothing). **Never re-asked:** a candidate exists only while the ending is
+incoming, so a refused value is asked again only when a conversation drops the thing again. Bounds: no call without a
+candidate, one per (ending, value), 24 a batch, inside `value_match`'s spend line. `benchmarks/consolidation/
+value_ended_battery.py` replays the real call on ten invented cases (four that must close, six that must stay: the API
+moved off Python while the scripts stay, a reason that mentions it, another purpose, another prototype, two languages at
+once, a passing mention). It does not touch V4 (a budget raised, "budget excluding flights" beside "budget"): that is a
+value-against-value scope doubt with no ending on the page, and stays the join step's.
 **A stated day (W7, 2026-10-23):** a Stage 1 relationship may carry `ends`, an absolute day the model resolves from the
 conversation's day ("my last day is a week from today"); anything but a real ISO date is dropped, so nothing relative is
 stored (`entity_extractor._stated_day`). On an `over` label it dates the ending (the job closes on the last day, not
