@@ -284,8 +284,12 @@ struct StudyListCard: View {
             rowView(row)
             if open {
                 LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    ForEach(episodesForOrigin(row.origin, in: episodes)) { ep in
-                        EpisodeCard(item: ep)
+                    // A chat's sittings stand as one card (owner 2026-11-23); everything else is a card each.
+                    ForEach(ChatGroups.entries(episodesForOrigin(row.origin, in: episodes))) { entry in
+                        switch entry {
+                        case .chat(let group): ChatCard(group: group)
+                        case .episode(let ep): EpisodeCard(item: ep)
+                        }
                     }
                 }
                 .padding(.horizontal, CicadaTheme.spacingSM)
@@ -351,9 +355,9 @@ struct StudyListCard: View {
     }
 
     @ViewBuilder
-    static func badge(_ count: Int?) -> some View {
+    static func badge(_ count: Int?, knockout: Color = CicadaTheme.surface) -> some View {
         if let count {
-            RailBadge(count: count, style: .corner, knockout: CicadaTheme.surface)
+            RailBadge(count: count, style: .corner, knockout: knockout)
                 .fixedSize()
                 .offset(x: CicadaTheme.scaled(9), y: -CicadaTheme.scaled(7))
         }

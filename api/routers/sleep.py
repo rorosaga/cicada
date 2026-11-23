@@ -5,6 +5,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
+    EpisodeChat,
     EpisodeQueueItem,
     ScheduleConfig,
     ScheduleResponse,
@@ -445,7 +446,8 @@ async def sleep_queue(
 #: episodes-5: `site` is the link's own host, not its registrable domain (owner 2026-11-23).
 #: episodes-6: `openKind` / `openValue` — where the original opens (owner 2026-11-23).
 #: episodes-7: `change` — new, updated or removed at its source (owner 2026-11-23).
-EPISODES_SHAPE = "episodes-7"   # episodes-4: a recorder's meetings group under it (`queue_origin`); episodes-3: `device` (G212); episodes-2: `site` (owner 2026-10-20)
+#: episodes-8: `chat` — the chat a sitting belongs to (owner 2026-11-23).
+EPISODES_SHAPE = "episodes-8"   # episodes-4: a recorder's meetings group under it (`queue_origin`); episodes-3: `device` (G212); episodes-2: `site` (owner 2026-10-20)
 
 
 @router.get("/sleep/episodes", response_model=list[EpisodeQueueItem])
@@ -505,6 +507,7 @@ def _episode_items(mp, window) -> list[EpisodeQueueItem]:
                 open_kind=opens[0] if opens else None,
                 open_value=opens[1] if opens else None,
                 change=episode_revision.waiting_state(fm),
+                chat=EpisodeChat(**chat) if (chat := episode_copy.chat_of(fm)) else None,
             )
         )
     return items

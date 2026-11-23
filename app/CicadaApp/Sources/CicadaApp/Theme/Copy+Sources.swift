@@ -175,6 +175,14 @@ extension Copy {
             + (total == 1 ? noun.one : noun.many)
     }
     /// G161 (ROR-111) — the control that opens an item where it lives. Each names the person's own source.
+    /// Owner 2026-11-23 — a chat's card on the Sleep page (`ChatCard`).
+    enum Chat {
+        static let unnamed = "Unnamed chat"
+        static let unnamedGroup = "Unnamed group"
+        static let notesToYourself = "Notes to yourself"
+        static let sittingsHelp = "Show this chat's sittings"
+    }
+
     /// Owner 2026-11-23 — the kept-for-lookup card's words (`KeptForLookupCard`).
     enum Kept {
         static let explanation = "Saved with no reason. Search, Ask and your agents can find these; Sleep reads one when you talk about it."
