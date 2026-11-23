@@ -24,6 +24,10 @@ struct SourceSpansView<Pinned: View, Below: View>: View {
     @ViewBuilder var below: () -> Below
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// A chat scrolled up from its newest message (`JumpToLatest`); never set for a document.
+    @State private var awayFromLatest = false
+    @State private var latestY: CGFloat?
+    @State private var scroller = JumpToLatestScroller()
 
     var body: some View {
         let layout = state.layout(doc, scalars: scalars, presentation: presentation, others: others, note: note)
@@ -88,6 +92,7 @@ struct SourceSpansView<Pinned: View, Below: View>: View {
                         } else {
                             ReaderTurnRows(blocks: blocks, landingTurn: landingBlock?.turn, revealed: state.washVisible)
                         }
+                        if layout.chat != nil { JumpToLatestAnchor(anchorY: $latestY, away: $awayFromLatest) }
                         below()
                     }
                     .scrollTargetLayout()
@@ -97,8 +102,11 @@ struct SourceSpansView<Pinned: View, Below: View>: View {
                     .padding(.top, CicadaTheme.scaled(4))
                     .padding(.horizontal, CicadaTheme.scaled(ReaderColumn.inset))
                     .padding(.bottom, CicadaTheme.scaled(layout.chat == nil ? 72 : 24))
+                    .jumpToLatestSpace(scroller)
                 }
                 .scrollPosition(id: $state.topRow, anchor: .top)
+                .jumpToLatest(anchorY: layout.chat != nil ? latestY : nil, away: $awayFromLatest, scroller: scroller,
+                              willJump: { state.topRow = nil })
                 .accessibilityRotor("Cited passages") {
                     ForEach(citedStops, id: \.id) { stop in
                         AccessibilityRotorEntry(Text(stop.label), id: stop.id)

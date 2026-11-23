@@ -3903,7 +3903,15 @@ text button (remembered per viewer in the app's defaults, never animated; a summ
 shows the whole summary, the recorder's note and, when a tool split the voices, "Voices split on this Mac by <tool> (N
 voices). Speaker numbers are its guess." The open summary scrolls inside the card past 220 pt. The Reader's title wears the
 recorder's mark (`ReaderHeader.markOrigin`'s `recorder`: Hex's own icon, never the folder it was read from). The stored
-body is unchanged. A chat's title drops a
+body is unchanged. **Back to the newest message (owner 2026-11-23):** every chat, app-wide (the
+Reader's chat layout and a ticked chat's page), shows a round down-arrow button 32 pt above its bottom edge once the view
+sits more than 80 pt above its newest message — measured on a marker row right after it against the visible rectangle,
+both in the content's coordinates, never the content height (a lazy stack's estimate runs hundreds of points past the
+end). A click glides the chat's own scroll view to its very end, fast and smooth: the glide grows with the distance, far
+slower than it, under the 400 ms ceiling (`CicadaMotion.jumpToLatestDuration`); past six views it first moves that far
+above the end in one frame; it then settles on the measured end; one frame under Reduce Motion. The Reader lets go of its
+bound row first (`scrollPosition(id:)` would pull the view back). `JumpToLatest`; the other side's bubble fill with the
+strong ring, DR-5, DR-9, DR-10, DR-60. A chat's title drops a
 trailing " · YYYY-MM-DD" and its meta drops the day and the turn count, naming the agent only when the capture line
 does not (`ReaderHeader.title`, `chatMeta`); a document's header is unchanged. Day separators ("Today", "Yesterday", a weekday, "Thu, Sep 3") replace a date per turn,
 computed when read; a gate-B2 gap is a centred line with its stamps as clock times. No "turn N", on screen or in

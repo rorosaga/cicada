@@ -659,3 +659,18 @@ extension CicadaMotion {
         reduceMotion ? nil : .easeOut(duration: webLightDuration)
     }
 }
+
+// MARK: - Back to the newest message (owner 2026-11-23)
+
+extension CicadaMotion {
+    /// "Fast but smooth … if the conversation is super huge, it goes faster down, like in WhatsApp": the glide grows with
+    /// the distance, far slower than it, so a long way down moves faster — never past the 400 ms ceiling.
+    static func jumpToLatestDuration(distance: CGFloat) -> TimeInterval {
+        min(maxDuration, 0.18 + 0.05 * log2(1 + Double(max(0, distance)) / 1000))
+    }
+    /// The most one glide travels, in views: further down, the chat first moves this far above the end in one frame, so a
+    /// huge chat never lays out every row on the way.
+    static let jumpToLatestGlideScreens: CGFloat = 6
+    /// The last stretch once the rows on the way are measured (a lazy stack's end moves as they are).
+    static let jumpToLatestSettleDuration: TimeInterval = 0.12
+}
