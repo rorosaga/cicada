@@ -97,9 +97,13 @@ class PendingEntity:
     # to the mention, never to the name: a later conversation naming one of those pages still joins it; only a re-read
     # of these conversations is kept apart, and the line's claims never follow the name onto one of these pages.
     apart: dict = field(default_factory=dict)
+    # 2026-11-23 (`same_name_people`): two people known only by one first name are two lines, and the second is keyed by
+    # the id its page will get (``marc-2``, never the plain name). ``title`` is the name that page will carry ("Marc");
+    # a line of any other kind has none and is titled by its name.
+    title: str = ""
 
     _OPTIONAL = ("summary", "key_facts", "links", "open_questions", "aliases", "item_inputs", "heard_in",
-                 "correspondent", "held_against", "apart")
+                 "correspondent", "held_against", "apart", "title")
 
     def to_dict(self) -> dict:
         data = {
@@ -158,6 +162,7 @@ class PendingEntity:
             correspondent=data.get("correspondent") if isinstance(data.get("correspondent"), dict) else {},
             held_against=str(data.get("held_against") or ""),
             apart=_apart(data.get("apart")),
+            title=str(data.get("title") or ""),
         )
 
     def apart_pages(self) -> set[str]:
@@ -239,6 +244,7 @@ def _carry(prior: PendingEntity, entity: PendingEntity) -> None:
     entity.source_episode = prior.source_episode or entity.source_episode
     entity.confidence = max(float(prior.confidence or 0), float(entity.confidence or 0))
     entity.correspondent = entity.correspondent or prior.correspondent
+    entity.title = entity.title or prior.title
     if prior.apart:   # the person's answer about this mention outlives a re-park (G227)
         entity.apart = _apart({"pages": [*prior.apart_pages(), *entity.apart_pages()],
                                "episodes": [*prior.apart_episodes(), *entity.apart_episodes()]})

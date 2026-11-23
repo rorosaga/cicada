@@ -17,8 +17,8 @@ from thefuzz import fuzz
 from api.config import Settings
 from api.services import (agent_engine, alias_policy, application_page, authorship, contact_identity, contacts_local, phone_numbers, correspondents, engine_errors,
                           entity_body, entity_relations, entity_types, fact_policy, json_parse, owner_identity, pair_evidence, people_directory, person_leads,
-                          project_birth, promotion, quiet_pages, role_people, section_provenance, text_fold,
-                          wrong_aliases)
+                          project_birth, promotion, quiet_pages, role_people, same_name_people, section_provenance,
+                          text_fold, wrong_aliases)
 from api.services.clarification_manager import (
     ClarificationManager,
 )
@@ -223,6 +223,13 @@ async def resolve(
         logger.info(f"Stage 2: {len(self_entities)} self-reference(s) "
                     + ("merged into the owner page" if owner_entity else "dropped (this bank has no owner page)"))
 
+    # 2026-11-23 (`same_name_people`): a bare first name that two conversations use for two different people is two
+    # people, decided before anything keys the name: each conversation's mention goes where its person is.
+    same_name_moves = await _plan_same_name_people(
+        extracted, existing, same_title, settings, refs=refs, owner_page_id=owner_page_id,
+        cancel_check=cancel_check)
+    same_name_entities: list[tuple[str, dict, "same_name_people.Destination"]] = []
+
     # Count mentions across episodes for promotion threshold
     mention_counts: Counter = Counter()
     episode_mentions: dict[str, set[str]] = {}  # entity_name -> set of episode_ids
@@ -275,6 +282,13 @@ async def resolve(
             if (correspondents.from_mark(entity.get(correspondents.MARK)) is not None
                     and not entity.get(role_people.UNNAMED_KEY)):
                 correspondent_entities.append(entity)
+                if name not in per_episode_names:
+                    per_episode_names.append(name)
+                continue
+            moved = same_name_moves.get((episode_id, name.strip().lower()))
+            if moved is not None:
+                # A different person of the same first name: placed below, by its own page or line, never by the name.
+                same_name_entities.append((episode_id, entity, moved))
                 if name not in per_episode_names:
                     per_episode_names.append(name)
                 continue
@@ -389,6 +403,16 @@ async def resolve(
             park=indexer.index_pending_entity if indexer is not None else None,
             pending_actions=pending_actions, promoted_pending=promoted_pending)
         logger.info(f"Stage 2: {len(correspondent_entities)} correspondent mention(s), {pinned} endpoint(s) pinned")
+
+    if same_name_entities:
+        correspondent_pages = correspondent_pages | _resolve_same_name_people(
+            same_name_entities, extracted, existing, resolved_updates, resolved_creates,
+            threshold=settings.sleep_promotion_threshold, memory_path=getattr(settings, "memory_path", None),
+            linked=lambda group, name: _is_linked_to_existing(
+                name, [r for ex in extracted if ex.get("episode_id") in group for r in ex.get("relationships") or []],
+                existing_by_name, owner_id=owner_id, refs=refs),
+            park=indexer.index_pending_entity if indexer is not None else None,
+            pending_actions=pending_actions, promoted_pending=promoted_pending)
 
     # Process more specific names first so "Bob Example" becomes the
     # canonical in-cycle entity and "Bob" can merge into it rather than
@@ -1129,6 +1153,231 @@ def _resolve_correspondents(
                     rel[pin] = page_id
                     pinned += 1
     return pinned, frozenset(live)
+
+
+def _load_pending_lines(memory_path) -> list[PendingEntity]:
+    from api.services import pending_store
+
+    return pending_store.load(memory_path)
+
+
+async def _same_name_ask(settings: Settings, system: str, prompt: str) -> object:
+    """The same-name judge's one call (`same_name_people`): Stage 2's disambiguation model, JSON back. A seam for tests."""
+    from api.services.providers import resolve_llm_fn
+
+    disambig_model = getattr(settings, "litellm_disambiguation_model", "") or settings.litellm_model
+    llm_fn = resolve_llm_fn(settings, model=disambig_model, completion=litellm.acompletion, stage="disambiguation")
+    response = await _on_engine_loop(llm_fn(
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
+        extra_body={"reasoning": {"enabled": False}},   # a judgment, no chain of thought
+        timeout=120,
+    ))
+    return json_parse.parse_json_object(response.choices[0].message.content or "{}")
+
+
+def _same_name_identities(name_lower: str, pages: list[dict], lines: list[PendingEntity],
+                          owner_page_id: str | None) -> list["same_name_people.Identity"] | None:
+    """The people already on record under a bare name: each person page titled so, and each line held below the bar under
+    the name or keyed by the id a second person's page will get. ``None`` when the name is not for this rule: the owner's
+    page bears it, or a page that is a nickname or a relation (a name many people answer to, `role_people`)."""
+    slug = sanitize_id(name_lower)
+    found: list[same_name_people.Identity] = []
+    for page in pages:
+        fm = page.get("frontmatter") or {}
+        if str(fm.get("type") or "").lower() != "person" or _is_file_page(page):
+            continue
+        if (owner_page_id and str(page.get("id")) == owner_page_id) or fm.get("owner") \
+                or fm.get(role_people.NICKNAME_KEY) or fm.get(role_people.UNNAMED_KEY):
+            return None
+        episodes = frozenset(str(e) for e in fm.get("source_episodes") or [] if e)
+        found.append(same_name_people.Identity("page", str(page["id"]), str(page["id"]) == slug,
+                                               _alias_page_context(page), episodes))
+    for line in lines:
+        if line.type != "person":
+            continue
+        plain = line.name.lower() == name_lower
+        if not plain and (line.title or "").lower() != name_lower:
+            continue
+        text = " ".join(t for t in (line.summary or line.description, *(f for f in line.key_facts[:4])) if t)
+        found.append(same_name_people.Identity("line", line.name, plain, text, frozenset(line.episodes())))
+    # The plain person first, then the people with the most conversations: what the judge is shown when there are many.
+    found.sort(key=lambda i: (not i.plain, -len(i.episodes), i.ref))
+    return found
+
+
+async def _plan_same_name_people(
+    extracted: list[dict], existing: list[dict], same_title: dict[str, list[dict]], settings: Settings, *,
+    refs: "owner_identity.SelfReferences", owner_page_id: str | None, cancel_check: Callable[[], bool] | None = None,
+) -> dict[tuple[str, str], "same_name_people.Destination"]:
+    """2026-11-23 (`same_name_people`): for every bare person name that has something to compare, which conversations
+    name a person who is not the one the plain name reaches. Returns ``{(episode id, name lower): where}``; every
+    conversation not in it goes on by the name, as it always did.
+
+    Something to compare: two conversations in this batch, or one and a person already on record under the name (a page,
+    or a line held below the promotion bar). A conversation a page or line already lists (a re-read) is that person.
+    One judge call per such name, at most `same_name_people.MAX_NAMES` names a batch (the most conversations first),
+    run together within ``sleep_resolve_concurrency``. A mention that describes nothing is never judged."""
+    memory_path = getattr(settings, "memory_path", None)
+    mentions: dict[str, dict[str, dict]] = {}
+    for extraction in extracted:
+        episode_id = str(extraction.get("episode_id") or "")
+        for entity in extraction.get("entities", []):
+            name = str(entity.get("name") or "").strip()
+            if (not episode_id or not _is_person(entity) or not same_name_people.is_bare(name)
+                    or refs.is_speaker(name, entity.get("type")) or entity.get(promotion.LABEL_ONLY)
+                    or agent_engine.is_runtime_path(name) or entity.get(role_people.UNNAMED_KEY)
+                    or correspondents.from_mark(entity.get(correspondents.MARK)) is not None
+                    or contact_identity.card_of(entity) is not None):
+                continue
+            held = mentions.setdefault(name.lower(), {}).get(episode_id)
+            if held is None or len(same_name_people.describe(entity)) > len(same_name_people.describe(held)):
+                mentions[name.lower()][episode_id] = entity
+    if not mentions:
+        return {}
+    try:
+        lines = _load_pending_lines(memory_path) if memory_path else []
+    except Exception:  # noqa: BLE001 - an unreadable store is no people on record
+        lines = []
+    moves: dict[tuple[str, str], same_name_people.Destination] = {}
+    work: list[tuple[str, list, list]] = []
+    for name_lower, by_episode in mentions.items():
+        identities = _same_name_identities(name_lower, same_title.get(name_lower) or [], lines, owner_page_id)
+        if identities is None:
+            continue
+        to_judge: list[same_name_people.Mention] = []
+        for episode_id, entity in by_episode.items():
+            known = same_name_people.identity_for_episode(episode_id, identities)
+            if known is not None:
+                if not known.plain:
+                    moves[(episode_id, name_lower)] = same_name_people.Destination(known.kind, known.ref)
+                continue
+            text = same_name_people.describe(entity)
+            if text:
+                to_judge.append(same_name_people.Mention(episode_id, text))
+        if to_judge and (len(to_judge) >= 2 or identities):
+            work.append((name_lower, to_judge, identities))
+    work.sort(key=lambda item: -len(item[1]))
+    work = work[: same_name_people.MAX_NAMES]
+    if not work:
+        return moves
+    gate = asyncio.Semaphore(max(1, int(getattr(settings, "sleep_resolve_concurrency", 1) or 1)))
+
+    async def one(name_lower: str, to_judge: list, identities: list) -> tuple[str, same_name_people.Plan]:
+        name = next(iter(mentions[name_lower].values()))["name"]
+
+        async def judge(system: str, prompt: str) -> object:
+            return await _same_name_ask(settings, system, prompt)
+
+        async with gate:
+            if cancel_check is not None and cancel_check():
+                return name_lower, same_name_people.Plan()
+            return name_lower, await same_name_people.plan(name, to_judge, identities, judge)
+
+    results = await asyncio.gather(*(one(*item) for item in work))
+    split = 0
+    for name_lower, outcome in results:
+        for episode_id, destination in outcome.moves.items():
+            moves[(episode_id, name_lower)] = destination
+            split += 1
+    logger.info(f"Stage 2: {len(results)} bare name(s) compared across conversations, {split} conversation(s) "
+                "placed with another person of the same name")   # counts only, never a name
+    return moves
+
+
+def _resolve_same_name_people(
+    moved: list[tuple[str, dict, "same_name_people.Destination"]],
+    extracted: list[dict],
+    existing: list[dict],
+    updates_by_id: dict[str, dict],
+    creates_by_id: dict[str, dict],
+    *,
+    threshold: int,
+    memory_path=None,
+    linked: Callable[[set, str], bool] = lambda _group, _name: False,
+    park: Callable[[PendingEntity], None] | None = None,
+    pending_actions: list | None = None,
+    promoted_pending: list | None = None,
+) -> frozenset[str]:
+    """2026-11-23 (`same_name_people`): the conversations that name another person than the one the plain name reaches
+    each land on that person, by id, never by the name.
+
+    A known page is updated. A known line, or a person not on record yet, faces the promotion rule like any name
+    (`promotion`: 2+ conversations, this batch's and the line's; more than 3 exchanges; a link the person made), measured
+    on that person's own conversations. Over it, the page is created under its own id (``<slug>-2``, the next free one,
+    never the plain id; the title stays the clean name, G227) with everything the line held; below it, a line waits under
+    that same id (its ``title`` the name), so Stage 5.56 holds the person's claims there and the plain name's line never
+    receives them. Every edge and value of those conversations that names the person is pinned to the id
+    (``source_page`` / ``target_page``), as a correspondent's are. Returns the ids of the pages that exist or are created
+    now, which the caller's pin check accepts."""
+    from api.services import pending_store
+
+    try:
+        lines = pending_store.load(memory_path) if memory_path else []
+    except Exception:  # noqa: BLE001
+        lines = []
+    by_id = {str(p.get("id")): p for p in existing}
+    taken = set(by_id) | set(creates_by_id) | {sanitize_id(ln.name) for ln in lines}
+    groups: dict[tuple[str, str, str], list[tuple[str, dict]]] = {}
+    for episode_id, entity, destination in moved:
+        groups.setdefault((str(entity["name"]).strip().lower(), destination.kind, destination.ref), []).append((episode_id, entity))
+    live: set[str] = set()
+    pinned_to: dict[tuple[str, str], str] = {}   # (episode, name lower) -> the page its edges and claims belong to
+    for (name_lower, kind, ref), members in groups.items():
+        entities = [entity for _episode, entity in members]
+        best = max(entities, key=lambda e: float(e.get("confidence", 0) or 0))
+        siblings = [e for e in entities if e is not best]
+        title = str(best["name"])
+        episodes = {episode for episode, _entity in members}
+        line = None
+        if kind == "page" and ref in by_id:
+            page_id = ref
+            for incoming in entities:
+                _merge_into_update(updates_by_id=updates_by_id, existing_entity=by_id[ref], incoming=incoming)
+            live.add(page_id)
+        else:
+            if kind == "line":
+                line = next((ln for ln in lines if ln.name == ref), None)
+            page_id = line.name if line is not None else same_name_people.free_id(sanitize_id(title), taken)
+            taken.add(page_id)
+            heard_before = set(line.episodes()) - episodes if line is not None else set()
+            promote = (len(promotion.conversation_keys(episodes | heard_before, memory_path)) >= threshold
+                       or any(promotion.substantive(e) for e in entities) or linked(episodes, title))
+            if promote:
+                creates_by_id[page_id] = _create_change(page_id, {**best, "name": title})
+                for sibling in siblings:
+                    _merge_into_create(creates_by_id[page_id], sibling)
+                if line is not None:
+                    _fold_pending(creates_by_id[page_id], line)
+                    creates_by_id[page_id]["entity"]["name"] = title
+                    if promoted_pending is not None:
+                        promoted_pending.append(line.name)
+                live.add(page_id)
+            elif park is not None and pending_actions is not None:
+                parked = best
+                for sibling in siblings:
+                    parked = _merge_entity_payload(parked, sibling)
+                held = _pending_line(page_id, best, parked, siblings, float(best.get("confidence", 0.5) or 0.5))
+                held.title = title
+                pending_actions.append((park, (held,), {}))
+        for episode in episodes:
+            pinned_to[(episode, name_lower)] = page_id
+    for extraction in extracted:
+        episode_id = str(extraction.get("episode_id") or "")
+        names = {name for (episode, name) in pinned_to if episode == episode_id}
+        if not names:
+            continue
+        for rel in extraction.get("relationships") or []:
+            if not isinstance(rel, dict):
+                continue
+            for end, pin in (("source", correspondents.SOURCE_PAGE), ("target", correspondents.TARGET_PAGE)):
+                value = str(rel.get(end) or "").strip().lower()
+                if value in names:
+                    rel[pin] = pinned_to[(episode_id, value)]
+        for value in extraction.get("values") or []:
+            if isinstance(value, dict) and str(value.get("entity") or "").strip().lower() in names:
+                value["source_page"] = pinned_to[(episode_id, str(value["entity"]).strip().lower())]
+    return frozenset(live)
 
 
 def _pinned(rel: dict, key: str, live: frozenset[str], creates: dict) -> str | None:

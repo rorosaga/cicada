@@ -125,3 +125,12 @@ def test_a_pair_the_person_called_two_people_never_joins(bank):
     assert pd.join_reason(bank, "nur", "noor")
     merge_rejections.add_rejected(bank, "nur", "noor")
     assert pd.join_reason(bank, "nur", "noor") == ""
+
+
+def test_two_pages_under_one_title_are_never_a_lead(bank):
+    """2026-11-23 (`same_name_people`): a name joins the page titled so, so a second page under the same title exists
+    only because someone decided it is another person. It is never a duplicate lead, a question or a Sleep join."""
+    _page(bank, "marc", "Marc", source_episodes=["ep_2026-01-01_001"])
+    _page(bank, "marc-2", "Marc", source_episodes=["ep_2026-01-05_001"])
+    bank_index.invalidate()
+    assert not any({"marc", "marc-2"} == {p.a, p.b} for p in pd.candidates(bank))

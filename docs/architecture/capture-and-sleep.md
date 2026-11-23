@@ -2117,8 +2117,38 @@ descriptions decide"). `same` joins; `unsure` holds the name and asks — the it
 (`merge_target_hint`), keeps every page sharing the title (`same_title`), and asks about that ONE page, the one its
 same/different answers act on ("Is this the <name-a> IDE?", the others counted in the reason, `inbox_wording`; the
 stored title says the same); `different` on all goes on by the usual rule, and a new page whose id the title already
-holds is held and asked, as before. A person mention keeps its own rules (G209). See the G227 row
+holds is held and asked, as before. A person mention keeps its own rules (G209; two people sharing a bare first name: `same_name_people`, below). See the G227 row
 for the haiku replay.
+
+**Two people with one first name are two people (2026-11-23, `same_name_people`).** Most people in a memory are named by a
+first name alone, and first names repeat (a brother-in-law and a colleague, both "Marc"). Stage 2 keyed every mention by
+its lowercased name, so inside one batch a name could only be one thing, and across batches a mention joined the page
+titled so on the name alone: one page said the brother-in-law was moving to the Berlin office. Before any name is keyed
+(after `role_people.canonicalize`, `entity_resolver._plan_same_name_people`) each **bare person name** (one word; a full
+name carries its own surname) that has something to compare is judged once: two or more conversations of this batch, or
+one and a person already on record under the name (a page titled so, or a line held below the promotion bar). The judge
+(Stage 2's disambiguation model, one call a name, at most 20 names a batch, 12 conversations and 6 known people a call,
+the rest left as it was) groups the conversations by person and says which known person each fits. **Positive evidence
+only:** two conversations are two people only when the descriptions give each a fact the other cannot share (a different
+trade or employer, home town, generation); a different setting, topic or time is never one, and a thin description, an
+unreadable answer, a failed call or a group that states no contrast keeps the old behaviour (one person, nothing asked).
+A conversation a page or line already lists (a re-read) is that person and is not judged; a mention that describes nothing
+is not judged; the owner's page, a nickname or relation page (`role_people`), a contact-card participant and a
+correspondent never enter. What the judge says goes through the machinery G227 built: the person the plain name reaches
+(the page whose id is the name's slug, else the line named so, else the group with the most conversations) goes on by the
+name; every other person is placed by `_resolve_same_name_people` like a correspondent: a known page is updated; a known
+line or a person not on record yet faces the unchanged promotion bar on **their own** conversations (a line's earlier ones
+included) and is created under the next free id (`marc-2`, `marc-3`: `_another_id`'s shape, the title the clean name), or
+waits as a held line keyed by that id (`PendingEntity.title` says the name its page will carry), so the plain name's line
+never receives its claims. Every edge and value of those conversations that names the person is pinned to the id
+(`source_page` / `target_page`, as a correspondent's are). A later conversation finds each person again as a page or a line
+under the name and is judged against them, so after both pages exist a new conversation lands on the right one. Two people
+pages under one title are never a duplicate lead (`person_duplicates.candidates` skips an identical-title pair: it exists
+only because someone decided it), so the split raises no "Is Marc the same as Marc?" question and Sleep's own two-signal join
+never takes it back; the person merges them with `cicada_merge_pages` as for any pair. Cost: one disambiguation call per
+bare name with something to compare (the fixture's second person: 5 across both drains, the first's 2), bounded by the
+batch's bare names, never by the bank. The G209 first-name guard (`_first_name_across`, a one-word name heard outside a chat
+against a full-name page) and the promotion bar are unchanged.
 
 **Pick the page (G227, owner ruling 2026-10-29).** A mention that could be any of two or more same-titled pages is ONE
 question for the mention — never one per pair: `ClarificationManager.create` finds an open question about the same
