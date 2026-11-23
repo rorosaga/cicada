@@ -356,6 +356,21 @@ def _page_names(p: dict) -> str:
     return " | ".join([p["id"], str(p["name"]), *p["aliases"]])
 
 
+def held_lines(bank: Path) -> list[dict]:
+    """The people held below the promotion bar (`pending_entities.jsonl`): name and, for a second person of a name, title."""
+    path = bank / "pending_entities.jsonl"
+    found: list[dict] = []
+    if path.exists():
+        for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            try:
+                line = json.loads(raw)
+            except ValueError:
+                continue
+            if isinstance(line, dict) and line.get("type") == "person":
+                found.append({"name": str(line.get("name") or ""), "title": str(line.get("title") or "")})
+    return found
+
+
 def score(snap: dict, bank: Path, fixture: dict) -> dict:
     clock = date.fromisoformat(snap["clock"])
     gold = fixture["gold"]
@@ -439,6 +454,18 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
                 joined.append(page["id"])
         people.append({"id": row["id"], "why": row["why"], "ok": not joined, "pages": joined})
 
+    # One real person must stay one: no second page under the same name (`<slug>-2`), and no line held below the promotion
+    # bar that carries a `title` (the mark of a second person Sleep decided is someone else, `same_name_people`). A
+    # person page is counted by its name, a line by its title, so a held line nobody sees is caught too (the first check
+    # of this kind counted pages alone and missed three of four).
+    one_person = []
+    for row in gold["people"].get("one", []):
+        names = [norm(n) for n in row["names"]]
+        same_name = [p["id"] for p in pages if p.get("type") == "person" and not p["owner"] and norm(str(p["name"])) in names]
+        titled = [ln for ln in held_lines(bank) if norm(ln.get("title") or "") in names]
+        one_person.append({"id": row["id"], "why": row["why"], "ok": len(same_name) <= 1 and not titled,
+                           "pages": same_name, "held_lines": [ln["name"] for ln in titled]})
+
     def has_page(term) -> list[str]:
         return [p["id"] for p in pages if not p["owner"] and matches(_page_names(p), [term if isinstance(term, list) else [term]])]
 
@@ -510,6 +537,7 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
             "forbid_ok": total(forbid), "forbid": len(forbid),
             "roles_ok": total(roles), "roles": len(roles),
             "people_ok": total(people), "people": len(people),
+            "one_person_ok": total(one_person), "one_person": len(one_person),
             "pages_ok": total(expected) + total(not_expected), "pages_checks": len(expected) + len(not_expected),
             "dated_ok": total(dated), "dated": len(dated),
             "pages_total": len(pages), "claims_total": len(claims), "questions": len(snap["questions"]),
@@ -518,6 +546,7 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
             **fading["summary"],
         },
         "points": points, "updates": updates, "apart_values": apart, "forbid": forbid, "roles": roles, "people": people,
+        "one_person": one_person,
         "pages": {"expected": expected, "not_expected": not_expected}, "dated": dated, "integrity": integrity,
         "fading": fading,
     }
@@ -839,6 +868,7 @@ def report(out: Path) -> str:
             ("forbid_ok", f"others' words kept off the person /{first.get('forbid', '?')}"),
             ("roles_ok", f"a role reads true as written /{first.get('roles', '?')}"),
             ("people_ok", f"people joined/kept apart right /{first.get('people', '?')}"),
+            ("one_person_ok", f"one person kept as one (no second page, no held second line) /{first.get('one_person', '?')}"),
             ("pages_ok", f"page made / not made right /{first.get('pages_checks', '?')}"),
             ("dated_ok", f"relative dates right /{first.get('dated', '?')}"),
             ("fade_keeps_ok", f"pages kept coming back to, not fading /{first.get('fade_keeps', '?')}"),
@@ -894,7 +924,7 @@ def compare(out: Path, a: str, b: str) -> str:
     rows = ["| measure | " + a + f" (n={len(ga)}) | " + b + f" (n={len(gb)}) | clear |", "|---|---|---|---|"]
     sa = [json.loads((x / "score.json").read_text(encoding="utf-8"))["summary"] for x in ga]
     sb = [json.loads((x / "score.json").read_text(encoding="utf-8"))["summary"] for x in gb]
-    for key in ("points_claim", "points_judged", "updates_correct", "apart_ok", "forbid_ok", "roles_ok", "people_ok", "pages_ok", "dated_ok",
+    for key in ("points_claim", "points_judged", "updates_correct", "apart_ok", "forbid_ok", "roles_ok", "people_ok", "one_person_ok", "pages_ok", "dated_ok",
                 "claims_total", "pages_total"):
         va = [s[key] for s in sa if s.get(key) is not None]
         vb = [s[key] for s in sb if s.get(key) is not None]

@@ -880,6 +880,11 @@
      "b": "reyes",
      "why": "two different people called Sam"
     }
+   ],
+   "one": [
+    {"id": "O1", "names": ["tomas"], "why": "one friend named in many settings: never a second page or held line"},
+    {"id": "O2", "names": ["teo", "teodor"], "why": "one person, a nickname and a full name, named in many settings"},
+    {"id": "O3", "names": ["lucía", "lucia"], "why": "one friend named in many settings"}
    ]
   },
   "pages": {
