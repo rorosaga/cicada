@@ -375,6 +375,12 @@ def shown_turns(excerpts: list[Excerpt]) -> set[tuple[str, int]]:
     return {(e.episode, i) for e in excerpts for i in (e.order[2], *e.shown)}
 
 
+def lines_chars(excerpts: list[Excerpt]) -> int:
+    """The characters of the turns ``excerpts`` show: what they take of the window the lines share (pages are not
+    lines and never count against it)."""
+    return sum(len(e.text) for e in excerpts)
+
+
 # --------------------------------------------------------------------------------------------------------------- #
 # The search leg: what was said where no page points (2026-10-19), and which of it is current (2026-10-19, depth)
 # --------------------------------------------------------------------------------------------------------------- #
@@ -398,6 +404,8 @@ ENUM_CHARS = 3600
 ASK_WINDOW_EPISODES = 12
 ASK_WINDOW_EXCERPTS = 24
 ASK_WINDOW_CHARS = 12_000
+#: Ask only: how many of the vector leg's best conversations show their best turn by meaning (recall keeps 4).
+ASK_MEANING_EPISODES = 8
 #: A count or a list about one speaker ("how many … have I …", "what books has <name> read"): another speaker's turn
 #: counts this share of its words' weight — the other side of a chat repeats the words ("did you enjoy the wedding?")
 #: but never did the thing.
@@ -1541,7 +1549,7 @@ LANGUAGE_PASSAGES = 3
 MEANING_EXTRA_EXCERPTS = 2
 MEANING_EXTRA_CHARS = 800
 #: Ask, with room in the prompt: at most this many characters by meaning, a line for each of these.
-MEANING_FILL_CHARS = 3000
+MEANING_FILL_CHARS = 4000
 MEANING_LINE_CHARS = 500
 #: The same for a request for advice (2026-11-06): LongMemEval_S preference, answer turns in the prompt 4 → 8 of 14.
 ADVICE_EXTRA_EXCERPTS = 6
@@ -1821,10 +1829,11 @@ def _search_words(memory_path: Path, question: str, *, terms: set[str] | None = 
 
 
 def _meaning_budget(question: str, found: Searched, room: int | None, used: int) -> tuple[int, int]:
-    """``(lines, characters)`` the meaning leg adds beside the words. With ``room``, in any language, what the prompt has
-    left, so a memory Sleep has read, or words that filled the window, cost nothing: unslept LoCoMo 123 → 134 of 200 when
-    it isn't limited by pages, while slept stayed 159 at 9% more tokens. A question not in English keeps its few lines,
-    since its words find less (#693)."""
+    """``(lines, characters)`` the meaning leg adds beside the words. With ``room``, in any language, what the window
+    still has for lines (the caller counts the lines already shown, never the pages: 2026-11-23, a slept memory's pages
+    alone were over the window, so the room was always negative and this leg added nothing there — the questions that
+    need several conversations' lines, none sharing the question's words, never got them). A question not in English
+    keeps its few lines, since its words find less (#693)."""
     if found.advice:
         return ADVICE_EXTRA_EXCERPTS, ADVICE_EXTRA_CHARS
     fixed = (MEANING_EXTRA_EXCERPTS, MEANING_EXTRA_CHARS)
@@ -1840,14 +1849,15 @@ def _meaning_budget(question: str, found: Searched, room: int | None, used: int)
 def window_limits() -> dict:
     """``gather_search``'s limits for Ask."""
     return {"max_episodes": ASK_WINDOW_EPISODES, "max_excerpts": ASK_WINDOW_EXCERPTS, "total_chars": ASK_WINDOW_CHARS,
-            "person_first": True}
+            "person_first": True, "meaning_episodes": ASK_MEANING_EPISODES}
 
 
 def gather_search(memory_path: Path, question: str, found: Searched, *, owner_name: str | None = None,
                   taken: set[tuple[str, int]] | None = None, max_episodes: int = SEARCH_EPISODES,
                   max_excerpts: int = SEARCH_EXCERPTS, total_chars: int = SEARCH_CHARS,
                   deep: dict | None = None, excerpt_chars: int = EXCERPT_CHARS,
-                  person_first: bool = False, meaning_room: int | None = None) -> list[Excerpt]:
+                  person_first: bool = False, meaning_room: int | None = None,
+                  meaning_episodes: int = MEANING_EPISODES) -> list[Excerpt]:
     """The turns of the best :func:`search` conversations that hold the question's words, the rarer words counting
     more, oldest first. A conversation kept for its day (the newest on the subject, a day the question names) shows
     its best turn before the others fill the budget by score, so the one that settled the subject is never crowded out.
@@ -1965,7 +1975,7 @@ def gather_search(memory_path: Path, question: str, found: Searched, *, owner_na
         shown_eps = {e.episode for e in chosen}
         near_docs: dict[str, tuple] = {}
         firsts: dict[str, tuple] = {}
-        for c in _meaning_turns(memory_path, found, near_docs, shown):
+        for c in _meaning_turns(memory_path, found, near_docs, shown, episodes=meaning_episodes):
             firsts.setdefault(c[3], c)
         extra = sorted(firsts.values(), key=lambda c: (c[3] in shown_eps, c[1]))
         lines, chars = _meaning_budget(question, found, meaning_room, sum(len(e.text) for e in chosen))
@@ -2108,7 +2118,8 @@ def _name_terms(turn, fm: dict, owner_name: str | None) -> set[str]:
     return set()
 
 
-def _meaning_turns(memory_path: Path, found: Searched, docs: dict, taken: set[tuple[str, int]]) -> list[tuple]:
+def _meaning_turns(memory_path: Path, found: Searched, docs: dict, taken: set[tuple[str, int]],
+                   episodes: int = MEANING_EPISODES) -> list[tuple]:
     """``(score, rank, turn index, episode, turn, None)`` for the turns inside the :data:`MEANING_PASSAGES` nearest
     passages of each of the first :data:`MEANING_EPISODES` conversations the vector leg found (``found.passages``),
     best first: by their nearness to the question (``found.turn_similar``, one batch), else in the passage's order. A
@@ -2118,7 +2129,7 @@ def _meaning_turns(memory_path: Path, found: Searched, docs: dict, taken: set[tu
     from api.services import history_index
 
     rows: list[tuple] = []
-    for rank, (ep, passages) in enumerate(list(found.passages.items())[:MEANING_EPISODES]):
+    for rank, (ep, passages) in enumerate(list(found.passages.items())[:episodes]):
         doc = evidence.source_document(memory_path, ep)
         if doc is None:
             continue
@@ -2197,3 +2208,4 @@ def render(excerpts: list[Excerpt], *, with_episode: bool = False) -> str:
         if e.after:
             lines.append(f"- {at}, {e.after[0]} (the reply): \"{e.after[1]}\"")
     return "\n".join(lines)
+
