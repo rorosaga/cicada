@@ -211,6 +211,10 @@ struct CitationPopover: View {
                        label: nil, caption: span.stale ? Copy.Provenance.staleCaption : nil,
                        style: span.stale ? .plain : .wash, lineLimit: 6)
         }
+        if d.isSourceRemoved {
+            // G104 slice 3, DR-80: a quiet note in the popover, never a banner and never a change to the quote (DR-18).
+            Text(Copy.Provenance.sourceRemoved).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+        }
         HStack(spacing: CicadaTheme.spacingSM) {
             if let title = d.title, !title.isEmpty {
                 Text(title).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)

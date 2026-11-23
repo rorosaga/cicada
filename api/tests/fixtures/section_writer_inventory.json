@@ -501,6 +501,12 @@
       "disposition": "uninstrumented_guarded"
     },
     {
+      "function": "set_file_record",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
       "function": "set_pinned",
       "method": "write",
       "frontmatter": "fm",
@@ -1291,6 +1297,26 @@
       "disposition": "refresh_or_preserve"
     }
   ],
+  "services/revision_cascade.py": [
+    {
+      "function": "_page",
+      "method": "write",
+      "frontmatter": "pfm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_page",
+      "method": "write",
+      "frontmatter": "pfm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "restore",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
   "services/bookmark_forget.py": [
     {
       "function": "forget",
@@ -1805,6 +1831,14 @@
       "method": "write",
       "frontmatter": "{'kind': 'merge_suggestion', 'required_input': 'merge', 'status': 'pending', 'priority': guess, 'entity_id': asked, 'entity_name': name_a, 'title': f'Is {name_a} the same as {name_b}?', 'uncertainty_type': f'Possible duplicate of {name_b}', 'suggested_classification': 'person', 'suggested_confidence': guess, 'created_date': today.isoformat(), 'merge_target_hint': target, 'detected': 'person_duplicate', 'signals': pair.signals, **({'source_episode': verdict.episode} if verdict.episode else {})}",
       "disposition": "fresh_frontmatter_untracked"
+    }
+  ],
+  "services/corrections_record.py": [
+    {
+      "function": "write_history",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
     }
   ]
 }

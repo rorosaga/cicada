@@ -245,6 +245,25 @@ def test_the_version_sleep_read_comes_from_git(tmp_path):
     assert ep[er.KEY] is revisions[EP] and revisions[EP].prior == "user: first."
 
 
+def test_an_episode_edited_down_to_nothing_is_still_a_revision(tmp_path):
+    """G104 slice 3: a section a note lost is revised to an empty body. ``attach`` used to skip an episode with no
+    content, so the words it held were never settled as removed; its ``revised`` record now makes it a revision."""
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    _episode(memory, "user: the review is on Friday.\nuser: we use tokio.", processed=True, processed_by="sleep",
+             content_hash="h1")
+    _git(memory, "init", "-q")
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-qm", "Sleep")
+    revised = {"count": 1, "consolidated_hash": "h1"}
+    ep = {**_episode(memory, "", processed=False, content_hash="h2", revised=revised), "revised": revised}
+    (rev,) = er.attach(memory, [ep]).values()
+    assert rev.body == "" and rev.prior.startswith("user: the review") and rev.windows == () and not rev.noop
+    assert rev.removed and rev.closes and ep[er.KEY] is rev
+    # An episode that was always empty, or never edited, is no revision.
+    assert er.attach(memory, [{"id": EP, "content": "", "filepath": ep["filepath"]}]) == {}
+
+
 def test_the_stagers_record_names_the_version_to_diff_against(tmp_path):
     """G95's ``revised.consolidated_hash`` picks the version, even one an agent consolidated, and even past a newer
     commit of a version nobody consolidated."""
@@ -282,3 +301,104 @@ def test_a_version_sleep_never_read_is_not_a_prior(tmp_path):
     _git(memory, "commit", "-qm", "import")
     ep = _episode(memory, "user: second.", processed=False)
     assert er.prior_bodies(memory, [ep]) == {}
+
+
+# --------------------------------------------------------------------------- a date said on another line (G104 slice 3)
+
+
+def test_says_day_reads_a_day_beside_its_month_in_any_of_the_languages():
+    yes = [("El 12 de diciembre, cuando termine", "2026-12-12"), ("on December 12th we leave", "2026-12-12"),
+           ("le 3 août", "2026-08-03"), ("am 3. August", "2026-08-03"), ("12/12", "2026-12-12"),
+           ("starts 2026-12-12 sharp", "2026-12-12"), ("5 Dec", "2026-12-05")]
+    no = [("El 5 de diciembre", "2026-12-12"), ("the 12th of nothing", "2026-12-12"), ("12 items in 2026", "2026-12-12"),
+          ("next Friday", "2026-12-12"), ("12 de enero", "2026-12-12"), ("", "2026-12-12"), ("12 dec", None)]
+    for text, day in yes:
+        assert er.says_day(text, day), (text, day)
+    for text, day in no:
+        assert not er.says_day(text, day), (text, day)
+
+
+def _dated_rev(prior, body):
+    ep = {"id": "ep_2026-11-01_001", "content": body}
+    return er.build(ep, prior)
+
+
+def test_keep_changed_keeps_a_dated_relationship_only_when_the_changed_lines_say_its_day():
+    prior = "user: Ana se muda a Lima.\nuser: El 5 de diciembre se va."
+    body = "user: Ana se muda a Lima.\nuser: El 12 de diciembre se va."
+    rev = _dated_rev(prior, body)
+    span = {"episode": rev.episode_id, "start": 0, "end": 22, "kind": "user", "hash": rev.hash}
+
+    def rel(**kw):
+        return {"source": "Ana", "target": "Lima", "label": "moves to", "evidence": [span], **kw}
+
+    ents = [{"name": "Ana"}, {"name": "Lima"}]
+    _e, kept, _v, left = er.keep_changed(rev, ents, [rel(starts="2026-12-12")], [])
+    assert len(kept) == 1 and left == 2          # the relationship is new; neither name is said in the changed line
+    _e, kept, _v, left = er.keep_changed(rev, ents, [rel(starts="2026-12-05")], [])   # the first read's date, gone
+    assert kept == [] and left == 3
+    _e, kept, _v, _l = er.keep_changed(rev, ents, [rel(starts="2026-12-19")], [])
+    assert kept == []
+    _e, kept, _v, _l = er.keep_changed(rev, ents, [rel()], [])
+    assert kept == []                              # no date: the first read's, as before
+
+
+# --------------------------------------------------------------------------- a re-read's names are the first read's (G104 slice 3)
+
+
+def _first_read_bank(tmp_path, *pages, held=()):
+    from api.services import pending_store
+
+    memory = tmp_path / "memory"
+    (memory / "entities").mkdir(parents=True)
+    for slug, name, aliases, eps in pages:
+        markdown_parser.write(memory / "entities" / f"{slug}.md",
+                              {"name": name, "type": "person", "aliases": aliases, "source_episodes": eps}, "## Summary\nx\n")
+    for name in held:
+        pending_store.upsert(memory, pending_store.PendingEntity(
+            name=name, type="person", description="", source_episode=EP, confidence=0.5, tags=[], history_entries=[]))
+    return memory
+
+
+def _reread():
+    ents = [{"name": "Lucía (sister)", "aliases": []}, {"name": "Valencia"}]
+    rels = [{"source": "lucia  (sister)", "target": "Valencia", "label": "is moving to"}]
+    vals = [{"entity": "LUCÍA", "attribute": "move date", "value": "12 December"}]
+    return ents, rels, vals
+
+
+def test_a_name_with_only_a_note_added_is_the_entity_the_first_read_of_the_conversation_made(tmp_path):
+    memory = _first_read_bank(tmp_path, ("lucía", "Lucía", [], [EP]), ("valencia", "Valencia", [], [EP]))
+    ents, rels, vals = _reread()
+    rev = _rev("user: a.", "user: b.")
+    assert er.canonical_names(memory, rev, ents, rels, vals) == 3
+    assert [e["name"] for e in ents] == ["Lucía", "Valencia"]
+    assert (rels[0]["source"], vals[0]["entity"]) == ("Lucía", "Lucía")          # accents and case folded; the page's own name
+
+
+def test_a_held_name_without_a_page_counts_as_the_first_reads(tmp_path):
+    memory = _first_read_bank(tmp_path, held=["Lucía"])
+    ents, rels, vals = _reread()
+    er.canonical_names(memory, _rev("user: a.", "user: b."), ents, rels, vals)
+    assert ents[0]["name"] == "Lucía"
+
+
+def test_an_alias_of_a_first_read_page_names_it_and_the_rewrite_is_its_own_name(tmp_path):
+    memory = _first_read_bank(tmp_path, ("lucia-perez", "Lucía Pérez", ["Lucía"], [EP]))
+    ents, rels, vals = _reread()
+    er.canonical_names(memory, _rev("user: a.", "user: b."), ents, rels, vals)
+    assert ents[0]["name"] == "Lucía Pérez"
+
+
+def test_two_first_read_entities_sharing_a_bare_form_are_never_guessed_between(tmp_path):
+    memory = _first_read_bank(tmp_path, ("lucia-a", "Lucía", [], [EP]), ("lucia-b", "Lucia (cousin)", [], [EP]))
+    ents, rels, vals = _reread()
+    assert er.canonical_names(memory, _rev("user: a.", "user: b."), ents, rels, vals) == 0
+    assert ents[0]["name"] == "Lucía (sister)" and vals[0]["entity"] == "LUCÍA"
+
+
+def test_a_page_another_conversation_made_is_not_the_first_reads(tmp_path):
+    memory = _first_read_bank(tmp_path, ("lucía", "Lucía", [], ["ep_2026-11-04_001"]))
+    ents, rels, vals = _reread()
+    assert er.canonical_names(memory, _rev("user: a.", "user: b."), ents, rels, vals) == 0
+    assert ents[0]["name"] == "Lucía (sister)"

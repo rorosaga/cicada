@@ -301,6 +301,16 @@ dollars to that secondary line under the total; a metered run keeps its dollars 
 its window shift, else "share of the plan not recorded". Past nights' folded run row does not carry the figure (its
 detail does): the row has no whole-run usage on the wire.
 
+**Corrections (G104 slice 3, TODO ruling 75).** A run's detail draws a Corrections section (`CorrectionsSection`, copy in
+`Copy+Corrections`) only when the run's `corrections` is not null: each non-zero count in plain words (conversations
+corrected, beliefs withdrawn or replaced, passages rewritten, aliases and held items dropped, questions withdrawn), the
+pages a correction archived as tappable tags with a Restore button (`SleepViewModel.restoreCorrectedPage`, which treats
+404/409 as already done and refetches the run), and the pages kept with the words for what kept them (`supportWords`,
+never the raw enum). A citation whose source was deleted reads "Removed from its source, kept as evidence" in the
+popover, References and "Where this came from" (`sourceRemoved`). The folder watcher answers a meeting folder's
+`resend` on the same pass (`FolderScanner.answerResends`): each path is dropped from the manifest and posted again, or
+sent as deleted when it cannot be read, at most once per pass.
+
 **Navigation (Direction D, DS-1).** A 56 pt icon rail (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Skills,
 Sleep, Sources, Projects, Agents at ⌘1–5 and ⌘7–9 in `AppTab.allCases` order (`RailItem`; a page switch is instant).
 **The Inbox left the rail (ruling 48 (2), owner 2026-10-28):** its questions live on Home and on each page, and the

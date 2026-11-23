@@ -393,6 +393,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /entities/{entity_id}/picture/pdf": (ADMITTED, None),
     "DELETE /entities/{entity_id}/picture": (ADMITTED, None),
     "PUT /entities/{entity_id}/decay": (ADMITTED, None),
+    "POST /entities/{entity_id}/restore-correction": (ADMITTED, None),   # G104 slice 3: a corrected page put back
     "PUT /entities/{entity_id}/coordinates": (ADMITTED, None),
     "DELETE /entities/{entity_id}/coordinates": (ADMITTED, None),
     "POST /entities/{entity_id}/repos/observed": (OUTSIDE, None),

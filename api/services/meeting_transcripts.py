@@ -38,7 +38,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from api.services import episode_ids, when
 from api.services.episode_staging import EpisodeDraft, Turn
@@ -415,6 +415,89 @@ def _from_name(relpath: str) -> tuple[datetime | None, bool]:
         return datetime(day.year, day.month, day.day), False
     except ValueError:
         return None, False
+
+
+def file_key(relpath: str) -> str | None:
+    """The recorder's stamp a file's name starts with — ``YYYY-MM-DD HH:MM``, the date AND the time — or ``None`` when
+    the name carries no time (a date alone never names a meeting). ``1601``, ``16.01`` and ``T1601`` are one key: it is
+    the moment ``_from_name`` reads, not the spelling. Two files of one folder with one key are copies of one meeting
+    (G104 slice 3): a recorder's corrected export lands as a new file with the same stamp."""
+    moment, timed = _from_name(relpath)
+    return moment.strftime("%Y-%m-%d %H:%M") if moment is not None and timed else None
+
+
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+#: How many other copies of a meeting an episode remembers (`episode_staging.MAX_REPLACED`).
+MAX_REPLACED = 20
+
+
+def mtime_us(iso: str | None) -> int:
+    """A file time as whole microseconds since the epoch — the precision ``episode_ids.to_utc_iso`` keeps — so a time
+    posted as a float and the same time read back from the episode's frontmatter compare equal. ``0`` when unreadable."""
+    try:
+        moment = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except ValueError:
+        return 0
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return (moment - _EPOCH) // timedelta(microseconds=1)
+
+
+@dataclass(frozen=True)
+class FileRec:
+    """One copy of a meeting's file as the episode records it: where, which bytes, when it was last modified (UTC ISO)."""
+    rel: str
+    sha: str
+    mtime: str
+
+    @property
+    def order(self) -> tuple[int, str]:
+        """Newest first: the time, the path only as the tie-break."""
+        return mtime_us(self.mtime), self.rel
+
+    def as_dict(self) -> dict:
+        return {"relpath": self.rel, "content_sha": self.sha, "mtime": self.mtime}
+
+    @classmethod
+    def from_dict(cls, raw) -> "FileRec | None":
+        if not isinstance(raw, dict) or not raw.get("relpath") or not raw.get("content_sha"):
+            return None
+        return cls(str(raw["relpath"]), str(raw["content_sha"]), str(raw.get("mtime") or ""))
+
+
+def newest(files) -> "FileRec | None":
+    return max(files, key=lambda f: f.order, default=None)
+
+
+def winner(posted: list[FileRec], held: "FileRec | None", replaced: list[FileRec]) -> "FileRec | None":
+    """Which copy of one meeting the episode holds: the newest, by ``(mtime, relpath)``.
+
+    ``posted`` are the copies in this batch, ``held`` the file the episode holds now (``None`` when it is gone or was
+    deleted in this batch), ``replaced`` the copies it already knows. While the held file stands, a copy whose
+    ``(relpath, sha)`` is already in ``replaced`` never wins again whatever its mtime — a rescan after the app lost its
+    manifest, or a sync tool that touched the old file, must not turn a correction back into the words it replaced;
+    only the same path with CHANGED bytes (the person edited it) can win, by the same rule. With no held file there is
+    nothing to turn back: every posted copy competes. The held file's own path, posted again, stands for the held file
+    (its bytes are the ones that count)."""
+    barred = {(r.rel, r.sha) for r in replaced} if held is not None else set()
+    pool = [p for p in posted if (p.rel, p.sha) not in barred]
+    if held is not None and all(p.rel != held.rel for p in posted):
+        pool.append(held)
+    return newest(pool)
+
+
+def record(replaced: list[FileRec], losers: list[FileRec], chosen: "FileRec | None",
+           dropped=()) -> list[FileRec]:
+    """The copies an episode remembers after a batch: what it knew, plus the copies that lost, minus the one it holds
+    now and any path deleted. A copy already known with the same bytes keeps its recorded time (a touch never
+    rewrites a record); the newest :data:`MAX_REPLACED` stay."""
+    known = {r.rel: r for r in replaced}
+    for lost in losers:
+        if lost.rel not in known or known[lost.rel].sha != lost.sha:
+            known[lost.rel] = lost
+    for rel in (chosen.rel if chosen is not None else None, *dropped):
+        known.pop(rel, None)
+    return sorted(known.values(), key=lambda r: r.order, reverse=True)[:MAX_REPLACED]
 
 
 def _from_text(value: str) -> tuple[datetime | None, bool]:

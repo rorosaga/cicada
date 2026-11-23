@@ -87,8 +87,11 @@ own same should some such through under until very while just only now said says
 
 
 def tokens(text: str) -> set[str]:
-    """The words that can carry a fact: three letters or more, not a function word, casefolded."""
-    return {t for t in (w.casefold() for w in _TOKEN.findall(text or "")) if len(t) >= 3 and t not in _STOP}
+    """The words that can carry a fact: three letters or more, not a function word, casefolded — and any word with a
+    digit in it, whatever its length: a corrected date or count ("the 5th" → "the 12th", "5 December" → "12 December")
+    is the commonest thing a correction removes (G104 slice 3, measured on the consolidation benchmark's U4)."""
+    return {t for t in (w.casefold() for w in _TOKEN.findall(text or ""))
+            if (len(t) >= 3 and t not in _STOP) or any(c.isdigit() for c in t)}
 
 
 def _raw(text: str) -> set[str]:
@@ -130,6 +133,10 @@ def changes_of(rev) -> list[Change]:
         # A value with no hit of its own (an echo of one flagged elsewhere) must not be quoted to a model either.
         before = _unmarked(sensitive_flags.masked_against(sensitive_flags.masked_for_engine(rev.prior[i1:i2]), rev.body[j1:j2]))
         gone = tokens(before) - body
+        if not any(any(c.isdigit() for c in t) for t in tokens(after)):
+            # A number is a corrected value only where a number replaces it: the numerals of a removed line ("12:30",
+            # "step 2") are incidental, and every unrelated "2 items" on a page would otherwise be flagged (review B3).
+            gone = {t for t in gone if not t.isdigit()}
         if gone:
             out.append(Change(rev.episode_id, before, after, frozenset(gone), frozenset(tokens(after) - prior)))
     return out
@@ -172,6 +179,8 @@ class Report:
     rows_moved: int = 0
     refused: int = 0
     refused_why: dict = field(default_factory=dict)
+    #: ``{page id: the conversations its History line was written for}`` — T4 never adds a second line for these.
+    history_pages: dict = field(default_factory=dict)
     failed: int = 0
     left: int = 0
     paths: list = field(default_factory=list)
@@ -754,6 +763,8 @@ async def run(memory_path: Path, settings, revisions: dict, *, closed: dict[str,
                     report.rewritten += sum(1 for t in edits.values() if t)
                     report.removed += sum(1 for t in edits.values() if not t)
                     report.history += len(events)
+                    if events:
+                        report.history_pages.setdefault(job.entity_id, set()).update(c.episode for c in job.changes)
                     written.add(job.path)
             if proposals and await asyncio.to_thread(propose, memory_path, job, proposals, events, today):
                 report.proposals += 1

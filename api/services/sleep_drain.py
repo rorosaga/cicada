@@ -158,6 +158,8 @@ class DrainState:
     #: holding something already replaced. Folded into the run's summary; never a word.
     sensitive: dict[str, list[str]] = field(default_factory=dict)
     replaced_ids: set[str] = field(default_factory=set)
+    #: G104 slice 3 (T4): this leg's Corrections record (`corrections_record`), folded as each batch commits; ``None`` for none.
+    corrections: dict | None = None
     engine_label: str | None = None                       # the engine the run resolved once, and its model
     engine_model: str | None = None
     engine_shown: str | None = None                       # its model as the Sleep page shows one (`engine_select.shown_model`)

@@ -10,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
+    CorrectionRestoreResponse,
     EntityRelevance,
     PageBlameResponse,
     SourcesOverview,
@@ -773,6 +774,38 @@ async def update_entity_decay(
         _rewrite_page_and_commit, settings.memory_path, entity_id, lambda fm: fm.update(fields), message)
 
     return await get_entity(entity_id, settings=settings)
+
+
+CORRECTION_RESTORE_DEMO = "this is the demo memory, made up for the tour — nothing in it was archived by a correction"
+
+
+@router.post("/entities/{entity_id}/restore-correction", response_model=CorrectionRestoreResponse)
+@_admits(PAGE_BUSY)
+async def restore_corrected_page(entity_id: str, settings: Settings = Depends(get_settings)):
+    """G104 slice 3 (T3) — put back a page a correction archived (`revision_cascade`: the conversation it rested on was
+    edited and no longer says it): its prior status and confidence, read from the page's own ``archived_by`` stamp. A
+    page decay archived carries none and is refused (409 ``not archived by a correction``); 404 no such page. Committed
+    alone as the person (trigger ``user/restore_correction``). 409 in a demo bank or while Sleep holds the pages. The
+    questions the correction withdrew come back through "Settled by Sleep", not here."""
+    from api.services import demo_guard, revision_cascade
+
+    memory_path = settings.memory_path
+    if demo_guard.is_demo(memory_path):
+        raise HTTPException(409, CORRECTION_RESTORE_DEMO)
+
+    def write() -> dict:
+        with page_lock.page_lock(memory_path):
+            try:
+                result = revision_cascade.restore(memory_path, entity_id)
+            except revision_cascade.Refused as exc:
+                raise HTTPException(404 if exc.code == "missing" else 409, str(exc)) from None
+            if (memory_path / ".git").exists():
+                git_service.commit_touched_sync(memory_path, revision_cascade.commit_message(entity_id),
+                                                result["paths"])
+        return result
+
+    result = await run_in_threadpool(write)
+    return CorrectionRestoreResponse(entity_id=entity_id, status=result["status"], confidence=result["confidence"])
 
 
 # --- Places (ruling 48 part 6; vision item 5 part B) -------------------------------------------------------------------

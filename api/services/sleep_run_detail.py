@@ -11,10 +11,14 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 from api.models.schemas import (
     SleepDrainOwnerPage,
     SleepRunBatch,
+    SleepRunCorrectedPage,
+    SleepRunCorrections,
+    SleepRunKeptPage,
     SleepRunDetail,
     SleepRunPages,
     SleepRunPause,
@@ -22,8 +26,9 @@ from api.models.schemas import (
 from api.services import cycle_usage, sleep_runs, telemetry
 
 #: Folded into ``GET /sleep/runs/{id}``'s ETag: bump it when the body's shape changes, so a client holding the
-#: old shape is not answered 304 (``plan-share-1``: ``usage.planShare``, owner 2026-10-16).
-SHAPE = "plan-share-1"
+#: old shape is not answered 304 (``corrections-1``: ``corrections``, G104 slice 3 T4; ``plan-share-1``:
+#: ``usage.planShare``, owner 2026-10-16).
+SHAPE = "corrections-1"
 MAX_FIRST_PAGES = 8
 
 
@@ -32,6 +37,36 @@ def _ledger_start(summary: dict | None) -> date:
         return datetime.fromisoformat(str((summary or {}).get("started_at"))).date() - timedelta(days=1)
     except (TypeError, ValueError):
         return date.today() - timedelta(days=35)
+
+
+def _corrections(memory_path: Path, summary: dict) -> SleepRunCorrections | None:
+    """The run's Corrections (`corrections_record`), or ``None`` when no conversation was revised. A page is
+    ``restorable`` while it still carries the stamp a correction put on it — read now, so a page the person already
+    restored shows no Restore."""
+    from api.services import bank_index, corrections_record, revision_cascade
+
+    c = corrections_record.public(summary.get("corrections"))
+    if c is None:
+        return None
+
+    def archived_now(page: str) -> bool:
+        try:
+            fm = (bank_index.file(memory_path, "entities", f"{page}.md") or SimpleNamespace(frontmatter={})).frontmatter or {}
+        except Exception:  # noqa: BLE001 - a page that cannot be read offers no restore
+            return False
+        by = fm.get(revision_cascade.ARCHIVED_KEY)
+        return str(fm.get("status") or "") == "archived" and isinstance(by, dict) and by.get("reason") == revision_cascade.REASON
+
+    return SleepRunCorrections(
+        conversations_revised=len(c["revised"]), revised=list(c["revised"]),
+        claims_withdrawn=int(c.get("claims_withdrawn") or 0), claims_superseded=int(c.get("claims_superseded") or 0),
+        passages_rewritten=int(c.get("passages_rewritten") or 0),
+        pages_archived=[SleepRunCorrectedPage(page=r["page"], episode=r["episode"], restorable=archived_now(r["page"]))
+                        for r in c.get("pages_archived") or []],
+        pages_kept=[SleepRunKeptPage(page=r["page"], episode=r["episode"], support=r.get("support") or "")
+                    for r in c.get("pages_kept") or []],
+        aliases_dropped=int(c.get("aliases_dropped") or 0), held_dropped=int(c.get("held_dropped") or 0),
+        questions_withdrawn=int(c.get("questions_withdrawn") or 0))
 
 
 async def build(memory_path: Path, drain_id: str) -> SleepRunDetail | None:
@@ -100,4 +135,5 @@ async def build(memory_path: Path, drain_id: str) -> SleepRunDetail | None:
         if isinstance(owner, dict) and owner.get("beliefs") is not None else None,
         batches=batches, models=list(usage.models) if usage else [], usage=usage,
         pages=SleepRunPages(created=created, owner_touched=owner_touched, first=first) if rows else None,
+        corrections=_corrections(memory_path, summary),
     )

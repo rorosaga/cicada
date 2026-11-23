@@ -11,7 +11,7 @@ from loguru import logger
 
 from api.config import Settings
 from api.services import authorship, bank_index, episode_ids, episode_revision, episode_scrub, evidence, git_service, machine_state, markdown_parser
-from api.services import sleep_drain, sleep_reserve, sleep_spend
+from api.services import corrections_record, sleep_drain, sleep_reserve, sleep_spend
 
 
 @dataclass
@@ -59,6 +59,14 @@ class SleepState:
     organic_resolutions: int = 0
     # Ruling 29: inbox questions Sleep settled this batch (answered in conversation, or assumed).
     inbox_settled: int = 0
+    # G104 slice 3 (T3): the latest batch's `revision_cascade.Report.as_dict()` (ids, enums and counts only), for the
+    # run record T4 folds; ``None`` when no revision removed words.
+    revision_cascade: dict | None = None
+    # G104 slice 3 (T4): this batch's Corrections record (`corrections_record.batch_entry`), folded into the drain when
+    # the batch commits; ``None`` when no conversation was revised.
+    corrections_batch: dict | None = None
+    # T6: held prose items dropped before Stage 2 this batch (carried into the cascade report's ``held.prose_dropped``).
+    held_prose_dropped: int = 0
     # G141 PJ-0 (R-CS3): claims Stage 5.56 could neither write nor hold (PJ-0b)
     # because their subject has no page, and how many page-less subjects there
     # were. Counts only — G141's M3 measure, carried into the `sleep_run`
@@ -1574,14 +1582,14 @@ async def _media_read_safely(memory_path: Path, settings: Settings, *, user_trig
 
 
 async def _tend_inbox_safely(memory_path: Path, settings: Settings, episodes: list[dict], *, run_policy: bool,
-                             engine: str | None) -> None:
+                             engine: str | None, corrected: dict[str, str] | None = None) -> None:
     """Ruling 29 — Sleep tends the inbox (`inbox_tend`): what this batch's conversations answered in the person's own
     words, and (``run_policy``) the small stuff assumed. Counts only in the log. Never raises."""
     try:
         from api.services import inbox_tend
 
         report = await inbox_tend.tend(memory_path, settings, episodes=episodes, run_policy=run_policy,
-                                       engine=engine)
+                                       engine=engine, **({"corrected": corrected} if corrected else {}))
     except Exception as exc:  # noqa: BLE001 — tending never fails a batch that already committed
         logger.warning(f"Inbox tending skipped: {type(exc).__name__}: {exc}")
         return
@@ -2151,6 +2159,9 @@ def _reset_batch_counters() -> None:
     _state.decay_nudges_deferred = 0
     _state.decay_nudges_refreshed = 0
     _state.inbox_settled = 0
+    _state.revision_cascade = None
+    _state.corrections_batch = None
+    _state.held_prose_dropped = 0
     _state.write_started = False
 
 
@@ -2474,6 +2485,8 @@ async def _drain(
                 if name != "episodes_requeued":   # distinct ids below: a retried id is one, not two
                     ds.totals[name] = ds.totals.get(name, 0) + int(getattr(_state, name, 0) or 0)
             ds.filed_ids |= outcome.filed_ids
+            if _state.corrections_batch:
+                ds.corrections = corrections_record.merge(ds.corrections, _state.corrections_batch)
             ds.settled |= outcome.filed_ids
             for i in outcome.filed_ids:
                 ds.unread.pop(i, None)
@@ -3313,6 +3326,19 @@ async def _run_stages(
     # below — on the loop each step froze every request (`GET /sleep/status` measured at seconds
     # per batch on a 3,600-page bank) for as long as it ran.
     existing = await asyncio.to_thread(_load_existing_entities, memory_path)
+    # G104 slice 3 (T6): a pending line's first-read PROSE that only the removed text said never seeds a page Stage 2
+    # births from that line in this very drain — dropped here, before it, counted at Stage 5.575.
+    _state.held_prose_dropped = 0
+    if revisions and not decay_only:
+        try:
+            from api.services import revision_cascade
+
+            _read_now = {e.get("episode_id") for e in extracted}
+            _state.held_prose_dropped = await asyncio.to_thread(
+                revision_cascade.drop_held_prose, memory_path,
+                {i: r for i, r in revisions.items() if i in _read_now}, words_taken=_words_taken)
+        except Exception as e:  # noqa: BLE001 - the cascade never costs the cycle
+            logger.warning(f"Stage 2 held prose drop failed: {type(e).__name__}")
     from api.services.entity_resolver import resolve, resolve_off_loop
     if decay_only:
         resolved_result = {"changes": [], "relationships": [], "episode_cooccurrences": {}, "name_to_id": {}}
@@ -3593,11 +3619,37 @@ async def _run_stages(
             f"{len(decay_budget.deferred)} deferred by the cap of {decay_budget.cap}"
         )
 
+    # Stage 5.575 (G104 slice 3, T3, owner 2026-11-23): what a correction left behind beyond the claims — a page only
+    # the removed text supported (archived by rule, undoable, never past independent support), an alias it gave, a name
+    # held for a page. Engine-free, in this batch's window and commit, BEFORE 5.58 so a page archived here costs
+    # `revision_prose` no engine call. The questions it would withdraw are only returned: they are settled after the
+    # commit by `inbox_tend`'s `source_corrected` rule (the cascade never writes `inbox/`).
+    corrected_questions: dict[str, str] = {}
+    _state.revision_cascade = None
+    if revisions_read:
+        try:
+            from api.services import revision_cascade
+
+            cascade = await asyncio.to_thread(
+                revision_cascade.run, memory_path, revisions_read,
+                revised_out=claim_result.get("revised_out") or {},
+                held_withdrawn=len(claim_result.get("held_withdrawn") or ()),
+                prose_dropped=int(getattr(_state, "held_prose_dropped", 0) or 0),
+                new_pages={str(r.get("id")) for r in resolved_changes if r.get("action") == "create"})
+            if cascade.revised:
+                _state.revision_cascade = cascade.as_dict()
+                corrected_questions = cascade.corrected()
+            if cascade:
+                logger.info(f"Stage 5.575: corrections reached {cascade.counts()}")
+        except Exception as e:  # noqa: BLE001 - the cascade never costs the cycle
+            logger.warning(f"Stage 5.575 revision cascade failed: {type(e).__name__}")
+
     # Stage 5.58 (G104 slice 2, owner 2026-11-03): a page whose prose was written from a conversation that has since
     # revised itself says what the conversation says now — the passages that carried the old words, one engine call a
     # page at most, never over the person's or an agent's own words (those become one inbox question a page), History
     # keeping the change dated. Provenance rows into a revised conversation move onto its new body. Before the hubs and
     # index, so they project the corrected pages; committed with this batch under Sleep's trailers.
+    prose_report = None
     if revisions_read:
         try:
             from api.services import revision_prose
@@ -3609,6 +3661,30 @@ async def _run_stages(
                 logger.info(f"Stage 5.58: revised conversations — {revision_prose.summary(prose_report)}")
         except Exception as e:  # noqa: BLE001 - prose correction never costs the cycle
             logger.warning(f"Stage 5.58 revision prose failed: {type(e).__name__}")
+
+    # Stage 5.585 (G104 slice 3, T4): the person is told, not asked — this batch's Corrections record (folded into the run
+    # when the batch commits, listed in the commit body) and one dated History line on every page a correction changed,
+    # none for a page and conversation Stage 5.58 already wrote one for. Ids and counts only; never costs the cycle.
+    _state.corrections_batch = None
+    if revisions_read:
+        try:
+            from api.services import revision_prose
+
+            audit = claim_result.get("audit") or []
+            entry = corrections_record.batch_entry(
+                _state.revision_cascade,
+                withdrawn=sum(1 for a in audit if a.get("action") == "revision_withdrew"),
+                superseded=sum(1 for a in audit if a.get("action") == "revised"),
+                rewritten=prose_report.rewritten if prose_report is not None else 0,
+                revised_out=claim_result.get("revised_out") or {})
+            if entry:
+                _state.corrections_batch = entry
+                await asyncio.to_thread(
+                    corrections_record.write_history, memory_path, _state.revision_cascade, today=str(date.today()),
+                    skip=prose_report.history_pages if prose_report is not None else None,
+                    days=revision_prose.revised_days(episodes))
+        except Exception as e:  # noqa: BLE001 - a record is never worth the batch
+            logger.warning(f"Stage 5.585 corrections record failed: {type(e).__name__}")
 
     # Stage 5.6: Regenerate the hub tier + root _index.md from current entities.
     # Deterministic, no LLM; gives small LLMs a filesystem traversal path.
@@ -3757,6 +3833,7 @@ async def _run_stages(
         authors=engine_models or None,
         sessions=_collect_session_ids(processed_episodes),
         episode_sessions=_episode_session_map(processed_episodes),
+        corrections=_state.corrections_batch,
         **({} if batch is None else {
             "drain": (batch.drain_id, batch.index, batch.of),
             "subject_suffix": (" (finishing)" if decay_only else
@@ -3770,7 +3847,8 @@ async def _run_stages(
     # batch that runs decay). Each settle commits alone, as Sleep's, undoable under "Settled by Sleep".
     if not _state.cancel_requested:
         await _tend_inbox_safely(memory_path, settings, processed_episodes,
-                                 run_policy=batch is None or bool(batch.decay), engine=engine)
+                                 run_policy=batch is None or bool(batch.decay), engine=engine,
+                                 corrected=corrected_questions)
 
     # Logo warm-up and the connector poll (final-review H1: the poll must
     # run AFTER `_finalize`'s commit so its own `git add -A` finds a clean
@@ -4154,6 +4232,7 @@ async def _finalize(
     episode_sessions: dict[str, str] | None = None,
     drain: tuple[str, int, int] | None = None,
     subject_suffix: str = "",
+    corrections: dict | None = None,
 ) -> None:
     """Commit all changes from the sleep cycle with a structured message.
 
@@ -4387,7 +4466,8 @@ async def _finalize(
             trigger = _infer_trigger_for_path(path)
         extra_lines.append(f"{path}: {action} (trigger: {trigger})")
 
-    body_lines = entity_lines + extra_lines
+    # G104 slice 3 (T4): the conversations a correction revised and the pages it archived, ids only.
+    body_lines = entity_lines + extra_lines + corrections_record.commit_lines(corrections)
 
     # Author trailers: the models that actually wrote this consolidation.
     # `authors` (G74(a)) is what the engine REPORTED using; without it we

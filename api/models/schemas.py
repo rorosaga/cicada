@@ -727,6 +727,8 @@ class PageCitationRef(CamelModel):
     conversation_id: Optional[str] = None
     #: ROR-16: what the source is (`source_spans.kind_of`), so a citation says what it opens.
     source_kind: str = "conversation"
+    #: G104 slice 3: every conversation this reference holds was removed from its source (kept as evidence).
+    source_removed: bool = False
 
 
 class PageCitationBelief(CamelModel):
@@ -911,6 +913,14 @@ class PaperDetailResponse(CamelModel):
     context_as_of: Optional[str] = None
     #: ``not_found`` / ``unreadable`` once a details lookup failed, else None.
     metadata_status: Optional[str] = None
+
+
+class CorrectionRestoreResponse(CamelModel):
+    """``POST /entities/{id}/restore-correction`` (G104 slice 3): the page a correction archived, put back."""
+
+    entity_id: str
+    status: str
+    confidence: float | None = None
 
 
 class EntityDecayUpdate(CamelModel):
@@ -1475,6 +1485,9 @@ class SourceSpan(CamelModel):
     at: Optional[SpanAt] = None
     claim_id: Optional[str] = None
     current: bool = True
+    #: G104 slice 3: the source was removed from where it came from. Beside ``status``, never one of its values: the
+    #: stored words are kept, so the span still reads what its offsets say. Derived on read, never written.
+    source_removed: bool = False
 
 
 class SourceSpanGroup(CamelModel):
@@ -1624,6 +1637,8 @@ class ProvenanceSpan(CamelModel):
     derived: bool = False
     #: ROR-16 (G235): the words are held back; no offsets and no excerpt travel.
     held: bool = False
+    #: G104 slice 3: the conversation was removed from its source (``source_spans.removed_at``); the words are kept.
+    source_removed: bool = False
 
 
 class PageCitationDetail(PageCitationRef):
@@ -1721,6 +1736,8 @@ class SectionEvidence(CamelModel):
     source_available: bool = False
     status: str = "not_checked"
     span: Optional[ProvenanceSpan] = None
+    #: G104 slice 3: the cited conversation was removed from its source; the claim stays open.
+    source_removed: bool = False
 
 
 class SectionProvenanceItem(CamelModel):
@@ -3828,6 +3845,36 @@ class SleepRunPages(CamelModel):
     first: list[str] = Field(default_factory=list)   # page ids (at most 8) the run created first
 
 
+class SleepRunCorrectedPage(CamelModel):
+    """A page a correction archived: its id, the conversation whose correction did it, and whether the restore route
+    still applies (the page is archived by a correction right now)."""
+    page: str
+    episode: str
+    restorable: bool = False
+
+
+class SleepRunKeptPage(CamelModel):
+    """A page a correction could have archived and kept, with the ``revision_cascade.SUPPORTS`` enum that held it."""
+    page: str
+    episode: str
+    support: str
+
+
+class SleepRunCorrections(CamelModel):
+    """G104 slice 3 (T4): what the run's corrections reached — ids, counts and enums only; ``None`` on the run when no
+    conversation was revised, never zeros."""
+    conversations_revised: int
+    revised: list[str] = Field(default_factory=list)
+    claims_withdrawn: int = 0
+    claims_superseded: int = 0
+    passages_rewritten: int = 0
+    pages_archived: list[SleepRunCorrectedPage] = Field(default_factory=list)
+    pages_kept: list[SleepRunKeptPage] = Field(default_factory=list)
+    aliases_dropped: int = 0
+    held_dropped: int = 0
+    questions_withdrawn: int = 0
+
+
 class SleepRunDetail(CamelModel):
     """``GET /sleep/runs/{id}`` — one whole run, engine-free (ids, counts and enums; never a
     title or a line of text). Unknown is ``null``, never zero. Plan windows are per batch:
@@ -3853,6 +3900,7 @@ class SleepRunDetail(CamelModel):
     models: list["CycleUsageModel"] = Field(default_factory=list)
     usage: Optional["CycleUsage"] = None
     pages: Optional[SleepRunPages] = None
+    corrections: Optional[SleepRunCorrections] = None
 
 
 class SleepCycleEntity(CamelModel):
@@ -5372,6 +5420,9 @@ class FolderSyncResponse(CamelModel):
     removals_proposed: int = 0
     papers_pending: bool = False
     errors: list[FolderSyncError] = []
+    # G104 slice 3: a meeting whose held file was deleted while another copy remains asks the app to post one path again
+    # (at most one per meeting, the newest remaining); the app posts it or, when it cannot read it, names it in `deleted`.
+    resend: list[str] = []
 
 
 class FolderRemoveResponse(CamelModel):

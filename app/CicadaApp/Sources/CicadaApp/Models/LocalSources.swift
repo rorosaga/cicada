@@ -93,11 +93,14 @@ struct FolderSyncResult: Decodable, Equatable, Sendable {
     var removalsProposed = 0
     var papersPending = false
     var errors: [FolderSyncError] = []
+    /// G104 slice 3: a meeting whose held file was deleted while another copy remains asks for that copy to be posted
+    /// again — at most one path per meeting. Absent from an older backend (decoded as none).
+    var resend: [String] = []
 
     enum CodingKeys: String, CodingKey {
         case preview, filesNew, filesChanged, filesUnchanged, filesDeleted, agentFiles, stage1Passes
         case papersFound, created, updated, renamed, tombstoned, papersCreated, removalsProposed
-        case papersPending, errors
+        case papersPending, errors, resend
     }
 
     init() {}
@@ -114,6 +117,7 @@ struct FolderSyncResult: Decodable, Equatable, Sendable {
         papersCreated = try int(.papersCreated); removalsProposed = try int(.removalsProposed)
         papersPending = try c.decodeIfPresent(Bool.self, forKey: .papersPending) ?? false
         errors = try c.decodeIfPresent([FolderSyncError].self, forKey: .errors) ?? []
+        resend = try c.decodeIfPresent([String].self, forKey: .resend) ?? []
     }
 
     /// A preview posted in batches is still one answer to "what is in this folder".
@@ -126,6 +130,7 @@ struct FolderSyncResult: Decodable, Equatable, Sendable {
         papersCreated += other.papersCreated; removalsProposed += other.removalsProposed
         papersPending = papersPending || other.papersPending
         errors += other.errors
+        resend += other.resend
     }
 }
 

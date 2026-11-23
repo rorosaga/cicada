@@ -427,10 +427,12 @@ struct PageReferences: View {
     private func line(_ ref: PageBlocks.Citations.Ref) -> AttributedString {
         var who = AttributedString(PageWords.refWho(ref))
         who.foregroundColor = CicadaTheme.textSecondary
-        guard let title = ref.title, !title.isEmpty else { return who }
+        var gone = AttributedString(ref.sourceRemoved == true ? " · \(Copy.Provenance.sourceRemoved)" : "")
+        gone.foregroundColor = CicadaTheme.textTertiary   // G104 slice 3: quiet, after the title, never in its place
+        guard let title = ref.title, !title.isEmpty else { return who + gone }
         var rest = AttributedString(" · \(title)")
         rest.foregroundColor = CicadaTheme.textPrimary
-        return who + rest
+        return who + rest + gone
     }
 }
 

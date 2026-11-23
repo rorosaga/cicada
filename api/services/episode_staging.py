@@ -138,6 +138,13 @@ class EpisodeDraft:
     #: Ruling 39: when Cicada received the item, for a writer whose clock is pinned (the demo); absent, now. Written
     #: only when the episode is created — never by an update, so a receipt is set once.
     received_at: str | None = None
+    #: Source ids this draft takes over when its own is new (G104 slice 3): the file that held the episode before a
+    #: newer copy of the same meeting replaced it, or the section whose heading was renamed in place. The first one
+    #: the bank holds keeps its episode: same id, same file, the source identity moves to the draft's, the old one
+    #: joins ``previous_source_ids`` and the body is read as a revision of itself (`episode_revision`) — never a second
+    #: episode, never a tombstone. The caller (`folder_source`) decides WHO replaces WHOM; the stager never parses a
+    #: name or compares a time.
+    replaces: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -160,6 +167,8 @@ class StageResult:
     #: source_id -> episode id for episodes stamped deleted this call.
     tombstoned_sources: dict[str, str] = field(default_factory=dict)
     renamed_sources: list[tuple[str, str]] = field(default_factory=list)
+    #: ``(old source id, new source id)`` for every episode a draft took over (`EpisodeDraft.replaces`).
+    replaced_sources: list[tuple[str, str]] = field(default_factory=list)
     #: bank-relative paths written, for a scoped ``commit_paths``.
     paths: list[str] = field(default_factory=list)
     #: one verb per draft, in order — ``created`` / ``updated`` / ``renamed`` /
@@ -511,6 +520,16 @@ def _under_episode_lock(fn):
 #: consolidated (processed by Sleep or an agent, never by a parser or the index), kept through later edits until Sleep
 #: reads the episode again, absent while no revision was ever consolidated. The earlier body is in git.
 REVISED_KEY = "revised"
+#: G104 slice 3 — one meeting is one episode, whichever copy of its file is newest. The episode holds the newest file
+#: (``source_id``/``relpath``/``content_sha``/``source_updated_at`` are that file's); ``replaced_files`` is the other
+#: copies of the same meeting it has seen — ``[{relpath, content_sha, mtime}]`` (``mtime`` UTC ISO, newest first, at
+#: most :data:`MAX_REPLACED`) — so a copy posted again never turns the correction back into the words it replaced.
+#: ``held_gone_at`` says the held file was deleted while another copy remains: the episode keeps its words (a deleted
+#: source keeps what it taught) until the caller posts a remaining copy again. Written by `folder_source` through
+#: :func:`set_file_record` and the takeover below, never by a chat importer.
+REPLACED_KEY = "replaced_files"
+HELD_GONE_KEY = "held_gone_at"
+MAX_REPLACED = 20
 #: ``processed_by`` values that mean nothing consolidated the body (R-LS10's parser, ``history_index.INDEXED_BY``).
 _NOT_CONSOLIDATED_BY = frozenset({PARSED_ONLY, history_index.INDEXED_BY})
 
@@ -534,10 +553,16 @@ def revision_record(fm: dict, *, at: str | None = None) -> dict:
 
 
 @_under_episode_lock
-def update_in_place(path: Path, draft: EpisodeDraft, body: str, digest: str, stamps: list[dict]) -> None:
-    """Same file, same id, same original timestamp; new body, re-queued (G20), marked as a revision (``revised``)."""
+def update_in_place(path: Path, draft: EpisodeDraft, body: str, digest: str, stamps: list[dict],
+                    previous_sid: str | None = None) -> None:
+    """Same file, same id, same original timestamp; new body, re-queued (G20), marked as a revision (``revised``).
+    ``previous_sid`` is the source id the episode held before a draft took it over (`EpisodeDraft.replaces`): it joins
+    ``previous_source_ids`` and the held-file marker is cleared."""
     fm = dict(markdown_parser.parse(path).frontmatter)
     fm[REVISED_KEY] = revision_record(fm)
+    if previous_sid and previous_sid != draft.source_id:
+        _remember_source(fm, previous_sid)
+    fm.pop(HELD_GONE_KEY, None)
     fm["title"] = _title(draft) or fm.get("title", "Untitled")
     fm["content_hash"] = digest
     fm["source_updated_at"] = draft.source_updated_at
@@ -859,7 +884,37 @@ def _restamp(path: Path, draft: EpisodeDraft) -> None:
     fm["content_sha"] = draft.content_sha
     if draft.source_updated_at:
         fm["source_updated_at"] = draft.source_updated_at
+    if isinstance(draft.extra.get(SECTION_KEY), dict):
+        # An unchanged section of an edited file may sit at another position now; a heading renamed later is matched
+        # to this episode by that position (`folder_source`), so it must be the current one.
+        fm[SECTION_KEY] = dict(draft.extra[SECTION_KEY])
     markdown_parser.write(path, fm, parsed.body)
+
+
+#: A section of a split note records its position in the file (``{index}``), the one thing that survives a heading's
+#: rename (G104 slice 3, `folder_source.split_sections`).
+SECTION_KEY = "section"
+
+
+@_under_episode_lock
+def set_file_record(path: Path, *, replaced: list[dict], held_gone_at: str | None) -> bool:
+    """The meeting's file record (:data:`REPLACED_KEY`, :data:`HELD_GONE_KEY`) set to exactly these values, an empty one
+    removed. Frontmatter only: the body, its hash, the queue and every span are untouched — the words did not move.
+    Returns whether the file changed."""
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter)
+    before = dict(fm)
+    for key, value in ((REPLACED_KEY, [dict(r) for r in replaced][:MAX_REPLACED]), (HELD_GONE_KEY, held_gone_at)):
+        if value:
+            fm[key] = value
+        else:
+            fm.pop(key, None)
+    if fm == before:
+        return False
+    if "turns" in fm:
+        fm["turns"] = fm.pop("turns")  # R-PB4: the sidecar stays the last key
+    markdown_parser.write(path, fm, parsed.body)
+    return True
 
 
 #: ROR-15 (owner 2026-11-05): an Apple Note the person pinned in Notes. Sleep's Stage 1 says so in the note's source
@@ -904,19 +959,26 @@ def _set_meta(path: Path, values: dict) -> None:
     markdown_parser.write(path, fm, parsed.body)
 
 
-@_under_episode_lock
-def _repoint(path: Path, draft: EpisodeDraft, old_sid: str) -> None:
-    parsed = markdown_parser.parse(path)
-    fm = dict(parsed.frontmatter)
+def _remember_source(fm: dict, old_sid: str) -> None:
     previous = [s for s in (fm.get("previous_source_ids") or []) if s]
     if old_sid not in previous:
         previous.append(old_sid)
     fm["previous_source_ids"] = previous
+
+
+@_under_episode_lock
+def _repoint(path: Path, draft: EpisodeDraft, old_sid: str) -> None:
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter)
+    _remember_source(fm, old_sid)
     fm["source_id"] = draft.source_id
     fm["source_updated_at"] = draft.source_updated_at
+    if draft.content_sha:
+        fm["content_sha"] = draft.content_sha     # a rename keeps its bytes; a takeover (`replaces`) brings its own
     if draft.title:
         fm["title"] = _title(draft)
     fm.pop("source_deleted_at", None)
+    fm.pop(HELD_GONE_KEY, None)
     fm.update(_extra(draft))
     _requeue_for_authorship(fm, draft)
     _apply_extras(fm, _extras_matching(draft, parsed.body))
@@ -1025,6 +1087,8 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
         writer = draft.writer
         # G235: the person took text out of this conversation; a source sending it again never brings it back.
         known = index.get(draft.source_id) if draft.source_id else None
+        if known is None and draft.replaces:
+            known = next((index[s] for s in draft.replaces if s in index), None)   # the episode it takes over
         if known is not None and sensitive_flags.removed_kinds(known.fm):
             draft = sensitive_flags.reapply_draft(draft, known.fm)
         body, stamps, n = render(draft)
@@ -1034,6 +1098,36 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
         sid = draft.source_id
         if sid:
             entry = index.get(sid)
+            if draft.replaces:
+                held_sid = next((s for s in draft.replaces if s != sid and s in index), None)
+                if held_sid is not None:
+                    entry = index.pop(held_sid)
+                    if held_sid in deleted:
+                        deleted.remove(held_sid)   # the episode it was about to tombstone is the one this draft takes
+                    same_body = entry.fm.get("content_hash") in (digest, legacy)
+                    if write:
+                        if same_body:
+                            _repoint(entry.path, draft, held_sid)
+                        else:
+                            update_in_place(entry.path, draft, body, digest, stamps, previous_sid=held_sid)
+                    known_hashes.add(digest)
+                    entry.fm.update(source_id=sid, source_updated_at=draft.source_updated_at,
+                                    evidence_kind=draft.extra.get("evidence_kind"))
+                    if not same_body:
+                        entry.fm["content_hash"] = digest
+                    if draft.content_sha:
+                        entry.fm["content_sha"] = draft.content_sha
+                    entry.fm.pop("source_deleted_at", None)
+                    entry.fm.pop(HELD_GONE_KEY, None)
+                    if draft.redate and _moved(entry.fm.get("timestamp"), draft.timestamp):
+                        if write:
+                            _redate(entry.path, draft, stamps)
+                        entry.fm["timestamp"] = draft.timestamp
+                    index[sid] = entry
+                    result.replaced_sources.append((held_sid, sid))
+                    _mark(result, "updated", sid, entry, episodes_dir)
+                    _report(progress, "updated")
+                    continue
             if entry is None and draft.content_sha:
                 old = renames.pop((draft.content_sha, _fragment(sid)), None)
                 if old is not None and old in index:

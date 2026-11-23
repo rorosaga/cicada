@@ -3785,6 +3785,24 @@ A whole row moves to DONE only after its remaining implementation and required a
     "Dune: Deluxe Edition", two invented titles: none expected to match); 0 of the 17 matches named the wrong work by title and
     author. An import of N books with no ISBN costs about 5 s each (1 search + 3-4 ISBN requests) and no model.
     Revisit on: the owner overruling the confidence rule, or measured wrong matches.
+75. **A correction reaches everything it touched, and nothing past independent support (owner, 2026-11-23; G104 slice 3, amends G104 slices 1-2 and G95's "one episode per file").**
+   The owner, after a misheard meeting transcript had been consolidated into pages for names nobody said: "if it
+   consolidated a mangled transcription, and then we update it, the info that that file affected, can be detected and
+   patched in a way so as not to cascade, but being aware tho. This is smth that should extend to all sources."
+   (a) **Newest file wins:** in a meetings folder, files whose names carry the same date and time are one meeting; a newer
+   one revises its one episode (one conversation for every count), the older is recorded, never read as its own. (b) **A
+   source deleted outright keeps what it taught, marked** "removed from its source" on every door (owner's choice over
+   withdrawing or asking); only an edit or a replacement withdraws. (c) An edit to a file that still exists is a revision,
+   a split note's sections included. (d) **A page only the removed text supported is archived by rule, undoably**
+   (owner's choice over a question); kept, with its support named, when anything else supports it; never the owner's,
+   a project, or a page the person or an agent wrote. (e) Aliases, held claims and open questions only the removed text
+   supported follow. (f) **Told, not asked:** the run detail's Corrections section, a dated History line per touched
+   page, the commit body. *Why:* the audit of 2026-11-23 found a revision closed claims and rewrote passages but left
+   pages, aliases, held names and questions standing, a deletion changed nothing, and a corrected second file of one
+   meeting became a second conversation; a consolidation benchmark (G148) reproduced the held-claim case with every
+   model. Hex 3.4.0 itself only rewrites an export in place, which was already a revision. **Trigger to revisit:** a page
+   the person restores after this rule archived it, measured.
+
 74. **Sleep joins two people pages when two independent signals agree (owner, 2026-11-07; ROR-136, amends rulings 29 and 41's "a question only").**
    The owner agreed to Sleep joining pairs he would spot at a glance, and warned: "I remember you mentioned some pairs that
    I'm pretty sure have nothing to do with each other." (a) The signals are kinds of evidence, counted once each

@@ -75,11 +75,15 @@ struct SourceSpan: Codable, Hashable {
     let claimId: String?
     /// The claim's, not the span's: whether it is still believed.
     let current: Bool
+    /// G104 slice 3 — the source was removed from where it came from. Beside `status`, never one of its values: the kept
+    /// words still read what the offsets say, and the claim is still believed. Absent on an older backend.
+    let sourceRemoved: Bool
 
-    private enum CodingKeys: String, CodingKey { case source, status, kind, hash, at, claimId, current }
+    private enum CodingKeys: String, CodingKey { case source, status, kind, hash, at, claimId, current, sourceRemoved }
 
     init(source: String, status: Status, kind: String = "user", hash: String = "", at: Place? = nil,
-         claimId: String? = nil, current: Bool = true) {
+         claimId: String? = nil, current: Bool = true, sourceRemoved: Bool = false) {
+        self.sourceRemoved = sourceRemoved
         self.source = source
         self.status = status
         self.kind = kind
@@ -98,6 +102,7 @@ struct SourceSpan: Codable, Hashable {
         at = try c.decodeIfPresent(Place.self, forKey: .at)
         claimId = try c.decodeIfPresent(String.self, forKey: .claimId)
         current = try c.decodeIfPresent(Bool.self, forKey: .current) ?? true
+        sourceRemoved = try c.decodeIfPresent(Bool.self, forKey: .sourceRemoved) ?? false
     }
 
     /// The offsets to wash, only for a status that may draw and a place this app can draw.

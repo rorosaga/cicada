@@ -195,3 +195,61 @@ def test_without_git_an_edit_is_read_whole_as_before(tmp_path, monkeypatch):
     assert [markdown_parser.parse(f).frontmatter.get("kind") for f in (memory / "inbox").rglob("*.md")] == ["conflict"]
     tokio = next(c for c in claims if c.object == "tokio")
     assert len(tokio.evidence) == 2
+
+
+def test_a_section_removed_from_a_note_that_still_exists_withdraws_its_claims(tmp_path, monkeypatch):
+    """G104 slice 3, ruling 3 — end to end, through the real stager and Sleep: a note split into sections is edited so
+    one section is gone. The file still exists, so its episode is REVISED to an empty body (never tombstoned) and what
+    only those words said is withdrawn; what the other section says stays open, and no engine call is spent."""
+    from api.services import folder_source as fs
+
+    monkeypatch.setattr(fs, "SPLIT_CHARS", 200)
+    memory = _bank(tmp_path)
+    (memory / "sources").mkdir()
+    markdown_parser.write(memory / "entities" / "alpha-project.md",
+                          {"name": "alpha-project", "type": "project", "status": "active", "confidence": 0.9},
+                          "## Summary\nalpha-project is a synthetic project.\n")
+    folder = fs.register(memory, label="notes", path="/n", device="mac-1")
+    fill = "More filler words that say nothing about any project at all. " * 2
+
+    def note(*sections):
+        return "\n\n".join(f"## {name}\n{line}\n{fill}" for name, line in sections)
+
+    stack, targets, license_ = (("Stack", "alpha-project uses tokio for async work."),
+                                ("Targets", "alpha-project targets Linux only."),
+                                ("License", "alpha-project is licensed under the MIT license."))
+
+    def post(text, mtime):
+        raw = text.encode()
+        import base64, hashlib
+        return fs.sync(memory, folder, [fs.IncomingFile("plan.md", mtime, hashlib.sha256(raw).hexdigest(),
+                                                        base64.b64encode(raw).decode())], [])
+
+    post(note(stack, targets, license_), 1_762_200_000.0)
+    _git(memory, "init", "-q")
+    _git(memory, "-c", "user.email=t@example.invalid", "-c", "user.name=t", "add", "-A")
+    _git(memory, "-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-qm", "capture")
+    _run(memory, monkeypatch, [])
+    _git(memory, "-c", "user.email=t@example.invalid", "-c", "user.name=t", "add", "-A")
+    _git(memory, "-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-qm", "Sleep cycle")
+    by = {(c.predicate, c.object): c for c in _claims(memory) if not is_record(c)}
+    assert by[("value-of-platform", "Linux only")].valid_to is None and ("uses", "tokio") in by
+
+    out = post(note(stack, license_), 1_762_300_000.0)
+    assert out["tombstoned"] == 0 and out["created"] == 0
+    prompts: list[str] = []
+    _run(memory, monkeypatch, prompts)
+
+    assert prompts == [], "removed words need no read"
+    claims = _claims(memory)
+    by = {(c.predicate, c.object): c for c in claims if not is_record(c)}
+    linux = by[("value-of-platform", "Linux only")]
+    assert linux.valid_to is not None
+    (record,) = [c for c in claims if is_record(c) and c.object == linux.id]
+    assert linux.superseded_by == record.id and record.authored_by == "cicada"
+    assert by[("uses", "tokio")].valid_to is None and by[("value-of-license", "MIT")].valid_to is None
+    emptied = [markdown_parser.parse(p) for p in (memory / "episodes").glob("ep_*.md")
+               if markdown_parser.parse(p).body == ""]
+    (gone,) = emptied
+    assert gone.frontmatter["processed"] is True and "source_deleted_at" not in gone.frontmatter
+    assert gone.frontmatter["revised"]["count"] == 1

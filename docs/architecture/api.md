@@ -681,6 +681,18 @@ this route — Sleep › Past reads runs (`/sleep/history`, `/sleep/runs/{id}`, 
 and `processed=false`, and a source's conversations are `/conversations/recent` (≤ 200, filtered before its cap). A
 surface that one day lists read episodes pages here instead of downloading them all.
 
+**What a run's corrections reached (G104 slice 3, TODO ruling 75).** `GET /sleep/runs/{id}` carries `corrections`
+(`SleepRunCorrections`, shape `corrections-1`): `null` when no conversation the run read was revised, never zeros; else
+conversations revised, claims withdrawn / superseded, passages rewritten, pages archived (each `{page, episode,
+restorable}`, `restorable` read live), aliases dropped, held items dropped (claims and prose of a name not yet on a
+page), questions withdrawn, and pages kept with the `revision_cascade.SUPPORTS` enum that kept them — ids, enums and
+counts only. `POST /entities/{id}/restore-correction` undoes one archive the cascade made (`{entityId, status,
+confidence}`; 404 no such page, 409 a page not archived by a correction or while Sleep holds the pages), committed as
+the person so the rule never archives it again; demo-gated and forwarded by a replica. `POST /sources/folders/{id}/sync`
+answers `resend` (relpaths): files of a meeting whose held file was deleted, which the app drops from its manifest and
+posts again (or reports deleted). A span, provenance row and page citation carry `sourceRemoved` (boolean) when the
+source episode was deleted (`source_spans` shape `spans2`, `page_blocks` `blocks-6`, provenance `removed1`).
+
 **What one consolidation read and wrote (owner 2026-10-26, the run card).** `GET /sleep/runs/{id}/items` (a run's batch
 commits, from its `sleep_run` ledger rows; 404 for an unknown run) and `GET /sleep/history/{commit}/items` (one Sleep
 cycle's commit; 404 for a decay, inbox or non-Sleep commit) answer `SleepConsolidated`: `conversations` (id, title,
@@ -954,7 +966,7 @@ skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME
   go through between a drain's batches:** `PUT /entities/{id}/decay`, `PATCH /entities/{id}/repos` (which commits only
   its page, never `git add -A`), every `POST /inbox/{id}/resolve` action — a defer too — and the deprecated
   `/nudges/{id}/resolve` and `/clarifications/{id}` that route through it, and `POST /maintenance/dedup-sweep` (a dry
-  run too; G183), `PUT /settings/owner` and every project, backlog, entity source and picture write. Each asks while
+  run too; G183), `PUT /settings/owner`, `POST /entities/{id}/restore-correction` (G104 slice 3) and every project, backlog, entity source and picture write. Each asks while
   holding the bank's write admission and keeps it through its commit, on the writer loop (a cancelled
   request, or its loop's teardown, does not release it early); Sleep sets its flag and then waits out every holder before it reads a page, and
   pauses rather than read past one it waited 60 s for (`storage.md`, "Write admission"). The sweep asks per merge,

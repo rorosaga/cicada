@@ -26,6 +26,8 @@ struct ProvenanceSpan: Codable, Hashable {
     let derived: Bool
     /// ROR-16 (G235) — the words are held back: no offsets and no excerpt travelled.
     var held = false
+    /// G104 slice 3 — the conversation was removed from its source; the words are kept and the claim stays.
+    var sourceRemoved = false
 
     init(episode: String, start: Int?, end: Int?, hash: String = "", kind: EvidenceKind,
          excerpt: String, excerptStart: Int = 0, mentionOffsets: [[Int]] = [],
@@ -44,7 +46,7 @@ struct ProvenanceSpan: Codable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case episode, start, end, hash, kind, excerpt, excerptStart, mentionOffsets, stale, grown, derived, held
+        case episode, start, end, hash, kind, excerpt, excerptStart, mentionOffsets, stale, grown, derived, held, sourceRemoved
     }
 
     init(from decoder: Decoder) throws {
@@ -61,6 +63,7 @@ struct ProvenanceSpan: Codable, Hashable {
         grown = try c.decodeIfPresent(Bool.self, forKey: .grown) ?? false
         derived = try c.decodeIfPresent(Bool.self, forKey: .derived) ?? false
         held = try c.decodeIfPresent(Bool.self, forKey: .held) ?? false
+        sourceRemoved = try c.decodeIfPresent(Bool.self, forKey: .sourceRemoved) ?? false
     }
 
     /// A derived match is never "You said" (§4.9): the kind the chip renders
@@ -272,8 +275,12 @@ struct SectionEvidence: Codable, Hashable {
     let sourceAvailable: Bool
     let status: String
     let span: ProvenanceSpan?
+    /// G104 slice 3 — the cited conversation was removed from its source (kept as evidence).
+    let sourceRemoved: Bool
 
-    enum CodingKeys: String, CodingKey { case evidence, sourceTitle, conversationId, sourceAvailable, status, span }
+    enum CodingKeys: String, CodingKey {
+        case evidence, sourceTitle, conversationId, sourceAvailable, status, span, sourceRemoved
+    }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         evidence = try c.decodeIfPresent(Evidence.self, forKey: .evidence)
@@ -282,6 +289,7 @@ struct SectionEvidence: Codable, Hashable {
         sourceAvailable = try c.decodeIfPresent(Bool.self, forKey: .sourceAvailable) ?? false
         status = try c.decodeIfPresent(String.self, forKey: .status) ?? "not_checked"
         span = try c.decodeIfPresent(ProvenanceSpan.self, forKey: .span)
+        sourceRemoved = try c.decodeIfPresent(Bool.self, forKey: .sourceRemoved) ?? false
     }
 }
 

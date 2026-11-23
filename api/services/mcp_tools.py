@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Callable
 
 from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, episode_time
-from api.services import book_marks, entity_relations, episode_actor, page_blocks
+from api.services import book_marks, entity_relations, episode_actor, page_blocks, source_spans
 from api.services import history_index, media_pages, page_use, saved_lookup, search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
 from api.services import (bank_index, entity_bands, link_views, markdown_parser, page_lock, same_name, search_index,
@@ -3003,6 +3003,9 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
             watched = _watch_history_line(memory_path, fm, cid)
             if watched:
                 text = text.rstrip("\n") + "\n\n" + watched + "\n"
+            gone = _removed_sources_line(memory_path, path, page_text)
+            if gone:       # G104 slice 3: derived on read, never written; the claims stay open and counted
+                text = text.rstrip("\n") + "\n\n" + gone + "\n"
             heard = None if ctx.is_remote and not ctx.raw_excerpts else media_pages.transcript_line(memory_path, cid)
             if heard:      # ROR-117: how much transcript a recording's page has — never a word of it
                 text = text.rstrip("\n") + "\n\n" + heard + "\n"
@@ -3042,6 +3045,43 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
             return Reply(text, data=data, segments=getattr(text, "segments", None))
 
     return Reply(f"Entity '{entity_id}' not found.", code="not_found")
+
+
+_EPISODE_MENTION = re.compile(r"\bep_\d{4}-\d{2}-\d{2}_\d+\b")
+#: Claim ids one such line names before it says how many more.
+_REMOVED_LINE_IDS = 12
+
+
+def _removed_sources_line(memory_path: Path, path: Path, page_text: str) -> str | None:
+    """G104 slice 3: which of this page's claims rest on a conversation that was removed from its source. One derived
+    line, in the one wording ``cicada_sources`` uses — never written to the page, no claim closed or uncounted. ``None``
+    (and no page parsed) when no cited conversation is tombstoned, or on any failure."""
+    from api.services import claims
+
+    try:
+        removed: dict[str, str] = {}
+        for ep_id in dict.fromkeys(_EPISODE_MENTION.findall(page_text)):
+            indexed = bank_index.file(memory_path, "episodes", f"{ep_id}.md")
+            if indexed is not None and (day := source_spans.removed_at(indexed.frontmatter)):
+                removed[ep_id] = day
+        if not removed:
+            return None
+        rows: list[tuple[str, set[str]]] = []
+        for claim in claims.parse_claims(markdown_parser.parse(path).body):
+            if claims.is_record(claim):
+                continue
+            cited = set(claim.source_episodes) | {ev.episode for ev in claim.evidence}
+            if cited & removed.keys():
+                rows.append((claim.id, cited & removed.keys()))
+        if not rows:
+            return None
+        ids = ", ".join(f"`{cid}`" for cid, _ in rows[:_REMOVED_LINE_IDS])
+        more = f" and {len(rows) - _REMOVED_LINE_IDS:,} more" if len(rows) > _REMOVED_LINE_IDS else ""
+        gone = "; ".join(f"`{ep}`: {source_spans.removed_sentence(day)}" for ep, day in removed.items()
+                         if any(ep in eps for _, eps in rows))
+        return f"{len(rows):,} claim(s) cite a conversation removed from its source ({ids}{more}). {gone}"
+    except Exception:  # noqa: BLE001 — a derived line never fails a page read
+        return None
 
 
 def _relevance_line(memory_path: Path, entity_id: str) -> str | None:
@@ -3103,7 +3143,10 @@ def sources(ctx: ToolContext, entity_id: str) -> str:
     eps = eps[:max_episodes] if max_episodes else eps
     parts = [f"**Sources for `{entity_id}`** ({len(eps)} episode(s)):"]
     for e in eps:
-        parts.append(f"\n### episode {e['id']}\n{(e.get('chunk') or '').strip()[:max_chars]}")
+        # G104 slice 3: a conversation removed from its source is kept as evidence, and says so in the same words.
+        gone = source_spans.removed_at({"source_deleted_at": e.get("source_deleted_at")})
+        note = f"{source_spans.removed_sentence(gone)}\n" if gone else ""
+        parts.append(f"\n### episode {e['id']}\n{note}{(e.get('chunk') or '').strip()[:max_chars]}")
     return "\n".join(parts)
 
 
@@ -3154,8 +3197,8 @@ def _episode_read(ctx: ToolContext, episode_id: str) -> str | Reply:
     title = " ".join(str(fm.get("title") or "").split())
     head = [f"**Conversation `{episode_id}`** · {day}" + (f" · {title}" if title else "")]
     head.append(f"With: {who}." if who else "With: nobody else is named on this record (the person's own capture).")
-    if fm.get("source_deleted_at"):
-        head.append(f"Removed from its source on {str(fm['source_deleted_at'])[:10]}; kept as evidence.")
+    if (gone := source_spans.removed_at(fm)):
+        head.append(source_spans.removed_sentence(gone))
     if not fm.get("processed"):
         head.append("Not yet read by Sleep.")
     _, max_chars = ctx.sources_limit

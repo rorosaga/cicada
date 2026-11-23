@@ -537,6 +537,124 @@ def reanchor_held(memory_path: Path, move: Callable[[list[Claim]], int]) -> int:
         return moved
 
 
+def withdraw_episode(memory_path: Path, episode_id: str, gone: Callable[[PendingEntity], bool]) -> dict[str, int]:
+    """G104 slice 3 (T3): ``episode_id`` was edited and ``gone(line)`` says a line's name is no longer in it. Each such
+    line leaves that conversation: out of ``heard_in`` (and ``source_episode`` moves to the next one), its held claims
+    only that conversation said go with it. A line it was the ONLY conversation of is removed whole, with its inputs and
+    links. A name heard elsewhere keeps its description, summary and key facts — the extraction's text is not
+    attributable per conversation. One read, one write only when something changed, under ``_LOCK``. Returns
+    ``{"lines_removed", "episodes_left", "claims_dropped"}``."""
+    counts = {"lines_removed": 0, "episodes_left": 0, "claims_dropped": 0}
+    with _LOCK:
+        entries = load(memory_path)
+        kept: list[PendingEntity] = []
+        for line in entries:
+            if episode_id not in line.episodes() or not gone(line):
+                kept.append(line)
+                continue
+            others = [e for e in line.episodes() if e != episode_id]
+            if not others:
+                counts["lines_removed"] += 1
+                counts["claims_dropped"] += len(line.held_claims)
+                continue
+            line.heard_in = [r for r in line.heard_in if r.get("episode") != episode_id]
+            if line.source_episode == episode_id:
+                line.source_episode = others[0]
+            before = len(line.held_claims)
+            line.held_claims = [d for d in line.held_claims
+                                if not (d.get("source_episodes") and set(d["source_episodes"]) <= {episode_id})]
+            counts["episodes_left"] += 1
+            counts["claims_dropped"] += before - len(line.held_claims)
+            kept.append(line)
+        if counts["lines_removed"] or counts["episodes_left"]:
+            save(memory_path, kept)
+    return counts
+
+
+def drop_prose(memory_path: Path, episode_id: str, prior_hash: str, says_gone: Callable[[str], bool]) -> int:
+    """G104 slice 3 (T6): the first read's PROSE a line holds for a name with no page — its ``summary``, ``description``,
+    ``key_facts`` and ``history_entries`` — is what a page born from the line would be written from, so a conversation
+    edited since must not seed it with words only the removed text said. ``says_gone(text)`` is the revision's own
+    "says a removed word" test (`revision_prose`); ``prior_hash`` is the body hash of the version Sleep read.
+
+    An item goes only when its input rows (``item_inputs``, the G118 reasoning rows) are ALL this conversation at that
+    version and it says a removed word: a row citing another conversation, or another version, keeps it (independent
+    support), and an item with no row is unattributable and stays. A history entry has no row of its own, so it goes only
+    from a line whose every conversation is this one, and only when that line's rows rest on the version Sleep read.
+    The dropped items' rows go with them; everything else, the held claims included, is untouched. One read, one write
+    only when something left, under ``_LOCK``. Returns how many items left."""
+    dropped = 0
+    with _LOCK:
+        entries = load(memory_path)
+        for line in entries:
+            if episode_id not in line.episodes():
+                continue
+
+            def mine(record: dict) -> bool:
+                rows = [r for r in record.get("evidence") or [] if isinstance(r, dict)]
+                return bool(rows) and all(r.get("episode") == episode_id and r.get("hash") == prior_hash for r in rows)
+
+            def stale(record: dict) -> bool:
+                return any(isinstance(r, dict) and r.get("episode") == episode_id and r.get("hash") != prior_hash
+                           for r in record.get("evidence") or [])
+
+            def goes(field_name: str, text: str) -> bool:
+                records = [r for r in line.item_inputs
+                           if r.get("field") == field_name and str(r.get("text") or "").strip() == text.strip()]
+                return bool(text.strip()) and bool(records) and all(mine(r) for r in records) and says_gone(text)
+
+            gone: list[tuple[str, str]] = []
+            for field_name in ("summary", "description"):
+                text = getattr(line, field_name)
+                if goes(field_name, text):
+                    gone.append((field_name, text))
+                    setattr(line, field_name, "")
+            kept_facts = []
+            for fact in line.key_facts:
+                if goes("key_facts", fact):
+                    gone.append(("key_facts", fact))
+                else:
+                    kept_facts.append(fact)
+            line.key_facts = kept_facts
+            if (line.episodes() == [episode_id] and line.history_entries
+                    and any(mine(r) for r in line.item_inputs) and not any(stale(r) for r in line.item_inputs)):
+                kept_history = []
+                for entry in line.history_entries:
+                    event = str(entry.get("event") or "") if isinstance(entry, dict) else ""
+                    if event and says_gone(event):
+                        dropped += 1
+                    else:
+                        kept_history.append(entry)
+                line.history_entries = kept_history
+            if gone:
+                texts = {(f, t.strip()) for f, t in gone}
+                line.item_inputs = [r for r in line.item_inputs
+                                    if (r.get("field"), str(r.get("text") or "").strip()) not in texts]
+                dropped += len(gone)
+        if dropped:
+            save(memory_path, entries)
+    return dropped
+
+
+def drop_held(memory_path: Path, claim_ids: Iterable[str]) -> int:
+    """G104 slice 3 (T3): take the claims ``claim_ids`` off every line that holds them — a conversation was edited and
+    only its removed text said them, so they must never reach a page. Each line stays (what else it heard is still a
+    first mention). One read, one write only when a claim left. Returns how many claims left."""
+    ids = {str(i) for i in claim_ids if i}
+    if not ids:
+        return 0
+    with _LOCK:
+        entries = load(memory_path)
+        gone = 0
+        for e in entries:
+            kept = [d for d in e.held_claims if d.get("id") not in ids]
+            gone += len(e.held_claims) - len(kept)
+            e.held_claims = kept
+        if gone:
+            save(memory_path, entries)
+        return gone
+
+
 def ready(memory_path: Path, target_of: Callable[[str, str], str],
           decided: Iterable[str] = ()) -> list[Release]:
     """Read-only: the holding lines whose claims can go onto a page NOW (R-HP5).

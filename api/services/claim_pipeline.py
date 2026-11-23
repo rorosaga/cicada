@@ -524,14 +524,34 @@ def run_claim_pipeline(
     # Released claims go FIRST, so they meet Stage 3 as the page's own claims
     # would have had it existed when they were heard (R-HP6): a newer
     # single-valued claim supersedes them, where the other order would ask.
+    held_withdrawn: list[str] = []
     if revisions:
         # G104: what a name without a page holds from an edited conversation follows its words onto the new body
         # before any of it is released onto a page (spans only; `pending_store.reanchor_held`).
         try:
-            held_moved = pending_store.reanchor_held(
-                memory_path, lambda held: episode_revision.reanchor({"": held}, revisions).reanchored)
+            held_gone: list[str] = []
+            offered = [c for offers in held_offers.values() for c in offers] + list(incoming)
+
+            def _move_held(held: list[Claim]) -> int:
+                held_plan = episode_revision.reanchor({"": held}, revisions)
+                # G104 slice 3 (T3): a held claim only the removed text said is withdrawn BEFORE its release — it never
+                # reaches a page carrying a value the conversation no longer states, and the revision's own value
+                # (read this batch) is the one that lands. Held claims are never human, an event or another
+                # conversation's (`episode_revision._closable`, `reanchor`), so nothing independent is dropped.
+                held_gone.extend(held_plan.revised_out)
+                # A held claim the revision dates differently (the date is on another line than its span) is replaced
+                # by the revision's own, held or on a page: it must not be released carrying the old date.
+                held_gone.extend(episode_revision.redated(held, offered, revisions))
+                return held_plan.reanchored
+
+            held_moved = pending_store.reanchor_held(memory_path, _move_held)
+            if held_gone:
+                held_withdrawn = sorted(set(held_gone))
+                pending_store.drop_held(memory_path, held_withdrawn)
             if held_moved:
                 logger.info(f"Claim pipeline: {held_moved} held span(s) re-anchored onto revised conversations")
+            if held_withdrawn:
+                logger.info(f"Claim pipeline: {len(held_withdrawn)} held claim(s) the removed text alone said dropped")
         except Exception as e:  # noqa: BLE001 - a store failure costs the move, never the cycle (R-HP10)
             logger.warning(f"Held spans not re-anchored: {type(e).__name__}")
     existing_by_subject = _load_existing_claims_by_subject(memory_path)
@@ -549,6 +569,11 @@ def run_claim_pipeline(
 
     # ---- G104: an edited conversation's spans re-anchored, what only its removed text said marked ----
     revision_plan = episode_revision.reanchor(existing_by_subject, revisions or {})
+    # A date the revision's changed lines moved, on a claim whose span they did not touch (page claims and the ones just
+    # released from the hold, against the revision's own new claims; `episode_revision.redated`).
+    redated = episode_revision.redated(
+        [c for claims in existing_by_subject.values() for c in claims] + released,
+        [c for c in incoming if c.id in stage1_ids], revisions or {})
 
     # ---- Stage 3: reconcile against existing in-page claims (trust-gated) ----
     reconciled, nudges, audit = reconcile_stage3(
@@ -558,6 +583,7 @@ def run_claim_pipeline(
         now_date=today,
         **({} if decay else {"decay": False}),
         **({"revised": revision_plan.revised_out} if revision_plan.revised_out else {}),
+        **({"redated": redated} if redated else {}),
     )
     audit.extend(number_audit)
     withdrawn = episode_revision.settle(reconciled, revision_plan, revisions or {}, today, audit)
@@ -581,7 +607,7 @@ def run_claim_pipeline(
     for entry in audit:
         if entry.get("action") in ("revised", "revision_withdrew"):
             closed_id = entry.get("closed")
-            ep = revision_plan.revised_out.get(closed_id)
+            ep = revision_plan.revised_out.get(closed_id) or redated.get(closed_id)
             subject = subject_by_id.get(closed_id)
             if ep and subject and ep not in revision_closed.setdefault(subject, []):
                 revision_closed[subject].append(ep)
@@ -705,5 +731,8 @@ def run_claim_pipeline(
         "page_less_subjects": sorted(page_less_subjects),
         "relabelled_events": relabelled,
         "revision_closed": revision_closed,
+        # G104 slice 3 (T3): which claim each revision closed (`revision_cascade`) and the held claims withdrawn.
+        "revised_out": dict(revision_plan.revised_out),
+        "held_withdrawn": held_withdrawn,
         **hold,
     }
