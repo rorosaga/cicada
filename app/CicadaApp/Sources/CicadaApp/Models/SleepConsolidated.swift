@@ -50,11 +50,14 @@ struct SleepConsolidated: Codable, Equatable {
         var displayName: String? = nil
         /// G227 — the qualifier alone (the run card says it inside the page's own `Tag`).
         var qualifier: String? = nil
+        /// items-3 (owner 2026-11-23) — the consolidation's commits that changed this page, oldest first: its "Show
+        /// change" diffs the first one's parent to the last. Empty from an older backend.
+        var commits: [String] = []
 
         init(id: String, name: String? = nil, type: String? = nil, gone: Bool = false, displayName: String? = nil,
-             qualifier: String? = nil) {
+             qualifier: String? = nil, commits: [String] = []) {
             self.id = id; self.name = name; self.type = type; self.gone = gone; self.displayName = displayName
-            self.qualifier = qualifier
+            self.qualifier = qualifier; self.commits = commits
         }
 
         init(from decoder: Decoder) throws {
@@ -65,6 +68,7 @@ struct SleepConsolidated: Codable, Equatable {
             gone = ((try? c.decodeIfPresent(Bool.self, forKey: .gone)) ?? nil) ?? false
             displayName = (try? c.decodeIfPresent(String.self, forKey: .displayName)) ?? nil
             qualifier = (try? c.decodeIfPresent(String.self, forKey: .qualifier)) ?? nil
+            commits = ((try? c.decodeIfPresent([String].self, forKey: .commits)) ?? nil) ?? []
         }
     }
 

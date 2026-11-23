@@ -59,6 +59,81 @@ final class SleepSourceCardsSnapshotTests: XCTestCase {
         }
     }
 
+    /// Past reads as cards with the sources' marks (owner 2026-11-23), one open with a page's change shown.
+    func test_writeThePastReadsCards() async throws {
+        guard let dir = ProcessInfo.processInfo.environment["CICADA_SLEEP_CARDS_SNAPSHOTS"], !dir.isEmpty else {
+            throw XCTSkip("set CICADA_SLEEP_CARDS_SNAPSHOTS=<dir> to write the review renders")
+        }
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { CicadaTheme.mode = .dark; CicadaTheme.uiScale = 1 }
+        CicadaTheme.uiScale = 1
+        let store = Store(cache: SnapshotCache(root: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)), api: FakeSyncAPI())
+        let vm = SleepViewModel(store: store, putSchedule: { $0 })
+        func cycle(_ commit: String, _ date: String, episodes: Int, created: Int, updated: Int) throws -> SleepHistoryEntry {
+            try JSONDecoder().decode(SleepHistoryEntry.self, from: Data("""
+            {"commitHash": "\(commit)", "date": "\(date)", "message": "Sleep cycle", "filesChanged": [],
+             "engine": "claude-cli", "kind": "sleep", "entitiesCreated": \(created), "entitiesUpdated": \(updated),
+             "episodes": \(episodes), "sessions": \(episodes), "authors": ["claude-haiku-5-5"], "durationMs": 1274000,
+             "usageSummary": {"basis": "list", "connection": "claude-plan", "costUsd": null, "engine": "claude-cli",
+                              "equivCostUsd": 0.03, "plan": null, "planShare": []}}
+            """.utf8))
+        }
+        let entries = [try cycle("aaa1111", "2026-11-23T03:00:00+00:00", episodes: 9, created: 1, updated: 18),
+                       try cycle("bbb2222", "2026-11-22T03:00:00+00:00", episodes: 12, created: 0, updated: 4),
+                       try cycle("ccc3333", "2026-11-21T03:00:00+00:00", episodes: 1, created: 0, updated: 5)]
+        func conv(_ id: String, _ origin: String, _ title: String) -> SleepConsolidated.Conversation {
+            .init(id: id, title: title, origin: origin, timestamp: "2026-11-22T18:00:00+00:00")
+        }
+        let first = SleepConsolidated(
+            commits: ["aaa1111"],
+            conversations: [conv("ep_1", "claude-code", "Planning the alpha-project release"),
+                            conv("ep_2", "claude-code", "Why the beta-tool tests flake"),
+                            conv("ep_3", "chatgpt", "A reading list for the week"),
+                            conv("ep_4", "telegram", "Dinner on Friday")],
+            created: [.init(id: "gamma-idea", name: "gamma-idea", commits: ["aaa1111"])],
+            updated: [.init(id: "alpha-project", name: "alpha-project", commits: ["aaa1111"]),
+                      .init(id: "bob-example", name: "bob-example", commits: ["aaa1111"]),
+                      .init(id: "beta-tool", name: "beta-tool", commits: ["aaa1111"]),
+                      .init(id: "delta-place", name: "delta-place", commits: ["aaa1111"])],
+            questionsRaised: [.init(id: "inbox-1", title: "Is beta-tool the same as beta-runner?")],
+            counts: ["conversations": 9, "created": 1, "updated": 18, "questions_raised": 3, "questions_settled": 0])
+        let second = SleepConsolidated(
+            commits: ["bbb2222"], conversations: [conv("ep_5", "chrome-bookmark", "A guide to continuous corners")],
+            updated: [.init(id: "alpha-project", name: "alpha-project"), .init(id: "beta-tool", name: "beta-tool")],
+            counts: ["conversations": 12, "created": 0, "updated": 4])
+        let items: [SleepConsolidatedKey: SleepConsolidated] = [.commit("aaa1111"): first, .commit("bbb2222"): second]
+        let diff = EntityDiff(added: "", removed: "", lines: [
+            .init(kind: "hunk", text: "@@ -12,4 +12,5 @@"),
+            .init(kind: "context", oldLine: 12, newLine: 12, text: "## Where it stands"),
+            .init(kind: "remove", oldLine: 13, text: "The release waits on the installer."),
+            .init(kind: "add", newLine: 13, text: "The installer is done; the release waits on the signing key."),
+            .init(kind: "add", newLine: 14, text: "Testers get the notes the same day."),
+            .init(kind: "context", oldLine: 14, newLine: 15, text: ""),
+        ])
+
+        for mode in [AppColorScheme.light, .dark] {
+            CicadaTheme.mode = mode
+            let name = mode == .dark ? "dark" : "light"
+            let list = ConsolidationHistoryCard(entries: entries, details: [:], expanded: nil, items: items,
+                                                onToggle: { _ in })
+                .padding(CicadaTheme.spacingLG)
+            try snapshot(list, size: CGSize(width: 760, height: 430), mode: mode, store: store, vm: vm,
+                         to: URL(fileURLWithPath: dir).appendingPathComponent("past-reads-\(name).png"))
+            let open = ConsolidationHistoryCard(entries: Array(entries.prefix(1)), details: [:], expanded: "aaa1111",
+                                                items: items, onToggle: { _ in })
+                .padding(CicadaTheme.spacingLG)
+            try snapshot(open, size: CGSize(width: 760, height: 760), mode: mode, store: store, vm: vm,
+                         to: URL(fileURLWithPath: dir).appendingPathComponent("past-reads-open-\(name).png"))
+            let row = RunPageRow(page: .init(id: "alpha-project", name: "alpha-project"), isNew: false,
+                                 commits: ["aaa1111"], initiallyOpen: true, loadDiff: { _, _, _ in diff })
+                .padding(CicadaTheme.spacingLG)
+                .background(CicadaTheme.bgFocus)
+            try snapshot(row, size: CGSize(width: 640, height: 220), mode: mode, store: store, vm: vm,
+                         to: URL(fileURLWithPath: dir).appendingPathComponent("past-reads-change-\(name).png"))
+        }
+    }
+
     private func snapshot<V: View>(_ view: V, size: CGSize, mode: AppColorScheme, store: Store, vm: SleepViewModel,
                                    to url: URL) throws {
         let root = view
@@ -66,6 +141,8 @@ final class SleepSourceCardsSnapshotTests: XCTestCase {
             .background(CicadaTheme.bgBase)
             .environment(store)
             .environment(vm)
+            .environment(AppRouter())
+            .environment(ProvenanceRouter())
             .environment(\.colorScheme, mode == .dark ? .dark : .light)
         let host = NSHostingView(rootView: root)
         host.frame = NSRect(origin: .zero, size: size)

@@ -1523,7 +1523,8 @@ the words wrap or break (⌥⏎, the Mac's line break in a field; Return still s
 (`SaveWhyField.maxLines`), then scrolls inside. Five because the words cap at 500 characters and a line holds about 60,
 so five show ≈ 300 — most answers whole — while the card stays a short drop from the notch. The height is measured, not
 left to AppKit (`SaveWhyField.lineCount`: the text's own breaks plus wrapping at the field's measured width, in the
-field's font), so the card and the notch's shape grow with it in one transaction: `CicadaMotion.fieldGrow` (0.12 s,
+field's font — `SaveWhyField.fontSize`, the one number the field is both drawn and measured in, since a 12-vs-13 pt drift
+clipped a wrapped second line, owner 2026-11-23), so the card and the notch's shape grow with it in one transaction: `CicadaMotion.fieldGrow` (0.12 s,
 `CicadaCurve.out`), in one frame under Reduce Motion. DR-60 lists keyboard *commands*; a field growing to hold typed words
 is the content's own size, which the owner asked to be smooth — dated ruling in DESIGN_RULES (2026-10-23). The window is
 made `SaveWhyField.growthReserve` taller than the card up front (clear below it, the view top-aligned), so it never resizes
@@ -2986,22 +2987,27 @@ Past reads otherwise (`SleepTab.resolve`), and a tab switch is instant and close
 (not a Store domain; a 304 keeps them, a bank switch drops both); **Saved** and
 **Videos** are the Feed's lists (above, *Clusters and Sleep's saved lists*); **Past reads** (`SleepPastReads`) is Last
 cycle · Readout · Past nights; Last cycle's rows in words, "Rested" as a sentence, the readout as key–value rows.
-**Past nights is one card per consolidation** (owner 2026-10-26, `RunCardModel` / `RunCardView`): a run that read in batches
-is one card, a plain cycle one card, a decay pass or an inbox resolution none. The card says when it ran, only an ending other than finished (DR-38, ROR-41), and who started
-it ("You started it" / "On schedule", a catch-up's missed time), one line of what it included ("12 conversations · 3 new
-pages · 18 updates · 2 questions" — the server's whole-run figures on `SleepRunRef`: `created`, `updated`,
-`models`, `usageSummary`; the questions are the dropdown's own count, raised + settled, asked for each card as it
-comes on screen; unknown is left out, never zero), the engine's mark and words with the
-models the ledger says ran, the plan share or cost with its basis (ruling 12, `CycleUsageText`), how long it read, and
-how it ended (Finished · Reading now · Paused at your plan's limit · Paused to leave room in your plan · Paused ·
-Stopped · Didn't finish). A resting ring on `bgFocus`, no shadow (DR-9, DR-37; §9 2026-10-26). Opening it (one card
-open at a time; only a pointer's click eases, on `CicadaMotion.groupExpand`; a key, an event-less action or an assistive press opens in one frame, `RunCardMotion`) drops down what it
-consolidated, grouped under `DisclosureHeader`s — Conversations read (each opens in the Reader), New pages and Updated
-pages (neutral `Tag`s, each opens its page; a page gone since shows its id), Questions raised and settled (each opens
-in the Inbox) — from `GET /sleep/runs/{id}/items` or `GET /sleep/history/{commit}/items` (`SleepConsolidated`, held by
-`SleepViewModel.consolidated` with its ETag, revalidated on each open, a 304 keeping it, emptied on a bank switch); a
-group shows 8 rows (pages 24) then *Show all N*. *Models and batches* folds the run's models, tokens and cost with
-their basis, and its batches and pauses (`RunDetailBlock`; a plain cycle's `CycleUsageBlock`). Said once (2026-10-19): a Past nights row prints its day only when it is the first of that day;
+**Past nights is one card per consolidation** (owner 2026-10-26, `RunCardModel` / `RunCardView`; redesigned 2026-11-23,
+DESIGN_RULES §9): a run that read in batches is one card, a plain cycle one card, a decay pass or an inbox resolution
+none. The card says when it ran and who started it ("You started it" / "On schedule"; a catch-up's missed time on hover),
+only an ending other than finished (DR-38, ROR-41: Reading now · Paused at your plan's limit · Paused to leave room in your
+plan · Paused · Stopped · Didn't finish), then **the sources it read as their real marks** (`RunSourceMarks`, overlapping,
+most-read first, a fourth and beyond "+N"; from the items) leading **one line of what it read and what that changed**
+("9 conversations → 1 new page, 18 updated" — the server's whole-run figures on `SleepRunRef`; unknown is left out, never
+zero), and **the pages it changed by name** on one line (`RunPagePreview`: new first, as many `Tag`s as fit, then "+N" from
+the whole counts). Each card asks for its items as it comes on screen. No chevron; a `radiusLarge` resting ring on
+`bgFocus` that the pointer lifts, no shadow (DR-9, DR-37). Opening it (one card open at a time; only a pointer's click
+eases, on `CicadaMotion.groupExpand`; a key, an event-less action or an assistive press opens in one frame,
+`RunCardMotion`) shows *Conversations read* (each opens in the Reader), *Pages changed* — a row per page, "New" when the
+read made it, the arrow opening the page, and a click showing **what the read changed on it** (`RunPageRow`: one `DiffView`
+from before the first of the read's commits that touched the page to after its last — `SleepConsolidated.Page.commits`,
+items-3, and `GET /entities/{id}/history/{commit}/diff?since=` — in a short scrolling window) — then Questions raised and
+settled (folds, closed; each opens in the Inbox), from `GET /sleep/runs/{id}/items` or `GET /sleep/history/{commit}/items`
+(`SleepConsolidated`, held by `SleepViewModel.consolidated` with its ETag, revalidated on each open, a 304 keeping it,
+emptied on a bank switch); a list shows 8 rows then *Show all N*. *Models and batches* folds what the card's head no
+longer carries — the engine's mark and words with the models the ledger says ran, the plan share or cost with its basis
+(ruling 12, `CycleUsageText`), how long it read, a catch-up — then the run's models, tokens and cost with their basis, and
+its batches and pauses (`RunDetailBlock`; a plain cycle's `CycleUsageBlock`). Said once (2026-10-19): a Past nights row prints its day only when it is the first of that day;
 when no row — a run's batches included — recorded usage or a time the section's label says so once ("Past nights ·
 usage and time not recorded", `PastNightsLayout`) instead of every row; a run's row names its engine in words beside
 its mark; the readout's *Last engine* row steps aside while the newest Past nights row
@@ -3009,7 +3015,7 @@ names the same engine and the backend gave no reason to add. A tail link, a spin
 page selects the tab holding it (`SleepTab.holding`) and brings the tab row to the top in one frame. Opening a saved item
 (or the watch run) turns the page into progressive columns: the tab row rides the eyebrow, the list is the triage
 column, the item the detail, the Reader the third column (`AppTab.hostsOwnReader`); Esc closes the rightmost.
-**Source cards (owner 2026-11-23, DESIGN_RULES §9):** the Waiting list is a card per source (`StudyListCard.sourceCard`, `sourceCardChrome`: `surface`, a `radiusLarge` ring that the pointer or its spine lights) whose row keeps the chevron, mark, name, Oldest and Items columns; open, it holds a card per episode (`EpisodeCard`, the `OriginCard` family through `originCardChrome`): the title, two lines of the preview, then `[mark] where · 3h ago · read` — the source's name never repeated (DR-38); a waiting episode `plain`, a read one `past` (faded). The kept-for-lookup line is the list's last card. Each queued episode card (`EpisodeCard`, the Waiting list and the spine popover) is one button: a click opens the stored episode in the Reader (`ReaderTarget(episode:)`, `GET /episodes/{id}/text`, from the top; `EpisodeRowAction.primary`, owner 2026-10-19 — "episode ID copied" gave the person nothing to do). Copying what Sleep would read — `GET /sleep/episodes`'s `copyValue` from `episode_copy` (a page's link, a conversation's session id, a tab group's links, a folder file's full path, else the episode id) — is the row's context menu and a named VoiceOver action ("Copy Link", "Copy Conversation ID"), with its brief toast (`Store.flash`). The footer names only a target a person can read (a site and path, "3 tab links", a file's name), how long ago (`changedAt`: a conversation's last capture, else when it arrived) and "read"; a session id and the raw `ep_` id stay in `.help` ("… · Episode ep_…", DR-54). DR-48, DR-54, DR-69. The worm speaks in that one fixed slot —
+**Source cards (owner 2026-11-23, DESIGN_RULES §9):** the Waiting list is a card per source (`StudyListCard.sourceCard`, `sourceCardChrome`: `surface`, a `radiusLarge` ring that the pointer or its spine lights) whose row is the source's mark wearing what waits as a badge (`RailBadge`, the rail's neutral numeral knocked out of the card; what is left while a cycle reads it, none once read — `queueBadgeCount`), its name, a run's progress, and the Oldest column — no chevron, no Items column (owner 2026-11-23); open, it holds a card per episode (`EpisodeCard`, the `OriginCard` family through `originCardChrome`): the title, two lines of the preview, then `[mark] where · 3h ago · read` — the source's name never repeated (DR-38); a waiting episode `plain`, a read one `past` (faded). The kept-for-lookup line is the list's last card. Each queued episode card (`EpisodeCard`, the Waiting list and the spine popover) is one button: a click opens the stored episode in the Reader (`ReaderTarget(episode:)`, `GET /episodes/{id}/text`, from the top; `EpisodeRowAction.primary`, owner 2026-10-19 — "episode ID copied" gave the person nothing to do). Copying what Sleep would read — `GET /sleep/episodes`'s `copyValue` from `episode_copy` (a page's link, a conversation's session id, a tab group's links, a folder file's full path, else the episode id) — is the row's context menu and a named VoiceOver action ("Copy Link", "Copy Conversation ID"), with its brief toast (`Store.flash`). The footer names only a target a person can read (a site and path, "3 tab links", a file's name), how long ago (`changedAt`: a conversation's last capture, else when it arrived) and "read"; a session id and the raw `ep_` id stay in `.help` ("… · Episode ep_…", DR-54). DR-48, DR-54, DR-69. The worm speaks in that one fixed slot —
 `roomSentence` / `wormAnswers`, pure
 `SentenceLine` values over `SleepPageModel` (lead ≤ 40, tail ≤ 80, clock-free; a missing fact
 omits its rung, never shows a guess); the floating bubble is retired. The slot reserves nothing (R-Z5 as amended

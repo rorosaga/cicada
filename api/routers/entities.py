@@ -730,15 +730,18 @@ async def get_entity_citation(entity_id: str, n: int, at: int | None = None, cla
 async def get_entity_commit_diff(
     entity_id: str,
     commit_hash: str,
+    since: str | None = None,
     settings: Settings = Depends(get_settings),
 ):
-    """Added/removed lines for one entity file at one commit (backlog A1)."""
+    """Added/removed lines for one entity file at one commit (backlog A1). ``?since=<commit>`` widens it to the span
+    from that commit's parent to this one — a page a Sleep run changed in several batches, as one change (Past reads,
+    owner 2026-11-23)."""
     entity_path = settings.memory_path / "entities" / f"{entity_id}.md"
     if not entity_path.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
 
     return await git_service.get_entity_commit_diff(
-        entity_id, commit_hash, settings.memory_path
+        entity_id, commit_hash, settings.memory_path, since=since
     )
 
 

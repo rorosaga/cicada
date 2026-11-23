@@ -84,7 +84,6 @@ extension Copy {
         static let recent = "Recent"
         static let relevanceHelp = "Confidence × recency × your weight"
         static let recentHelp = "Newest first"
-        static let addSourceShortcut = "Add a source… (⌘N)"
         static let readingFeed = "Reading what you saved…"
         static let feedLoadFailed = "Couldn't load the feed"
         static let nothingSaved = "Nothing saved yet"

@@ -26,6 +26,20 @@ enum QueueRowState: Equatable {
     case nextCycle
 }
 
+/// The number on a source's mark (owner 2026-11-23: "the number of items in the consolidation queue can be a circle
+/// like those that say how many notifications you have in an app, on top of the logo"): what is still to read —
+/// the pile while idle, what is left while a cycle reads it, the pile a cycle left for the next; none once read.
+func queueBadgeCount(_ state: QueueRowState, row: StudyRow) -> Int? {
+    let n: Int
+    switch state {
+    case .waiting(let count): n = count
+    case .reading(let read, let total, _): n = total - read
+    case .nextCycle: n = row.count
+    case .done: return nil
+    }
+    return n > 0 ? n : nil
+}
+
 func queueRowState(_ row: StudyRow) -> QueueRowState {
     guard let read = row.read, let total = row.total else { return .waiting(row.count) }
     if total == 0 { return .nextCycle }
@@ -282,34 +296,31 @@ struct StudyListCard: View {
         .sourceCardChrome(lit: hoveredOrigin == row.origin || room?.hoveredOrigin == row.origin)
     }
 
-    /// The two right-hand columns' widths, one place: a row, the heads and the list's last row (`SleepWaitingList`) share them.
+    /// The age column's width, one place: a row, the head and the list's last row (`SleepWaitingList`) share it.
     static let ageColumn: CGFloat = 76
-    static let countColumn: CGFloat = 56
     /// A source card's inner edge: its row, the column heads above the cards, and the list's last card share it.
     static var cardInset: CGFloat { CicadaTheme.spacingMD }
 
     /// The right-hand block of a row: the age and the count are two fixed columns, so a name is never run into its age
     /// and the counts line up down the list (the head says "Oldest", so a row says "4d", never "just now old").
     private func rightBlock(_ row: StudyRow) -> some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
+        HStack(spacing: CicadaTheme.spacingMD) {
+            trailing(row)
             Text(row.oldestAge ?? "")
                 .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .lineLimit(1)
                 .frame(width: CicadaTheme.scaled(Self.ageColumn), alignment: .trailing)
-            trailing(row)
-                .frame(minWidth: CicadaTheme.scaled(Self.countColumn), alignment: .trailing)
         }
     }
 
-    /// ROR-118 round 2 - the two columns named once, over the first row, in the columns' own widths.
+    /// ROR-118 round 2 - the age column named once, over the first row, in its own width. The count left its column
+    /// for the mark's badge (owner 2026-11-23).
     private var columnHeads: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
             Spacer(minLength: 0)
             Text(Copy.SleepV5.columnOldest)
                 .frame(width: CicadaTheme.scaled(Self.ageColumn), alignment: .trailing)
-            Text(Copy.SleepV5.columnItems)
-                .frame(minWidth: CicadaTheme.scaled(Self.countColumn), alignment: .trailing)
         }
         .font(CicadaTheme.metaFont)
         .foregroundStyle(CicadaTheme.textSecondary)
@@ -320,15 +331,31 @@ struct StudyListCard: View {
 
     /// One mark footprint down the list (ROR-118 round 2): an app's own icon, or the SF stand-in inside a quiet tile
     /// of the same size, so the column never mixes a glyph with an icon.
+    static var markSize: CGFloat { CicadaTheme.scaled(24) }
+
     @ViewBuilder
-    private func mark(_ origin: String) -> some View {
-        let size = CicadaTheme.scaled(22)
+    static func mark(_ origin: String, size: CGFloat = markSize) -> some View {
         if OriginMark.hasRealMark(origin) {
             OriginMark(origin: origin, size: size)
         } else {
             OriginMark(origin: origin, size: size * 0.64)
                 .frame(width: size, height: size)
                 .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgBadge))
+        }
+    }
+
+    /// The mark with what waits on it (owner 2026-11-23; §9): the rail's neutral numeral (`RailBadge`, never a colour —
+    /// DR-5), at the mark's top-trailing corner, knocked out of the card's `surface` by 2 pt.
+    static func badgedMark(_ origin: String, count: Int?) -> some View {
+        mark(origin).overlay(alignment: .topTrailing) { badge(count) }
+    }
+
+    @ViewBuilder
+    static func badge(_ count: Int?) -> some View {
+        if let count {
+            RailBadge(count: count, style: .corner, knockout: CicadaTheme.surface)
+                .fixedSize()
+                .offset(x: CicadaTheme.scaled(9), y: -CicadaTheme.scaled(7))
         }
     }
 
@@ -342,12 +369,11 @@ struct StudyListCard: View {
                 }
             }
         } label: {
-            // R-HS15 — one 36 pt row (DR-34): the chevron, the source's real mark (DR-52), its
-            // name, the oldest age inline, and the trailing state.
+            // R-HS15 — one row (DR-34): the source's real mark (DR-52) wearing what waits as its badge, its name, the
+            // run's state, and the oldest age. No chevron (owner 2026-11-23): the card opens on a click anywhere.
             HStack(spacing: CicadaTheme.spacingSM) {
-                DisclosureChevron(isOpen: expandedOrigins.contains(row.origin))
-
-                mark(row.origin)
+                Self.badgedMark(row.origin, count: queueBadgeCount(queueRowState(row), row: row))
+                    .padding(.trailing, CicadaTheme.spacingXS)
 
                 Text(row.label)
                     .font(CicadaTheme.rowFont)
@@ -418,8 +444,9 @@ struct StudyListCard: View {
             Image(systemName: "checkmark")
                 .font(CicadaTheme.icon(.inline))
                 .foregroundStyle(CicadaTheme.textTertiary)
-        case .waiting(let count):
-            countText(UsageFormat.count(count))
+        case .waiting:
+            // The pile is the mark's badge (owner 2026-11-23); the row says nothing more while idle.
+            EmptyView()
         case .reading(let read, let total, let fill):
             countText("\(UsageFormat.count(read)) / \(UsageFormat.count(total))")
                 .background(alignment: .bottom) { microFill(fill) }

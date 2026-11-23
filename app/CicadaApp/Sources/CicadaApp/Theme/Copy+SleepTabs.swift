@@ -9,8 +9,6 @@ extension Copy {
         static let saved = "Saved"
         static let videos = "Videos"
         static let pastReads = "Past reads"
-        /// ROR-118 round 3 - the tab row's door for a source, said beside its plus.
-        static let add = "Add"
         static let tabsLabel = "Sleep's lists"
         /// The Saved tab's View menu: the Feed's sort and kind filter in one place (DR-38 — never a second tab row).
         static let view = "View"
@@ -22,8 +20,8 @@ extension Copy {
         static let justNow = "just now"
         static func minutesAgo(_ n: Int) -> String { "\(UsageFormat.count(n)) min ago" }
         static func hoursAgo(_ n: Int) -> String { "\(UsageFormat.count(n)) h ago" }
-        /// The Saved list's empty state (DESIGN §3.5): both doors, the room and ⌘N.
-        static let savedEmpty = "Drop a file on the room, or press ⌘N."
+        /// The Saved list's empty state (DESIGN §3.5): the room's door, and Sources for every other way in.
+        static let savedEmpty = "Drop a file on the room, or add a source in Sources."
     }
 
     /// ⌘ map A (owner, 2026-10-16) — the one-time line the first time ⌘4 lands on Skills.

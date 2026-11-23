@@ -46,7 +46,7 @@ struct HowSleepWorksContent: View {
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            // The Sleep redesign (2026-10-16) — the lists under the room answer ⌘N, ⌘F and the list keys the Feed did.
+            // The Sleep redesign (2026-10-16) — the lists under the room answer ⌘F and the list keys the Feed did.
             Divider().background(CicadaTheme.border)
             SectionLabel(ListHelp.sleepLists.title)
             ForEach(ListHelp.sleepLists.keys, id: \.key) { k in

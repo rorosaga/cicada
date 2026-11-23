@@ -27,7 +27,8 @@ from api.services import bank_index, git_service
 
 #: Folded into the routes' ETag: bump it when the body's shape changes.
 #: items-2 (G227): a page row whose title another page shares adds `qualifier` and `displayName`.
-SHAPE = "items-2"
+#: items-3 (owner 2026-11-23): a page row carries the consolidation's commits that changed it (`commits`).
+SHAPE = "items-3"
 CAP = 200
 
 _EPISODE = re.compile(r"^episodes/(?P<name>[^/]+\.md)$")
@@ -71,14 +72,15 @@ def _conversation(memory_path: Path, name: str) -> SleepConsolidatedConversation
     )
 
 
-def _page(memory_path: Path, entity_id: str) -> SleepConsolidatedPage:
+def _page(memory_path: Path, entity_id: str, commits: list[str] | None = None) -> SleepConsolidatedPage:
     from api.services import same_name
 
     fm = _header(memory_path, "entities", f"{entity_id}.md")
     name = str(fm.get("name") or "") or None
     q = same_name.qualifier(memory_path, entity_id) if fm else None
     return SleepConsolidatedPage(id=entity_id, name=name, type=str(fm.get("type") or "") or None, gone=not fm,
-                                 qualifier=q, display_name=same_name.display(name, q) if q and name else None)
+                                 qualifier=q, display_name=same_name.display(name, q) if q and name else None,
+                                 commits=list(commits or []))
 
 
 def _question(memory_path: Path, subdir: str, name: str) -> SleepConsolidatedQuestion:
@@ -104,6 +106,8 @@ async def build(memory_path: Path, commits: list[str], settles: list[str] | None
     updated: list[str] = []
     raised: list[str] = []
     settled: list[str] = []
+    #: Each page's commits in the consolidation, oldest first: what its "what changed" diff spans.
+    touched: dict[str, list[str]] = {}
     for commit in settles or []:
         for status, path in await changed_files(memory_path, commit):
             if status == "A" and (m := _SETTLED.match(path)) and m.group("name") not in settled:
@@ -117,6 +121,7 @@ async def build(memory_path: Path, commits: list[str], settles: list[str] | None
                     episodes.append(m.group("name"))
             elif m := _ENTITY.match(path):
                 eid = m.group("name")
+                touched.setdefault(eid, []).append(commit)
                 if status == "A" and eid not in created:
                     created.append(eid)
                     if eid in updated:
@@ -132,8 +137,8 @@ async def build(memory_path: Path, commits: list[str], settles: list[str] | None
     conversations = sorted((_conversation(memory_path, n) for n in episodes),
                            key=lambda c: (c.timestamp or "", c.id))
     conv, t1 = _capped(conversations)
-    new, t2 = _capped([_page(memory_path, e) for e in created])
-    changed, t3 = _capped([_page(memory_path, e) for e in updated])
+    new, t2 = _capped([_page(memory_path, e, touched.get(e)) for e in created])
+    changed, t3 = _capped([_page(memory_path, e, touched.get(e)) for e in updated])
     # A question raised in the run and settled since lives under settled/ now; read it from wherever it is.
     up, t4 = _capped([_question(memory_path, "inbox" if (Path(memory_path) / "inbox" / n).exists()
                                 else "inbox/settled", n) for n in raised])

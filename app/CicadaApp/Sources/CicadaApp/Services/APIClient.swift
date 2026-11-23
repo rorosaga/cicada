@@ -2068,6 +2068,13 @@ actor APIClient {
         return try await get("/entities/\(encodedID(id))/history/\(encodedID(commitHash))/diff")
     }
 
+    /// One page's change across a consolidation's commits (owner 2026-11-23, Past reads): from `since`'s parent to
+    /// `commitHash`, so a page several batches touched reads as one before → after.
+    func fetchEntityCommitDiff(id: String, commitHash: String, since: String) async throws -> EntityDiff {
+        let query = since.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? since
+        return try await get("/entities/\(encodedID(id))/history/\(encodedID(commitHash))/diff?since=\(query)")
+    }
+
     /// Ruling 48 part 14 / DR-77 (part B): one page of the History tab — each row with its filter bucket, time and
     /// summary — read only when the tab opens; `more` is the `X-History-More` header.
     func fetchEntityHistoryPage(id: String, skip: Int = 0, limit: Int = HistoryPager.pageSize)

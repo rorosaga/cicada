@@ -167,12 +167,15 @@ struct NavRailCell: View {
     }
 }
 
-/// The rail's pending numeral (DR-22, DR-51): the only badge in the app — tabular
-/// `textPrimary` on a `bgBadge` capsule, knocked out of the rail by 2 pt.
+/// The rail's pending numeral (DR-22, DR-51): tabular `textPrimary` on a `bgBadge` capsule, knocked out of what it
+/// sits on by 2 pt (the rail's `bgRail`). Since 2026-11-23 (§9) it is also a Sleep source's waiting count, on its mark,
+/// knocked out of the source card's `surface`.
 struct RailBadge: View {
     enum Style { case corner, inline }
     let count: Int
     let style: Style
+    /// What the corner capsule is knocked out of.
+    var knockout: Color = CicadaTheme.bgRail
 
     /// How far the corner capsule's trailing edge hangs past the cell's (points, before scaling): "99+" is ~26 pt wide
     /// and the glyph centres in a 36 pt cell, so this keeps the capsule off the icon; the rail's 10 pt margin takes it.
@@ -190,7 +193,7 @@ struct RailBadge: View {
             .padding(.horizontal, CicadaTheme.scaled(corner ? 4 : 6))
             .frame(minWidth: CicadaTheme.scaled(corner ? 16 : 22), minHeight: CicadaTheme.scaled(corner ? 16 : 20))
             .background(Capsule().fill(CicadaTheme.bgBadge))
-            .background { if corner { Capsule().fill(CicadaTheme.bgRail).padding(-2) } }
+            .background { if corner { Capsule().fill(knockout).padding(-2) } }
             .accessibilityHidden(true)   // the cell's label already says "6 pending"
     }
 }
