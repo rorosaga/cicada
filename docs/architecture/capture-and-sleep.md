@@ -3961,6 +3961,26 @@ is about, who did it, and never say one thing twice. Four mechanisms, each engin
   pages fold, every one of 25 sampled loss-free. Paraphrase is not touched: ~2,700 facts on 477 pages pair up at
   content-word Jaccard ≥ 0.6, and 2,741 Key Facts on 772 pages re-introduce their page ("X is a …", a displaced
   orientation) — only the opt-in synthesis call folds those (ruling 23).
+- **A link in new text is written under the page's own name (`link_names`, G148, owner report 2026-11-23).** Stage 1
+  reads each conversation alone, so it wrote `[[Girlfriend]]`, `[[<nickname>]]` and `[[<owner>'s girlfriend]]` for one
+  person; Stage 2 resolved all three to her page, but the text kept the spelling — one page read as three people, equal
+  facts stopped being equal, a link naming an alias drew no `mentions` edge (`wikilink_resolver` indexes names and ids)
+  and the article writer narrated each spelling as a separate person. At the top of Stage 3 (`conflict_resolver
+  .resolve_and_prune`, before any call reads the text) each `[[link]]` in a create's or update's Summary, Key Facts,
+  History lines and Open Questions whose target is another spelling of ONE page is **rewritten to the page's name**
+  (not piped: every reader unwraps a piped link to its display text, so a piped form keeps the spellings the equality
+  check and the writer read; a link the writer piped on purpose keeps its display text, only the target moves). The
+  source rows (`section_provenance.INPUTS`) carrying the same text move with it, so no row is lost; the person's words
+  are the conversation's and the evidence spans point there. Only a resolution that is certain: exactly one non-dropped
+  page answers to the spelling (name, alias, id) and the page's own name resolves back to that page alone (G227: a
+  shared title is neither's); an unknown or ambiguous spelling stays as written, nothing is guessed from similarity,
+  no page is renamed or merged. A plain mention with no brackets ("<owner>'s partner's favourite artist") is **not**
+  touched and Stage 1 is not told the bank's names: that would send it names per prompt for a model's guess to use,
+  and `role_people` already titles a relation-only person. Text already on a page is never rewritten (a bullet's
+  rows are keyed by its words), so old bullets keep their spelling and heal only as the fold below takes them. The
+  article writer (`entity_article`) is offered one name a page in LINKABLE and, when its inputs spell a page more
+  than one way (the record on a page written before this), a `SAME_PAGE` list — "`as` is another name of `is`" — with a
+  rule to write it once under the one name and never as different people.
 - **Who said it, who did it.** A claim resting only on the other side's words is theirs (`entity_extractor
   .assistant_observer`): a texted agent's (G179), and now a harness session's agent (`external:<harness>`) and a chat
   export's assistant (`external:chatgpt|claude|gemini`); a relayed episode (`evidence_kind`) keeps its own rail. Such
