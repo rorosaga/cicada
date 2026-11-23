@@ -134,8 +134,19 @@ def test_the_bound_one_call_a_name_and_what_is_over_the_cap_stays():
 
 def test_the_prompt_asks_for_positive_evidence_and_says_a_setting_is_none():
     prompt = snp.build_prompt("Marc", M, [snp.Identity("page", "marc", True, COLLEAGUE)])
-    assert "NOT a difference" in prompt and "a different trade or employer" in prompt
+    assert "NOT a difference" in prompt and "cannot be true of one person at the same time" in prompt
     assert f"[1] {COLLEAGUE}" in prompt and f"(A) {CARPENTER}" in prompt
+
+
+def test_the_prompt_says_a_life_that_changes_is_one_person_and_a_split_names_two_facts_that_cannot_both_hold():
+    """2026-11-23: a partner who gets a job and moves, a friend who is promoted, were split from their own page (a
+    different employer or town read as a different person). A change since the earlier conversation is the same person;
+    a split must quote one fact from each side that cannot both be true at the same time."""
+    prompt = snp.build_prompt("Idris", _mentions(("e1", "(2026-11-03) Got a job at the hospital in Grenoble.")),
+                              [snp.Identity("page", "idris", True, "Idris is the speaker's partner.")])
+    assert "People change" in prompt and "NOT a different person" in prompt and "headed by that conversation's date" in prompt
+    assert "quote the two facts" in prompt and "silent about something says nothing" in prompt
+    assert "choose the known person" in prompt
 
 
 def test_only_a_bare_name_is_for_this_rule():

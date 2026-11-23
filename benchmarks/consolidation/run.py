@@ -299,7 +299,7 @@ def _run_leg(model: str, out: Path, bank: Path, home: Path, fixture: dict, clock
     import asyncio
     from unittest.mock import patch
 
-    from api.services import providers, sleep_cycle
+    from api.services import entity_resolver, providers, sleep_cycle
     from benchmarks.engine_parity import _usage_events, _by_stage, settings_for
     from benchmarks.system.engine import embed
 
@@ -308,11 +308,23 @@ def _run_leg(model: str, out: Path, bank: Path, home: Path, fixture: dict, clock
                             judge=engine_model(engine, judge))
     fake_embed = lambda *a, **k: (embed, "fake-hash-v1")  # noqa: E731 — the search model is not what is compared
     phases = []
+    # Every same-name judge call (`same_name_people`), as asked and as answered, beside the bank: the replay battery
+    # (`same_name_battery.py`) is built from these, so it tests the inputs the pipeline really produces.
+    asked = entity_resolver._same_name_ask
+    calls_path = out / "same_name_calls.jsonl"
+
+    async def recording_ask(settings_, system, prompt, *args, **kwargs):
+        answer = await asked(settings_, system, prompt, *args, **kwargs)
+        with open(calls_path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"system": system, "prompt": prompt, "answer": answer}, ensure_ascii=False) + "\n")
+        return answer
+
     for phase in sorted({c["phase"] for c in fixture["conversations"]}):
         convs = [c for c in fixture["conversations"] if c["phase"] == phase]
         staged = stage(bank, convs, clock, f"Bench intake, phase {phase}")
         started = time.perf_counter()
         with patch.object(providers, "resolve_embed_fn", fake_embed), \
+                patch.object(entity_resolver, "_same_name_ask", recording_ask), \
                 patch.object(providers, "resolve_embed_fn_for_model", fake_embed), \
                 patch.object(providers, "cached_embed_fn_for_model", fake_embed):
             asyncio.run(sleep_cycle.run(settings, f"sleep_bench_{phase}", user_triggered=True, drain=True))

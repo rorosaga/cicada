@@ -1,0 +1,1345 @@
+[
+ {
+  "id": "idris-people-final",
+  "name": "Idris",
+  "kind": "one",
+  "note": "a stored run (people-final, r1): the held line the judge split off",
+  "identities": [
+   {
+    "text": "## Summary\nIdris is Noor Haddad's partner and travel companion for the planned Japan trip.\n\n## Key Facts\n- Idris visited Osaka last year and did not like it.\n- Idris has tattoos, so Noor Haddad and Idris are skipping onsen.\n- Idris will eat anything.",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-03) Idris is someone close to Noor Haddad who moved with them to Grenoble and got a job at the university hospital there. Facts: Got a job at the university hospital in Grenoble (stated 2026-11-03); Moved from Lyon to Grenoble with Noor Haddad on 2026-11-02",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "idris-decay-after",
+  "name": "Idris",
+  "kind": "one",
+  "note": "a stored run (decay-after, r1): the held line the judge split off",
+  "identities": [
+   {
+    "text": "## Summary\nIdris is Noor Haddad's partner and travel companion for the Japan trip.\n\n## Key Facts\n- Idris went to Osaka last year and did not like it.\n- Idris has tattoos, so onsen are being avoided.\n- Idris will eat anything.\n- Idris got a job at the university hospital in Grenoble.\n- Idris's job was the reason given for the move to Grenoble.\n- Idris is connected to Noor Haddad, who moved with them to Grenoble. Idris got a job at the university hospital there.\n\n## Related\n- [[Noor Haddad]] — partner of\n- [[Japan trip]] — travels-on\n\n## Open Questions\n- What is Idris's relation to Noor Haddad?",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-21) Idris is someone whose parents Noor Haddad is hosting for dinner on a Saturday in November 2026. Facts: Idris's parents were invited to dinner at Noor Haddad's on the Saturday after 2026-11-21.",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "idris-decay-iter2",
+  "name": "Idris",
+  "kind": "one",
+  "note": "a stored run (decay-iter2, r1): the held line the judge split off",
+  "identities": [
+   {
+    "text": "## Summary\nIdris is Noor Haddad's partner and travel companion for the planned Japan trip.\n\n## Key Facts\n- Idris visited Japan last year and did not like Osaka.\n- Idris has tattoos, so the couple are avoiding onsens.\n- Idris eats anything.",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-03) Idris is a person close to Noor Haddad who got a job at the university hospital in Grenoble, which prompted the move. Facts: Idris got a job at the university hospital in Grenoble.; Idris moved to Grenoble with Noor Haddad.",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "idris-final-dev",
+  "name": "Idris",
+  "kind": "one",
+  "note": "a stored run (final-dev, r1): the held line the judge split off",
+  "identities": [
+   {
+    "text": "## Summary\nIdris is Noor Haddad's partner and travel companion for the Japan trip.\n\n## Key Facts\n- Idris went to Osaka last year and did not like it\n- Idris has tattoos, so onsen are being avoided\n- Idris will eat anything",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-03) Got a job at the university hospital in Grenoble, which prompted the move there. Facts: Got a job at the university hospital in Grenoble; Moved to Grenoble with Noor Haddad on 2026-11-02",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "teo-promoted-real",
+  "name": "Teo",
+  "kind": "one",
+  "note": "a stored run (people-after, r3, Ines): the held line the judge split off, before the 15-word floor",
+  "identities": [
+   {
+    "text": "Person who put in a word for Ines Varga with Kestrel Robotics. Teo put in a word for [[Ines Varga]] at [[Kestrel Robotics]]",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-13) Teo is head of product at Kestrel after a promotion, and is two levels above Ines Varga in the hierarchy as of November 2026. Facts: Teo was promoted to head of product at Kestrel (stated 2026-11-13).; Teo is two levels above Ines Varga after the promotion.; Teo works on a different floor from Ines Varga.",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "partner-job-move",
+  "name": "Dani",
+  "kind": "one",
+  "note": "a partner who changes job and city; the page names no job or town",
+  "identities": [
+   {
+    "text": "## Summary\nDani is the user's partner and travel companion for the planned Lisbon trip.\n\n## Key Facts\n- Dani went to Porto last spring and loved it\n- Dani is allergic to shellfish\n- Dani will eat anything else\n\n## Related\n- [[Lisbon trip]] — travels-on",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-10-31) Got a job at the regional hospital in Aveiro, which is why they are moving there next month. Facts: Dani accepted a nurse position at the regional hospital in Aveiro; Dani and the user will move to Aveiro on 2026-11-30",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "partner-job-move-2",
+  "name": "Ravi",
+  "kind": "one",
+  "note": "a partner who changes trade and city: the page does name both",
+  "identities": [
+   {
+    "text": "## Summary\nRavi is the user's husband, an accountant at a firm in Bristol.\n\n## Key Facts\n- Ravi bakes bread on weekends\n- Ravi's parents live in Pune",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-09-05) Ravi was offered a lectureship at a university in Leeds and is relocating there after the summer. Facts: Ravi is leaving the firm where he has worked for six years; Ravi will teach statistics in Leeds",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "friend-promoted",
+  "name": "Kasia",
+  "kind": "one",
+  "note": "a friend promoted",
+  "identities": [
+   {
+    "text": "## Summary\nKasia is a friend from the climbing gym and a software engineer at a logistics company.\n\n## Key Facts\n- Kasia belays the user on Thursdays\n- Kasia is training for a competition in spring",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-10-12) Kasia was promoted to director of engineering and now manages forty people. Facts: Kasia was promoted to director in October 2026",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "parent-retires-moves",
+  "name": "Pau",
+  "kind": "one",
+  "note": "a parent who retires and moves",
+  "identities": [
+   {
+    "text": "## Summary\nPau is the user's father, an electrician who has run his own workshop in Girona for thirty years.\n\n## Key Facts\n- Pau fishes on weekends\n- Pau is sixty-six",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-15) Pau retired this month, sold the workshop in Girona and is moving to the coast with the user's mother. Facts: Pau sold his electrical workshop; Pau is moving to a flat in Cadaqués in January",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "colleague-manager",
+  "name": "Helga",
+  "kind": "one",
+  "note": "a colleague who becomes the manager",
+  "identities": [
+   {
+    "text": "## Summary\nHelga is a colleague on the user's data team, a senior analyst who reviews the user's pull requests.\n\n## Key Facts\n- Helga joined the company in 2022\n- Helga works from the Hamburg office on Tuesdays",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-10-20) Helga became the team's manager after the reorganisation and now sets the user's quarterly goals. Facts: Helga was appointed manager of the data team; Helga moved to the glass office on the fourth floor",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "sister-marries-moves",
+  "name": "Alba",
+  "kind": "one",
+  "note": "a sister who marries and moves city",
+  "identities": [
+   {
+    "text": "## Summary\nAlba is the user's sister, a graphic designer who lives in Madrid and freelances for magazines.\n\n## Key Facts\n- Alba plays the cello\n- Alba is two years younger than the user",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-02) Alba got married in October and moved with her husband to Valencia, where she works at a design studio. Facts: Alba married in October 2026; Alba now lives in Valencia",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "cousin-graduates-abroad",
+  "name": "Ibou",
+  "kind": "one",
+  "note": "a cousin who finishes a degree and moves",
+  "identities": [
+   {
+    "text": "## Summary\nIbou is the user's cousin, finishing a law degree in Lyon.\n\n## Key Facts\n- Ibou is writing a thesis on maritime contracts",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-10-03) Ibou started as a junior lawyer at a firm in Paris this autumn and rents a studio near the canal. Facts: Ibou passed the bar exam in July; Ibou lives in Paris",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "mentor-startup",
+  "name": "Greta",
+  "kind": "one",
+  "note": "a mentor who leaves to found a company",
+  "identities": [
+   {
+    "text": "## Summary\nGreta is the user's former manager and mentor, a director at a retail bank in Frankfurt.\n\n## Key Facts\n- Greta taught the user to run a post-mortem\n- Greta has two children",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-09-18) Greta left the bank to found a payments startup in Berlin and asked the user to be an early advisor. Facts: Greta resigned in August; Greta is raising a seed round",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "friend-baby",
+  "name": "Nuno",
+  "kind": "one",
+  "note": "a friend becomes a father",
+  "identities": [
+   {
+    "text": "## Summary\nNuno is the user's flatmate from university, now a lab technician in Basel.\n\n## Key Facts\n- Nuno keeps carnivorous plants\n- Nuno married in June",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-08) Nuno and his wife had a baby girl last week; he is on paternity leave until January. Facts: Nuno became a father on 2026-11-01",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "dentist-new-clinic",
+  "name": "Vito",
+  "kind": "one",
+  "note": "a dentist changes clinic",
+  "identities": [
+   {
+    "text": "## Summary\nVito is the user's dentist at a clinic on Rua Augusta who replaced a filling in spring.\n\n## Key Facts\n- Vito wants to see the user again in six months",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-09-04) Vito opened his own practice across town and invited the user to transfer their records. Facts: Vito left the dental clinic on Rua Augusta; Vito's new practice is in Campo de Ourique",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "two-mentions-before-after",
+  "name": "Lio",
+  "kind": "one",
+  "note": "three mentions in a batch, a career change between them, no known page",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-02-02) Lio is a close friend who works as a bank teller in Turin and plays drums in a covers band on weekends.",
+    "label": "p"
+   },
+   {
+    "text": "(2026-10-20) Lio quit the bank and is retraining as a carpenter; the user visited the workshop where he apprentices in Turin.",
+    "label": "p"
+   },
+   {
+    "text": "(2026-11-10) Lio's band played a gig at the user's street festival and Lio brought his new workbench photos to show everyone.",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "new-setting-only",
+  "name": "Mira",
+  "kind": "one",
+  "note": "a new setting, no contrast at all",
+  "identities": [
+   {
+    "text": "## Summary\nMira is the user's partner; they cook together on Sundays and train for a ten kilometre race.\n\n## Key Facts\n- Mira is an architect at a small firm\n- Mira's birthday is in March\n\n## Related\n- [[Race training]] — part-of",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-12) Mira is presenting a library design to the city council next week and asked the user to rehearse the pitch with her. Facts: Mira prepares a council presentation",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "silent-page-new-fact",
+  "name": "Joan",
+  "kind": "one",
+  "note": "known page nearly empty, a mention that adds job and town",
+  "identities": [
+   {
+    "text": "## Summary\nJoan is the user's friend. Joan lent the user a tent for the camping trip.\n\n## Key Facts\n",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-10-10) Joan lives in Edinburgh and works as a vet at a clinic near the castle. Facts: Joan is a veterinarian; Joan lives in Edinburgh",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "moved-country-student",
+  "name": "Sol",
+  "kind": "one",
+  "note": "moved country and left the job",
+  "identities": [
+   {
+    "text": "## Summary\nSol is a friend in Lima who teaches maths at a secondary school.\n\n## Key Facts\n- Sol video-calls the user on weekends",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-09-09) Sol is now based in Madrid doing a master's in statistics and visited the user for a long weekend. Facts: Sol moved to Madrid in September",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "estranged-reconciled",
+  "name": "Marek",
+  "kind": "one",
+  "note": "a relationship that changes",
+  "identities": [
+   {
+    "text": "## Summary\nMarek is the user's former business partner who ran a small design studio with the user in Krakow.\n\n## Key Facts\n- The partnership ended in 2024 over a disagreement about money",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-10-25) Marek called the user after two years of silence and they agreed to meet for coffee in the old town. Facts: Marek and the user reconnected in October 2026",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "es-promocion",
+  "name": "Lucía",
+  "kind": "one",
+  "note": "Spanish: promotion and move",
+  "identities": [
+   {
+    "text": "## Summary\nLucía es una amiga del usuario, ingeniera de software en una empresa de logística en Medellín.\n\n## Key Facts\n- Lucía juega al tenis los sábados",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-10-14) Lucía es ahora la directora de operaciones de la empresa y se mudó a Bogotá con su familia. Facts: Lucía fue ascendida a directora de operaciones en septiembre; Lucía vive en Bogotá",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "fr-demenage",
+  "name": "Léa",
+  "kind": "one",
+  "note": "French: a colleague who changes job and city",
+  "identities": [
+   {
+    "text": "## Summary\nLéa est une collègue de l'utilisateur, chercheuse dans un laboratoire à Grenoble.\n\n## Key Facts\n- Léa a envoyé son modèle de recherche sur Slack",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-05) Léa a changé de poste: elle est maintenant cheffe de projet chez un éditeur à Lyon et a déménagé le mois dernier. Facts: Léa a quitté le laboratoire en octobre; Léa habite à Lyon",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "de-neuer-job",
+  "name": "Jonas",
+  "kind": "one",
+  "note": "German: brother-in-law who changes career and city",
+  "identities": [
+   {
+    "text": "## Summary\nJonas ist der Schwager des Nutzers, Bauingenieur in einem Büro in München.\n\n## Key Facts\n- Jonas fährt jedes Jahr zum Skifahren nach Tirol",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-10-02) Jonas hat gekündigt und arbeitet jetzt als Lehrer an einer Gesamtschule in Köln; die Familie ist im Sommer umgezogen. Facts: Jonas wechselte vom Ingenieurbüro in den Schuldienst; Jonas wohnt in Köln",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "established-page-new-chat",
+  "name": "Teo",
+  "kind": "one",
+  "note": "an established page (several conversations) and a later promotion",
+  "identities": [
+   {
+    "text": "## Summary\nTeo is the user's old teammate from university, now a product manager at Kestrel Robotics.\n\n## Key Facts\n- Teo and the user had lunch on 2026-10-02\n- Teo said Kestrel Robotics is hiring data engineers\n- Teo put in a word for the user at Kestrel Robotics\n- Teo plays chess online\n\n## Related\n- [[Kestrel Robotics]] — works-at",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-13) Teo is head of product after a promotion and is two levels above the user in the hierarchy. Facts: Teo was promoted in November 2026",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "marc-like-known-colleague",
+  "name": "Marc",
+  "kind": "two",
+  "note": "a relation one person cannot hold twice, a different trade and town, against an established page",
+  "identities": [
+   {
+    "text": "## Summary\nMarc is a colleague on the user's team who is moving to the Berlin office in March.\n\n## Key Facts\n- Marc presented the Q4 roadmap in the weekly meeting\n- Marc has worked at the company for five years",
+    "label": "work",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-10-29) Marc is the user's brother-in-law, a carpenter in Annecy who is building a bookshelf for the user's flat. Facts: Marc is married to the user's sister; Marc runs a carpentry workshop in Annecy",
+    "label": "family"
+   }
+  ]
+ },
+ {
+  "id": "marc-like-known-family",
+  "name": "Marc",
+  "kind": "two",
+  "note": "the reverse: an established family page, a colleague mention",
+  "identities": [
+   {
+    "text": "## Summary\nMarc is the user's brother-in-law, a carpenter in Annecy.\n\n## Key Facts\n- Marc is married to the user's sister\n- Marc built the user's bookshelf",
+    "label": "family",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-14) Marc is a colleague who confirmed in the weekly meeting that he is moving to the Berlin office in March. Facts: Marc will work from Berlin from March 2027",
+    "label": "work"
+   }
+  ]
+ },
+ {
+  "id": "marc-like-interleaved",
+  "name": "Marc",
+  "kind": "two",
+  "note": "five mentions, interleaved in time, no known page",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-09-29) Marc is the user's brother-in-law, a carpenter based in Annecy who is coming at the weekend to help fit a kitchen.",
+    "label": "family"
+   },
+   {
+    "text": "(2026-10-02) Marc is a colleague on the user's research team who said in the meeting that he is moving to the Berlin office in March.",
+    "label": "work"
+   },
+   {
+    "text": "(2026-10-14) Marc, a colleague, confirmed in the weekly meeting that his move to the Berlin office is set for the fifteenth of March.",
+    "label": "work"
+   },
+   {
+    "text": "(2026-11-03) Marc the carpenter and the user's sister are expecting their second child in spring.",
+    "label": "family"
+   },
+   {
+    "text": "(2026-11-11) Marc, the colleague, handed over his projects before the Berlin move.",
+    "label": "work"
+   }
+  ]
+ },
+ {
+  "id": "marc-like-two-known",
+  "name": "Marc",
+  "kind": "two",
+  "note": "two known people and a mention that fits one",
+  "identities": [
+   {
+    "text": "## Summary\nMarc is a colleague who is moving to the Berlin office.\n\n## Key Facts\n- Marc runs the weekly meeting",
+    "label": "work",
+    "plain": true
+   },
+   {
+    "text": "Marc is the user's brother-in-law, a carpenter in Annecy, married to the user's sister.",
+    "label": "family",
+    "plain": false
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-20) Marc led the retro meeting and asked the team to estimate the Berlin migration.",
+    "label": "work"
+   }
+  ]
+ },
+ {
+  "id": "grandmother-vs-intern",
+  "name": "Rosa",
+  "kind": "two",
+  "note": "invented",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-03-03) Rosa is the user's grandmother, eighty-four, who lives in Seville and still makes lunch for the whole family on Sundays.",
+    "label": "a"
+   },
+   {
+    "text": "(2026-03-20) Rosa is a new intern on the user's team, twenty-two, who just graduated and is learning the deployment pipeline.",
+    "label": "b"
+   }
+  ]
+ },
+ {
+  "id": "dentist-vs-cousin",
+  "name": "Vito",
+  "kind": "two",
+  "note": "invented",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-04-04) Vito is the user's dentist in Porto who replaced a filling and wants to see the user again in six months.",
+    "label": "a"
+   },
+   {
+    "text": "(2026-04-25) Vito is the user's cousin, a long-haul truck driver based in Toronto who is visiting for two weeks in the summer.",
+    "label": "b"
+   }
+  ]
+ },
+ {
+  "id": "teacher-vs-sister",
+  "name": "Inge",
+  "kind": "two",
+  "note": "invented",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-05-02) Inge is the teacher of the user's son at the primary school and asked for a meeting about his reading.",
+    "label": "a"
+   },
+   {
+    "text": "(2026-05-19) Inge is the user's sister, an airline pilot based in Dubai who flies long-haul routes and is home twice a year.",
+    "label": "b"
+   }
+  ]
+ },
+ {
+  "id": "ceo-vs-nephew",
+  "name": "Max",
+  "kind": "two",
+  "note": "invented",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-06-06) Max is the chief executive of a logistics firm in Hamburg, a client the user is preparing a proposal for.",
+    "label": "a"
+   },
+   {
+    "text": "(2026-06-15) Max is the user's nephew, nine years old, who plays football on Saturdays and wants a telescope for his birthday.",
+    "label": "b"
+   }
+  ]
+ },
+ {
+  "id": "landlord-vs-teammate",
+  "name": "Hugo",
+  "kind": "two",
+  "note": "invented",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-07-01) Hugo is the user's landlord, retired and in his seventies, who lives downstairs and fixed the boiler himself.",
+    "label": "a"
+   },
+   {
+    "text": "(2026-07-09) Hugo is a teammate in the user's under-twenty-five hockey league, a first-year student who plays in goal.",
+    "label": "b"
+   }
+  ]
+ },
+ {
+  "id": "two-cities-same-time",
+  "name": "Ander",
+  "kind": "two",
+  "note": "invented",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-08-01) Ander is the user's neighbour across the landing in Bilbao, a retired sailor who waters the plants when the user travels.",
+    "label": "a"
+   },
+   {
+    "text": "(2026-08-03) Ander is a recruiter at an agency in Singapore who contacted the user about a data engineering role there.",
+    "label": "b"
+   }
+  ]
+ },
+ {
+  "id": "known-page-other-person",
+  "name": "Marta",
+  "kind": "two",
+  "note": "invented",
+  "identities": [
+   {
+    "text": "Marta is the user's manager at a publishing house in Lisbon. She leads the editorial team and approved the user's promotion in May.",
+    "label": "a",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-10) Marta is the user's niece, six years old, who started primary school this autumn and lost her first tooth last week.",
+    "label": "b"
+   }
+  ]
+ },
+ {
+  "id": "es-two-people",
+  "name": "Pablo",
+  "kind": "two",
+  "note": "invented",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-05-04) Pablo es el hermano del usuario, un cocinero que dirige un restaurante pequeño en Bilbao.",
+    "label": "a"
+   },
+   {
+    "text": "(2026-05-22) Pablo es un cliente de la consultora del usuario, director financiero de una aseguradora en Ciudad de México.",
+    "label": "b"
+   }
+  ]
+ },
+ {
+  "id": "fr-two-people",
+  "name": "Hugo",
+  "kind": "two",
+  "note": "invented",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-06-02) Hugo est le fils de l'utilisateur, six ans, qui apprend à nager à la piscine municipale.",
+    "label": "a"
+   },
+   {
+    "text": "(2026-06-18) Hugo est un collègue de l'utilisateur, développeur senior à Lille, qui a présenté l'architecture du nouveau service.",
+    "label": "b"
+   }
+  ]
+ },
+ {
+  "id": "real-noor-0-léa",
+  "name": "Léa",
+  "kind": "one",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-10-02) Léa is a colleague who handled recruitment for the banking app usability study and takes notes in its interviews. Facts: Léa planned to share her research template on Slack after the 2026-10-02 meeting.",
+    "label": "p"
+   },
+   {
+    "text": "(2026-10-06) Colleague or contact of Noor Haddad who shared her research template on Slack. Facts: Léa's Slack handle is @leaux.; Léa sent Noor Haddad her research template, which has a section for the participant's own words, verbatim, separate from interpretation.",
+    "label": "p"
+   },
+   {
+    "text": "(2026-10-14) Participant in a 2026-10-14 meeting with Noor Haddad; codes the notes for the banking study. Facts: Léa said she needs the extra time before the readout to code the notes.",
+    "label": "p"
+   }
+  ],
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+ },
+ {
+  "id": "real-noor-1-marc",
+  "name": "Marc",
+  "kind": "two",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-09-29) Marc is Noor Haddad's brother-in-law, a carpenter based in Annecy, who is helping assemble shelves. Facts: Marc is Noor Haddad's brother-in-law.; Marc is a carpenter (menuisier) in Annecy.; Marc brings his own tools to assemble Noor Haddad's shelves.",
+    "label": "fam"
+   },
+   {
+    "text": "(2026-10-02) Marc is a colleague on the banking app usability study who is moving to the Berlin office. Facts: Marc said on 2026-10-02 that he is moving to the Berlin office in March 2027 and will be remote for the study afterwards.",
+    "label": "work"
+   },
+   {
+    "text": "(2026-10-14) Participant in a 2026-10-14 meeting with Noor Haddad; moving to Berlin. Facts: Marc said his Berlin move is confirmed for the 15th of March (2027).",
+    "label": "work"
+   }
+  ],
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+ },
+ {
+  "id": "real-noor-2-léa",
+  "name": "Léa",
+  "kind": "one",
+  "identities": [
+   {
+    "text": "## Summary\nLéa is a colleague who handled recruitment for the banking app usability study and takes notes in its interviews.\n\n## Key Facts\n- Léa's Slack handle is @leaux.\n- Léa sent Noor Haddad her research template, which has a section for the participant's own words, verbatim, separate from interpretation.\n- Léa planned to share her research template on Slack after the 2026-10-02 meeting.\n- Colleague or contact of Noor Haddad who shared her research template on Slack.\n- Léa said she needs the extra time before the readout to code the notes.\n- Participant in a 2026-10-14 meeting with Noor Haddad; codes the notes for the banking study.\n\n## History\n- 2026-10-06: Léa sent Noor Haddad her research template on Slack.\n- 2026-10-14: Accepted the later readout, saying she needs time to code the notes.",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-05) Léa is a colleague of Noor Haddad who is going on parental leave in January 2027 and will hand over her notes. Facts: Léa said on 2026-11-05 that she is going on parental leave in January 2027.; Léa will hand her notes to Noor Haddad before her leave.",
+    "label": "p"
+   }
+  ],
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+ },
+ {
+  "id": "real-noor-3-marc",
+  "name": "Marc",
+  "kind": "two",
+  "identities": [
+   {
+    "text": "## Summary\nMarc is a colleague on the banking app usability study who is moving to the Berlin office.\n\n## Key Facts\n- Marc said on 2026-10-02 that he is moving to the Berlin office in March 2027 and will be remote for the study afterwards.\n- Marc said his Berlin move is confirmed for the 15th of March (2027).\n- Participant in a 2026-10-14 meeting with Noor Haddad; moving to Berlin.\n\n## History\n- 2026-10-14: Said his move to Berlin is confirmed for 15 March.",
+    "label": "work",
+    "plain": true
+   },
+   {
+    "text": "Marc is Noor Haddad's brother-in-law, a carpenter based in Annecy, who is helping assemble shelves. Marc is Noor Haddad's brother-in-law. Marc is a carpenter (menuisier) in Annecy. Marc brings his own tools to assemble Noor Haddad's shelves.",
+    "label": "fam",
+    "plain": false
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-05) Marc is a meeting participant who offered to join the findings readout from Berlin. Facts: Marc said he can join the readout from Berlin.",
+    "label": "work"
+   }
+  ],
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+ },
+ {
+  "id": "real-noor-4-idris",
+  "name": "Idris",
+  "kind": "one",
+  "identities": [
+   {
+    "text": "## Summary\nIdris is Noor Haddad's partner and travel companion for the Japan trip. Idris visited Japan the year before and did not like Osaka.\n\n## Key Facts\n- Idris went to Japan in 2025 and did not like Osaka.\n- Idris has tattoos, which many onsen do not allow.\n- Idris will eat anything.",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-03) Idris is someone close to Noor Haddad who got a job at the university hospital in Grenoble, prompting their move. Facts: Idris got a job at the university hospital in Grenoble; Idris moved to Grenoble with Noor Haddad on 2026-11-02",
+    "label": "p"
+   }
+  ],
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+ },
+ {
+  "id": "real-noor-5-idris",
+  "name": "Idris",
+  "kind": "one",
+  "identities": [
+   {
+    "text": "## Summary\nIdris is Noor Haddad's partner and was a travel companion for the Japan trip; Idris had visited Japan in 2025 and did not like Osaka. On 2026-11-02 Idris moved to Grenoble with Noor Haddad.\n\n## Key Facts\n- Idris went to Japan in 2025 and did not like Osaka.\n- Idris has tattoos, which many onsen do not allow.\n- Idris will eat anything.\n- Idris got a job at the university hospital in Grenoble\n- Idris moved to Grenoble with Noor Haddad on 2026-11-02\n\n## Related\n- [[Noor Haddad]] — partner of\n\n## History\n- 2026-11-02: Moved to Grenoble with Noor Haddad\n\n## Open Questions\n- What is Idris's relationship to Noor Haddad?",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-21) Idris is a person in Noor Haddad's life whose parents are coming to dinner at Noor Haddad's home. Facts: Idris's parents are coming for dinner with Noor Haddad on Saturday, per the 2026-11-21 conversation.",
+    "label": "p"
+   }
+  ],
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+ },
+ {
+  "id": "real-noor-6-marc",
+  "name": "Marc",
+  "kind": "two",
+  "identities": [
+   {
+    "text": "## Summary\nMarc is a colleague on the banking app usability study who is moving to the Berlin office.\n\n## Key Facts\n- Marc said on 2026-10-02 that he is moving to the Berlin office in March 2027 and will be remote for the study afterwards.\n- Marc said his Berlin move is confirmed for the 15th of March (2027).\n- Participant in a 2026-10-14 meeting with Noor Haddad; moving to Berlin.\n- Marc said he can join the readout from Berlin.\n- Marc is a meeting participant who offered to join the findings readout from Berlin.\n\n## Related\n- [[Banking App Usability Study]] — will join readout of\n\n## History\n- 2026-10-14: Said his move to Berlin is confirmed for 15 March.",
+    "label": "work",
+    "plain": true
+   },
+   {
+    "text": "Marc is Noor Haddad's brother-in-law, a carpenter based in Annecy, who is helping assemble shelves. Marc is Noor Haddad's brother-in-law. Marc is a carpenter (menuisier) in Annecy. Marc brings his own tools to assemble Noor Haddad's shelves.",
+    "label": "fam",
+    "plain": false
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-15) Noor Haddad's brother-in-law, who lives in or near Annecy and helped put up shelves in Grenoble in November 2026. Facts: Marc is Noor Haddad's brother-in-law.; Marc drove from Annecy to Grenoble to help Noor Haddad put up shelves; it was the second time he helped with shelves (conversation of 2026-11-15).; Marc said he would invoice next time he helps.",
+    "label": "fam"
+   }
+  ],
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+ },
+ {
+  "id": "real-ines-0-tomas",
+  "name": "Tomas",
+  "kind": "one",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-09-24) Tomas is the partner of [[Ines Varga]]. Facts: Tomas thinks Ines Varga should show Loomwright at a craft fair in spring 2027.",
+    "label": "p"
+   },
+   {
+    "text": "(2026-10-07) Person who adopted the cat Miso together with Ines Varga. Facts: Tomas adopted Miso together with Ines Varga in October 2026.",
+    "label": "p"
+   }
+  ],
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+ },
+ {
+  "id": "real-ines-1-tomas",
+  "name": "Tomas",
+  "kind": "one",
+  "identities": [
+   {
+    "text": "## Summary\nPerson who adopted the cat Miso together with Ines Varga.\n\n## Key Facts\n- Tomas thinks Ines Varga should show Loomwright at a craft fair in spring 2027.\n- Tomas adopted Miso together with Ines Varga in October 2026.\n- Tomas is the partner of [[Ines Varga]].\n\n## Open Questions\n- What is Tomas's relation to Ines Varga (partner, housemate)?",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-10-12) Lives with Ines Varga (the shared neighbours remark implies a shared home). In October 2026 he wanted to learn Portuguese guitar and had found a teacher in Ribeira. Facts: In October 2026, Tomas wanted to learn Portuguese guitar.; Tomas found a teacher in Ribeira who gives lessons on Thursdays.; Tomas practises scales every evening, as of October 2026.",
+    "label": "p"
+   },
+   {
+    "text": "(2026-10-23) Tomas is someone close to Ines Varga who she says would never leave Porto. Facts: Ines Varga said Tomas would never leave Porto, which is part of why she would stay there.",
+    "label": "p"
+   }
+  ],
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+ },
+ {
+  "id": "real-ines-2-tomas",
+  "name": "Tomas",
+  "kind": "one",
+  "identities": [
+   {
+    "text": "## Summary\nTomas is the partner of [[Ines Varga]] and adopted the cat Miso with her in October 2026. As of October 2026, Ines said he wanted to learn Portuguese guitar and had found a teacher in Ribeira with Thursday lessons.\n\n## Key Facts\n- Tomas thinks Ines Varga should show Loomwright at a craft fair in spring 2027.\n- Tomas adopted Miso together with Ines Varga in October 2026.\n- Tomas is the partner of [[Ines Varga]].\n- In October 2026, Tomas wanted to learn Portuguese guitar.\n- Tomas found a teacher in Ribeira who gives lessons on Thursdays.\n- Tomas practises scales every evening, as of October 2026.\n- Ines Varga said Tomas would never leave Porto, which is part of why she would stay there.\n- Tomas is someone close to Ines Varga who she says would never leave Porto.\n\n## Related\n- [[Ines Varga]] — partner of\n- [[Portuguese guitar]] — is learning\n- [[Ribeira]] — found a teacher in\n\n##",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-11) Person planning a big dinner for Sam Reyes's visit. He wants to make bacalhau. Facts: Tomas was planning a big dinner for Sam Reyes's visit, as of 2026-11-11.; Tomas wants to make bacalhau for the dinner.",
+    "label": "p"
+   }
+  ],
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+ },
+ {
+  "id": "real-ines-3-lucía",
+  "name": "Lucía",
+  "kind": "one",
+  "identities": [
+   {
+    "text": "Ines Varga's sister, who is moving to Valencia to start a master's degree in architecture. Lucía is Ines Varga's sister, who is moving to Valencia to start a master's degree in architecture. Lucía is moving to Valencia on 2026-12-05, when her rental contract ends Lucía is starting a master's in architecture in Valencia Lucía asked Ines Varga to help with the move",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-15) Person close enough to Ines Varga that she shares news of Lucía's flat and master's; Lucía found a flat in Valencia near the university and is about to start a master's programme. Facts: Lucía found a flat in Valencia near the university (as of November 2026).; Lucía is about to start a master's programme and is excited, a bit nervous; the programme involves a lot of drawing.",
+    "label": "p"
+   }
+  ],
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+ },
+ {
+  "id": "real-ines-4-tomas",
+  "name": "Tomas",
+  "kind": "one",
+  "identities": [
+   {
+    "text": "## Summary\nTomas is the partner of [[Ines Varga]] and adopted the cat Miso with her in October 2026. As of October 2026, Ines said he wanted to learn Portuguese guitar and had found a teacher in Ribeira with Thursday lessons.\n\n## Key Facts\n- Tomas thinks Ines Varga should show Loomwright at a craft fair in spring 2027.\n- Tomas adopted Miso together with Ines Varga in October 2026.\n- Tomas is the partner of [[Ines Varga]].\n- In October 2026, Tomas wanted to learn Portuguese guitar.\n- Tomas found a teacher in Ribeira who gives lessons on Thursdays.\n- Tomas practises scales every evening, as of October 2026.\n- Ines Varga said Tomas would never leave Porto, which is part of why she would stay there.\n- Tomas is someone close to Ines Varga who she says would never leave Porto.\n- Tomas was planning a big dinner for Sam Reyes's visit, as of 2026-11-11.\n- Tomas wants to make bacalhau for the dinn",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-21) Lives with Ines Varga and went through the three weeks without hot water. Joked that cold showers built character. Facts: Tomas said cold showers built character during the boiler outage.",
+    "label": "p"
+   }
+  ],
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+ },
+ {
+  "id": "real-ines-5-teo",
+  "name": "Teo",
+  "kind": "one",
+  "identities": [
+   {
+    "text": "Teo is a person who put in a word for Ines Varga with Kestrel Robotics. Teo put in a word for Ines Varga with [[Kestrel Robotics]] ahead of her interview",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-13) A colleague of [[Ines Varga]] at [[Kestrel]], promoted to head of product. Ines Varga says he is still the same Teo despite the promotion. Facts: Teo was promoted to head of product at [[Kestrel]], as of November 2026.; Teo is two levels above [[Ines Varga]] in the hierarchy.; Teo works on a different floor from [[Ines Varga]].",
+    "label": "p"
+   }
+  ],
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+ },
+ {
+  "id": "heldout-landlord-becomes-friend",
+  "name": "Otto",
+  "kind": "one",
+  "note": "held out: written after the prompt was fixed",
+  "identities": [
+   {
+    "text": "## Summary\nOtto is the user's landlord, who lives on the ground floor and collects the rent on the first of the month.\n\n## Key Facts\n- Otto has owned the building since 1998",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-09-12) Otto sold the building last spring and now just comes by for coffee on Sundays; the user helped him pick a flat by the harbour. Facts: Otto sold the building; Otto moved to a flat by the harbour",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "heldout-child-grows",
+  "name": "Leo",
+  "kind": "one",
+  "note": "held out: written after the prompt was fixed",
+  "identities": [
+   {
+    "text": "## Summary\nLeo is the user's son, in primary school, who is learning to ride a bike.\n\n## Key Facts\n- Leo is eight\n- Leo plays football on Saturdays",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-10-05) Leo turned sixteen and started at the technical high school; he wants a part-time job at a bike shop. Facts: Leo is sixteen; Leo began high school in September",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "heldout-ex-to-friend",
+  "name": "Sasha",
+  "kind": "one",
+  "note": "held out: written after the prompt was fixed",
+  "identities": [
+   {
+    "text": "## Summary\nSasha is the user's girlfriend, a translator in Amsterdam who works from home.\n\n## Key Facts\n- Sasha and the user live together",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-08-22) Sasha, the user's ex, is now just a friend; they met for a hike and Sasha mentioned a new job at a museum in Rotterdam. Facts: Sasha works at a museum in Rotterdam",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "heldout-professor-emeritus",
+  "name": "Hana",
+  "kind": "one",
+  "note": "held out: written after the prompt was fixed",
+  "identities": [
+   {
+    "text": "## Summary\nHana is the user's thesis supervisor, a professor of linguistics in Osaka.\n\n## Key Facts\n- Hana supervises four students",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-10-30) Hana retired from the university last month and moved to her family's farm near Kyoto; she still reviews the user's drafts by email. Facts: Hana retired in September; Hana lives near Kyoto",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "heldout-two-mentions-no-page",
+  "name": "Zeke",
+  "kind": "one",
+  "note": "two mentions in one batch",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-01-11) Zeke is the user's neighbour, a student who plays the trumpet at odd hours and is studying chemistry.",
+    "label": "p"
+   },
+   {
+    "text": "(2026-06-30) Zeke graduated and started a job at a pharmaceutical company in Basel; he is moving out at the end of the month.",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "heldout-friend-new-city-es",
+  "name": "Beto",
+  "kind": "one",
+  "note": "held out: written after the prompt was fixed",
+  "identities": [
+   {
+    "text": "## Summary\nBeto es un amigo del usuario, ingeniero civil en Guadalajara, que juega al fútbol los domingos.\n\n## Key Facts\n- Beto cumple años en abril",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-10-18) Beto se mudó a Ciudad de México para trabajar como arquitecto en un estudio nuevo y está buscando departamento. Facts: Beto dejó su trabajo en Guadalajara; Beto vive ahora en Ciudad de México",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "heldout-promoted-mentor-fr",
+  "name": "Colette",
+  "kind": "one",
+  "note": "held out: written after the prompt was fixed",
+  "identities": [
+   {
+    "text": "## Summary\nColette est la mentore de l'utilisateur, cheffe de service dans une entreprise à Lyon.\n\n## Key Facts\n- Colette a deux enfants",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-02) Colette a été nommée directrice générale de l'entreprise et s'installe à Genève avec sa famille. Facts: Colette est devenue directrice générale en octobre; Colette habite à Genève",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "heldout-thin-page-big-mention",
+  "name": "Yuki",
+  "kind": "one",
+  "note": "held out: written after the prompt was fixed",
+  "identities": [
+   {
+    "text": "## Summary\nYuki is a friend of the user.\n\n## Key Facts\n",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-09-03) Yuki is a pastry chef at a hotel in Kyoto who just won a regional competition and is opening her own bakery next year. Facts: Yuki won the regional pastry competition; Yuki plans a bakery in 2027",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "heldout-doctor-moves-practice",
+  "name": "Ewa",
+  "kind": "one",
+  "note": "held out: written after the prompt was fixed",
+  "identities": [
+   {
+    "text": "## Summary\nEwa is the user's family doctor at the village practice, who has looked after the family for ten years.\n\n## Key Facts\n- Ewa prescribed the user's allergy medicine",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-04) Ewa has joined a clinic in the city centre after leaving the village practice; the user's appointment is now at the new address. Facts: Ewa left the village practice in October",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "heldout-colleague-leaves-abroad",
+  "name": "Cato",
+  "kind": "one",
+  "note": "held out: written after the prompt was fixed",
+  "identities": [
+   {
+    "text": "## Summary\nCato is a colleague on the user's team, a backend engineer who sits next to the user and reviews pull requests.\n\n## Key Facts\n- Cato joined in 2023",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-10-09) Cato left the company to join a lab in Zurich and still messages the team on Slack; he sent the user a paper to read. Facts: Cato works at a lab in Zurich",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "heldout-married-name-same-person",
+  "name": "Amara",
+  "kind": "one",
+  "note": "held out: written after the prompt was fixed",
+  "identities": [
+   {
+    "text": "## Summary\nAmara is the user's sister, a junior doctor living in a shared house in Nottingham.\n\n## Key Facts\n- Amara works nights at the hospital",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-10-27) Amara married her long-time partner in September and moved into his flat in Leicester; she now commutes to the hospital. Facts: Amara married in September 2026; Amara lives in Leicester",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "heldout-long-gap-job-change",
+  "name": "Davor",
+  "kind": "one",
+  "note": "years later: a student who became a chef",
+  "identities": [
+   {
+    "text": "## Summary\nDavor is a friend from the user's university days, studying hospitality in Zagreb.\n\n## Key Facts\n- Davor's thesis is on regional cuisine",
+    "label": "p",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-10) Davor is the head chef of a restaurant in Split and is hiring the user's cousin as an apprentice. Facts: Davor runs a restaurant in Split",
+    "label": "p"
+   }
+  ]
+ },
+ {
+  "id": "heldout-accountant-vs-cousin",
+  "name": "Anna",
+  "kind": "two",
+  "note": "same month, different generation, trade and town",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-05-02) Anna is the user's accountant in Oslo who filed the tax return and wants the receipts by Friday.",
+    "label": "a"
+   },
+   {
+    "text": "(2026-05-20) Anna is the user's cousin, nineteen, a student in Cape Town who is visiting for the summer.",
+    "label": "b"
+   }
+  ]
+ },
+ {
+  "id": "heldout-coach-vs-colleague",
+  "name": "Rui",
+  "kind": "two",
+  "note": "held out: written after the prompt was fixed",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-03-10) Rui is the user's running coach, a retired marathoner in his sixties who lives in Braga and writes weekly plans.",
+    "label": "a"
+   },
+   {
+    "text": "(2026-03-25) Rui is a new colleague in the finance team, in his twenties, who started on Monday and sits across from the user.",
+    "label": "b"
+   }
+  ]
+ },
+ {
+  "id": "heldout-known-teacher-new-brother",
+  "name": "Dimitri",
+  "kind": "two",
+  "note": "an established page and a mention of a different kind of person",
+  "identities": [
+   {
+    "text": "## Summary\nDimitri is the user's piano teacher, a conservatory professor in Athens who gives lessons on Thursdays.\n\n## Key Facts\n- Dimitri studied in Vienna",
+    "label": "a",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-09) Dimitri is the user's younger brother, a plumber in Thessaloniki who is helping the user's parents fix the roof. Facts: Dimitri is the user's brother",
+    "label": "b"
+   }
+  ]
+ },
+ {
+  "id": "heldout-known-child-new-boss",
+  "name": "Kim",
+  "kind": "two",
+  "note": "held out: written after the prompt was fixed",
+  "identities": [
+   {
+    "text": "## Summary\nKim is the user's daughter, in primary school, who is learning to swim.\n\n## Key Facts\n- Kim is seven",
+    "label": "a",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-10-14) Kim is the user's boss, the head of the legal department, in her fifties, who approves the user's leave requests. Facts: Kim has run the department for eight years",
+    "label": "b"
+   }
+  ]
+ },
+ {
+  "id": "heldout-interleaved-three-way",
+  "name": "Nico",
+  "kind": "two",
+  "note": "two people interleaved in time",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-02-03) Nico is the user's downstairs neighbour, a retired bus driver who feeds the stray cats.",
+    "label": "a"
+   },
+   {
+    "text": "(2026-02-10) Nico is a barista at the cafe on the corner, twenty-three, who knows the user's order.",
+    "label": "b"
+   },
+   {
+    "text": "(2026-03-01) Nico the neighbour fixed the user's bike and refused to be paid.",
+    "label": "a"
+   },
+   {
+    "text": "(2026-03-12) Nico, the barista, is leaving to study design in Milan in September.",
+    "label": "b"
+   }
+  ]
+ },
+ {
+  "id": "heldout-es-landlady-vs-student",
+  "name": "Carmen",
+  "kind": "two",
+  "note": "held out: written after the prompt was fixed",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-04-03) Carmen es la casera del usuario, tiene ochenta años y vive en el primer piso del edificio.",
+    "label": "a"
+   },
+   {
+    "text": "(2026-04-24) Carmen es una compañera de clase del usuario, de veinte años, que estudia enfermería y comparte apuntes.",
+    "label": "b"
+   }
+  ]
+ },
+ {
+  "id": "heldout-fr-two-professions",
+  "name": "Julien",
+  "kind": "two",
+  "note": "held out: written after the prompt was fixed",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-07-02) Julien est le pédiatre de l'enfant du couple à Nantes ; il a prescrit un sirop et revoit l'enfant dans un mois.",
+    "label": "a"
+   },
+   {
+    "text": "(2026-07-19) Julien est un ami d'enfance du user, cuisinier à Montréal, qui revient en France pour les vacances.",
+    "label": "b"
+   }
+  ]
+ },
+ {
+  "id": "heldout-known-colleague-new-friend",
+  "name": "Pia",
+  "kind": "two",
+  "note": "held out: written after the prompt was fixed",
+  "identities": [
+   {
+    "text": "## Summary\nPia is a colleague in the user's department at the publishing house in Vienna, an editor who handles the poetry list.\n\n## Key Facts\n- Pia has worked at the house for nine years",
+    "label": "a",
+    "plain": true
+   }
+  ],
+  "mentions": [
+   {
+    "text": "(2026-11-16) Pia is the user's old school friend, a veterinarian in Graz, who invited the user to her wedding in June. Facts: Pia is getting married next June",
+    "label": "b"
+   }
+  ]
+ }
+]

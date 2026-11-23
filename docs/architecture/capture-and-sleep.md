@@ -2212,14 +2212,28 @@ name carries its own surname) that has something to compare is judged once: two 
 one and a person already on record under the name (a page titled so, or a line held below the promotion bar). The judge
 (Stage 2's disambiguation model, one call a name, at most 20 names a batch, 12 conversations and 6 known people a call,
 the rest left as it was) groups the conversations by person and says which known person each fits. **Positive evidence
-only:** two conversations are two people only when the descriptions give each a fact the other cannot share (a different
-trade or employer, home town, generation); a different setting, topic or time is never one, and a thin description, an
+only, and a life that moves on is one person (2026-11-23, the false split):** two conversations are two people only when
+they state something that **cannot be true of one person at the same time** (two employers and two home towns in the same
+month, a different generation, a relationship to the speaker one person cannot hold beside the other), and the judge must
+quote that pair of facts, one from each side, as its reason. A **change since the earlier conversation is the same
+person**: a new job, a promotion, a move, a retirement, a marriage, a baby. The first prompt named "a different trade or
+employer, home town" as the contrast and so split a partner who got a job and moved city from their own page, a friend who
+was promoted, a colleague who left abroad (the judge's reason was always the job or the town); the part split off was held
+on a line nobody sees and its facts were lost to the page. Replaying the judge's real inputs (`same_name_battery`, below),
+that prompt split one person in 87 of 680 calls (13%), 82 of 240 on a held-out set, and the four stored Idris inputs 13 to 17
+times in 20; the rewrite splits none of the one-person cases. A description silent about something says nothing about it (a
+known person with no job on record may well have one), a date is read (each description is headed by its conversation's
+day), and when unsure between "a known person" and "someone new" the judge chooses the known person; the price is a missed
+split when a **known page** is up against a mention of a different kind of person (an established family page and a
+colleague's mention: about 1 call in 3 joins them, which is the pre-2026-11-23 behaviour, never worse). Dropping the
+"choose the known person" sentence was tried and made a real one-person input split in 8 of 10; a thin description, an
 unreadable answer, a failed call or a group that states no contrast keeps the old behaviour (one person, nothing asked). A
 person the judge would make new also needs a description of at least 15 words on **both** sides (`MIN_WORDS`): a description
 that says one thing (a person who "put in a word") has nothing to contradict, and the model read a thin earlier line as a
 different person from a richer later one (measured, 1 run of 3 on the fixture's first person); such a person stays with the
 plain name. (A second, narrow "could both be true?" pass was tried and dropped: it read a carpenter and a research
-colleague as one person over time, so it kept the wrong join the rule exists to prevent.)
+colleague as one person over time, so it kept the wrong join the rule exists to prevent; the same test inside the one
+prompt, asked of the two facts the judge quotes, is what the rewrite uses.)
 A conversation a page or line already lists (a re-read) is that person and is not judged; a mention that describes nothing
 is not judged; the owner's page, a nickname or relation page (`role_people`), a contact-card participant and a
 correspondent never enter. What the judge says goes through the machinery G227 built: the person the plain name reaches
@@ -2240,6 +2254,15 @@ tending read that list (`kept_apart`), so the split raises no "Is Marc the same 
 join never takes it back. Two same-titled pages nobody split (a chat participant's `<id>-person` page beside a same-named
 page from a conversation) stay leads and joinable, as before. The person's own merge of the two pages clears the pair
 (`page_join.merge` calls `merge_rejections.clear_pairs`), so merging them with `cicada_merge_pages` works as for any pair.
+**The replay battery** (`benchmarks/consolidation/same_name_battery.py`, `same_name_cases.json`; engine-free tests in
+`test_same_name_battery.py`): the judge's real inputs (rebuilt from stored runs' git history, and a leg's own
+`same_name_calls.jsonl`, which `run.py` now writes beside each bank) plus invented one-person and two-person cases of the
+shapes that matter, each labelled; every case is replayed N times through the real `plan` and the product's own judge call,
+and scored as a **false split** (one person cut in two) or a **missed split**, for cents (Haiku, about $0.0002 a call).
+Run it before changing the prompt, the model or the floor: a benchmark run makes about six judge calls and cannot see a
+one-in-ten defect. The benchmark scores the same thing from the bank (`gold.people.one`, the summary's `one_person_ok`):
+no second page named like a one-person gold entry and no held line carrying a `title`, which three of the four stored
+false splits were (held lines are not pages).
 Cost: one disambiguation call per
 bare name with something to compare (the fixture's second person: 5 across both drains, the first's 2), bounded by the
 batch's bare names, never by the bank. The G209 first-name guard (`_first_name_across`, a one-word name heard outside a chat

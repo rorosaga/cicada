@@ -13,8 +13,10 @@ conversation goes. `entity_resolver` asks, then gives the other people pages and
 the same clean title: G227's ``_another_id``) and pins each conversation's edges and claims to the right one.
 
 The rule is positive evidence only. A different setting, topic or time says nothing about who a person is; a person is
-met at home, at work, on a trip. Two conversations are two people only when the descriptions give each a fact the other
-cannot share (a different trade or employer, a different home town, a different generation). Anything else, a thin
+met at home, at work, on a trip. And a life moves on: a new job, a move, a promotion, a retirement is the same person
+later, never another (the first prompt named "a different employer or home town" as the contrast and split a partner who
+got a job in another city from their own page, in about one run in ten). Two conversations are two people only when they
+state something that cannot be true of one person at the same time, and the judge quotes it. Anything else, a thin
 description, a judge that fails or answers unreadably, is the old behaviour: the name stays one person. Nothing is
 asked of the person: a split is a plain decision the next conversation can see on the pages, and the person's own
 "these are one" (a merge) stands as it always did.
@@ -52,13 +54,15 @@ SYSTEM = ("You decide, from the descriptions you are given, whether conversation
 
 PROMPT = """In one person's private conversations, someone is called "{name}" with no surname. Several conversations name a "{name}". Decide which of them are the same real person.
 {known}
-CONVERSATIONS (each is what that one conversation says about the "{name}" it names)
+CONVERSATIONS (each is what that one conversation says about the "{name}" it names, headed by that conversation's date)
 {conversations}
 Rules:
-- A wrong join is a serious memory error: it tells the person things about someone that are true of another. A wrong split is an error too. Decide only from what the descriptions say.
-- Put two conversations in different groups ONLY when the descriptions give each person a fact the other cannot share: a different trade or employer, a different home town or country, a different generation, a relationship one person cannot hold to the speaker. Name that contrast in "reason".
-- A different setting, topic or time is NOT a difference: one person is met at home, at work, on a trip, at a race, and a description that only mentions its setting says nothing about who they are. When a description is thin, or everything said could be true of one person, they are the same person.
-- A conversation that fits a known person goes with them ("same_as": that person's number). A conversation that fits none of them is a person not on record yet ("same_as": null); conversations that fit each other go in one group.
+- A wrong join is a serious memory error: it tells the person things about someone that are true of another. A wrong split is just as serious: one person's history is cut in two, and the part nobody sees is lost. Decide only from what the descriptions say.
+- People change. A new job or employer, a promotion, a move to another city or country, a graduation, a retirement, a marriage, a baby, a new home: the same person says different things about their work or home in a later conversation than in an earlier one. A later description that differs from an earlier one is that person's life moving on, NOT a different person. Dates matter: ask whether the later description could be the same person after an ordinary change since the earlier one. If it could, they are the same person.
+- Put conversations in different groups ONLY when they state something that cannot be true of one person at the same time: two different jobs or two different home towns in conversations a few days or weeks apart, or interleaved in time (one person does not have two employers and two home towns in the same month); a different generation (a nine-year-old and a retired person); a relationship to the speaker that one person cannot hold alongside the other (a grandmother and an intern). A description that is silent about something says nothing about it: a known person with no job on record may well have one.
+- A different setting, topic or time is NOT a difference: one person is met at home, at work, on a trip, at a race. When a description is thin, or everything said could be true of one person, they are the same person.
+- A conversation that fits a known person goes with them ("same_as": that person's number). A conversation that fits none of them is a person not on record yet ("same_as": null); conversations that fit each other go in one group. When unsure between "a known person" and "someone new", choose the known person.
+- For every group that is not a known person, "reason" must quote the two facts that cannot both be true of one person at the same time, one from each side, and say why.
 
 Answer in JSON only, every conversation in exactly one group:
 {{"people": [{{"conversations": ["A", "C"], "same_as": 1, "reason": "one short sentence"}}]}}
