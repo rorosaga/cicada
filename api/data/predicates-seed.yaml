@@ -367,7 +367,9 @@ endings:
       - hosted-on
       # 2026-11-23 (benchmarks/consolidation U3): "dropped Python" left "written in Python" current in 4 of 6 runs.
       - written-in
+      - is-written-in
       - implemented-in
+      - is-implemented-in
       - coded-in
       - programmed-in
       - developed-in

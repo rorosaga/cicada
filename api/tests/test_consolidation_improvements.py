@@ -53,3 +53,35 @@ def test_dropped_ends_what_a_project_was_written_in():
     assert ending("dropped").canonical == "uses"
     for predicate in ("written-in", "implemented-in", "coded-in"):
         assert ending.ended_by(predicate) == "uses", predicate
+
+
+def test_dropping_a_thing_closes_its_relationship_and_a_value_naming_it(tmp_path):
+    """U3, key runs 2026-11-23: "written in Python" and "implementation language: Python" both outlived "dropped
+    Python"; one an unlisted spelling, the other a value. A value whose whole literal is something else stays."""
+    from api.services import claim_pipeline
+    from api.tests.test_new_user_endings import PROJECT, _bank, _claims, _settings
+
+    memory = _bank(tmp_path)
+    day1, day2 = "2026-09-24", "2026-11-08"
+    extracted = [{"episode_id": f"ep_{day1}_001", "episode_timestamp": f"{day1}T10:00:00", "origin": "chatgpt",
+                  "entities": [{"name": "alpha-project", "type": "project", "source_episode": f"ep_{day1}_001",
+                                "values": []}],
+                  "relationships": [{"source": "alpha-project", "target": "Python", "label": "is written in",
+                                     "source_episode": f"ep_{day1}_001",
+                                     "source_episode_timestamp": f"{day1}T10:00:00"}],
+                  "values": [{"entity": "alpha-project", "attribute": "implementation language", "value": "Python",
+                              "source_episode": f"ep_{day1}_001", "source_episode_timestamp": f"{day1}T10:00:00"},
+                             {"entity": "alpha-project", "attribute": "license", "value": "MIT",
+                              "source_episode": f"ep_{day1}_001", "source_episode_timestamp": f"{day1}T10:00:00"}]}]
+    claim_pipeline.run_claim_pipeline(extracted, [], memory, _settings(memory), now_date=day1)
+    later = [{"episode_id": f"ep_{day2}_001", "episode_timestamp": f"{day2}T10:00:00", "origin": "chatgpt",
+              "entities": [], "relationships": [{"source": "alpha-project", "target": "Python", "label": "dropped",
+                                                 "source_episode": f"ep_{day2}_001",
+                                                 "source_episode_timestamp": f"{day2}T10:00:00"}]}]
+    claim_pipeline.run_claim_pipeline(later, [], memory, _settings(memory), now_date=day2)
+    written = _claims(memory, PROJECT, "is-written-in")
+    language = _claims(memory, PROJECT, "value-of-implementation-language")
+    licence = _claims(memory, PROJECT, "value-of-license")
+    assert written and all(c.valid_to for c in written), "the unlisted spelling ends with the drop"
+    assert language and all(c.valid_to for c in language), "a value naming the dropped thing ends with it"
+    assert licence and not licence[0].valid_to, "a value naming something else stays"

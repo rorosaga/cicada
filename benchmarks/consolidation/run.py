@@ -113,6 +113,7 @@ def claim_text(c: dict) -> str:
     return " ".join(str(c.get(k) or "") for k in ("subject", "predicate", "object", "text", "valid_from", "expected_end"))
 
 
+ENDED = re.compile(r"\b(?:dropped|left|stopped|no longer|moved off|moved from|switched from|replaced|abandoned)\b")
 NEGATION = re.compile(r"\b(?:not|never|no longer|declined|decided against|rejected|against|won't|doesn't|didn't|"
                       r"too expensive|instead of|stayed? on|staying|hypothetical|if|ruled out|refused|skipped)\b")
 
@@ -314,7 +315,9 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
     updates = []
     for row in gold["updates"]:
         cur = [c for c in held(expand_groups(row["current"], clock)) if is_current(c)]
-        stale = [c for c in held(expand_groups(row["stale"], clock)) if is_current(c)]
+        # A claim that says the old value ended ("dropped Python") is the change itself, never the stale value.
+        stale = [c for c in held(expand_groups(row["stale"], clock)) if is_current(c)
+                 and not ENDED.search(norm(c.get("predicate") or ""))]
         verdict = ("correct" if cur and not stale else "both_current" if cur else "stale_only" if stale else "missing")
         updates.append({"id": row["id"], "why": row["why"], "verdict": verdict,
                         "current": [claim_text(c) for c in cur[:3]], "stale_current": [claim_text(c) for c in stale[:3]]})

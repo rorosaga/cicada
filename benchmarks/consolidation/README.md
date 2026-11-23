@@ -47,6 +47,13 @@ api/.venv/bin/python -m benchmarks.consolidation.run judge OUT --judge-model opu
 api/.venv/bin/python -m benchmarks.consolidation.run report OUT
 ```
 
+- `--engine key` runs on the Claude key in `--key-file` (default `~/.cicada/secrets.env`, `ANTHROPIC_API_KEY` only,
+  never printed or written); it spends money, and `report` prints the cost of each leg. `--engine plan` (the default)
+  runs on the Claude plan.
+- `--sleep-judge` is Sleep's own Stage 2 judge (default `haiku`, the product's default on both engines); `judge`'s
+  `--judge-model` is the benchmark's precision judge, a different thing.
+- Report columns are folder names less the repeat suffix (`key-sonnet-jhaiku`), so a folder of links to legs from
+  several runs compares them side by side.
 - `run` skips legs that are already done, so a stopped run resumes when given the same `--out`.
 - `score OUT` re-scores the legs after a gold edit, with no model calls.
 - Keep `--clock` the same across legs that you compare; `run` sets it once for all of its legs.
