@@ -18,7 +18,7 @@
 
 ## Current state and evidence
 
-- **2026-11-24 — Sources, redesigned: every source says what it reads (G245, ruling 78; plan `docs/plans/2026-11-24-sources-redesign.md`).** Owner: "cleaner and minimal with the cards we use for the consolidation queue", "remove the weird diagrams", "easily see what is being read". A source has streams (`GET /sources/streams`); the page is one card shape with a Reads block and Check now; new browser lists (X likes, folders and playlists as filing labels, Instagram likes, Reddit upvoted, YouTube playlists and liked videos), LinkedIn connections by date, Notes' and Notion's own shape, depth on a talked-about save, and a notch Yes that connects. Building, one PR each to `dev`: `feat/source-streams` (A1a), `feat/more-lists` (A1b), `feat/sources-redesign` (A2), `feat/notes-notion-shape` (A4), `feat/linkedin-connections-stream` (A3, after A1b), `feat/notch-connects` (B1, after A2), `feat/sources-streams-views` (B2, after A2, A3, A4), `feat/depth-on-mention` (B3, after A1a). Four questions wait on the owner (ruling 78). **Pick up here: the plan.**
+- **2026-11-24 — Sources, redesigned: every source says what it reads (G245, ruling 78; plan `docs/plans/2026-11-24-sources-redesign.md`).** Owner: "cleaner and minimal with the cards we use for the consolidation queue", "remove the weird diagrams", "easily see what is being read". A source has streams (`GET /sources/streams`); the page is one card shape with a Reads block and Check now; new browser lists (X likes, folders and playlists as filing labels, Instagram likes, Reddit upvoted, YouTube playlists and liked videos), LinkedIn connections by date, Notes' and Notion's own shape, depth on a talked-about save, and a notch Yes that connects. Building, one PR each to `dev`: `feat/source-streams` (A1a), `feat/more-lists` (A1b), `feat/sources-redesign` (A2), `feat/notes-notion-shape` (A4), `feat/linkedin-connections-stream` (A3, after A1b), `feat/notch-connects` (B1, after A2), `feat/sources-streams-views` (B2, after A2, A3, A4), `feat/depth-on-mention` (B3, after A1a), `feat/source-schedules` (C1, after A1a). Six questions wait on the owner (ruling 78). **Pick up here: the plan.**
 - **2026-11-04 — stale backlog tags corrected, checked against code and git (docs only).** 26 rows carried tags older than their work: DONE or REDIRECT where a merged PR or a later ruling settles it, VERIFY where only a live check is left. Rows the quick pass called finished but a second look could not prove stay as they were: G1 (cross-bank references unbuilt), G84, G87, G146, G161 (its open work is #602) and G204 (`_determine_action` still reports a fold as `written`). The owner also keeps a private tracker for bigger pieces as a log of where things stand; this backlog keeps the reasoning and the rulings, and decisions stay in chat. Rebased onto dev 2026-11-07: G233's tag is left as dev has it (BUILT, later work), the other 25 apply unchanged.
 - **2026-11-06 — question settling (G98, ROR-31; branch `question-settle`, PR 2 of the question audit).** The dry run's decisions 1–8 taken as recommended (ruling 73). Built, nothing applied to any bank: `same_value`, `moved_on`, `own_bookkeeping`, `already_described`, `not_fading` (all vetted); `same_conversation` dropped; rivals written closed on a pick and when a later value wins; no page line when no value changed; a new contradiction opens its own question; "Is X your partner?". Left alone: the 37 piled-up questions (splits), fading (ROR-129; 31 decay questions held), the 16 same-spelling merges. The next drain after merge applies the rules to existing questions (a bulk write): regenerate the dry-run hashes on a fresh clone and use the vetted apply first.
 - **2026-11-24 — Sleep joins a same-name doubt itself, asks less, and an undo is never refused (G148; ruling 74a; #822).** A later conversation that links two people held in doubt joins them (a located link, read twice, one undoable commit; an undo keeps them apart for good). Two who read like different people wait apart with no question. Fixes a fault of #814: the person's undo of their own merge of two people was refused once Sleep had rewritten the doubt store. Stories: joined with no question 24 of 24; never-told-apart 60 of 60 apart, 0 questions (one each before); benchmark pair apart 3 of 3, no question.
@@ -3911,17 +3911,26 @@ A whole row moves to DONE only after its remaining implementation and required a
    nothing). Only the person's own located words wake it (`WHY_LINK`, `WHY_TITLE`, never `WHY_LIT`, never a retrieval hit).
    Amends ruling 30 point 1 and ruling 62 point 3 for a mentioned list save, and R-VU3 "the queue holds user requests
    only", the video spec's N-e "no auto-queueing" and R-RW8 "person-driven, never scheduled" for an ask the person's own
-   words caused; to undo, drop the mention branch in `saved_mentions`. (f) A waiting connection (no page matches it, a
-   unique name of two or more parts) makes its page when the person's own words name it in full, with the exact bounds
-   of the 2026-10-20 Contacts ruling (the person's own turn in a conversation, never the owner, never a relation-only
-   person, never a name two connections or two pages share, never a forgotten directory or a demo bank; decided in code,
-   no model sees the directory); amends "imported connections enrich existing people only, never mint a page"; to undo,
-   remove the promotion call in the tail.
+   words caused; to undo, drop the mention branch in `saved_mentions`. (f) *Withdrawn the same day:* I had read his words as "a waiting connection
+   makes a page when his own words name it in full"; he answered "a linkedin connection doesnt need a page just for the
+   sake of having a page, the person is what gets a page". A connection never makes a page: a person's page is born by
+   the existing rules and LinkedIn attaches to it, at its birth (not a night later), with one lead across a waiting
+   Contacts card and a waiting connection of the same full name, and never on a name the bank holds a same-name doubt
+   for. **Said later the same day:** (g) no import action anywhere on a source page ("yes have it go too"); (h) matching
+   a LinkedIn profile to the same person in Contacts, chats, meetings, mentions and conversations "is extremely
+   important"; (i) a profile link wears its site's real mark, "how the logos appear in the consolidation queue" (bundled
+   marks only; amends DR-79's glyph for a person's links); (j) "cron jobs might be the answer for triggers to keep
+   everything updated": feeds, calendar feeds and the tier-1 connectors get their own backend job apart from Sleep, Notes
+   is read when Notes opens, and the hook names the list that is due (plan section 10); a scheduled run of the person's
+   own agent stays his to turn on. The ask-why panel's silent cases are fixed with the notch (plan 7.1).
    **Waiting on the owner, not built:** (1) reposts, which are mixed into the profile timeline that no list page covers;
    (2) accounts followed (he said "maybe"; accounts are a new kind of item, G120 sketches it); (3) a first name in a note
    tied to a same-week connection: a lead only, or may Sleep join it (undoable)?; (4) a post's picture or video itself
    from a walled host: the agent would have to hand over the picture's public address for one fetch into the picture
-   index (frames of an online video stay the agent's own work today). *Why:* five registries keyed sources differently
+   index (frames of an online video stay the agent's own work today); (5) one full-name mention of someone who is a
+   LinkedIn connection with no Contacts card: enough for their page, or wait for the second mention?; (6) a daily run of
+   his own AI app to read the lists that are due (it spends his plan, needs his browser open, and amends R-RW8 and
+   rulings 4 and 15). *Why:* five registries keyed sources differently
    so no row said what was read; the lists he has (X likes and folders, Instagram collections, YouTube playlists, LinkedIn
    connections) could not be read live; a platform-list save stayed index-only even when he talked about it; the notch's
    Yes set a per-Mac flag the Sources page never read. **Trigger to revisit:** a list the owner turned on that reads past

@@ -215,9 +215,10 @@ Applies to **every** source: the head, the Reads block and Check now. The `Detai
    `folderCount > 0`, then item cards in the queue card's layout — title, two lines of words, footer
    `[mark] author · kept <age> · lists ("Saved · Liked") · depth word` (nothing for `kept`). Five by default, then
    "All N" opens the full list in the page's place (DR-81).
-4. **Footer:** as today (refresh, disconnect, what removes this source's items). Two sources keep one quiet footer
-   action, **Import an export…**, because nothing else reaches that file: LinkedIn (the connections file, with Forget
-   kept connections beside it) and Goodreads (its CSV and pick list).
+4. **Footer:** as today (refresh, disconnect, what removes this source's items). **No import action anywhere on a
+   source page** — the owner, later on 2026-11-24, asked about one quiet "Import an export…" action kept for LinkedIn
+   and Goodreads: "yes have it go too". This overrides any brief that still mentions that action: do not build it.
+   LinkedIn's footer keeps only **Forget kept connections** (a removal, not an import).
 
 Removed: `WebReadingCard` and its scene; every "Import a file" way row and `IntakePanel` on a source page; the import
 action on an empty search; the Add source button, `SourceAddOverlay`, and `pendingAddSource` (a caller now opens that
@@ -263,14 +264,30 @@ Read · Signed out · Couldn't read · Needs access · Your AI app reads it next
 - **For the person's agents:** one read-only door on stdio and the CLI only, never remote: connections in a date
   range (at most 50), with the matched page when there is one; names are read from the directory at that moment and
   never written to a bank or the telemetry ledger. This is how "who did I connect with that week" is answerable.
-- **Into memory:** a connection still never makes a page on its own. New: a waiting connection (no page matches it, a
-  unique name of two or more parts) makes its page when the person's own words name it in full — the exact bounds of
-  the Contacts rule (`entity_resolver._card_for`: Stage 1 measured the mention as the person's own, in a conversation,
-  the full name in their own turn; never the owner, never a relation-only person, never a name two connections or two
-  pages share; a forgotten directory matches nothing; never a demo bank), decided in code, no model sees the
-  directory. The page is born with what the existing writer gives a matched page (its link, `works-at`, `role`,
-  `connected-on`). When a Contacts card and a connection both fit, the card makes the page and the tail's re-match
-  adds LinkedIn.
+- **Into memory — the person gets the page, never the connection** (owner, later on 2026-11-24: "a linkedin
+  connection doesnt need a page just for the sake of having a page, the person is what gets a page"; "having linkedin
+  profiles match people in contacts, and other sources, mentions, conversations is extremely important"). A connection
+  never makes a page. A person's page is born by the rules that already exist (2+ conversations, the exchanges rule,
+  a Contacts card the person's own words name in full), and LinkedIn then attaches to that person. What this work
+  makes true:
+  - **At birth, not a night later:** when a person's page is born or made by hand or by an agent, the kept
+    connection that matches it attaches in that same write path or run (today only Sleep's tail does it, and it skips
+    a page that was dirty).
+  - **One person across the two directories:** a waiting Contacts card and a waiting connection with the same full
+    name are the same lead; when the card's promotion makes the page, the page is born with both.
+  - **A held name knows its connection:** a name waiting in the pending store that equals exactly one connection's
+    full name carries that lead to its page's birth (nothing about the connection is written into the bank before).
+  - **Never the wrong person:** a name-only match stays what the owner ruled on 2026-10-17 (confident, never
+    alias-only), but it is refused when the bank holds a same-name doubt for that name, when two connections or two
+    pages share it, or when the page names a different profile.
+  - Whether one full-name mention of a connection should be enough for a page, as it is for a Contacts card, is the
+    owner's call (section 8) — not built.
+- **A profile link wears its site's mark** (owner: "the link to the profile with the logo of the site kind of how the
+  logos appear in the consolidation queue like for the meeting platform in hex transcripts"): on a person's page and
+  in the connections list a LinkedIn, X, Instagram or GitHub link is a chip with the bundled real mark (the app
+  already ships them), never a stand-in glyph or a monogram. Found: the page's "Sites and links" draws a monogram "L"
+  because the Swift site key is `linkedin.com` while the marks are keyed `linkedin`; "Where to check" draws a
+  briefcase. Bundled assets only, nothing fetched.
 
 ## 5. Notes and Notion keep their shape
 
@@ -325,6 +342,27 @@ A change to the video queue or its callers runs `.claude/skills/verify-video-que
 - Without Accessibility a site cannot be seen; the app never prompts for it (ruling 77), so the "Saves you make" row
   says it in one line with the button that opens the setting.
 
+### 7.1 The ask-why panel on a bookmark or a save (owner: "make sure the notch correctly works and appears when i bookmark or save something")
+
+Read from the code on 2026-11-24; each is a case where the person saves and nothing appears, or the app says
+something untrue:
+1. A site save is gated by the **bookmark** ask-why switch, which a site's Yes never turns on. Connecting a site means
+   asking why on its saves: a site save is gated by that site's own switch.
+2. The ask-why toggle on a browser's page turns on only that browser's watch while the switch itself is global, so it
+   reads on everywhere and works in one browser. One switch, every supported installed browser.
+3. There is no mounted way to grant Accessibility for site saves (the grant button lives in a view nothing mounts;
+   the Permissions row shows only while traces are on). The "Saves you make" row and a site's Yes show the one line
+   and the button that opens the setting; never a prompt (ruling 77).
+4. After the first ask-why panel of a session, connect offers are skipped until relaunch (`saveWhyOpen` reads a state
+   that is never cleared).
+5. A site save made while Sleep is writing is dropped (the refusal is swallowed): hold it and retry, as an answer is.
+6. Chrome profiles other than Default: the bubble opens a panel no file ever confirms. Read the profile in use.
+7. Safari may ask about a bookmark that synced in from another device (no instant to check): do not ask without one.
+8. Nothing tells the person why no panel came. The source's page says the state of each piece in words (ask-why on or
+   off, the browser watched or not, Accessibility, the site connected or not).
+Verified on a scratch copy of the app (`verify-cicada`): the file path end to end with a synthetic bookmarks file. The
+real star click, granting Accessibility to a second app copy and a real save on a site are the owner's own hands.
+
 ## 8. Rulings
 
 **Ruling 78 (owner 2026-11-24).**
@@ -345,8 +383,17 @@ A change to the video queue or its callers runs `.claude/skills/verify-video-que
   agent to watch or read it (amends ruling 30 point 1 and ruling 62 point 3 for a mentioned list save; amends R-VU3
   "the queue holds user requests only", the video spec's N-e "no auto-queueing" and R-RW8 "person-driven, never
   scheduled" for an ask the person's own located words caused).
-- (f) A waiting connection makes a page when the person's own words name it in full (copies the 2026-10-20 Contacts
-  ruling with its full bounds; amends "imported connections enrich existing people only, never mint a page").
+- (f) *Withdrawn the same day.* I had read his words as "a waiting connection makes a page when his own words name
+  it in full". He answered: "a linkedin connection doesnt need a page just for the sake of having a page, the person
+  is what gets a page." A connection never makes a page; see section 4.
+
+*Said later the same day:*
+- (g) No import action anywhere on a source page ("yes have it go too").
+- (h) Matching a LinkedIn profile to the same person in Contacts, chats, meetings, mentions and conversations is
+  "extremely important" (section 4).
+- (i) A profile link wears its site's real mark (amends DR-79's glyph for a person's links; bundled marks only).
+- (j) "cron jobs might be the answer for triggers to keep everything updated … check where crons make sense":
+  section 10.
 
 **Waiting on the owner — not built:**
 1. Reposts: mixed into the profile timeline, which no list page covers.
@@ -354,6 +401,10 @@ A change to the video queue or its callers runs `.claude/skills/verify-video-que
 3. A first name in a note tied to a same-week connection: a lead only, or may Sleep join it (undoable)?
 4. A post's picture or video itself (a walled host): the agent would have to hand over the picture's public address
    for one fetch into the picture index; frames of an online video are the agent's own work today.
+5. One full-name mention of someone who is a LinkedIn connection (and has no Contacts card): enough for their page, as
+   it is for a Contacts card, or wait for the normal second mention?
+6. A daily run of his own AI app to read the lists that are due (section 10): it spends his plan and needs his
+   browser open, so it is his to turn on.
 
 ## 9. Tracks (one PR each, to `dev`)
 
@@ -363,10 +414,11 @@ A change to the video queue or its callers runs `.claude/skills/verify-video-que
 | A1b | `feat/more-lists` | the NEW browser lists except connections (keys with a base, YouTube's two), the folder pass, catching up, fair `due`, `posted` on the record row, the index-only gate test | — |
 | A2 | `feat/sources-redesign` | the app page (section 3), the app-level reading model and connect plan the notch will reuse, the "Saves you make" row over `SiteSavePrefs` | — (codes against 2.1; merges after A1a) |
 | A4 | `feat/notes-notion-shape` | section 5: reader and backend | — |
-| A3 | `feat/linkedin-connections-stream` | section 4: the list key and its record branch, merge, the list route, the stdio/CLI read door, promotion on mention, the CLAUDE.md rail line | A1b |
-| B1 | `feat/notch-connects` | section 7 | A2 |
-| B2 | `feat/sources-streams-views` | the app's connections list, Notes and Notion trees, lists and depth on item cards | A2, A3, A4 |
+| A3 | `feat/linkedin-connections-stream` | section 4: the list key and its record branch, merge, the list route, the stdio/CLI read door, attaching at a page's birth, one lead across Contacts and LinkedIn, the same-name refusals | A1b |
+| B1 | `feat/notch-connects` | section 7 and 7.1, verified on a scratch app | A2 |
+| B2 | `feat/sources-streams-views` | the app's connections list, profile links as chips with real marks, Notes and Notion trees, lists and depth on item cards | A2, A3, A4 |
 | B3 | `feat/depth-on-mention` | section 6, `asked`/`watched` on rows | A1a |
+| C1 | `feat/source-schedules` | section 10, the parts inside today's rules | A1a |
 
 Each PR updates the area doc it makes wrong, its `feature-status.md` line, the G245 row and TODO.md; the first to
 merge adds ruling 78; A2 adds the §9 line and cites its DR ids. A PR that adds an MCP tool, a tool argument, a route
@@ -374,3 +426,36 @@ or a page writer runs the repo-wide gate tests (demo write table, handshake budg
 route inventory, write-admission sites, contract pins). Tests: the touched files, their importers and those gates;
 every `*Lint*` Swift suite for an app PR. Nothing reads a real bank. Privacy: placeholders only in code comments,
 tests, docs and PR text.
+
+## 10. Schedules: what keeps each source current
+
+Read from the code on 2026-11-24. Most sources already update by an event or a timer; four do not.
+
+| Source | Trigger today | Worst case |
+|---|---|---|
+| Messages, WhatsApp, bookmarks, tab groups, watched and meeting folders | a file watcher in the app | seconds, while the app runs |
+| Calendar, Reminders, Apple Books, Voice Memos | app launch, a change event, every 3 hours | about 3 hours |
+| Contacts | launch and the store's change notice | about a day |
+| YouTube history from Chrome | every 10 minutes | 10 minutes |
+| Telegram | a live connection | live |
+| Notion, GitHub, Linear | the backend's own job, every 6 hours | 6 hours, while the backend lives |
+| **Apple Notes** | every 2 hours, only while Notes is already open | unbounded while Notes is closed |
+| **Feeds, calendar feeds, Reddit / Pinterest / X connectors** | only at the end of a Sleep run | a whole Sleep interval; never when Sleep is manual or a night had nothing to read |
+| **Browser lists** (X, Instagram, LinkedIn, Reddit, YouTube, Substack…) | only when the person's agent happens to ask for the reading queue | unbounded; 20 hours is a floor, not a ceiling |
+| **LinkedIn connections** | a file the person drops | until they drop another (section 4 changes this to a browser list) |
+
+**Inside today's rules (track C1):**
+- Feeds, calendar feeds and the tier-1 connectors get their own backend job every few hours, beside the tier-2 job:
+  the same network gates, the same yield to a Sleep that is writing. No longer tied to Sleep.
+- A scheduled night with nothing to read still runs the engine-free tail.
+- Notes is read when Notes is opened or comes to the front, besides the 2 hour timer. Cicada still never launches
+  Notes.
+- The hook's reading line names the list that is due ("your X bookmarks are due"), is sent only to a harness that
+  can drive a browser, and repeats on a later prompt of the same session while the list stays due. Normal use of the
+  person's agent then keeps the lists current without a schedule.
+
+**Needs the owner (question 6):** a real schedule for the browser lists means starting the person's own AI app
+without them (a launchd job or the harness's own scheduled task), once a day, only when a list is due, with capture
+and recall off, skipping when their browser is not open and approved. It amends R-RW8 ("never scheduled"), rulings 4
+and 15 (a plan is spent only on the person's start) and the test that locks "Cicada never spawns a browser", and it
+costs plan usage on every run. Whether an agent can drive the browser unattended at all is unmeasured.
