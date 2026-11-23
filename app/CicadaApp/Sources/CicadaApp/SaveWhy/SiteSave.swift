@@ -636,14 +636,14 @@ enum SiteSaveReader {
         return ""
     }
 
-    /// The site the page under `point` is on, or nil: its address is read, compared with the sites Cicada knows, and
-    /// kept nowhere.
-    static func site(pid: pid_t, at point: CGPoint) -> SiteSaveSite? {
+    /// The site the front tab of the browser `pid` is on, or nil. The window's own document address is read (the
+    /// browser gives it without its page tree being switched on), compared with the sites Cicada knows, and kept
+    /// nowhere.
+    static func frontSite(pid: pid_t) -> SiteSaveSite? {
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, timeout)
-        var hit: AXUIElement?
-        guard AXUIElementCopyElementAtPosition(app, Float(point.x), Float(point.y), &hit) == .success, let hit,
-              let address = page(above: hit) else { return nil }
+        guard let window = element(app, kAXFocusedWindowAttribute as String),
+              let address = string(window, kAXDocumentAttribute as String) else { return nil }
         return SiteSaveSite.all.first { $0.onHost(address) }
     }
 
@@ -753,7 +753,12 @@ final class SiteSaveWatcher {
     }
 
     /// A site was connected or disconnected, or the permission changed: look again at what is in front.
-    func refresh() { frontmostChanged(NSWorkspace.shared.frontmostApplication) }
+    func refresh() {
+        frontmostChanged(NSWorkspace.shared.frontmostApplication)
+        if let pid = armedPid, !sites().isEmpty {
+            Task.detached(priority: .utility) { SiteSaveReader.askForWebContent(pid: pid) }
+        }
+    }
 
     private func frontmostChanged(_ app: NSRunningApplication?) {
         guard let app, let bundle = app.bundleIdentifier, Self.browsers.contains(bundle), isWanted() else {
@@ -771,7 +776,9 @@ final class SiteSaveWatcher {
         disarm()
         armedPid = pid
         armedBundle = bundle
-        Task.detached(priority: .utility) { SiteSaveReader.askForWebContent(pid: pid) }
+        // The browser is asked to build its page tree only once a site is connected: it costs the browser work,
+        // and an offer needs only the front tab's address.
+        if !sites().isEmpty { Task.detached(priority: .utility) { SiteSaveReader.askForWebContent(pid: pid) } }
         monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .mouseMoved]) { [weak self] event in
             let location = NSEvent.mouseLocation, down = event.type == .leftMouseDown
             MainActor.assumeIsolated { down ? self?.clicked(atAppKit: location) : self?.moved(atAppKit: location) }
@@ -802,18 +809,22 @@ final class SiteSaveWatcher {
         rest?.cancel()
         rest = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(Self.restDelay * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            let reading = await Task.detached(priority: .utility) {
-                await SiteSaveReader.settledRead(pid: pid, at: point)
-            }.value
             guard !Task.isCancelled, let self, self.armedPid == pid else { return }
-            if let reading, case let .success(item) = SiteSaveRule.item(reading, sites: self.sites()) {
-                self.hovered = Hover(item: item, reading: reading, point: point, at: SaveWhyTimings.now())
-            } else {
-                self.hovered = nil
+            // The page is read only once a site is connected; before that only the front tab's address is, for the
+            // offer.
+            if !self.sites().isEmpty {
+                let reading = await Task.detached(priority: .utility) {
+                    await SiteSaveReader.settledRead(pid: pid, at: point)
+                }.value
+                guard !Task.isCancelled, self.armedPid == pid else { return }
+                if let reading, case let .success(item) = SiteSaveRule.item(reading, sites: self.sites()) {
+                    self.hovered = Hover(item: item, reading: reading, point: point, at: SaveWhyTimings.now())
+                } else {
+                    self.hovered = nil
+                }
             }
             guard self.offers() else { return }
-            let site = await Task.detached(priority: .utility) { SiteSaveReader.site(pid: pid, at: point) }.value
+            let site = await Task.detached(priority: .utility) { SiteSaveReader.frontSite(pid: pid) }.value
             guard !Task.isCancelled, self.armedPid == pid else { return }
             if let site, site.key != self.lastSite, !self.sites().contains(where: { $0.key == site.key }),
                let bundle = self.armedBundle {
@@ -831,7 +842,7 @@ final class SiteSaveWatcher {
     }
 
     private func clicked(atAppKit location: CGPoint) {
-        guard let pid = armedPid else { return }
+        guard let pid = armedPid, !sites().isEmpty else { return }
         let point = screenPoint(location)
         let hover = Self.usable(hovered, at: point, now: SaveWhyTimings.now())
         rest?.cancel()

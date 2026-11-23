@@ -1594,7 +1594,9 @@ Measured on the owner's Chrome and built in: a control can be far smaller to mac
 in a ~35 pt circle — `nearestButton`, 14 pt halo); Chromium's first answer about a fresh point is often a neighbour
 and the second is exact (`settledRead`); on GitHub's lists the answer stays the whole page (`buttonByFrames` walks
 down by frames); Instagram and TikTok nest the button the pointer is on inside the control (the outer one is used).
-It asks a Chromium browser for its page tree once when it comes forward (`AXManualAccessibility`).
+It asks a Chromium browser for its page tree (`AXManualAccessibility`) only once a site is connected — the tree
+costs the browser work — and until then reads nothing but the front tab's address from the window itself
+(`frontSite`, `AXDocument`), for the offer.
 
 *The watcher (`SiteSaveWatcher`).* One monitor (mouse moves and mouse-downs) while a supported browser is in front,
 only when Accessibility is already granted and only for sites the person connected. The state before a click is read
