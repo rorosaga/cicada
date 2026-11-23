@@ -245,6 +245,17 @@
     "Book early, fares only go up.",
     "I'll book them this week."
    ]
+  },
+  {
+   "id": "n16",
+   "phase": 2,
+   "day": -2,
+   "title": "Saturday dinner",
+   "turns": [
+    "Idris's parents are coming for dinner on Saturday. One thing changed since I last asked you about food: I started eating fish again a few weeks ago, so I'm pescatarian now, not vegetarian. Can you suggest a menu for four?",
+    "Of course. A starter of roasted beetroot salad, then grilled sea bass with lemon and potatoes, and a lemon tart to finish.",
+    "Lovely, I'll make that."
+   ]
   }
  ],
  "gold": {
@@ -540,6 +551,20 @@
     "stale": [
      "cartolina",
      "20"
+    ]
+   },
+   {
+    "id": "V6",
+    "why": "a standing trait changes (a diet)",
+    "current": [
+     [
+      "pescatarian",
+      "eats fish",
+      "eating fish"
+     ]
+    ],
+    "stale": [
+     "vegetarian"
     ]
    }
   ],

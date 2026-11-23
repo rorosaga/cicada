@@ -152,7 +152,8 @@ def claim_text(c: dict) -> str:
 
 ENDED = re.compile(r"\b(?:dropped|left|stopped|no longer|moved off|moved from|switched from|replaced|abandoned)\b")
 NEGATION = re.compile(r"\b(?:not|never|no longer|declined|decided against|rejected|against|won't|doesn't|didn't|"
-                      r"too expensive|instead of|stayed? on|staying|hypothetical|if|ruled out|refused|skipped|dropped|skips?)\b")
+                      r"too expensive|instead of|stayed? on|staying|hypothetical|if|ruled out|refused|skipped|dropped|skips?|"
+                      r"without|sans|sin)\b")
 
 
 def is_current(c: dict) -> bool:

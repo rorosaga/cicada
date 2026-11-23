@@ -241,6 +241,16 @@ states as true at the time; when it states two for the same thing, the later one
 - A SCHEDULED DATE IS A VALUE: when something is set for a day ahead ("my review is in two weeks", "the move is on the
   12th"), write it as "<what> date": "YYYY-MM-DD", resolved from the conversation's date as TIME says, on the thing
   scheduled. When the day is unclear, write the month and year ("2026-12") — never a guess.
+- STANDING FACTS ARE VALUES TOO (2026-11-23). What a person is or has that holds until it changes, and a later
+  conversation could confirm or replace, is a value on whoever it is about, though it links to no other entity: a diet,
+  an allergy, a first language, a condition they manage, a rule they live by, a job title ("job title": "<title> at
+  <employer>"), what a project or thing does ("what it does"), what someone is going to do (a leave, a degree, a visit).
+  The attribute names the kind ("diet": "pescatarian"); a kind a person can hold several of gets one attribute each,
+  naming the item ("shellfish allergy": "allergic"), so one never replaces another. It is theirs only when they said it of
+  themselves (the user's own line, or a speaker's own line, that speaker's): never an assistant's guess. A mood or a
+  passing remark is no value; a finding of a study or test ("participants who failed": "3 of 10") is. Before you answer,
+  read each entity's key_facts once more: one that states such a fact, a plan or a finding and has no values[] entry yet
+  gets one.
 
 EXTRACTION GUIDELINES:
 - The agent's own runtime (its working directory, platform, shell, git status, the date of the session)
@@ -283,6 +293,8 @@ EXTRACTION GUIDELINES:
 - Relationships are critical — capture every meaningful connection between entities with a specific
   verb phrase in the active voice, source first (e.g. "works at", "built with", "supervised by", "depends on",
   "evaluated against", "dropped", "due"). Use short verb phrases, not full sentences or generic "related to".
+- WHO SOMEONE IS TO THE USER ("my partner X", "my cousin X") is a relationship of its own ("partner of", "cousin of"),
+  whatever the conversation is about; an act they share ("travels with") is never a substitute.
 - "works at" says the place is CURRENT. A job or role that ended is labelled by its ending — "left",
   "previously worked at" — never "works at". Two places at once (a job and a lab, a day job and a side
   project) are two "works at" relationships; one never replaces the other.
