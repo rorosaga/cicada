@@ -43,15 +43,16 @@ final class ChatGroupsTests: XCTestCase {
                        "Notes to yourself")
     }
 
-    func testTheSecondLineSaysHowManyInHowManySittingsAndHowLongAgo() throws {
+    func testTheSecondLineSaysHowManyAndHowLongAgoNeverHowItIsStored() throws {
         let now = ISO8601DateFormatter().date(from: "2026-11-23T12:00:00Z")!
         let us = Locale(identifier: "en_US")
         let two = ChatGroups.entries([try item("s2", chat: "bob", messages: 1_200), try item("s1", chat: "bob", messages: 4)])
         guard case .chat(let chat) = two[0] else { return XCTFail("a chat") }
-        XCTAssertEqual(ChatGroups.meta(chat, now: now, locale: us), ["1,204 messages", "2 sittings", "2h ago"])
+        XCTAssertEqual(ChatGroups.meta(chat, now: now, locale: us), ["1,204 messages", "2h ago"],
+                       "a sitting is how a chat is stored, never something the card says")
         let one = ChatGroups.entries([try item("s1", chat: "bob", messages: 1)])
         guard case .chat(let single) = one[0] else { return XCTFail("a chat") }
-        XCTAssertEqual(ChatGroups.meta(single, now: now, locale: us), ["1 message", "2h ago"], "one sitting says no count")
+        XCTAssertEqual(ChatGroups.meta(single, now: now, locale: us), ["1 message", "2h ago"])
     }
 
     func testEverythingElseIsACardEachAndAnOlderBackendGroupsNothing() throws {

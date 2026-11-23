@@ -88,6 +88,8 @@ private struct ReaderChatRowView: View {
                 .accessibilityAddTraits(.isHeader)
         case let .unsent(words):
             centred(words)
+        case let .boundary(words):
+            ReaderBoundaryLine(words: words)
         case let .gap(_, words):
             centred(words)
                 .accessibilityLabel("\(Copy.Provenance.notCaptured): \(words)")
@@ -365,5 +367,46 @@ private struct ReaderChatHeader: View {
         case .none:
             EmptyView()
         }
+    }
+}
+
+/// Owner 2026-11-23 — "separated by a dotted line and fading … so the user can easily see where the consolidation is
+/// starting in a conversation that continues". The one drawn separator in a conversation (DESIGN_RULES §9, 2026-11-23,
+/// amending DR-11 for this line alone): a dotted hairline either side of its words, above the first message Sleep has
+/// not read.
+struct ReaderBoundaryLine: View {
+    let words: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: CicadaTheme.spacingSM) {
+            dots
+            Text(words)
+                .font(CicadaTheme.metaFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .lineLimit(1)
+                .fixedSize()
+            dots
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(words)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    private var dots: some View {
+        DottedRule()
+            .stroke(CicadaTheme.textTertiary.opacity(0.7),
+                    style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [0.5, 5]))
+            .frame(height: 1.5)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct DottedRule: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.midY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+        return path
     }
 }

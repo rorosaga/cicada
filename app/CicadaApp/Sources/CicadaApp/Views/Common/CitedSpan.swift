@@ -23,6 +23,9 @@ enum CitedSpan {
         let mark: Mark
     }
 
+    /// The ink of words Sleep already read, in a source that changed since (`readTextFaded`).
+    static var readInk: Color { CicadaTheme.textTertiary }
+
     static let padding: CGFloat = 1
     static let cornerRadius: CGFloat = CicadaTheme.radiusXS
     static let underlineThickness: CGFloat = 2
@@ -56,10 +59,12 @@ enum CitedSpan {
     /// macOS 14 — the fill and the underline colour; no offset, no radius. Written through the
     /// SwiftUI scope explicitly: AppKit's scope has its own `backgroundColor` (an `NSColor`) and
     /// `underlineStyle`, and the bare names are ambiguous on macOS.
-    static func fallback(_ segments: [Segment], reveal: Double = 1) -> AttributedString {
+    static func fallback(_ segments: [Segment], reveal: Double = 1, plain: Color? = nil) -> AttributedString {
         segments.reduce(into: AttributedString()) { out, segment in
             var piece = AttributedString(segment.text)
             piece.mergeAttributes(marks(segment.mark, reveal: reveal))
+            // `readTextFaded`: the words Sleep already read step back; a changed or cited stretch keeps its ink.
+            if segment.mark == .plain, let plain { piece.swiftUI.foregroundColor = plain }
             out.append(piece)
         }
     }
@@ -147,9 +152,10 @@ struct CitedPassage: View {
     var reveal: Double = 1
     /// False in a chat bubble, which hugs its words rather than taking the column (`ReaderChatRows`).
     var fillsWidth = true
+    @Environment(\.readTextFaded) private var readFaded
 
     var body: some View {
-        Text(CitedSpan.fallback(segments, reveal: reveal))
+        Text(CitedSpan.fallback(segments, reveal: reveal, plain: readFaded ? CitedSpan.readInk : nil))
             .font(font)
             .lineSpacing(lineSpacing)
             .foregroundStyle(color)
@@ -157,6 +163,13 @@ struct CitedPassage: View {
             .frame(maxWidth: fillsWidth ? .infinity : nil, alignment: .leading)
             .textSelection(.enabled)
     }
+}
+
+extension EnvironmentValues {
+    /// Owner 2026-11-23 — "all that's already consolidated should appear faded": true where the Reader shows a source
+    /// that changed since Sleep read it (and in the read snippet above a chat thread). Every unmarked word under it
+    /// reads in `CitedSpan.readInk`, so what is new is what stands out.
+    @Entry var readTextFaded = false
 }
 
 extension View {

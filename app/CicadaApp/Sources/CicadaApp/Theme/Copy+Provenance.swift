@@ -120,6 +120,8 @@ extension Copy {
         // MARK: The Reader as a column (DS-2 Task 4, R-DI6)
 
         static let closeHelp = "Close (Esc)"
+        /// The dotted line above the first message Sleep has not read.
+        static let newSinceRead = "New since Sleep read this"
         static func resumeHelp(_ agent: String?) -> String { "Resume this conversation in \(agent ?? "its app")" }
         /// "Noted from this conversation (3)" — the count through `UsageFormat` (R-DI23).
         static func noted(count: Int, kind: String?) -> String {

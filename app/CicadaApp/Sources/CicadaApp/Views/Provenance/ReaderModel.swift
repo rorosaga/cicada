@@ -413,6 +413,12 @@ enum ReaderChanges {
         return out
     }
 
+    /// The first turn holding a changed stretch: where what Sleep has not read begins in a conversation that went on.
+    static func firstTurn(_ ranges: [Range<Int>], blocks: [ReaderBlock]) -> Int? {
+        guard let first = ranges.first else { return nil }
+        return blocks.first { $0.contentStart + $0.text.unicodeScalars.count > first.lowerBound }?.index
+    }
+
     /// `ranges` with every `cutting` range taken out, so a cited span keeps its own wash inside a changed stretch.
     static func minus(_ ranges: [Range<Int>], cutting: [Range<Int>]) -> [Range<Int>] {
         guard !cutting.isEmpty else { return ranges }

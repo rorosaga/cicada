@@ -91,6 +91,9 @@ struct SourceSpansView<Pinned: View, Below: View>: View {
                         below()
                     }
                     .scrollTargetLayout()
+                    // Opened on what changed (no quote to land on): the words Sleep already read step back.
+                    .environment(\.readTextFaded, presentation.focus == nil && doc.changes?.state == "updated"
+                                 && doc.changes?.changed.isEmpty == false)
                     .padding(.top, CicadaTheme.scaled(4))
                     .padding(.horizontal, CicadaTheme.scaled(ReaderColumn.inset))
                     .padding(.bottom, CicadaTheme.scaled(layout.chat == nil ? 72 : 24))
@@ -310,7 +313,8 @@ final class SourceSpansState {
         if ReaderChat.isChat(doc) {
             // A turn holding the cited words, or the one landed on, never folds: the wash is always on screen.
             chat = ReaderChat.rows(blocks: blocks, doc: doc, expanded: unfolded,
-                                   keepOpen: ReaderChat.keepOpen(blocks: blocks, landing: landingBlock))
+                                   keepOpen: ReaderChat.keepOpen(blocks: blocks, landing: landingBlock),
+                                   newFrom: ReaderChanges.firstTurn(changed, blocks: blocks))
         }
         let built = Layout(blocks: blocks, chat: chat, landingBlock: landingBlock)
         memoKey = key
