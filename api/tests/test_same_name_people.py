@@ -24,11 +24,18 @@ def _mentions(*pairs):
     return [snp.Mention(episode, text) for episode, text in pairs]
 
 
-def _judge(answer):
+def _judge(answer, check=None):
+    """A grouping answer, and the answer the narrow check on a proposed split gets (default: it holds up, quoting the
+    first line of each side)."""
     calls = []
 
     async def judge(system, prompt):
         calls.append(prompt)
+        if prompt.startswith("Two descriptions"):
+            if check is not None:
+                return check
+            lines = [ln for ln in prompt.splitlines() if ln and not ln.startswith(("DESCRIPTION", "Two ", "Could", "Answer", "If ", "Different"))]
+            return {"verdict": "two_people", "excluding": lines[0][-30:], "with": lines[1][-30:]}
         if isinstance(answer, Exception):
             raise answer
         return answer
@@ -53,6 +60,34 @@ def test_two_groups_with_no_one_on_record_the_larger_keeps_the_plain_name():
     assert result.moves == {"e1": snp.Destination("new", "g0")}
 
 
+@pytest.mark.parametrize("check", [
+    {"verdict": "one_person"}, {}, None, "two_people",
+    {"verdict": "two_people", "excluding": "a carpenter in a small town", "with": "never said anywhere at all"},
+    {"verdict": "two_people", "excluding": "carpenter", "with": "colleague"},
+], ids=["one person", "empty", "none", "text", "a quote that is not there", "quotes too short"])
+def test_a_split_the_check_does_not_hold_up_goes_back_to_the_plain_name(check):
+    judge = _judge(TWO, check=check if check is not None else {"verdict": None})
+    result = _run(snp.plan("Marc", M, [], judge))
+    assert result.moves == {} and result.checked == 1
+    assert len(judge.calls) == 2, "one grouping call and one check for the one person it would have made new"
+
+
+def test_a_split_that_quotes_both_sides_stands():
+    check = {"verdict": "two_people", "excluding": "a colleague moving offices", "with": "a carpenter in a small town"}
+    result = _run(snp.plan("Marc", M, [], _judge(TWO, check=check)))
+    assert result.moves == {"e1": snp.Destination("new", "g0")}
+
+
+def test_a_thin_earlier_description_never_splits_a_later_richer_one():
+    """The false split the benchmark found (2026-11-23): one conversation says a person put in a word, a later one that
+    they are a head of product. Nothing excludes anything; the check says one person."""
+    known = [snp.Identity("line", "teo", True, "(2026-10-21) put in a word for the speaker")]
+    later = _mentions(("e9", "(2026-11-13) head of product at the firm after a promotion"))
+    answer = {"people": [{"conversations": ["A"], "same_as": None, "reason": "different roles"}]}
+    result = _run(snp.plan("Teo", later, known, _judge(answer, check={"verdict": "one_person"})))
+    assert result.moves == {}
+
+
 def test_a_tie_keeps_the_earlier_conversation_plain():
     two = {"people": [{"conversations": ["A"], "same_as": None, "reason": "x"},
                       {"conversations": ["B"], "same_as": None, "reason": "y"}]}
@@ -75,7 +110,8 @@ def test_an_answer_that_does_not_line_up_keeps_the_old_behaviour(answer):
 
 def test_a_conversation_the_answer_leaves_out_stays_with_the_name():
     partial = {"people": [{"conversations": ["B"], "same_as": None, "reason": "x"}]}
-    assert _run(snp.plan("Marc", M, [snp.Identity("page", "marc", True, "p")], _judge(partial))).moves == {
+    known = [snp.Identity("page", "marc", True, "a colleague at the research firm")]
+    assert _run(snp.plan("Marc", M, known, _judge(partial))).moves == {
         "e2": snp.Destination("new", "g0")}
 
 
@@ -193,6 +229,10 @@ def judged(monkeypatch):
 
     async def ask(settings, system, prompt):
         box.calls.append(prompt)
+        if prompt.startswith("Two descriptions"):
+            one = prompt.split("DESCRIPTION 1\n")[1].split("\n\nDESCRIPTION 2")[0]
+            two = prompt.split("DESCRIPTION 2\n")[1].split("\n\nCould all")[0]
+            return {"verdict": "two_people", "excluding": one.strip()[-25:], "with": two.strip()[-25:]}
         if isinstance(box.answer, Exception):
             raise box.answer
         return box.answer
@@ -223,7 +263,7 @@ def test_in_one_batch_two_people_of_one_name_are_a_page_and_a_held_line(tmp_path
     assert extracted[0]["values"][0]["source_page"] == "marc-2"
     assert "source_page" not in extracted[1]["relationships"][0]
     assert out["name_to_id"]["marc"] == "marc"
-    assert len(judged.calls) == 1
+    assert len(judged.calls) == 2, "one grouping call and one check on the one new person"
 
 
 def test_a_later_conversation_of_the_held_person_gives_them_a_page_of_their_own(tmp_path, judged):

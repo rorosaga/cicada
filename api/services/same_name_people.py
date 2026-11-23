@@ -19,7 +19,8 @@ description, a judge that fails or answers unreadably, is the old behaviour: the
 asked of the person: a split is a plain decision the next conversation can see on the pages, and the person's own
 "these are one" (a merge) stands as it always did.
 
-Bound: one judge call per bare name that has something to compare, at most :data:`MAX_NAMES` names a batch, and
+Bound: one judge call per bare name that has something to compare, plus one narrow check for each person the grouping
+would make new (it must quote the two facts that exclude each other), at most :data:`MAX_NAMES` names a batch, and
 :data:`MAX_MENTIONS` conversations and :data:`MAX_IDENTITIES` known people in a call; what is over is left as it was.
 """
 from __future__ import annotations
@@ -55,11 +56,26 @@ CONVERSATIONS (each is what that one conversation says about the "{name}" it nam
 Rules:
 - A wrong join is a serious memory error: it tells the person things about someone that are true of another. A wrong split is an error too. Decide only from what the descriptions say.
 - Put two conversations in different groups ONLY when the descriptions give each person a fact the other cannot share: a different trade or employer, a different home town or country, a different generation, a relationship one person cannot hold to the speaker. Name that contrast in "reason".
-- A different setting, topic or time is NOT a difference: one person is met at home, at work, on a trip, at a race, and a description that only mentions its setting says nothing about who they are. When a description is thin, or everything said could be true of one person, they are the same person.
+- A different setting, topic or time is NOT a difference: one person is met at home, at work, on a trip, at a race, and a description that only mentions its setting says nothing about who they are. People also change: a promotion, a new job, a move, a new role in the speaker's life. A description that says less than another, or says something else about the same person, is no contradiction. When a description is thin, or everything said could be true of one person, they are the same person.
 - A conversation that fits a known person goes with them ("same_as": that person's number). A conversation that fits none of them is a person not on record yet ("same_as": null); conversations that fit each other go in one group.
 
 Answer in JSON only, every conversation in exactly one group:
 {{"people": [{{"conversations": ["A", "C"], "same_as": 1, "reason": "one short sentence"}}]}}
+"""
+
+
+VERIFY_PROMPT = """Two descriptions of someone called "{name}" come from different conversations of one person's life. A first pass thought they may be two different people.
+
+DESCRIPTION 1
+{one}
+
+DESCRIPTION 2
+{two}
+
+Could all of this be true of ONE person, allowing for time passing (the dates are given where known), a promotion, a new job, a move, or a role in the speaker's life that only one conversation happened to mention? Different people only if a fact in one description EXCLUDES a fact in the other: they cannot both be true of one person, even over time. A description that says less than the other, or something else about the same person, excludes nothing.
+
+Answer in JSON only. If one person could fit both: {{"verdict": "one_person"}}.
+If not: {{"verdict": "two_people", "excluding": "an exact quote from description 1", "with": "an exact quote from description 2"}}
 """
 
 
@@ -101,6 +117,7 @@ class Plan:
 
     moves: dict[str, Destination] = field(default_factory=dict)
     called: bool = False
+    checked: int = 0   # the verifying calls (one for each person the grouping would have made new)
 
 
 def is_bare(name: str) -> bool:
@@ -111,13 +128,28 @@ def is_bare(name: str) -> bool:
 
 
 def describe(entity: dict) -> str:
-    """What one extraction says about its person: its summary and its first facts, cut."""
+    """What one extraction says about its person: its summary and its first facts, cut, dated when the conversation is."""
     summary = str(entity.get("summary") or entity.get("description") or "").strip()
     facts = [str(f).strip() for f in (entity.get("key_facts") or [])[:4] if str(f).strip()]
     text = " ".join(summary.split())
     if facts:
         text = (text + " Facts: " + "; ".join(" ".join(f.split()) for f in facts)).strip()
-    return text[:TEXT_CHARS]
+    day = str(entity.get("source_episode_timestamp") or "")[:10]
+    return (f"({day}) {text}" if day and text else text)[:TEXT_CHARS]
+
+
+def _flat(text: str) -> str:
+    return " ".join(re.sub(r"[^\w\s]", " ", str(text or "").lower()).split())
+
+
+def contrast_holds(answer: object, one: str, two: str) -> bool:
+    """The verifying pass's answer is a split only when it says two people AND quotes, from each description, the facts
+    that exclude each other: a quote that is not in its description (a paraphrase, an invention) is no evidence, so the
+    people stay one. Biased to one person on purpose: a wrong split hides a person's life from itself."""
+    if not isinstance(answer, dict) or str(answer.get("verdict") or "").strip().lower() != "two_people":
+        return False
+    a, b = _flat(answer.get("excluding")), _flat(answer.get("with"))
+    return len(a) >= 8 and len(b) >= 8 and a in _flat(one) and b in _flat(two)
 
 
 def _known_block(identities: list[Identity]) -> str:
@@ -221,7 +253,36 @@ async def plan(name: str, mentions: list[Mention], identities: list[Identity],
     assigned = read(parsed, judged, shown)
     if assigned is None:
         return result
-    result.moves = decide(assigned, shown, {m.episode: i for i, m in enumerate(judged)})
+    first_seen = {m.episode: i for i, m in enumerate(judged)}
+    moves = decide(assigned, shown, first_seen)
+    text_of = {m.episode: m.text for m in judged}
+    # A split is a claim that two descriptions cannot both be true of one person, and the grouping pass is the one that
+    # gets it wrong on a thin description (a later conversation says more than an earlier one). Each person the
+    # grouping would make new is checked once against the plain person, by a narrow question that must quote the two
+    # facts that exclude each other. What does not hold up goes back to the plain name.
+    plain_text = next((i.text for i in shown if i.plain), "")
+    if not plain_text:
+        plain_text = " ".join(text_of[e] for e in assigned if e not in moves and e in text_of)
+    news: dict[str, list[str]] = {}
+    for episode, destination in moves.items():
+        if destination.kind == "new":
+            news.setdefault(destination.ref, []).append(episode)
+    for label, episodes in news.items():
+        group_text = " ".join(text_of[e] for e in episodes)
+        answer = None
+        if plain_text:   # nothing recorded of the plain person to contradict: no evidence, no split
+            try:
+                answer = await judge(SYSTEM, VERIFY_PROMPT.format(name=name, one=plain_text[:IDENTITY_CHARS],
+                                                                  two=group_text[:IDENTITY_CHARS]))
+            except engine_errors.EngineError:
+                raise
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"Same-name check failed: {type(e).__name__}")
+            result.checked += 1
+        if not contrast_holds(answer, plain_text[:IDENTITY_CHARS], group_text[:IDENTITY_CHARS]):
+            for episode in episodes:
+                del moves[episode]
+    result.moves = moves
     return result
 
 
