@@ -116,6 +116,17 @@ final class ConnectSuggestTests: XCTestCase {
         XCTAssertEqual(decide(whatsApp, memory, context(later.addingTimeInterval(day))), .suggest)
     }
 
+    func testASitesOfferIsNotHeldByAnotherSourcesOfferTheSameDay() {
+        // Found live: GitHub's unanswered offer kept X, Instagram and TikTok silent for a day.
+        var memory = ConnectSuggestPolicy.shown("site-save:github", at: t0, in: .init())
+        memory = ConnectSuggestPolicy.answered("site-save:github", .notNow, at: t0, in: memory)
+        let soon = t0.addingTimeInterval(120)
+        XCTAssertEqual(decide(ConnectSuggestApps.site("x"), memory, context(soon)), .suggest)
+        XCTAssertEqual(decide(ConnectSuggestApps.site("github"), memory, context(soon)), .skip(.snoozed))
+        // An app's offer still waits its day after a site's.
+        XCTAssertEqual(decide(notes, memory, context(soon)), .skip(.dailyCap))
+    }
+
     func testNeverInTheFirstMinuteAfterTheAppOrCicadaLaunched() {
         var c = context(t0)
         c.appLaunchedAt = t0.addingTimeInterval(-59)
