@@ -1334,10 +1334,15 @@ async def _plan_same_name_people(
         async def judge(system: str, prompt: str) -> object:
             return await _same_name_ask(settings, system, prompt)
 
+        async def strong(system: str, prompt: str) -> object:
+            from api.services import same_name_tend
+
+            return await _same_name_ask(same_name_tend.main_tier(settings), system, prompt)
+
         async with gate:
             if cancel_check is not None and cancel_check():
                 return name_lower, same_name_people.Plan()
-            return name_lower, await same_name_people.plan(name, to_judge, identities, judge)
+            return name_lower, await same_name_people.plan(name, to_judge, identities, judge, strong)
 
     results = await asyncio.gather(*(one(*item) for item in work))
     split = 0

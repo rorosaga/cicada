@@ -103,7 +103,7 @@ def pair(a: str, b: str) -> tuple[str, str]:
     return tuple(sorted((a, b)))  # type: ignore[return-value]
 
 
-async def step(world: World, batch: list[Conv], judge, ep_n: list[int]) -> None:
+async def step(world: World, batch: list[Conv], judge, ep_n: list[int], strong=None) -> None:
     """One batch of one name, as `entity_resolver._plan_same_name_people` and `_resolve_same_name_people` carry it out."""
     mentions = [snp.Mention(c.ep, c.text) for c in batch]
     by_ep = {c.ep: c for c in batch}
@@ -111,7 +111,8 @@ async def step(world: World, batch: list[Conv], judge, ep_n: list[int]) -> None:
     moves: dict[str, snp.Destination] = {}
     result = snp.Plan()
     if mentions and (len(mentions) >= 2 or identities):
-        result = await snp.plan(world.name, mentions, identities, judge)
+        result = await (snp.plan(world.name, mentions, identities, judge, strong) if strong is not None and hasattr(snp, 'Item')
+                       else snp.plan(world.name, mentions, identities, judge))
         world.calls += 1 if result.called else 0
         moves = result.moves
     compared = {i.ref for i in identities[: snp.MAX_IDENTITIES]}
@@ -220,7 +221,7 @@ async def replay(story: dict, judge, review_judge, n: int = 0) -> dict:
     for seeded in story.get("seed", []):
         world.persons[seeded["id"]] = Person(seeded["id"], [conv(c) for c in seeded["convs"]])
     for batch in story["batches"]:
-        await step(world, [conv(c) for c in batch], judge, ep)
+        await step(world, [conv(c) for c in batch], judge, ep, review_judge)
     await tend(world, review_judge)
     return score(world, story)
 

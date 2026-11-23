@@ -172,7 +172,11 @@ def known_for(memory_path: Path, page_id: str) -> str:
         return ""
     text = " ".join(str(sections.get("Summary") or next(iter(sections.values()), "") or "").split())
     first = re.split(r"(?<=[.!?])\s", text, maxsplit=1)[0] if text else ""
-    return first[:160].rstrip(" .")
+    if len(first) > 110:   # cut at a clause, never in the middle of one
+        cut = max(first.rfind(", ", 30, 110), first.rfind("; ", 30, 110), first.rfind(" who ", 30, 110),
+                  first.rfind(" which ", 30, 110))
+        first = first[:cut] if cut > 0 else first[:first.rfind(" ", 0, 110)]
+    return first.rstrip(" .,;")
 
 
 def ask_pair(memory_path: Path, a: str, b: str, *, today: date) -> str | None:

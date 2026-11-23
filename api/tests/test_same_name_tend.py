@@ -430,3 +430,10 @@ def test_end_to_end_a_later_conversation_clarifies_a_joined_page_and_the_tail_sp
     report = _run(same_name_tend.tend(bank, _judge(answer), today=DAY))
     assert report.split == 1
     assert markdown_parser.parse(bank / "entities" / "tomas-2.md").frontmatter["source_episodes"] == ["ep_b1", "ep_b2"]
+
+
+def test_what_a_page_is_known_for_is_cut_at_a_clause_never_mid_sentence(bank):
+    _page(bank, "marc", {"ep_a1": ["x"]}, name="Marc",
+          lead="Marc is a colleague on the banking app usability study who said in October 2026 that his move to the Berlin office is confirmed for 15 March, after which he is remote.")
+    said = same_name_tend.known_for(bank, "marc")
+    assert said == "Marc is a colleague on the banking app usability study" and len(said) <= 110

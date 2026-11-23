@@ -415,10 +415,21 @@ def decide(reading: Reading, entries: list[Entry], identities: list[Identity],
     return moves, flags
 
 
+#: A person on record with this many filed conversations or more has a history a small judge can regroup wrongly (a conversation
+#: of the page that belongs with the new mention left behind with the rest): a split decided against it is read again.
+CONFIRM_ITEMS = 3
+
+
 async def plan(name: str, mentions: list[Mention], identities: list[Identity],
-               judge: Callable[[str, str], Awaitable[object]]) -> Plan:
+               judge: Callable[[str, str], Awaitable[object]],
+               strong: Callable[[str, str], Awaitable[object]] | None = None) -> Plan:
     """Decide one name. ``judge(system, prompt)`` answers the parsed JSON (an injected, engine-free seam); a failure or
-    an answer that does not line up is the old behaviour: one person."""
+    an answer that does not line up is the old behaviour: one person.
+
+    ``strong`` is the engine's main model: when the small judge's reading divides the conversations (a new person, a doubt,
+    a page that holds two) and a person on record has :data:`CONFIRM_ITEMS` or more filed conversations, the same prompt is
+    put to it once and its grouping replaces the small judge's. Its answer being unreadable, failing, or calling it one
+    person leaves the small judge's reading: a located split is never lost to a second opinion."""
     result = Plan()
     shown = list(identities[:MAX_IDENTITIES])
     judged = [m for m in mentions[:MAX_MENTIONS]]
@@ -439,6 +450,18 @@ async def plan(name: str, mentions: list[Mention], identities: list[Identity],
     reading = read(parsed, entries)
     if reading is None or reading.single:
         return result
+    if strong is not None and any(len(i.shown()) >= CONFIRM_ITEMS for i in shown):
+        try:
+            second = read(await strong(SYSTEM, prompt), entries)
+        except asyncio.CancelledError:
+            raise
+        except engine_errors.EngineError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"Same-name second reading failed: {type(e).__name__}")
+            second = None
+        if second is not None and not second.single:
+            reading = second
     moves, flags = decide(reading, entries, shown, {m.episode: i for i, m in enumerate(judged)})
     result.review, result.review_reasons = flags.review, flags.review_reasons
     result.review_pages, result.review_pairs = flags.review_pages, flags.review_pairs

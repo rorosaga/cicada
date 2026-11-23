@@ -548,3 +548,34 @@ def test_with_a_person_on_record_a_group_is_never_made_new_because_another_group
     # the same statement, with the group that holds the known page as the other side: a located split of the carpenter only
     answer = ans("A", "BCD", pairs=[(1, 2, "different", "a carpenter (menuisier) in Annecy", "a colleague on the banking study")])
     assert _run(snp.plan("Marc", NIGHT, known, _judge(answer))).moves == {"e1": snp.Destination("new", "g0")}
+
+
+def test_a_split_decided_against_an_established_page_is_read_again_by_the_main_model():
+    """The small judge regrouped a page wrongly (the third conversation, which belongs with the new mention, left with the
+    rest): the main model's grouping replaces it, and its answer failing or calling it one person leaves the small judge's."""
+    items = tuple(snp.Item(f"(2026-10-{d:02d}) " + t, (f"k{d}",)) for d, t in (
+        (2, "the speaker's landlord in Seville, who lives upstairs and fixes the leaks himself and raises the rent"),
+        (20, "the landlord in Seville, who raised the rent and announced works on the roof of the building"),
+        (28, "a university classmate who now works as a graphic designer and shares a flat with two friends")))
+    known = [snp.Identity("page", "pablo", True, " ".join(i.text for i in items), frozenset({"k2", "k20", "k28"}), items)]
+    new = _mentions(("e1", "(2026-11-10) lives in Barcelona, where he works as a designer at an agency and shares a flat"))
+    # letters: A the new one; B k28, C k20, D k2
+    small = ans("BCD", "A", pairs=[(1, 2, "different", "the landlord in Seville", "lives in Barcelona, where he works")])
+    big = ans("AB", "CD", pairs=[(1, 2, "different", "lives in Barcelona, where he works", "the landlord in Seville")])
+    wrong = _run(snp.plan("Pablo", new, known, _judge(small)))
+    assert wrong.moves == {"e1": snp.Destination("new", "g1")}, "alone, the small judge cuts the new one from a page it half belongs to"
+    strong = _judge(big)
+    right = _run(snp.plan("Pablo", new, known, _judge(small), strong))
+    assert right.moves == {} and right.review_pages == {"pablo"}, "its conversation joins the page's, and the page is flagged"
+    assert len(strong.calls) == 1
+    for answer in (RuntimeError("down"), {}, ans("ABCD")):
+        kept = _run(snp.plan("Pablo", new, known, _judge(small), _judge(answer)))
+        assert kept.moves == wrong.moves
+
+
+def test_the_main_model_is_not_asked_when_nothing_on_record_has_a_history_or_nothing_divides():
+    strong = _judge(TWO)
+    _run(snp.plan("Marc", M, [], _judge(TWO), strong))
+    known = [snp.Identity("page", "marc", True, COLLEAGUE)]
+    _run(snp.plan("Marc", M[:1], known, _judge(ans("AB")), strong))
+    assert strong.calls == []
