@@ -3530,6 +3530,7 @@ async def _run_stages(
                       if i in {e.get("episode_id") for e in extracted}} if revisions else {}
     claim_result: dict = {}
     try:
+        from api.services import value_alignment
         from api.services.claim_pipeline import run_claim_pipeline
         from api.services.inbox_generator import write_claim_nudges
         # 2026-10-29 (`entity_relations`): what Stage 2's judge said two names are to each other, written as claims by
@@ -3542,6 +3543,8 @@ async def _run_stages(
             # G141 PJ-0: Stage 2's own map, so a claim lands where its edge did.
             name_to_id=resolved_result.get("name_to_id"),
             decided_names=resolved_result.get("decided_names"),
+            # G148: a value said again in other words is shown to the small judge, one call a page (`value_alignment`).
+            value_judge=value_alignment.judge_for(settings),
             **({"revisions": revisions_read} if revisions_read else {}),
             **decay_kw,
         )

@@ -492,7 +492,25 @@ seed's `uses` endings also read `replaced`, `replaces` and `switched from`, whic
 latest release, released version, release version, latest/current version, version;
 `predicates.value_attribute_group`); under one name the newer value closes the older on the usual value rules (the
 newest dated evidence wins, an older value read late is history, the person's own words never closed by an agent's).
-Nothing outside the list is joined.
+Nothing outside the list is joined **by words**.
+**A value said again in other words, or another language (2026-11-23; `value_alignment`):** words cannot join "price per
+postcard: 4 euros" to "prix des cartes: 5 euros" (nothing in common) and a list fits one case, so between Stage 1 and
+Stage 3 (`claim_pipeline`, after `route_values_to_their_thing`) Sleep's small judge reads the page. For each page that
+gains an attribute no open value on it is worded like, and that has another value it could be (same context and
+observer, no conversation in common — two values one conversation stated together are two things, in code, not by the
+judge's word), **one call** lists that page's values — the claim's own sentence and date, the new ones marked, the new
+attributes first, at most 40 lines — and asks, for each new line, which other line states the same attribute. **Each
+join it proposes is then checked once more, alone** ("is the later a correction of the earlier, or can both be true?"):
+a join needs both answers, since a study's start date was once joined to its readout date on one wrong answer and the
+newer value closed the older. A new value in a confirmed group takes the predicate of the group's existing line (the
+latest said; else the earliest of the batch), and Stage 3 closes the older by the newer as for any same-attribute value:
+`valid_to`, `superseded_by`, nothing deleted, the owner's-words rail unchanged. Only a new claim is ever renamed; an
+answer naming no real line, a line not marked new, or a check that is not a plain yes changes nothing. Bounds: no call for
+a page with no new attribute or nothing to join it to, one per page per batch plus one per proposed join, 24 pages and 40
+checks a batch, inside Sleep's spend line (`value_match`, `sleep_spend.LINE_STAGES`); a failed call costs the rest of the
+batch its joins and nothing else (`value_aligned` in the audit; the capture path calls no model). A relationship and a
+value that say one fact (`lives-in` Grenoble beside `value-of-city-of-residence`: Grenoble) are not joined here: that
+needs a value to be recognised as a restatement of a relationship's object, a different write than a rename.
 **A stated day (W7, 2026-10-23):** a Stage 1 relationship may carry `ends`, an absolute day the model resolves from the
 conversation's day ("my last day is a week from today"); anything but a real ISO date is dropped, so nothing relative is
 stored (`entity_extractor._stated_day`). On an `over` label it dates the ending (the job closes on the last day, not

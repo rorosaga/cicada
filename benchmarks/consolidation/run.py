@@ -374,6 +374,15 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
         updates.append({"id": row["id"], "why": row["why"], "verdict": verdict,
                         "current": [claim_text(c) for c in cur[:3]], "stale_current": [claim_text(c) for c in stale[:3]]})
 
+    # Two real attributes of one thing (a postcard's price and a print's) said apart must both stay current.
+    apart = []
+    for row in gold.get("apart_values", []):
+        cur_a = [c for c in held(expand_groups(row["a"], clock)) if is_current(c)]
+        cur_b = [c for c in held(expand_groups(row["b"], clock)) if is_current(c)]
+        apart.append({"id": row["id"], "why": row["why"],
+                      "ok": any(x["id"] != y["id"] for x in cur_a for y in cur_b),
+                      "a": [claim_text(c) for c in cur_a[:3]], "b": [claim_text(c) for c in cur_b[:3]]})
+
     owner_id = next((p["id"] for p in pages if p["owner"]), None)
     forbid = []
     for row in gold["forbid"]:
@@ -464,6 +473,7 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
             "updates_both": sum(1 for u in updates if u["verdict"] == "both_current"),
             "updates_missing": sum(1 for u in updates if u["verdict"] in ("missing", "stale_only")),
             "updates": len(updates),
+            "apart_ok": total(apart), "apart": len(apart),
             "forbid_ok": total(forbid), "forbid": len(forbid),
             "people_ok": total(people), "people": len(people),
             "pages_ok": total(expected) + total(not_expected), "pages_checks": len(expected) + len(not_expected),
@@ -472,7 +482,7 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
             "span_rate": integrity["span_rate"],
             "integrity_breaks": len(leaked) + len(integrity["project_pages_made"]) + len(integrity["evergreen_pages"]),
         },
-        "points": points, "updates": updates, "forbid": forbid, "people": people,
+        "points": points, "updates": updates, "apart_values": apart, "forbid": forbid, "people": people,
         "pages": {"expected": expected, "not_expected": not_expected}, "dated": dated, "integrity": integrity,
     }
 
@@ -789,6 +799,7 @@ def report(out: Path) -> str:
             ("updates_correct", f"updates correct /{first.get('updates', '?')}"),
             ("updates_both", "updates: old still current"),
             ("updates_missing", "updates: new value missing"),
+            ("apart_ok", f"two real values kept apart /{first.get('apart', '?')}"),
             ("forbid_ok", f"others' words kept off the person /{first.get('forbid', '?')}"),
             ("people_ok", f"people joined/kept apart right /{first.get('people', '?')}"),
             ("pages_ok", f"page made / not made right /{first.get('pages_checks', '?')}"),
@@ -841,7 +852,7 @@ def compare(out: Path, a: str, b: str) -> str:
     rows = ["| measure | " + a + f" (n={len(ga)}) | " + b + f" (n={len(gb)}) | clear |", "|---|---|---|---|"]
     sa = [json.loads((x / "score.json").read_text(encoding="utf-8"))["summary"] for x in ga]
     sb = [json.loads((x / "score.json").read_text(encoding="utf-8"))["summary"] for x in gb]
-    for key in ("points_claim", "points_judged", "updates_correct", "forbid_ok", "people_ok", "pages_ok", "dated_ok",
+    for key in ("points_claim", "points_judged", "updates_correct", "apart_ok", "forbid_ok", "people_ok", "pages_ok", "dated_ok",
                 "claims_total", "pages_total"):
         va = [s[key] for s in sa if s.get(key) is not None]
         vb = [s[key] for s in sb if s.get(key) is not None]
@@ -859,6 +870,8 @@ def compare(out: Path, a: str, b: str) -> str:
                     out_.setdefault(f"{name}:{p['id']}", []).append(p["claim"])
                 for u in sc["updates"]:
                     out_.setdefault(f"{name}:{u['id']}", []).append(u["verdict"] == "correct")
+                for u in sc.get("apart_values", []):
+                    out_.setdefault(f"{name}:{u['id']}", []).append(u["ok"])
         return out_
 
     fa, fb = facts(ga), facts(gb)

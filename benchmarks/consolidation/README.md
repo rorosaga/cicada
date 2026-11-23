@@ -34,6 +34,7 @@ the conversation's own day.
 |---|---|---|
 | facts (52) | code, then the judge | Is each fact held as a claim? A fact the spelling missed is put to the judge with every claim (`match.json`), reported apart as "judge-matched". Also reported: held anywhere on a page. |
 | updates (6) | code | Is the new value current and the old one closed? Each one is *correct*, *both current*, *stale only* or *missing*. U4 is the silent edit (a revision). |
+| two values kept apart (2) | code | Two real attributes of one thing said apart (a postcard's price and an A4 print's, a trip's budget and its flights) must both stay current: the counter-case to an update closing the wrong value (`apart_values` in the gold; Noor only). |
 | others' words (7) | code | A suggestion the person declined or changed, a book only the assistant named, a partner's hobby, a move asked about and refused, and a third Sam are not held as the person's facts or joined to the wrong Sam. A claim that says the thing was declined is not a violation. |
 | people (4) | code | A nickname and a full name, a name and a handle, end up as one page; two people called Sam stay two pages; no page holds what is said of each of two people called Marc. |
 | pages (10) | code | Whoever is mentioned in 2+ conversations gets a page; a one-off mention gets none. |
