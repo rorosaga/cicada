@@ -216,6 +216,9 @@ trailers) and dedup hold.
 - A fact is wrong or new -> `cicada_write_claim` (quote the evidence);
   withdraw a claim you wrote with `cicada_retract_claim`.
 - An open question the person just answered -> `cicada_resolve_inbox`.
+- A source file in a folder Cicada watches (a transcript, a note) is wrong ->
+  edit it with your file tools: the hook records you as the editor. After a
+  shell command changed one, run `cicada source-edit <file>`.
 
 ## Where to check
 Where to check is a link where the current state of a thing can be checked — a
