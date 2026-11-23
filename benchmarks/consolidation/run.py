@@ -618,32 +618,40 @@ def _plant(claims: list[dict], pages: list[dict], n: int) -> list[dict]:
     by_id = {p["id"]: p for p in pages if not p["owner"]}
     pool = [c for c in sorted(claims, key=lambda c: c["id"]) if _cited(c)]
     rng.shuffle(pool)
-    planted: list[dict] = []
-    kinds = ("date", "number", "swap")
-    for c in pool:
-        if len(planted) >= n:
-            break
-        want = kinds[len(planted) % len(kinds)]
+    def mutate(c: dict, kind: str) -> dict | None:
         text, obj = c["text"] or "", str(c["object"])
-        if want == "date" and (m := re.search(r"\d{4}-\d{2}-\d{2}", text + " " + obj)):
+        if kind == "date" and (m := re.search(r"\d{4}-\d{2}-\d{2}", text + " " + obj)):
             wrong = (date.fromisoformat(m.group()) + timedelta(days=1)).isoformat()
-            planted.append({**c, "kind": "date", "text": text.replace(m.group(), wrong) if m.group() in text
-                            else f"{text} on {wrong}", "object": obj.replace(m.group(), wrong)})
-        elif want == "number" and (m := re.search(r"(?<![\d-])\d{1,4}(?![\d-])", text)):
+            return {**c, "kind": "date", "text": text.replace(m.group(), wrong) if m.group() in text
+                    else f"{text} on {wrong}", "object": obj.replace(m.group(), wrong)}
+        if kind == "number" and (m := re.search(r"(?<![\d-])\d{1,4}(?![\d-])", text)):
             value = int(m.group())
             wrong = str(value + 1 if value < 20 else round(value * 1.2))
-            planted.append({**c, "kind": "number", "text": text[:m.start()] + wrong + text[m.end():],
-                            "object": obj.replace(m.group(), wrong, 1)})
-        elif want == "swap" and obj in by_id and str(by_id[obj]["name"]) in text:
+            return {**c, "kind": "number", "text": text[:m.start()] + wrong + text[m.end():],
+                    "object": obj.replace(m.group(), wrong, 1)}
+        if kind == "swap" and obj in by_id and str(by_id[obj]["name"]) in text:
             same = [p for p in by_id.values() if p["id"] != obj and p.get("type") == by_id[obj].get("type")
                     and str(p["name"]).lower() not in text.lower()]
             if same:
                 other = rng.choice(same)
-                planted.append({**c, "kind": "swap", "text": text.replace(str(by_id[obj]["name"]), str(other["name"])),
-                                "object": other["id"]})
-        else:
-            continue
-        planted[-1]["id"] = f"planted_{len(planted) - 1}"
+                return {**c, "kind": "swap", "text": text.replace(str(by_id[obj]["name"]), str(other["name"])),
+                        "object": other["id"]}
+        return None
+
+    # Each kind in turn takes the first claim left that it can be planted in, so the mix never hangs on the order.
+    planted: list[dict] = []
+    used: set[str] = set()
+    kinds = ["date", "number", "swap"]
+    while len(planted) < n and kinds:
+        for kind in list(kinds):
+            if len(planted) >= n:
+                break
+            hit = next(((c, w) for c in pool if c["id"] not in used and (w := mutate(c, kind))), None)
+            if hit is None:
+                kinds.remove(kind)
+                continue
+            used.add(hit[0]["id"])
+            planted.append({**hit[1], "id": f"planted_{len(planted)}"})
     return planted
 
 
