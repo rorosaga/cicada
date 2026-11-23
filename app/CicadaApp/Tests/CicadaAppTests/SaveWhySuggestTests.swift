@@ -217,7 +217,7 @@ final class SaveWhySuggestTests: XCTestCase {
     // MARK: - The panel: suggestions arrive, a tap is stored exactly as a reason always was
 
     private func center(_ api: SuggestFakeAPI, presenter: (any SaveWhyPresenting)? = nil) async -> SaveWhyCenter {
-        let defaults = UserDefaults(suiteName: "SaveWhySuggestTests.\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("SaveWhySuggestTests.\(UUID().uuidString)")!
         let prefs = SaveWhyPrefs(defaults: defaults)
         prefs.enabled = true
         let tick = SuggestTick()
@@ -313,7 +313,7 @@ final class SaveWhySuggestTests: XCTestCase {
     /// A tap on a chip that has only just appeared was aimed at what was there before (the same rule as the panel's).
     func testATapAsTheSuggestionsAppearIsIgnored() async throws {
         let api = SuggestFakeAPI(more: bank)
-        let defaults = UserDefaults(suiteName: "SaveWhySuggestTests.\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("SaveWhySuggestTests.\(UUID().uuidString)")!
         let prefs = SaveWhyPrefs(defaults: defaults)
         prefs.enabled = true
         let clock = SuggestClock()

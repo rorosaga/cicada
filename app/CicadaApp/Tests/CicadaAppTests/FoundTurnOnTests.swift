@@ -177,7 +177,7 @@ final class FoundTurnOnTests: XCTestCase {
     // MARK: The live Contacts and tab-group drivers, over fakes (never the real address book or Chrome profile)
 
     private func contactsReader(_ store: FakeContactStore) -> ContactsReader {
-        ContactsReader(store: store, api: FakeContactsAPI(), defaults: UserDefaults(suiteName: "seam4-\(UUID())")!,
+        ContactsReader(store: store, api: FakeContactsAPI(), defaults: TestDefaults.suite("seam4-\(UUID())")!,
                        bank: { "alpha" })
     }
 
@@ -223,7 +223,7 @@ final class FoundTurnOnTests: XCTestCase {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
         let api = FakeTabGroupsAPI()
-        let watcher = TabGroupWatcher(api: api, defaults: UserDefaults(suiteName: "seam4-\(UUID())")!, directory: dir,
+        let watcher = TabGroupWatcher(api: api, defaults: TestDefaults.suite("seam4-\(UUID())")!, directory: dir,
                                       makeWatch: { _, _ in nil }, bank: { "alpha" })
         let d = liveDeps(tabGroups: watcher)
         let r = await FoundTurnOn.run(.app(AppSourceDrivers.tabGroups), deps: d)

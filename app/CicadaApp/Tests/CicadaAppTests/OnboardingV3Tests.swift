@@ -57,12 +57,12 @@ final class OnboardingV3PermissionTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        defaults = UserDefaults(suiteName: suite)
-        defaults.removePersistentDomain(forName: suite)
+        defaults = TestDefaults.suite(suite)
+        defaults.removePersistentDomain(forName: TestDefaults.path(suite))
     }
 
     override func tearDown() {
-        defaults.removePersistentDomain(forName: suite)
+        defaults.removePersistentDomain(forName: TestDefaults.path(suite))
         super.tearDown()
     }
 
@@ -548,12 +548,12 @@ final class OnboardingV3ExitTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        defaults = UserDefaults(suiteName: suite)
-        defaults.removePersistentDomain(forName: suite)
+        defaults = TestDefaults.suite(suite)
+        defaults.removePersistentDomain(forName: TestDefaults.path(suite))
     }
 
     override func tearDown() {
-        defaults.removePersistentDomain(forName: suite)
+        defaults.removePersistentDomain(forName: TestDefaults.path(suite))
         super.tearDown()
     }
 
@@ -561,7 +561,7 @@ final class OnboardingV3ExitTests: XCTestCase {
         let frame = CGRect(x: 100, y: 100, width: 108, height: 108)
         for exit in OnboardingExit.allCases {
             for reduceMotion in [false, true] {
-                defaults.removePersistentDomain(forName: suite)
+                defaults.removePersistentDomain(forName: TestDefaults.path(suite))
                 let manager = MenuBarManager()
                 manager.setIntroPhase(.waiting)
                 XCTAssertFalse(manager.isVisible)

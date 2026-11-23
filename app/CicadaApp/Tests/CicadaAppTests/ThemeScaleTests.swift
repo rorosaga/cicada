@@ -131,8 +131,8 @@ final class ThemeScaleTests: XCTestCase {
     /// hand-edited plist) — either must default to 1.0, today's layout,
     /// never to `clampScale(0)`'s floor of 0.8.
     func test_the_persisted_scale_is_read_at_launch_not_mirrored_from_a_view() {
-        let defaults = UserDefaults(suiteName: "cicada.zoom.tests")!
-        defaults.removePersistentDomain(forName: "cicada.zoom.tests")
+        let defaults = TestDefaults.suite("cicada.zoom.tests")!
+        defaults.removePersistentDomain(forName: TestDefaults.path("cicada.zoom.tests"))
 
         XCTAssertEqual(ThemeStore(defaults: defaults).uiScale, 1.0, "no stored scale should mean 1.0, not the clamped floor")
 
@@ -142,6 +142,6 @@ final class ThemeScaleTests: XCTestCase {
         defaults.set("not-a-number", forKey: ThemeStore.scaleKey)
         XCTAssertEqual(ThemeStore(defaults: defaults).uiScale, 1.0, "an unreadable stored value should fall back to 1.0")
 
-        defaults.removePersistentDomain(forName: "cicada.zoom.tests")
+        defaults.removePersistentDomain(forName: TestDefaults.path("cicada.zoom.tests"))
     }
 }

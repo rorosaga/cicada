@@ -84,8 +84,8 @@ final class ContactsReaderTests: XCTestCase {
     /// A suite emptied afterwards: cfprefsd ignores a scratch home, so its file lands in the real Preferences folder.
     private func defaults() -> UserDefaults {
         let name = "contacts-\(UUID())"
-        addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: name) }
-        return UserDefaults(suiteName: name)!
+        addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: TestDefaults.path(name)) }
+        return TestDefaults.suite(name)!
     }
 
     private func reader(_ store: FakeContactStore, _ api: FakeContactsAPI, _ defaults: UserDefaults,

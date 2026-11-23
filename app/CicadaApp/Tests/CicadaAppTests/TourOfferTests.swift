@@ -7,12 +7,12 @@ final class TourOfferTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        defaults = UserDefaults(suiteName: suite)
-        defaults.removePersistentDomain(forName: suite)
+        defaults = TestDefaults.suite(suite)
+        defaults.removePersistentDomain(forName: TestDefaults.path(suite))
     }
 
     override func tearDown() {
-        defaults.removePersistentDomain(forName: suite)
+        defaults.removePersistentDomain(forName: TestDefaults.path(suite))
         super.tearDown()
     }
 

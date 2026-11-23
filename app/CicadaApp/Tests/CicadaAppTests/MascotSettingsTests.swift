@@ -46,8 +46,8 @@ final class MascotSettingsTests: XCTestCase {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cicada-sprite-composites/settings")
         if write { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
         let suite = "com.cicada.mascot-render.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = try XCTUnwrap(TestDefaults.suite(suite))
+        defer { defaults.removePersistentDomain(forName: TestDefaults.path(suite)) }
         let saved = CicadaTheme.mode
         defer { CicadaTheme.mode = saved }
         for scheme in AppColorScheme.allCases {

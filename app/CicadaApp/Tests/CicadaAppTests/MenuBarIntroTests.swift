@@ -12,11 +12,11 @@ final class MenuBarIntroTests: XCTestCase {
     override func setUp() {
         super.setUp()
         suite = "MenuBarIntroTests.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suite)
+        defaults = TestDefaults.suite(suite)
     }
 
     override func tearDown() {
-        defaults.removePersistentDomain(forName: suite)
+        defaults.removePersistentDomain(forName: TestDefaults.path(suite))
         super.tearDown()
     }
 

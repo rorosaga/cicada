@@ -15,15 +15,15 @@ final class BookmarksPerBankTests: XCTestCase {
     override func setUp() async throws {
         dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cicada-bpb-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defaults = UserDefaults(suiteName: suite)
-        defaults.removePersistentDomain(forName: suite)
+        defaults = TestDefaults.suite(suite)
+        defaults.removePersistentDomain(forName: TestDefaults.path(suite))
         store = Store()
         try "{\"roots\": {}}".write(to: dir.appendingPathComponent("Bookmarks"), atomically: true, encoding: .utf8)
         defaults.set(true, forKey: BrowserWatchPolicy.enabledKey("chrome-bookmarks"))
     }
 
     override func tearDown() async throws {
-        defaults.removePersistentDomain(forName: suite)
+        defaults.removePersistentDomain(forName: TestDefaults.path(suite))
         try? FileManager.default.removeItem(at: dir)
     }
 

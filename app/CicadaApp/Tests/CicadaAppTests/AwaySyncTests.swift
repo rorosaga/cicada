@@ -55,8 +55,8 @@ final class AwaySyncTests: XCTestCase {
 
     private func defaults() -> UserDefaults {
         let name = "AwaySyncTests.\(UUID().uuidString)"
-        let d = UserDefaults(suiteName: name)!
-        d.removePersistentDomain(forName: name)
+        let d = TestDefaults.suite(name)!
+        d.removePersistentDomain(forName: TestDefaults.path(name))
         return d
     }
 

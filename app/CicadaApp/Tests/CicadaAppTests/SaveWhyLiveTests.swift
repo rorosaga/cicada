@@ -14,7 +14,7 @@ final class SaveWhyLiveTests: XCTestCase {
     override func setUp() async throws {
         dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cicada-live-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defaults = UserDefaults(suiteName: "cicada.savewhy.live.\(UUID().uuidString)")
+        defaults = TestDefaults.suite("cicada.savewhy.live.\(UUID().uuidString)")
         store = Store.withActiveMemory()
     }
 

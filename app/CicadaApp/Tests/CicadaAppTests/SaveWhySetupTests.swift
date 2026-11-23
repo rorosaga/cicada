@@ -22,14 +22,14 @@ final class SaveWhySetupTests: XCTestCase {
         try "<plist/>".write(to: dir.appendingPathComponent("Safari/Bookmarks.plist"), atomically: true,
                              encoding: .utf8)
         suite = "SaveWhySetupTests.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suite)
+        defaults = TestDefaults.suite(suite)
     }
 
     override func tearDown() async throws {
         try? FileManager.default.setAttributes([.posixPermissions: 0o755],
                                                ofItemAtPath: dir.appendingPathComponent("Safari").path)
         try? FileManager.default.removeItem(at: dir)
-        defaults.removePersistentDomain(forName: suite)
+        defaults.removePersistentDomain(forName: TestDefaults.path(suite))
     }
 
     /// Safari's folder refuses every open, the way macOS refuses one without Full Disk Access.

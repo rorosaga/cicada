@@ -38,7 +38,7 @@ final class SaveWhyTests: XCTestCase {
     }
 
     func testTheSwitchIsOffByDefaultAndOffNeverAsks() {
-        let defaults = UserDefaults(suiteName: "SaveWhyTests.\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("SaveWhyTests.\(UUID().uuidString)")!
         XCTAssertFalse(SaveWhyPrefs(defaults: defaults).enabled, "G191 (7): on only after the owner tries it")
         XCTAssertEqual(SaveWhyPolicy.decide(inputs(result([fresh()]), enabled: false)), .skip(.off))
     }
@@ -282,7 +282,7 @@ final class SaveWhyTests: XCTestCase {
 
     @MainActor
     func testTheCenterAsksPostsTheAnswerAndANewBookmarkReplacesTheOpenQuestion() async {
-        let defaults = UserDefaults(suiteName: "SaveWhyTests.\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("SaveWhyTests.\(UUID().uuidString)")!
         let prefs = SaveWhyPrefs(defaults: defaults)
         prefs.enabled = true
         let api = FakeSavedWhyAPI()
@@ -330,7 +330,7 @@ final class SaveWhyTests: XCTestCase {
     /// The debug harness shows the panel for a sample bookmark at once, past every rule, and writes nothing.
     @MainActor
     func testThePreviewShowsAtOnceAndWritesNothing() async {
-        let defaults = UserDefaults(suiteName: "SaveWhyTests.\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("SaveWhyTests.\(UUID().uuidString)")!
         let prefs = SaveWhyPrefs(defaults: defaults)   // the switch is off: the preview does not care
         let api = FakeSavedWhyAPI()
         let presenter = FakePresenter()
@@ -366,7 +366,7 @@ final class SaveWhyTests: XCTestCase {
 
     @MainActor
     func testTheCenterMutesASiteForGood() async {
-        let defaults = UserDefaults(suiteName: "SaveWhyTests.\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("SaveWhyTests.\(UUID().uuidString)")!
         let prefs = SaveWhyPrefs(defaults: defaults)
         prefs.enabled = true
         let center = SaveWhyCenter(prefs: prefs, api: FakeSavedWhyAPI(), presenter: FakePresenter(),
@@ -381,7 +381,7 @@ final class SaveWhyTests: XCTestCase {
 
     @MainActor
     func testAnAnswerRefusedWhileSleepWritesIsHeldAndSentWithItsOwnTime() async {
-        let defaults = UserDefaults(suiteName: "SaveWhyTests.\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("SaveWhyTests.\(UUID().uuidString)")!
         let prefs = SaveWhyPrefs(defaults: defaults)
         prefs.enabled = true
         let api = FakeSavedWhyAPI()
@@ -414,7 +414,7 @@ final class SaveWhyTests: XCTestCase {
 
     @MainActor
     func testAHeldAnswerIsDroppedWhenRefusedForGoodOrADayOld() async {
-        let defaults = UserDefaults(suiteName: "SaveWhyTests.\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("SaveWhyTests.\(UUID().uuidString)")!
         let outbox = SaveWhyOutbox(defaults: defaults)
         outbox.hold(.init(url: "https://alpha.example/a", answer: SavedWhyAnswer(reasons: ["design"]), at: now))
         outbox.hold(.init(url: "https://beta.example/b", answer: SavedWhyAnswer(reasons: ["product"]),

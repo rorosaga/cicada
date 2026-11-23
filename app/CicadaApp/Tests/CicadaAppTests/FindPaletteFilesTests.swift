@@ -90,7 +90,7 @@ final class FindPaletteFilesTests: XCTestCase {
     }
 
     func testAnAddedFileIsOpenedWhereThisMacLastSawItAndAMovedOneSaysSo() throws {
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "files-places-\(UUID().uuidString)"))
+        let defaults = try XCTUnwrap(TestDefaults.suite("files-places-\(UUID().uuidString)"))
         let places = MediaFilePlaces(defaults: defaults)
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("memo-\(UUID().uuidString).m4a")
         try Data("x".utf8).write(to: file)

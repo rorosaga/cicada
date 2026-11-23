@@ -111,7 +111,7 @@ final class ReviewOf428Tests: XCTestCase {
         XCTAssertEqual(AgentRequestNotifier.route(optedIn: true, permission: .allowed), .post)
         XCTAssertEqual(AgentRequestNotifier.route(optedIn: true, permission: .notAsked), .hold)
         XCTAssertEqual(AgentRequestNotifier.route(optedIn: false, permission: .refused), .drop)
-        let defaults = UserDefaults(suiteName: "ReviewOf428Tests-\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("ReviewOf428Tests-\(UUID().uuidString)")!
         let notifier = AgentRequestNotifier(defaults: defaults)
         XCTAssertTrue(notifier.asksInWords, "the in-words line shows until the person opts in")
     }

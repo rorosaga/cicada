@@ -8,8 +8,8 @@ import XCTest
 @MainActor
 final class LocalNetworkTests: XCTestCase {
     private func defaults(_ name: String) throws -> UserDefaults {
-        let d = try XCTUnwrap(UserDefaults(suiteName: "LocalNetworkTests.\(name)"))
-        d.removePersistentDomain(forName: "LocalNetworkTests.\(name)")
+        let d = try XCTUnwrap(TestDefaults.suite("LocalNetworkTests.\(name)"))
+        d.removePersistentDomain(forName: TestDefaults.path("LocalNetworkTests.\(name)"))
         return d
     }
 

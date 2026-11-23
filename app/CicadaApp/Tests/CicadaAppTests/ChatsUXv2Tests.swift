@@ -48,7 +48,7 @@ final class ChatsUXv2Tests: XCTestCase {
     }
 
     private func watcher(_ api: FakeChatSourcesAPI) throws -> WhatsAppWatcher {
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "chats-ux-v2-\(UUID().uuidString)"))
+        let defaults = try XCTUnwrap(TestDefaults.suite("chats-ux-v2-\(UUID().uuidString)"))
         return WhatsAppWatcher(api: api, reader: WhatsAppReader(store: store.url), defaults: defaults, folder: store.dir,
                                makeWatch: { _, _ in nil }, lookUpCards: { _ in [:] })
     }
@@ -298,7 +298,7 @@ final class ChatsUXv2Tests: XCTestCase {
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         let before = try XCTUnwrap(FileManager.default.subpathsOfDirectory(atPath: store.dir.path).sorted() as [String]?)
         let api = FakeChatSourcesAPI()
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "chats-ux-v2-\(UUID().uuidString)"))
+        let defaults = try XCTUnwrap(TestDefaults.suite("chats-ux-v2-\(UUID().uuidString)"))
         let w = WhatsAppWatcher(api: api, reader: WhatsAppReader(store: store.url, scratchRoot: scratch),
                                 defaults: defaults, folder: store.dir, makeWatch: { _, _ in nil },
                                 lookUpCards: { _ in [:] })
@@ -330,7 +330,7 @@ final class ChatsUXv2Tests: XCTestCase {
         let scratch = store.dir.appendingPathComponent("reader-scratch", isDirectory: true)
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         let api = FakeChatSourcesAPI()
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "chats-ux-v2-\(UUID().uuidString)"))
+        let defaults = try XCTUnwrap(TestDefaults.suite("chats-ux-v2-\(UUID().uuidString)"))
         let w = WhatsAppWatcher(api: api, reader: WhatsAppReader(store: store.url, scratchRoot: scratch),
                                 defaults: defaults, folder: store.dir, makeWatch: { _, _ in nil },
                                 lookUpCards: { _ in [:] })

@@ -42,7 +42,7 @@ final class SettingsGeneralF10Tests: XCTestCase {
     }
 
     func testTheMenuBarPreferenceDefaultsToShown() throws {
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "cicada.test.menubar.\(UUID().uuidString)"))
+        let defaults = try XCTUnwrap(TestDefaults.suite("cicada.test.menubar.\(UUID().uuidString)"))
         XCTAssertTrue(MenuBarPreference.isVisible(defaults))
         defaults.set(false, forKey: MenuBarPreference.defaultsKey)
         XCTAssertFalse(MenuBarPreference.isVisible(defaults))

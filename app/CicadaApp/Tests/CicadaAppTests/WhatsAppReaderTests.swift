@@ -252,7 +252,7 @@ final class WhatsAppReaderTests: XCTestCase {
         let friend = store.session(friendJid, name: "Bob Example")
         store.message(friend, "H1", at: 700_000_000, text: "before the tick")
         let api = FakeChatSourcesAPI()
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "whatsapp-test-\(UUID().uuidString)"))
+        let defaults = try XCTUnwrap(TestDefaults.suite("whatsapp-test-\(UUID().uuidString)"))
         let watcher = WhatsAppWatcher(api: api, reader: reader(), defaults: defaults, folder: store.dir,
                                       makeWatch: { _, _ in nil }, lookUpCards: { _ in [:] })
         await watcher.loadList()
@@ -277,7 +277,7 @@ final class WhatsAppReaderTests: XCTestCase {
         let friend = store.session(friendJid, name: "Bob Example", last: sixDaysAgo)
         store.message(friend, "Q1", at: sixDaysAgo, text: "the last word, six days ago")
         let api = FakeChatSourcesAPI()
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "whatsapp-test-\(UUID().uuidString)"))
+        let defaults = try XCTUnwrap(TestDefaults.suite("whatsapp-test-\(UUID().uuidString)"))
         let checkedAt = now
         let watcher = WhatsAppWatcher(api: api, reader: reader(), defaults: defaults, folder: store.dir,
                                       makeWatch: { _, _ in nil }, lookUpCards: { _ in [:] }, clock: { checkedAt })
@@ -308,7 +308,7 @@ final class WhatsAppReaderTests: XCTestCase {
         for i in 0..<600 { store.message(friend, "W\(i)", at: now.timeIntervalSinceReferenceDate - 3600 + Double(i), text: "w \(i)") }
         store.exec("COMMIT")
         let api = FakeChatSourcesAPI()
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "whatsapp-test-\(UUID().uuidString)"))
+        let defaults = try XCTUnwrap(TestDefaults.suite("whatsapp-test-\(UUID().uuidString)"))
         let watcher = WhatsAppWatcher(api: api, reader: reader(), defaults: defaults, folder: store.dir,
                                       makeWatch: { _, _ in nil }, lookUpCards: { _ in [:] })
         await watcher.loadList()
@@ -410,7 +410,7 @@ final class WhatsAppReaderTests: XCTestCase {
         store.message(friend, "R1", at: now.timeIntervalSinceReferenceDate - 60, text: "inside the window")
         try await Task.sleep(for: .milliseconds(1200))   // the store's own creation lands before the stream starts
         let api = FakeChatSourcesAPI()
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "whatsapp-test-\(UUID().uuidString)"))
+        let defaults = try XCTUnwrap(TestDefaults.suite("whatsapp-test-\(UUID().uuidString)"))
         let watcher = WhatsAppWatcher(api: api, reader: reader(), defaults: defaults, folder: store.dir,
                                       debounce: .milliseconds(50), minimumInterval: .zero,
                                       makeWatch: { path, onChange in FSEventsWatch(path: path, latency: 0.1,
@@ -446,7 +446,7 @@ final class WhatsAppReaderTests: XCTestCase {
         let friend = store.session(friendJid, name: "Bob Example")
         store.message(friend, "P1", at: now.timeIntervalSinceReferenceDate - 60, text: "inside the window")
         let api = FakeChatSourcesAPI()
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "whatsapp-test-\(UUID().uuidString)"))
+        let defaults = try XCTUnwrap(TestDefaults.suite("whatsapp-test-\(UUID().uuidString)"))
         var onChange: (@MainActor () -> Void)?
         let watcher = WhatsAppWatcher(api: api, reader: reader(), defaults: defaults, folder: store.dir,
                                       debounce: .milliseconds(20), minimumInterval: .zero,
@@ -478,7 +478,7 @@ final class WhatsAppReaderTests: XCTestCase {
         let friend = store.session(friendJid, name: "Bob Example")
         store.message(friend, "F1", at: now.timeIntervalSinceReferenceDate - 60, text: "inside the window")
         let api = FakeChatSourcesAPI()
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "whatsapp-test-\(UUID().uuidString)"))
+        let defaults = try XCTUnwrap(TestDefaults.suite("whatsapp-test-\(UUID().uuidString)"))
         var onChange: (@MainActor () -> Void)?
         let watcher = WhatsAppWatcher(api: api, reader: reader(), defaults: defaults, folder: store.dir,
                                       debounce: .milliseconds(20), minimumInterval: .zero,
@@ -506,7 +506,7 @@ final class WhatsAppReaderTests: XCTestCase {
         }
         store.exec("COMMIT")
         let api = FakeChatSourcesAPI()
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "whatsapp-test-\(UUID().uuidString)"))
+        let defaults = try XCTUnwrap(TestDefaults.suite("whatsapp-test-\(UUID().uuidString)"))
         let watcher = WhatsAppWatcher(api: api, reader: reader(), defaults: defaults, folder: store.dir,
                                       makeWatch: { _, _ in nil }, lookUpCards: { _ in [:] })
         await watcher.loadList()
@@ -536,7 +536,7 @@ final class WhatsAppReaderTests: XCTestCase {
         store.message(friend, "C1", at: now.timeIntervalSinceReferenceDate - 10, text: "lunch?")
         store.message(group, "C2", at: now.timeIntervalSinceReferenceDate - 5, text: "hi all", member: alice)
         let api = FakeChatSourcesAPI()
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "whatsapp-test-\(UUID().uuidString)"))
+        let defaults = try XCTUnwrap(TestDefaults.suite("whatsapp-test-\(UUID().uuidString)"))
         let watcher = WhatsAppWatcher(api: api, reader: reader(), defaults: defaults, folder: store.dir,
                                       makeWatch: { _, _ in nil },
                                       lookUpCards: { handles in cards.filter { handles.contains($0.key) } },

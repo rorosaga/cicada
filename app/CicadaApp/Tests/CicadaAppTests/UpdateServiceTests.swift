@@ -76,14 +76,14 @@ final class UpdateServiceTests: XCTestCase {
     private var suites: [String] = []
 
     override func tearDown() {
-        for s in suites { UserDefaults.standard.removePersistentDomain(forName: s) }
+        for s in suites { UserDefaults.standard.removePersistentDomain(forName: TestDefaults.path(s)) }
         super.tearDown()
     }
 
     private func defaults(automatic: Bool? = nil, lastLaunched: String? = nil) -> UserDefaults {
         let name = "cicada.test.updates.\(UUID().uuidString)"
         suites.append(name)
-        let d = UserDefaults(suiteName: name)!
+        let d = TestDefaults.suite(name)!
         if let automatic { d.set(automatic, forKey: UpdateService.automaticKey) }
         if let lastLaunched { d.set(lastLaunched, forKey: UpdateService.lastLaunchedKey) }
         return d

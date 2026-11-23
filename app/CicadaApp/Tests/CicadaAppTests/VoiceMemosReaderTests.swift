@@ -120,7 +120,7 @@ final class VoiceMemosReaderTests: XCTestCase {
     private func reader(_ api: Posts, speech: SpeechAccess = .authorized,
                         outcome: TranscribeOutcome = .words([TranscriptSegment(start: 0, end: 2, text: "Hello there.")]), transcriber: (any Transcribing)? = nil)
         -> VoiceMemosReader {
-        let defaults = UserDefaults(suiteName: "vm-\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("vm-\(UUID().uuidString)")!
         return VoiceMemosReader(api: api, defaults: defaults, folder: dir, speech: Speech(access: speech),
                                 transcriber: transcriber ?? Says(outcome: outcome),
                                 places: MediaFilePlaces(defaults: defaults), locale: Locale(identifier: "en_US"),
@@ -228,7 +228,7 @@ final class VoiceMemosReaderTests: XCTestCase {
 
     func testTheTileDrawsApplesInstalledIconAndIsOffByDefault() {
         XCTAssertEqual(OriginIconography.appBundleId(for: VoiceMemosReader.channel), "com.apple.VoiceMemos")
-        XCTAssertFalse(UserDefaults(suiteName: "vm-\(UUID().uuidString)")!.bool(forKey: VoiceMemosReader.enabledKey))
+        XCTAssertFalse(TestDefaults.suite("vm-\(UUID().uuidString)")!.bool(forKey: VoiceMemosReader.enabledKey))
         XCTAssertTrue(OriginIconography.allKnownOrigins.contains(VoiceMemosReader.channel))
     }
 }

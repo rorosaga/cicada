@@ -40,7 +40,7 @@ final class FakeMediaAPI: MediaFilesAPI, @unchecked Sendable {
 @MainActor
 final class MediaFileIndexerTests: XCTestCase {
     private var dir: URL!
-    private let places = MediaFilePlaces(defaults: UserDefaults(suiteName: "media-places-\(UUID().uuidString)")!)
+    private let places = MediaFilePlaces(defaults: TestDefaults.suite("media-places-\(UUID().uuidString)")!)
 
     override func setUp() async throws {
         dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("media-\(UUID().uuidString)")

@@ -79,7 +79,7 @@ final class ThisMacSourcesTests: XCTestCase {
                                                  localReaders: [:]) != nil, flag)
         XCTAssertEqual(ConnectSuggestApps.offered(SourceCatalog.wisprChannel), flag, "Settings' list of Noes")
         XCTAssertTrue(ConnectSuggestApps.offered("whatsapp"))
-        let defaults = UserDefaults(suiteName: "ThisMacSourcesTests.wispr.\(UUID().uuidString)")!
+        let defaults = TestDefaults.suite("ThisMacSourcesTests.wispr.\(UUID().uuidString)")!
         let local = LocalSourceWatcher(lights: BrowserWatcher(defaults: defaults, channels: []), defaults: defaults)
         XCTAssertEqual(AppSourceDrivers.live(calendar: nil, local: local, store: nil)[AppSourceDrivers.wispr] != nil, flag)
         // A checklist that ticked it before keeps every other row, and cannot be held open by this one.

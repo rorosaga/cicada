@@ -49,7 +49,7 @@ final class WatcherBankBindingTests: XCTestCase {
         defer { history.remove() }
         history.visit("https://www.youtube.com/watch?v=aaaaaaaaaaa", title: "Video one", at: "2026-10-14T09:14:03Z")
         let api = GatedWatchHistoryAPI()
-        let w = historyWatcher(api, history, UserDefaults(suiteName: "wh-bind-\(UUID())")!)
+        let w = historyWatcher(api, history, TestDefaults.suite("wh-bind-\(UUID())")!)
         await w.enable()
         XCTAssertEqual(api.banks, ["alpha"])
     }
@@ -60,7 +60,7 @@ final class WatcherBankBindingTests: XCTestCase {
         history.visit("https://www.youtube.com/watch?v=aaaaaaaaaaa", title: "Video one", at: "2026-10-14T09:14:03Z")
         let api = GatedWatchHistoryAPI()
         api.hold = true
-        let w = historyWatcher(api, history, UserDefaults(suiteName: "wh-switch-\(UUID())")!)
+        let w = historyWatcher(api, history, TestDefaults.suite("wh-switch-\(UUID())")!)
         let first = Task { await w.enable() }
         guard await eventually("alpha's post", { api.banks.count == 1 }) else { w.cancel(); return }
         bank = "beta"
@@ -81,7 +81,7 @@ final class WatcherBankBindingTests: XCTestCase {
 
     private func messagesWatcher(_ api: FakeMessagesAPI, _ chat: SyntheticChatDB) -> MessagesWatcher {
         MessagesWatcher(api: api, reader: MessagesReader(database: chat.url),
-                        defaults: UserDefaults(suiteName: "msg-bind-\(UUID())")!,
+                        defaults: TestDefaults.suite("msg-bind-\(UUID())")!,
                         folder: chat.dir, debounce: .milliseconds(10), minimumInterval: .zero,
                         makeWatch: { _, _ in nil }, bank: { [unowned self] in self.bank },
                         lookUpCards: { _ in [:] }, lookUpSharedPhotos: { _ in [:] })
@@ -144,7 +144,7 @@ final class WatcherBankBindingTests: XCTestCase {
     }
 
     private func tabWatcher(_ api: FakeTabGroupsAPI, _ dir: URL) -> TabGroupWatcher {
-        TabGroupWatcher(api: api, defaults: UserDefaults(suiteName: "tab-bind-\(UUID())")!, directory: dir,
+        TabGroupWatcher(api: api, defaults: TestDefaults.suite("tab-bind-\(UUID())")!, directory: dir,
                         debounce: .milliseconds(20), minimumInterval: .zero, makeWatch: { _, _ in nil },
                         bank: { [unowned self] in self.bank })
     }
@@ -181,7 +181,7 @@ final class WatcherBankBindingTests: XCTestCase {
     // MARK: Contacts
 
     private func contactsReader(_ store: FakeContactStore, _ api: FakeContactsAPI) -> ContactsReader {
-        ContactsReader(store: store, api: api, defaults: UserDefaults(suiteName: "contacts-bind-\(UUID())")!,
+        ContactsReader(store: store, api: api, defaults: TestDefaults.suite("contacts-bind-\(UUID())")!,
                        retryAfter: .seconds(3600), bank: { [unowned self] in self.bank })
     }
 

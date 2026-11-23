@@ -24,7 +24,7 @@ final class SaveWhyKeepsTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        defaults = UserDefaults(suiteName: "SaveWhyKeepsTests.\(UUID().uuidString)")!
+        defaults = TestDefaults.suite("SaveWhyKeepsTests.\(UUID().uuidString)")!
     }
 
     private func center(_ api: KeepsFakeAPI, presenter: (any SaveWhyPresenting)? = nil) -> SaveWhyCenter {
@@ -124,7 +124,7 @@ final class SaveWhyKeepsTests: XCTestCase {
     /// writes nothing.
     func testLeavingAConfirmedPanelKeepsWhatWasGiven() async {
         for how in Leave.allCases { for given in Given.allCases {
-            defaults = UserDefaults(suiteName: "SaveWhyKeepsTests.\(UUID().uuidString)")!
+            defaults = TestDefaults.suite("SaveWhyKeepsTests.\(UUID().uuidString)")!
             let api = KeepsFakeAPI()
             let center = center(api)
             await center.noticed(look([named()]), live: true)
@@ -143,7 +143,7 @@ final class SaveWhyKeepsTests: XCTestCase {
     /// lands — and posted when one does.
     func testAnAnswerGivenBeforeTheBackendAgreesIsKeptUntilItsSyncLands() async {
         for how in Leave.allCases { for given in Given.allCases where given != .nothing {
-            defaults = UserDefaults(suiteName: "SaveWhyKeepsTests.\(UUID().uuidString)")!
+            defaults = TestDefaults.suite("SaveWhyKeepsTests.\(UUID().uuidString)")!
             let api = KeepsFakeAPI()
             let center = center(api)
             center.bubbleSeen(channel: channel)
@@ -250,7 +250,7 @@ final class SaveWhyKeepsTests: XCTestCase {
     /// click elsewhere leaves it where the person put it.
     func testClickingIntoTheFieldMakesThePanelKeyAndClosingGivesTheKeyboardBack() async throws {
         for (leave, givesBack) in [(SaveWhyPanelState.Event.escape, true), (.submit, true), (.clickOutside, false)] {
-            defaults = UserDefaults(suiteName: "SaveWhyKeepsTests.\(UUID().uuidString)")!
+            defaults = TestDefaults.suite("SaveWhyKeepsTests.\(UUID().uuidString)")!
             let api = KeepsFakeAPI()
             let controller = SaveWhyPanelController()
             var given: [pid_t] = []
@@ -341,7 +341,7 @@ final class SaveWhyKeepsTests: XCTestCase {
     /// file shows the bookmark gone the answer is dropped, never posted — confirmed, unconfirmed or an edit alike.
     func testRemoveInsideTheBubbleNeverPostsTheAnswer() async throws {
         for kind in ["confirmed", "unconfirmed", "edit"] {
-            defaults = UserDefaults(suiteName: "SaveWhyKeepsTests.\(UUID().uuidString)")!
+            defaults = TestDefaults.suite("SaveWhyKeepsTests.\(UUID().uuidString)")!
             let api = KeepsFakeAPI()
             let bubble = CGRect(x: 1000, y: 80, width: 448, height: 224)
             let center: SaveWhyCenter
@@ -376,7 +376,7 @@ final class SaveWhyKeepsTests: XCTestCase {
     /// closed before the diff named the link. Both orders the reviewer probed now post it once its sync lands.
     func testAPendingAnswerClosedBeforeTheFileIsKeptInBothOrders() async {
         for order in ["confirmed", "unconfirmed in time"] {
-            defaults = UserDefaults(suiteName: "SaveWhyKeepsTests.\(UUID().uuidString)")!
+            defaults = TestDefaults.suite("SaveWhyKeepsTests.\(UUID().uuidString)")!
             let api = KeepsFakeAPI()
             let center = center(api)
             center.bubbleSeen(channel: channel)
@@ -456,7 +456,7 @@ final class SaveWhyKeepsTests: XCTestCase {
         let said = SavedWhyAnswer(reasons: ["design", "someday"], text: "their onboarding")
         // Unchanged: nothing written, however it is left.
         for how in Leave.allCases {
-            defaults = UserDefaults(suiteName: "SaveWhyKeepsTests.\(UUID().uuidString)")!
+            defaults = TestDefaults.suite("SaveWhyKeepsTests.\(UUID().uuidString)")!
             let api = KeepsFakeAPI()
             let center = try await openOnSaved(api, answer: said)
             XCTAssertTrue(center.confirmed, "a bookmark Cicada holds needs no confirmation")

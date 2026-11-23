@@ -52,7 +52,7 @@ final class BackgroundServicesTests: XCTestCase {
     func testTurningOnRegistersAndAnUnsignedBuildSaysSo() {
         let control = FakeLoginItem()
         control.afterRegister = .notRegistered          // an ad-hoc build macOS will not keep
-        let defaults = UserDefaults(suiteName: "login-\(UUID())")!
+        let defaults = TestDefaults.suite("login-\(UUID())")!
         let service = LoginItemService(control: control, defaults: defaults)
         service.setEnabled(true)
         XCTAssertEqual(control.calls, ["register"])
@@ -65,7 +65,7 @@ final class BackgroundServicesTests: XCTestCase {
     func testALoginItemAllowedElsewhereReadsAsOn() {
         let control = FakeLoginItem()
         control.current = .enabled
-        let defaults = UserDefaults(suiteName: "login-\(UUID())")!
+        let defaults = TestDefaults.suite("login-\(UUID())")!
         let service = LoginItemService(control: control, defaults: defaults)
         XCTAssertEqual(service.state, .on)
         XCTAssertTrue(service.requested)
@@ -75,7 +75,7 @@ final class BackgroundServicesTests: XCTestCase {
 
     func testASwitchOffInSystemSettingsClearsTheIntent() {
         let control = FakeLoginItem()
-        let defaults = UserDefaults(suiteName: "login-\(UUID())")!
+        let defaults = TestDefaults.suite("login-\(UUID())")!
         let service = LoginItemService(control: control, defaults: defaults)
         service.setEnabled(true)
         XCTAssertEqual(service.state, .on)

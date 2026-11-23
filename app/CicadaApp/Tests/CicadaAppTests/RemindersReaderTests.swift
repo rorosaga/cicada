@@ -67,7 +67,7 @@ final class FakeRemindersAPI: RemindersSyncAPI {
 final class RemindersReaderTests: XCTestCase {
     private let now = ISO8601DateFormatter().date(from: "2026-10-23T08:00:00Z")!
 
-    private func defaults() -> UserDefaults { UserDefaults(suiteName: "reminders-\(UUID())")! }
+    private func defaults() -> UserDefaults { TestDefaults.suite("reminders-\(UUID())")! }
 
     private func reader(_ store: FakeRemindersStore, _ api: FakeRemindersAPI, _ defaults: UserDefaults,
                         debounce: Duration = .seconds(10)) -> RemindersReader {

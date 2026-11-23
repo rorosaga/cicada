@@ -16,7 +16,7 @@ final class HomeF09Tests: XCTestCase {
         XCTAssertTrue(AppearanceTipPolicy.visible(armed: true, dismissed: false))
         XCTAssertFalse(AppearanceTipPolicy.visible(armed: true, dismissed: true), "once hidden it lives only in Settings")
         XCTAssertEqual(AppearanceTipPolicy.dismissedKey, "cicada.home.appearanceTipDismissed")
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "cicada.test.tip.\(UUID().uuidString)"))
+        let defaults = try XCTUnwrap(TestDefaults.suite("cicada.test.tip.\(UUID().uuidString)"))
         AppearanceTipPolicy.arm(defaults)
         XCTAssertTrue(defaults.bool(forKey: AppearanceTipPolicy.armedKey))
     }

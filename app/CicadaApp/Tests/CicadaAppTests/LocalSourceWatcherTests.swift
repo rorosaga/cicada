@@ -93,7 +93,7 @@ final class LocalSourceWatcherTests: XCTestCase {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try text.write(to: url, atomically: true, encoding: .utf8)
         }
-        defaults = UserDefaults(suiteName: "LocalSourceWatcherTests-\(UUID().uuidString)")
+        defaults = TestDefaults.suite("LocalSourceWatcherTests-\(UUID().uuidString)")
     }
 
     override func tearDownWithError() throws {

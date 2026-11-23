@@ -207,7 +207,7 @@ final class HomeFrontDoorTests: XCTestCase {
                       "the session that showed it keeps it")
         XCTAssertFalse(AppearanceTipPolicy.visible(armed: true, dismissed: false, seenBefore: true, shownThisSession: false),
                        "a later launch never shows it again")
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "cicada.test.tip.\(UUID().uuidString)"))
+        let defaults = try XCTUnwrap(TestDefaults.suite("cicada.test.tip.\(UUID().uuidString)"))
         let saved = AppearanceTipPolicy.shownThisSession
         defer { AppearanceTipPolicy.shownThisSession = saved }
         AppearanceTipPolicy.noteShown(defaults)
@@ -218,7 +218,7 @@ final class HomeFrontDoorTests: XCTestCase {
     // MARK: Setup stays reachable (owner 2026-10-14)
 
     func testShowSetupChecklistOpensTheWholeCard() throws {
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "cicada.test.gs.\(UUID().uuidString)"))
+        let defaults = try XCTUnwrap(TestDefaults.suite("cicada.test.gs.\(UUID().uuidString)"))
         GettingStartedState.showChecklist(bank: "alpha", defaults: defaults)
         XCTAssertEqual(GettingStartedState.load(bank: "alpha", defaults: defaults)?.expanded, true)
         GettingStartedState.setExpanded(false, bank: "alpha", defaults: defaults)
@@ -236,7 +236,7 @@ final class HomeFrontDoorTests: XCTestCase {
 
     /// Review B1 — the Welcome's record must not keep the card whole: record → chats in memory → one line → nothing.
     func testAWelcomeRecordGraduatesToALineThenLeaves() throws {
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "cicada.test.gs.\(UUID().uuidString)"))
+        let defaults = try XCTUnwrap(TestDefaults.suite("cicada.test.gs.\(UUID().uuidString)"))
         GettingStartedState.record(bank: "alpha", enabled: [.agent("codex"), .browser("safari-bookmarks")],
                                    defaults: defaults)
         let record = try XCTUnwrap(GettingStartedState.load(bank: "alpha", defaults: defaults))

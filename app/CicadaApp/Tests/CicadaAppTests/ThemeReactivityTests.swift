@@ -75,8 +75,8 @@ final class ThemeReactivityTests: XCTestCase {
     }
 
     func test_the_persisted_choice_is_read_at_launch_not_mirrored_from_a_view() {
-        let defaults = UserDefaults(suiteName: "cicada.theme.tests")!
-        defaults.removePersistentDomain(forName: "cicada.theme.tests")
+        let defaults = TestDefaults.suite("cicada.theme.tests")!
+        defaults.removePersistentDomain(forName: TestDefaults.path("cicada.theme.tests"))
 
         XCTAssertEqual(ThemeStore(defaults: defaults).mode, .dark, "no stored choice should mean dark")
 
@@ -86,6 +86,6 @@ final class ThemeReactivityTests: XCTestCase {
         defaults.set("not-a-mode", forKey: ThemeStore.defaultsKey)
         XCTAssertEqual(ThemeStore(defaults: defaults).mode, .dark, "an unreadable stored value should fall back to dark")
 
-        defaults.removePersistentDomain(forName: "cicada.theme.tests")
+        defaults.removePersistentDomain(forName: TestDefaults.path("cicada.theme.tests"))
     }
 }

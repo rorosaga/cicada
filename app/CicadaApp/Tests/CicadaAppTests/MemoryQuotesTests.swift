@@ -23,7 +23,7 @@ final class MemoryQuotesTests: XCTestCase {
     }
 
     func testOneQuoteIsChosenPerInstallAndKept() throws {
-        let d = try XCTUnwrap(UserDefaults(suiteName: "cicada.test.quote.\(UUID().uuidString)"))
+        let d = try XCTUnwrap(TestDefaults.suite("cicada.test.quote.\(UUID().uuidString)"))
         let first = MemoryQuotes.chosen(defaults: d, random: { 3 })
         XCTAssertEqual(first, MemoryQuotes.all[3])
         XCTAssertEqual(MemoryQuotes.chosen(defaults: d, random: { 0 }), first, "a rerun shows the same line")
