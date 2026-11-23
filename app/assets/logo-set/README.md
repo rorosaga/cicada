@@ -1,13 +1,13 @@
 # Cicada logo set — 2026-10-22
 
-58 marks, one per provider umbrella (45 on 2026-10-22; DeepSeek, Qwen, Z.ai, Moonshot and MiniMax 2026-11-06, ROR-127, from lobe-icons because their sites serve no SVG; Substack, Goodreads, Vivaldi and Dia added 2026-11-05, ROR-107; Perplexity and Comet the same day; Linear 2026-11-05, ROR-115), each from the highest source on this ladder that had a
+64 marks, one per provider umbrella (45 on 2026-10-22; Google Meet, Zoom, Microsoft Teams, Slack and Discord 2026-11-23 (updated the same day to the vendors' latest: Google's own 2026 gradient Meet SVG, the Zoom Workplace and Teams App Store icons; Slack and Discord reconfirmed); DeepSeek, Qwen, Z.ai, Moonshot and MiniMax 2026-11-06, ROR-127, from lobe-icons because their sites serve no SVG; Substack, Goodreads, Vivaldi and Dia added 2026-11-05, ROR-107; Perplexity and Comet the same day; Linear 2026-11-05, ROR-115), each from the highest source on this ladder that had a
 faithful SVG or a PNG of at least 256 px: the brand's own site icon or app icon → its official
 GitHub assets → lobehub/lobe-icons (`@lobehub/icons-static-svg@1.97.0`) → svgl (pheralb/svgl @
 `f9b726c`) → simple-icons (16.35.0, mono). simple-icons was never needed in that set; Substack (2026-11-05) is its vector with the fill `#FF6719` added, the colour of Substack's own PNG, whose wide margin is too small in a tile. Two marks come from
 Wikimedia Commons (Scholar, RSS); in both cases there is no better official file, and they match
 what the owner's site serves.
 
-- `*.svg` / `*.png`: the set. 37 SVG, 8 PNG.
+- `*.svg` / `*.png`: the set. 51 SVG, 13 PNG.
 - `manifest.json`: slug, file, format, pixel size, source tier and URL, sha256, `upstream_sha256` (what the URL served at the last
   review, when those bytes differ from the file but the picture does not), umbrella,
   sub-products, which bundled ids it replaces, dark-variant rule, licence and trademark note.
@@ -99,6 +99,8 @@ their browser tab and dock, which is why the bundled one "looked so far from the
 `scripts/check-logo-upstream.py` prints the sources whose URL no longer serves the reviewed bytes. On 2026-11-05 Gemini, Instinct,
 Notion, OpenRouter, TikTok, Warp, Wispr and X served different bytes with every RGBA pixel identical: re-encodes, kept as they
 were, their served hash recorded as `upstream_sha256`. Substack's records the unfilled upstream vector.
+
+**Call apps (2026-11-23):** `google-meet`, `zoom`, `microsoft-teams`, `slack`, `discord`, all svgl @ `f9b726c` (coloured, no `-dark`, no `_INLINE`). They are call apps shown on meeting transcripts (owner 2026-11-23), not provider umbrellas.
 
 **Perplexity:** the site's own `favicon.svg`. **Comet:** its site serves 32 px and lobe-icons, simple-icons have no file, so the mark
 is the App Store icon of the listing whose seller is Perplexity AI Inc. (same swoosh as the 32 px icon). **Hex** has no bundled mark

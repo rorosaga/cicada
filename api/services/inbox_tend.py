@@ -355,6 +355,11 @@ def _is_owner_page(fm: dict | None) -> bool:
 
 
 def _merge_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | None, str]:
+    if str(fm.get("detected") or "") == "same_name_doubt":
+        # 2026-11-23 (`same_name_tend`): two people who share a first name, held in doubt, asked once after everything on
+        # record was read. A conversation that answers it settles it (move 1); no rule and no judge reading the same
+        # pages again does: that is the guess this question exists to avoid.
+        return None, "needs_person"
     target_id = str(fm.get("merge_target_hint") or "").strip()
     target = _page(memory_path, target_id)
     if target is None:
@@ -408,7 +413,10 @@ def _split_apart(memory_path: Path, a: str, b: str) -> bool:
     from api.services import merge_rejections
 
     try:
-        return merge_rejections.is_split(memory_path, a, b)
+        from api.services import same_name_doubts
+
+        # Two people of one first name held in doubt are kept apart here too: only `same_name_tend` settles or asks.
+        return merge_rejections.is_split(memory_path, a, b) or tuple(sorted((a, b))) in same_name_doubts.pairs(memory_path)
     except Exception:  # noqa: BLE001 — an unreadable list keeps nothing apart here; the rule asks as before
         return False
 

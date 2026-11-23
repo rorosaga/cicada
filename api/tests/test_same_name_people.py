@@ -38,15 +38,20 @@ def _judge(answer):
 
 
 FAM_Q, WORK_Q = "a carpenter in a small mountain town", "a colleague on the research team"   # words both texts hold
-TWO = {"people": [
-    {"conversations": ["A"], "same_as": None, "reason": "a carpenter in a small town, not a colleague",
-     "contrast": {"here": FAM_Q, "there": WORK_Q}},
-    {"conversations": ["B", "C"], "same_as": None, "reason": "works at the firm and moves to another city",
-     "contrast": {"here": WORK_Q, "there": FAM_Q}}]}
-ONE = {"people": [{"conversations": ["A", "B", "C"], "same_as": None, "reason": "the same person in three settings"}]}
 CARPENTER = "(2026-09-29) the speaker's brother-in-law, a carpenter in a small mountain town who builds furniture and helps with shelves"
 COLLEAGUE = "(2026-10-02) a colleague on the research team at the firm who is moving to another office next spring and works remotely"
 M = _mentions(("e1", CARPENTER), ("e2", COLLEAGUE), ("e3", COLLEAGUE))
+
+
+def ans(*groups, pairs=()):
+    """The judge's answer: groups of letters, and ``(a, b, verdict, here, there)`` for how two groups stand."""
+    return {"people": [{"conversations": list(g), "reason": "r"} for g in groups],
+            "pairs": [{"people": [a, b], "verdict": v, "here": h, "there": t, "reason": "r"} for a, b, v, h, t in pairs]}
+
+
+TWO = ans("A", "BC", pairs=[(1, 2, "different", FAM_Q, WORK_Q)])
+DOUBT = ans("A", "BC", pairs=[(1, 2, "cannot_tell", FAM_Q, WORK_Q)])
+ONE = ans("ABC")
 
 
 # ------------------------------------------------------------------ the pure half
@@ -56,6 +61,19 @@ def test_two_groups_with_no_one_on_record_the_larger_keeps_the_plain_name():
     result = _run(snp.plan("Marc", M, [], _judge(TWO)))
     assert result.called
     assert result.moves == {"e1": snp.Destination("new", "g0")}
+    assert not result.moves["e1"].doubt
+
+
+def test_a_group_the_judge_cannot_tell_from_the_rest_is_held_in_doubt_not_joined():
+    """Doubt is a state: the mention waits on a person of its own, marked as a doubt, and the name is flagged."""
+    result = _run(snp.plan("Marc", M, [], _judge(DOUBT)))
+    assert result.moves == {"e1": snp.Destination("new", "g0", True)}
+    assert result.review and "doubt-held" in result.review_reasons
+
+
+def test_a_doubt_with_no_located_quotes_is_the_old_behaviour_one_person():
+    unlocated = ans("A", "BC", pairs=[(1, 2, "cannot_tell", "a plumber in Oslo", "a baker in Rome")])
+    assert _run(snp.plan("Marc", M, [], _judge(unlocated))).moves == {}
 
 
 def test_a_person_with_a_thin_description_is_never_split_from_a_richer_one():
@@ -64,16 +82,14 @@ def test_a_person_with_a_thin_description_is_never_split_from_a_richer_one():
     known = [snp.Identity("line", "teo", True, "(2026-10-21) put in a word for the speaker at the firm")]
     later = _mentions(("e9", "(2026-11-13) head of product at the firm after a promotion, two levels above the speaker, "
                              "who also reviews the team's quarterly plans"))
-    answer = {"people": [{"conversations": ["A"], "same_as": None, "reason": "different roles",
-                          "contrast": {"here": "head of product at the firm", "there": "put in a word for the speaker"}}]}
+    answer = ans("A", "B", pairs=[(1, 2, "different", "head of product at the firm", "put in a word for the speaker")])
     result = _run(snp.plan("Teo", later, known, _judge(answer)))
-    assert result.moves == {} and result.thin == 1
+    assert result.moves == {} and result.thin == 1 and not result.review
 
 
 def test_a_thin_new_person_is_kept_with_the_plain_name_too():
     short = _mentions(("e1", "(2026-09-29) a carpenter"), ("e2", COLLEAGUE), ("e3", COLLEAGUE))
-    thin = {"people": [{**TWO["people"][0], "contrast": {"here": "a carpenter", "there": WORK_Q}},
-                       {**TWO["people"][1], "contrast": {"here": WORK_Q, "there": "a carpenter"}}]}
+    thin = ans("A", "BC", pairs=[(1, 2, "different", "a carpenter", WORK_Q)])
     result = _run(snp.plan("Marc", short, [], _judge(thin)))
     assert result.moves == {} and result.thin == 1
 
@@ -83,9 +99,7 @@ def test_words_are_counted_without_the_date():
 
 
 def test_a_tie_keeps_the_earlier_conversation_plain():
-    two = {"people": [{"conversations": ["A"], "same_as": None, "reason": "x",
-                       "contrast": {"here": FAM_Q, "there": WORK_Q}},
-                      {"conversations": ["B"], "same_as": None, "reason": "y", "contrast": {"here": WORK_Q, "there": FAM_Q}}]}
+    two = ans("A", "B", pairs=[(1, 2, "different", FAM_Q, WORK_Q)])
     result = _run(snp.plan("Marc", M[:2], [], _judge(two)))
     assert result.moves == {"e2": snp.Destination("new", "g1")}
 
@@ -95,35 +109,39 @@ def test_one_person_in_many_settings_is_one_group_and_nothing_moves():
 
 
 @pytest.mark.parametrize("answer", [
-    {}, {"people": []}, {"people": "x"}, None, "text", {"people": [{"conversations": ["A"], "same_as": None}]},
-    {"people": [{"conversations": ["A"], "same_as": 9, "reason": "x"}]}, RuntimeError("down"),
-], ids=["empty", "no groups", "not a list", "none", "text", "no reason", "no such person", "judge raised"])
+    {}, {"people": []}, {"people": "x"}, None, "text", {"people": [{"conversations": ["Z"]}]}, RuntimeError("down"),
+], ids=["empty", "no groups", "not a list", "none", "text", "no such conversation", "judge raised"])
 def test_an_answer_that_does_not_line_up_keeps_the_old_behaviour(answer):
     ident = [snp.Identity("page", "marc", True, "a colleague")]
     assert _run(snp.plan("Marc", M, ident, _judge(answer))).moves == {}
 
 
 def test_a_conversation_the_answer_leaves_out_stays_with_the_name():
-    partial = {"people": [{"conversations": ["B"], "same_as": None, "reason": "x",
-                           "contrast": {"here": WORK_Q, "there": FAM_Q}}]}
+    partial = ans("B", pairs=[])
     known = [snp.Identity("page", "marc", True, COLLEAGUE)]
-    assert _run(snp.plan("Marc", M, known, _judge(partial))).moves == {
-        "e2": snp.Destination("new", "g0")}
+    assert _run(snp.plan("Marc", M, known, _judge(partial))).moves == {}
 
 
-def test_known_people_a_conversation_joins_the_one_it_fits():
-    known = [snp.Identity("page", "marc", True, "a colleague"), snp.Identity("line", "marc-2", False, "a carpenter")]
-    answer = {"people": [{"conversations": ["A"], "same_as": 2}, {"conversations": ["B", "C"], "same_as": 1}]}
+def test_a_new_conversation_goes_to_the_known_person_in_its_group():
+    known = [snp.Identity("page", "marc", True, "a colleague on the research team"),
+             snp.Identity("line", "marc-2", False, "a carpenter in a small mountain town")]
+    # letters: A B C are this batch's, D is person 1, E person 2
+    answer = ans("ADBC", "E", pairs=[(1, 2, "different", WORK_Q, FAM_Q)])
+    # the first conversation is in the group with person 1 (D): stays; nothing moves to a line
+    assert _run(snp.plan("Marc", M, known, _judge(answer))).moves == {}
+    answer = ans("BCD", "AE", pairs=[(1, 2, "different", WORK_Q, FAM_Q)])
     assert _run(snp.plan("Marc", M, known, _judge(answer))).moves == {"e1": snp.Destination("line", "marc-2")}
 
 
 def test_with_a_plain_person_on_record_a_new_group_is_never_the_plain_one():
     known = [snp.Identity("page", "marc", True, COLLEAGUE)]
-    answer = {"people": [{"conversations": ["A", "B"], "same_as": None, "reason": "a carpenter",
-                          "contrast": {"here": FAM_Q, "there": "a colleague on the research team at the firm"}},
-                         {"conversations": ["C"], "same_as": 1}]}
-    assert _run(snp.plan("Marc", M, known, _judge(answer))).moves == {
+    two_family = _mentions(("e1", CARPENTER), ("e2", CARPENTER.replace("09-29", "10-05")), ("e3", COLLEAGUE))
+    answer = ans("AB", "CD", pairs=[(1, 2, "different", FAM_Q, "a colleague on the research team at the firm")])
+    assert _run(snp.plan("Marc", two_family, known, _judge(answer))).moves == {
         "e1": snp.Destination("new", "g0"), "e2": snp.Destination("new", "g0")}
+    # a "contrast" quoted from words both groups hold sets nothing against anything: no one is made new
+    muddled = ans("AB", "CD", pairs=[(1, 2, "different", FAM_Q, "a colleague on the research team at the firm")])
+    assert _run(snp.plan("Marc", M, known, _judge(muddled))).moves == {}
 
 
 def test_nothing_to_compare_asks_nothing():
@@ -135,55 +153,100 @@ def test_nothing_to_compare_asks_nothing():
 
 def test_the_bound_one_call_a_name_and_what_is_over_the_cap_stays():
     many = _mentions(*((f"e{i}", f"text {i}") for i in range(30)))
-    judge = _judge({"people": [{"conversations": [chr(65 + i) for i in range(12)], "same_as": None, "reason": "x"}]})
+    judge = _judge(ans("ABCDEFGHIJ"))
     result = _run(snp.plan("Marc", many, [], judge))
     assert len(judge.calls) == 1 and result.moves == {}
-    assert "(L)" in judge.calls[0] and "(M)" not in judge.calls[0]
+    assert "(J)" in judge.calls[0] and "(K)" not in judge.calls[0]
 
 
-def test_the_prompt_asks_for_positive_evidence_and_says_a_setting_is_none():
-    prompt = snp.build_prompt("Marc", M, [snp.Identity("page", "marc", True, COLLEAGUE)])
+def test_a_known_person_is_shown_conversation_by_conversation_newest_first_within_the_cap():
+    items = tuple(snp.Item(f"(2026-10-{d:02d}) said {d}", (f"k{d}",)) for d in range(1, 26))
+    known = [snp.Identity("page", "marc", True, "blend", frozenset(f"k{d}" for d in range(1, 26)), items)]
+    entries = snp.entries_for(_mentions(("e1", "new one")), known)
+    assert len(entries) == snp.MAX_ENTRIES and entries[0].identity is None
+    assert entries[1].text.endswith("said 25") and entries[1].identity == 0 and entries[1].episodes == ("k25",)
+    prompt = snp.build_prompt("Marc", entries, known)
+    assert "[person 1]" in prompt and "NEW CONVERSATIONS" in prompt and "(B) (2026-10-25) said 25" in prompt
+
+
+def test_a_known_person_with_only_a_blended_text_is_one_description():
+    known = [snp.Identity("line", "marc", True, COLLEAGUE, frozenset({"e7", "e8"}))]
+    entries = snp.entries_for(_mentions(("e1", "x")), known)
+    assert [e.episodes for e in entries] == [("e1",), ("e7", "e8")]
+
+
+def test_the_prompt_names_the_three_answers_and_asks_for_positive_evidence():
+    prompt = snp.build_prompt("Marc", snp.entries_for(M, []), [])
     assert "NOT a difference" in prompt and "cannot be true of one person at the same time" in prompt
-    assert f"[1] {COLLEAGUE}" in prompt and f"(A) {CARPENTER}" in prompt
+    assert '"cannot_tell"' in prompt and '"different"' in prompt and "Two groups you give no entry for are the same person" in prompt
+    assert f"(A) {CARPENTER}" in prompt
 
 
 def test_the_prompt_says_a_life_that_changes_is_one_person_and_a_split_names_two_facts_that_cannot_both_hold():
     """2026-11-23: a partner who gets a job and moves, a friend who is promoted, were split from their own page (a
     different employer or town read as a different person). A change since the earlier conversation is the same person;
     a split must quote one fact from each side that cannot both be true at the same time."""
-    prompt = snp.build_prompt("Idris", _mentions(("e1", "(2026-11-03) Got a job at the hospital in Grenoble.")),
-                              [snp.Identity("page", "idris", True, "Idris is the speaker's partner.")])
-    assert "People change" in prompt and "NOT a different person" in prompt and "headed by that conversation's date" in prompt
-    assert "copy, word for word, the facts that cannot both be true" in prompt and "silent about something says nothing" in prompt
-    assert "choose the known person" in prompt and "Dates decide" in prompt
+    known = [snp.Identity("page", "idris", True, "Idris is the speaker's partner.")]
+    prompt = snp.build_prompt("Idris", snp.entries_for(_mentions(("e1", "(2026-11-03) Got a job at the hospital in Grenoble.")), known), known)
+    assert "People change" in prompt and "NOT a different person" in prompt and "headed by its date" in prompt
+    assert "copy, word for word" in prompt and "silent about something says nothing" in prompt
+    assert "say \"same\"" in prompt and "Dates decide" in prompt
 
 
-@pytest.mark.parametrize("contrast", [
-    None, "text", {}, {"here": WORK_Q}, {"here": "a colleague on the research team", "there": "a plumber in Oslo"},
-    {"here": "is", "there": "a"}, {"here": FAM_Q, "there": FAM_Q},
-], ids=["missing", "not a dict", "empty", "one side", "a fact the descriptions never state", "too short to say anything",
-        "both from one side"])
-def test_a_split_without_a_located_contrast_is_no_split(contrast):
-    """2026-11-23: the judge answered `same_as: null` while its own reason said the conversation fits the known person
+@pytest.mark.parametrize("quotes", [
+    ("", ""), ("a colleague on the research team", "a plumber in Oslo"), ("is", "a"), (FAM_Q, FAM_Q), (WORK_Q, ""),
+], ids=["missing", "a fact the descriptions never state", "too short to say anything", "both from one side", "one side"])
+def test_a_split_without_a_located_contrast_is_no_split(quotes):
+    """2026-11-23: the judge answered "another person" while its own reason said the conversation fits the known person
     (the false split of a friend in a benchmark run). A person Sleep would make new is a claim: two facts copied from
-    the descriptions, one from the group and one from outside it. Without them the conversations stay."""
+    the descriptions, one from each group. Without them the conversations stay."""
     known = [snp.Identity("page", "marc", True, COLLEAGUE)]
-    group = {"conversations": ["A"], "same_as": None, "reason": "a different person", "contrast": contrast}
-    result = _run(snp.plan("Marc", M[:1], known, _judge({"people": [group]})))
-    assert result.moves == {}
+    answer = ans("A", "B", pairs=[(1, 2, "different", *quotes)])
+    assert _run(snp.plan("Marc", M[:1], known, _judge(answer))).moves == {}
 
 
-def test_a_split_with_a_located_contrast_in_either_order_stands_and_a_lone_group_needs_none():
+def test_a_split_with_a_located_contrast_in_either_order_stands():
     known = [snp.Identity("page", "marc", True, COLLEAGUE)]
     for here, there in ((FAM_Q, WORK_Q), (WORK_Q, FAM_Q)):
-        answer = {"people": [{"conversations": ["A"], "same_as": None, "reason": "r", "contrast": {"here": here, "there": there}}]}
+        answer = ans("A", "B", pairs=[(1, 2, "different", here, there)])
         assert _run(snp.plan("Marc", M[:1], known, _judge(answer))).moves == {"e1": snp.Destination("new", "g0")}
     # the words may be quoted with edge quotes, other case, an ellipsis between two pieces
-    quoted = {"here": f"\"{FAM_Q.upper()}\"", "there": "a colleague ... research team at the firm"}
-    answer = {"people": [{"conversations": ["A"], "same_as": None, "reason": "r", "contrast": quoted}]}
+    answer = ans("A", "B", pairs=[(1, 2, "different", f"\"{FAM_Q.upper()}\"", "a colleague ... research team at the firm")])
     assert _run(snp.plan("Marc", M[:1], known, _judge(answer))).moves == {"e1": snp.Destination("new", "g0")}
-    # nothing outside the group to differ from: one person, so no contrast is asked for
-    assert _run(snp.plan("Marc", M, [], _judge(ONE))).moves == {}
+
+
+def test_an_answer_that_joins_two_different_groups_through_a_third_splits_nothing():
+    three = ans("A", "B", "C", pairs=[(1, 2, "different", FAM_Q, WORK_Q)])   # 1 and 2 differ, 3 is the same as both
+    assert _run(snp.plan("Marc", M, [], _judge(three))).moves == {}
+
+
+def test_when_the_two_the_judge_calls_different_have_a_doubt_between_them_the_milder_reading_stands():
+    both = ans("A", "BC", pairs=[(1, 2, "different", FAM_Q, WORK_Q), (2, 1, "cannot_tell", FAM_Q, WORK_Q)])
+    assert _run(snp.plan("Marc", M, [], _judge(both))).moves == {"e1": snp.Destination("new", "g0", True)}
+
+
+def test_a_page_the_reread_shows_holds_two_people_flags_the_page_and_moves_nothing():
+    """Two of a page's own conversations contrast: the page is not touched here (`same_name_tend` acts on it after the
+    commit), the new conversation goes where its group's known person is, and the name is flagged."""
+    items = (snp.Item("(2026-10-04) " + WORK_Q + " in the Lyon office where he lives and works", ("k1",)),
+             snp.Item("(2026-10-25) " + FAM_Q + " who plays football on Saturdays", ("k2",)))
+    known = [snp.Identity("page", "marc", True, "blend", frozenset({"k1", "k2"}), items)]
+    # letters: A = this batch's, B = the newest of the page (k2), C = k1
+    answer = ans("AB", "C", pairs=[(1, 2, "different", FAM_Q, WORK_Q)])
+    result = _run(snp.plan("Marc", M[:1], known, _judge(answer)))
+    assert result.moves == {} and result.review and result.review_pages == {"marc"}
+
+
+def test_two_people_in_doubt_that_the_judge_now_puts_in_one_group_flag_the_pair():
+    a = snp.Identity("page", "marc", True, WORK_Q, frozenset({"k1"}), (snp.Item("(2026-10-04) " + WORK_Q, ("k1",)),),
+                     frozenset({"marc-2"}))
+    b = snp.Identity("page", "marc-2", False, FAM_Q, frozenset({"k2"}), (snp.Item("(2026-10-25) " + FAM_Q, ("k2",)),),
+                     frozenset({"marc"}))
+    result = _run(snp.plan("Marc", M[:1], [a, b], _judge(ans("ABC"))))
+    assert result.moves == {}, "one group: nothing is placed apart"
+    assert not result.review, "the plan only flags what it sees as two groups; a single group is the old behaviour"
+    both = ans("ABC")
+    assert snp.read(both, snp.entries_for(M[:1], [a, b])).single
 
 
 def test_only_a_bare_name_is_for_this_rule():
@@ -309,7 +372,8 @@ def test_a_later_conversation_of_the_held_person_gives_them_a_page_of_their_own(
     colleague = _page("marc", WORK, ["ep2", "ep3"])
     extracted = [_extraction("ep4", "my brother-in-law Marc fixed the roof again", target="Alpine Town"),
                  _extraction("ep5", WORK)]
-    judged.answer = {"people": [{"conversations": ["A"], "same_as": 2}, {"conversations": ["B"], "same_as": 1}]}
+    # letters: A, B this batch's; C the plain page; D the held line
+    judged.answer = ans("AD", "BC", pairs=[(1, 2, "different", "my brother-in-law", "a colleague on the research team")])
     out = _run(er.resolve(extracted, [colleague], _settings(memory)))
     by_id = {c["id"]: c for c in out["changes"]}
     assert by_id["marc-2"]["action"] == "create" and by_id["marc-2"]["entity"]["name"] == "Marc"
@@ -323,7 +387,8 @@ def test_a_new_conversation_about_the_second_person_never_lands_on_the_first_pag
     memory = _bank(tmp_path)
     plain, second = _page("marc", WORK, ["ep2", "ep3"]), _page("marc-2", FAMILY, ["ep1", "ep4"])
     extracted = [_extraction("ep9", "my brother-in-law is a carpenter and built the shelves", target="Alpine Town")]
-    judged.answer = {"people": [{"conversations": ["A"], "same_as": 2}]}
+    # letters: A this batch's; B the plain page; C the second person's page
+    judged.answer = ans("AC", "B", pairs=[(1, 2, "different", "a carpenter", "a colleague on the research team")])
     out = _run(er.resolve(extracted, [plain, second], _settings(memory)))
     assert [(c["id"], c["action"]) for c in out["changes"]] == [("marc-2", "update")]
     assert extracted[0]["relationships"][0]["source_page"] == "marc-2"
@@ -334,7 +399,7 @@ def test_one_person_in_clearly_different_settings_stays_one_page(tmp_path, judge
     extracted = [_extraction("ep1", "ran the same race with the person in spring"),
                  _extraction("ep2", "cooked dinner at the person's home"),
                  _extraction("ep3", "joined the trip to the coast")]
-    judged.answer = {"people": [{"conversations": ["A", "B", "C"], "same_as": None, "reason": "one friend, three settings"}]}
+    judged.answer = ans("ABC")
     out = _run(er.resolve(extracted, [], _settings(memory)))
     assert {c["id"] for c in out["changes"]} == {"marc"} and judged.spy.parked == {}
     assert all("source_page" not in rel for ex in extracted for rel in ex["relationships"])
@@ -368,14 +433,50 @@ def test_a_second_person_below_the_bar_waits_and_never_joins_the_plain_line(tmp_
     pending_store.save(memory, [pending_store.PendingEntity(
         name="Marc", type="person", description="", source_episode="ep1", confidence=0.8, tags=[],
         history_entries=[], summary=FAMILY, heard_in=[{"episode": "ep1"}])])
-    judged.answer = {"people": [{"conversations": ["A"], "same_as": None, "reason": "a colleague, not a carpenter",
-                                 "contrast": {"here": WORK_Q, "there": FAM_Q}}]}
+    judged.answer = ans("A", "B", pairs=[(1, 2, "different", "a colleague on the research team", FAM_Q)])
     out = _run(er.resolve([_extraction("ep2", WORK)], [], _settings(memory)))
     assert out["changes"] == [] and set(judged.spy.parked) == {"marc-2"}
     assert judged.spy.parked["marc-2"].episodes() == ["ep2"] and judged.spy.parked["marc-2"].title == "Marc"
     from api.services import merge_rejections
 
     assert merge_rejections.load_split(memory) == {("marc", "marc-2")}, "kept apart before the line is ever a page"
+
+
+@pytest.mark.parametrize("held_as", ["split", "doubt"])
+def test_the_second_persons_page_never_answers_to_the_bare_name(tmp_path, judged, held_as):
+    """The first person of a name is still a line below the promotion bar; the second already has a page (`marc-2`, the
+    same clean title). A new conversation about the first must not land on the second's page because it carries the
+    title, and the first's held line must not be released onto it: the name has no page of its own until the first
+    person gets one."""
+    from api.services import merge_rejections, same_name_doubts
+
+    memory = _bank(tmp_path)
+    pending_store.save(memory, [pending_store.PendingEntity(
+        name="Marc", type="person", description="", source_episode="ep1", confidence=0.8, tags=[],
+        history_entries=[], summary=FAMILY, heard_in=[{"episode": "ep1"}])])
+    if held_as == "split":
+        merge_rejections.add_split(memory, "marc", "marc-2")
+    else:
+        same_name_doubts.add_pairs(memory, [("marc", "marc-2")])
+    second = _page("marc-2", WORK, ["ep2", "ep3"])
+    # A = the new conversation; B = the held line (the plain person); C = the second person's page
+    judged.answer = ans("AB", "C", pairs=[(1, 2, "different", FAM_Q, "a colleague on the research team")])
+    out = _run(er.resolve([_extraction("ep4", FAMILY, target="Alpine Town")], [second], _settings(memory)))
+    assert ("marc-2", "update") not in [(c["id"], c["action"]) for c in out["changes"]], "never the other person's page"
+    assert out["name_to_id"].get("marc") != "marc-2", "and the held line's claims are never released onto it"
+    # it goes where the name's own person is: the plain line (this harness's index holds no earlier line, so it waits)
+    assert out["changes"] == [] and set(judged.spy.parked) == {"marc"}
+    assert judged.spy.parked["marc"].episodes() == ["ep4"] and not judged.spy.parked["marc"].title
+
+
+def test_a_page_whose_id_its_title_does_not_spell_still_answers_to_the_name(tmp_path, judged):
+    """Only a page recorded apart from the name's own slug loses the name: any other page with such a title (a chat
+    participant's page, a renamed one) is the name's page, as before."""
+    memory = _bank(tmp_path)
+    only = _page("marc-person", WORK, ["ep2", "ep3"])
+    judged.answer = ans("AB")
+    out = _run(er.resolve([_extraction("ep4", WORK)], [only], _settings(memory)))
+    assert [(c["id"], c["action"]) for c in out["changes"]] == [("marc-person", "update")]
 
 
 def test_a_cancelled_batch_records_no_pair(tmp_path, judged):
@@ -402,7 +503,136 @@ def test_a_later_conversation_of_a_known_person_records_nothing_new(tmp_path, ju
     merge_rejections.add_split(memory, "marc", "marc-2")
     before = (memory / merge_rejections.FILE).read_text()
     plain, second = _page("marc", WORK, ["ep2", "ep3"]), _page("marc-2", FAMILY, ["ep1", "ep4"])
-    judged.answer = {"people": [{"conversations": ["A"], "same_as": 2}]}
+    judged.answer = ans("AC", "B", pairs=[(1, 2, "different", "a carpenter", "a colleague on the research team")])
     _run(er.resolve([_extraction("ep9", "my brother-in-law is a carpenter and built the shelves", target="Alpine Town")],
                     [plain, second], _settings(memory)))
     assert (memory / merge_rejections.FILE).read_text() == before
+
+
+def test_a_doubt_is_held_apart_like_a_split_but_recorded_as_a_doubt_never_as_a_split(tmp_path, judged):
+    """2026-11-23: the record shows two kinds of person and nothing that says both cannot be one. The mention waits on a
+    person of its own (never blended into the other's page), the pair is a doubt `same_name_tend` looks at again, and
+    nothing is recorded as kept apart for good."""
+    from api.services import merge_rejections, same_name_doubts
+
+    memory = _bank(tmp_path)
+    extracted = [_extraction("ep1", FAMILY, target="Alpine Town"), _extraction("ep2", WORK), _extraction("ep3", WORK)]
+    judged.answer = ans("A", "BC", pairs=[(1, 2, "cannot_tell", FAM_Q, WORK_Q)])
+    out = _run(er.resolve(extracted, [], _settings(memory)))
+    creates = {c["id"]: c for c in out["changes"] if c["action"] == "create"}
+    assert set(creates) == {"marc"} and set(creates["marc"]["source_episodes"]) == {"ep2", "ep3"}
+    assert judged.spy.parked["marc-2"].episodes() == ["ep1"]
+    assert extracted[0]["relationships"][0]["source_page"] == "marc-2"
+    assert merge_rejections.load_split(memory) == set() and not (memory / merge_rejections.FILE).exists()
+    assert set(same_name_doubts.pairs(memory)) == {("marc", "marc-2")}
+    assert same_name_doubts.flagged(memory) == (set(), {("marc", "marc-2")})
+
+
+def test_a_cancelled_batch_records_no_doubt_either(tmp_path, judged):
+    from api.services import same_name_doubts
+
+    memory = _bank(tmp_path)
+    polls = {"n": 0}
+
+    def cancel():
+        polls["n"] += 1
+        return polls["n"] > 1
+
+    judged.answer = ans("A", "BC", pairs=[(1, 2, "cannot_tell", FAM_Q, WORK_Q)])
+    _run(er.resolve([_extraction("ep1", FAMILY), _extraction("ep2", WORK), _extraction("ep3", WORK)], [],
+                    _settings(memory), cancel_check=cancel))
+    assert same_name_doubts.pairs(memory) == {} and not (memory / same_name_doubts.FILE).exists()
+
+
+def test_the_judge_is_shown_a_known_page_conversation_by_conversation(tmp_path, judged):
+    from api.services import markdown_parser
+    from api.services.claims import Claim, write_claims
+
+    memory = _bank(tmp_path)
+    claims = [Claim(id="clm_1", text="Marc works in the Lyon office", subject="marc", predicate="works-at", object="Lyon",
+                    source_episodes=["ep2"]),
+              Claim(id="clm_2", text="Marc is the speaker's cousin in Glasgow", subject="marc", predicate="is", object="cousin",
+                    source_episodes=["ep3"])]
+    markdown_parser.write(memory / "entities" / "marc.md", {"name": "Marc", "type": "person", "status": "active",
+                                                            "source_episodes": ["ep2", "ep3"]},
+                          write_claims("## Summary\nMarc is a colleague and a cousin.\n", claims))
+    page = {"id": "marc", "frontmatter": {"name": "Marc", "type": "person", "source_episodes": ["ep2", "ep3"]},
+            "body": "## Summary\nMarc is a colleague and a cousin.\n"}
+    judged.answer = ans("ABC")
+    _run(er.resolve([_extraction("ep9", "a runner who joined the race")], [page], _settings(memory)))
+    prompt = judged.calls[0]
+    assert "[person 1]" in prompt and "Marc works in the Lyon office" in prompt and "the speaker's cousin in Glasgow" in prompt
+
+
+# the defect found on the merged rule (#800), night-all r2: the judge stated ONE located contrast between two groups and
+# the first rule asked every group for its own, so the pair stayed one blended page
+NIGHT = _mentions(
+    ("e1", "(2026-09-29) Marc is Noor Haddad's brother-in-law, a carpenter based in Annecy, who was coming to help assemble shelves. Facts: Marc is a carpenter (menuisier) in Annecy.; Marc is Noor Haddad's brother-in-law."),
+    ("e2", "(2026-10-02) Colleague on the banking app usability study who is moving to the Berlin office. Facts: Marc said on 2026-10-02 he is moving to the Berlin office in March, after which he is remote for the study."),
+    ("e3", "(2026-10-14) Marc is a participant in a meeting with Noor Haddad who is moving to Berlin. Facts: Marc said his move to Berlin is confirmed for the 15th of March."))
+
+
+def test_one_stated_contrast_between_two_groups_is_enough_for_both():
+    answer = ans("BC", "A", pairs=[(2, 1, "different", "Marc is a carpenter (menuisier) in Annecy.",
+                                    "Colleague on the banking app usability study who is moving to the Berlin office.")])
+    result = _run(snp.plan("Marc", NIGHT, [], _judge(answer)))
+    assert result.moves == {"e1": snp.Destination("new", "g1")}, "the larger group is the plain person; the carpenter is the other"
+
+
+def test_with_a_person_on_record_a_group_is_never_made_new_because_another_groups_contrast_points_at_it():
+    """Safety of the same rule: a contrast between the carpenter and the known colleague says nothing against the group
+    that has no contrast of its own, so that group is not cut from the known page; the answer is incoherent and splits nothing."""
+    known = [snp.Identity("page", "marc", True, "(2026-10-04) a colleague on the banking study who said he is moving to the Berlin office in March and will stay remote for the readout")]
+    # letters: A, B, C this batch's; D the known colleague page
+    answer = ans("A", "BC", "D", pairs=[(1, 3, "different", "a carpenter (menuisier) in Annecy", "a colleague on the banking study")])
+    assert _run(snp.plan("Marc", NIGHT, known, _judge(answer))).moves == {}
+    # the same statement, with the group that holds the known page as the other side: a located split of the carpenter only
+    answer = ans("A", "BCD", pairs=[(1, 2, "different", "a carpenter (menuisier) in Annecy", "a colleague on the banking study")])
+    assert _run(snp.plan("Marc", NIGHT, known, _judge(answer))).moves == {"e1": snp.Destination("new", "g0")}
+
+
+def test_a_split_decided_against_an_established_page_is_read_again_by_the_main_model():
+    """The small judge regrouped a page wrongly (the third conversation, which belongs with the new mention, left with the
+    rest): the main model's grouping replaces it, and its answer failing or calling it one person leaves the small judge's."""
+    items = tuple(snp.Item(f"(2026-10-{d:02d}) " + t, (f"k{d}",)) for d, t in (
+        (2, "the speaker's landlord in Seville, who lives upstairs and fixes the leaks himself and raises the rent"),
+        (20, "the landlord in Seville, who raised the rent and announced works on the roof of the building"),
+        (28, "a university classmate who now works as a graphic designer and shares a flat with two friends")))
+    known = [snp.Identity("page", "pablo", True, " ".join(i.text for i in items), frozenset({"k2", "k20", "k28"}), items)]
+    new = _mentions(("e1", "(2026-11-10) lives in Barcelona, where he works as a designer at an agency and shares a flat"))
+    # letters: A the new one; B k28, C k20, D k2
+    small = ans("BCD", "A", pairs=[(1, 2, "different", "the landlord in Seville", "lives in Barcelona, where he works")])
+    big = ans("AB", "CD", pairs=[(1, 2, "different", "lives in Barcelona, where he works", "the landlord in Seville")])
+    wrong = _run(snp.plan("Pablo", new, known, _judge(small)))
+    assert wrong.moves == {"e1": snp.Destination("new", "g1")}, "alone, the small judge cuts the new one from a page it half belongs to"
+    strong = _judge(big)
+    right = _run(snp.plan("Pablo", new, known, _judge(small), strong))
+    assert right.moves == {} and right.review_pages == {"pablo"}, "its conversation joins the page's, and the page is flagged"
+    assert len(strong.calls) == 1
+    for answer in (RuntimeError("down"), {}, ans("ABCD")):
+        kept = _run(snp.plan("Pablo", new, known, _judge(small), _judge(answer)))
+        assert kept.moves == wrong.moves
+
+
+def test_a_small_judge_that_says_one_person_is_read_again_and_a_located_split_found_there_stands():
+    """Where a silent join hides: the small judge reads the speaker being named in two descriptions, or a later move, as a
+    link. The main model reads the same prompt once; a grouping that divides the conversations replaces the one-person one."""
+    strong = _judge(TWO)
+    result = _run(snp.plan("Marc", M, [], _judge(ONE), strong))
+    assert result.second and len(strong.calls) == 1 and result.moves == {"e1": snp.Destination("new", "g0")}
+    for answer in (RuntimeError("down"), {}, ONE):
+        kept = _run(snp.plan("Marc", M, [], _judge(ONE), _judge(answer)))
+        assert kept.moves == {} and kept.second
+    # a single new conversation against a person on record is not read again: it is the commonest answer, and the small
+    # judge keeps a known person's later mentions together in 98 of 100 replays
+    known = [snp.Identity("page", "marc", True, COLLEAGUE)]
+    once = _judge(TWO)
+    assert not _run(snp.plan("Marc", M[:1], known, _judge(ans("AB")), once)).second and once.calls == []
+
+
+def test_the_main_model_is_not_asked_when_the_small_judge_divides_and_nothing_on_record_has_a_history():
+    strong = _judge(TWO)
+    _run(snp.plan("Marc", M, [], _judge(TWO), strong))
+    known = [snp.Identity("page", "marc", True, COLLEAGUE)]
+    _run(snp.plan("Marc", M[:1], known, _judge(ans("A", "B", pairs=[(1, 2, "different", FAM_Q, WORK_Q)])), strong))
+    assert strong.calls == []

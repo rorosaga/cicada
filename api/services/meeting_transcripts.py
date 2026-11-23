@@ -793,3 +793,48 @@ def meeting_wire(fm: dict, *, summary_turn: int | None) -> dict | None:
         if isinstance(meeting.get("voices"), int) and not isinstance(meeting.get("voices"), bool):
             out["voices"] = meeting["voices"]
     return out
+
+
+_TURN_LINE = re.compile(r"^(?:user|assistant|speaker:[^:\n]{1,80}):", re.IGNORECASE)
+
+
+def summary_plain(body: str | None, *, limit: int = 200) -> str | None:
+    """The recorder's summary as plain words — its heading and quote marks gone, its lines joined — for a list row's
+    preview (owner 2026-11-23: the Sleep queue showed ``assistant: Summary (written by Hex) > …``). ``None`` when the
+    body opens with no summary turn."""
+    text = (body or "").lstrip()
+    if not text.lower().startswith("assistant:"):
+        return None
+    lines = text.split("\n")
+    first = lines[0][len("assistant:"):].strip()
+    if _SUMMARY_HEAD.match(first) is None:
+        return None
+    words: list[str] = []
+    for line in lines[1:]:
+        if _TURN_LINE.match(line):
+            break
+        line = line.strip()
+        if line.startswith(">"):
+            line = line[1:].strip()
+        if line:
+            words.append(line)
+    plain = " ".join(words).strip()
+    return plain[:limit].rstrip() or None
+
+
+def queue_brief(fm: dict | None) -> dict | None:
+    """What a meeting's row in a list shows beside its title (owner 2026-11-23: the call app as its mark, not words):
+    the app the call ran in, its length and how many were invited, from the record alone. ``None`` for any other
+    episode."""
+    if not is_meeting(fm):
+        return None
+    meeting = fm["meeting"]
+    out: dict = {}
+    if meeting.get("app"):
+        out["app"] = str(meeting["app"])[:64]
+    if isinstance(meeting.get("duration_s"), int) and not isinstance(meeting.get("duration_s"), bool):
+        out["duration_s"] = meeting["duration_s"]
+    attendees = meeting.get("attendees")
+    if isinstance(attendees, list) and attendees:
+        out["attendees"] = len(attendees)
+    return out or None

@@ -245,14 +245,14 @@ def _merge_and_commit(memory_path: Path, loser: str, winner: str, engine: str | 
             return STOPPED
         with page_lock.page_lock(memory_path):
             if not (memory_path / ".git").exists():
-                merge_entities(memory_path, loser_id=loser, winner_id=winner)
+                merge_entities(memory_path, loser_id=loser, winner_id=winner, by_sleep=True)
                 return MERGED
             with git_service.write_lock(memory_path):
                 return _merge_transaction(memory_path, loser, winner, engine)
 
 
 def _merge_transaction(memory_path: Path, loser: str, winner: str, engine: str | None) -> str:
-    footprint = entity_merge.merge_footprint(memory_path, loser, winner)
+    footprint = entity_merge.merge_footprint(memory_path, loser, winner, by_sleep=True)
     # Each footprint page's claims ledger, there or not (`claims_ledger`): a page write may create one, so it is
     # snapshotted (absent) with its page and a put-back removes it — never left behind for the next writer to adopt.
     guarded = claims_ledger.with_ledgers(memory_path, footprint)
@@ -265,7 +265,7 @@ def _merge_transaction(memory_path: Path, loser: str, winner: str, engine: str |
     head = _head(memory_path)
     try:
         written = list(dict.fromkeys(
-            merge_entities(memory_path, loser_id=loser, winner_id=winner).get("paths") or []))
+            merge_entities(memory_path, loser_id=loser, winner_id=winner, by_sleep=True).get("paths") or []))
         outside = [rel for rel in written if rel not in found]
         if outside:
             _recover(memory_path, found, head)

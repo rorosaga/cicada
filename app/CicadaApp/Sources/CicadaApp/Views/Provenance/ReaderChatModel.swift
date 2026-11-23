@@ -410,6 +410,12 @@ enum ReaderChat {
         let writer: String?
         let facts: String?
         let voices: String?
+        /// The call app as its mark's origin id (`MeetingApp`), its name, the length and the invitees, drawn in the
+        /// header's one line (owner 2026-11-23: icons instead of words); `facts` says the same in words for VoiceOver.
+        var appMark: String? = nil
+        var appName: String? = nil
+        var length: String? = nil
+        var attendees: Int? = nil
         var hasSummary: Bool { !summary.isEmpty }
         var holdsFocus: Bool { summary.contains(where: \.holdsFocus) }
     }
@@ -427,7 +433,9 @@ enum ReaderChat {
         let recorder = meeting.recorder.map { OriginIconography.label(for: $0) }
         return MeetingHeader(summaryTurn: meeting.summaryTurn, summary: summary,
                              title: summary.isEmpty ? nil : Copy.Provenance.meetingSummary(by: recorder),
-                             writer: summary.isEmpty ? nil : meeting.summaryWriter, facts: facts, voices: voices)
+                             writer: summary.isEmpty ? nil : meeting.summaryWriter, facts: facts, voices: voices,
+                             appMark: MeetingApp.origin(for: meeting.app), appName: meeting.app,
+                             length: MeetingApp.length(seconds: meeting.durationS), attendees: meeting.attendees)
     }
 
     /// The summary's first block without its heading line (`Summary (written by …)`), its washes moved with the text.

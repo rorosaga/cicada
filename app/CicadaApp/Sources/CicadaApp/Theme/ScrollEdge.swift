@@ -25,26 +25,50 @@ extension View {
 }
 
 /// The top edge of a scroll view that runs under a pinned bar (the entity card's tabs, owner 2026-11-23: *"the bar with
-/// the buttons for content, perspectives and such kind of cuttoff the text in a weird way"*): the text fades out over its
-/// first 16 pt instead of being sliced mid-line under the bar. A mask, not a fill, so it follows whatever ground the
-/// view sits on in either theme, and not a glass material or a shadow (DR-9, DR-10, DR-14). It starts where a page's own
-/// top inset ends (16–18 pt), so a page at rest is never touched by it.
+/// the buttons for content, perspectives and such kind of cuttoff the text in a weird way"*): text that has scrolled
+/// under the bar fades out over 16 pt instead of being sliced mid-line. A mask, not a fill, so it follows whatever
+/// ground the view sits on in either theme, and not a glass material or a shadow (DR-9, DR-10, DR-14).
+///
+/// **Only while something is under the bar** (owner, same day: *"i scrolled as much as possible and the effect overlaps
+/// weirdly"*): a page at rest has nothing under the tabs, so its first line is drawn whole. The fade comes in with the
+/// first 16 pt of scrolling and never applies while the view is pulled past its top. Reading the scroll position needs
+/// macOS 15; earlier systems keep the plain edge.
 struct FadedTopScrollEdge: ViewModifier {
     var height: CGFloat = CicadaTheme.scaled(16)
+    @State private var depth: CGFloat = 0
+
+    /// How much of the fade to draw, 0 (at rest or pulled past the top) to 1 (`height` or more has scrolled under).
+    static func depth(scrolled: CGFloat, height: CGFloat) -> CGFloat {
+        guard height > 0, scrolled.isFinite else { return 0 }
+        return min(max(scrolled / height, 0), 1)
+    }
 
     func body(content: Content) -> some View {
-        content.mask(alignment: .top) {
+        tracked(content).mask(alignment: .top) {
             VStack(spacing: 0) {
-                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                LinearGradient(colors: [.black.opacity(1 - depth), .black], startPoint: .top, endPoint: .bottom)
                     .frame(height: height)
                 Rectangle().fill(.black)
             }
         }
     }
+
+    @ViewBuilder
+    private func tracked(_ content: Content) -> some View {
+        if #available(macOS 15, *) {
+            content.onScrollGeometryChange(for: CGFloat.self) { geo in
+                Self.depth(scrolled: geo.contentOffset.y + geo.contentInsets.top, height: height)
+            } action: { _, now in
+                depth = now
+            }
+        } else {
+            content
+        }
+    }
 }
 
 extension View {
-    /// The one door for a scroll view's faded top edge under a pinned bar.
+    /// The one door for a scroll view's faded top edge under a pinned bar. Apply it to the `ScrollView` itself.
     func fadedTopEdge(height: CGFloat = CicadaTheme.scaled(16)) -> some View {
         modifier(FadedTopScrollEdge(height: height))
     }

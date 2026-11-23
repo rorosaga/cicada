@@ -86,7 +86,7 @@ def key_from(path: Path) -> str:
     raise SystemExit("no ANTHROPIC_API_KEY")
 
 
-async def run(cases: list[dict], repeats: int, ask, concurrency: int = 24) -> list[dict]:
+async def run(cases: list[dict], repeats: int, ask, concurrency: int = 24, strong_ask=None) -> list[dict]:
     """Replay every case ``repeats`` times through the real ``same_name_people.plan`` with ``ask(system, prompt)``."""
     gate = asyncio.Semaphore(concurrency)
 
@@ -94,9 +94,14 @@ async def run(cases: list[dict], repeats: int, ask, concurrency: int = 24) -> li
         async with gate:
             return await ask(system, prompt)
 
+    async def strong(system: str, prompt: str) -> object:
+        async with gate:
+            return await strong_ask(system, prompt)
+
     async def one(case: dict) -> dict:
         mentions, identities = build(case)
-        runs = await asyncio.gather(*(snp.plan(case["name"], mentions, identities, judge) for _ in range(repeats)))
+        extra = (strong,) if strong_ask is not None else ()
+        runs = await asyncio.gather(*(snp.plan(case["name"], mentions, identities, judge, *extra) for _ in range(repeats)))
         flags = [score_case(case, p) for p in runs]
         return {"id": case["id"], "kind": case["kind"], "runs": len(runs), "false": sum(f for f, _ in flags),
                 "missed": sum(m for _, m in flags), "thin": sum(p.thin for p in runs),
@@ -185,6 +190,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--kind", default="", help="one or two")
     p.add_argument("--home", type=Path, help="scratch home for the telemetry (default: a new temporary folder)")
     p.add_argument("--key-file", type=Path, default=Path("~/.cicada/secrets.env"))
+    p.add_argument("--strong", default="", help="the tier of the main model that reads a one-person answer again (the product's second reading; default none)")
     p.add_argument("--module", type=Path, help="another copy of same_name_people.py to replay (default: this checkout's)")
     p.add_argument("--from-calls", type=Path, help="print cases built from a leg's same_name_calls.jsonl and exit")
     a = p.parse_args(argv)
@@ -202,7 +208,8 @@ def main(argv: list[str] | None = None) -> int:
     home.mkdir(parents=True, exist_ok=True)
     bank.mkdir(parents=True, exist_ok=True)
     with _leg_environment(home, bank):
-        rows = asyncio.run(run(cases, a.repeats, product_ask(a.judge, a.main, home, bank)))
+        strong = product_ask(a.strong, a.strong, home, bank) if a.strong else None
+        rows = asyncio.run(run(cases, a.repeats, product_ask(a.judge, a.main, home, bank), strong_ask=strong))
         print(report(rows, spend(home)))
     return 0
 

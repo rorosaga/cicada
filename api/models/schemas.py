@@ -4032,6 +4032,14 @@ class EpisodeChat(CamelModel):
     self_chat: bool = False
 
 
+class EpisodeMeetingBrief(CamelModel):
+    """A meeting's facts for its list row (`meeting_transcripts.queue_brief`): the call app (the app draws its mark),
+    the length and how many were invited."""
+    app: Optional[str] = None
+    duration_s: Optional[int] = None
+    attendees: Optional[int] = None
+
+
 class EpisodeQueueItem(CamelModel):
     id: str
     timestamp: str
@@ -4079,6 +4087,9 @@ class EpisodeQueueItem(CamelModel):
     # Owner 2026-11-23 (episodes-8) — the chat a Messages, WhatsApp or Telegram sitting belongs to, so the Sleep page
     # draws one card per chat with its messages counted once; None for every other episode.
     chat: Optional[EpisodeChat] = None
+    # Owner 2026-11-23 (episodes-9) — a meeting's call app, length and invitees, so its row wears the app's mark; its
+    # `preview` is then the recorder's summary as plain words. None for every other episode.
+    meeting: Optional[EpisodeMeetingBrief] = None
 
 
 SCHEDULE_MODES = ("manual", "daily", "interval", "after_import")

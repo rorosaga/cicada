@@ -384,4 +384,13 @@ final class PageInlineTests: XCTestCase {
         print(String(format: "BENCH first screen, chips + clusters    %8.2f ms", chips))
         XCTAssertLessThan(chips, 2_500, "a generous bound for a debug build on a loaded machine")
     }
+
+    /// Owner 2026-11-23: at rest nothing is under the tabs, so the page's first line is never faded.
+    func testTheTabEdgeFadesOnlyWhatHasScrolledUnderTheBar() {
+        XCTAssertEqual(FadedTopScrollEdge.depth(scrolled: 0, height: 16), 0, "a page at rest is drawn whole")
+        XCTAssertEqual(FadedTopScrollEdge.depth(scrolled: -40, height: 16), 0, "pulled past the top")
+        XCTAssertEqual(FadedTopScrollEdge.depth(scrolled: 8, height: 16), 0.5)
+        XCTAssertEqual(FadedTopScrollEdge.depth(scrolled: 900, height: 16), 1)
+        XCTAssertEqual(FadedTopScrollEdge.depth(scrolled: 10, height: 0), 0)
+    }
 }

@@ -1427,6 +1427,14 @@ struct EpisodeChat: Codable, Equatable {
     }
 }
 
+/// A meeting's facts for its list row (`meeting_transcripts.queue_brief`, `episodes-9`): the call app (drawn as its mark,
+/// `MeetingApp`), its length and how many were invited.
+struct EpisodeMeetingBrief: Codable, Equatable {
+    var app: String? = nil
+    var durationS: Int? = nil
+    var attendees: Int? = nil
+}
+
 struct EpisodeQueueItem: Codable, Identifiable {
     let id: String
     let timestamp: String
@@ -1466,10 +1474,13 @@ struct EpisodeQueueItem: Codable, Identifiable {
     /// Owner 2026-11-23 — the chat a Messages, WhatsApp or Telegram sitting belongs to (`episode_copy.chat_of`), so
     /// the Sleep page draws one card per chat. Nil for every other episode and from an older backend.
     var chat: EpisodeChat? = nil
+    /// Owner 2026-11-23 — a meeting's call app, length and invitees (`episodes-9`); its `preview` is then the recorder's
+    /// summary in plain words. Nil for every other episode and from an older backend.
+    var meeting: EpisodeMeetingBrief? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, timestamp, source, origin, title, preview, chars, processed, copyKind, copyValue, changedAt, site
-        case device, openKind, openValue, change, chat
+        case device, openKind, openValue, change, chat, meeting
     }
 
     init(from decoder: Decoder) throws {
@@ -1491,6 +1502,7 @@ struct EpisodeQueueItem: Codable, Identifiable {
         openValue = try c.decodeIfPresent(String.self, forKey: .openValue)
         change = try c.decodeIfPresent(String.self, forKey: .change)
         chat = (try? c.decodeIfPresent(EpisodeChat.self, forKey: .chat)) ?? nil
+        meeting = (try? c.decodeIfPresent(EpisodeMeetingBrief.self, forKey: .meeting)) ?? nil
     }
 }
 
