@@ -2299,6 +2299,14 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   while connected, how (Local · Tailscale · SSH · Local network), *N waiting*. A click opens that machine's queue in
   Waiting (rows rebuilt from its own episodes; `GET /sleep/episodes` rows carry `device`, shape `episodes-3`). The
   engine line is UI-A's.
+- **A recorder's meetings wear the recorder's own icon (2026-11-23, R-L1, DR-52).** An episode of a meeting folder set up
+  for a known recorder (`meeting.recorder`, today `hex`) is grouped on the Sleep page under that recorder, not "Folder":
+  `sleep_cycle.queue_origin` is the one function every Sleep list, count and past-read row reads (`/sleep/queue`,
+  `/sleep/episodes`, `sleep_progress`, `sleep_consolidated`, `sleep_history`; extraction keeps the stamped `folder`
+  origin), and the Sources card of that folder carries `mark: hex` (`source_overview._new_state`, `marks`). The mark is the
+  Hex app installed on this Mac (`OriginIconography.appBundleId("hex")` → `InstalledAppIcon`, never fetched from the web);
+  without Hex installed the mark falls back to the folder's own glyph and blue. The folder's row on Sources
+  (`FolderChannelRow`) wears it too. A source deleted before Sleep read it is no row and no count (`capture-and-sleep.md`).
 - **Syncing after the app was closed (G229, owner 2026-11-03).** `AwaySyncTracker` (app-level, in the environment;
   `Support/AwaySync.swift`) starts once per launch after every reader is armed. It reads when the app was last open
   (`AppPresence`, `cicada.app.lastOpenAt` in the app's defaults, stamped once a minute while it runs) before stamping
@@ -3805,7 +3813,18 @@ that went on after its import, by its own `relayed [ChatGPT]` marker, ruling 58)
 says the words came through the app's model; a run (one side and speaker, turns under 15 minutes apart) shows the face — the
 Messages chat's own picture by `MessageBubbles.face`, the chat parsed from the sitting's `imessage:<chat>:…` source id
 (`ReaderChat.messagesChat`), a monogram for a meeting speaker — or the agent's mark, the name only when it differs from
-the one the header already names (`ReaderChat.namedParty`), and its first stored time, once. A chat's title drops a
+the one the header already names (`ReaderChat.namedParty`), and its first stored time, once. **A meeting (2026-11-23,
+DR-9, DR-10, DR-11, DR-37, DR-38, DR-40, DR-60):** every run of a voice shows its name beside its avatar (a one-to-one chat
+names its other side once; several voices alternate with the person's, so a bare avatar would not say which), and the
+name is the server's word (`speaker`/`speakerKind` on the turn, `meeting_transcripts.speaker_display`: `Speaker 1`, a
+name, "Others on the call" for the group track, "Someone else" for an unknown voice), so the monogram's initials match
+it. The recorder's summary is no bubble: `EpisodeText.meeting.summaryTurn` marks it and `ReaderMeetingHeaderView` draws
+it as a quiet card pinned above the chat, under the title (a chat opens at its newest message, so a row in the history
+would never be seen first) — the other side's bubble fill with the resting ring, "Summary · written by Hex", a *Hide
+summary* / *Show summary* text button (remembered per viewer in the app's defaults, never animated; a summary holding a
+cited passage stays open), the facts the episode holds ("17 min · Google Meet · 3 attendees") and, when a tool split the
+voices, "Voices split on this Mac by <tool> (N voices). Speaker numbers are its guess." The summary scrolls inside the card
+past 220 pt. The stored body is unchanged. A chat's title drops a
 trailing " · YYYY-MM-DD" and its meta drops the day and the turn count, naming the agent only when the capture line
 does not (`ReaderHeader.title`, `chatMeta`); a document's header is unchanged. Day separators ("Today", "Yesterday", a weekday, "Thu, Sep 3") replace a date per turn,
 computed when read; a gate-B2 gap is a centred line with its stamps as clock times. No "turn N", on screen or in
