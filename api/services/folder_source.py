@@ -13,6 +13,15 @@ rename keeps identity by content hash, a deletion stamps ``source_deleted_at``
 and keeps the episode. A file past ``SPLIT_CHARS`` (4 × Stage 1's chunk) is one
 episode per H2 section, so an edit re-reads one section (R-LS12).
 
+One meeting, one episode (G104 slice 3): in a ``kind: meetings`` folder, files whose names carry the same recorder stamp
+(``YYYY-MM-DD HHMM`` — the date AND the time; a date alone never joins) are copies of one meeting. The episode holds the
+newest copy by ``(mtime, relpath)`` and remembers the others (``replaced_files``): a corrected export that lands as a new
+file revises the episode in place instead of becoming a second conversation, and a copy it replaced never wins again by a
+touch. Deleting the held file keeps the episode's words while another copy remains (``held_gone_at``) and asks the app,
+in the sync response, to post that copy again (``resend``). An edit of a note that still exists is a revision, a split
+note's sections included: a renamed heading is matched to its section by position, a lost section (or a note crossing
+``SPLIT_CHARS``) is revised to an empty body, never tombstoned — only a file that is gone is.
+
 Authorship (R-F2): a per-folder glob list decides whose words a file holds.
 ``archive/**`` defaults to ``agent`` — dated research sweeps an agent wrote. An
 agent-written file is stored and searchable but never credited to the person
@@ -47,7 +56,8 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import bank_index, decay_policy, episode_ids, episode_staging, markdown_parser, project_birth
+from api.services import (bank_index, decay_policy, episode_ids, episode_staging, markdown_parser, meeting_transcripts,
+                          project_birth)
 from api.services.id_utils import sanitize_id
 
 FOLDERS_FILENAME = "folders.json"
@@ -371,16 +381,20 @@ def drafts_for_file(folder: dict, relpath: str, text: str, *, mtime_iso: str, sh
     extra = {"folder_id": folder["id"], "relpath": relpath, "authorship": authorship,
              "evidence_kind": "user" if authorship == "user" else "assistant"}
     label = folder.get("label") or "Folder"
-    parts = split_sections(text) if len(text) > SPLIT_CHARS else [("", "", text)]
+    split = len(text) > SPLIT_CHARS
+    parts = split_sections(text) if split else [("", "", text)]
     return [
         episode_staging.EpisodeDraft(
             title=f"{label} › {relpath}" + (f" › {heading}" if heading else ""),
             source_id=base if not slug else f"{base}#{slug}",
             source_updated_at=mtime_iso, timestamp=mtime_iso, original_date=episode_ids.id_day(mtime_iso),
-            source=ORIGIN, origin=ORIGIN, body=section, extra=dict(extra),
+            source=ORIGIN, origin=ORIGIN, body=section,
+            # G104 slice 3: a section's ids carry only the heading's slug, so its position in the file is recorded —
+            # the one thing that says which old section a renamed heading is (`_matched_sections`).
+            extra={**extra, **({episode_staging.SECTION_KEY: {"index": i}} if split else {})},
             queue_for_sleep=authorship == "user", content_sha=sha, writer="folder",
         )
-        for slug, heading, section in parts
+        for i, (slug, heading, section) in enumerate(parts)
     ]
 
 
@@ -461,6 +475,49 @@ def sync(memory_path: Path, folder: dict, files: list[IncomingFile], deleted: li
         return _sync_locked(Path(memory_path), folder, files, deleted, preview=preview, tz_name=tz_name)
 
 
+@dataclass
+class _Posted:
+    """One posted file that passed the checks: its path, bytes, hash and modification time (UTC ISO)."""
+    rel: str
+    raw: bytes
+    sha: str
+    mtime: str
+
+
+def _matched_sections(vanished: list, appeared: list[episode_staging.EpisodeDraft]) -> dict[str, str]:
+    """``{new source id: old source id}`` — a section whose heading was renamed in place (G104 slice 3, ruling 3).
+
+    Only when exactly one section of the file vanished and exactly one appeared, at the SAME position (``section.index``
+    on the old episode and on the new draft): deterministic, never by text similarity. An episode written before the
+    position was recorded has none, and is never matched (it is emptied, as a removed section is)."""
+    if len(vanished) != 1 or len(appeared) != 1:
+        return {}
+    (old_sid, old), (draft,) = vanished[0], appeared
+    held = old.fm.get(episode_staging.SECTION_KEY)
+    now = draft.extra.get(episode_staging.SECTION_KEY)
+    if isinstance(held, dict) and isinstance(now, dict) and isinstance(held.get("index"), int) \
+            and held["index"] == now.get("index"):
+        return {draft.source_id: old_sid}
+    return {}
+
+
+def _emptied(folder: dict, relpath: str, old: episode_staging.IndexEntry, sid: str, *, mtime_iso: str, sha: str
+            ) -> episode_staging.EpisodeDraft:
+    """A section the file no longer has, while the file stays: its episode is revised to an empty body (G104 slice 3,
+    ruling 3) — an edit of a source that still exists, so what only its words said settles as removed text, never a
+    tombstone (that is a source that is gone, and keeps what it taught)."""
+    authorship = authorship_for(relpath, folder.get("authorship") or [])
+    extra = {"folder_id": folder["id"], "relpath": relpath, "authorship": authorship,
+             "evidence_kind": "user" if authorship == "user" else "assistant"}
+    if isinstance(old.fm.get(episode_staging.SECTION_KEY), dict):
+        extra[episode_staging.SECTION_KEY] = dict(old.fm[episode_staging.SECTION_KEY])
+    return episode_staging.EpisodeDraft(
+        title=str(old.fm.get("title") or ""), source_id=sid, source_updated_at=mtime_iso,
+        timestamp=str(old.fm.get("timestamp") or mtime_iso), original_date=episode_ids.id_day(mtime_iso),
+        source=ORIGIN, origin=ORIGIN, body="", extra=extra, queue_for_sleep=authorship == "user",
+        content_sha=sha, writer="folder")
+
+
 def _sync_locked(memory_path: Path, folder: dict, files: list[IncomingFile], deleted: list[str], *,
                  preview: bool, tz_name: str | None = None) -> dict:
     # Re-read under the lock: the caller's copy may predate a Manage save that
@@ -475,10 +532,11 @@ def _sync_locked(memory_path: Path, folder: dict, files: list[IncomingFile], del
     meetings = is_meetings(folder)
     out = {"preview": preview, "files_new": 0, "files_changed": 0, "files_unchanged": 0,
            "files_deleted": 0, "agent_files": 0, "stage1_passes": 0, "errors": [],
-           "created": 0, "updated": 0, "renamed": 0, "tombstoned": 0}
+           "created": 0, "updated": 0, "renamed": 0, "tombstoned": 0, "resend": []}
     drafts: list[episode_staging.EpisodeDraft] = []
     deleted_sids: list[str] = []
     texts: dict[str, str] = {}
+    posted: list[_Posted] = []
     for f in files:
         rel = clean_relpath(f.relpath)
         if rel is None:
@@ -505,37 +563,94 @@ def _sync_locked(memory_path: Path, folder: dict, files: list[IncomingFile], del
             # NaN, ±inf or a year past 9999: one bad file, not a 500 for the batch.
             out["errors"].append({"relpath": rel, "reason": "bad mtime"})
             continue
-        who = "meeting" if meetings else authorship_for(rel, rules)
+        posted.append(_Posted(rel, raw, sha, mtime_iso))
+
+    def take(p: _Posted, *, replaces: str | None = None) -> episode_staging.EpisodeDraft | None:
+        """One posted file as drafts for the stager — today's per-file decision: unchanged, new or changed, and a split
+        note's sections matched, emptied or created. Returns the file's own draft (a meeting's) for the caller that
+        names what it replaces."""
+        who = "meeting" if meetings else authorship_for(p.rel, rules)
         kind = None if meetings else "user" if who == "user" else "assistant"
-        existing = mine.get(rel, [])
+        existing = mine.get(p.rel, [])
         live = [e for _, e in existing if not e.fm.get("source_deleted_at")]
         # Idempotent on (relpath, sha256) AND the authorship the rules give it now
         # — a glob flip must re-stage the same bytes (R-LS10). A meeting declares none: its speakers decide.
-        if live and all(e.fm.get("content_sha") == sha and e.fm.get("evidence_kind") == kind for e in live):
+        if live and all(e.fm.get("content_sha") == p.sha and e.fm.get("evidence_kind") == kind for e in live):
             out["files_unchanged"] += 1
-            continue
-        text = raw.decode("utf-8", errors="replace").lstrip("﻿")
-        texts[rel] = text
-        new = drafts_for_file(folder, rel, text, mtime_iso=mtime_iso, sha=sha, tz_name=tz_name)
+            return None
+        text = p.raw.decode("utf-8", errors="replace").lstrip("﻿")
+        texts[p.rel] = text
+        new = drafts_for_file(folder, p.rel, text, mtime_iso=p.mtime, sha=p.sha, tz_name=tz_name)
         if meetings and not new:
-            out["errors"].append({"relpath": rel, "reason": "not a meeting transcript"})
-            continue
+            out["errors"].append({"relpath": p.rel, "reason": "not a meeting transcript"})
+            return None
         out["files_changed" if existing else "files_new"] += 1
         if who == "agent":
             out["agent_files"] += 1
         else:
             out["stage1_passes"] += stage1_passes(text)
-        drafts.extend(new)
+        if replaces is not None:
+            new[0].replaces = [replaces]
+        old_sids = {sid for sid, _ in existing}
         new_sids = {d.source_id for d in new}
-        deleted_sids += [sid for sid, e in existing if sid not in new_sids and not e.fm.get("source_deleted_at")]
+        vanished = [(sid, e) for sid, e in existing if sid not in new_sids and not e.fm.get("source_deleted_at")]
+        # G104 slice 3, ruling 3: the file still exists, so a section it lost is an edit of it — a renamed heading
+        # revises the section it was, a removed one (or a note crossing SPLIT_CHARS either way) is revised to an
+        # empty body; only a file that is gone is tombstoned.
+        matched = _matched_sections(vanished, [d for d in new if d.source_id not in old_sids]) if not meetings else {}
+        for d in new:
+            if d.source_id in matched:
+                d.replaces = [matched[d.source_id]]
+        drafts.extend(new)
+        for sid, e in vanished:
+            if sid not in matched.values():
+                drafts.append(_emptied(folder, p.rel, e, sid, mtime_iso=p.mtime, sha=p.sha))
+        return new[0] if new else None
+
+    def gone(rel: str) -> list[str]:
+        return [sid for sid, e in mine.get(rel, []) if not e.fm.get("source_deleted_at")]
+
+    groups: dict[str, list[_Posted]] = {}
+    for p in posted:
+        key = meeting_transcripts.file_key(p.rel) if meetings else None
+        if key is None:
+            take(p)
+        else:
+            groups.setdefault(key, []).append(p)
+    keyed_deleted: dict[str, list[str]] = {}
     for raw_rel in deleted:
         rel = clean_relpath(raw_rel)
         if rel is None:
             continue
-        gone = [sid for sid, e in mine.get(rel, []) if not e.fm.get("source_deleted_at")]
-        if gone:
+        key = meeting_transcripts.file_key(rel) if meetings else None
+        if key is not None:
+            keyed_deleted.setdefault(key, []).append(rel)
+        elif gone(rel):
             out["files_deleted"] += 1
-            deleted_sids += gone
+            deleted_sids += gone(rel)
+    records: list[tuple[str, list[dict], str | None]] = []
+    if meetings:
+        holders: dict[str, list[tuple[str, episode_staging.IndexEntry]]] = {}
+        for rel, entries in mine.items():
+            key = meeting_transcripts.file_key(rel)
+            if key is not None:
+                holders.setdefault(key, []).extend((sid, e) for sid, e in entries
+                                                   if not e.fm.get("source_deleted_at"))
+        for key in [*groups, *(k for k in keyed_deleted if k not in groups)]:
+            group, dels = groups.get(key, []), keyed_deleted.get(key, [])
+            held_by = holders.get(key, [])
+            if len(held_by) > 1:
+                # Two live episodes already carry this stamp (made before one meeting was one episode): which a copy
+                # belongs to would be a guess, so each file keeps its own episode, as before. Never repaired here.
+                for p in group:
+                    take(p)
+                for rel in dels:
+                    if gone(rel):
+                        out["files_deleted"] += 1
+                        deleted_sids += gone(rel)
+                continue
+            _meeting(key, group, dels, held_by[0] if held_by else None, mine=mine, out=out, take=take,
+                     deleted_sids=deleted_sids, records=records)
     out["_texts"] = texts
     if preview:
         out["_staged"] = None
@@ -543,9 +658,111 @@ def _sync_locked(memory_path: Path, folder: dict, files: list[IncomingFile], del
     staged = episode_staging.stage(drafts, episodes_dir, deleted_source_ids=deleted_sids, bank=memory_path.name)
     out.update(created=staged.created, updated=staged.updated, renamed=staged.renamed,
                tombstoned=staged.tombstoned)
+    if meetings:
+        _write_records(episodes_dir, records, staged)
+        out["resend"] = _resend(episodes_dir, folder["id"])
     out["_staged"] = staged
     if staged.paths:
         set_flags(memory_path, folder["id"], last_sync=episode_ids.utc_now_iso())
+    return out
+
+
+
+def _meeting(key: str, group: list[_Posted], dels: list[str], holder, *, mine: dict, out: dict, take,
+             deleted_sids: list[str], records: list) -> None:
+    """One meeting's files in this batch (G104 slice 3): ``key`` is the recorder's stamp, so every file of ``group`` and
+    the file the episode already ``holder``s are copies of one meeting. The newest copy by ``(mtime, relpath)`` is the
+    one episode's words (:func:`meeting_transcripts.winner`); a newer copy revises the episode in place (same id, one
+    conversation for every count), an older or already-replaced copy changes no word and is only recorded
+    (``replaced_files``). A deletion of the held file keeps the episode while another copy remains (``held_gone_at``,
+    answered by ``resend``) and tombstones it only when none does. ``rename by content`` stays first: a held file
+    deleted and posted again under a new name with the same bytes is a rename, never a replacement."""
+    Rec = meeting_transcripts.FileRec
+    held_sid, held = holder if holder is not None else (None, None)
+    fm = held.fm if held is not None else {}
+    held_rel = fm.get("relpath") if held is not None else None
+    known = [r for r in (Rec.from_dict(x) for x in fm.get(episode_staging.REPLACED_KEY) or []) if r is not None]
+    gone_before = bool(fm.get(episode_staging.HELD_GONE_KEY))
+    held_deleted = held is not None and held_rel in dels
+    out["files_deleted"] += sum(1 for rel in dels if rel == held_rel or any(r.rel == rel for r in known))
+    known = [r for r in known if r.rel not in dels]
+    held_rec = (Rec(str(held_rel), str(fm.get("content_sha") or ""), str(fm.get("source_updated_at") or ""))
+                if held is not None and not gone_before and not held_deleted else None)
+    barred = {(r.rel, r.sha) for r in known} if held_rec is not None else set()
+    pool: list = []
+    for p in group:
+        rec = Rec(p.rel, p.sha, p.mtime)
+        if held is not None and p.rel == held_rel and fm.get("content_sha") == p.sha:
+            pool.append(rec)                    # the held file again: its bytes are the ones the episode holds
+        elif (p.rel, p.sha) in barred:
+            out["files_unchanged"] += 1         # a copy the episode replaced already: it never wins again
+        elif meeting_transcripts.parse(p.raw.decode("utf-8", errors="replace"), p.rel) is None:
+            out["errors"].append({"relpath": p.rel, "reason": "not a meeting transcript"})
+        else:
+            pool.append(rec)
+    win = meeting_transcripts.winner(pool, held_rec, known)
+    by_rel = {p.rel: p for p in group}
+    losers = [r for r in pool if r != win]
+    if win is not None and held_rec is not None and win.rel != held_rec.rel and held_rec.rel not in by_rel:
+        losers.append(held_rec)
+    out["files_unchanged"] += sum(1 for r in losers if r.rel in by_rel)   # recorded, no word moved
+    sid_after: str | None = None
+    gone_after: str | None = None
+    if win is not None:
+        p = by_rel.get(win.rel)
+        if held is not None and win.rel == held_rel:
+            sid_after = held_sid
+            if p is not None and fm.get("content_sha") != p.sha:
+                take(p)
+            elif p is not None:
+                out["files_unchanged"] += 1
+        elif p is not None:
+            if held is not None and held_deleted and fm.get("content_sha") == p.sha:
+                deleted_sids.append(held_sid)    # the rename path (`episode_staging`): same bytes, a new name
+                draft = take(p)
+            else:
+                draft = take(p, replaces=held_sid if held is not None else None)
+                if held is not None and draft is not None:
+                    out["files_new"] -= 1
+                    out["files_changed"] += 1
+            sid_after = draft.source_id if draft is not None else None
+    elif held is not None:
+        if known:
+            sid_after, gone_after = held_sid, str(fm.get(episode_staging.HELD_GONE_KEY) or episode_ids.utc_now_iso())
+        else:
+            deleted_sids.append(held_sid)       # no copy of this meeting is left anywhere: a deletion, as before
+    if sid_after is not None:
+        kept = meeting_transcripts.record(known, losers, win)
+        records.append((sid_after, [r.as_dict() for r in kept], gone_after))
+
+
+def _write_records(episodes_dir: Path, records: list, staged) -> None:
+    """The copies each meeting episode remembers, written after the stager (frontmatter only; `set_file_record`)."""
+    if not records:
+        return
+    index, _ = episode_staging.scan(episodes_dir)
+    for sid, replaced, gone_at in records:
+        entry = index.get(sid)
+        if entry is not None and episode_staging.set_file_record(entry.path, replaced=replaced, held_gone_at=gone_at):
+            rel = f"{episodes_dir.name}/{entry.path.name}"
+            if rel not in staged.paths:
+                staged.paths.append(rel)
+
+
+def _resend(episodes_dir: Path, folder_id: str) -> list[str]:
+    """For each meeting whose held file was deleted while another copy remains, the one path to ask the app to post
+    again — the newest copy by its recorded time. Every real sync names them until one is posted, so a pass the app
+    lost between the deletion and its answer is still answered by the next sync."""
+    index, _ = episode_staging.scan(episodes_dir)
+    out: list[str] = []
+    for sid in sorted(index):
+        fm = index[sid].fm
+        if fm.get("folder_id") != folder_id or fm.get("source_deleted_at") or not fm.get(episode_staging.HELD_GONE_KEY):
+            continue
+        copies = (meeting_transcripts.FileRec.from_dict(x) for x in fm.get(episode_staging.REPLACED_KEY) or [])
+        pick = meeting_transcripts.newest(r for r in copies if r is not None)
+        if pick is not None and pick.rel not in out:
+            out.append(pick.rel)
     return out
 
 

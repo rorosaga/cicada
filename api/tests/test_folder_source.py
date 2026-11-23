@@ -423,3 +423,111 @@ def test_a_no_change_resync_leaves_the_registry_alone(bank):
     out = fs.sync(bank, folder, [_file("README.md", "v1")], [])
     assert out["files_unchanged"] == 1 and not out["_staged"].paths
     assert (reg.read_bytes(), reg.stat().st_mtime_ns) == before
+
+
+# --- G104 slice 3 · T1: an edit of a note that still exists is a revision, a split note's sections too ----------------
+
+
+@pytest.fixture
+def small_split(monkeypatch):
+    """A note splits into sections past 200 characters here, so the tests stay readable."""
+    monkeypatch.setattr(fs, "SPLIT_CHARS", 200)
+
+
+def _note(*sections, intro="Intro line."):
+    pad = "word " * 20
+    return intro + "\n\n" + "\n\n".join(f"## {name}\n{words}\n{pad}" for name, words in sections)
+
+
+def _by_sid(bank):
+    return {sid: ep for sid, ep in _episodes(bank).items()}
+
+
+def test_renaming_one_heading_of_a_split_note_revises_that_sections_episode(bank, small_split):
+    folder = _folder(bank)
+    base = f"folder:{folder['id']}:REFERENCES.md"
+    v1 = _note(("Retrieval", "alpha reads"), ("Evaluation", "beta scores"))
+    fs.sync(bank, folder, [_file("REFERENCES.md", v1)], [])
+    ids = {sid: ep.frontmatter["id"] for sid, ep in _by_sid(bank).items()}
+    assert set(ids) == {f"{base}#intro", f"{base}#retrieval", f"{base}#evaluation"}
+    assert _by_sid(bank)[f"{base}#evaluation"].frontmatter["section"] == {"index": 2}
+    out = fs.sync(bank, folder, [_file("REFERENCES.md", v1.replace("## Evaluation", "## Assessment"),
+                                       mtime=1_756_300_000.0)], [])
+    assert (out["created"], out["tombstoned"]) == (0, 0)
+    eps = _by_sid(bank)
+    assert set(eps) == {f"{base}#intro", f"{base}#retrieval", f"{base}#assessment"}
+    moved = eps[f"{base}#assessment"].frontmatter
+    assert moved["id"] == ids[f"{base}#evaluation"] and moved["previous_source_ids"] == [f"{base}#evaluation"]
+    assert moved["processed"] is False and moved["revised"]["count"] == 1 and "source_deleted_at" not in moved
+    assert all("source_deleted_at" not in e.frontmatter for e in eps.values())
+
+
+def test_a_section_the_file_lost_is_revised_to_an_empty_body_never_tombstoned(bank, small_split):
+    folder = _folder(bank)
+    base = f"folder:{folder['id']}:REFERENCES.md"
+    v1 = _note(("Retrieval", "alpha reads"), ("Evaluation", "beta scores"), ("Appendix", "gamma lists"))
+    fs.sync(bank, folder, [_file("REFERENCES.md", v1)], [])
+    ids = {sid: ep.frontmatter["id"] for sid, ep in _by_sid(bank).items()}
+    v2 = _note(("Retrieval", "alpha reads"), ("Appendix", "gamma lists"))
+    out = fs.sync(bank, folder, [_file("REFERENCES.md", v2, mtime=1_756_300_000.0)], [])
+    assert out["tombstoned"] == 0 and out["created"] == 0
+    gone = _by_sid(bank)[f"{base}#evaluation"]
+    assert gone.body == "" and gone.frontmatter["id"] == ids[f"{base}#evaluation"]
+    assert gone.frontmatter["processed"] is False and gone.frontmatter["revised"]["count"] == 1
+    assert "source_deleted_at" not in gone.frontmatter
+    assert fs.live_file_count(bank, folder["id"]) == 1
+    # Posted again, nothing moves; the section coming back is a revision of the same episode, not a second one.
+    assert fs.sync(bank, folder, [_file("REFERENCES.md", v2, mtime=1_756_300_000.0)], [])["files_unchanged"] == 1
+    out = fs.sync(bank, folder, [_file("REFERENCES.md", v1, mtime=1_756_400_000.0)], [])
+    assert out["created"] == 0 and _by_sid(bank)[f"{base}#evaluation"].body.startswith("## Evaluation")
+    assert _by_sid(bank)[f"{base}#evaluation"].frontmatter["id"] == ids[f"{base}#evaluation"]
+    # A file that is gone is still a deletion: it keeps its words, marked.
+    assert fs.sync(bank, folder, [], ["REFERENCES.md"])["tombstoned"] == 4
+
+
+def test_a_note_crossing_the_split_size_revises_the_ids_that_vanish(bank, small_split):
+    folder = _folder(bank)
+    base = f"folder:{folder['id']}:NOTES.md"
+    small = "A short note about alpha-project."
+    fs.sync(bank, folder, [_file("NOTES.md", small)], [])
+    whole = _by_sid(bank)[base].frontmatter["id"]
+    assert "section" not in _by_sid(bank)[base].frontmatter
+    grown = _note(("Retrieval", "alpha reads"), ("Evaluation", "beta scores"))
+    out = fs.sync(bank, folder, [_file("NOTES.md", grown, mtime=1_756_300_000.0)], [])
+    assert out["tombstoned"] == 0 and out["created"] == 3
+    eps = _by_sid(bank)
+    assert eps[base].body == "" and eps[base].frontmatter["id"] == whole and "source_deleted_at" not in eps[base].frontmatter
+    assert eps[f"{base}#retrieval"].body.startswith("## Retrieval")
+    # And back down: the sections vanish while the file stays.
+    out = fs.sync(bank, folder, [_file("NOTES.md", small, mtime=1_756_400_000.0)], [])
+    assert out["tombstoned"] == 0
+    eps = _by_sid(bank)
+    assert eps[base].body == small and eps[base].frontmatter["id"] == whole
+    assert all(eps[f"{base}#{s}"].body == "" and "source_deleted_at" not in eps[f"{base}#{s}"].frontmatter
+               for s in ("intro", "retrieval", "evaluation"))
+
+
+def test_a_section_episode_with_no_recorded_position_is_never_matched_by_ordinal(bank, small_split):
+    folder = _folder(bank)
+    base = f"folder:{folder['id']}:REFERENCES.md"
+    v1 = _note(("Retrieval", "alpha reads"), ("Evaluation", "beta scores"))
+    fs.sync(bank, folder, [_file("REFERENCES.md", v1)], [])
+    old = _by_sid(bank)[f"{base}#evaluation"]
+    fm = {k: v for k, v in old.frontmatter.items() if k != "section"}      # an episode made before positions were kept
+    markdown_parser.write(bank / "episodes" / f"{fm['id']}.md", fm, old.body)
+    out = fs.sync(bank, folder, [_file("REFERENCES.md", v1.replace("## Evaluation", "## Assessment"),
+                                       mtime=1_756_300_000.0)], [])
+    eps = _by_sid(bank)
+    assert out["created"] == 1 and eps[f"{base}#assessment"].frontmatter["id"] != old.frontmatter["id"]
+    assert eps[f"{base}#evaluation"].body == "" and "source_deleted_at" not in eps[f"{base}#evaluation"].frontmatter
+
+
+def test_two_headings_renamed_at_once_are_not_guessed(bank, small_split):
+    folder = _folder(bank)
+    base = f"folder:{folder['id']}:REFERENCES.md"
+    v1 = _note(("Retrieval", "alpha reads"), ("Evaluation", "beta scores"))
+    fs.sync(bank, folder, [_file("REFERENCES.md", v1)], [])
+    v2 = v1.replace("## Evaluation", "## Assessment").replace("## Retrieval", "## Lookup")
+    out = fs.sync(bank, folder, [_file("REFERENCES.md", v2, mtime=1_756_300_000.0)], [])
+    assert out["created"] == 2 and out["tombstoned"] == 0
+    assert _by_sid(bank)[f"{base}#evaluation"].body == "" and _by_sid(bank)[f"{base}#retrieval"].body == ""

@@ -13,6 +13,9 @@ actor FakeLocalSourcesAPI: LocalSourcesAPI {
     /// When set, the next `syncFolder` waits here until `release()` — a slow upload.
     private var holdNext = false
     private var gate: CheckedContinuation<Void, Never>?
+    /// G104 slice 3: what each next real sync answers in `resend` (the backend asking for a copy of a meeting again).
+    private var resendScript: [[String]] = []
+    func script(resend: [[String]]) { resendScript = resend }
     var isHolding: Bool { gate != nil }
 
     func failNextFetches(_ n: Int) { failingFetches = n }
@@ -62,6 +65,7 @@ actor FakeLocalSourcesAPI: LocalSourcesAPI {
         var result = FolderSyncResult()
         result.preview = preview
         result.filesNew = files.count
+        if !preview, !resendScript.isEmpty { result.resend = resendScript.removeFirst() }
         return result
     }
     func fetchWisprSettings() async throws -> WisprFlowSettings { settings }
@@ -169,6 +173,28 @@ final class LocalSourceWatcherTests: XCTestCase {
         await watcher.syncFolder(watcher.folders[0], resolve: false)
         calls = await api.syncCalls
         XCTAssertEqual(calls.last, .init(files: ["README.md"], deleted: ["notes/idea.md"], preview: false, resolve: false))
+    }
+
+    /// G104 slice 3: the answer to a sync names a meeting copy to post again (its held file was deleted); the same pass
+    /// posts it once — or, when the copy is gone from disk, names it deleted — and never asks the disk twice.
+    func testAResendInTheAnswerIsPostedAgainOnTheSamePass() async throws {
+        let folder = FolderRegistration(id: "alpha-1", label: "alpha-project", path: root.path,
+                                        include: ["**/*.md"], exclude: ["**/.git/**", "**/.manifests/**"])
+        let api = FakeLocalSourcesAPI(folders: [folder])
+        let watcher = make(api, lights: BrowserWatcher(defaults: defaults, channels: []))
+        await watcher.reload()                        // the first pass posts both files; nothing asked
+        await api.script(resend: [["README.md", "vanished.md"], ["README.md"]])
+        try "v2, longer".write(to: root.appendingPathComponent("notes/idea.md"), atomically: true, encoding: .utf8)
+        await watcher.syncFolder(watcher.folders[0], resolve: false)
+        let calls = await api.syncCalls
+        XCTAssertEqual(calls.suffix(2), [
+            .init(files: ["notes/idea.md"], deleted: [], preview: false, resolve: false),
+            .init(files: ["README.md"], deleted: ["vanished.md"], preview: false, resolve: false)])
+        XCTAssertEqual(calls.count, 3, "the second answer asked for README.md again: the disk is asked once")
+        // The manifest holds what was posted: the next pass has nothing to send.
+        await watcher.syncFolder(watcher.folders[0], resolve: false)
+        let after = await api.syncCalls
+        XCTAssertEqual(after.count, 3)
     }
 
     func testSyncNowAsksForPaperDetailsEvenWithNothingNew() async throws {

@@ -406,12 +406,14 @@ final class LocalSourceWatcher {
         for (rel, signature) in read.touched { next[rel] = signature }
         do {
             let batches = FolderScanner.batches(read.uploads)
+            var resend: [String] = []
             if batches.isEmpty, !deleted.isEmpty || resolve {
-                _ = try await api.syncFolder(id: folder.id, files: [], deleted: deleted, preview: false, resolve: resolve)
+                resend += try await api.syncFolder(id: folder.id, files: [], deleted: deleted, preview: false,
+                                                   resolve: resolve).resend
             }
             for (i, batch) in batches.enumerated() {
-                _ = try await api.syncFolder(id: folder.id, files: batch, deleted: i == 0 ? deleted : [],
-                                             preview: false, resolve: resolve && i == batches.count - 1)
+                resend += try await api.syncFolder(id: folder.id, files: batch, deleted: i == 0 ? deleted : [],
+                                                   preview: false, resolve: resolve && i == batches.count - 1).resend
                 for upload in batch {
                     next[upload.relpath] = FolderFileSignature(size: upload.size, modified: upload.mtime, sha256: upload.sha256)
                 }
@@ -419,6 +421,15 @@ final class LocalSourceWatcher {
             }
             for rel in deleted { next.removeValue(forKey: rel) }
             manifests.save(next, for: key)
+            // G104 slice 3: a meeting whose held file was deleted while another copy remains asks for that copy again,
+            // on this same pass (a path that cannot be read is named as deleted, never asked twice).
+            if !resend.isEmpty {
+                let id = folder.id, api = self.api
+                try await FolderScanner.answerResends(resend, root: root, manifest: &next) { files, gone in
+                    try await api.syncFolder(id: id, files: files, deleted: gone, preview: false, resolve: false).resend
+                }
+                manifests.save(next, for: key)
+            }
             settle(folder)
             if !read.uploads.isEmpty || !deleted.isEmpty {
                 await store?.refresh([.channels, .sourcesOverview, .sources, .status, .inbox])

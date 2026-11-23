@@ -172,6 +172,60 @@ enum FolderScanner {
         return result
     }
 
+    /// G104 slice 3 — the answer to a sync's `resend`: a meeting whose held file was deleted while another copy of it
+    /// remains asks the app to post that copy again (at most one path per meeting). Each asked path is dropped from
+    /// the manifest first (so a post that fails is asked again on the next pass), read and posted; a path that cannot
+    /// be read — gone from disk, a symlink, over the size limit, refused — is named in `deleted` instead, which drops
+    /// the copy from the episode's record so the backend never asks for it again. The answer may name another copy
+    /// (the path just reported deleted was the last but one), so it runs until nothing new is asked; a path is asked of
+    /// the disk at most once per pass, so one that cannot be read can never loop. Returns how many paths were answered.
+    @discardableResult
+    static func answerResends(
+        _ paths: [String], root: URL, manifest: inout [String: FolderFileSignature],
+        post: @Sendable ([FolderUpload], [String]) async throws -> [String]
+    ) async throws -> Int {
+        var asked: Set<String> = []
+        var wanted = Set(paths)
+        while true {
+            let todo = wanted.subtracting(asked).filter(isSafeRelpath).sorted()
+            if todo.isEmpty { return asked.count }
+            asked.formUnion(todo)
+            for rel in todo { manifest.removeValue(forKey: rel) }
+            var current: [String: FolderFileStat] = [:]
+            var deleted: [String] = []
+            for rel in todo {
+                let url = root.appendingPathComponent(rel)
+                let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey,
+                                                               .fileSizeKey, .contentModificationDateKey])
+                guard values?.isRegularFile == true, values?.isSymbolicLink != true else {
+                    deleted.append(rel)
+                    continue
+                }
+                current[rel] = FolderFileStat(size: Int64(values?.fileSize ?? 0),
+                                              modified: values?.contentModificationDate?.timeIntervalSince1970 ?? 0)
+            }
+            let read = readUploads(root: root, changed: current.keys.sorted(), current: current, manifest: [:])
+            deleted += read.tooLarge + read.unreadable
+            wanted = []
+            let batches = Self.batches(read.uploads)
+            for (i, batch) in (batches.isEmpty ? [[]] : batches).enumerated() {
+                let sent = try await post(batch, i == 0 ? deleted.sorted() : [])
+                wanted.formUnion(sent)
+                for upload in batch {
+                    manifest[upload.relpath] = FolderFileSignature(size: upload.size, modified: upload.mtime,
+                                                                   sha256: upload.sha256)
+                }
+            }
+        }
+    }
+
+    /// A relative path the backend may name: no absolute path, no `..`, no empty segment (the rule `clean_relpath`
+    /// keeps on the other side).
+    static func isSafeRelpath(_ rel: String) -> Bool {
+        !rel.isEmpty && !rel.hasPrefix("/") && !rel.contains("\0")
+            && !rel.split(separator: "/", omittingEmptySubsequences: false).contains { $0.isEmpty || $0 == "." || $0 == ".." }
+    }
+
     static func batches(_ uploads: [FolderUpload]) -> [[FolderUpload]] {
         var out: [[FolderUpload]] = []
         var current: [FolderUpload] = []

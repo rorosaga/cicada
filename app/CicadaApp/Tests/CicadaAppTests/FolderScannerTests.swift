@@ -92,4 +92,63 @@ final class FolderScannerTests: XCTestCase {
         }
         XCTAssertEqual(FolderScanner.batches(many).map(\.count), [FolderScanner.maxBatchFiles, 1])
     }
+
+    // MARK: G104 slice 3 — the answer to `resend`
+
+    /// What the fake backend was sent, and what it answers with next (`resend`).
+    private actor PostLog {
+        struct Call: Equatable { let files: [String]; let deleted: [String] }
+        private(set) var calls: [Call] = []
+        private var answers: [[String]]
+        init(answers: [[String]] = []) { self.answers = answers }
+        func record(_ files: [String], _ deleted: [String]) -> [String] {
+            calls.append(Call(files: files, deleted: deleted))
+            return answers.isEmpty ? [] : answers.removeFirst()
+        }
+    }
+
+    private func knownManifest() -> [String: FolderFileSignature] {
+        ["README.md": FolderFileSignature(size: 1, modified: 1, sha256: "old"),
+         "research/plan.md": FolderFileSignature(size: 1, modified: 1, sha256: "old-plan")]
+    }
+
+    func testAResendIsPostedAgainOnTheSamePassAndAPathItCannotReadIsNamedDeleted() async throws {
+        var manifest = knownManifest()
+        let log = PostLog()
+        // README.md is readable; `gone.md` is not on disk; `outside.md` is a symlink (never followed); `../escape.md` is no path.
+        let answered = try await FolderScanner.answerResends(
+            ["README.md", "gone.md", "outside.md", "../escape.md"], root: root, manifest: &manifest) { files, deleted in
+            await log.record(files.map(\.relpath), deleted)
+        }
+        let calls = await log.calls
+        XCTAssertEqual(calls, [.init(files: ["README.md"], deleted: ["gone.md", "outside.md"])])
+        XCTAssertEqual(answered, 3, "an unsafe path is never asked of the disk")
+        // The manifest dropped what was asked and learned what was posted: the bytes on disk now.
+        XCTAssertEqual(manifest["README.md"]?.sha256, FolderScanner.sha256(Data("# alpha-project".utf8)))
+        XCTAssertNil(manifest["gone.md"])
+        XCTAssertEqual(manifest["research/plan.md"], knownManifest()["research/plan.md"])
+    }
+
+    func testAnAnswerThatAsksAgainIsFollowedOnceAndNeverLoops() async throws {
+        var manifest = knownManifest()
+        // The backend keeps asking for the path it was just given, then for another, then for the first again.
+        let log = PostLog(answers: [["README.md", "research/plan.md"], ["README.md"], ["research/plan.md"]])
+        let answered = try await FolderScanner.answerResends(["README.md"], root: root, manifest: &manifest) { files, deleted in
+            await log.record(files.map(\.relpath), deleted)
+        }
+        let calls = await log.calls
+        XCTAssertEqual(calls, [.init(files: ["README.md"], deleted: []), .init(files: ["research/plan.md"], deleted: [])])
+        XCTAssertEqual(answered, 2, "each path is asked of the disk at most once per pass")
+        XCTAssertNotEqual(manifest["research/plan.md"], knownManifest()["research/plan.md"])
+    }
+
+    func testAFailedPostLeavesTheAskedPathOutOfTheManifestSoTheNextPassAsksAgain() async throws {
+        var manifest = knownManifest()
+        struct Down: Error {}
+        do {
+            _ = try await FolderScanner.answerResends(["README.md"], root: root, manifest: &manifest) { _, _ in throw Down() }
+            XCTFail("a failed post is the sync's failure")
+        } catch is Down {}
+        XCTAssertNil(manifest["README.md"], "dropped before the post, so the next scan reads and posts it again")
+    }
 }

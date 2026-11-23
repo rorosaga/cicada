@@ -5372,6 +5372,9 @@ class FolderSyncResponse(CamelModel):
     removals_proposed: int = 0
     papers_pending: bool = False
     errors: list[FolderSyncError] = []
+    # G104 slice 3: a meeting whose held file was deleted while another copy remains asks the app to post one path again
+    # (at most one per meeting, the newest remaining); the app posts it or, when it cannot read it, names it in `deleted`.
+    resend: list[str] = []
 
 
 class FolderRemoveResponse(CamelModel):
