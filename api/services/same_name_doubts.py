@@ -3,9 +3,9 @@
 Two people who share a first name are told apart on a located contrast (`same_name_people`). When the record shows two
 different kinds of person but nothing that says both cannot be one, the second is held apart in doubt: on a person of its
 own, never blended into the first's page, and the pair is recorded here, **not** in `merge_rejections` (a split pair is
-never joined again; a doubt may be, by the person). `same_name_tend` settles a doubt as two people on a located contrast
-or, only once the whole record has been read and cannot tell, asks the person once (a located link is said in that
-question; Sleep itself joins no one, ruling 74).
+never joined again; a doubt may be). `same_name_tend` settles a doubt: two people on a located contrast, one person on a
+located link that two reads agree on (joined by Sleep, undoable), and otherwise it waits. Only when the whole record was
+read and it reads like one person, or like nothing either way, is the person asked, once.
 
 ``<bank>/_same_name_doubts.yaml``, tracked in the bank's git and committed with the batch or the tail step that changed it
 (it sits beside ``_merge_rejected.yaml``, which it never replaces): ``pairs`` (``a``, ``b`` page or line ids, ``since``,
@@ -20,6 +20,9 @@ Two more lists keep the person's own word standing against the tail's page split
 * ``splits``: the commit of the tail's own split of a page. It is written **after** that commit and never inside it, so
   undoing the split (`page_join.undo` reverses the split's commit, nothing else) leaves it here; the tail reads it,
   finds the commit taken back, and puts the page in ``one``.
+* ``joined``: the commit of the tail's own join of two people it held in doubt (owner 2026-11-23: Cicada joins them
+  itself when a later conversation links them), written after that commit the same way. Undoing the join brings the
+  second page and the doubt back; the tail finds the commit taken back and records the pair as two people for good.
 """
 from __future__ import annotations
 
@@ -67,6 +70,11 @@ def _normal(data: dict) -> dict:
     done = {str(k): str(v) for k, v in sorted(done.items()) if k and v}
     if done:
         out["splits"] = done
+    made = [row for row in data.get("joined") or []
+            if isinstance(row, dict) and row.get("a") and row.get("b") and row.get("commit")]
+    if made:
+        out["joined"] = sorted(({"a": str(r["a"]), "b": str(r["b"]), "commit": str(r["commit"])} for r in made),
+                               key=lambda r: (r["a"], r["b"], r["commit"]))
     return out
 
 
@@ -85,6 +93,60 @@ def _write(memory_path, data: dict) -> Path:
         Path(tmp).unlink(missing_ok=True)
         raise
     return p
+
+
+def reverse(current: bytes | None, after: bytes | None, before: bytes | None) -> bytes | None:
+    """The file as it is now with one commit's change to it (``before`` → ``after``) taken back **by meaning**, for
+    `page_join.undo`: what that commit added leaves, what it removed comes back, everything written since stays. The
+    file is a handful of adjacent lines that every drain rewrites, so a line-based three-way reverse would refuse the
+    person's undo of a merge whenever Sleep had touched the file since. ``None``: the file should not exist."""
+    def load(data: bytes | None) -> dict:
+        try:
+            found = yaml.safe_load((data or b"").decode("utf-8")) or {}
+        except (yaml.YAMLError, UnicodeDecodeError):
+            return {}
+        return _normal(found) if isinstance(found, dict) else {}
+
+    c, a, b = load(current), load(after), load(before)
+
+    def rows(d: dict, key: str) -> dict:
+        return {_pair(r["a"], r["b"]): r for r in d.get(key) or []}
+
+    out: dict = {}
+    for key in ("pairs", "joined"):
+        now, was, then = rows(c, key), rows(b, key), rows(a, key)
+        for k in then.keys() - was.keys():
+            now.pop(k, None)
+        for k in was.keys() - then.keys():
+            now.setdefault(k, was[k])
+        out[key] = list(now.values())
+
+    def group(d: dict, key: str, sub: str | None = None) -> set:
+        found = (d.get(key) or {}).get(sub) if sub else d.get(key)
+        return {tuple(x) if isinstance(x, list) else x for x in found or []}
+
+    def taken_back(key: str, sub: str | None = None) -> list:
+        now = (group(c, key, sub) - (group(a, key, sub) - group(b, key, sub))) | (group(b, key, sub) - group(a, key, sub))
+        return [list(x) if isinstance(x, tuple) else x for x in sorted(now)]
+
+    out["review"] = {"pages": taken_back("review", "pages"), "pairs": taken_back("review", "pairs")}
+    out["one"] = taken_back("one")
+    done, was, then = dict(c.get("splits") or {}), b.get("splits") or {}, a.get("splits") or {}
+    for page in then.keys() - was.keys():
+        if done.get(page) == then[page]:
+            done.pop(page)
+    for page in was.keys() - then.keys():
+        done.setdefault(page, was[page])
+    out["splits"] = done
+    out = _normal(out)
+    return yaml.safe_dump(out, allow_unicode=True, sort_keys=False).encode("utf-8") if out else None
+
+
+def kept(memory_path) -> set[tuple[str, str]]:
+    """Every pair nothing else may propose, sweep or ask about: the pairs held in doubt, and the pairs Sleep itself
+    joined (while they are one page that is nothing; once the person takes the join back the two are theirs to keep
+    apart, and `same_name_tend.reconcile` records it)."""
+    return set(pairs(memory_path)) | set(joins(memory_path))
 
 
 def pairs(memory_path) -> dict[tuple[str, str], dict]:
@@ -209,6 +271,49 @@ def note_split(memory_path, page: str, commit: str | None) -> bool:
     return True
 
 
+def joins(memory_path) -> dict[tuple[str, str], str]:
+    """``{(a, b): the commit of the tail's own join of the two}``."""
+    out: dict[tuple[str, str], str] = {}
+    for row in _read(memory_path).get("joined") or []:
+        if isinstance(row, dict) and row.get("a") and row.get("b") and row.get("commit"):
+            out[_pair(row["a"], row["b"])] = str(row["commit"])
+    return out
+
+
+def note_join(memory_path, a: str, b: str, commit: str | None) -> bool:
+    """The tail joined ``a`` and ``b`` in ``commit``: remembered outside that commit, so an undo of it can be seen."""
+    if not commit:
+        return False
+    data = _read(memory_path)
+    have = joins(memory_path)
+    if have.get(_pair(a, b)) == commit:
+        return False
+    have[_pair(a, b)] = str(commit)
+    data["joined"] = [{"a": x, "b": y, "commit": c} for (x, y), c in have.items()]
+    _write(memory_path, data)
+    return True
+
+
+def forget_join(memory_path, a: str, b: str) -> bool:
+    data = _read(memory_path)
+    have = joins(memory_path)
+    if have.pop(_pair(a, b), None) is None:
+        return False
+    data["joined"] = [{"a": x, "b": y, "commit": c} for (x, y), c in have.items()]
+    _write(memory_path, data)
+    return True
+
+
+def forget_split(memory_path, page: str) -> bool:
+    data = _read(memory_path)
+    done = dict(data.get("splits")) if isinstance(data.get("splits"), dict) else {}
+    if done.pop(page, None) is None:
+        return False
+    data["splits"] = done
+    _write(memory_path, data)
+    return True
+
+
 def fold(memory_path, loser: str, winner: str, *, people: bool = False, dry: bool = False) -> bool:
     """``loser`` was merged into ``winner``: the pair between them is settled, and the loser's other doubts, flags and
     marks are the winner's. ``people``: both are person pages, so the winner is one Sleep never splits (``one``).
@@ -232,6 +337,8 @@ def fold(memory_path, loser: str, winner: str, *, people: bool = False, dry: boo
     done = dict(data.get("splits")) if isinstance(data.get("splits"), dict) else {}
     done.pop(loser, None)
     data["splits"] = done
+    made = {_pair(winner if a == loser else a, winner if b == loser else b): c for (a, b), c in joins(memory_path).items()}
+    data["joined"] = [{"a": a, "b": b, "commit": c} for (a, b), c in made.items() if a != b]
     if _normal(data) == before:
         return False
     if not dry:

@@ -1126,17 +1126,20 @@ async def _propose_followups_safely(memory_path: Path) -> None:
 async def _same_name_review_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
     """2026-11-23 (`same_name_tend`): the people who share a first name that Stage 2 flagged (a page that may hold two, two
     held in doubt that may be one) looked at again by the engine's main model once the batches have committed; a located
-    contrast splits a page as one undoable commit or keeps a pair apart for good, and a doubt nothing settles is asked
-    once (Sleep joins no one here: ruling 74). Nothing flagged: no engine and no commit. Counts only. Never raises."""
+    contrast splits a page as one undoable commit or keeps a pair apart for good, a located link two reads agree on joins
+    two (ruling 74a), and a doubt nothing settles waits apart or, when it reads like one person, is asked once. A split
+    or join of Sleep's the person took back is theirs for good, read with no engine. Nothing flagged: no engine and no
+    commit. Counts only. Never raises."""
     from api.services import same_name_doubts, same_name_tend
 
     try:
         pages, pairs = await asyncio.to_thread(same_name_doubts.flagged, memory_path)
+        own = bool(same_name_doubts.splits(memory_path) or same_name_doubts.joins(memory_path))
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"Same-name review skipped: {type(exc).__name__}")
         return
-    if not pages and not pairs:
-        return
+    if not pages and not pairs and not own:
+        return   # nothing flagged, and no join of Sleep's own the person could have taken back
     if not (memory_path / ".git").exists():
         return
     try:
@@ -1144,7 +1147,7 @@ async def _same_name_review_safely(memory_path: Path, settings: Settings, *, use
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"Same-name review failed: {type(exc).__name__}")
         return
-    logger.info(f"Same-name review: {report.looked} looked at, {report.split} page(s) split, "
+    logger.info(f"Same-name review: {report.looked} looked at, {report.split} page(s) split, {report.merged} joined, "
                 f"{report.apart} kept apart, {report.asked} asked" + (f", skipped {report.skipped}" if report.skipped else ""))
 
 

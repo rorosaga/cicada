@@ -11,10 +11,11 @@ descriptions is there.
   copied word for word); never on a doubt. The answer says which conversations leave and the facts that justify it.
 * :func:`settle_pair`: two people held in doubt. **Different** on a located contrast (kept apart for good); **the same**
   only with a located link (a fact each side states that is the same fact, or one that continues the other), which
-  `same_name_tend` puts to the person and never acts on: ruling 74 joins two people pages on two kinds of evidence code
-  can count, and a model's reading of two quotes is not one of them. Otherwise they stay in doubt. A judge that fails,
-  answers unreadably or quotes words that are not there has read nothing (``answered`` false): the doubt stays where it
-  was and nothing is asked on the strength of it.
+  `same_name_tend` acts on when a second read agrees (owner 2026-11-23: Cicada joins them itself; ruling 74a).
+  Otherwise they stay in doubt, and a plain "cannot tell" says how it reads (``leaning``): like two people (they wait
+  apart and nobody is asked), like one, or neither. A judge that fails, answers unreadably or quotes words that are
+  not there has read nothing (``answered`` false): the doubt stays where it was and nothing is asked on the strength
+  of it.
 
 Engine-free apart from the injected ``judge(system, prompt)``.
 """
@@ -48,10 +49,10 @@ PERSON 2
 Decide which is true, from what is written and nothing else:
 - "same": they are one real person. You must copy, word for word, one fact from each person's descriptions that is the SAME fact (the same employer, place, event, relative, project or detail) or that one continues (one says something changed that the other describes before it). "here" from person 1, "there" from person 2. A different setting, topic or time is not a link, and neither is two things merely being possible for one person.
 - "different": they are two people. You must copy, word for word, one fact from each side that cannot both be true of one person at the same time (dates decide: a new job, a move, a promotion, a retirement or a marriage is one person's life moving on, never a contrast; a different generation, or a relationship to the speaker that cannot be held beside the other, is). "here" from person 1, "there" from person 2.
-- "cannot_tell": neither. Say it whenever you cannot copy the facts that the other two answers need.
+- "cannot_tell": neither. Say it whenever you cannot copy the facts that the other two answers need. Then also say how it reads, as "leaning": "two" when the descriptions read like two different people (different worlds with nothing in common: a relative and a colleague, a child and an adult, a neighbour in one town and someone who works in another), "one" when they read like one person although no single fact is stated on both sides (the same circle, the same work, the same place, one picking up where the other stops), "none" when nothing points either way.
 A wrong join tells the person things about someone that are true of another; a wrong split cuts one person's history in two. Do not choose either without the quoted facts.
 
-Answer in JSON only: {{"verdict": "same" | "different" | "cannot_tell", "here": "words copied from person 1", "there": "words copied from person 2", "reason": "one short sentence"}}
+Answer in JSON only: {{"verdict": "same" | "different" | "cannot_tell", "leaning": "one" | "two" | "none", "here": "words copied from person 1", "there": "words copied from person 2", "reason": "one short sentence"}}
 """
 
 
@@ -75,6 +76,7 @@ class Pair:
     there: str = ""
     called: bool = False
     answered: bool = False
+    leaning: str = ""   # for a plain "cannot tell": "one", "two" or "" (nothing points either way)
 
 
 def _side(page: Page) -> str:
@@ -106,6 +108,8 @@ async def settle_pair(name: str, one: Page, two: Page, judge: Judge) -> Pair:
     here, there = parsed.get("here"), parsed.get("there")
     if verdict == "cannot_tell":
         result.answered = True   # read, and the record does not say
+        leaning = str(parsed.get("leaning") or "").strip().lower()
+        result.leaning = leaning if leaning in ("one", "two") else ""
         return result
     if verdict == "different":
         if not snp.quotes_located(here, there, one_texts, two_texts, name):

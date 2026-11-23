@@ -282,6 +282,44 @@ def test_a_page_the_person_joined_is_never_split_by_sleep(bank):
     assert same_name_doubts.one(bank) == set()
 
 
+def test_the_persons_undo_of_their_own_merge_is_never_refused_because_sleep_touched_the_store(bank):
+    """The merge's commit creates the store (the page is marked as one Sleep never splits). Sleep then writes other
+    names' doubts and flags into the same few lines. Taking the merge back must still work: the store is reversed by
+    meaning, the mark leaves, and everything written since stays."""
+    _page(bank, "tomas", {"ep_a1": [f"Tomas is {WORK}"], "ep_a2": ["Tomas sent the shipping calendar"]})
+    _page(bank, "tomas-2", {"ep_b1": [f"Tomas is {COUSIN}"], "ep_b2": ["Tomas lives in Glasgow and studies law"]})
+    _git(bank, "add", "-A")
+    _git(bank, "commit", "-qm", "two pages")
+    bank_index.invalidate()
+    out = page_join.merge(bank, "tomas-2", "tomas", author="user")
+    same_name_doubts.add_pairs(bank, [("ines", "ines-2")], today="2026-11-24")
+    same_name_doubts.flag(bank, pages=["ines"], pairs_=[("ines", "ines-2")])
+    same_name_doubts.mark_one(bank, "sara")
+    _git(bank, "add", "-A")
+    _git(bank, "commit", "-qm", "a later drain")
+    page_join.undo(bank, out["commit"])
+    assert (bank / "entities" / "tomas-2.md").exists() and same_name_doubts.one(bank) == {"sara"}
+    assert same_name_doubts.pairs(bank) == {("ines", "ines-2"): {"since": "2026-11-24"}}
+    assert same_name_doubts.flagged(bank) == ({"ines"}, {("ines", "ines-2")})
+
+
+def test_the_store_is_taken_back_by_meaning():
+    import yaml
+
+    def dump(d):
+        return yaml.safe_dump(d).encode()
+
+    before = dump({"pairs": [{"a": "marc", "b": "marc-2", "since": "2026-11-01"}], "one": ["ada"]})
+    after = dump({"one": ["ada", "marc"], "splits": {"tomas": "abc"}})     # the change: a pair gone, a mark and a split added
+    current = dump({"one": ["ada", "marc", "sara"], "splits": {"tomas": "abc", "ines": "def"},
+                    "pairs": [{"a": "lea", "b": "lea-2", "since": "2026-11-20"}]})
+    back = yaml.safe_load(same_name_doubts.reverse(current, after, before))
+    assert back["one"] == ["ada", "sara"] and back["splits"] == {"ines": "def"}
+    assert [(r["a"], r["b"]) for r in back["pairs"]] == [("lea", "lea-2"), ("marc", "marc-2")]
+    assert same_name_doubts.reverse(after, after, None) is None, "a file the change made, untouched since, is gone again"
+    assert yaml.safe_load(same_name_doubts.reverse(None, after, before))["pairs"][0]["a"] == "marc"
+
+
 def test_a_merge_says_beforehand_that_it_writes_the_store(bank):
     """`entity_merge.merge_footprint` names every path a merge writes (the dedup sweep puts back anything outside it)."""
     from api.services import entity_merge
@@ -375,24 +413,106 @@ def test_the_question_is_worded_by_what_each_is_known_for_with_no_id(bank):
     assert "Marc" in plain.question and "marc-2" not in plain.question
 
 
-def test_a_located_link_is_put_to_the_person_and_never_acted_on(bank):
-    """Ruling 74: two people pages join on two kinds of evidence code can count. A model's reading of two quotes is not
-    one, so the link is said in the one question and the person joins them with a tap."""
-    from api.services import inbox_wording
+LINK = {"verdict": "same", "here": "plays the cello", "there": "plays the cello"}
 
+
+def _linked_bank(bank: Path) -> None:
+    """The neighbour's page also says the cello, so the link is a fact both sides state."""
     _doubt_bank(bank)
-    answer = {"verdict": "same", "here": "plays the cello", "there": "plays the cello"}
-    # the neighbour page also says the cello, so the link is a fact both sides state
     _page(bank, "marc-2", {"ep_b1": [f"Marc is {NEIGHBOUR}"], "ep_b2": ["Marc plays the cello on the second floor"]},
           name="Marc", lead="Marc is a neighbour on the second floor.")
+    _git(bank, "add", "-A")
+    _git(bank, "commit", "-qm", "linked")
     bank_index.invalidate()
-    report = _run(same_name_tend.tend(bank, _judge(answer), today=DAY))
+
+
+def test_a_link_two_reads_agree_on_joins_the_two_as_one_undoable_commit_and_asks_nothing(bank):
+    """Owner 2026-11-23 (ruling 74a): "cicada itself should do it automatically". Two reads of the whole record, both
+    with a located link, and Sleep joins the two; the person can take it back with one tap."""
+    _linked_bank(bank)
+    judge = _judge(LINK)
+    report = _run(same_name_tend.tend(bank, judge, today=DAY))
+    assert (report.merged, report.asked, len(judge.calls)) == (1, 0, 2), "read twice, joined, nobody asked"
+    assert not (bank / "entities" / "marc-2.md").exists() and not list((bank / "inbox").glob("inbox-*.md"))
+    assert set(markdown_parser.parse(bank / "entities" / "marc.md").frontmatter["source_episodes"]) == {
+        "ep_a1", "ep_a2", "ep_b1", "ep_b2"}
+    assert same_name_doubts.pairs(bank) == {} and _git(bank, "status", "--porcelain").strip() == ""
+    assert same_name_doubts.one(bank) == set(), "Sleep's own join does not bind Sleep: a later contrast may still split it"
+    # the join is one commit of its own; what Sleep remembers about having made it comes after, outside it
+    log = _git(bank, "log", "-1", "--format=%s%n%b", "HEAD~1")
+    assert log.startswith(page_join.SUBJECT_MERGE) and "sleep/same-name" in log and "Cicada-Author: cicada" in log
+    sha = _git(bank, "log", "-1", "--format=%H", "HEAD~1").strip()
+    assert same_name_doubts.joins(bank) == {("marc", "marc-2"): sha}
+    # the person takes it back: they are two people on their word, never joined or asked about again
+    page_join.undo(bank, sha)
+    assert (bank / "entities" / "marc-2.md").exists()
+    same_name_doubts.flag(bank, pairs_=[("marc", "marc-2")])
+    again = _judge(LINK)
+    report = _run(same_name_tend.tend(bank, again, today=DAY))
+    assert (report.merged, report.asked, report.apart) == (0, 0, 1) and again.calls == []
+    assert merge_rejections.is_split(bank, "marc", "marc-2") and (bank / "entities" / "marc-2.md").exists()
+    assert same_name_doubts.pairs(bank) == {} and same_name_doubts.joins(bank) == {}
+    assert _git(bank, "status", "--porcelain").strip() == ""
+
+
+def test_an_undone_join_is_seen_with_nothing_flagged_and_no_engine(bank):
+    _linked_bank(bank)
+    _run(same_name_tend.tend(bank, _judge(LINK), today=DAY))
+    page_join.undo(bank, _git(bank, "log", "-1", "--format=%H", "HEAD~1").strip())
+    same_name_doubts.clear_flags(bank, pairs_=[("marc", "marc-2")])   # whatever the undo brought back
+    report = _run(same_name_tend.run_tail(bank, settings=None, user_triggered=False, today=DAY))
+    assert report.apart == 1 and merge_rejections.is_split(bank, "marc", "marc-2")
+    assert _git(bank, "status", "--porcelain").strip() == ""
+
+
+def test_a_link_only_one_read_finds_is_put_to_the_person(bank):
+    from api.services import inbox_wording
+
+    _linked_bank(bank)
+    report = _run(same_name_tend.tend(bank, _judge(LINK, {"verdict": "cannot_tell", "leaning": "two"}), today=DAY))
     assert (report.merged, report.asked) == (0, 1)
     assert (bank / "entities" / "marc-2.md").exists() and ("marc", "marc-2") in same_name_doubts.pairs(bank)
     fm = markdown_parser.parse(next((bank / "inbox").glob("inbox-*.md"))).frontmatter
     assert fm["link"] == ["plays the cello", "plays the cello"] and fm["fold_page"] is True
     said = inbox_wording.spoken(fm, DAY.isoformat(), same={"marc": "cousin", "marc-2": "neighbour"})
     assert "plays the cello" in said.reason and "your word" in said.reason
+
+
+@pytest.mark.parametrize("leaning,asked", [("two", 0), ("one", 1), ("none", 1), (None, 1)])
+def test_two_who_read_like_different_people_wait_apart_and_nobody_is_asked(bank, leaning, asked):
+    """Owner 2026-11-23: "the fewer the asks the better". A relative and a neighbour with nothing in common wait apart,
+    each with their own facts; a pair that reads like one person, or like nothing either way, is asked about once."""
+    _doubt_bank(bank)
+    answer = {"verdict": "cannot_tell", **({"leaning": leaning} if leaning else {})}
+    report = _run(same_name_tend.tend(bank, _judge(answer), today=DAY))
+    assert report.asked == asked and len(list((bank / "inbox").glob("inbox-*.md"))) == asked
+    assert ("marc", "marc-2") in same_name_doubts.pairs(bank), "still in doubt: a later link may join them"
+    assert not merge_rejections.is_split(bank, "marc", "marc-2")
+    assert same_name_doubts.flagged(bank) == (set(), set()) and _git(bank, "status", "--porcelain").strip() == ""
+    if not asked:
+        assert report.skipped == {"reads_like_two": 1} and "asked" not in same_name_doubts.pairs(bank)[("marc", "marc-2")]
+
+
+def test_a_pair_already_asked_about_is_still_joined_when_a_later_conversation_links_them(bank):
+    _linked_bank(bank)
+    _run(same_name_tend.tend(bank, _judge({"verdict": "cannot_tell", "leaning": "one"}), today=DAY))
+    assert len(list((bank / "inbox").glob("inbox-*.md"))) == 1
+    same_name_doubts.flag(bank, pairs_=[("marc", "marc-2")])
+    report = _run(same_name_tend.tend(bank, _judge(LINK), today=DAY))
+    assert (report.merged, report.asked) == (1, 0) and not (bank / "entities" / "marc-2.md").exists()
+    assert not [f for f in (bank / "inbox").glob("inbox-*.md")
+                if (markdown_parser.parse(f).frontmatter or {}).get("status", "pending") == "pending"], \
+        "the question closes with the join"
+
+
+def test_a_page_in_two_doubts_is_never_joined_by_sleep(bank):
+    _linked_bank(bank)
+    _page(bank, "marc-3", {"ep_a1": ["Marc is a dentist who plays the cello"], "ep_b1": ["Marc fixed a molar"]},
+          name="Marc", lead="Marc is a dentist.")
+    same_name_doubts.add_pairs(bank, [("marc", "marc-3")])
+    bank_index.invalidate()
+    report = _run(same_name_tend.tend(bank, _judge(LINK), today=DAY))
+    assert report.merged == 0 and report.asked == 1 and (bank / "entities" / "marc-2.md").exists()
 
 
 @pytest.mark.parametrize("answer", [{}, {"verdict": "same"}, {"verdict": "same", "here": "zzz yyy xxx", "there": "www vvv"},

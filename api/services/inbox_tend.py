@@ -416,7 +416,7 @@ def _split_apart(memory_path: Path, a: str, b: str) -> bool:
         from api.services import same_name_doubts
 
         # Two people of one first name held in doubt are kept apart here too: only `same_name_tend` settles or asks.
-        return merge_rejections.is_split(memory_path, a, b) or tuple(sorted((a, b))) in same_name_doubts.pairs(memory_path)
+        return merge_rejections.is_split(memory_path, a, b) or tuple(sorted((a, b))) in same_name_doubts.kept(memory_path)
     except Exception:  # noqa: BLE001 — an unreadable list keeps nothing apart here; the rule asks as before
         return False
 

@@ -14,8 +14,8 @@ that stands on its own; a line below that), the pairs held in doubt, the pairs k
 Scored per replay: **blend** (one person holds conversations that truly are two people: a wrong join), **cut** (one
 person's conversations are on two people: a wrong split, or a doubt held apart that was one person), **questions** asked,
 and whether the end state is what the story expects (``two``: two people and no blend or cut; else one person, or one
-person held as two in doubt with the one question open and the located link in it (**linked**: Sleep never joins two
-people pages on a model's reading, ruling 74, so the person's tap does); ``q``: the range of questions).
+person held as two in doubt with the one question open and the located link in it (**linked**: the two reads of the
+pair did not agree, so the person's tap joins them); ``q``: the range of questions).
 
     api/.venv/bin/python -m benchmarks.consolidation.same_name_stories --repeats 20 --judge haiku --main sonnet
 """
@@ -145,11 +145,19 @@ async def step(world: World, batch: list[Conv], judge, ep_n: list[int], strong=N
         world.review_all = True
 
 
+def merge_persons(world: World, loser: str, winner: str) -> None:
+    world.persons[winner].convs.extend(world.persons.pop(loser).convs)
+    world.doubts = {pair(winner if x == loser else x, winner if y == loser else y) for x, y in world.doubts}
+    world.doubts = {p for p in world.doubts if p[0] != p[1]}
+    world.apart = {p for p in world.apart if loser not in p}
+
+
 async def tend(world: World, judge) -> None:
     """The end-of-drain review (`same_name_tend`): a flagged page is read once for two people in it (the main model; a
-    located contrast splits it), then each doubt that is a pair of pages once for the same, different or neither. A
-    located contrast keeps the pair apart for good; a doubt nothing settles is asked, once; a located link is said in
-    that question and never acted on (ruling 74); a read that could not be stood on asks nothing."""
+    located contrast splits it), then each doubt that is a pair of pages for the same, different or neither. A located
+    contrast keeps the pair apart for good; a located link two reads agree on joins the two (ruling 74a); a pair that
+    reads like two people waits apart and nobody is asked; one that reads like one person, or like nothing, is asked
+    once (with the link, when one read found it); a read that could not be stood on asks nothing."""
     if not world.review_all:
         return
     for ref in sorted(world.review_pages):
@@ -169,13 +177,23 @@ async def tend(world: World, judge) -> None:
         pa, pb = world.persons.get(a), world.persons.get(b)
         if pa is None or pb is None or not (pa.page and pb.page) or pair(a, b) in world.apart:
             continue
+        busy = sum(1 for x, y in world.doubts if a in (x, y)) > 1 or sum(1 for x, y in world.doubts if b in (x, y)) > 1
+        sides = (snr.Page(a, tuple(snp.Item(c.text, (c.ep,)) for c in pa.convs)),
+                 snr.Page(b, tuple(snp.Item(c.text, (c.ep,)) for c in pb.convs)))
         world.review_calls += 1
-        verdict = await snr.settle_pair(world.name, snr.Page(a, tuple(snp.Item(c.text, (c.ep,)) for c in pa.convs)),
-                                        snr.Page(b, tuple(snp.Item(c.text, (c.ep,)) for c in pb.convs)), judge)
+        verdict = await snr.settle_pair(world.name, *sides, judge)
+        if verdict.verdict == "same" and not busy:
+            world.review_calls += 1
+            if (await snr.settle_pair(world.name, *sides, judge)).verdict == "same":
+                loser, winner = (b, a) if (a == world.slug or not b == world.slug) else (a, b)
+                merge_persons(world, loser, winner)
+                continue
         if verdict.verdict == "apart":
             world.apart.add(pair(a, b))
             world.doubts.discard(pair(a, b))
-        elif verdict.answered and pair(a, b) not in world.asked:
+        elif not verdict.answered or (verdict.verdict != "same" and verdict.leaning == "two"):
+            continue
+        elif pair(a, b) not in world.asked:
             world.asked.add(pair(a, b))
             world.questions += 1
             if verdict.verdict == "same":
