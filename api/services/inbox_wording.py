@@ -367,8 +367,14 @@ def _same_name_doubt(fm: dict, name: str, other_fm: dict | None, same: dict[str,
     else:
         question = _ask(f"Are the two {name} you have mentioned the same person")
     said = [f"{text.rstrip('. ')}." for text in (said_mine, said_theirs) if text]
-    reason = (" ".join(said) + " " if said else "") + ("I read everything I have on both and it does not say; "
-                                                       "I only join people on your word.")
+    link = fm.get("link") if isinstance(fm.get("link"), list) and len(fm.get("link")) == 2 else None
+    if link and all(str(x).strip() for x in link):
+        # The read found one fact on both sides: said, never acted on (ruling 74 joins on evidence code can count).
+        tail = (f"Both seem to be said of one person: “{_clip(str(link[0]), 120)}” and “{_clip(str(link[1]), 120)}”. "
+                "I only join people on your word.")
+    else:
+        tail = "I read everything I have on both and it does not say; I only join people on your word."
+    reason = (" ".join(said) + " " if said else "") + tail
     return Spoken(question, reason)
 
 

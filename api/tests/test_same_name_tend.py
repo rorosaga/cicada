@@ -131,23 +131,52 @@ def test_a_page_with_one_conversation_is_not_read_at_all():
     assert not _run(snr.holds_two("Tomas", _page_of("tomas", "x"), judge)).called and judge.calls == []
 
 
-@pytest.mark.parametrize("answer,verdict", [
-    ({"verdict": "same", "here": "plays the cello", "there": "plays the cello"}, "same"),
-    ({"verdict": "different", "here": "plays the cello", "there": "has a small brown dog"}, "apart"),
-    ({"verdict": "cannot_tell", "here": "", "there": ""}, "doubt"),
-    ({"verdict": "same", "here": "a fact nobody wrote", "there": "plays the cello"}, "doubt"),
-    ({"verdict": "same"}, "doubt"), ({"verdict": "maybe"}, "doubt"), ("text", "doubt"), (None, "doubt"),
-], ids=["same on a located link", "different on a located contrast", "cannot tell", "unlocated link", "no facts",
-        "unknown verdict", "text", "none"])
-def test_a_pair_is_settled_only_on_facts_copied_from_the_descriptions(answer, verdict):
-    one = _page_of("marc", f"(2026-09-06) {CELLIST}")
-    two = _page_of("marc-2", f"(2026-10-20) {NEIGHBOUR} and plays the cello at the weekends")
-    assert _run(snr.settle_pair("Marc", one, two, _judge(answer))).verdict == verdict
+@pytest.mark.parametrize("answer,verdict,answered", [
+    ({"verdict": "same", "here": "plays the cello", "there": "plays the cello"}, "same", True),
+    ({"verdict": "different", "here": "the speaker's cousin", "there": "has a small brown dog"}, "apart", True),
+    ({"verdict": "cannot_tell", "here": "", "there": ""}, "doubt", True),
+    ({"verdict": "cannot tell"}, "doubt", True),
+    # a "contrast" both sides state, the same words twice, or only the name, sets nothing against anything
+    ({"verdict": "different", "here": "plays the cello", "there": "has a small brown dog"}, "doubt", False),
+    ({"verdict": "different", "here": "has a small brown dog", "there": "has a small brown dog"}, "doubt", False),
+    ({"verdict": "different", "here": "Marc is the", "there": "has a small brown dog"}, "doubt", False),
+    ({"verdict": "same", "here": "Marc", "there": "Marc"}, "doubt", False),
+    ({"verdict": "same", "here": "a fact nobody wrote", "there": "plays the cello"}, "doubt", False),
+    ({"verdict": "same"}, "doubt", False), ({"verdict": "maybe"}, "doubt", False), ("text", "doubt", False),
+    (None, "doubt", False),
+], ids=["same on a located link", "different on a located contrast", "cannot tell", "cannot tell, spaced",
+        "a contrast both sides state", "the same words twice", "only the name", "a link that is only the name",
+        "unlocated link", "no facts", "unknown verdict", "text", "none"])
+def test_a_pair_is_settled_only_on_facts_copied_from_the_descriptions(answer, verdict, answered):
+    one = _page_of("marc", f"(2026-09-06) Marc is {CELLIST}")
+    two = _page_of("marc-2", f"(2026-10-20) Marc is {NEIGHBOUR} and plays the cello at the weekends")
+    found = _run(snr.settle_pair("Marc", one, two, _judge(answer)))
+    assert (found.verdict, found.answered) == (verdict, answered)
+
+
+def test_two_quotes_set_two_groups_apart_only_when_each_is_its_own_groups(tmp_path):
+    """`same_name_people.read`: a page read conversation by conversation lists a belief two conversations share under
+    both, so a quote found on both sides is routine and is no contrast; nor are the same words twice, or the name."""
+    entries = [snp.Entry("A", "(2026-10-04) Tomas works at the Lyon logistics office and likes chess", None, ("e1",)),
+               snp.Entry("B", "(2026-10-25) Tomas works at the Lyon logistics office and studies law in Glasgow", None, ("e2",))]
+
+    def relation(here, there, verdict="different"):
+        reading = snp.read(_ans(["A", "B"], [(1, 2, verdict, here, there)]), entries, "Tomas")
+        return reading.relation
+
+    assert relation("likes chess", "studies law in Glasgow") == {(0, 1): ("apart", "likes chess", "studies law in Glasgow")}
+    assert relation("studies law in Glasgow", "likes chess"), "either way round"
+    for here, there in (("works at the Lyon logistics office", "works at the Lyon logistics office"),
+                        ("works at the Lyon logistics office", "studies law in Glasgow"),
+                        ("likes chess", "likes chess"), ("Tomas", "studies law in Glasgow")):
+        assert relation(here, there) == {}, (here, there)
+        assert relation(here, there, "cannot_tell") == {}, "a doubt needs its two located facts as much as a contrast"
 
 
 def test_a_failed_pair_judge_leaves_the_doubt_where_it_was():
     one, two = _page_of("a", "x y z"), _page_of("b", "u v w")
-    assert _run(snr.settle_pair("Marc", one, two, _judge(RuntimeError("down")))).verdict == "doubt"
+    found = _run(snr.settle_pair("Marc", one, two, _judge(RuntimeError("down"))))
+    assert (found.verdict, found.answered) == ("doubt", False)
 
 
 # ------------------------------------------------------------------ the doubts store
@@ -210,13 +239,71 @@ def test_a_located_contrast_splits_the_page_as_one_undoable_commit(bank):
     assert merge_rejections.is_split(bank, "tomas", "tomas-2")
     assert same_name_doubts.flagged(bank) == (set(), set()), "the flag is taken"
     assert _git(bank, "status", "--porcelain").strip() == ""
-    log = _git(bank, "log", "-1", "--format=%s%n%b")
+    # two commits: the split alone (what an undo reverses), then what Sleep remembers about having made it
+    assert _git(bank, "log", "-1", "--format=%s").startswith("Same-name review")
+    assert _git(bank, "show", "--name-only", "--format=", "HEAD").split() == [same_name_doubts.FILE]
+    log = _git(bank, "log", "-1", "--format=%s%n%b", "HEAD~1")
     assert log.startswith(page_join.SUBJECT_SPLIT) and "sleep/same-name" in log and "Cicada-Author: cicada" in log
-    # the person (or Sleep's own undo) takes it back with one tap
-    sha = _git(bank, "log", "-1", "--format=%H").strip()
+    assert same_name_doubts.FILE not in _git(bank, "show", "--name-only", "--format=", "HEAD~1").split()
+    # the person takes it back with one tap
+    sha = _git(bank, "log", "-1", "--format=%H", "HEAD~1").strip()
+    assert same_name_doubts.splits(bank) == {"tomas": sha}
     page_join.undo(bank, sha)
     assert not (bank / "entities" / "tomas-2.md").exists()
     assert len(parse_claims(markdown_parser.parse(bank / "entities" / "tomas.md").body)) == 4
+    # ... and their undo stands: the page is flagged again by a later batch, and Sleep never splits it again
+    assert same_name_doubts.flagged(bank) == (set(), set()), "the undo reverses the split, not what Sleep remembers"
+    same_name_doubts.flag(bank, pages=["tomas"])
+    judge = _judge(answer)
+    again = _run(same_name_tend.tend(bank, judge, today=DAY))
+    assert (again.split, again.looked) == (0, 0) and judge.calls == [] and again.skipped == {"split_taken_back": 1}
+    assert not (bank / "entities" / "tomas-2.md").exists() and "tomas" in same_name_doubts.one(bank)
+    assert _git(bank, "status", "--porcelain").strip() == "", "the store is committed even when nothing was read"
+
+
+def test_a_page_the_person_joined_is_never_split_by_sleep(bank):
+    """Two people pages the person merged (their own merge, or their yes to a question) are one person on their word:
+    the merge marks the page, and a later located contrast inside it splits nothing."""
+    _page(bank, "tomas", {"ep_a1": [f"Tomas is {WORK}"], "ep_a2": ["Tomas sent the shipping calendar"]})
+    _page(bank, "tomas-2", {"ep_b1": [f"Tomas is {COUSIN}"], "ep_b2": ["Tomas lives in Glasgow and studies law"]})
+    _git(bank, "add", "-A")
+    _git(bank, "commit", "-qm", "two pages")
+    bank_index.invalidate()
+    out = page_join.merge(bank, "tomas-2", "tomas", author="user")
+    assert same_name_doubts.FILE in out["paths"] and same_name_doubts.one(bank) == {"tomas"}
+    assert _git(bank, "status", "--porcelain").strip() == "", "the mark is in the merge's own commit"
+    same_name_doubts.flag(bank, pages=["tomas"])
+    judge = _judge(_ans(["AB", "CD"], [(1, 2, "different", "lives in Glasgow and studies law", "works as a logistics planner")]))
+    report = _run(same_name_tend.tend(bank, judge, today=DAY))
+    assert report.split == 0 and judge.calls == [] and report.skipped == {"joined_by_the_person": 1}
+    assert not (bank / "entities" / "tomas-2.md").exists()
+    # taking the merge back takes the mark back with it
+    page_join.undo(bank, out["commit"])
+    assert same_name_doubts.one(bank) == set()
+
+
+def test_a_merge_says_beforehand_that_it_writes_the_store(bank):
+    """`entity_merge.merge_footprint` names every path a merge writes (the dedup sweep puts back anything outside it)."""
+    from api.services import entity_merge
+
+    _page(bank, "tomas", {"ep_a1": [f"Tomas is {WORK}"]})
+    _page(bank, "tomas-2", {"ep_b1": [f"Tomas is {COUSIN}"]})
+    bank_index.invalidate()
+    before = entity_merge.merge_footprint(bank, "tomas-2", "tomas")
+    assert same_name_doubts.FILE in before and not (bank / same_name_doubts.FILE).exists(), "said, not written"
+    wrote = entity_merge.merge_entities(bank, "tomas-2", "tomas")["paths"]
+    assert same_name_doubts.FILE in wrote and set(wrote) <= set(before) | {f"entities/tomas-2.md"}
+    markdown_parser.write(bank / "entities" / "acme.md", {"name": "Acme", "type": "company"}, "## Summary\nA company.\n")
+    markdown_parser.write(bank / "entities" / "acme-inc.md", {"name": "Acme Inc", "type": "company"}, "## Summary\nA company.\n")
+    bank_index.invalidate()
+    assert same_name_doubts.FILE not in entity_merge.merge_footprint(bank, "acme-inc", "acme"), "people only"
+    # Sleep's own dedup join is not the person's word: it writes no mark, so Sleep may still split that page
+    _page(bank, "tomas-3", {"ep_b2": ["Tomas lives in Glasgow and studies law"]})
+    bank_index.invalidate()
+    assert same_name_doubts.FILE not in entity_merge.merge_footprint(bank, "tomas-3", "tomas", by_sleep=True)
+    (bank / same_name_doubts.FILE).unlink()
+    assert same_name_doubts.FILE not in entity_merge.merge_entities(bank, "tomas-3", "tomas", by_sleep=True)["paths"]
+    assert same_name_doubts.one(bank) == set()
 
 
 def test_a_doubt_or_an_unlocated_contrast_moves_nothing(bank):
@@ -288,7 +375,11 @@ def test_the_question_is_worded_by_what_each_is_known_for_with_no_id(bank):
     assert "Marc" in plain.question and "marc-2" not in plain.question
 
 
-def test_a_located_link_joins_the_two_as_one_undoable_commit_and_asks_nothing(bank):
+def test_a_located_link_is_put_to_the_person_and_never_acted_on(bank):
+    """Ruling 74: two people pages join on two kinds of evidence code can count. A model's reading of two quotes is not
+    one, so the link is said in the one question and the person joins them with a tap."""
+    from api.services import inbox_wording
+
     _doubt_bank(bank)
     answer = {"verdict": "same", "here": "plays the cello", "there": "plays the cello"}
     # the neighbour page also says the cello, so the link is a fact both sides state
@@ -296,23 +387,58 @@ def test_a_located_link_joins_the_two_as_one_undoable_commit_and_asks_nothing(ba
           name="Marc", lead="Marc is a neighbour on the second floor.")
     bank_index.invalidate()
     report = _run(same_name_tend.tend(bank, _judge(answer), today=DAY))
-    assert (report.merged, report.asked) == (1, 0)
-    assert not (bank / "entities" / "marc-2.md").exists()
-    assert set(markdown_parser.parse(bank / "entities" / "marc.md").frontmatter["source_episodes"]) == {
-        "ep_a1", "ep_a2", "ep_b1", "ep_b2"}
-    assert same_name_doubts.pairs(bank) == {}
+    assert (report.merged, report.asked) == (0, 1)
+    assert (bank / "entities" / "marc-2.md").exists() and ("marc", "marc-2") in same_name_doubts.pairs(bank)
+    fm = markdown_parser.parse(next((bank / "inbox").glob("inbox-*.md"))).frontmatter
+    assert fm["link"] == ["plays the cello", "plays the cello"] and fm["fold_page"] is True
+    said = inbox_wording.spoken(fm, DAY.isoformat(), same={"marc": "cousin", "marc-2": "neighbour"})
+    assert "plays the cello" in said.reason and "your word" in said.reason
+
+
+@pytest.mark.parametrize("answer", [{}, {"verdict": "same"}, {"verdict": "same", "here": "zzz yyy xxx", "there": "www vvv"},
+                                    {"verdict": "different", "here": "nothing like it", "there": "nor this"},
+                                    RuntimeError("down"), "not json"],
+                         ids=["empty", "no facts", "unlocated link", "unlocated contrast", "judge failed", "text"])
+def test_a_read_that_failed_asks_nothing_and_keeps_the_pairs_one_question(bank, answer):
+    """A question is for "everything was read and it does not say". A failed or unreadable read is not that."""
+    _doubt_bank(bank)
+    report = _run(same_name_tend.tend(bank, _judge(answer), today=DAY))
+    assert (report.asked, report.merged, report.apart) == (0, 0, 0) and report.skipped == {"not_read": 1}
     assert not list((bank / "inbox").glob("inbox-*.md"))
-    log = _git(bank, "log", "-1", "--format=%s%n%b")
-    assert log.startswith(page_join.SUBJECT_MERGE) and "sleep/same-name" in log
-    page_join.undo(bank, _git(bank, "log", "-1", "--format=%H").strip())
-    assert (bank / "entities" / "marc-2.md").exists()
+    assert same_name_doubts.pairs(bank) == {("marc", "marc-2"): {"since": "2026-11-01"}}, "still in doubt, never asked"
+    assert same_name_doubts.flagged(bank) == (set(), set()) and _git(bank, "status", "--porcelain").strip() == ""
+    # the next conversation that names the name flags it again, and a real "cannot tell" is then asked, once
+    same_name_doubts.flag(bank, pairs_=[("marc", "marc-2")])
+    assert _run(same_name_tend.tend(bank, _judge({"verdict": "cannot_tell"}), today=DAY)).asked == 1
+
+
+def test_a_page_with_nothing_of_its_own_on_record_is_not_asked_about(bank):
+    """One side has no conversation-by-conversation account (a page the person wrote): nothing was read, nothing asked."""
+    _doubt_bank(bank)
+    markdown_parser.write(bank / "entities" / "marc-2.md", {"name": "Marc", "type": "person", "status": "active"},
+                          "## Summary\nMarc is a neighbour.\n")
+    bank_index.invalidate()
+    judge = _judge({"verdict": "cannot_tell"})
+    report = _run(same_name_tend.tend(bank, judge, today=DAY))
+    assert report.asked == 0 and judge.calls == [] and report.skipped == {"not_read": 1}
+
+
+def test_a_question_already_open_about_the_two_is_not_asked_again(bank):
+    _doubt_bank(bank)
+    markdown_parser.write(bank / "inbox" / "inbox-001.md", {
+        "kind": "merge_suggestion", "status": "pending", "entity_id": "marc-2", "merge_target_hint": "marc",
+        "detected": "person_duplicate"}, "asked by another proposer")
+    bank_index.invalidate()
+    report = _run(same_name_tend.tend(bank, _judge({"verdict": "cannot_tell"}), today=DAY))
+    assert report.asked == 0 and report.skipped == {"question_open": 1}
+    assert len(list((bank / "inbox").glob("inbox-*.md"))) == 1
 
 
 def test_a_located_contrast_makes_the_pair_a_split_for_good_and_asks_nothing(bank):
     _doubt_bank(bank)
     answer = {"verdict": "different", "here": "plays the cello", "there": "has a small brown dog"}
     report = _run(same_name_tend.tend(bank, _judge(answer), today=DAY))
-    assert (report.apart, report.asked) == (1, 0)
+    assert (report.apart, report.asked) == (1, 0) and _git(bank, "status", "--porcelain").strip() == ""
     assert merge_rejections.is_split(bank, "marc", "marc-2") and same_name_doubts.pairs(bank) == {}
     assert (bank / "entities" / "marc-2.md").exists()
 
@@ -356,7 +482,8 @@ def test_the_answers_work_yes_folds_and_no_keeps_them_apart_for_good(bank):
     merge_rejections.add_rejected(bank, fm["entity_id"], fm["merge_target_hint"])   # what a "no" records
     assert merge_rejections.kept_apart(bank) == {("marc", "marc-2")}
     page_join.merge(bank, fm["entity_id"], fm["merge_target_hint"], author="user")   # and the person's own "yes" (merge) clears it
-    assert merge_rejections.kept_apart(bank) == set()
+    assert merge_rejections.kept_apart(bank) == set() and same_name_doubts.pairs(bank) == {}
+    assert same_name_doubts.one(bank) == {fm["merge_target_hint"]}, "and the page they joined is never split by Sleep"
 
 
 def test_sleep_never_settles_this_question_by_a_rule_or_a_judge(bank):

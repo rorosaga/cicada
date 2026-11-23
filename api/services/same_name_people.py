@@ -243,6 +243,29 @@ def _located(quote: object, texts: list[str]) -> bool:
     return all(any(p in h for h in haystack) for p in pieces)
 
 
+def _says(quote: object, name: str) -> bool:
+    """The quote says something beyond the name itself: "Marc is" names a person and states nothing about them."""
+    rest = _squash(quote)
+    for word in _squash(name).split():
+        rest = re.sub(rf"(?<!\w){re.escape(word)}(?!\w)", " ", rest)
+    return len(re.sub(r"[\W_]+", "", rest)) >= MIN_QUOTE_CHARS
+
+
+def quotes_located(here: object, there: object, ours: list[str], theirs: list[str], name: str = "") -> bool:
+    """Two quoted facts that set two groups of descriptions against each other: each occurs word for word in its own
+    group's descriptions and in none of the other's (a fact both groups state sets nothing against anything, and a page
+    read conversation by conversation lists a belief two conversations share under both), the two are not the same
+    words, and each says something beyond the name. Either way round."""
+    if _squash(here) == _squash(there) or not (_says(here, name) and _says(there, name)):
+        return False
+
+    def one_way(a: object, b: object) -> bool:
+        return (_located(a, ours) and _located(b, theirs)
+                and not _located(a, theirs) and not _located(b, ours))
+
+    return one_way(here, there) or one_way(there, here)
+
+
 @dataclass
 class Reading:
     """The judge's answer as located people. ``cluster_of``: letter → person (0…). ``relation``: ``(a, b)`` with
@@ -263,11 +286,12 @@ class Reading:
 _VERDICTS = {"different": "apart", "cannot_tell": "doubt", "cannot tell": "doubt", "unsure": "doubt"}
 
 
-def read(parsed: object, entries: list[Entry]) -> Reading | None:
+def read(parsed: object, entries: list[Entry], name: str = "") -> Reading | None:
     """The judge's groups and verdicts → a :class:`Reading`; ``None`` for an answer that does not line up (never a guess:
     the caller keeps the old behaviour). A letter the answer leaves out, or lists twice, is the first group's or none. A
-    verdict whose quotes are not located (here in one group's descriptions, there in the other's, either way round) is
-    no verdict: the two groups are one person. A group pair given one verdict and another is read as the milder."""
+    verdict whose quotes are not located (`quotes_located`: here in one group's descriptions and not the other's, there
+    in the other's and not the first's, either way round, two different facts, each more than the name) is no verdict:
+    the two groups are one person. A group pair given one verdict and another is read as the milder."""
     groups = parsed.get("people") if isinstance(parsed, dict) else None
     if not isinstance(groups, list) or not groups:
         return None
@@ -303,8 +327,7 @@ def read(parsed: object, entries: list[Entry]) -> Reading | None:
         if not members[a] or not members[b]:
             continue
         here, there = row.get("here"), row.get("there")
-        if not ((_located(here, texts[a]) and _located(there, texts[b]))
-                or (_located(there, texts[a]) and _located(here, texts[b]))):
+        if not quotes_located(here, there, texts[a], texts[b], name):
             continue
         key = (min(a, b), max(a, b))
         if key in verdicts and verdicts[key][0] == "doubt":
@@ -448,7 +471,7 @@ async def plan(name: str, mentions: list[Mention], identities: list[Identity],
     except Exception as e:  # noqa: BLE001 - anything else is "one person"
         logger.debug(f"Same-name judge failed: {type(e).__name__}")
         return result
-    reading = read(parsed, entries)
+    reading = read(parsed, entries, name)
     if reading is None:
         return result
     # The small judge says several of this batch's conversations are one person (the common answer, and where a silent join hides: it reads "both are connected to the
@@ -458,7 +481,7 @@ async def plan(name: str, mentions: list[Mention], identities: list[Identity],
     if strong is not None and ((reading.single and len(judged) >= 2)
                                or any(len(i.shown()) >= CONFIRM_ITEMS for i in shown) and not reading.single):
         try:
-            second = read(await strong(SYSTEM, prompt), entries)
+            second = read(await strong(SYSTEM, prompt), entries, name)
         except asyncio.CancelledError:
             raise
         except engine_errors.EngineError:

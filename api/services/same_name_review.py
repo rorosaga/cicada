@@ -9,10 +9,12 @@ descriptions is there.
 * :func:`holds_two`: one page's conversations, read together. Two people only on a located contrast between two groups of
   its conversations (:func:`same_name_people.read`, the same bar as a new person: two facts that cannot both be true,
   copied word for word); never on a doubt. The answer says which conversations leave and the facts that justify it.
-* :func:`settle_pair`: two people held in doubt. **Different** on a located contrast; **the same** only on a located link
-  (a fact each side states that is the same fact, or one that continues the other: the second kind of evidence beside
-  the name, ruling 74); otherwise they stay in doubt. Never a guess either way: a judge that fails, answers unreadably
-  or quotes words that are not there leaves the doubt where it was.
+* :func:`settle_pair`: two people held in doubt. **Different** on a located contrast (kept apart for good); **the same**
+  only with a located link (a fact each side states that is the same fact, or one that continues the other), which
+  `same_name_tend` puts to the person and never acts on: ruling 74 joins two people pages on two kinds of evidence code
+  can count, and a model's reading of two quotes is not one of them. Otherwise they stay in doubt. A judge that fails,
+  answers unreadably or quotes words that are not there has read nothing (``answered`` false): the doubt stays where it
+  was and nothing is asked on the strength of it.
 
 Engine-free apart from the injected ``judge(system, prompt)``.
 """
@@ -65,12 +67,14 @@ class Page:
 @dataclass
 class Pair:
     """``verdict``: ``"same"`` (``here``/``there`` the located link), ``"apart"`` (the located contrast), or
-    ``"doubt"``; ``called``: a judge was asked."""
+    ``"doubt"``; ``called``: a judge was asked; ``answered``: it gave a verdict the code could read and stand on (a
+    located link, a located contrast, or a plain "cannot tell"), so "the record was read and does not say" is true."""
 
     verdict: str = "doubt"
     here: str = ""
     there: str = ""
     called: bool = False
+    answered: bool = False
 
 
 def _side(page: Page) -> str:
@@ -97,19 +101,27 @@ async def settle_pair(name: str, one: Page, two: Page, judge: Judge) -> Pair:
         return result
     if not isinstance(parsed, dict):
         return result
-    verdict = str(parsed.get("verdict") or "").strip().lower()
+    verdict = str(parsed.get("verdict") or "").strip().lower().replace(" ", "_")
     one_texts, two_texts = [i.text for i in one.items], [i.text for i in two.items]
     here, there = parsed.get("here"), parsed.get("there")
-    located = ((snp._located(here, one_texts) and snp._located(there, two_texts))
-               or (snp._located(there, one_texts) and snp._located(here, two_texts)))
-    if not located:
-        return result   # a verdict with no facts to point at is no verdict
-    if verdict == "same":
-        result.verdict = "same"
-    elif verdict == "different":
+    if verdict == "cannot_tell":
+        result.answered = True   # read, and the record does not say
+        return result
+    if verdict == "different":
+        if not snp.quotes_located(here, there, one_texts, two_texts, name):
+            return result   # a contrast with no facts to point at is no verdict
         result.verdict = "apart"
+    elif verdict == "same":
+        # A link is one fact on both sides, so the two quotes may be the same words; each must be there and say more
+        # than the name.
+        linked = ((snp._located(here, one_texts) and snp._located(there, two_texts))
+                  or (snp._located(there, one_texts) and snp._located(here, two_texts)))
+        if not (linked and snp._says(here, name) and snp._says(there, name)):
+            return result
+        result.verdict = "same"
     else:
         return result
+    result.answered = True
     result.here, result.there = str(here or ""), str(there or "")
     return result
 
@@ -147,7 +159,7 @@ async def holds_two(name: str, page: Page, judge: Judge) -> Split:
     except Exception as e:  # noqa: BLE001
         logger.debug(f"Same-name page judge failed: {type(e).__name__}")
         return result
-    reading = snp.read(parsed, entries)
+    reading = snp.read(parsed, entries, name)
     if reading is None or reading.single:
         return result
     apart = {key: found for key, found in reading.relation.items() if found[0] == "apart"}

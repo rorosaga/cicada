@@ -8,14 +8,18 @@ acts only on what it copies from those descriptions (`same_name_review`):
 
 * a page that holds two people, on a located contrast, is split: the conversations that leave, with their beliefs and
   facts, move to a new page through `page_join.split`, one commit the person can undo (`page_join.undo`), authored by
-  Sleep; the pair is recorded as split, so nothing joins them again;
-* two people held in doubt that a located link shows to be one are merged through `page_join.merge`, the same way
-  (ruling 74: the name is one kind of evidence, a located fact both sides state the other); a located contrast makes the
-  pair a split (kept apart for good);
+  Sleep; the pair is recorded as split, so nothing joins them again. **The person's word stands over it:** a page
+  something was folded into (their merge, an answered question, any join) is never split by Sleep, and a split of
+  Sleep's that the person took back is never made again (`same_name_doubts.one`, `splits`);
+* two people held in doubt that a located contrast shows to be two are kept apart for good (`merge_rejections`);
 * two pages held in doubt that nothing settles are asked about **once**: "Are Marc (brother-in-law) and Marc (colleague)
   the same person?", an ordinary `merge_suggestion` between two pages (`fold_page`: yes folds one into the other, no keeps
-  them apart for good, `merge_rejections`), with what each is known for in its reason. Never for a person held on a line
-  (nothing rests on it yet), never a second time (`same_name_doubts.mark_asked`), never when the person already said.
+  them apart for good, `merge_rejections`), with what each is known for in its reason. A located link (one fact both
+  sides state) is put in that question and never acted on: ruling 74 joins two people pages on two kinds of evidence
+  code can count, and a model's reading of two quotes is not one of them, so the person joins them with one tap.
+  Never for a person held on a line (nothing rests on it yet), never a second time (`same_name_doubts.mark_asked`),
+  never when the person already said, never over a question already open about the pair, and never when the read
+  failed or its answer could not be stood on (that is not "the record does not say").
 
 The sentences and beliefs that leave are exactly those whose every source is a leaving conversation; one a staying
 conversation also supports stays, and so does the summary, which no one conversation owns. A page or passage the person
@@ -149,12 +153,12 @@ def split_page(memory_path: Path, page_id: str, episodes: frozenset[str], split:
     if not claims and not sentences:
         return None
     reason = f"Two people share this name: “{split.here}” cannot be true of the same person as “{split.there}”."
-    kept_name = None
     try:
+        # The commit holds the split and nothing else: `page_join.undo` reverses exactly this, and what Sleep remembers
+        # about having made it (`same_name_doubts.note_split`) is written after, outside it.
         return page_join.split(
             memory_path, page_id, sentences=sentences, claims=claims, episodes=sorted(episodes), author=_author(),
-            trigger=TRIGGER, reason=reason, before=before, extra_paths=[same_name_doubts.FILE],
-            name=kept_name)
+            trigger=TRIGGER, reason=reason, before=before)
     except page_join.JoinError as exc:
         logger.info(f"same-name split not applied: {exc}")
         return None
@@ -179,19 +183,34 @@ def known_for(memory_path: Path, page_id: str) -> str:
     return first.rstrip(" .,;")
 
 
-def ask_pair(memory_path: Path, a: str, b: str, *, today: date) -> str | None:
+def question_open(memory_path: Path, a: str, b: str) -> bool:
+    """A question about these two pages being one is already waiting, whoever asked it."""
+    from api.services import bank_index
+
+    pair = {a, b}
+    for f in bank_index.files(Path(memory_path), "inbox"):
+        fm = f.frontmatter or {}
+        if str(fm.get("kind") or "") != "merge_suggestion" or str(fm.get("status") or "pending") != "pending":
+            continue
+        if {str(fm.get("entity_id") or ""), str(fm.get("merge_target_hint") or "")} == pair:
+            return True
+    return False
+
+
+def ask_pair(memory_path: Path, a: str, b: str, *, today: date, link: tuple[str, str] | None = None) -> str | None:
     """One "Are <A> and <B> the same person?" question about two pages the record cannot tell apart: an ordinary
     ``merge_suggestion`` (the card's one-tap merge, its undo and every reader already work) marked ``detected:
     same_name_doubt``, asked about the less-used page, with what each page is known for in its reason. Answered by the
-    person only: yes folds one into the other (``fold_page``), no keeps the two apart for good. Files only; ``None`` when
-    either page is gone or the pair is already settled."""
+    person only: yes folds one into the other (``fold_page``), no keeps the two apart for good. ``link``: the one fact
+    the read found on both sides, in each side's words, said in the question (never acted on). Files only; ``None``
+    when either page is gone, the pair is already settled, or a question about the two is already open."""
     from api.services import bank_index, inbox_service, markdown_parser, merge_rejections, page_use
 
     memory_path = Path(memory_path)
     if merge_rejections.is_rejected(memory_path, a, b) or merge_rejections.is_split(memory_path, a, b):
         return None
     fa, fb = bank_index.file(memory_path, "entities", f"{a}.md"), bank_index.file(memory_path, "entities", f"{b}.md")
-    if fa is None or fb is None:
+    if fa is None or fb is None or question_open(memory_path, a, b):
         return None
     use = page_use.scores(memory_path, today=today)
     asked, target = (a, b) if use.get(a, 0.0) <= use.get(b, 0.0) else (b, a)
@@ -208,6 +227,7 @@ def ask_pair(memory_path: Path, a: str, b: str, *, today: date) -> str | None:
         "suggested_confidence": 0.5, "created_date": today.isoformat(), "merge_target_hint": target,
         "fold_page": True, "detected": "same_name_doubt",
         "known_for": {asked: one, target: two},
+        **({"link": [str(link[0])[:200], str(link[1])[:200]]} if link and all(link) else {}),
     }, "Why this is asked: everything on record about both was read and does not say whether they are one person. "
        "Asked, never joined: only your answer joins them.")
     bank_index.invalidate(memory_path)
@@ -226,22 +246,12 @@ def _page_exists(memory_path: Path, ref: str) -> bool:
     return (Path(memory_path) / "entities" / f"{ref}.md").is_file()
 
 
-def _winner(memory_path: Path, a: str, b: str, name_slug: str) -> tuple[str, str]:
-    """``(loser, winner)``: the page the bare name reaches stays, else the one with more conversations."""
-    if a == name_slug:
-        return b, a
-    if b == name_slug:
-        return a, b
-    na, nb = len(page_conversations(memory_path, a)[2]), len(page_conversations(memory_path, b)[2])
-    return (b, a) if na >= nb else (a, b)
-
-
 async def tend(memory_path: Path, judge, *, today: date | None = None,
                max_questions: int = MAX_QUESTIONS) -> Report:
-    """Look again at what Stage 2 flagged. ``judge(system, prompt)`` is the main model's call. A split or a merge commits
-    alone through `page_join` (undoable); everything else this step writes (the pairs kept apart, the question, the store)
-    is one `cicada` commit at the end, and a path dirty before it ran is left as it was. Counts only. Never raises but
-    for an engine failure (G74(a)), in which case the flags stay for the next run."""
+    """Look again at what Stage 2 flagged. ``judge(system, prompt)`` is the main model's call. A split commits alone
+    through `page_join` (undoable, and nothing but the split is in that commit); everything else this step writes (the
+    pairs kept apart, the question, the store) is one `cicada` commit at the end. Counts only. Never raises but for an
+    engine failure (G74(a)), in which case the flags stay for the next run."""
     import asyncio
 
     from api.services import git_service, merge_rejections, page_join
@@ -254,13 +264,25 @@ async def tend(memory_path: Path, judge, *, today: date | None = None,
         return report
     before0 = await asyncio.to_thread(git_service.snapshot_dirty_sync, memory_path)
     held = same_name_doubts.pairs(memory_path)
-    rest: list[str] = []   # what the final commit takes
+    rest: list[str] = []   # what the final commit takes besides the store
     looks = 0
     try:
         for ref in sorted(pages):
             if looks >= MAX_LOOKS:
                 report.skip("max_looks")
                 break
+            # The person's word stands: a page they folded another into is one person on their say, and a split of
+            # Sleep's they took back is their "one person" too. Neither is split by Sleep.
+            if ref in same_name_doubts.one(memory_path):
+                same_name_doubts.clear_flags(memory_path, pages=[ref])
+                report.skip("joined_by_the_person")
+                continue
+            made = same_name_doubts.splits(memory_path).get(ref)
+            if made and await asyncio.to_thread(page_join.undone, memory_path, made):
+                same_name_doubts.mark_one(memory_path, ref)
+                same_name_doubts.clear_flags(memory_path, pages=[ref])
+                report.skip("split_taken_back")
+                continue
             page = page_of(memory_path, ref) if _page_exists(memory_path, ref) else None
             if page is None or len(page.items) < 2:
                 same_name_doubts.clear_flags(memory_path, pages=[ref])
@@ -269,26 +291,19 @@ async def tend(memory_path: Path, judge, *, today: date | None = None,
             looks += 1
             report.looked += 1
             name = str(page_conversations(memory_path, ref)[0])
-            split = await snr.holds_two(name, page, judge)
+            split = await snr.holds_two(name, page, judge)   # an engine failure leaves the flag for the next run
+            same_name_doubts.clear_flags(memory_path, pages=[ref])
             if not split.episodes:
-                same_name_doubts.clear_flags(memory_path, pages=[ref])
                 continue
-
-            def do_split(before, ref=ref, split=split):
-                same_name_doubts.clear_flags(memory_path, pages=[ref])
-                out = split_page(memory_path, ref, split.episodes, split, before=before)
-                if out is not None:
-                    same_name_doubts.remove_pairs(memory_path, [(ref, out["new_id"])])
-                return out
-
-            out = await _in_lock(memory_path, do_split)
+            out = await _in_lock(memory_path, lambda before, ref=ref, split=split: split_page(
+                memory_path, ref, split.episodes, split, before=before))
             if out is None:
                 report.skip("nothing_to_move")
-                rest.append(same_name_doubts.FILE)
                 continue
+            same_name_doubts.note_split(memory_path, ref, out.get("commit"))
+            same_name_doubts.remove_pairs(memory_path, [(ref, out["new_id"])])
             report.split += 1
             report.paths += out["paths"]
-            rest.append(same_name_doubts.FILE)
         for a, b in sorted(flagged_pairs):
             if looks >= MAX_LOOKS:
                 report.skip("max_looks")
@@ -296,13 +311,13 @@ async def tend(memory_path: Path, judge, *, today: date | None = None,
             if (a, b) not in held:
                 same_name_doubts.clear_flags(memory_path, pairs_=[(a, b)])
                 continue
+            if merge_rejections.is_rejected(memory_path, a, b) or merge_rejections.is_split(memory_path, a, b):
+                same_name_doubts.remove_pairs(memory_path, [(a, b)])   # the person said, or a contrast did
+                same_name_doubts.clear_flags(memory_path, pairs_=[(a, b)])
+                continue
             if not (_page_exists(memory_path, a) and _page_exists(memory_path, b)):
                 same_name_doubts.clear_flags(memory_path, pairs_=[(a, b)])
-                report.skip("a_line")   # a person on a line has nothing resting on it: no question, no join, yet
-                continue
-            if merge_rejections.is_rejected(memory_path, a, b) or merge_rejections.is_split(memory_path, a, b):
-                same_name_doubts.remove_pairs(memory_path, [(a, b)])
-                same_name_doubts.clear_flags(memory_path, pairs_=[(a, b)])
+                report.skip("a_line")   # a person on a line has nothing resting on it: no question yet
                 continue
             if "asked" in held[(a, b)]:
                 same_name_doubts.clear_flags(memory_path, pairs_=[(a, b)])   # the person was asked: never twice
@@ -313,39 +328,37 @@ async def tend(memory_path: Path, judge, *, today: date | None = None,
             pa, pb = page_of(memory_path, a), page_of(memory_path, b)
             name = page_conversations(memory_path, a)[0]
             verdict = await snr.settle_pair(name, pa or snr.Page(a, ()), pb or snr.Page(b, ()), judge)
-            busy = sum(1 for x, y in held if a in (x, y)) > 1 or sum(1 for x, y in held if b in (x, y)) > 1
-            if verdict.verdict == "same" and not busy:
-                from api.services.id_utils import sanitize_id
-
-                loser, winner = _winner(memory_path, a, b, sanitize_id(name))
-                reason = f"The same person: \u201c{verdict.here}\u201d and \u201c{verdict.there}\u201d state one fact."
-
-                def do_merge(before, a=a, b=b, loser=loser, winner=winner, reason=reason):
-                    same_name_doubts.clear_flags(memory_path, pairs_=[(a, b)])
-                    same_name_doubts.remove_pairs(memory_path, [(a, b)])
-                    return page_join.merge(memory_path, loser, winner, author=_author(), trigger=TRIGGER, reason=reason,
-                                           before=before, extra_paths=[same_name_doubts.FILE])
-
-                out = await _in_lock(memory_path, do_merge)
-                report.merged += 1
-                report.paths += out["paths"]
-            elif verdict.verdict == "apart":
+            if verdict.verdict == "apart":
                 same_name_doubts.clear_flags(memory_path, pairs_=[(a, b)])
                 merge_rejections.add_split(memory_path, a, b)
                 same_name_doubts.remove_pairs(memory_path, [(a, b)])
                 report.apart += 1
-                rest += [merge_rejections.FILE, same_name_doubts.FILE]
+                rest.append(merge_rejections.FILE)
+            elif not verdict.answered:
+                # Nothing was read (a side with no conversation of its own on record), or the answer could not be stood
+                # on: that is not "the record does not say", so nothing is asked and the pair's one question is kept.
+                # The doubt stays; the next conversation that names the name flags it again.
+                same_name_doubts.clear_flags(memory_path, pairs_=[(a, b)])
+                report.skip("not_read")
             elif report.asked < max_questions and open_questions(memory_path) < MAX_OPEN:
                 same_name_doubts.clear_flags(memory_path, pairs_=[(a, b)])
-                made = ask_pair(memory_path, a, b, today=today)
+                link = (verdict.here, verdict.there) if verdict.verdict == "same" else None
+                made = ask_pair(memory_path, a, b, today=today, link=link)
                 if made:
                     same_name_doubts.mark_asked(memory_path, a, b, today=today.isoformat())
                     report.asked += 1
-                    rest += [made, same_name_doubts.FILE]
+                    rest.append(made)
+                else:
+                    report.skip("question_open")
             else:
                 report.skip("question_budget")   # stays flagged: looked at again next drain, never lost
     finally:
-        if rest or report.looked:
+        # The store changes whenever a flag is taken, looked at or not: it is never left uncommitted in the bank.
+        try:
+            dirty = bool(await asyncio.to_thread(git_service.dirty_paths_sync, memory_path, same_name_doubts.FILE))
+        except Exception:  # noqa: BLE001 - an unreadable tree: commit what this step knows it wrote
+            dirty = True
+        if rest or dirty:
             paths = list(dict.fromkeys(rest + [same_name_doubts.FILE]))
             lines = [f"{p}: updated (trigger: {TRIGGER})" for p in paths]
 

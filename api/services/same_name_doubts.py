@@ -11,6 +11,15 @@ person once.
 (it sits beside ``_merge_rejected.yaml``, which it never replaces): ``pairs`` (``a``, ``b`` page or line ids, ``since``,
 and ``asked`` the day the person was asked about the pair, once), and ``review`` (the pages that may hold two people, the
 pairs that may be one, written by Stage 2 and taken by the tail). Ids and dates only, never a name's words.
+
+Two more lists keep the person's own word standing against the tail's page split (`same_name_tend`):
+
+* ``one``: person pages another person's page was folded into on the person's word (`entity_merge.merge_entities`:
+  their own merge, an agent's on their ask, an answered question; never Sleep's own dedup join, which does not bind
+  Sleep), and pages whose split by Sleep the person took back. Sleep never splits such a page; only the person does.
+* ``splits``: the commit of the tail's own split of a page. It is written **after** that commit and never inside it, so
+  undoing the split (`page_join.undo` reverses the split's commit, nothing else) leaves it here; the tail reads it,
+  finds the commit taken back, and puts the page in ``one``.
 """
 from __future__ import annotations
 
@@ -40,8 +49,8 @@ def _read(memory_path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def _write(memory_path, data: dict) -> Path:
-    p = Path(memory_path) / FILE
+def _normal(data: dict) -> dict:
+    """What the file holds for ``data``, in the one order it is written in; ``{}`` for nothing to keep."""
     pairs = [row for row in data.get("pairs") or [] if isinstance(row, dict) and row.get("a") and row.get("b")]
     review = data.get("review") if isinstance(data.get("review"), dict) else {}
     out: dict = {}
@@ -51,6 +60,19 @@ def _write(memory_path, data: dict) -> Path:
     prs = sorted({tuple(_pair(*r)) for r in prs if isinstance(r, (list, tuple)) and len(r) == 2})
     if pages or prs:
         out["review"] = {**({"pages": pages} if pages else {}), **({"pairs": [list(r) for r in prs]} if prs else {})}
+    joined = sorted({str(x) for x in data.get("one") or [] if x})
+    if joined:
+        out["one"] = joined
+    done = data.get("splits") if isinstance(data.get("splits"), dict) else {}
+    done = {str(k): str(v) for k, v in sorted(done.items()) if k and v}
+    if done:
+        out["splits"] = done
+    return out
+
+
+def _write(memory_path, data: dict) -> Path:
+    p = Path(memory_path) / FILE
+    out = _normal(data)
     if not out:
         p.unlink(missing_ok=True)
         return p
@@ -152,22 +174,66 @@ def clear_flags(memory_path, *, pages=(), pairs_=()) -> bool:
     return True
 
 
-def fold(memory_path, loser: str, winner: str) -> bool:
-    """``loser`` was merged into ``winner``: the pair between them is settled, and the loser's other doubts are the winner's.
-    Returns whether the file changed."""
-    have = pairs(memory_path)
-    if not any(loser in key for key in have):
+def one(memory_path) -> set[str]:
+    """The person pages Sleep never splits: something was folded into them, or the person took Sleep's split back."""
+    return {str(x) for x in _read(memory_path).get("one") or [] if x}
+
+
+def mark_one(memory_path, page: str) -> bool:
+    data = _read(memory_path)
+    have = {str(x) for x in data.get("one") or [] if x}
+    if page in have:
         return False
+    data["one"] = sorted(have | {str(page)})
+    _write(memory_path, data)
+    return True
+
+
+def splits(memory_path) -> dict[str, str]:
+    """``{page: the commit of the tail's own split of it}``."""
+    done = _read(memory_path).get("splits")
+    return {str(k): str(v) for k, v in done.items() if k and v} if isinstance(done, dict) else {}
+
+
+def note_split(memory_path, page: str, commit: str | None) -> bool:
+    """The tail split ``page`` in ``commit``: remembered outside that commit, so an undo of it can be seen."""
+    if not commit:
+        return False
+    data = _read(memory_path)
+    done = dict(data.get("splits")) if isinstance(data.get("splits"), dict) else {}
+    if done.get(page) == commit:
+        return False
+    done[str(page)] = str(commit)
+    data["splits"] = done
+    _write(memory_path, data)
+    return True
+
+
+def fold(memory_path, loser: str, winner: str, *, people: bool = False, dry: bool = False) -> bool:
+    """``loser`` was merged into ``winner``: the pair between them is settled, and the loser's other doubts, flags and
+    marks are the winner's. ``people``: both are person pages, so the winner is one Sleep never splits (``one``).
+    Returns whether the file changes; ``dry`` only says so (`entity_merge.merge_footprint`)."""
+    data = _read(memory_path)
+    before = _normal(data)
     out: dict[tuple[str, str], dict] = {}
-    for (a, b), meta in have.items():
+    for (a, b), meta in pairs(memory_path).items():
         a, b = (winner if a == loser else a), (winner if b == loser else b)
         if a != b:
             out.setdefault(_pair(a, b), meta)
-    data = _read(memory_path)
     data["pairs"] = [dict(a=a, b=b, **meta) for (a, b), meta in out.items()]
     pg, pr = flagged(memory_path)
     pg = {winner if p == loser else p for p in pg}
     pr = {_pair(winner if a == loser else a, winner if b == loser else b) for a, b in pr}
     data["review"] = {"pages": sorted(pg), "pairs": [list(r) for r in sorted(pr) if r[0] != r[1]]}
-    _write(memory_path, data)
+    joined = {str(x) for x in data.get("one") or [] if x}
+    if people or loser in joined:
+        joined = (joined - {loser}) | {winner}
+    data["one"] = sorted(joined)
+    done = dict(data.get("splits")) if isinstance(data.get("splits"), dict) else {}
+    done.pop(loser, None)
+    data["splits"] = done
+    if _normal(data) == before:
+        return False
+    if not dry:
+        _write(memory_path, data)
     return True

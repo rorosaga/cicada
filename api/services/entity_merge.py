@@ -257,7 +257,11 @@ def _edges_name(memory_path: Path, old_id: str) -> bool:
     return any(e.get(end) == old_id for e in data.get("edges", []) for end in ("source", "target"))
 
 
-def merge_footprint(memory_path: Path, loser_id: str, winner_id: str) -> list[str]:
+def _both_people(lfm: dict, wfm: dict) -> bool:
+    return str(lfm.get("type") or "") == "person" and str(wfm.get("type") or "") == "person"
+
+
+def merge_footprint(memory_path: Path, loser_id: str, winner_id: str, *, by_sleep: bool = False) -> list[str]:
     """Every memory-relative path :func:`merge_entities` would write or remove,
     computed before it runs and without writing (G183(e)): the winner, the
     loser, ``graph_edges.yaml`` when an edge names the loser, each page the
@@ -297,6 +301,11 @@ def merge_footprint(memory_path: Path, loser_id: str, winner_id: str) -> list[st
     from api.services import page_redirects
 
     paths.append(page_redirects.FILE)
+    # The people held in doubt, and the pages Sleep never splits (`same_name_doubts`), when this merge changes them.
+    from api.services import same_name_doubts
+
+    if same_name_doubts.fold(memory_path, loser_id, winner_id, people=_both_people(lfm, wfm) and not by_sleep, dry=True):
+        paths.append(same_name_doubts.FILE)
     # The open "same as?" questions between the two pages close with the merge (`merge_closes`).
     from api.services import merge_closes
 
@@ -404,11 +413,15 @@ def rename_references(memory_path: Path, old_id: str, old_name: str, new_id: str
 
 @page_lock.locked
 def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
-                   *, author: str = "user") -> dict:
+                   *, author: str = "user", by_sleep: bool = False) -> dict:
     """Fold ``loser_id`` into ``winner_id`` and delete the loser's page.
 
     Returns ``paths``: every memory-relative path written or removed, so the
-    caller commits exactly those (a merge is one writer's change)."""
+    caller commits exactly those (a merge is one writer's change).
+
+    ``by_sleep``: Sleep's own join with no word of the person's behind it (the dedup sweep). Every other merge of two
+    people is the person's word that they are one (their merge, their answer, their words on the record), and marks the
+    page as one Sleep never splits (`same_name_doubts.one`); Sleep's own join does not bind Sleep that way."""
     if loser_id == winner_id:
         raise ValueError(f"cannot merge an entity into itself: {winner_id}")
     ents = memory_path / "entities"
@@ -588,11 +601,11 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
 
     if claims_ledger.remove(lp):
         paths.append(claims_ledger.rel_for(f"entities/{loser_id}.md"))
-    # 2026-11-23: a pair of people held in doubt (`same_name_doubts`) that this merge settles is gone, and the loser's other
-    # doubts are now the winner's.
+    # 2026-11-23: a pair of people held in doubt (`same_name_doubts`) that this merge settles is gone, the loser's other
+    # doubts are now the winner's, and a person page something was folded into is one Sleep never splits again.
     from api.services import same_name_doubts
 
-    if same_name_doubts.fold(memory_path, loser_id, winner_id):
+    if same_name_doubts.fold(memory_path, loser_id, winner_id, people=_both_people(lfm, wfm) and not by_sleep):
         paths.append(same_name_doubts.FILE)
     return {"winner": winner_id, "merged_source_episodes": len(wfm.get("source_episodes", [])),
             "merged_claims": len(all_claims) - len(winner_claims),

@@ -691,10 +691,7 @@
   "name": "Nadia",
   "lang": "en",
   "two": false,
-  "q": [
-   0,
-   0
-  ],
+  "q": [0, 1],
   "batches": [
    [
     {
@@ -754,10 +751,7 @@
   "name": "Mateo",
   "lang": "es",
   "two": false,
-  "q": [
-   0,
-   0
-  ],
+  "q": [0, 1],
   "batches": [
    [
     {
@@ -816,10 +810,7 @@
   "name": "Anaïs",
   "lang": "fr",
   "two": false,
-  "q": [
-   0,
-   0
-  ],
+  "q": [0, 1],
   "batches": [
    [
     {

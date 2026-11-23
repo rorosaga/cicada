@@ -13,8 +13,9 @@ that stands on its own; a line below that), the pairs held in doubt, the pairs k
 
 Scored per replay: **blend** (one person holds conversations that truly are two people: a wrong join), **cut** (one
 person's conversations are on two people: a wrong split, or a doubt held apart that was one person), **questions** asked,
-and whether the end state is what the story expects (``two``: two people and no blend or cut; else one person; ``q``: the
-range of questions).
+and whether the end state is what the story expects (``two``: two people and no blend or cut; else one person, or one
+person held as two in doubt with the one question open and the located link in it (**linked**: Sleep never joins two
+people pages on a model's reading, ruling 74, so the person's tap does); ``q``: the range of questions).
 
     api/.venv/bin/python -m benchmarks.consolidation.same_name_stories --repeats 20 --judge haiku --main sonnet
 """
@@ -72,6 +73,7 @@ class World:
     doubts: set[tuple[str, str]] = field(default_factory=set)
     apart: set[tuple[str, str]] = field(default_factory=set)
     asked: set[tuple[str, str]] = field(default_factory=set)
+    linked: set[tuple[str, str]] = field(default_factory=set)   # asked with a located link: one tap joins them
     questions: int = 0
     review_pages: set[str] = field(default_factory=set)
     review_pairs: set[tuple[str, str]] = field(default_factory=set)
@@ -143,17 +145,11 @@ async def step(world: World, batch: list[Conv], judge, ep_n: list[int], strong=N
         world.review_all = True
 
 
-def merge_persons(world: World, loser: str, winner: str) -> None:
-    world.persons[winner].convs.extend(world.persons.pop(loser).convs)
-    world.doubts = {pair(winner if x == loser else x, winner if y == loser else y) for x, y in world.doubts}
-    world.doubts = {p for p in world.doubts if p[0] != p[1]}
-    world.apart = {p for p in world.apart if loser not in p}
-
-
 async def tend(world: World, judge) -> None:
     """The end-of-drain review (`same_name_tend`): a flagged page is read once for two people in it (the main model; a
-    located contrast splits it), then each doubt that is a pair of pages once for the same, different or neither; a doubt
-    nothing settles is asked, once."""
+    located contrast splits it), then each doubt that is a pair of pages once for the same, different or neither. A
+    located contrast keeps the pair apart for good; a doubt nothing settles is asked, once; a located link is said in
+    that question and never acted on (ruling 74); a read that could not be stood on asks nothing."""
     if not world.review_all:
         return
     for ref in sorted(world.review_pages):
@@ -173,20 +169,17 @@ async def tend(world: World, judge) -> None:
         pa, pb = world.persons.get(a), world.persons.get(b)
         if pa is None or pb is None or not (pa.page and pb.page) or pair(a, b) in world.apart:
             continue
-        # a page in two doubt pairs waits for the person
-        busy = sum(1 for x, y in world.doubts if a in (x, y)) > 1 or sum(1 for x, y in world.doubts if b in (x, y)) > 1
         world.review_calls += 1
         verdict = await snr.settle_pair(world.name, snr.Page(a, tuple(snp.Item(c.text, (c.ep,)) for c in pa.convs)),
                                         snr.Page(b, tuple(snp.Item(c.text, (c.ep,)) for c in pb.convs)), judge)
-        if verdict.verdict == "same" and not busy:
-            loser, winner = (b, a) if (a == world.slug or not b == world.slug) else (a, b)
-            merge_persons(world, loser, winner)
-        elif verdict.verdict == "apart":
+        if verdict.verdict == "apart":
             world.apart.add(pair(a, b))
             world.doubts.discard(pair(a, b))
-        elif pair(a, b) not in world.asked:
+        elif verdict.answered and pair(a, b) not in world.asked:
             world.asked.add(pair(a, b))
             world.questions += 1
+            if verdict.verdict == "same":
+                world.linked.add(pair(a, b))
 
 
 def score(world: World, story: dict) -> dict:
@@ -200,12 +193,16 @@ def score(world: World, story: dict) -> dict:
     cut = any(len(ids) > 1 for ids in labels.values())
     lo, hi = story["q"]
     end_ok = (not blend) and (not cut if not story["two"] else len(labels) == len(world.persons) or not cut)
+    # One person held as two in doubt, with the one question open and the link in it: the person's tap joins them, and
+    # nothing was blended meanwhile. Counted apart from "joined with no one asked" (`linked`).
+    held = [pair(x, y) for x in world.persons for y in world.persons if x < y]
+    linked = (not story["two"]) and len(world.persons) == 2 and not blend and all(p in world.linked for p in held)
     if story["two"]:
         end_ok = (not blend) and (not cut) and len(labels) >= 2
     else:
-        end_ok = (len(world.persons) == 1) and not blend
+        end_ok = ((len(world.persons) == 1) and not blend) or linked
     q_ok = lo <= world.questions <= hi
-    return {"blend": blend, "cut": cut, "questions": world.questions, "end_ok": end_ok, "q_ok": q_ok,
+    return {"blend": blend, "cut": cut and not linked, "linked": linked, "questions": world.questions, "end_ok": end_ok, "q_ok": q_ok,
             "ok": end_ok and q_ok, "persons": len(world.persons), "doubt_left": len(world.doubts),
             "calls": world.calls, "review_calls": world.review_calls}
 
@@ -251,7 +248,7 @@ def report(rows: list[dict], used: dict | None = None) -> str:
         runs = r["runs"]
         n = len(runs)
         out.append(f"{r['shape']:22} {r['id']:30} ok {sum(x['ok'] for x in runs):>3}/{n}  blend {sum(x['blend'] for x in runs):>3}"
-                   f"  cut {sum(x['cut'] for x in runs):>3}  q/run {sum(x['questions'] for x in runs) / n:.2f}"
+                   f"  cut {sum(x['cut'] for x in runs):>3}  linked {sum(x.get('linked', False) for x in runs):>3}  q/run {sum(x['questions'] for x in runs) / n:.2f}"
                    f"  persons {sum(x['persons'] for x in runs) / n:.1f}  calls {sum(x['calls'] for x in runs) / n:.1f}"
                    f"+{sum(x['review_calls'] for x in runs) / n:.1f}")
         shapes.setdefault(r["shape"], []).extend(runs)

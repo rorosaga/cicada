@@ -135,9 +135,13 @@ def test_a_new_conversation_goes_to_the_known_person_in_its_group():
 
 def test_with_a_plain_person_on_record_a_new_group_is_never_the_plain_one():
     known = [snp.Identity("page", "marc", True, COLLEAGUE)]
+    two_family = _mentions(("e1", CARPENTER), ("e2", CARPENTER.replace("09-29", "10-05")), ("e3", COLLEAGUE))
     answer = ans("AB", "CD", pairs=[(1, 2, "different", FAM_Q, "a colleague on the research team at the firm")])
-    assert _run(snp.plan("Marc", M, known, _judge(answer))).moves == {
+    assert _run(snp.plan("Marc", two_family, known, _judge(answer))).moves == {
         "e1": snp.Destination("new", "g0"), "e2": snp.Destination("new", "g0")}
+    # a "contrast" quoted from words both groups hold sets nothing against anything: no one is made new
+    muddled = ans("AB", "CD", pairs=[(1, 2, "different", FAM_Q, "a colleague on the research team at the firm")])
+    assert _run(snp.plan("Marc", M, known, _judge(muddled))).moves == {}
 
 
 def test_nothing_to_compare_asks_nothing():
