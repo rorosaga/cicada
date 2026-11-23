@@ -452,6 +452,27 @@ final class AppRouter {
         showMainWindow()
     }
 
+    /// G245 (plan 7, critic app2) — a list's first-use acknowledgement asked for by a caller outside the source's page:
+    /// the card's Connect, the notch's Yes. The notch's panel never becomes key and cannot hold the sheet, so the page
+    /// does: this stages the source's entry (like `routeToCatalogEntry`) and the consent, and the page raises the sheet
+    /// and clears it. Nothing is turned on until the sheet's own Turn on.
+    var pendingConsent: ReadingConsent?
+
+    func routeToConsent(_ consent: ReadingConsent) {
+        closeSettings()
+        pendingTab = .sources
+        pendingCatalogEntry = consent.entryId
+        pendingConsent = consent
+        showMainWindow()
+    }
+
+    /// Read-then-clear, for the same double-firing reason as `consumeAddSource`.
+    @discardableResult
+    func consumeConsent() -> ReadingConsent? {
+        defer { pendingConsent = nil }
+        return pendingConsent
+    }
+
     /// Read-then-clear, for the same double-firing reason as `consumeAddSource`
     /// (`SourcesPageView.onAppear` and its `onChange` can both see one hand-off).
     @discardableResult

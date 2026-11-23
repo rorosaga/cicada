@@ -18,8 +18,9 @@ struct SourcesPageView: View {
     @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var columns = ListColumns<SourcesSelection>()
-    /// G217 — the sites an agent may read, for the accounts' per-site control (in memory, not a Store domain).
-    @State private var reading = ReadingAgentModel()
+    /// G217 — the sites an agent may read, for the accounts' per-site control (in memory, not a Store domain). G245: the
+    /// app's one model (`CicadaApp`), so a caller outside this page reaches the same switches.
+    @Environment(ReadingAgentModel.self) private var reading
     /// The browsers on this Mac (one Launch Services pass per appearance, never per body evaluation).
     @State private var browsers = BrowserInventory.empty
     @Environment(LocalSourceWatcher.self) private var localSources
@@ -175,7 +176,6 @@ struct SourcesPageView: View {
         .onChange(of: router.pendingReadingSheet) { _, wants in
             if wants { router.pendingReadingSheet = false; showReadingSheet = true }
         }
-        .environment(reading)
         .environment(agents)
         .task { await exploreCache.refresh() }
         .task { await GoogleBooksKeyModel.shared.refresh() }

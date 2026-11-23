@@ -57,6 +57,7 @@ struct ContentView: View {
     @Environment(ProjectsCache.self) private var projectsCache
     @Environment(BacklogCache.self) private var backlogCache
     @Environment(ReadingSitesCache.self) private var readingSitesCache
+    @Environment(SourceStreamsModel.self) private var sourceStreams
     @Environment(ChannelItemsCache.self) private var channelItemsCache
     @Environment(VideoStateCache.self) private var videoStateCache
     @Environment(ExploreCache.self) private var exploreCache
@@ -137,6 +138,8 @@ struct ContentView: View {
             Task { await exploreCache.revalidate() }
             // G166 — the sites list and its icons are per bank.
             readingSitesCache.reset()
+            // G245 — a source's streams, counts and health are per bank.
+            sourceStreams.reset()
             Task { await SiteIconStore.shared.clear(bank: old) }
             inboxVM.resetColumns()
         }
