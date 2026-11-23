@@ -573,9 +573,25 @@ def test_a_split_decided_against_an_established_page_is_read_again_by_the_main_m
         assert kept.moves == wrong.moves
 
 
-def test_the_main_model_is_not_asked_when_nothing_on_record_has_a_history_or_nothing_divides():
+def test_a_small_judge_that_says_one_person_is_read_again_and_a_located_split_found_there_stands():
+    """Where a silent join hides: the small judge reads the speaker being named in two descriptions, or a later move, as a
+    link. The main model reads the same prompt once; a grouping that divides the conversations replaces the one-person one."""
+    strong = _judge(TWO)
+    result = _run(snp.plan("Marc", M, [], _judge(ONE), strong))
+    assert result.second and len(strong.calls) == 1 and result.moves == {"e1": snp.Destination("new", "g0")}
+    for answer in (RuntimeError("down"), {}, ONE):
+        kept = _run(snp.plan("Marc", M, [], _judge(ONE), _judge(answer)))
+        assert kept.moves == {} and kept.second
+    # a single new conversation against a person on record is not read again: it is the commonest answer, and the small
+    # judge keeps a known person's later mentions together in 98 of 100 replays
+    known = [snp.Identity("page", "marc", True, COLLEAGUE)]
+    once = _judge(TWO)
+    assert not _run(snp.plan("Marc", M[:1], known, _judge(ans("AB")), once)).second and once.calls == []
+
+
+def test_the_main_model_is_not_asked_when_the_small_judge_divides_and_nothing_on_record_has_a_history():
     strong = _judge(TWO)
     _run(snp.plan("Marc", M, [], _judge(TWO), strong))
     known = [snp.Identity("page", "marc", True, COLLEAGUE)]
-    _run(snp.plan("Marc", M[:1], known, _judge(ans("AB")), strong))
+    _run(snp.plan("Marc", M[:1], known, _judge(ans("A", "B", pairs=[(1, 2, "different", FAM_Q, WORK_Q)])), strong))
     assert strong.calls == []

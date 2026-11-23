@@ -75,7 +75,7 @@ Rules:
 - A wrong join is a serious memory error: it tells the person things about someone that are true of another. A wrong split is just as serious: one person's history is cut in two, and the part nobody sees is lost. Decide only from what the descriptions say.
 - People change. A new job or employer, a promotion, a move to another city or country, a graduation, a retirement, a marriage, a baby, a new home: the same person says different things about their work or home in a later conversation than in an earlier one. A later description that differs from an earlier one is that person's life moving on, NOT a different person. Dates matter: ask whether the later description could be the same person after an ordinary change since the earlier one. If it could, they are the same person.
 - "different" ONLY when two descriptions state something that cannot be true of one person at the same time. Dates decide. Descriptions dated within a few weeks of each other describe the person at the same moment: if they give different jobs or employers, or different home towns or countries, and neither says that something changed, they are two people (one person does not have two employers and two home towns in the same month). Descriptions months or years apart may be one person after an ordinary change, and a description that itself says something changed (a new job, a move, a promotion, a retirement) is a change, not a second person. Two more things one person cannot be: of a different generation (a nine-year-old and a retired person), and held in a relationship to the speaker that cannot be held beside the other (a grandmother and an intern). A description that is silent about something says nothing about it: a person with no job on record may well have one.
-- "cannot_tell" when the descriptions are about two different kinds of person (for example one is the speaker's relative and the other the speaker's colleague, friend or neighbour; one is a child and the other an adult), nothing in them says that both could not be one person, and nothing connects them: no shared employer, place, event, person or detail, and no statement that something changed. Do not use it when a description is thin or when everything said could be true of one person: that is the same person. Do not use it for a different setting, topic or time.
+- "cannot_tell" when the descriptions point to two different kinds of person: one is the speaker's relative and the other the speaker's colleague, friend or neighbour; one is a child and the other an adult; one is a tradesperson in one town and the other works in an office somewhere else. Use it even though one person could, in theory, be both: what matters is that the descriptions name different worlds and nothing connects them, no shared employer, place, event, person or detail, and no statement that something changed. Every conversation is the speaker's own, so the speaker appearing in two descriptions, or being named in both, connects nothing. Do not use it when the descriptions share a fact, when one says something changed, when a description is thin, or for a different setting, topic or time.
 - A different setting, topic or time is NOT a difference: one person is met at home, at work, on a trip, at a race. When a description is thin, or everything said could be true of one person, they are the same person. When unsure between "the same person" and "different", say "same".
 - Conversations that fit each other go in one group; every conversation is in exactly one group. Several groups are several people. For every two groups, say how they stand: "different" or "cannot_tell", and copy, word for word, "here" from a description in one group and "there" from a description in the other: for "different" the two facts that cannot both be true of one person, for "cannot_tell" the two facts that make them look like two different people. Quotes you cannot copy from the descriptions are no answer: put the conversations in one group. Two groups you give no entry for are the same person.
 
@@ -143,6 +143,7 @@ class Plan:
     thin: int = 0   # people the grouping would have made new, kept with the plain name for want of a description
     review: bool = False
     review_reasons: list[str] = field(default_factory=list)
+    second: bool = False   # the main model read it again
     review_pages: set[str] = field(default_factory=set)             # pages that may hold two people
     review_pairs: set[tuple[str, str]] = field(default_factory=set)  # people in doubt that may be one
 
@@ -426,10 +427,10 @@ async def plan(name: str, mentions: list[Mention], identities: list[Identity],
     """Decide one name. ``judge(system, prompt)`` answers the parsed JSON (an injected, engine-free seam); a failure or
     an answer that does not line up is the old behaviour: one person.
 
-    ``strong`` is the engine's main model: when the small judge's reading divides the conversations (a new person, a doubt,
-    a page that holds two) and a person on record has :data:`CONFIRM_ITEMS` or more filed conversations, the same prompt is
-    put to it once and its grouping replaces the small judge's. Its answer being unreadable, failing, or calling it one
-    person leaves the small judge's reading: a located split is never lost to a second opinion."""
+    ``strong`` is the engine's main model: when the small judge calls two or more of this batch's conversations one person, or
+    divides them against a person on record with :data:`CONFIRM_ITEMS` or more filed conversations, the same prompt is put to it once and its
+    grouping replaces the small judge's when it divides them. Its answer being unreadable, failing, or calling it one
+    person leaves the small judge's reading."""
     result = Plan()
     shown = list(identities[:MAX_IDENTITIES])
     judged = [m for m in mentions[:MAX_MENTIONS]]
@@ -448,9 +449,14 @@ async def plan(name: str, mentions: list[Mention], identities: list[Identity],
         logger.debug(f"Same-name judge failed: {type(e).__name__}")
         return result
     reading = read(parsed, entries)
-    if reading is None or reading.single:
+    if reading is None:
         return result
-    if strong is not None and any(len(i.shown()) >= CONFIRM_ITEMS for i in shown):
+    # The small judge says several of this batch's conversations are one person (the common answer, and where a silent join hides: it reads "both are connected to the
+    # speaker" or "a later move" as a link), or divides the conversations against a person with a long history on record:
+    # the main model reads the same prompt once and its grouping replaces the small judge's when it divides them. Its answer
+    # failing, unreadable, or calling it one person leaves the small judge's reading: a located split is never lost to it.
+    if strong is not None and ((reading.single and len(judged) >= 2)
+                               or any(len(i.shown()) >= CONFIRM_ITEMS for i in shown) and not reading.single):
         try:
             second = read(await strong(SYSTEM, prompt), entries)
         except asyncio.CancelledError:
@@ -460,8 +466,11 @@ async def plan(name: str, mentions: list[Mention], identities: list[Identity],
         except Exception as e:  # noqa: BLE001
             logger.debug(f"Same-name second reading failed: {type(e).__name__}")
             second = None
+        result.second = True
         if second is not None and not second.single:
             reading = second
+    if reading.single:
+        return result
     moves, flags = decide(reading, entries, shown, {m.episode: i for i, m in enumerate(judged)})
     result.review, result.review_reasons = flags.review, flags.review_reasons
     result.review_pages, result.review_pairs = flags.review_pages, flags.review_pairs
