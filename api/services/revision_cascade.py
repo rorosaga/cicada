@@ -76,7 +76,7 @@ REASON = "revision"
 ARCHIVED_KEY = "archived_by"
 #: Support kinds, in the order they are tried (the cheap frontmatter ones first, git and the lexical index last).
 SUPPORTS = ("owner", "project", "media", "pinned", "contacts", "person_source", "import", "other_conversation",
-            "surviving_claim", "authored_commit", "waiting_conversation")
+            "surviving_claim", "authored_commit", "waiting_conversation", "still_named")
 #: Pinned frontmatter (G198 and the person's own edits): a page carrying any is the person's word.
 PINNED_KEYS = ("corrections", "aliases_removed", "aliases_kept")
 #: A kept page's alias is read against at most this many other conversations; past it nothing is dropped.
@@ -523,7 +523,12 @@ def _page(memory_path, page_id, entry, fm, effective, revised_out, names_elsewhe
     affecting = set(lost) | set(gone)
     rel = f"entities/{page_id}.md"
     if affecting:
-        why = support_of(memory_path, page_id, fm, body, claims, affecting, listed=listed, kind_of=kind_of)
+        # A conversation that lost a claim about the page but still names it still speaks of it (review B1): the page
+        # was promoted for being talked about, and it still is. Only a name gone from every affecting conversation
+        # can leave a page with nothing.
+        still_named = any(_occurs(effective[e].body, n) for e in affecting for n in names)
+        why = "still_named" if still_named else support_of(memory_path, page_id, fm, body, claims, affecting,
+                                                            listed=listed, kind_of=kind_of)
         episode = sorted(affecting)[0]
         lost_ids = [i for e in sorted(lost) for i in lost[e]]
         if why is not None:

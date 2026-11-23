@@ -71,6 +71,7 @@ extension Copy {
             case "surviving_claim": "a claim that still stands"
             case "authored_commit": "a change you or an agent made"
             case "waiting_conversation": "a conversation still waiting to be read"
+            case "still_named": "the corrected conversation still names it"
             default: nil
             }
         }

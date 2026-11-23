@@ -485,3 +485,14 @@ def test_the_restore_route_is_refused_in_a_demo_bank(memory, monkeypatch):
     assert demo_guard.is_demo(memory)
     assert _client(memory, monkeypatch).post("/entities/zed-unknown/restore-correction").status_code == 409
     assert _fm(memory, "zed-unknown")["status"] == "archived"
+
+
+def test_a_page_that_lost_its_only_claim_but_is_still_named_by_the_revision_is_kept(memory):
+    """Review B1: the edit removes the one line a claim stood on, the conversation still speaks of the page."""
+    out = _lost_page(memory)
+    revisions = _rev("user: Notes.\nZed Unknown demoed the Gamma Board.\nZed Unknown is a good friend.",
+                     "user: Notes.\nZed Unknown is a good friend.")
+    report = _run(memory, revisions=revisions, revised_out=out)
+    assert report.pages_archived == []
+    assert [r["support"] for r in report.pages_kept] == ["still_named"]
+    assert _fm(memory, "zed-unknown")["status"] == "active"
