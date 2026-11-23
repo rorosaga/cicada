@@ -71,7 +71,7 @@ final class LogoAssetTests: XCTestCase {
     /// their curvature.
     static let opaquePlate: Set<String> = [
         "amp", "grok", "hermes", "instinct", "notion", "opencode", "openrouter", "tailscale", "warp",
-        "wispr", "x", "readwise", "devin", "devin-dark", "goodreads", "comet",
+        "wispr", "x", "readwise", "devin", "devin-dark", "goodreads", "comet", "zoom", "microsoft-teams",
     ]
 
     func testEveryMarkIsSquareBigEnoughAndKeepsItsCornersTransparent() throws {

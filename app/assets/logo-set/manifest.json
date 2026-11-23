@@ -1243,55 +1243,55 @@
    "format": "svg",
    "pixels": null,
    "meets_bar": true,
-   "source_tier": "svgl",
-   "source_url": "https://raw.githubusercontent.com/pheralb/svgl/f9b726cee1d1f3c697a18c880185e89d9a55bb70/static/library/google-meet.svg",
+   "source_tier": "official brand asset",
+   "source_url": "https://www.gstatic.com/images/branding/productlogos/meet_2026/v2/web/192px.svg",
    "fetched": "2026-11-23",
-   "sha256": "78740599528aa18810c9ab7e854fd1607679bccf3ee7a00a622f9dce2b5d8473",
+   "sha256": "ae2e86aa009fd7e1952082bff7d4fa9eca8f45ff46d0298800d53c5d6bdcb3b4",
    "umbrella": "Google Meet",
    "sub_products": [],
    "dark_variant": null,
    "replaces_bundled": [],
-   "license": "svgl catalogue (MIT for the catalogue code; each mark stays its owner’s trademark)",
+   "license": "Vendor’s own published asset; no licence beyond nominative use",
    "trademark": "Trademark of Google LLC; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": "Call app shown on meeting transcripts (owner 2026-11-23)."
+   "note": "Replaces the svgl 2020 four-colour camera. Google's own product logo (the file meet.google.com and workspace.google.com/products/meet link), the May 2026 gradient Workspace identity (Workspace Updates blog, 2026-05-26). Call app shown on meeting transcripts (owner 2026-11-23)."
   },
   {
    "slug": "zoom",
    "group": "source",
-   "file": "zoom.svg",
-   "format": "svg",
-   "pixels": null,
+   "file": "zoom.png",
+   "format": "png",
+   "pixels": 1024,
    "meets_bar": true,
-   "source_tier": "svgl",
-   "source_url": "https://raw.githubusercontent.com/pheralb/svgl/f9b726cee1d1f3c697a18c880185e89d9a55bb70/static/library/zoom.svg",
+   "source_tier": "official app icon",
+   "source_url": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/fc/d0/96/fcd09664-56c3-f856-4311-da9dcbae1fd2/AppIcon-0-0-1x_U007epad-0-1-0-0-85-220.png/1024x1024bb.png",
    "fetched": "2026-11-23",
-   "sha256": "5d1bf4d38bc5fc437578292dafc3cb4a678682e3124f1e2910d817aee9658615",
+   "sha256": "1ec83befbde92fb75f70f1d13cc31d2df52e803f83a530678303851bdc65188b",
    "umbrella": "Zoom",
    "sub_products": [],
    "dark_variant": null,
    "replaces_bundled": [],
-   "license": "svgl catalogue (MIT for the catalogue code; each mark stays its owner’s trademark)",
+   "license": "Vendor’s own published asset; no licence beyond nominative use",
    "trademark": "Trademark of Zoom Video Communications, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": "Call app shown on meeting transcripts (owner 2026-11-23)."
+   "note": "Replaces the svgl white Z on a blue squircle, which is not what Zoom Workplace shows. The App Store icon of 'Zoom Workplace' (seller Zoom Communications, Inc., updated 2026-11-01): the white 'zoom' wordmark on a blue tile, as installed on this Mac. An opaque tile, as published; zoom.us serves only 72 px icons. Call app shown on meeting transcripts (owner 2026-11-23)."
   },
   {
    "slug": "microsoft-teams",
    "group": "source",
-   "file": "microsoft-teams.svg",
-   "format": "svg",
-   "pixels": null,
+   "file": "microsoft-teams.png",
+   "format": "png",
+   "pixels": 1024,
    "meets_bar": true,
-   "source_tier": "svgl",
-   "source_url": "https://raw.githubusercontent.com/pheralb/svgl/f9b726cee1d1f3c697a18c880185e89d9a55bb70/static/library/microsoft-teams.svg",
+   "source_tier": "official app icon",
+   "source_url": "https://is1-ssl.mzstatic.com/image/thumb/Purple221/v4/97/c7/03/97c703d6-59b9-6925-68b8-7ab7f361138d/AppIcon-0-0-1x_U007epad-0-1-0-0-85-220.png/1024x1024bb.png",
    "fetched": "2026-11-23",
-   "sha256": "4062cb6a318a51966278983171dae4a207d42ea9454c1fc5df75ff3bfb6cb4db",
+   "sha256": "5596002b89961e6630d4d8948bb110d446baf4b737274a674eba1fd4cfc98ec8",
    "umbrella": "Microsoft Teams",
    "sub_products": [],
    "dark_variant": null,
    "replaces_bundled": [],
-   "license": "svgl catalogue (MIT for the catalogue code; each mark stays its owner’s trademark)",
+   "license": "Vendor’s own published asset; no licence beyond nominative use",
    "trademark": "Trademark of Microsoft Corporation; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": "Call app shown on meeting transcripts (owner 2026-11-23)."
+   "note": "Replaces the svgl 2023 icon (people plus a 'T' tile). The App Store icon of 'Microsoft Teams' (updated 2026-11-21): two people, no T tile, the Oct 2025 Microsoft 365 icon refresh (techcommunity 'New Microsoft 365 icons for the AI era', 2025-10-16). An opaque white tile, as published. Call app shown on meeting transcripts (owner 2026-11-23)."
   },
   {
    "slug": "slack",
@@ -1310,7 +1310,7 @@
    "replaces_bundled": [],
    "license": "svgl catalogue (MIT for the catalogue code; each mark stays its owner’s trademark)",
    "trademark": "Trademark of Slack Technologies, LLC (Salesforce); nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": "Call app shown on meeting transcripts (owner 2026-11-23)."
+   "note": "Call app shown on meeting transcripts (owner 2026-11-23). Reconfirmed current 2026-11-23 against the vendor's own App Store icon (updated Nov 2026)."
   },
   {
    "slug": "discord",
@@ -1329,7 +1329,7 @@
    "replaces_bundled": [],
    "license": "svgl catalogue (MIT for the catalogue code; each mark stays its owner’s trademark)",
    "trademark": "Trademark of Discord Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
-   "note": "Call app shown on meeting transcripts (owner 2026-11-23)."
+   "note": "Call app shown on meeting transcripts (owner 2026-11-23). Reconfirmed current 2026-11-23 against the vendor's own App Store icon (updated Nov 2026)."
   }
  ]
 }
