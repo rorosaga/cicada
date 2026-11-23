@@ -3,7 +3,7 @@
 The companion app reads Notes.app with one batched AppleScript
 (``AppleNotesReader.swift`` — every note across every account/folder in one
 call) and posts the raw dump; this module parses it, diffs against what has
-already been ingested, and writes ONE episode per new or modified note into the standard
+already been ingested, and stages ONE episode per note into the standard
 episode inbox (the same "episode inbox" ``telegram_capture``/``media_ingestor``
 write to). One-way: Cicada never writes back into Notes.app.
 
@@ -12,8 +12,10 @@ index, only ingest what's new" shape, but note ids aren't URLs, so this gets
 its own ``memory/sources/notes_index.json`` keyed on note id (falling back to
 a hash of name+creation-date for the rare note with no id). Storing the
 last-seen *modification* date (not just presence) lets an edited note
-re-emit an updated episode while an unchanged note is skipped on every
-subsequent sync.
+be staged again while an unchanged note is skipped on every subsequent sync.
+An edited note is **revised in place** (2026-11-23, G104): the same episode through
+``episode_staging``, re-queued as a revision Sleep reads for what changed only — never
+a second episode, which restated every fact of the note in new words after each edit.
 
 The backend never runs ``osascript`` (the ``~/Library`` rail: the app reads,
 the backend parses bytes). Run from the launchd backend, macOS asked whether
@@ -190,51 +192,50 @@ def _save_notes_index(memory_path: Path, idx: dict) -> None:
     )
 
 
-# --- Episode writer --------------------------------------------------------
+# --- Episode draft ---------------------------------------------------------
+
+
+#: One Notes note is one episode for good (G104): the stager's identity for it. The note's own key (its id, or the hash of
+#: its name and creation date when a record has none), so an edit finds the episode it made before.
+SOURCE_PREFIX = "apple-notes:"
+
+
+def source_id(note: NoteRecord) -> str:
+    return f"{SOURCE_PREFIX}{_note_key(note)}"
 
 
 def _episode_body(note: NoteRecord) -> str:
+    """What Sleep reads: the title, the folder and the note's text. **Not the modification date**, which changes on every
+    edit: in the body it would be a "changed line" of every revision and would make an unchanged note look changed. The
+    date is the episode's ``timestamp`` and ``source_updated_at`` (frontmatter, outside the hash)."""
     lines = [f"# {note.name or 'Untitled note'}", ""]
     if note.folder:
         lines.append(f"**Folder:** {note.folder}")
-    if note.modified:
-        lines.append(f"**Modified:** {note.modified}")
     lines += ["", _truncate_body(note.body)]
     return "\n".join(lines)
 
 
-def _write_note_episode(episodes_dir: Path, note: NoteRecord, pinned: bool = False) -> str:
-    episodes_dir.mkdir(parents=True, exist_ok=True)
-    # Read on time (owner 2026-10-16): a note is dated when it was last written, not the day it was synced — a first
-    # sync of a years-old library is never a library of mentions today. An older app sends no date: now, as before.
-    ep_date = episode_ids.id_day(note.modified_at) if note.modified_at else datetime.now().strftime("%Y-%m-%d")
-    episode_id = episode_ids.next_episode_id(episodes_dir, ep_date)
-    # Aware UTC (G114 R2) — the old naive `now` + a bare "Z" suffix stamped
-    # LOCAL time and labelled it UTC, off by the machine's offset.
-    timestamp = note.modified_at or episode_ids.utc_now_iso()
-
-    body = episode_scrub.scrub_body(_episode_body(note), writer="apple-notes", bank=episodes_dir.parent.name)
-    content_hash = hashlib.sha256(f"{_note_key(note)}|{note.modified}".encode()).hexdigest()[:12]
-
-    frontmatter = {
-        "id": episode_id,
-        "timestamp": timestamp,
-        "source": "apple-notes",
-        "origin": "apple-notes",
-        "title": note.name or "Untitled note",
-        "processed": False,
-        "content_hash": content_hash,
+def _draft(note: NoteRecord, pinned: bool = False) -> episode_staging.EpisodeDraft:
+    """The note as the stager's draft. Read on time (owner 2026-10-16): a note is dated when it was last written, not the
+    day it was synced; an older app sends no date: now, as before. ``redate`` is set by :func:`_stage`, not here."""
+    extra: dict = {
         "note_id": note.note_id,
-        "folder": note.folder or None,
-        "account": note.account or None,
-        # Folder name as a tag hint for the Sleep extractor/entity tagging —
-        # mirrors bookmark_sync tagging synced items with their origin.
+        # Folder name as a tag hint for the Sleep extractor/entity tagging — mirrors bookmark_sync tagging synced items
+        # with their origin.
         "tags": [note.folder] if note.folder else [],
     }
+    if note.folder:
+        extra["folder"] = note.folder
+    if note.account:
+        extra["account"] = note.account
     if pinned:
-        frontmatter[episode_staging.PINNED_KEY] = True   # ROR-15: not in `content_hash`; see `_apply_pins`
-    episode_id = episode_ids.create_episode(episodes_dir, frontmatter, body)
-    return episode_id
+        extra[episode_staging.PINNED_KEY] = True   # ROR-15: outside the content hash; see `_apply_pin`
+    return episode_staging.EpisodeDraft(
+        title=note.name or "Untitled note", source_id=source_id(note),
+        source_updated_at=note.modified_at or note.modified or None,
+        timestamp=note.modified_at or None,
+        original_date=episode_ids.id_day(note.modified_at) if note.modified_at else None,
+        source=ORIGIN, origin=ORIGIN, body=_episode_body(note), extra=extra, writer="apple-notes")
 
 
 # --- Locked notes (G234) -----------------------------------------------------
@@ -495,16 +496,51 @@ def _episode_path(memory_path: Path, episode_id: str) -> Path | None:
     return path if path.is_file() else None
 
 
+def _stage(memory_path: Path, pending: list[tuple[NoteRecord, dict | None, bool]]) -> list[tuple[str, str]]:
+    """Stage the new and edited notes through the one stager (G104): ``[(verdict, episode id)]`` in order, the verdict
+    ``created``, ``updated`` or ``skipped``. An edited note is **its one episode, edited in place** — same id, same
+    file, ``processed: false`` and a ``revised`` record, so Sleep reads only what changed and the note stays one
+    conversation for every count; it never mints a second.
+
+    Episodes an earlier version wrote carry ``note_id`` and no ``source_id`` (the index points at a note's latest). Only
+    when that note is edited, the latest one takes the stager's identity (`episode_staging.adopt_source`, one
+    frontmatter key) and is then edited like any other: an unchanged note is never in ``pending``, so an upgrade
+    rewrites nothing. Its old ``content_hash`` is a hash of the key and the date, never of the words, so it always
+    reads as changed once; the body Sleep read (git) still carries the old ``**Modified:**`` line, which the revision
+    sees as removed text, once, and reads nothing for."""
+    episodes_dir = memory_path / "episodes"
+    by_source, _hashes = episode_staging.scan(episodes_dir)
+    adopted = False
+    drafts = []
+    for note, existing, pinned in pending:
+        draft = _draft(note, pinned)
+        if existing is not None and draft.source_id not in by_source:
+            path = _episode_path(memory_path, str(existing.get("episode_id") or ""))
+            adopted = (path is not None and episode_staging.adopt_source(path, draft.source_id)) or adopted
+        drafts.append(draft)
+    if adopted:
+        by_source, _hashes = episode_staging.scan(episodes_dir)
+    for draft in drafts:
+        # The note's own date moves with its edits (`timestamp` is when it was last written), only when the words did:
+        # a note Notes touched with no change in its text stays as it was.
+        entry = by_source.get(draft.source_id)
+        if entry is not None and draft.timestamp:
+            digest = episode_staging.content_hash(episode_staging.render(draft)[0])
+            draft.redate = entry.fm.get("content_hash") not in (digest, episode_staging.content_hash(draft.body or ""))
+    result = episode_staging.stage(drafts, episodes_dir, bank=memory_path.name)
+    return [(verdict, result.episode_ids.get(draft.source_id, ""))
+            for verdict, draft in zip(result.verdicts, drafts)]
+
+
 async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] | None = None,
                      locked_ids: list[str] | None = None, locked_keys: list[str] | None = None,
                      pinned_ids: list[str] | None = None) -> dict[str, Any]:
-    """Parse ``dump`` and write one episode per new or modified note.
+    """Parse ``dump`` and stage one episode per note, through the stager (`episode_staging`, G104).
 
-    A brand-new note id -> new episode. A previously-seen note whose
-    ``modified`` timestamp changed -> a fresh episode is written (an "updated"
-    episode, not an edit-in-place — the episode log is append-only, same as
-    every other connector) and the index is repointed at it. An unchanged
-    note (same id, same ``modified``) is skipped entirely.
+    A brand-new note id -> a new episode. A previously-seen note whose ``modified`` changed -> **its one episode is
+    edited in place** (same id and file, ``processed: false``, a ``revised`` record: Sleep reads only what changed and
+    the note is one conversation for every count); the index keeps pointing at it. An unchanged note (same id, same
+    ``modified``) is skipped entirely, with no write. See :func:`_stage` for episodes an earlier version wrote.
 
     Returns ``{"new": int, "updated": int, "skipped": int, "total": int,
     "excluded": int, "locked": int, "retired": int}``.
@@ -575,6 +611,7 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
     updated_count = 0
     skipped_count = 0
     pins_moved = 0
+    skipped_touched = 0
     pins = None if pinned_ids is None else {str(i).strip() for i in pinned_ids if str(i).strip()}
     episodes_dir = memory_path / "episodes"
 
@@ -582,18 +619,13 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
     _INDEX_LOCK.acquire()
     try:
         idx = _load_notes_index(memory_path)
+        pending: list[tuple[NoteRecord, dict | None, bool]] = []
         for note in notes:
             key = _note_key(note)
             existing = idx.get(key)
             pinned = bool((existing or {}).get("pinned")) if pins is None else note.note_id in pins
-            if existing is None:
-                episode_id = _write_note_episode(episodes_dir, note, pinned)
-                idx[key] = _index_entry(episode_id, note, pinned=pinned)
-                new_count += 1
-            elif existing.get("modified") != note.modified:
-                episode_id = _write_note_episode(episodes_dir, note, pinned)
-                idx[key] = _index_entry(episode_id, note, existing, pinned)
-                updated_count += 1
+            if existing is None or existing.get("modified") != note.modified:
+                pending.append((note, existing, pinned))
             else:
                 skipped_count += 1
                 if _apply_pin(memory_path, existing, pinned):
@@ -605,12 +637,28 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
                 if now_placed != (existing.get("account"), existing.get("folder")):
                     existing["account"], existing["folder"] = now_placed
                     placed += 1
-        if new_count or updated_count or placed or pins_moved:
+        # New and edited notes: one stage call (one scan of the bank), the edited ones in place (G104).
+        staged = _stage(memory_path, pending) if pending else []
+        for (note, existing, pinned), (verdict, episode_id) in zip(pending, staged):
+            idx[_note_key(note)] = _index_entry(episode_id, note, existing, pinned)
+            if verdict == "created":
+                new_count += 1
+            elif verdict == "updated":
+                updated_count += 1
+            else:
+                skipped_count += 1
+                skipped_touched += 1   # Notes touched it, its words did not move: the index takes the new date only
+            if existing is not None and (path := _episode_path(memory_path, episode_id)) is not None:
+                try:
+                    episode_staging.set_pinned(path, pinned)   # an edit and a pin moved together: the pin follows the note
+                except Exception as exc:  # noqa: BLE001 — a pin is metadata: it never fails a sync
+                    logger.warning(f"Notes: could not record a pin: {type(exc).__name__}")
+        if new_count or updated_count or placed or pins_moved or pending:
             _save_notes_index(memory_path, idx)
     finally:
         _INDEX_LOCK.release()
 
-    if new_count or updated_count or placed or pins_moved:
+    if new_count or updated_count or placed or pins_moved or skipped_touched:
         try:
             await _commit_notes_sync(memory_path, new_count, updated_count)
         except Exception as e:

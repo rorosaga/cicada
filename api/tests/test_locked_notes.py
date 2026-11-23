@@ -167,9 +167,20 @@ def test_a_note_locked_after_it_was_read_leaves_episodes_and_its_text_waits_for_
     assert "n-later" not in (memory / "sources" / "notes_index.json").read_text()
 
 
+def _older_episode(bank, note_id, title, text, number=800):
+    """What a bank syncing before an edit was revised in place holds: an earlier episode of the same note, with its
+    `note_id`, no `source_id`, and the index pointing at a later one."""
+    episode = f"ep_2026-01-01_{number}"
+    markdown_parser.write(bank / "episodes" / f"{episode}.md",
+                          {"id": episode, "timestamp": "2026-01-01T09:00:00+00:00", "source": "apple-notes",
+                           "origin": "apple-notes", "title": title, "processed": False, "content_hash": "old",
+                           "note_id": note_id, "folder": "Notes"},
+                          f"# {title}\n\n**Folder:** Notes\n**Modified:** m0\n\n{text}")
+
+
 def test_every_episode_of_a_locked_note_is_retired_not_only_the_latest(memory):
-    run(notes_sync.sync_notes(memory, dump=_record("n-later", "first", modified="m1")))
     run(notes_sync.sync_notes(memory, dump=_record("n-later", "second", modified="m2")))
+    _older_episode(memory, "n-later", "A note", "first")
     assert len(_episodes(memory)) == 2
     assert run(notes_sync.sync_notes(memory, dump="", locked_ids=["n-later"]))["retired"] == 2
 
@@ -305,8 +316,8 @@ def test_a_note_edited_before_it_was_locked_is_found_too(memory):
 
 
 def test_older_episodes_of_the_same_old_id_go_with_it(memory):
-    run(notes_sync.sync_notes(memory, dump=_record("id-before", "first", name="Old title", modified="m1")))
     run(notes_sync.sync_notes(memory, dump=_record("id-before", SECRET, name=TITLE, modified="m2")))
+    _older_episode(memory, "id-before", "Old title", "first")
     result = run(notes_sync.sync_notes(memory, dump="", locked_ids=["id-after"], locked_keys=[notes_sync.locked_key(TITLE)]))
     assert result["retired"] == 2
 

@@ -525,6 +525,12 @@
       "disposition": "uninstrumented_guarded"
     },
     {
+      "function": "adopt_source",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
       "function": "_set_extras",
       "method": "write",
       "frontmatter": "fm",

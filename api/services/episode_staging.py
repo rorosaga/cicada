@@ -1067,6 +1067,21 @@ def add_contribution(path: Path, entry: dict, *, content_sha: str) -> bool:
 
 
 @_under_episode_lock
+def adopt_source(path: Path, source_id: str) -> bool:
+    """An episode written before its source had a stager identity takes one (Apple Notes, 2026-11-23): the one
+    frontmatter key ``source_id``, so the next :func:`stage` of that source finds this episode and edits it in place
+    instead of minting another. The body, ``content_hash``, ``processed``, ``revised`` and every span are untouched.
+    An episode that already has one keeps it. Returns whether the file changed."""
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter)
+    if fm.get("source_id"):
+        return False
+    fm["source_id"] = source_id
+    markdown_parser.write(path, fm, parsed.body)
+    return True
+
+
+@_under_episode_lock
 def _set_extras(path: Path, extras: dict) -> None:
     """Same words, new extras (a reaction, an unsend, a reply's target): frontmatter only — the body, its hash, every
     evidence span and the queue are untouched, because nothing anyone said moved."""

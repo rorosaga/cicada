@@ -44,7 +44,7 @@ def test_the_lint_found_the_writers_it_exists_for():
     minted = {p.name for p in _python_files() if any(m in p.read_text(encoding="utf-8") for m in MINTERS)}
     # G135 moved the MCP tool bodies out of `mcp/server.py`: `save_episode` now
     # mints in `api/services/mcp_tools.py`, one implementation for stdio and remote.
-    assert {"episode_staging.py", "telegram_capture.py", "media_ingestor.py", "notes_sync.py",
+    assert {"episode_staging.py", "telegram_capture.py", "media_ingestor.py",
             "calendar_registry.py", "demo_bank.py", "mcp_tools.py", "transcript_capture.py"} <= minted
 
 
