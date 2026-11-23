@@ -68,6 +68,13 @@ final class CorrectionsSectionTests: XCTestCase {
         {"id":"r","corrections":{"conversationsRevised":3,"revised":["ep_a",{"episode":"ep_b","by":"codex"},{"episode":"ep_c","by":"claude-code"},{"episode":"ep_d","by":"claude-code"}]}}
         """#).corrections)
         XCTAssertEqual(CorrectionsPresentation.editedByLine(mixed, locale: en), "2 edited by Claude Code, 1 edited by Codex")
+
+        // The server's own shape: an id list plus `by: {episode id: harness}`.
+        let served = try XCTUnwrap(try detail(#"""
+        {"id":"r","corrections":{"conversationsRevised":2,"revised":["ep_a","ep_b"],"by":{"ep_b":"claude-code"}}}
+        """#).corrections)
+        XCTAssertEqual(served.revised.map(\.by), [nil, "claude-code"])
+        XCTAssertEqual(CorrectionsPresentation.editedByLine(served, locale: en), "1 edited by Claude Code")
     }
 
     func test_anUnknownSupportIsNeverTheRawEnum() throws {

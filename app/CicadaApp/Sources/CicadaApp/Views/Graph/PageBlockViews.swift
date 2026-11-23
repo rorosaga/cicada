@@ -429,7 +429,7 @@ struct PageReferences: View {
         who.foregroundColor = CicadaTheme.textSecondary
         var gone = AttributedString(ref.sourceRemoved == true ? " · \(Copy.Provenance.sourceRemoved)" : "")
         gone.foregroundColor = CicadaTheme.textTertiary   // G104 slice 3: quiet, after the title, never in its place
-        var edited = AttributedString(ref.correctedBy?.note.map { " · \($0)" } ?? "")   // G244: the same quiet place
+        var edited = AttributedString(ref.editedBy?.note.map { " · \($0)" } ?? "")   // G244: the same quiet place
         edited.foregroundColor = CicadaTheme.textTertiary
         guard let title = ref.title, !title.isEmpty else { return who + gone + edited }
         var rest = AttributedString(" · \(title)")
