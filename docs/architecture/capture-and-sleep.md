@@ -4021,13 +4021,28 @@ is about, who did it, and never say one thing twice. Four mechanisms, each engin
   can talk past**: the dropped fact's numbers and dates, months and weekdays (six languages), negation and tense words,
   and every name it carries (a capitalised word, a link's target) must be in the line that holds it — the page's own
   names, the owner's and the other names of a linked page excepted; a proposal the guard refuses is never put to the
-  second reader. **The check**: one more call per page lists, per pair, everything the dropped fact says that the other
+  second reader. **Who a line means is read in the page's own neighbourhood** (`fact_fold.People`, review 2026-11-23):
+  a name — linked or plain, and the form "<owner>'s <alias>" — that is the name or an alias of exactly ONE page this
+  page relates to (`link_names.Names.relations`, plus any page its own lines link under that page's own name; the
+  owner's page and the written page itself left out) is read as that page, in the guard (both lines are compared with
+  each such mention written as the page's name, and a neighbour the dropped line means must be one the holder means too)
+  and in what the judge and the checker are told ("Mira Lund is also called: girlfriend, partner, Pip, Alex's
+  girlfriend ...; on this page each one means that same person"). It is never bank-wide: "girlfriend" is read among the
+  handful of pages this page relates to, two of them sharing an alias make it no one's (no equivalence), a page that
+  relates to no one gets none, and a line that means another related page, or any number, date or negation the holder
+  lacks, is still refused whatever the judge says. **A fold never loses a link**: when the dropped line links a page the
+  holder does not (the link draws the graph edge and the page chip), `orient` turns the pair round if the linked line
+  can hold the other (droppable, the guard passing that way, the second reader asked about THAT direction) and
+  otherwise drops the pair — no fold. Links are compared by the page they name (a neighbour's id, whatever name the link uses), else by spelling. **The check**: one more call per page lists, per pair, everything the dropped fact says that the other
   does not; a fold needs the list empty and `same` true, and the guard again. What a fold does: the incoming fact is not
   added; an existing bullet a new one says in full is replaced by it (a machine page only — `extend_existing`, never a
   page a person edited, never a pinned correction); the dropped fact's G118 rows move onto the holder
   (`section_provenance.FOLDS`, in `merge_selected` and `refresh`), so the page still shows every conversation that said
-  it. A pair that says the same both ways keeps the older bullet; a chain is followed to the bullet that is kept and the
-  guard runs on that pair too. **Cost**: nothing for a page that gains no such fact; otherwise one ask and at most one
+  it. A pair that says the same both ways keeps the older bullet; a chain (a held by b, b held by c) is followed to the
+  bullet that is kept and the guard and the link rule run on that pair too, so one line ends up holding every
+  conversation's rows. Across writes it works the same way: a bullet an earlier write folded into another has moved its
+  rows onto the holder, and when a later write folds that holder into a fuller one (an existing bullet replaced) those
+  rows move on with it (`merge_selected`/`refresh` read `FOLDS` against the page as it stands). **Cost**: nothing for a page that gains no such fact; otherwise one ask and at most one
   check, at most `MAX_ASKS` (24) pages a batch (the pages gaining most first), `MAX_NEW` 12 new facts and `MAX_LINES` 40
   lines each, at most 24 pairs checked — so at most 48 small-tier calls a batch, and typically one pair of calls per page
   that was updated with a new fact. Small tier on the engine the cycle resolved (`judge_for`, the same bill as Stage 2's
@@ -4043,11 +4058,24 @@ is about, who did it, and never say one thing twice. Four mechanisms, each engin
   the invented pair set). **Measured** (`benchmarks/system/fact_fold_eval.py`, invented person, 7 conversations, haiku on
   the plan): 13 Key Facts / 7 favourite-artist bullets / 1 near-duplicate pair before, with links rewritten 13 / 7 / 3
   (the pairs are what the rewrite makes alike), with the fold 9 / 3 / 0, 12 judge calls for 6 updates, every date and
-  name kept, all 7 conversations still shown as sources of the favourite-artist facts. The 15 invented pairs
-  (`tests/fixtures/fact_fold_pairs.json`: reworded, shorter, another language, an alias; an added date or month, another
-  month or number, a negation, another person, an added name, a plan for a done thing, artist for album, sister for
-  brother) with haiku: 0 false folds of 11, 1 missed of 4 that should fold, in 2 runs; the code guard alone, answered
-  "yes" to everything, folds none of the 8 that a number, date, name or negation tells apart.
+  name kept, all 7 conversations still shown as sources of the favourite-artist facts. **The reported page** (`--scenario
+  page`: an artist page that relates to the owner's partner, sixteen conversations each bringing one line, the partner
+  named every way — a link under her name, under an alias, an unresolved `[[<owner>'s girlfriend]]`, a nickname,
+  "<owner>'s girlfriend's", "<owner>'s partner's"; invented names): 16 Key Facts before (15 stating the favourite-artist
+  fact, 18 near-duplicate pairs); with the fold 5 (4 favourite-artist bullets, 0 near-duplicate pairs) when links are
+  written under the page's name (#791) and 6 when they are left as written (the page as it was), the favourite-artist
+  fact, both vinyl options, the planned gift and "he is a musician" kept, all 16 conversations still shown as sources of
+  a kept line, 26-29 small-tier calls for 15 writes. Before the neighbourhood the same page went 16 to 13: every refused
+  pair differed only in the name it used for her. A small judge varies run to run (three runs: 5, 8 and 6 Key Facts for the
+  as-written page, 5, 6 and 5 for the rewritten one; the last run is the one with the prompt line below), so the count
+  is a measurement, not a bound.
+  The 18 invented pairs (`tests/fixtures/fact_fold_pairs.json`: reworded, shorter, another language, an alias; an added
+  date or month, another month or number, a negation, another person, an added name, a plan for a done thing, artist for
+  album, sister for brother; and, in a page's neighbourhood, a nickname, the owner's possessive and another related page)
+  with haiku, 2 runs: 0 false folds of 12 a person would keep, 0 missed of 6 that should fold; the code guard alone,
+  answered "yes" to everything, folds none of the 9 that a number, date, name, negation or another person tells apart.
+  The ask also tells the judge to answer every NEW line first (older lines may only name a new one that says them in full):
+  without it a small judge often answered about an older line and skipped the new one.
 - **Who said it, who did it.** A claim resting only on the other side's words is theirs (`entity_extractor
   .assistant_observer`): a texted agent's (G179), and now a harness session's agent (`external:<harness>`) and a chat
   export's assistant (`external:chatgpt|claude|gemini`); a relayed episode (`evidence_kind`) keeps its own rail. Such

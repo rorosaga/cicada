@@ -85,6 +85,11 @@ class Names:
         """``spelling`` is the page's name or id (any case or spacing), not one of its aliases."""
         return page_id in (self._own.get(_key(spelling)) or ())
 
+    def own_page(self, spelling: str) -> str | None:
+        """The one page whose name or id ``spelling`` is (any case or spacing), else ``None``."""
+        held = self._own.get(_key(spelling)) or set()
+        return next(iter(held)) if len(held) == 1 else None
+
     def relations(self, page_id: str) -> frozenset[str]:
         """The ids of the pages this page already relates to: its ``related`` slugs, a link in its body written under
         a page's own name (its ``## Related`` block included), a claim whose object is a page."""

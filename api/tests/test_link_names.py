@@ -155,7 +155,7 @@ def _stranger_pages(**fm):
 
 
 def _rewritten(changes, pages):
-    link_names.rewrite_changes(changes, pages)
+    link_names.rewrite_changes(changes, link_names.Names(pages))
     return [changes[0]["entity"]["key_facts"][0]]
 
 

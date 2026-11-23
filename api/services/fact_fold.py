@@ -19,7 +19,15 @@ cannot talk past decides whether what it proposed may happen.
 2. **Guard** (`covers`): every proposal must pass code. The dropped fact's numbers and dates, its months and weekdays,
    its negation and tense words, and every name it carries (a capitalised word, a link's target) must all be there in
    the line that holds it; the page's own names, the owner's name and the other names a linked page is known by are
-   allowed. A proposal the guard refuses is never put to the second reader.
+   allowed. **Who a line means is read in the page's own neighbourhood** (`People`): a name — linked or plain, and the
+   form "<owner>'s <alias>" — that is the name or an alias of exactly ONE page this page relates to counts as that
+   page, in the guard and in what the judge and the checker are told ("Pip's", "<owner>'s girlfriend's" and
+   `[[Girlfriend]]` are one person on a page that relates to her). Never bank-wide: "girlfriend" is read among the
+   handful of pages this page relates to, two of them sharing an alias make it no one's, and a line that means a
+   different related page, or names one the other does not, is refused. A fold also never loses a link: when the
+   dropped line links a page the holder does not, the direction is flipped if the linked line can hold the other
+   under the guard, and otherwise there is no fold (the link draws the graph edge and the page chip). A proposal the
+   guard refuses is never put to the second reader.
 3. **Check** (`checks`): one more call per page lists, for each surviving pair, everything the dropped fact says that
    the other does not; a fold needs the list empty and `same` true (and the guard again). A false fold is as bad as a
    miss, and a lost date or number is worse than either.
@@ -71,7 +79,8 @@ reason and relation the line carries is in the other line too, so that deleting 
 may say more; it may not say less, nor something different. Reworded, shortened or translated counts. These are NOT the \
 same: a different relation (a favourite artist is not a favourite album), a different or an added number or date, a \
 negation, a plan against something done, a different person or thing, a reason or place only one of them gives. When \
-unsure, answer null. A second reader checks every answer.
+unsure, answer null. Answer for every line marked NEW first (null when no other line says it in full); an older \
+line may also name a NEW line that says it in full. A second reader checks every answer.
 
 THING: {name}
 {names}LINES:
@@ -105,6 +114,8 @@ class Ask:
     names: dict[str, list[str]] = field(default_factory=dict)   # a linked page's name -> the other names it goes by
     own: frozenset[str] = frozenset()                            # words the page's and the owner's names allow
     heal: bool = True                                            # an existing bullet may fold (a machine page)
+    people: "People | None" = None                               # the pages this page relates to, by every name
+    paths: dict[str, str] = field(default_factory=dict)          # dropped text -> which guard path allowed it
 
 
 # --------------------------------------------------------------------------- the guard
@@ -147,6 +158,103 @@ def _plain(text: str) -> str:
     return _LINK.sub(lambda m: m.group(2) or m.group(1), str(text or ""))
 
 
+_POSSESSIVE = frozenset("his her my our their the a an".split())
+
+
+def _key(text: str) -> str:
+    return " ".join(fold(str(text or "").replace("\u2019", "'")).split())
+
+
+class People:
+    """Who a page's lines mean, read among the pages THIS page relates to (never bank-wide).
+
+    ``pages`` is ``{page id: (name, [aliases])}`` for those pages (the owner's and the written page's own excluded: their
+    names are always allowed words). A spelling — a page's name, an alias, "<owner>'s <alias>" — that exactly one of them
+    answers to is that page; one two of them answer to is no one's. ``canon`` rewrites every such mention in a line, linked
+    or plain, to the page's name and says which pages it found; the guard compares lines in that form."""
+
+    def __init__(self, pages: dict[str, tuple[str, list[str]]], owner: str | None = None) -> None:
+        self.names = {pid: name for pid, (name, _) in pages.items()}
+        self.aliases = {pid: [a for a in aliases if _key(a) != _key(name)] for pid, (name, aliases) in pages.items()}
+        possessors = []
+        if owner and owner.strip():
+            possessors = [owner.strip(), owner.strip().split()[0]]
+        holders: dict[str, set[str]] = {}
+        self.spellings: dict[str, list[str]] = {}
+        for pid, (name, aliases) in pages.items():
+            forms = [name, pid.replace("-", " "), *self.aliases[pid]]
+            # "<owner>'s girlfriend": an alias takes the owner's possessive, unless it already is one ("his girlfriend")
+            forms += [f"{who}'s {alias}" for who in dict.fromkeys(possessors) for alias in self.aliases[pid]
+                      if alias.split()[0].lower() not in _POSSESSIVE
+                      and _key(who) not in _key(alias)]
+            self.spellings[pid] = list(dict.fromkeys(f for f in forms if len(_key(f)) > 1))
+            for form in self.spellings[pid]:
+                holders.setdefault(_key(form), set()).add(pid)
+        self._by_key = {k: next(iter(v)) for k, v in holders.items() if len(v) == 1}
+        forms = sorted({f for pid in pages for f in self.spellings[pid] if _key(f) in self._by_key}, key=len, reverse=True)
+        self._pattern = re.compile(r"(?<![\w])(?:" + "|".join(re.escape(f.replace("\u2019", "'")) for f in forms) + r")(?![\w])",
+                                   re.IGNORECASE) if forms else None
+
+    def __bool__(self) -> bool:
+        return bool(self._by_key)
+
+    def id_of(self, spelling: str) -> str | None:
+        return self._by_key.get(_key(spelling))
+
+    def canon(self, text: str) -> tuple[str, frozenset[str]]:
+        """``text`` with each mention of a neighbour written as its page's name, and the pages found."""
+        found: set[str] = set()
+        text = str(text or "")
+
+        def link(m: re.Match) -> str:
+            pid = self.id_of(m.group(1))
+            if pid is None:
+                return m.group(0)
+            found.add(pid)
+            return self.names[pid]
+
+        text = _LINK.sub(link, text)
+        if self._pattern is not None:
+            def plain(m: re.Match) -> str:
+                pid = self._by_key.get(_key(m.group(0)))
+                if pid is None:
+                    return m.group(0)
+                found.add(pid)
+                return self.names[pid]
+
+            text = self._pattern.sub(plain, text.replace("\u2019", "'"))
+        return text, frozenset(found)
+
+    def mentioned(self, texts) -> list[str]:
+        return sorted({pid for t in texts for pid in self.canon(t)[1]})
+
+    def link_ids(self, text: str) -> frozenset[str]:
+        """What a line's explicit links point at: a neighbour's id (whatever name the link uses), else the link's own key."""
+        return frozenset(self.id_of(m.group(1)) or _key(m.group(1)) for m in _LINK.finditer(str(text or "")))
+
+
+def ask_from_pair(pair: dict) -> Ask:
+    """A fixture pair as a two-line ask (``keep`` the page's bullet, ``drop`` the new fact), for the tests and the dry run.
+    ``related`` (name -> aliases) and ``owner`` declare the page's neighbourhood (`People`), ``names`` / ``own`` the
+    linked pages' other names and the allowed words."""
+    lines = [Line(1, pair["keep"], False), Line(2, pair["drop"], True)]
+    related = pair.get("related") or {}
+    pages = {re.sub(r"\W+", "-", name.lower()).strip("-"): (name, list(aliases)) for name, aliases in related.items()}
+    people = People(pages, pair.get("owner")) if pages else None
+    people = people if people else None
+    also = dict(pair.get("names") or {})
+    if people is not None:
+        for pid in people.mentioned(line.text for line in lines):
+            also[people.names[pid]] = [f for f in people.spellings[pid] if _key(f) != _key(people.names[pid])][:10]
+    return Ask("page-example", "Page Example", lines, also, _held_words(pair.get("own") or []), True, people)
+
+
+def _link_ids(text: str, people: "People | None") -> frozenset[str]:
+    if people is not None:
+        return people.link_ids(text)
+    return frozenset(_key(m.group(1)) for m in _LINK.finditer(str(text or "")))
+
+
 def _stem(word: str) -> str:
     return fact_policy._stem(fold(word).strip(".,;:!?'\"()[]")).strip(".'’")
 
@@ -186,14 +294,22 @@ def _compatible(drop: str, keep: str) -> bool:
             and ((d_words & fact_policy._STATUS) - _NEUTRAL) <= (k_words & fact_policy._STATUS))
 
 
-def covers(keep: str, drop: str, *, allowed=frozenset()) -> bool:
+def covers(keep: str, drop: str, *, allowed=frozenset(), people: "People | None" = None) -> bool:
     """True when nothing in ``drop`` that a number, a date, a negation, a tense word or a name can carry is missing from
     ``keep`` — the floor under the judge's word that ``keep`` says all of ``drop``. ``allowed``: words that may be
     absent (the page's own names, the owner's, the other names of a page ``keep`` links). Never true on a guess: a miss
     here keeps a fact, and the model's opinion cannot override it.
 
+    ``people`` (`People`): the pages this page relates to. Every mention of one, linked or plain, is first read as that
+    page's name, and a neighbour the drop means must be one the keep means too.
+
     Language-bound where a word list is: negation and tense words are English and Spanish (`fact_policy`), months and
     weekdays six languages; the digits and the names hold in every language."""
+    if people:
+        keep, kept = people.canon(keep)
+        drop, dropped = people.canon(drop)
+        if not dropped <= kept:
+            return False
     if not _compatible(drop, keep):
         return False
     if not _calendar(drop) <= _calendar(keep):
@@ -226,8 +342,25 @@ def _says_already(fact: str, existing: list[str]) -> bool:
                for e in existing)
 
 
+def neighbourhood(page_id: str, names: "link_names.Names | None", lines=(), owner: str | None = None) -> "People | None":
+    """The pages ``page_id`` relates to (`link_names.Names.relations`, plus any page its own lines link under that page's
+    own name), as `People`; ``None`` when there are none. The owner's page and the written page itself are left out."""
+    if names is None:
+        return None
+    ids = set(names.relations(page_id))
+    for text in lines:
+        for m in _LINK.finditer(str(text or "")):
+            if (own := names.own_page(m.group(1))) is not None:
+                ids.add(own)
+    ids.discard(page_id)
+    pages = {pid: (names.names[pid], list(names.aliases.get(pid, ()))) for pid in sorted(ids)
+             if pid in names.names and not (owner and _key(names.names[pid]) == _key(owner))}
+    people = People(pages, owner)
+    return people if people else None
+
+
 def build(page_id: str, name: str, existing: list[str], incoming: list[str], *, heal: bool = True,
-          pinned=frozenset(), names: "link_names.Names | None" = None, own=()) -> Ask | None:
+          pinned=frozenset(), names: "link_names.Names | None" = None, own=(), owner: str | None = None) -> Ask | None:
     """One page's question, or ``None`` when the update brings no fact that no bullet equals or extends."""
     seen: list[str] = []
     fresh: list[str] = []
@@ -261,8 +394,15 @@ def build(page_id: str, name: str, existing: list[str], incoming: list[str], *, 
                 page = names.resolve(m.group(1))
                 if page and names.names[page] not in also and names.aliases.get(page):
                     also[names.names[page]] = names.aliases[page][:6]
+    people = neighbourhood(page_id, names, [line.text for line in lines], owner)
+    if people is not None:
+        # The judge and the checker are told which names are one person here: every neighbour a line mentions.
+        for pid in people.mentioned(line.text for line in lines):
+            others = [f for f in people.spellings[pid] if _key(f) != _key(people.names[pid])]
+            if others:
+                also[people.names[pid]] = others[:10]
     allowed = _held_words([name, *own])
-    return Ask(page_id, name, lines, also, allowed, heal)
+    return Ask(page_id, name, lines, also, allowed, heal, people)
 
 
 def _norm(text: str) -> str:
@@ -278,7 +418,8 @@ def _names_block(ask: Ask) -> str:
     if not ask.names:
         return ""
     rows = [f"- {name} is also called: {', '.join(others)}" for name, others in sorted(ask.names.items())]
-    return "NAMES (a page's other names; every one is that same page):\n" + "\n".join(rows) + "\n"
+    return ("NAMES (a page's other names; on this page each one, linked or plain, means that same person or thing):\n"
+            + "\n".join(rows) + "\n")
 
 
 def _allowed(ask: Ask, keep: str) -> frozenset[str]:
@@ -310,7 +451,7 @@ def proposals(reply, ask: Ask) -> list[tuple[Line, Line]]:
             continue
         if not drop.new and (drop.held or not ask.heal):
             continue
-        if not covers(keep.text, drop.text, allowed=_allowed(ask, keep.text)):
+        if not covers(keep.text, drop.text, allowed=_allowed(ask, keep.text), people=ask.people):
             continue
         seen.add(n)
         out.append((drop, keep))
@@ -332,13 +473,50 @@ def checks(pairs: list[tuple[Line, Line]], ask: Ask, judge: Callable[[str], dict
             except (TypeError, ValueError):
                 pass
     return [pair for i, pair in enumerate(pairs, 1)
-            if i in ok and covers(pair[1].text, pair[0].text, allowed=_allowed(ask, pair[1].text))]
+            if i in ok and covers(pair[1].text, pair[0].text, allowed=_allowed(ask, pair[1].text), people=ask.people)]
+
+
+def _droppable(line: Line, ask: Ask) -> bool:
+    """A new fact may always go; an existing bullet only on a machine page and never a pinned one."""
+    return line.new or (ask.heal and not line.held)
+
+
+def _loses_no_link(drop: str, keep: str, ask: Ask) -> bool:
+    """Everything ``drop`` links, ``keep`` links too (a neighbour by its page, whatever name the link uses): the link draws
+    the graph edge and the page chip."""
+    return _link_ids(drop, ask.people) <= _link_ids(keep, ask.people)
+
+
+def _admits(keep: Line, drop: Line, ask: Ask) -> bool:
+    return (covers(keep.text, drop.text, allowed=_allowed(ask, keep.text), people=ask.people)
+            and _loses_no_link(drop.text, keep.text, ask))
+
+
+def orient(pairs: list[tuple[Line, Line]], ask: Ask) -> list[tuple[Line, Line]]:
+    """Each ``(drop, keep)`` pair that would lose a link is turned round when the linked line can hold the other (it must
+    be droppable and the guard must pass the other way: the second reader is asked about THAT direction), and left out
+    when it cannot. A pair that loses no link is unchanged."""
+    out: list[tuple[Line, Line]] = []
+    seen: set[int] = set()
+    for drop, keep in pairs:
+        if _loses_no_link(drop.text, keep.text, ask):
+            pair = (drop, keep)
+        elif (_droppable(keep, ask) and covers(drop.text, keep.text, allowed=_allowed(ask, drop.text), people=ask.people)
+              and _loses_no_link(keep.text, drop.text, ask)):
+            pair = (keep, drop)
+            ask.paths[keep.text] = "flipped"
+        else:
+            continue
+        if pair[0].n not in seen:
+            seen.add(pair[0].n)
+            out.append(pair)
+    return out
 
 
 def folds(pairs: list[tuple[Line, Line]], ask: Ask) -> dict[str, str]:
     """Confirmed pairs as ``{dropped text: the text that holds it}``. A holder must itself be kept: a holder that is
-    dropped too is followed to the line that is kept, and the guard runs on that pair as well. A pair that says the
-    same both ways keeps the older bullet (new lines are taken first, then existing from the last)."""
+    dropped too is followed to the line that is kept, and the guard (and the link rule) runs on that pair as well. A pair
+    that says the same both ways keeps the older bullet (new lines are taken first, then existing from the last)."""
     held_by = {drop.n: keep.n for drop, keep in pairs}
     by_n = {line.n: line for line in ask.lines}
     dropped: dict[int, int] = {}
@@ -355,15 +533,22 @@ def folds(pairs: list[tuple[Line, Line]], ask: Ask) -> dict[str, str]:
             target, hops = dropped[target], hops + 1
         if target in dropped or target == n:
             continue
-        if covers(by_n[target].text, by_n[n].text, allowed=_allowed(ask, by_n[target].text)):
+        if _admits(by_n[target], by_n[n], ask):
             out[by_n[n].text] = by_n[target].text
+            ask.paths.setdefault(by_n[n].text, _path(by_n[target].text, by_n[n].text, ask))
     return out
+
+
+def _path(keep: str, drop: str, ask: Ask) -> str:
+    """Which guard path let a pair through: ``plain`` (the guard alone, as before), or ``neighbourhood`` (it passes only
+    once the page's neighbours' names are read as one person)."""
+    return "plain" if covers(keep, drop, allowed=_allowed(ask, keep)) else "neighbourhood"
 
 
 def decide(ask: Ask, judge: Callable[[str], dict]) -> dict[str, str]:
     """One page: the ask, then the check; ``{dropped text: holder}``. A failed or unreadable call decides nothing."""
     try:
-        wanted = proposals(judge(prompt(ask)), ask)
+        wanted = orient(proposals(judge(prompt(ask)), ask), ask)
         return folds(checks(wanted, ask, judge), ask)
     except Exception as exc:  # noqa: BLE001 - no judge answer means the page keeps what the writer did before
         logger.info(f"fact fold: a call failed ({type(exc).__name__}); the page keeps its facts as the writer has them")
@@ -394,7 +579,7 @@ def asks(changes: list[dict], existing_by_id: dict[str, dict], *, names: "link_n
         ask = build(change["id"], str(fm.get("name") or change["id"]), existing,
                     [str(f) for f in entity["key_facts"] if isinstance(f, str)],
                     heal=not conflict_resolver._is_human_edited(fm, sections), pinned=pinned, names=names,
-                    own=[*(str(a) for a in fm.get("aliases") or []), *([owner] if owner else [])])
+                    own=[*(str(a) for a in fm.get("aliases") or []), *([owner] if owner else [])], owner=owner)
         if ask is not None:
             found.append((-sum(line.new for line in ask.lines), change["id"], change, ask))
     found.sort(key=lambda t: (t[0], t[1]))

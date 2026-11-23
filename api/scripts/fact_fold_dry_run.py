@@ -69,7 +69,7 @@ def _replay(page: dict, names, owner: str | None):
                        if isinstance(r, dict))
     ask = fact_fold.build(page["id"], str(fm.get("name") or page["id"]), existing, incoming,
                           heal=not conflict_resolver._is_human_edited(fm, sections), pinned=pinned, names=names,
-                          own=[*(str(a) for a in fm.get("aliases") or []), *([owner] if owner else [])])
+                          own=[*(str(a) for a in fm.get("aliases") or []), *([owner] if owner else [])], owner=owner)
     return ask, bullets
 
 
@@ -123,12 +123,17 @@ def run_bank(memory: Path, out: Path, *, judge, limit: int | None) -> dict:
             proposed = fact_fold.proposals(reply, ask)
             summary["proposed"] += len(raw) if isinstance(raw, list) else 0
             summary["guard_refused"] += (len(raw) if isinstance(raw, list) else 0) - len(proposed)
-            confirmed = fact_fold.checks(proposed, ask, judge)
+            oriented = fact_fold.orient(proposed, ask)
+            summary["link_refused"] = summary.get("link_refused", 0) + len(proposed) - len(oriented)
+            confirmed = fact_fold.checks(oriented, ask, judge)
             summary["checked_ok"] += len(confirmed)
             decided = fact_fold.folds(confirmed, ask)
             summary["folds"] += len(decided)
             row["proposed"] = [{"drop": d.text, "by": k.text} for d, k in proposed]
-            row["folds"] = [{"drop": d, "into": k} for d, k in decided.items()]
+            row["folds"] = [{"drop": d, "into": k, "path": ask.paths.get(d, "plain")} for d, k in decided.items()]
+            for path in {ask.paths.get(d, "plain") for d in decided}:
+                paths = summary.setdefault("fold_paths", {})
+                paths[path] = paths.get(path, 0) + sum(1 for d in decided if ask.paths.get(d, "plain") == path)
         rows.append(row)
     (out / "items.json").write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
     return summary
@@ -140,10 +145,9 @@ def run_pairs(out: Path, *, judge) -> dict:
     pairs = json.loads(FIXTURE.read_text(encoding="utf-8"))["pairs"]
     rows, false_folds, missed, blind_false = [], [], [], []
     for pair in pairs:
-        lines = [fact_fold.Line(1, pair["keep"], False), fact_fold.Line(2, pair["drop"], True)]
-        ask = fact_fold.Ask("p", "Page Example", lines, dict(pair.get("names") or {}),
-                            fact_fold._held_words(pair.get("own") or []))
-        guard = fact_fold.covers(pair["keep"], pair["drop"], allowed=fact_fold._allowed(ask, pair["keep"]))
+        ask = fact_fold.ask_from_pair(pair)
+        guard = fact_fold.covers(pair["keep"], pair["drop"], allowed=fact_fold._allowed(ask, pair["keep"]),
+                                 people=ask.people)
         folded = None
         if judge is not None:
             # A fold is the NEW line going: the other direction (the page's bullet replaced by a fuller new fact) loses
