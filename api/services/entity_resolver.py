@@ -457,6 +457,9 @@ async def resolve(
             pending_actions.append((indexer.index_pending_entity, (line,), {}))
 
     unborn: list[_Unborn] = []   # project names with no birth, decided after the loop (`_settle_unborn`)
+    #: Non-person names this loop held below the bar, met again after it by the pages this batch created
+    #: (`_join_held_to_creates`).
+    held_here: list[tuple[str, dict, list[dict], PendingEntity | None]] = []
     #: (name, page) pairs this batch holds as "could be the same" — asked or quiet (review of #545, B1): a pair the
     #: judge's raw verdict called related but `_never_cleared` turned unsure is a question, never also a relation.
     unsure_pairs: set[tuple[str, str]] = set()
@@ -805,6 +808,8 @@ async def resolve(
                     promoted_pending.append(name)
             else:
                 hold(name, entity, siblings, ambiguous_match)
+                if not ambiguous_match and not _is_person(entity):
+                    held_here.append((name, entity, siblings, pending_entry))
 
     finally:
         if lookahead is not None:
@@ -818,6 +823,12 @@ async def resolve(
             name_to_id=name_to_id, pending_actions=pending_actions, promoted_pending=promoted_pending,
             clarifier=clarifier, hold=hold, cache=llm_match_cache, settings=settings, cancel_check=cancel_check,
             unsure_pairs=unsure_pairs)
+
+    if held_here and not cancelled:
+        cancelled = await _join_held_to_creates(
+            held_here, resolved_creates=resolved_creates, name_to_id=name_to_id, decided_names=decided_names,
+            held_names=held_names, promoted_pending=promoted_pending, cache=llm_match_cache, settings=settings,
+            rejected=rejected_pairs, cancel_check=cancel_check)
 
     if progress_callback is not None and not cancelled:
         progress_callback(total_names, total_names)
@@ -1783,6 +1794,46 @@ def _line_recency(line: _Unborn) -> str:
         if m:
             days.append(f"{m.group(1)}-{m.group(2)}-{m.group(3)}")
     return max(days, default="")
+
+
+async def _join_held_to_creates(
+    held_here: list[tuple[str, dict, list[dict], "PendingEntity | None"]], *, resolved_creates: dict[str, dict],
+    name_to_id: dict[str, str], decided_names: set[str], held_names: set[str], promoted_pending: list[str],
+    cache: dict, settings: Settings, rejected, cancel_check: Callable[[], bool] | None,
+) -> bool:
+    """A name held in this batch meets the pages this batch went on to create (G148, 2026-11-23).
+
+    The loop takes the most specific name first (`_specificity_key`), so "Halvard Analytics", said once, was held
+    before "Halvard", said twice, became a page — and a held name is never a candidate for a later name. The two stayed
+    apart: the claim about the long name kept an id with no page, and "left Halvard Analytics" closed only the claim on
+    the page (`benchmarks/consolidation`, U1, every model). Here each held thing — never a person, whose joins keep
+    their own rules (ruling 74) — is judged against the creates it shares a word or an alias with, by the same judge and
+    cache as the loop; only ``same`` joins it, and its mentions and earlier held line then count for that page.
+    Returns whether a cancel stopped it."""
+    for name, entity, siblings, pending_entry in held_here:
+        if cancel_check is not None and cancel_check():
+            return True
+        name_lower = name.strip().lower()
+        if name_lower in decided_names:
+            continue
+        candidates = [c for c in _created_llm_candidates(entity, resolved_creates, rejected)
+                      if c.get("alias") or _share_content_token(name, _candidate_display_name(c))]
+        if not candidates:
+            continue
+        match = _pick_match(name, await _judge_candidates(entity, candidates, cache, settings, stop=cancel_check))
+        if match is None or match["decision"] != "same":
+            continue
+        target = match["candidate"]["id"]
+        name_to_id[name_lower] = target
+        decided_names.add(name_lower)
+        held_names.discard(name_lower)
+        for incoming in (entity, *siblings):
+            _merge_into_create(resolved_creates[target], incoming)
+        if pending_entry is not None:
+            _fold_pending(resolved_creates[target], pending_entry)
+        # The line this batch parked for it (and any earlier one) leaves the store once Stage 5 wrote the page.
+        promoted_pending.append(name)
+    return False
 
 
 def _page_candidates(existing: list[dict], resolved_creates: dict[str, dict],

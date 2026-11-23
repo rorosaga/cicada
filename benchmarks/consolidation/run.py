@@ -24,7 +24,7 @@ the hallucination rate.
     python -m benchmarks.consolidation.run report OUT
 
 Every leg runs in its own process on its own scratch bank and home (``engine_parity``'s isolation); nothing reads the
-person's bank or home. Each leg costs a plan drain of 20 short conversations; ``judge`` costs one call per conversation
+person's bank or home. Each leg costs two plan drains over 25 conversations; ``judge`` costs one call per conversation
 a leg's claims cite. Read the matched claims in ``score.json`` before quoting a number: matching is by spelling.
 """
 from __future__ import annotations
@@ -109,7 +109,12 @@ def matches(text: str, groups: list[list[str]]) -> bool:
 
 
 def claim_text(c: dict) -> str:
-    return " ".join(str(c.get(k) or "") for k in ("subject", "predicate", "object", "text"))
+    """What a claim says, with its dates: a moved date can live in ``valid_from`` or ``expected_end`` alone."""
+    return " ".join(str(c.get(k) or "") for k in ("subject", "predicate", "object", "text", "valid_from", "expected_end"))
+
+
+NEGATION = re.compile(r"\b(?:not|never|no longer|declined|decided against|rejected|against|won't|doesn't|didn't|"
+                      r"too expensive|instead of|stayed? on|staying|hypothetical|if)\b")
 
 
 def is_current(c: dict) -> bool:
@@ -191,6 +196,7 @@ def entity_rows(bank: Path) -> tuple[list[dict], list[dict]]:
                 "page": path.stem, "id": c.id, "text": c.text, "subject": c.subject, "predicate": c.predicate,
                 "object": str(c.object), "observer": c.observer, "valid_from": c.valid_from, "valid_to": c.valid_to,
                 "superseded_by": c.superseded_by, "expected_end": getattr(c, "expected_end", None),
+                "target": getattr(c, "target", None),
                 "confidence": c.confidence, "source_episodes": list(c.source_episodes or []),
                 "evidence": [{"episode": e.episode, "kind": e.kind, "start": e.start, "end": e.end} for e in ev]})
     return pages, claims
@@ -292,10 +298,13 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
         updates.append({"id": row["id"], "why": row["why"], "verdict": verdict,
                         "current": [claim_text(c) for c in cur[:3]], "stale_current": [claim_text(c) for c in stale[:3]]})
 
+    owner_id = next((p["id"] for p in pages if p["owner"]), None)
     forbid = []
     for row in gold["forbid"]:
         bad = [c for c in held(expand_groups(row["says"], clock))
-               if is_current(c) and (is_person(c) or not row.get("person_only"))]
+               if is_current(c) and (is_person(c) or not row.get("person_only"))
+               and (not row.get("on_owner") or c.get("subject") == owner_id)
+               and not NEGATION.search(norm(c.get("text") or ""))]
         forbid.append({"id": row["id"], "why": row["why"], "ok": not bad, "violations": [claim_text(c) for c in bad[:3]]})
 
     people = []
@@ -316,7 +325,7 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
     for row in gold["dated"]:
         want = _day(clock, row["date"]).isoformat()
         hit = held(expand_groups(row["says"], clock))
-        froms = sorted({str(c.get("valid_from") or "")[:10] for c in hit})
+        froms = sorted({str(c.get(k) or "")[:10] for c in hit for k in ("valid_from", "expected_end", "target")} - {""})
         dated.append({"id": row["id"], "why": row["why"], "want": want, "ok": want in froms, "valid_from": froms,
                       "on_run_day": date.today().isoformat() in froms})
 
@@ -497,6 +506,7 @@ def report(out: Path) -> str:
         row.update({"precision": j.get("precision"), "hallucination": j.get("hallucination"),
                     "misattribution": j.get("misattribution"),
                     "calls": snap["usage"]["calls"], "failed_calls": snap["usage"]["failed"],
+                    "unread": snap.get("episodes_unprocessed") or 0,
                     "input_k": round((snap["usage"]["input"]) / 1000, 1), "output_k": round(snap["usage"]["output"] / 1000, 1),
                     "minutes": round(sum(p["seconds"] for p in snap["phases"]) / 60, 1)})
         by_model.setdefault(s["model"], []).append(row)
@@ -506,15 +516,15 @@ def report(out: Path) -> str:
             ("updates_correct", f"updates correct /{first.get('updates', '?')}"),
             ("updates_both", "updates: old still current"),
             ("updates_missing", "updates: new value missing"),
-            ("forbid_ok", f"assistant's words kept off the person /{first.get('forbid', '?')}"),
+            ("forbid_ok", f"others' words kept off the person /{first.get('forbid', '?')}"),
             ("people_ok", f"people joined/kept apart right /{first.get('people', '?')}"),
             ("pages_ok", f"page made / not made right /{first.get('pages_checks', '?')}"),
-            ("dated_ok", f"'yesterday' dated right /{first.get('dated', '?')}"),
+            ("dated_ok", f"relative dates right /{first.get('dated', '?')}"),
             ("precision", "claims supported (judge)"), ("hallucination", "claims unsupported (judge)"),
             ("misattribution", "claims misattributed (judge)"),
             ("span_rate", "claims with a located span"), ("integrity_breaks", "integrity breaks"),
             ("claims_total", "claims"), ("pages_total", "pages"), ("questions", "inbox questions"),
-            ("calls", "model calls"), ("failed_calls", "failed calls"), ("input_k", "input tokens (k)"),
+            ("calls", "model calls"), ("failed_calls", "failed calls"), ("unread", "conversations left unread"), ("input_k", "input tokens (k)"),
             ("output_k", "output tokens (k)"), ("minutes", "minutes")]
     models = list(by_model)
     lines = ["| measure | " + " | ".join(f"{m} (n={len(by_model[m])})" for m in models) + " |",

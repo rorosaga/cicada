@@ -8,11 +8,13 @@ checks the rules that are specific to Cicada.
 
 ## The person
 
-`fixture.json` holds Ines Varga's two months, 20 short conversations, all invented:
+`fixture.json` holds Ines Varga's two months, 25 conversations, all invented:
 
-- **Phase 1** (11 conversations, days −60 to −33): a side project, a job, a race, people.
-- **Phase 2** (8 later conversations, plus one phase-1 conversation edited in place): the values that change, and a
-  silent edit that moves a date.
+- **Phase 1** (13 conversations, days −60 to −31): a side project, a job, a race, people, a partner's own hobby, and a
+  move the person asks about and decides against.
+- **Phase 2** (11 later conversations, plus one phase-1 conversation edited in place): the values that change, a
+  silent edit that moves a date, a long conversation where the person takes one of the assistant's four suggestions,
+  changes another and refuses two, "in two weeks", and a third Sam with no surname.
 
 Phase 1 is consolidated with one drain. Phase 2 is then staged on the same bank and drained again, so updates meet a
 memory that already holds the old values. Days count from the run's clock. A `{day:+N}` in a turn is written out from
@@ -22,12 +24,12 @@ the conversation's own day.
 
 | Check | Graded by | The question |
 |---|---|---|
-| facts (28) | code | Is each fact held as a claim? Also reported: held anywhere on a page. |
+| facts (34) | code | Is each fact held as a claim? Also reported: held anywhere on a page. |
 | updates (6) | code | Is the new value current and the old one closed? Each one is *correct*, *both current*, *stale only* or *missing*. U4 is the silent edit (a revision). |
-| assistant's words (3) | code | A suggestion the person declined, a book only the assistant named, and an explanation are not held as the person's facts. |
+| others' words (7) | code | A suggestion the person declined or changed, a book only the assistant named, a partner's hobby, a move asked about and refused, and a third Sam are not held as the person's facts or joined to the wrong Sam. A claim that says the thing was declined is not a violation. |
 | people (2) | code | A nickname and a full name end up as one page; two people called Sam stay two pages. |
 | pages (10) | code | Whoever is mentioned in 2+ conversations gets a page; a one-off mention gets none. |
-| dated (2) | code | "Yesterday" is dated from the conversation, not from the day Sleep ran. |
+| dated (3) | code | "Yesterday" and "in two weeks" are dated from the conversation, not from the day Sleep ran. |
 | integrity | code | A password said in a chat reaches no page; Sleep makes no project; nothing is evergreen; the share of claims with a located span. |
 | precision | one judge | Each claim against the conversations it cites: *supported*, *inferred*, *misattributed* or *unsupported*. |
 
@@ -53,5 +55,5 @@ api/.venv/bin/python -m benchmarks.consolidation.run report OUT
 about a quarter of their exact claims (`engine_parity`, 2026-11-04). A gap between two models means something only
 when it is wider than each model's own spread across repeats.
 
-**Cost.** Each leg runs two drains over 20 short conversations. The judge makes one call per group of cited
+**Cost.** Each leg runs two drains over 25 conversations. The judge makes one call per group of cited
 conversations, about 20 per leg. `report` prints the calls and tokens for each leg.
