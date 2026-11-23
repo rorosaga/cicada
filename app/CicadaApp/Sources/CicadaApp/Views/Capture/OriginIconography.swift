@@ -39,6 +39,8 @@ enum OriginIconography {
         "youtube-history",
         // G133 / G134 — a watched folder's episodes and Wispr Flow's.
         "folder", "wispr-flow",
+        // 2026-11-23 (owner): the call apps a meeting transcript shows.
+        "google-meet", "zoom", "microsoft-teams", "slack", "discord",
         // Round-4 D2 (C6, R-FA13): the Calendar app read on this Mac — the backend track stamps it.
         "calendar-local",
         // Round 4 (C9): the Chromium family, each its own origin (`bookmark_sync.origin_for`).
@@ -191,6 +193,13 @@ enum OriginIconography {
         case "claude-code-remote": "Claude Code (remote)"
         case "codex-remote": "Codex (remote)"
         case "vscode": "GitHub Copilot"
+        case "google-meet": "Google Meet"
+        case "zoom": "Zoom"
+        case "microsoft-teams": "Microsoft Teams"
+        case "slack": "Slack"
+        case "discord": "Discord"
+        case "facetime": "FaceTime"
+        case "webex": "Webex"
         case "remote-app": "Other remote app"
         default: origin.capitalized
         }
@@ -378,6 +387,12 @@ enum OriginIconography {
         case "claude-code-remote": "claude-code"
         case "codex-remote": "codex"
         case "vscode": "copilot"
+        // 2026-11-23 (owner): the call app a meeting transcript was recorded on.
+        case "google-meet": "google-meet"
+        case "zoom": "zoom"
+        case "microsoft-teams": "microsoft-teams"
+        case "slack": "slack"
+        case "discord": "discord"
         default: nil
         }
     }
@@ -408,6 +423,14 @@ enum OriginIconography {
         case "wispr-flow": "com.electron.wispr-flow"
         // G95 — the Hex row is offered only when Hex is here (or has a folder), so its own icon is the mark.
         case "hex": "anomaly.hex"
+        // Owner 2026-11-23 — a meeting's call app wears its own icon when it is on this Mac (`MeetingApp`); Google Meet
+        // runs in a browser, so its mark is always the bundled one.
+        case "zoom": "us.zoom.xos"
+        case "microsoft-teams": "com.microsoft.teams2"
+        case "slack": "com.tinyspeck.slackmacgap"
+        case "discord": "com.hnc.Discord"
+        case "facetime": "com.apple.FaceTime"
+        case "webex": "Cisco-Systems.Spark"
         case "obsidian": "md.obsidian"
         // Round-4 D2 — Cicada reads the Calendar app's own store, so the app is here; its icon is the only mark
         // (Apple's are never committed, Track L).

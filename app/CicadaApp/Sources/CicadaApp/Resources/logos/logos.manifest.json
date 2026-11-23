@@ -185,6 +185,19 @@
       "umbrella": "Dia"
     },
     {
+      "file": "discord.png",
+      "id": "discord",
+      "licence": "svgl catalogue (MIT for the catalogue code; each mark stays its owner’s trademark)",
+      "origin": "set",
+      "restrictions": "Trademark of Discord Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/discord.svg",
+      "sha256": "2873eb16eea0a901eaba8e1aa2a66bd183dc12d14d08a4355144764f1b288175",
+      "sourceTier": "svgl",
+      "sourceUrl": "https://raw.githubusercontent.com/pheralb/svgl/f9b726cee1d1f3c697a18c880185e89d9a55bb70/static/library/discord.svg",
+      "svgSha256": "6634cc2f915db66df7a5237cac0c1b98016289e86a2bb4b7bf6408ec2b95265c",
+      "umbrella": "Discord"
+    },
+    {
       "file": "firefox.png",
       "id": "firefox",
       "licence": "svgl catalogue (MIT for the catalogue code; each mark stays its owner’s trademark)",
@@ -290,6 +303,19 @@
       "umbrella": "Google Calendar"
     },
     {
+      "file": "google-meet.png",
+      "id": "google-meet",
+      "licence": "svgl catalogue (MIT for the catalogue code; each mark stays its owner’s trademark)",
+      "origin": "set",
+      "restrictions": "Trademark of Google LLC; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/google-meet.svg",
+      "sha256": "999c7a57481a6c97d185fce35d94e6de81e98d3a5916f1fb2909361917da71d4",
+      "sourceTier": "svgl",
+      "sourceUrl": "https://raw.githubusercontent.com/pheralb/svgl/f9b726cee1d1f3c697a18c880185e89d9a55bb70/static/library/google-meet.svg",
+      "svgSha256": "78740599528aa18810c9ab7e854fd1607679bccf3ee7a00a622f9dce2b5d8473",
+      "umbrella": "Google Meet"
+    },
+    {
       "file": "grok.png",
       "id": "grok",
       "licence": "Vendor’s own published asset; no licence beyond nominative use",
@@ -392,6 +418,19 @@
       "sourceUrl": "https://unpkg.com/@lobehub/icons-static-svg@1.97.0/icons/meta-color.svg",
       "svgSha256": "adf9f2c1a646ccd3a37ca8c2e7e5985d64630cd633f4b95fba393d1d44e0578c",
       "umbrella": "Meta (Llama)"
+    },
+    {
+      "file": "microsoft-teams.png",
+      "id": "microsoft-teams",
+      "licence": "svgl catalogue (MIT for the catalogue code; each mark stays its owner’s trademark)",
+      "origin": "set",
+      "restrictions": "Trademark of Microsoft Corporation; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/microsoft-teams.svg",
+      "sha256": "62b060d14d86116127309f516ca7b85aac7f0a65973110a8f823efab425b405b",
+      "sourceTier": "svgl",
+      "sourceUrl": "https://raw.githubusercontent.com/pheralb/svgl/f9b726cee1d1f3c697a18c880185e89d9a55bb70/static/library/microsoft-teams.svg",
+      "svgSha256": "4062cb6a318a51966278983171dae4a207d42ea9454c1fc5df75ff3bfb6cb4db",
+      "umbrella": "Microsoft Teams"
     },
     {
       "file": "minimax.png",
@@ -666,6 +705,19 @@
       "umbrella": "Google Scholar"
     },
     {
+      "file": "slack.png",
+      "id": "slack",
+      "licence": "svgl catalogue (MIT for the catalogue code; each mark stays its owner’s trademark)",
+      "origin": "set",
+      "restrictions": "Trademark of Slack Technologies, LLC (Salesforce); nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/slack.svg",
+      "sha256": "98d1e584d7a8fa1233135fa7fcc2bad386da9641a5d87ba556a92a50a20bf4a9",
+      "sourceTier": "svgl",
+      "sourceUrl": "https://raw.githubusercontent.com/pheralb/svgl/f9b726cee1d1f3c697a18c880185e89d9a55bb70/static/library/slack.svg",
+      "svgSha256": "29734796b3a85f9d0e03150d53142fab0b7f994ae80c7e3e1efd0bef52c12f5d",
+      "umbrella": "Slack"
+    },
+    {
       "file": "spotify.png",
       "id": "spotify",
       "licence": "svgl catalogue (MIT for the catalogue code; each mark stays its owner’s trademark)",
@@ -887,6 +939,19 @@
       "sourceUrl": "https://raw.githubusercontent.com/zed-industries/zed/574df448ea9cb9c22df1a5e887a4c6755e7e09ce/assets/images/zed_logo.svg",
       "svgSha256": "c6f6b6b78dbab2d730cb56df7949a9720aa5b80bc2c01cfacdd3674f7f0c4a00",
       "umbrella": "Zed"
+    },
+    {
+      "file": "zoom.png",
+      "id": "zoom",
+      "licence": "svgl catalogue (MIT for the catalogue code; each mark stays its owner’s trademark)",
+      "origin": "set",
+      "restrictions": "Trademark of Zoom Video Communications, Inc.; nominative use only — identifies the product, never restyled, recoloured or combined. No affiliation claimed.",
+      "setFile": "app/assets/logo-set/zoom.svg",
+      "sha256": "35ff55ce93aa239278b5921f32f365c3d3c39c4525a66e8b96a102e186d7b2bd",
+      "sourceTier": "svgl",
+      "sourceUrl": "https://raw.githubusercontent.com/pheralb/svgl/f9b726cee1d1f3c697a18c880185e89d9a55bb70/static/library/zoom.svg",
+      "svgSha256": "5d1bf4d38bc5fc437578292dafc3cb4a678682e3124f1e2910d817aee9658615",
+      "umbrella": "Zoom"
     }
   ],
   "size": 256,

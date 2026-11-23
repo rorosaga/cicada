@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from api.config import Settings, get_settings
 from api.models.schemas import (
     EpisodeChat,
+    EpisodeMeetingBrief,
     EpisodeQueueItem,
     ScheduleConfig,
     ScheduleResponse,
@@ -41,6 +42,7 @@ from api.services import (
     git_service,
     history_index,
     last_cycle,
+    meeting_transcripts,
     reading_hosts,
     sleep_autocontinue,
     sleep_consolidated,
@@ -445,9 +447,11 @@ async def sleep_queue(
 #: Bumped when a row of `GET /sleep/episodes` gains a field or changes for the same files (folded into its ETag).
 #: episodes-5: `site` is the link's own host, not its registrable domain (owner 2026-11-23).
 #: episodes-6: `openKind` / `openValue` — where the original opens (owner 2026-11-23).
+#: episodes-9: `meeting` (call app, length, invitees) and a meeting's preview as its summary's plain words (owner
+#: 2026-11-23).
 #: episodes-7: `change` — new, updated or removed at its source (owner 2026-11-23).
 #: episodes-8: `chat` — the chat a sitting belongs to (owner 2026-11-23).
-EPISODES_SHAPE = "episodes-8"   # episodes-4: a recorder's meetings group under it (`queue_origin`); episodes-3: `device` (G212); episodes-2: `site` (owner 2026-10-20)
+EPISODES_SHAPE = "episodes-9"   # episodes-4: a recorder's meetings group under it (`queue_origin`); episodes-3: `device` (G212); episodes-2: `site` (owner 2026-10-20)
 
 
 @router.get("/sleep/episodes", response_model=list[EpisodeQueueItem])
@@ -495,7 +499,7 @@ def _episode_items(mp, window) -> list[EpisodeQueueItem]:
                 source=ep["source"],
                 origin=ep["origin"],
                 title=ep["title"],
-                preview=body.lstrip()[:200].strip(),
+                preview=meeting_transcripts.summary_plain(body) or body.lstrip()[:200].strip(),
                 chars=len(body),
                 processed=ep["processed"],
                 processed_by=ep["processed_by"],
@@ -508,6 +512,7 @@ def _episode_items(mp, window) -> list[EpisodeQueueItem]:
                 open_value=opens[1] if opens else None,
                 change=episode_revision.waiting_state(fm),
                 chat=EpisodeChat(**chat) if (chat := episode_copy.chat_of(fm)) else None,
+                meeting=EpisodeMeetingBrief(**brief) if (brief := meeting_transcripts.queue_brief(fm)) else None,
             )
         )
     return items
