@@ -39,6 +39,7 @@ from api.models.schemas import (
     EpisodeCitationEntity,
     EpisodeCitations,
     EpisodeFocus,
+    EpisodeMeeting,
     EpisodeText,
     EpisodeTurn,
     EpisodeReaction,
@@ -68,6 +69,7 @@ from api.services import (
     inbox_context,
     markdown_parser,
     media_pages,
+    meeting_transcripts,
     section_provenance,
     source_dates,
     source_spans,
@@ -194,10 +196,20 @@ def episode_document(
     watch = _watch(memory_path, doc_id, fm) if is_episode else None
     index_at = {t.start: t.index for t in spans}
     extras_at = turn_extras.by_offset(fm) if is_episode else {}
+    meeting = fm.get("meeting") if is_episode and meeting_transcripts.is_meeting(fm) else None
+    summary_turn = next((t.index for t in spans[:1] if meeting is not None and t.role == "assistant"
+                         and meeting_transcripts.is_summary_turn(text[t.content_start:t.end])), None)
     turn_models: list[EpisodeTurn] = []
     for t in spans:
         s = agents.get(t.start) if t.role == "assistant" else None
-        turn_models.append(EpisodeTurn(**asdict(t), model=s.model if s else None, effort=s.effort if s else None,
+        fields = asdict(t)
+        if meeting is not None and t.role == "speaker":
+            # ROR-142: the one place a placeholder label becomes words, derived on read (never the stored marker).
+            fields["speaker"], speaker_kind = meeting_transcripts.speaker_display(t.marker, meeting)
+        else:
+            speaker_kind = None
+        turn_models.append(EpisodeTurn(**fields, speaker_kind=speaker_kind, model=s.model if s else None,
+                                       effort=s.effort if s else None,
                                        fidelity=watch.fidelity if watch is not None and t.role == "media" else None,
                                        extras=_extras(extras_at.get(t.start), index_at)))
 
@@ -228,6 +240,7 @@ def episode_document(
         watch=watch,
         relay=_relay(fm) if is_episode else None,
         unsent=_unsent(fm, spans) if is_episode else [],
+        meeting=EpisodeMeeting(**meeting_transcripts.meeting_wire(fm, summary_turn=summary_turn)) if meeting is not None else None,
     )
 
 
