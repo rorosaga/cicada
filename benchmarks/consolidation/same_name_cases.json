@@ -1341,5 +1341,26 @@
     "label": "b"
    }
   ]
+ },
+ {
+  "id": "night-noor-marc-one-contrast",
+  "name": "Marc",
+  "kind": "two",
+  "identities": [],
+  "note": "night-all r2 (2026-11-23): the judge stated ONE located contrast between the two groups; the first rule needed it in both and joined the pair",
+  "mentions": [
+   {
+    "text": "(2026-09-29) Marc is Noor Haddad's brother-in-law, a carpenter based in Annecy, who was coming to help assemble shelves. Facts: Marc is a carpenter (menuisier) in Annecy.; Marc was bringing his own tools to help Noor Haddad assemble the shelves.; Marc is Noor Haddad's brother-in-law.",
+    "label": "fam"
+   },
+   {
+    "text": "(2026-10-02) Colleague on the banking app usability study who is moving to the Berlin office. Facts: Marc said on 2026-10-02 he is moving to the Berlin office in March, after which he is remote for the study.; Noor Haddad said Marc will be kept on the readout.",
+    "label": "work"
+   },
+   {
+    "text": "(2026-10-14) Marc is a participant in a meeting with Noor Haddad who is moving to Berlin. Facts: Marc said his move to Berlin is confirmed for the 15th of March.",
+    "label": "work"
+   }
+  ]
  }
 ]

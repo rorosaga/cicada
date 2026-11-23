@@ -2203,74 +2203,119 @@ stored title says the same); `different` on all goes on by the usual rule, and a
 holds is held and asked, as before. A person mention keeps its own rules (G209; two people sharing a bare first name: `same_name_people`, below). See the G227 row
 for the haiku replay.
 
-**Two people with one first name are two people (2026-11-23, `same_name_people`).** Most people in a memory are named by a
-first name alone, and first names repeat (a brother-in-law and a colleague, both "Marc"). Stage 2 keyed every mention by
-its lowercased name, so inside one batch a name could only be one thing, and across batches a mention joined the page
-titled so on the name alone: one page said the brother-in-law was moving to the Berlin office. Before any name is keyed
-(after `role_people.canonicalize`, `entity_resolver._plan_same_name_people`) each **bare person name** (one word; a full
-name carries its own surname) that has something to compare is judged once: two or more conversations of this batch, or
-one and a person already on record under the name (a page titled so, or a line held below the promotion bar). The judge
-(Stage 2's disambiguation model, one call a name, at most 20 names a batch, 12 conversations and 6 known people a call,
-the rest left as it was) groups the conversations by person and says which known person each fits. **Positive evidence
-only, and a life that moves on is one person (2026-11-23, the false split):** two conversations are two people only when
-they state something that **cannot be true of one person at the same time**, and **dates decide**: descriptions a few weeks
-apart that give different jobs or home towns, with neither saying anything changed, are two people; descriptions months
-apart, or one that says something changed (a new job, a move, a promotion, a retirement, a marriage, a baby), are one
-person's life moving on; a different generation, or a relationship to the speaker one person cannot hold beside the other,
-also makes two. The first prompt named "a different trade or employer, home town" as the contrast and so split a partner who
-got a job and moved city from their own page, a friend who was promoted, a colleague who left abroad (the judge's reason was
-always the job or the town); the part split off was held on a line nobody sees and its facts were lost to the page.
-**A split must be located, in code** (`same_name_people._contrast_located`): each group that is a person not on record yet
-must give a `contrast` of two facts copied word for word from the descriptions, `here` from the group's own conversations
-and `there` from outside them (another conversation or a known person); words that occur in none, a missing contrast, or
-both from one side, leave the conversations where they were (never a second person). A benchmark run answered `same_as:
-null` for a friend's conversation while its own reason said it fits the known person; the located contrast makes that
-answer harmless. A description silent about something says nothing about it (a known person with no job on record may well
-have one), each description is headed by its conversation's day, and when unsure between "a known person" and "someone new"
-the judge chooses the known person. **Measured** by replaying the judge's real inputs (`same_name_battery`, below) through
-the real engine and judge: the first prompt split one person in 87 of 680 calls (13%) on the first set and 82 of 240 (34%)
-on a held-out set, and the four stored Idris inputs 13 to 17 times in 20; the rewrite splits none of 460 calls (all one-person
-cases) and, with the located contrast, none of 460 more (two replays). On the benchmark (3 runs, 39 judge calls) the rewrite
-alone still split a friend once (the incoherent answer above) and joined the fixture's carpenter and colleague, three days
-apart, in 2 runs of 3; with the located contrast no person is split (`one_person_ok` 5 of 5 in each run) and those two are
-apart in 3 of 3. **The price** is a missed split, the pre-2026-11-23 behaviour and never worse, in about one two-person
-replay in nine (212 of 240 kept), nearly all of them a **known page** up against a mention of a different kind of person
-(an established family page and a colleague's mention: the judge reads the later one as the same person's change); dropping
-the "choose the known person" sentence made a real one-person input split in 8 of 10, so it stays. A thin description, an
-unreadable answer, a failed call or a group that states no contrast keeps the old behaviour (one person, nothing asked).
-A conversation a page or line already lists (a re-read) is that person and is not judged; a mention that describes nothing
-is not judged; the owner's page, a nickname or relation page (`role_people`), a contact-card participant and a
-correspondent never enter. What the judge says goes through the machinery G227 built: the person the plain name reaches
-(the page whose id is the name's slug, else the line named so, else the group with the most conversations) goes on by the
-name; every other person is placed by `_resolve_same_name_people` like a correspondent: a known page is updated; a known
-line or a person not on record yet faces the unchanged promotion bar on **their own** conversations (a line's earlier ones
-included) and is created under the next free id (`marc-2`, `marc-3`: `_another_id`'s shape, the title the clean name), or
-waits as a held line keyed by that id (`PendingEntity.title` says the name its page will carry), so the plain name's line
-never receives its claims. Every edge and value of those conversations that names the person is pinned to the id
-(`source_page` / `target_page`, as a correspondent's are). A later conversation finds each person again as a page or a line
-under the name and is judged against them, so after both pages exist a new conversation lands on the right one. Each pair Sleep itself decides is two people (a new
-person against the plain name's page and every person the judge compared them with, never any other same-titled pair) is
-written to `_merge_rejected.yaml`'s `split:` list (`merge_rejections.add_split`) as one of the batch's deferred Stage 2
-writes: flushed only when the batch is not cancelled, and committed by the batch's own `git add -A` commit with the
-inbox files and pending lines it writes beside it. A person held as a line (`marc-2`) is recorded the moment the line is
-first held, so the pair is already kept apart when it becomes a page. `person_duplicates`, the dedup sweep and Sleep's
-tending read that list (`kept_apart`), so the split raises no "Is Marc the same as Marc?" question and Sleep's two-signal
-join never takes it back. Two same-titled pages nobody split (a chat participant's `<id>-person` page beside a same-named
-page from a conversation) stay leads and joinable, as before. The person's own merge of the two pages clears the pair
-(`page_join.merge` calls `merge_rejections.clear_pairs`), so merging them with `cicada_merge_pages` works as for any pair.
-**The replay battery** (`benchmarks/consolidation/same_name_battery.py`, `same_name_cases.json`; engine-free tests in
-`test_same_name_battery.py`): the judge's real inputs (rebuilt from stored runs' git history, and a leg's own
-`same_name_calls.jsonl`, which `run.py` now writes beside each bank) plus invented one-person and two-person cases of the
-shapes that matter, each labelled; every case is replayed N times through the real `plan` and the product's own judge call,
-and scored as a **false split** (one person cut in two) or a **missed split**, for cents (Haiku, about $0.0002 a call).
-Run it before changing the prompt, the model or the floor: a benchmark run makes about six judge calls and cannot see a
-one-in-ten defect. The benchmark scores the same thing from the bank (`gold.people.one`, the summary's `one_person_ok`):
-no second page named like a one-person gold entry and no held line carrying a `title`, which three of the four stored
-false splits were (held lines are not pages).
-Cost: one disambiguation call per
-bare name with something to compare (the fixture's second person: 5 across both drains, the first's 2), bounded by the
-batch's bare names, never by the bank. The G209 first-name guard (`_first_name_across`, a one-word name heard outside a chat
-against a full-name page) and the promotion bar are unchanged.
+**Two people with one first name: told apart when the record can, held in doubt when it cannot, split by a later fact
+(2026-11-23, `same_name_people`, `same_name_review`, `same_name_tend`, `same_name_doubts`).** Most people in a memory are named by
+a first name alone, and first names repeat (a brother-in-law and a colleague, both "Marc"). Stage 2 keyed every mention by its
+lowercased name, so inside one batch a name could only be one thing, and across batches a mention joined the page titled so
+on the name alone: one page said the brother-in-law was moving to the Berlin office. The owner's words: Cicada's appeal rests
+on "detecting when we are talking about different or same people, and to surface when its not sure, but really surface it when
+it saw everything it could and there is no context that can correctly clarify … these splits can happen as a new fact comes in
+and clarifies." Four rules follow, each in code: a missed split is not a fallback; **doubt is a state the record holds**, never
+resolved by choosing "same"; **a question is the last resort**, asked only after everything on record was read; a decision is
+**not final**, a later fact can split what was joined and settle what was in doubt.
+
+*The states a mention can be in.* **Joined** (the plain person, or a known page) → **apart** (a located contrast: a person
+of its own, `<slug>-2`, the same clean title, G227's `_another_id`, the pair in `_merge_rejected.yaml`'s `split:` list, for
+good) or **in doubt** (a person of its own too, but the pair is in `_same_name_doubts.yaml` and never in `split:`). A doubt
+becomes **apart** on a located contrast, or is **asked** once; it is **joined** only by the person (their answer, their merge,
+their own words on the record). Which facts are
+whose while a mention is in doubt: its conversation's beliefs, edges and values are pinned to its own person (a held line, or
+a page once it meets the promotion bar), exactly as a split's are; the plain page never receives them, so an agent reading
+`marc` is told nothing about the other Marc, and recall, Ask and the page list the two as same-titled pages told apart by
+their derived qualifiers ("Marc (cousin)", "Marc (neighbour)", `same_name`).
+
+*Per batch, in Stage 2 (`_plan_same_name_people`, one call a bare name, as before).* The judge (Stage 2's disambiguation
+model, at most 20 names a batch, 10 new conversations and 20 lettered descriptions a call) is shown **every conversation on
+its own**: this batch's, and what each person already on record says **conversation by conversation** (a page's beliefs and
+Key Facts each carry the conversation they came from; `same_name_tend.page_conversations`), newest first, in turn between the
+people. A page is no longer one blended summary, which after a wrong join is a mixture of two people. It groups the
+descriptions and says how any two groups stand: *different* (two facts that cannot both be true of one person at the same
+time, **dates decide**, a life that moves on is one person: the 2026-11-23 false-split rules, unchanged), *cannot_tell* (two
+different kinds of person, a relative and a colleague, a child and an adult, with nothing that connects them: it copies the
+two facts that make them look like two), or no entry (the same person; a thin description, a different setting, topic or time).
+**Every verdict is located in code** (`same_name_people.read`, `quotes_located`): each quoted fact must occur word for word in
+its own group's descriptions **and in none of the other's** (a page read conversation by conversation lists a belief two
+conversations share under both, so a quote found on both sides is routine and sets nothing against anything), the two must
+not be the same words, and each must say more than the name; else the groups are one person (the old behaviour, never a
+guess). A verdict joining two groups through a third is incoherent and splits nothing. A new conversation goes where its group's filed conversations are; a group nobody
+on record is in is a new person, apart on a contrast and in doubt on a tension; each side of a new person needs 15 words of
+description (a thin one is the plain person's, as before). **A second reading** (`plan(..., strong)`, the engine's main model,
+`same_name_tend.main_tier`): when the small judge calls two or more of this batch's conversations one person (where a silent
+join hides: it reads the speaker being named in both descriptions, or "a later move", as a link), or divides them against a
+person on record with three or more filed conversations, the same prompt is put to the main model once and its grouping replaces
+the small judge's when it divides them; its answer failing, unreadable or calling it one person leaves the small judge's
+reading, so a located split is never lost to it. A single new conversation against a person on record is not read again. `plan`
+**never changes a page that exists**. When its re-read shows
+that a page's own conversations fall in two groups (`page-holds-two-people`), or that two people held in doubt fall in one
+(`doubt-may-be-one`), or that a doubt still stands, it only **flags** the name (`same_name_doubts.flag`, a deferred Stage 2
+write like the split pairs, committed with the batch).
+
+*After the drain, in the engine-independent tail (`sleep_cycle._same_name_review_safely`, before the catch-up proposers and
+any poll's `git add -A`).* Only what Stage 2 flagged, never a sweep of the pages, and nothing flagged means no engine and no
+commit. The engine's **main** model (`same_name_tend.main_tier`: the same engine, its main model, never another bill; a
+scheduled run on a plan only through ruling 4b's switch; a plan limit is a pause and the flags stay) reads the whole record
+of the people involved (`same_name_review`): `holds_two` reads one page's conversations together and splits it only on a
+located contrast; `settle_pair` reads two people held in doubt and answers *different* only on a located contrast, *same*
+only with a located link (a fact each side states that is the same fact, or one continues the other), else *cannot tell*. **A split** moves the leaving conversations to a new page
+through `page_join.split` (the page's beliefs whose every source is a leaving conversation, the Key Facts whose provenance
+(`section_provenance`) names only them, the conversations; what a staying conversation also supports stays, and so does the
+Summary, which no one conversation owns; a belief with no provenance is never moved): **one commit** authored `cicada`,
+trigger `sleep/same-name`, undone with `page_join.undo`, the pair recorded as split for good. **The person's word stands
+over a split.** That commit holds the split and nothing else; what Sleep remembers about having made it
+(`same_name_doubts.splits`) is written after it, so an undo reverses the split alone, the next look finds the commit taken
+back, and the page is marked as one Sleep never splits (`same_name_doubts.one`). A person page another was folded into on
+the person's word (their merge, an agent's on their ask, an answered question: `entity_merge.merge_entities`, every caller
+but the dedup sweep, which passes `by_sleep`) carries the same mark, written in the merge's own commit and named in
+`merge_footprint`, so a pair they joined is never cut again. **Sleep joins no one here.** Ruling 74 joins two people pages
+on two kinds of evidence code can count, and the main model's reading of two quotes is not one of them: a located link is
+said in the question ("Both seem to be said of one person: …") and the person joins the two with a tap. **The question**
+is asked only when the read gave an answer that can be stood on (a plain *cannot tell*, or a located link): a failed call,
+an unreadable answer, quotes that are not there, or a side with no conversation of its own on record is not "the record
+does not say", asks nothing and does not spend the pair's one question (the doubt stays, and the next conversation that
+names the name flags it again). It is only for a doubt both sides of which are pages (a person held on a line has nothing resting on
+it, ruling 65), not yet asked (`same_name_doubts.mark_asked`, never again, even if skipped), not answered (`kept_apart`),
+with no question about the two already open from any proposer (`question_open`), at most
+3 a drain and 10 open (`MAX_OPEN`): an ordinary `merge_suggestion` between the two pages marked `detected: same_name_doubt`,
+`fold_page` (yes folds the less-used page into the other, no records the pair as different for good), worded by what each is
+known for ("Are Marc (cousin) and Marc (neighbour) the same person?", the first sentence of each page's Summary in the reason,
+`inbox_wording._same_name_doubt`). No rule and no judge of `inbox_tend` settles it (`_merge_rule` answers `needs_person`);
+only the person's own words do (move 1). `merge_rejections.kept_apart` includes the doubt pairs, so the dedup sweep, the
+catch-up proposers and `person_duplicates` never ask about one; a merge of either page (`entity_merge.merge_entities`) folds the
+pair away.
+
+*Cost.* Stage 2: one small-judge call per bare name with something to compare, as before (the prompt is longer by the filed
+conversations, at most 20 descriptions in all), plus one main-model call (about 13 times the small one's price, $0.004) for a name
+with two or more new conversations the small judge calls one person, or a split against a person with three conversations on
+record; nothing is added on a batch with no such name. The tail: one main-model call per flagged page
+and per flagged doubt pair, at most 8 a drain (`MAX_LOOKS`), and none when nothing was flagged. On a bank with 200 people pages and a
+100-conversation batch the Stage 2 bound is 20 names; the tail's is 8.
+
+**Measured (2026-11-23).** *The replay battery* (`same_name_battery.py`, 71 labelled single judge inputs, the small judge on a key
+at about $0.0003 a call, the second reading on): the code before (`origin/dev`, 10 replays a case) kept 216 of 240 two-person
+replays apart (90%) and cut no one of 460 one-person replays; an established page against a different person's mention was kept
+apart in 69 of 90 (77%; an established family page against a colleague's mention in 0 of 10). As landed: **248 of 250** two-person
+replays kept apart (99%) and **0 false splits of one person in 460 replays** (one earlier wording of the prompt cut one person
+once in 920; that input was not reproduced in 60 more). *The stories* (`same_name_stories.py`, 30 stories in English, Spanish and
+French; the code before 20 replays each, as landed 8 each; ok = the expected end state and number of questions): two people new
+in one batch 59 of 60 → 24 of 24; two people already joined on one page, then a clarifying conversation **0 of 100 → 39 of 40**
+(the page split by conversation, one commit); two people the record never tells apart **0 of 60 → 24 of 24**, one question each
+(the code before blended them in 41 of 60 and asked nothing); a doubt a later conversation links: the code before cut one person
+in two in 27 of 60 and said nothing, as landed **24 of 24 end as the one question with the link in it** (never joined by Sleep,
+ruling 74); one person in many settings, one whose life moves on, a thin first mention, an established page re-read: all ok
+before and after (240 of 240; 96 of 96), **no question and no split**. The stories replay a simulated bank; **the real path**
+(the stager, `sleep_cycle.run`, the tail, a real engine) was run on a scratch bank with a three-phase, twelve-conversation story
+of three first names, six times: no real person was cut in two in any run and no bank was left with an uncommitted file; a page
+that had taken a second person's conversations was split by the tail into the right two as one commit in 2 runs, and in the
+others that person waited on a held line in doubt. Those runs found two defects the simulation could not: the store left
+modified and uncommitted when a flag was taken with nothing to read, and **a second person's page answering to the bare name**
+while the first person was still a held line (the only page so titled took the name's key in Stage 2's index, so the first
+person's held claims were released onto the other person's page). A page recorded apart from the name's own slug no longer
+holds the name's key (`_second_person_titles`); the two runs made to hit that path then kept each person's facts their own.
+*Known limits.* A split leaves the page's Summary as it was until the page is next rewritten (a Summary sentence has no
+provenance of its own), so one sentence about the other person can outlive the split. A thin conversation joined earlier
+(nothing in it to contrast) stays where it was. A conversation that names both people ("X from work met my cousin X") is
+one mention a name to Stage 2, and Stage 1 sometimes names the two with a qualifier in the name, which is not a bare name
+and is not judged here. *The benchmark* (3 runs, both people, as landed): the fixture's two Marcs apart in 3 of 3 runs (the code before joined them in 1 run of 3 on a one-person answer, and so did a fresh control of `dev` the same day), one person kept as one 5 of 5 each run, others' words kept off the person 13 of 13, pages made or not made 14 of 14, updates 12, 12, 13 of 13 (control 12, 12, 12), every fact a claim or held under a waiting name (52 of 52 each run; claims 48, 46, 51). Questions 6, 7, 3 a run against 3, 2, 5 for the control and 5, 3, 3 before: one of them is the pair of Marcs, asked once in 1 run of 3 when the second look could not tell them apart; the rest are other proposers' run-to-run spread. $0.68 a run against $0.64: the second reading, about three main-model calls a person.
 
 **Which way a relationship points (2026-11-23).** A role the other side holds toward the person ("my <role> X") was
 sometimes written backwards at Stage 1: `<user> | <role> of | X`, the person as the holder. Nothing downstream can catch it

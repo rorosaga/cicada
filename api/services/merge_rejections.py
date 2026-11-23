@@ -68,9 +68,13 @@ def load_split(memory_path: Path) -> set[tuple[str, str]]:
 
 
 def kept_apart(memory_path: Path) -> set[tuple[str, str]]:
-    """Every pair of PAGES never to be joined as duplicates: the person's "different" answers and their splits."""
+    """Every pair of PAGES never to be joined as duplicates: the person's "different" answers and their splits, and (never
+    proposed, swept or asked about as duplicates by anything else) the people two of one first name Sleep holds in doubt
+    (`same_name_doubts`), which only `same_name_tend` settles or asks about, once."""
+    from api.services import same_name_doubts
+
     data = _read(memory_path)
-    return _pairs(data, "rejected") | _pairs(data, SPLIT_KEY)
+    return _pairs(data, "rejected") | _pairs(data, SPLIT_KEY) | set(same_name_doubts.pairs(memory_path))
 
 
 def is_rejected(memory_path: Path, a: str, b: str) -> bool:

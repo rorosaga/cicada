@@ -198,6 +198,13 @@ async def resolve(
         if str(e["frontmatter"].get("status") or "") != "dropped":
             # G227: every page by its title — two pages may share one, and `existing_by_name` keeps only the last.
             same_title.setdefault(str(name).lower(), []).append(e)
+    # 2026-11-23 (`same_name_people`): the second person of a first name (`sara-2`, the same clean title) never answers
+    # to the bare name. Sleep decided, or holds in doubt, that it is not the person the name reaches, and that person
+    # may still be a line held below the promotion bar: keyed by title, the line's mentions and held claims would land
+    # on the other person's page. Only a page recorded apart from the name's own slug loses the key; any other page
+    # that carries a title its id does not spell keeps it, as before.
+    for key in _second_person_titles(existing_by_name, getattr(settings, "memory_path", None)):
+        del existing_by_name[key]
     aliases = _alias_index(existing_by_name)
     # The pairs the person said are different (`merge_rejections`): a shared alias or a close spelling never brings
     # one of them back to the judge.
@@ -225,7 +232,7 @@ async def resolve(
 
     # 2026-11-23 (`same_name_people`): a bare first name that two conversations use for two different people is two
     # people, decided before anything keys the name: each conversation's mention goes where its person is.
-    same_name_moves, same_name_compared = await _plan_same_name_people(
+    same_name_moves, same_name_compared, same_name_reviews = await _plan_same_name_people(
         extracted, existing, same_title, settings, refs=refs, owner_page_id=owner_page_id,
         cancel_check=cancel_check)
     same_name_entities: list[tuple[str, dict, "same_name_people.Destination"]] = []
@@ -414,6 +421,11 @@ async def resolve(
                 existing_by_name, owner_id=owner_id, refs=refs),
             park=indexer.index_pending_entity if indexer is not None else None,
             pending_actions=pending_actions, promoted_pending=promoted_pending)
+    if (same_name_reviews[0] or same_name_reviews[1]) and getattr(settings, "memory_path", None):
+        # The re-read found a page that may hold two people, or two people held in doubt that may be one: the tail looks
+        # again once the batch has committed (`same_name_tend`). A deferred write, like every other one in this stage.
+        pending_actions.append((_flag_same_name_reviews, (settings.memory_path, same_name_reviews[0],
+                                                          same_name_reviews[1]), {}))
 
     # Process more specific names first so "Bob Example" becomes the
     # canonical in-cycle entity and "Bob" can merge into it rather than
@@ -1177,6 +1189,22 @@ async def _same_name_ask(settings: Settings, system: str, prompt: str) -> object
     return json_parse.parse_json_object(response.choices[0].message.content or "{}")
 
 
+def _flag_same_name_reviews(memory_path, pages: set[str], pairs: set[tuple[str, str]]) -> None:
+    from api.services import same_name_doubts
+
+    same_name_doubts.flag(memory_path, pages=sorted(pages), pairs_=sorted(pairs))
+
+
+def _record_doubt_pairs(memory_path, pairs: list[tuple[str, str]]) -> None:
+    """Hold these pairs in doubt (`same_name_doubts`), and ask the tail to look at them: not a split (that is for good),
+    a state the record keeps until a conversation settles it."""
+    from api.services import merge_rejections, same_name_doubts
+
+    fresh = [p for p in pairs if not merge_rejections.is_split(memory_path, *p) and not merge_rejections.is_rejected(memory_path, *p)]
+    same_name_doubts.add_pairs(memory_path, fresh)
+    same_name_doubts.flag(memory_path, pairs_=fresh)
+
+
 def _record_split_pairs(memory_path, pairs: list[tuple[str, str]]) -> None:
     """Keep these pairs of pages apart (`merge_rejections.add_split`): never a duplicate lead or question, never a
     dedup-sweep merge, never Sleep's two-signal join. Only what is new is written; the person's own merge of the two pages
@@ -1188,8 +1216,54 @@ def _record_split_pairs(memory_path, pairs: list[tuple[str, str]]) -> None:
             merge_rejections.add_split(memory_path, *pair)
 
 
+def _second_person_titles(existing_by_name: dict[str, dict], memory_path) -> list[str]:
+    """The names whose key a second person's page holds: a person page whose id is not the title's slug and that is
+    recorded apart from that slug (a split, a "different" answer, or a doubt: `merge_rejections.kept_apart`)."""
+    if memory_path is None:
+        return []
+    try:
+        from api.services import merge_rejections
+
+        apart = merge_rejections.kept_apart(memory_path)
+    except Exception:  # noqa: BLE001 - an unreadable list changes nothing here
+        return []
+    if not apart:
+        return []
+    out = []
+    for key, page in existing_by_name.items():
+        page_id, slug = str(page.get("id") or ""), sanitize_id(key)
+        if page_id and page_id != slug and tuple(sorted((slug, page_id))) in apart:
+            out.append(key)
+    return out
+
+
+def _page_items(memory_path, page_id: str) -> tuple:
+    """What each of a person page's conversations says (`same_name_tend.page_conversations`), for the judge to read the
+    page conversation by conversation and not as one blended summary; nothing when the page records no such split."""
+    if memory_path is None:
+        return ()
+    try:
+        from api.services import same_name_tend
+
+        page = same_name_tend.page_of(memory_path, page_id)
+    except Exception:  # noqa: BLE001 - the blended text is the fallback
+        return ()
+    return page.items if page is not None and len(page.items) >= 2 else ()
+
+
+def _doubts_of(memory_path, ref: str) -> frozenset:
+    if memory_path is None:
+        return frozenset()
+    try:
+        from api.services import same_name_doubts
+
+        return same_name_doubts.doubts_of(memory_path, ref)
+    except Exception:  # noqa: BLE001
+        return frozenset()
+
+
 def _same_name_identities(name_lower: str, pages: list[dict], lines: list[PendingEntity],
-                          owner_page_id: str | None) -> list["same_name_people.Identity"] | None:
+                          owner_page_id: str | None, memory_path=None) -> list["same_name_people.Identity"] | None:
     """The people already on record under a bare name: each person page titled so, and each line held below the bar under
     the name or keyed by the id a second person's page will get. ``None`` when the name is not for this rule: the owner's
     page bears it, or a page that is a nickname or a relation (a name many people answer to, `role_people`)."""
@@ -1204,7 +1278,9 @@ def _same_name_identities(name_lower: str, pages: list[dict], lines: list[Pendin
             return None
         episodes = frozenset(str(e) for e in fm.get("source_episodes") or [] if e)
         found.append(same_name_people.Identity("page", str(page["id"]), str(page["id"]) == slug,
-                                               _alias_page_context(page), episodes))
+                                               _alias_page_context(page), episodes,
+                                               _page_items(memory_path, str(page["id"])),
+                                               _doubts_of(memory_path, str(page["id"]))))
     for line in lines:
         if line.type != "person":
             continue
@@ -1212,7 +1288,8 @@ def _same_name_identities(name_lower: str, pages: list[dict], lines: list[Pendin
         if not plain and (line.title or "").lower() != name_lower:
             continue
         text = " ".join(t for t in (line.summary or line.description, *(f for f in line.key_facts[:4])) if t)
-        found.append(same_name_people.Identity("line", line.name, plain, text, frozenset(line.episodes())))
+        found.append(same_name_people.Identity("line", line.name, plain, text, frozenset(line.episodes()), (),
+                                               _doubts_of(memory_path, line.name)))
     # The plain person first, then the people with the most conversations: what the judge is shown when there are many.
     found.sort(key=lambda i: (not i.plain, -len(i.episodes), i.ref))
     return found
@@ -1221,7 +1298,8 @@ def _same_name_identities(name_lower: str, pages: list[dict], lines: list[Pendin
 async def _plan_same_name_people(
     extracted: list[dict], existing: list[dict], same_title: dict[str, list[dict]], settings: Settings, *,
     refs: "owner_identity.SelfReferences", owner_page_id: str | None, cancel_check: Callable[[], bool] | None = None,
-) -> tuple[dict[tuple[str, str], "same_name_people.Destination"], dict[str, frozenset[str]]]:
+) -> tuple[dict[tuple[str, str], "same_name_people.Destination"], dict[str, frozenset[str]],
+           tuple[set[str], set[tuple[str, str]]]]:
     """2026-11-23 (`same_name_people`): for every bare person name that has something to compare, which conversations
     name a person who is not the one the plain name reaches. Returns ``({(episode id, name lower): where}, {name lower:
     the page ids and line ids of the people the judge compared that name with})``; every conversation not in the first
@@ -1247,7 +1325,7 @@ async def _plan_same_name_people(
             if held is None or len(same_name_people.describe(entity)) > len(same_name_people.describe(held)):
                 mentions[name.lower()][episode_id] = entity
     if not mentions:
-        return {}, {}
+        return {}, {}, (set(), set())
     try:
         lines = _load_pending_lines(memory_path) if memory_path else []
     except Exception:  # noqa: BLE001 - an unreadable store is no people on record
@@ -1256,7 +1334,7 @@ async def _plan_same_name_people(
     compared: dict[str, frozenset[str]] = {}
     work: list[tuple[str, list, list]] = []
     for name_lower, by_episode in mentions.items():
-        identities = _same_name_identities(name_lower, same_title.get(name_lower) or [], lines, owner_page_id)
+        identities = _same_name_identities(name_lower, same_title.get(name_lower) or [], lines, owner_page_id, memory_path)
         if identities is None:
             continue
         to_judge: list[same_name_people.Mention] = []
@@ -1275,7 +1353,7 @@ async def _plan_same_name_people(
     work.sort(key=lambda item: -len(item[1]))
     work = work[: same_name_people.MAX_NAMES]
     if not work:
-        return moves, compared
+        return moves, compared, (set(), set())
     gate = asyncio.Semaphore(max(1, int(getattr(settings, "sleep_resolve_concurrency", 1) or 1)))
 
     async def one(name_lower: str, to_judge: list, identities: list) -> tuple[str, same_name_people.Plan]:
@@ -1284,20 +1362,30 @@ async def _plan_same_name_people(
         async def judge(system: str, prompt: str) -> object:
             return await _same_name_ask(settings, system, prompt)
 
+        async def strong(system: str, prompt: str) -> object:
+            from api.services import same_name_tend
+
+            return await _same_name_ask(same_name_tend.main_tier(settings), system, prompt)
+
         async with gate:
             if cancel_check is not None and cancel_check():
                 return name_lower, same_name_people.Plan()
-            return name_lower, await same_name_people.plan(name, to_judge, identities, judge)
+            return name_lower, await same_name_people.plan(name, to_judge, identities, judge, strong)
 
     results = await asyncio.gather(*(one(*item) for item in work))
     split = 0
+    review_pages: set[str] = set()
+    review_pairs: set[tuple[str, str]] = set()
     for name_lower, outcome in results:
         for episode_id, destination in outcome.moves.items():
             moves[(episode_id, name_lower)] = destination
             split += 1
+        review_pages |= outcome.review_pages
+        review_pairs |= outcome.review_pairs
     logger.info(f"Stage 2: {len(results)} bare name(s) compared across conversations, {split} conversation(s) "
-                "placed with another person of the same name")   # counts only, never a name
-    return moves, compared
+                f"placed with another person of the same name, {len(review_pages)} page(s) and {len(review_pairs)} "
+                "pair(s) to look at again")   # counts only, never a name
+    return moves, compared, (review_pages, review_pairs)
 
 
 def _resolve_same_name_people(
@@ -1340,6 +1428,8 @@ def _resolve_same_name_people(
     live: set[str] = set()
     pinned_to: dict[tuple[str, str], str] = {}   # (episode, name lower) -> the page its edges and claims belong to
     new_people: dict[str, set[str]] = {}         # name lower -> the ids of the people Sleep decided are new this batch
+    doubted: dict[str, set[str]] = {}            # name lower -> those of them held in doubt, not decided to be another person
+    doubt_of = {(str(e["name"]).strip().lower(), d.kind, d.ref): d.doubt for _ep, e, d in moved}
     for (name_lower, kind, ref), members in groups.items():
         entities = [entity for _episode, entity in members]
         best = max(entities, key=lambda e: float(e.get("confidence", 0) or 0))
@@ -1359,6 +1449,8 @@ def _resolve_same_name_people(
             taken.add(page_id)
             if kind == "new":
                 new_people.setdefault(name_lower, set()).add(page_id)
+                if doubt_of.get((name_lower, kind, ref)):
+                    doubted.setdefault(name_lower, set()).add(page_id)
             heard_before = set(line.episodes()) - episodes if line is not None else set()
             promote = (len(promotion.conversation_keys(episodes | heard_before, memory_path)) >= threshold
                        or any(promotion.substantive(e) for e in entities) or linked(episodes, title))
@@ -1386,11 +1478,17 @@ def _resolve_same_name_people(
     # committed by Sleep's own batch commit), so a person held as a line (`marc-2`) is already kept apart from the others
     # on the day the line becomes a page; only pairs the judge decided, never two same-titled pages in general.
     pairs: set[tuple[str, str]] = set()
+    doubt_pairs: set[tuple[str, str]] = set()
     for name_lower, ids in new_people.items():
         others = {sanitize_id(name_lower), *((compared or {}).get(name_lower) or ())} | ids
-        pairs |= {tuple(sorted((a, b))) for a in ids for b in others if a != b}
+        for a in ids:
+            for b in others:
+                if a != b:
+                    (doubt_pairs if a in doubted.get(name_lower, ()) else pairs).add(tuple(sorted((a, b))))
     if pairs and memory_path is not None and pending_actions is not None:
         pending_actions.append((_record_split_pairs, (memory_path, sorted(pairs)), {}))
+    if doubt_pairs and memory_path is not None and pending_actions is not None:
+        pending_actions.append((_record_doubt_pairs, (memory_path, sorted(doubt_pairs)), {}))
     for extraction in extracted:
         episode_id = str(extraction.get("episode_id") or "")
         names = {name for (episode, name) in pinned_to if episode == episode_id}

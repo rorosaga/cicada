@@ -9,30 +9,24 @@ from api.services import same_name_people as snp
 from benchmarks.consolidation import same_name_battery as battery
 
 
-def _words_of(prompt):
-    """What each conversation and known person says, as the prompt shows it: the fake judge copies its contrast from here."""
-    said = {m.group(1): m.group(2) for m in re.finditer(r"(?m)^\(([A-Z])\) \(\d{4}-\d{2}-\d{2}\) (.+)$", prompt)}
-    known = re.search(r"\[1\] (.+?)(?:\n\n|\nCONVERSATIONS)", prompt, re.S)
-    return said, (known.group(1).strip() if known else "")
+def _entries(prompt):
+    """Every lettered description the prompt shows, as ``{letter: its words after the date}``."""
+    return {m.group(1): m.group(2) for m in re.finditer(r"(?m)^\s*\(([A-Z])\) (?:\(\d{4}-\d{2}-\d{2}\) )?(.+)$", prompt)}
 
 
 def _every_conversation_its_own_person(system, prompt):
     async def go():
-        said, known = _words_of(prompt)
+        said = _entries(prompt)
         letters = list(said)
-        out = []
-        for letter in letters:
-            others = [said[x] for x in letters if x != letter] + ([known] if known else [])
-            out.append({"conversations": [letter], "same_as": None, "reason": "a fact the other cannot share: " + "x " * 20,
-                        "contrast": {"here": said[letter][:30], "there": others[0][:30] if others else ""}})
-        return {"people": out}
+        pairs = [{"people": [a + 1, b + 1], "verdict": "different", "here": said[letters[a]][:30], "there": said[letters[b]][:30],
+                  "reason": "r"} for a in range(len(letters)) for b in range(a + 1, len(letters))]
+        return {"people": [{"conversations": [x], "reason": "own"} for x in letters], "pairs": pairs}
     return go()
 
 
 def _everyone_the_same(system, prompt):
     async def go():
-        letters = [chr(65 + i) for i in range(12) if f"({chr(65 + i)}) " in prompt]
-        return {"people": [{"conversations": letters, "same_as": 1 if "KNOWN PEOPLE" in prompt else None, "reason": "same"}]}
+        return {"people": [{"conversations": list(_entries(prompt)), "reason": "same"}]}
     return go()
 
 

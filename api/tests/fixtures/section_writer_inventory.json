@@ -1872,5 +1872,13 @@
       "frontmatter": "item",
       "disposition": "fresh_frontmatter_untracked"
     }
+  ],
+  "services/same_name_tend.py": [
+    {
+      "function": "ask_pair",
+      "method": "write",
+      "frontmatter": "{'kind': 'merge_suggestion', 'required_input': 'merge', 'status': 'pending', 'priority': 0.5, 'entity_id': asked, 'entity_name': name, 'title': f'Are these two {name} the same person?', 'uncertainty_type': f'Possible duplicate of {name}', 'suggested_classification': 'person', 'suggested_confidence': 0.5, 'created_date': today.isoformat(), 'merge_target_hint': target, 'fold_page': True, 'detected': 'same_name_doubt', 'known_for': {asked: one, target: two}, **({'link': [str(link[0])[:200], str(link[1])[:200]]} if link and all(link) else {})}",
+      "disposition": "fresh_frontmatter_untracked"
+    }
   ]
 }
