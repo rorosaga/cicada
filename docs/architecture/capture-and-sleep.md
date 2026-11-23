@@ -776,7 +776,7 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   `processed_by: source-deleted` (`episode_staging.DELETED_UNREAD`, in `_NOT_CONSOLIDATED_BY`): it leaves every waiting
   count and list, Sleep never reads it, the file stays, `source_deleted_at` stays; the source posted again re-queues it
   (`_requeue_for_authorship`), a rule change never does while it is deleted, and one tombstoned before the rule is settled
-  by the folder's next sync (`settle_deleted_unread`). Every folder-staged source, not only meetings; a read the person's own words owe (a woken save, a reason, ruling 62) is never taken back by a deletion. Wispr Flow's meetings stay
+  by the folder's next sync (`settle_deleted_unread`). Every folder-staged source whose words are not the person's own authored note — a meeting, an agent's file — while the person's own note deleted before Sleep read it is still read (rulings 13/16); a read the person's own words owe (a woken save, a reason, ruling 62) is never taken back by a deletion. Wispr Flow's meetings stay
   on their own reader (above), now under the same Sources section; their summary and notes blocks are quoted through the
   same `summary_text` (#579 review, 2026-11-03), so a model line reading `User: …` opens no turn there either.
 - **Messages conversations the person ticks (G179, 2026-10-15).** The app lists `chat.db`'s 200 most recent chats for

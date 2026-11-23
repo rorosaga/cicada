@@ -1140,15 +1140,31 @@ def test_one_tombstoned_before_the_rule_is_settled_by_the_next_sync(bank):
     assert _paths(bank)[sid].stem not in _waiting(bank)
 
 
-def test_every_folder_source_follows_the_rule_not_only_meetings(bank):
+def test_the_persons_own_note_deleted_before_sleep_read_it_is_still_read(bank):
+    """Rulings 13/16: only a meeting (or words that are not the person's) leaves the queue with its source."""
     folder = fs.register(bank, label="alpha-project", path="/a", device="mac-1")
-    fs.sync(bank, folder, [_file("notes.md", "Some notes about the alpha-project plan.")], [])
-    fs.sync(bank, folder, [], ["notes.md"])
-    fm = next(iter(_episodes(bank).values())).frontmatter
-    assert fm["source_deleted_at"] and fm["processed"] is True and fm["processed_by"] == "source-deleted"
-    fs.sync(bank, folder, [_file("notes.md", "Some notes about the alpha-project plan.")], [])
-    fm = next(iter(_episodes(bank).values())).frontmatter
-    assert "source_deleted_at" not in fm and fm["processed"] is False
+    fs.sync(bank, folder, [_file("mine.md", "Some notes about the alpha-project plan.")], [])
+    fs.sync(bank, folder, [], ["mine.md"])
+    own = next(iter(_episodes(bank).values())).frontmatter
+    assert own["source_deleted_at"] and own["processed"] is False and "processed_by" not in own
+    assert _paths(bank) and next(iter(_paths(bank).values())).stem in _waiting(bank)
+
+
+def test_live_progress_counts_a_recorders_meeting_under_the_recorder_and_claims_keep_the_stamped_origin(bank):
+    from api.services import sleep_cycle
+
+    _one(bank, HEX_NAME, HEX)
+    [ep] = sleep_cycle._get_unprocessed_episodes(bank)
+    assert ep["origin"] == "folder"          # what an extracted claim records
+    assert ep["queue_origin"] == "hex"       # what the Sleep page's tick and seed count (`queue_origin`)
+
+
+def test_the_reader_etag_moves_with_the_meeting_shape():
+    import inspect
+
+    from api.routers import episodes
+
+    assert "|meeting1|" in inspect.getsource(episodes)
 
 
 def test_a_rule_change_never_brings_a_deleted_unread_file_back(bank):

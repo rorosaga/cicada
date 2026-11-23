@@ -27,8 +27,8 @@ from api.services import bank_index, git_service
 
 #: Folded into the routes' ETag: bump it when the body's shape changes.
 #: items-2 (G227): a page row whose title another page shares adds `qualifier` and `displayName`.
-#: items-3 (owner 2026-11-23): a page row carries the consolidation's commits that changed it (`commits`).
-SHAPE = "items-3"
+#: items-4: a recorder's meetings carry its origin (`queue_origin`). items-3 (owner 2026-11-23): a page row carries the consolidation's commits that changed it (`commits`).
+SHAPE = "items-4"
 CAP = 200
 
 _EPISODE = re.compile(r"^episodes/(?P<name>[^/]+\.md)$")

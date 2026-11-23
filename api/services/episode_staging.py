@@ -1166,9 +1166,11 @@ def is_deleted_unread(fm: dict) -> bool:
     read, so there is nothing to read. An episode consolidated earlier and edited since (``revised.consolidated_hash``)
     already taught Sleep something and is left to the revision rule (ruling 75)."""
     revised = fm.get(REVISED_KEY) if isinstance(fm.get(REVISED_KEY), dict) else {}
-    # A read the person's own words owe (a woken save, a reason they gave; ruling 62) is never taken back by a deletion.
+    # A read the person's own words owe (a woken save, a reason they gave; ruling 62) is never taken back by a deletion,
+    # and neither is the person's own authored note (rulings 13/16): only a meeting, or words that are not the person's.
+    own = fm.get("evidence_kind") == "user" and not isinstance(fm.get("meeting"), dict)
     return (bool(fm.get("source_deleted_at")) and not fm.get("processed") and not revised.get("consolidated_hash")
-            and not history_index.owes_a_read(fm))
+            and not history_index.owes_a_read(fm) and not own)
 
 
 def _settle_deleted_unread(fm: dict) -> bool:

@@ -128,13 +128,12 @@ def test_a_deleted_files_episode_follows_the_rule_and_stays_deleted(bank):
     _stage(bank, folder, _file("notes.md", "My notes on alpha-project."))
     fs.sync(bank, folder, [], ["notes.md"])
     before = _episode(bank, folder, "notes.md")[1].frontmatter
-    # Deleted before anything read it: it left the queue the moment its source went (ruling 75, `source-deleted`).
-    assert (before["processed"], before["processed_by"]) == (True, "source-deleted")
+    assert before["processed"] is False
     fs.update(bank, folder["id"], authorship=[{"glob": "notes.md", "authorship": "agent"}])
     out = fs.reapply_authorship(bank, folder["id"])
     fm = _episode(bank, folder, "notes.md")[1].frontmatter
     assert fm["evidence_kind"] == "assistant" and fm["source_deleted_at"] == before["source_deleted_at"]
-    assert (fm["processed"], fm["processed_by"]) == (True, "source-deleted")   # still deleted, still not waiting
+    assert (fm["processed"], fm["processed_by"]) == (True, "parser")
     assert out["to_agent"] == 1 and out["touched"] == {}
 
 

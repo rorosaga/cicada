@@ -3037,7 +3037,8 @@ async def _run_stages(
         # slice, so the study list's denominators never move mid-cycle.
         by_origin: dict[str, int] = {}
         for ep in episodes:
-            by_origin[str(ep.get("origin") or "unknown")] = by_origin.get(str(ep.get("origin") or "unknown"), 0) + 1
+            key = str(ep.get("queue_origin") or ep.get("origin") or "unknown")
+            by_origin[key] = by_origin.get(key, 0) + 1
         _state.queue_by_origin = by_origin
     _state.batch_total = len(episodes)
 
@@ -3169,7 +3170,7 @@ async def _run_stages(
         _state.stage1_progress += 1
 
     def _on_episode_done(ep: dict) -> None:
-        origin = str(ep.get("origin") or "unknown")
+        origin = str(ep.get("queue_origin") or ep.get("origin") or "unknown")
         _state.read_by_origin[origin] = _state.read_by_origin.get(origin, 0) + 1
 
     flagged: dict[str, list[str]] = {}
@@ -3977,6 +3978,8 @@ def _get_unprocessed_episodes(
             # legacy `source` (origin-and-harness-sync.md §1b). Propagated into
             # extracted claims so each belief records which harness it came from.
             "origin": fm.get("origin") or _derive_origin(source),
+            # The group the Sleep page counts it under (`queue_origin`); `origin` above stays the claims' provenance.
+            "queue_origin": queue_origin(fm),
             "timestamp": str(fm.get("timestamp", "") or ""),
             # Ruling 39: a feed item's published moment — it makes the episode no time signal (`episode_time`).
             **({"published_at": str(fm["published_at"])} if fm.get("published_at") else {}),
