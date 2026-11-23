@@ -455,12 +455,12 @@ struct StudyListCard: View {
 
 /// A source card on the Sleep page (owner 2026-11-23): `surface` in a `radiusLarge` shape with a ring (DR-9, DR-12),
 /// one step below the episode cards it holds (`bgOption`), so a card inside a card still reads as two layers. `lit`
-/// (the pointer on it, or its spine's in the room) lifts the fill and the ring — never a shadow.
+/// (the pointer on it, or its spine's in the room) lifts the ring — depth is a ring, never a shadow or a fill (DR-9, DR-48).
 extension View {
     func sourceCardChrome(lit: Bool) -> some View {
         let shape = CicadaTheme.shape(CicadaTheme.radiusLarge)
         return self
-            .background(shape.fill(lit ? CicadaTheme.bgHover : CicadaTheme.surface))
+            .background(shape.fill(CicadaTheme.surface))
             .overlay(shape.strokeBorder(CicadaTheme.ring(lit ? .strong : .resting), lineWidth: 1))
             .clipShape(shape)
     }
