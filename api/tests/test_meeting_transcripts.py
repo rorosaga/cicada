@@ -1056,7 +1056,7 @@ def test_the_reader_serves_names_the_summary_and_the_facts(bank, monkeypatch):
     speakers = [(t.role, t.speaker, t.speaker_kind) for t in doc.turns]
     assert speakers == [("assistant", None, None), ("speaker", "Speaker 1", "numbered"), ("user", "user", None),
                         ("speaker", "Speaker 2", "numbered"), ("speaker", None, "group")]
-    assert doc.meeting.summary_turn == 0 and doc.meeting.attendees == 2 and doc.meeting.voices == 2
+    assert doc.meeting.summary_turn == doc.turns[0].index == 1 and doc.meeting.attendees == 2 and doc.meeting.voices == 2
     assert doc.meeting.voices_split_by == "Example-Diarizer 2" and doc.meeting.duration_s == 1013
 
 
