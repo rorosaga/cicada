@@ -4174,6 +4174,17 @@ later than its `recorded_at`; the dry run counts, overall and by type, `read_lat
 0.6, its late restatement's confidence not being stored); `--apply` is one `cicada` commit (`trigger:
 maintenance/read-on-time`), refused while Sleep runs, only raises, a second run a no-op. A mention said the very day
 its page was last read is indistinguishable from an ordinary one and is left alone.
+**Which class a page gets (2026-11-23).** The rate above is `base x f(w) x pace`, and the base is the page's decay class, which
+Stage 1 proposes per entity. The class is about the *thing*, not about a fact in it: `volatile` is a short-lived thing (an
+event, a trip, an application, an errand, a decision still being made), `active` the default for the people, companies,
+projects and tools the person has a relation with. A fact in motion about a lasting thing — a sister moving flats, a friend
+promoted, the job the person just started — is a claim with its own dates and closing and never makes the page volatile;
+`decay_policy.agent_class` refuses `volatile` for `person`, `company` and `project` (`storage.md`, "Decay classes").
+Nothing about the rates, the thresholds, the repeat floor or the one-week cap moved, and pages already in a bank keep their
+stored class. The benchmark scores it with no model (`benchmarks/consolidation/fading.py`): the people and things the
+person keeps coming back to are not under the question line at the clock, the job held stands above the job left, and the
+finished bank is aged forward (a copy, Sleep's decay step alone, a pass a week) to list what a fortnight and six weeks of
+silence would raise a question about or archive.
 **A memory export entry is facts, not activity** (owner, 2026-10-08). A `source: claude_memory` episode is a summary
 of the person dated by the export entry's `updated_at`, not by when anything in it came up. `episode_time` is the one
 predicate: such an episode is no week in `w` (page, claim and card alike), and Stage 1 hands Stage 2 its entities

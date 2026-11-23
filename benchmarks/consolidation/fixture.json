@@ -955,6 +955,42 @@
      "proprietaire"
     ]
    }
-  ]
+  ],
+  "fading": {
+   "why": "Which pages must not fade, and in what order, by the role each has in the person's life, never by a number. keeps: whoever they keep coming back to (not below the question line at the clock). lasting: the partner, the sister, the employer: not under the line after six weeks of silence either. ended: a one-off that is over, or a place named once (should be under the line after six weeks of silence; a past employer is not one: it is history, and may stay). outranks: pairs of roles.",
+   "keeps": [
+    "kestrel",
+    ["lucía", "lucia"],
+    ["teodor", "teo", "brandt"],
+    "tomas",
+    "loomwright"
+   ],
+   "lasting": [
+    "kestrel",
+    ["lucía", "lucia"],
+    "tomas"
+   ],
+   "ended": [
+    "half marathon",
+    "ribeira"
+   ],
+   "outranks": [
+    {
+     "why": "the job they hold, said in many conversations and the last few days, is not less alive than the job they left",
+     "above": "kestrel",
+     "below": "halvard"
+    },
+    {
+     "why": "a person in several recent conversations is above a place named once, six weeks ago",
+     "above": ["lucía", "lucia"],
+     "below": "ribeira"
+    },
+    {
+     "why": "a person in several recent conversations is above a place named once, six weeks ago",
+     "above": ["teodor", "teo", "brandt"],
+     "below": "ribeira"
+    }
+   ]
+  }
  }
 }

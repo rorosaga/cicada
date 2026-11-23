@@ -74,7 +74,7 @@ class DecayClass(str, Enum):
     evergreen = "evergreen"   # never fades — artifacts (media/bookmarks) + user pins
     durable = "durable"       # fades slowly — stable preferences, skills, long-lived concepts
     active = "active"         # the default for a belief about the user's life
-    volatile = "volatile"     # expected to change within weeks (role, status, current focus)
+    volatile = "volatile"     # a short-lived thing (event, trip, errand); never a person, company or project
 
 
 # Per-week confidence drop used by the ENTITY decay engine

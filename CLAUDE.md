@@ -332,7 +332,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Entity types are a closed set of 10**; Stage 1 never produces `deadline` or `media`; a model's word is mapped into the
   set at extraction and again where a page is born (`entity_types`, 2026-10-17). Status: active → decaying → archived → dropped.
 - **Decay classes (G66):** one resolver; Stage 1 may propose `durable|active|volatile`, **never `evergreen`**, enforced at
-  extraction and again in the create branch.
+  extraction and again in the create branch; the class is the thing's, so never `volatile` for a person, company or
+  project (2026-11-23, `storage.md`).
 - **Evidence spans, not copies (G118):** offsets into the source's evidence text with a hash; locate is exact →
   whitespace → case-insensitive, **never fuzzy**; an unlocatable quote becomes `reasoning` and **the claim is still
   written — provenance never blocks memory**. Judged on read, one shape (`source_spans`): held or stale never draws. Six evidence kinds; every claim on the wire is built by one function.

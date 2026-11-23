@@ -67,8 +67,21 @@ def coerce(value) -> DecayClass | None:
         return None
 
 
-def agent_class(value) -> DecayClass | None:
-    """The Stage-1 rail: coerce, then refuse ``evergreen``.
+#: Kinds of page that stand for someone or something the person has an ongoing relation with. Their class is not "how
+#: long until a fact about them changes": a sister who is moving flats, a friend just promoted, an employer the person
+#: has just joined, a project in its busy month are each a fact in motion, and that fact is a claim (a value, a
+#: relationship) with its own dates and its own closing. Stage 1 proposed `volatile` for exactly these in the
+#: benchmark runs (2026-11-23), so the employer, the sister, a colleague of three meetings and the main work project
+#: faded faster than a programming language and could be archived within six weeks of silence. `volatile` stays for a
+#: thing that is itself short-lived: an event, a trip, an application, an errand, a decision still being made (the
+#: concept, tool and location kinds). `project` is held at the extraction's own word: a page Sleep writes for one is a
+#: `concept` that remembers it was proposed as a project (ruling 56), and the rail reads the word the model gave.
+ENDURING_TYPES = frozenset({"person", "company", "project"})
+
+
+def agent_class(value, entity_type: str | None = None) -> DecayClass | None:
+    """The Stage-1 rail: coerce, then refuse ``evergreen``, and refuse ``volatile`` for a kind of page that stands for
+    someone or something the person keeps a relation with (:data:`ENDURING_TYPES`; ``entity_type`` omitted: no such check).
 
     Stage-1 extraction may propose ``durable|active|volatile`` only. Anything
     else — including ``evergreen`` — is silently dropped so the caller falls back
@@ -76,6 +89,8 @@ def agent_class(value) -> DecayClass | None:
     """
     cls = coerce(value)
     if cls is None or cls not in AGENT_PRODUCIBLE_DECAY_CLASSES:
+        return None
+    if cls is DecayClass.volatile and str(entity_type or "").strip().lower() in ENDURING_TYPES:
         return None
     return cls
 

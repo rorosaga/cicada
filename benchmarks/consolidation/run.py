@@ -485,6 +485,9 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
     for pt in points:
         pt["judged"] = pt["claim"] or (judged_ids is not None and pt["id"] in judged_ids)
     total = lambda rows, key="ok": sum(1 for r in rows if r[key])  # noqa: E731
+    from benchmarks.consolidation import fading as fading_check   # does the right thing fade? (`fading.py`)
+
+    fading = fading_check.score(bank, snap, gold)
     return {
         "model": snap["model"],
         "summary": {
@@ -503,9 +506,11 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
             "pages_total": len(pages), "claims_total": len(claims), "questions": len(snap["questions"]),
             "span_rate": integrity["span_rate"],
             "integrity_breaks": len(leaked) + len(integrity["project_pages_made"]) + len(integrity["evergreen_pages"]),
+            **fading["summary"],
         },
         "points": points, "updates": updates, "apart_values": apart, "forbid": forbid, "roles": roles, "people": people,
         "pages": {"expected": expected, "not_expected": not_expected}, "dated": dated, "integrity": integrity,
+        "fading": fading,
     }
 
 
@@ -827,6 +832,11 @@ def report(out: Path) -> str:
             ("people_ok", f"people joined/kept apart right /{first.get('people', '?')}"),
             ("pages_ok", f"page made / not made right /{first.get('pages_checks', '?')}"),
             ("dated_ok", f"relative dates right /{first.get('dated', '?')}"),
+            ("fade_keeps_ok", f"pages kept coming back to, not fading /{first.get('fade_keeps', '?')}"),
+            ("fade_order_ok", f"fading order right (held job above left job, person above a place named once) /{first.get('fade_order', '?')}"),
+            ("silence_lasting_fading", f"after 6 weeks' silence: partner, sister, employer under the question line (want 0) /{first.get('silence_lasting', '?')}"),
+            ("silence_ended_fading", f"after 6 weeks' silence: ended things under it /{first.get('silence_ended', '?')}"),
+            ("silence_all_asked", "after 6 weeks' silence: pages that raise a question or archive"),
             ("precision", "claims supported (judge)"), ("hallucination", "claims unsupported (judge)"),
             ("misattribution", "claims misattributed (judge)"), ("canary", "planted errors the judge caught"),
             ("span_rate", "claims with a located span"), ("integrity_breaks", "integrity breaks"),

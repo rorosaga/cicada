@@ -121,3 +121,62 @@ def test_a_role_must_read_true_as_written(tmp_path):
     assert not verdict(relation("ines-varga", "landlord-of", "mr-duarte"))
     assert not verdict(relation("mr-duarte", "has-landlord", "ines-varga"))
     assert verdict(relation("ines-varga", "landlord-of", "mr-duarte", valid_to="2026-11-01"))   # closed: not held
+
+
+# --- does the right thing fade? (decay class; benchmarks/consolidation/fading.py) --------------------------------------
+
+def _bank_page(bank, pid, *, cls, confidence, status="active", type_="person", last="2026-11-14", eps=3):
+    from api.services import markdown_parser
+
+    (bank / "entities").mkdir(parents=True, exist_ok=True)
+    markdown_parser.write(bank / "entities" / f"{pid}.md", {
+        "name": pid.title(), "type": type_, "status": status, "confidence": confidence, "created": "2026-10-01",
+        "last_referenced": last, "decayed_through": "2026-11-23", "learned_on": "2026-11-23", "decay_class": cls,
+        "decay_rate": {"volatile": 0.15, "active": 0.05, "durable": 0.02}[cls],
+        "source_episodes": [f"ep_2026-10-{day:02d}_001" for day in (1, 9, 20)][:eps], "aliases": []}, f"# {pid}\n")
+
+
+def test_fading_gold_is_about_roles_and_every_fixture_carries_it():
+    for person in bench.PEOPLE:
+        gold = bench.load_fixture(person)["gold"]["fading"]
+        assert gold["keeps"] and gold["lasting"], person
+        assert not any(isinstance(v, (int, float)) for row in gold.get("outranks", []) for v in row.values())
+
+
+def test_fading_order_and_keeps_read_the_stored_state(tmp_path):
+    from benchmarks.consolidation import fading
+
+    pages = [_page("ines-varga", "Ines Varga", owner=True), _page("kestrel", "Kestrel", type_="company"),
+             _page("halvard", "Halvard", type_="company"), _page("ribeira", "Ribeira", type_="location")]
+    fm = {"kestrel": {"status": "decaying", "confidence": 0.39, "decay_class": "volatile"},
+          "halvard": {"status": "active", "confidence": 0.59, "decay_class": "active"},
+          "ribeira": {"status": "active", "confidence": 0.3}}
+    gold = {"keeps": ["kestrel", "tomas"], "outranks": [{"above": "kestrel", "below": "halvard"},
+                                                          {"above": "kestrel", "below": "ribeira"},
+                                                          {"above": "tomas", "below": "ribeira"}]}
+    state = fading.score_state(pages, [], fm, gold)
+    assert [k["ok"] for k in state["keeps"]] == [False, False]   # kestrel is under the line; tomas has no page
+    assert [o["ok"] for o in state["order"]] == [False, True, False]   # the held job under the left one; no upper page
+
+
+def test_two_pages_with_one_name_are_told_apart_by_what_each_says(tmp_path):
+    from benchmarks.consolidation import fading
+
+    pages = [{**_page("marc", "Marc"), "prose": "Colleague, moving to Berlin."},
+             {**_page("marc-2", "Marc"), "prose": "Carpenter in Annecy."}]
+    assert [p["id"] for p in fading.find(pages, [], {"name": "marc", "about": "berlin"})] == ["marc"]
+    assert [p["id"] for p in fading.find(pages, [], {"name": "marc", "about": ["carpenter"]})] == ["marc-2"]
+
+
+def test_silence_probe_ages_a_copy_and_a_volatile_person_is_asked_before_an_active_one(tmp_path):
+    from benchmarks.consolidation import fading
+
+    bank = tmp_path / "bank"
+    _bank_page(bank, "sister", cls="volatile", confidence=0.7)
+    _bank_page(bank, "employer", cls="active", confidence=0.7, type_="company")
+    before = {p.name: p.read_text() for p in (bank / "entities").glob("*.md")}
+    out = fading.probe_silence(bank, CLOCK)
+    assert {p.name: p.read_text() for p in (bank / "entities").glob("*.md")} == before   # the bank is never touched
+    six_weeks = out["42"]
+    assert "sister" in six_weeks["below_line"] and "employer" not in six_weeks["below_line"]
+    assert "sister" in set(six_weeks["asked"]) | set(six_weeks["archived"])

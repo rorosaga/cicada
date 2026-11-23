@@ -750,6 +750,23 @@
      "brother-in-law"
     ]
    }
-  ]
+  ],
+  "fading": {
+   "why": "Which pages must not fade, by the role each has in the person's life, never by a number. keeps: whoever they keep coming back to (not below the question line at the clock). lasting: the partner and the business: not under the line after six weeks of silence either.",
+   "keeps": [
+    "cartolina",
+    "idris",
+    {"name": "marc", "about": "berlin"},
+    {"name": "marc", "about": ["brother in law", "beau frere", "annecy", "carpenter", "menuisier"]},
+    ["lea", "leaux"],
+    "banking"
+   ],
+   "lasting": [
+    "idris",
+    "cartolina"
+   ],
+   "ended": [],
+   "outranks": []
+  }
  }
 }

@@ -60,6 +60,19 @@ def test_agent_class_drops_evergreen_but_keeps_the_other_three():
     assert decay_policy.agent_class("nonsense") is None
 
 
+def test_agent_class_never_makes_a_person_a_company_or_a_project_volatile():
+    """A person, an employer or a project is not short-lived because a fact about it is in motion (a move, a
+    promotion, a new job, a busy month): the fact is a claim, and the page keeps the default pace. Other kinds, and the
+    other classes, stand."""
+    for kind in ("person", "company", "Person", "project"):
+        assert decay_policy.agent_class("volatile", kind) is None
+        assert decay_policy.agent_class("durable", kind) is DecayClass.durable
+        assert decay_policy.agent_class("active", kind) is DecayClass.active
+    for kind in ("concept", "tool", "location", "skill", "directory", None):
+        assert decay_policy.agent_class("volatile", kind) is DecayClass.volatile
+    assert decay_policy.agent_class("volatile") is DecayClass.volatile   # no type given: the old call
+
+
 # --- resolve ----------------------------------------------------------------
 
 
