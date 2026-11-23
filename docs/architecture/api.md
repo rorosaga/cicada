@@ -1103,8 +1103,10 @@ the day. Warm `?sort=relevance` 1,938 → 128 ms; a page read during a rebuild w
 
 **`POST /sources/site-save` and `POST /sources/site-unsave` (G221, ruling 77, 2026-11-23)** — a save the person made
 inside a site, noticed by the app from the control they clicked (`app.md`, "A save inside a site"). Body
-`{site, url, text?, folders?, removeFolders?}`: `site` is `x`, `instagram`, `tiktok` (and any other key of
-`saved_lists.PLATFORMS` with a list label) or `github`; `url` the post's own link in any spelling; `text` the post's
+`{site, url, text?, folders?, removeFolders?}`: `site` is `x`, `instagram`, `tiktok`, `reddit` (and any other key of
+`saved_lists.PLATFORMS` with a list label), `github` or `youtube` (a video, by `watch_history.watch_url`'s one link,
+under `youtube-playlist` — the row `cicada_record_youtube_list` writes; its list label is the first of `folders`, the
+playlist the person chose, else Watch later); `url` the post's own link in any spelling; `text` the post's
 own words as its page showed them (a preview, scrubbed, never the person's words). `site_saves.target` decides the
 row: the site's own origin and list label with `saved_lists.canonical`'s link and aliases — the row
 `cicada_record_saved_list` and the site's connector write for the same post, never a second (one Instagram post is

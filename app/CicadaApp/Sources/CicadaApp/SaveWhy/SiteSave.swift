@@ -66,6 +66,37 @@ struct SiteSaveSite: Sendable {
     let slot: Slot
     /// The person's own saved list on this site: a control toggled there is leaving the list, never joining it.
     let listPages: [NSRegularExpression]
+    /// The site keeps its save in a menu (`SiteMenuSave.swift`), not in a button of the post's row.
+    var menu: Menu? = nil
+
+    /// Where a menu's save sits, as the page's own structure (DOM ids and class names, which are the same in every
+    /// interface language): never a word of the menu.
+    struct Menu: Sendable {
+        /// A DOM id an ancestor of the menu carries (Reddit's `hovercard`).
+        var under: String? = nil
+        /// A class the menu itself carries (YouTube's list of the person's lists).
+        var menuClass: String? = nil
+        /// A class of the sheet around it, which must hold a header of `headerClass` and end in a plain button
+        /// (YouTube's "new list" button): the same list class is used for other menus, which have neither.
+        var sheetClass: String? = nil
+        var headerClass: String? = nil
+        /// The DOM id prefix of the block that is one post (Reddit `t3_<id>`), and of blocks that are something
+        /// else (a comment, `t1_`): the nearest one above the menu decides.
+        var block: String? = nil
+        var notBlock: [String] = []
+        /// A class an ancestor carries when the menu belongs to something else (a comment's own menu).
+        var notClasses: [String] = []
+        /// The item that saves, counted from the menu's end, in a menu of one of `sizes` items. Nil when every item
+        /// is one of the person's lists (`lists`).
+        var fromEnd: Int? = nil
+        var sizes: ClosedRange<Int> = 1...200
+        /// Every item is one of the person's lists; the first is the site's own, the others are folders.
+        var lists = false
+        /// Where the sheet was opened from: a class of a card that is one post (its first post link names it), and
+        /// a class found above the page's own controls (the page itself is the post).
+        var cards: [String] = []
+        var pageClass: String? = nil
+    }
 
     enum Slot: Sendable {
         /// The first plain button after the row's anchor link; with no anchor in the row (a post's own page), the
@@ -78,6 +109,8 @@ struct SiteSaveSite: Sendable {
         /// The plain button directly before the row's last plain button, in a row with at least `least`
         /// (TikTok: like, comments, favourite, share).
         case beforeLast(least: Int)
+        /// No button of a row saves on this site (its save is in a menu).
+        case none
     }
 
     func onHost(_ url: String?) -> Bool {
@@ -150,7 +183,35 @@ struct SiteSaveSite: Sendable {
         rowAnchor: nil, slot: .beforeLast(least: 4),
         listPages: [])
 
-    static let all: [SiteSaveSite] = [x, instagram, github, tiktok]
+    /// Reddit's Save sits in the post's own menu (measured 2026-11-23, feed and post page: Follow, sometimes Award,
+    /// Save, Hide, Report). The menu is inside the post's block, whose DOM id is the post's own (`t3_<id>`); the
+    /// post's link is the one that carries that id. A longer menu (the person's own post, a moderator's) is a layout
+    /// this does not know, and a comment's own menu (measured: three items, under `comment-overflow-menu`) is not a
+    /// post's.
+    static let reddit = SiteSaveSite(
+        key: "reddit", name: "Reddit", origin: "reddit-saved", hosts: ["reddit.com"],
+        items: [(re(web + #"reddit\.com/r/([A-Za-z0-9_]{2,21})/comments/([a-z0-9]{3,12})(?:/([^/?#\s]{1,120}))?/?(?:[?#].*)?$"#),
+                 "https://www.reddit.com/r/$1/comments/$2/$3", "Post in r/$1")],
+        rowAnchor: nil, slot: .none,
+        listPages: [re(web + #"reddit\.com/user/[A-Za-z0-9_-]+/saved(?:[/?#].*)?$"#)],
+        menu: Menu(under: "hovercard", block: "t3_", notBlock: ["t1_", "comment-"],
+                   notClasses: ["comment-overflow-menu"], fromEnd: 3, sizes: 4...5))
+
+    /// YouTube's Save opens a sheet of the person's lists (measured 2026-11-23: Watch later first, then each
+    /// playlist; a click files the video and closes the sheet). The video is the card the sheet was opened from, or
+    /// the page's own when it was opened from the controls under the player.
+    static let youtube = SiteSaveSite(
+        key: "youtube", name: "YouTube", origin: "youtube-playlist", hosts: ["youtube.com"],
+        items: [(re(web + #"youtube\.com/watch\?(?:[^#]*&)?v=([A-Za-z0-9_-]{11})(?:[&#].*)?$"#),
+                 "https://www.youtube.com/watch?v=$1", "YouTube video"),
+                (re(web + #"youtube\.com/shorts/([A-Za-z0-9_-]{11})/?(?:[?#].*)?$"#),
+                 "https://www.youtube.com/watch?v=$1", "YouTube video")],
+        rowAnchor: nil, slot: .none, listPages: [],
+        menu: Menu(menuClass: "ytListViewModelHost", sheetClass: "ytContextualSheetLayoutHost",
+                   headerClass: "ytPanelHeaderViewModelHost", lists: true,
+                   cards: ["ytLockupViewModelHost"], pageClass: "ytd-watch-metadata"))
+
+    static let all: [SiteSaveSite] = [x, instagram, github, tiktok, reddit, youtube]
     static func named(_ key: String) -> SiteSaveSite? { all.first { $0.key == key } }
     /// A link that is a post of any known site (what the reader looks for around a click).
     static func isItemLink(_ url: String) -> Bool { all.contains { $0.item(url) != nil } }
@@ -197,6 +258,8 @@ enum SiteSaveRule {
             return row.indices.contains(clicked + 1) && row[clicked + 1].role == menuButton
         case let .beforeLast(least):
             return plain.count >= least && plain.dropLast().last == clicked
+        case .none:
+            return false
         }
     }
 
@@ -382,7 +445,7 @@ enum SiteSaveReader {
     static let maxAncestors = 6
     static let maxNodes = 80
 
-    private static func string(_ element: AXUIElement, _ attribute: String) -> String? {
+    static func string(_ element: AXUIElement, _ attribute: String) -> String? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
         if let text = value as? String { return text }
@@ -390,14 +453,14 @@ enum SiteSaveReader {
         return nil
     }
 
-    private static func element(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
+    static func element(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success, let value,
               CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
         return (value as! AXUIElement)
     }
 
-    private static func children(_ element: AXUIElement) -> [AXUIElement] {
+    static func children(_ element: AXUIElement) -> [AXUIElement] {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &value) == .success else {
             return []
@@ -405,7 +468,7 @@ enum SiteSaveReader {
         return value as? [AXUIElement] ?? []
     }
 
-    private static func label(_ element: AXUIElement) -> String {
+    static func label(_ element: AXUIElement) -> String {
         let described = string(element, kAXDescriptionAttribute as String) ?? ""
         return described.isEmpty ? (string(element, kAXTitleAttribute as String) ?? "") : described
     }
@@ -413,7 +476,7 @@ enum SiteSaveReader {
     /// How far outside a button's own frame a click still belongs to it.
     static let halo: CGFloat = 14
 
-    private static func frame(_ element: AXUIElement) -> CGRect? {
+    static func frame(_ element: AXUIElement) -> CGRect? {
         var position: CFTypeRef?, size: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &position) == .success,
               AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &size) == .success,
@@ -504,7 +567,7 @@ enum SiteSaveReader {
         return best?.button
     }
 
-    private static func isControl(_ role: String) -> Bool {
+    static func isControl(_ role: String) -> Bool {
         role == SiteSaveRule.plainButton || role == "AXPopUpButton" || role == SiteSaveRule.link
     }
 
@@ -672,7 +735,7 @@ enum SiteSaveReader {
         return SiteSaveRule.Census(was: wore, now: max(0, wears - 1))
     }
 
-    private static func webArea(above start: AXUIElement) -> AXUIElement? {
+    static func webArea(above start: AXUIElement) -> AXUIElement? {
         var node = start
         for _ in 0..<80 {
             if string(node, kAXRoleAttribute as String) == "AXWebArea" { return node }
@@ -683,7 +746,7 @@ enum SiteSaveReader {
     }
 
     /// The address of the page an element is on: its web area's own.
-    private static func page(above start: AXUIElement) -> String? {
+    static func page(above start: AXUIElement) -> String? {
         webArea(above: start).flatMap { string($0, kAXURLAttribute as String) }
     }
 }
@@ -725,8 +788,9 @@ final class SiteSaveWatcher {
     /// once per visit (again only after the pointer has been on another site or none).
     var onSite: ((SiteSaveSite, pid_t, String) -> Void)?
     private var lastSite: String?
-    /// A click changed a save control: the post, which way it went, and the post's own words when the page gave them.
-    var onOutcome: ((SiteSaveItem, SiteSaveRule.Outcome, String) -> Void)?
+    /// A click changed a save control: the post, which way it went, the post's own words when the page gave them,
+    /// and the person's own list it was filed in when the site showed one (YouTube's playlists).
+    var onOutcome: ((SiteSaveItem, SiteSaveRule.Outcome, String, String?) -> Void)?
 
     private var observer: NSObjectProtocol?
     private var monitor: Any?
@@ -735,6 +799,18 @@ final class SiteSaveWatcher {
     private var pending: Task<Void, Never>?
     private var rest: Task<Void, Never>?
     private(set) var hovered: Hover?
+
+    /// A rest on a menu item (`SiteMenuSave.swift`): a menu closes at the click, so what it showed is read while the
+    /// pointer rests on it. Kept a few seconds, and used only for a click inside the same item.
+    struct MenuHover: Equatable, Sendable {
+        var reading: SiteMenuReading
+        var at: TimeInterval
+    }
+    nonisolated static let menuFresh: TimeInterval = 5
+    /// How long the click that opened a sheet of lists still names the post the sheet is about.
+    nonisolated static let openerFresh: TimeInterval = 120
+    private(set) var hoveredMenu: MenuHover?
+    private var opener: (from: SiteMenuRule.Opener, at: TimeInterval)?
 
     func start() {
         guard observer == nil else { return }
@@ -796,6 +872,8 @@ final class SiteSaveWatcher {
         rest?.cancel()
         rest = nil
         hovered = nil
+        hoveredMenu = nil
+        opener = nil
     }
 
     private func screenPoint(_ appKit: CGPoint) -> CGPoint {
@@ -822,6 +900,16 @@ final class SiteSaveWatcher {
                 } else {
                     self.hovered = nil
                 }
+                let menus = self.sites().filter { $0.menu != nil }
+                if self.hovered == nil, !menus.isEmpty {
+                    let menu = await Task.detached(priority: .utility) {
+                        await SiteSaveReader.settledReadMenu(pid: pid, at: point, sites: menus)
+                    }.value
+                    guard !Task.isCancelled, self.armedPid == pid else { return }
+                    self.hoveredMenu = menu.map { MenuHover(reading: $0, at: SaveWhyTimings.now()) }
+                } else {
+                    self.hoveredMenu = nil
+                }
             }
             guard self.offers() else { return }
             let site = await Task.detached(priority: .utility) { SiteSaveReader.frontSite(pid: pid) }.value
@@ -845,10 +933,13 @@ final class SiteSaveWatcher {
         guard let pid = armedPid, !sites().isEmpty else { return }
         let point = screenPoint(location)
         let hover = Self.usable(hovered, at: point, now: SaveWhyTimings.now())
+        let menuHover = Self.usable(hoveredMenu, at: point, now: SaveWhyTimings.now())
+        let menus = sites().filter { $0.menu != nil }
         rest?.cancel()
         pending?.cancel()
         pending = Task { [weak self] in
             guard let self else { return }
+            if !menus.isEmpty, await self.menuClick(pid: pid, point: point, hover: menuHover, sites: menus) { return }
             let found = await Self.follow(pid: pid, point: point, hover: hover, sites: self.sites(),
                                           learned: self.prefs.allLabels)
             guard !Task.isCancelled, let found else { return }
@@ -858,9 +949,71 @@ final class SiteSaveWatcher {
                 self.prefs.learn(found.item.site, was: found.was, now: found.now, outcome: found.outcome)
             }
             if found.outcome != .none {
-                self.onOutcome?(found.item, found.outcome, SiteSaveRule.text(of: found.seen, item: found.item))
+                self.onOutcome?(found.item, found.outcome, SiteSaveRule.text(of: found.seen, item: found.item), nil)
             }
         }
+    }
+
+    /// The rest's reading of a menu, for a click inside the same item while it is fresh.
+    nonisolated static func usable(_ hover: MenuHover?, at point: CGPoint, now: TimeInterval) -> SiteMenuReading? {
+        let row = hover?.reading.frame ?? .zero
+        guard let hover, now - hover.at <= menuFresh, point.y >= row.minY, point.y < row.maxY,
+              point.x >= row.minX - 80, point.x <= row.maxX + 80 else { return nil }
+        return hover.reading
+    }
+
+    /// What a click on a menu item, read as `reading` on a post `named` so, comes to: the outcome, what it teaches,
+    /// and what this Mac has now seen (`SiteMenuRule.outcome`). Pure, so the menu path is tested without a browser.
+    nonisolated static func settle(_ reading: SiteMenuReading, item: SiteSaveItem, site: SiteSaveSite,
+                                   learned: SiteSaveRule.Labels, seen: SiteMenuRule.Seen)
+    -> (verdict: SiteMenuRule.Verdict, seen: SiteMenuRule.Seen) {
+        let post = SiteMenuRule.postKey(item.url)
+        let verdict = SiteMenuRule.outcome(reading, site: site, post: post, learned: learned, seen: seen)
+        var after = seen
+        if let rule = site.menu, reading.items.indices.contains(reading.clicked) {
+            after.note(label: SiteMenuRule.state(reading.items[reading.clicked], lists: rule.lists), post: post)
+        }
+        return (verdict, after)
+    }
+
+    /// A click on a site that keeps its save in a menu. True when the click was on a menu item (whatever it came
+    /// to), so the row of buttons is not looked at for it.
+    private func menuClick(pid: pid_t, point: CGPoint, hover: SiteMenuReading?, sites menus: [SiteSaveSite]) async -> Bool {
+        // The menu as it is at the click; when it has already closed, what the pointer's rest on the item read.
+        let atClick = await Task.detached(priority: .userInitiated) {
+            await SiteSaveReader.settledReadMenu(pid: pid, at: point, sites: menus)
+        }.value
+        guard !Task.isCancelled, armedPid == pid else { return true }
+        guard let reading = atClick ?? hover, let site = menus.first(where: { $0.key == reading.site }) else {
+            // Not a menu item. On a site whose sheet names no post, this click may be the one that opens it: keep
+            // where it was (a card, the page's own controls).
+            let front = await Task.detached(priority: .utility) { SiteSaveReader.frontSite(pid: pid) }.value
+            if let front, let listed = menus.first(where: { $0.key == front.key && $0.menu?.lists == true }) {
+                let from = await Task.detached(priority: .utility) {
+                    await SiteSaveReader.settledOpener(pid: pid, at: point, site: listed)
+                }.value
+                if let from, from != .menu { opener = (from, SaveWhyTimings.now()) }
+            }
+            return false
+        }
+        let from = opener.flatMap { SaveWhyTimings.now() - $0.at <= Self.openerFresh ? $0.from : nil }
+        switch SiteMenuRule.item(reading, opener: from, sites: menus) {
+        case let .failure(why):
+            SiteSaveReader.logger.info("menu item on \(site.key, privacy: .public): \(why.rawValue, privacy: .public)")
+        case let .success(found):
+            let settled = Self.settle(reading, item: found.item, site: site, learned: prefs.labels(site.key),
+                                      seen: prefs.seen(site.key))
+            prefs.setSeen(site.key, settled.seen)
+            prefs.teach(site.key, saved: settled.verdict.saved, unsaved: settled.verdict.unsaved)
+            SiteSaveReader.logger.info("""
+                menu save on \(site.key, privacy: .public): \(settled.verdict.outcome.rawValue, privacy: .public) \
+                by \(settled.verdict.basis, privacy: .public); read at the \(atClick != nil ? "click" : "rest", privacy: .public)
+                """)
+            if settled.verdict.outcome != .none {
+                onOutcome?(found.item, settled.verdict.outcome, found.text, found.folder)
+            }
+        }
+        return true
     }
 
     /// Which reading is the state before the click: the rest's when it is about the same control (or when the read
@@ -949,6 +1102,27 @@ struct SiteSavePrefs {
         var known = labels(site)
         known.learn(was: was, now: now, outcome: outcome)
         // A few labels per site (one pair per interface language the person has used); never grows without bound.
+        guard known.saved.count <= 12, known.unsaved.count <= 12,
+              let data = try? JSONEncoder().encode(known) else { return }
+        defaults.set(data, forKey: Self.labelsKey(site))
+    }
+    static func seenKey(_ site: String) -> String { "cicada.siteSaves.seen.\(site)" }
+
+    /// What a menu's save item wore at the person's clicks (`SiteMenuRule.Seen`): labels and hashed posts, a few.
+    func seen(_ site: String) -> SiteMenuRule.Seen {
+        defaults.data(forKey: Self.seenKey(site)).flatMap { try? JSONDecoder().decode(SiteMenuRule.Seen.self, from: $0) }
+            ?? SiteMenuRule.Seen()
+    }
+    func setSeen(_ site: String, _ seen: SiteMenuRule.Seen) {
+        guard let data = try? JSONEncoder().encode(seen) else { return }
+        defaults.set(data, forKey: Self.seenKey(site))
+    }
+    /// A menu click certain enough to name one or both of a site's labels.
+    func teach(_ site: String, saved: String?, unsaved: String?) {
+        guard saved != nil || unsaved != nil else { return }
+        var known = labels(site)
+        if let saved { known.saved.insert(saved) }
+        if let unsaved { known.unsaved.insert(unsaved) }
         guard known.saved.count <= 12, known.unsaved.count <= 12,
               let data = try? JSONEncoder().encode(known) else { return }
         defaults.set(data, forKey: Self.labelsKey(site))

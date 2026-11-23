@@ -96,6 +96,9 @@ def test_an_unsave_marks_the_save_and_saving_again_clears_the_mark(tmp_path, mon
     ("instagram", "https://www.instagram.com/alpha_user/reel/AbCdEfGhIjK/", "https://www.instagram.com/reel/AbCdEfGhIjK/", "instagram-saved"),
     ("github", "https://github.com/alpha-org/alpha-project/", "https://github.com/alpha-org/alpha-project", "github-starred"),
     ("tiktok", "https://www.tiktok.com/@alpha.user/video/7300000000000000001", "https://www.tiktok.com/@alpha.user/video/7300000000000000001", "tiktok-saved"),
+    ("reddit", "https://old.reddit.com/r/alpha_sub/comments/1abc234/a_synthetic_post/?share=1", "https://www.reddit.com/r/alpha_sub/comments/1abc234/a_synthetic_post/", "reddit-saved"),
+    ("youtube", "https://www.youtube.com/watch?v=AbCdEfGhIjK&list=PLalpha&t=42s", "https://www.youtube.com/watch?v=AbCdEfGhIjK", "youtube-playlist"),
+    ("youtube", "https://youtu.be/AbCdEfGhIjK", "https://www.youtube.com/watch?v=AbCdEfGhIjK", "youtube-playlist"),
 ])
 def test_the_other_sites_store_under_their_own_origin(tmp_path, monkeypatch, site, url, stored, origin):
     memory = _bank(tmp_path)
@@ -117,3 +120,18 @@ def test_githubs_own_sections_are_never_a_repository(tmp_path, monkeypatch):
     memory = _bank(tmp_path)
     r = _client(memory, monkeypatch).post("/sources/site-save", json={"site": "github", "url": "https://github.com/sponsors/alpha"})
     assert r.status_code == 422
+
+
+def test_a_youtube_video_is_filed_under_watch_later_or_the_playlist_the_person_chose(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    client = _client(memory, monkeypatch)
+    later = client.post("/sources/site-save", json={"site": "youtube", "url": "https://www.youtube.com/watch?v=AbCdEfGhIjK"}).json()
+    fm, _ = _episode(memory, later["episodeId"])
+    assert fm["origin"] == "youtube-playlist" and fm["folder"] == "Watch later"
+    listed = client.post("/sources/site-save", json={"site": "youtube", "url": "https://www.youtube.com/watch?v=ZyXwVuTsRqP",
+                                                     "folders": ["Alpha tutorials"]}).json()
+    fm, _ = _episode(memory, listed["episodeId"])
+    assert fm["folder"] == "Alpha tutorials" and listed["folders"] == ["Alpha tutorials"]
+    # A channel, a search or the home feed is not a video.
+    for url in ("https://www.youtube.com/@alpha", "https://www.youtube.com/results?search_query=alpha", "https://www.youtube.com/"):
+        assert client.post("/sources/site-save", json={"site": "youtube", "url": url}).status_code == 422

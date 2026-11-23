@@ -33,7 +33,7 @@ extension Copy {
             case .meetings: "Only transcripts are read, never audio."
             case .dictation: "Only what you dictate is read."
             case .notion: "Only pages you share are read."
-            case .saves: "Only the save button you click and its post are read."
+            case .saves: "Only the save you click and its post are read."
             }
         }
 

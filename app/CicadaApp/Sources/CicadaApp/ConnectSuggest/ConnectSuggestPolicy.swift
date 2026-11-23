@@ -161,7 +161,8 @@ struct ConnectSuggestMemory: Codable, Equatable, Sendable {
 /// - **No is never again** for that source; Settings lists it with Suggest again.
 /// - **At most one a day between different sources** (a rolling 24 h, so no day boundary or zone decides it). A
 ///   source's own return follows its own wait: the cap is against a pile of different offers, not against the one the
-///   person put off.
+///   person put off. A site's offer (G221) is not held by the cap: it only shows on that site, whose saves do nothing
+///   until it is connected.
 /// - **Never in the first minute** after the app launched (it is still opening windows, restoring, asking for
 ///   things), nor in the first minute after Cicada launched (the memory's sources are not read yet). A suggestion is
 ///   never deferred to later: it belongs to the moment the person entered the app, so a refused one waits for the next
@@ -239,8 +240,11 @@ enum ConnectSuggestPolicy {
             guard c.now.timeIntervalSince(since) >= waits[source.shown - 1] else { return .skip(.snoozed) }
         }
         // The cap is between different sources: when the last offer of all was this source's own, its wait above
-        // already decided.
-        if let last = memory.lastShown, last != source.lastShown, c.now.timeIntervalSince(last) < dailyGap {
+        // already decided. A site's offer is not held by it either: the person is on that site now, its saves do
+        // nothing until it is connected, and nothing else says why (found live: one site's unanswered offer kept
+        // three other sites silent for a day while their saves were missed).
+        if target.kind != .saves, let last = memory.lastShown, last != source.lastShown,
+           c.now.timeIntervalSince(last) < dailyGap {
             return .skip(.dailyCap)
         }
         if c.now.timeIntervalSince(c.cicadaLaunchedAt) < launchQuiet { return .skip(.cicadaJustLaunched) }

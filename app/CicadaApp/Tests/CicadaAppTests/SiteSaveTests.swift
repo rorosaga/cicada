@@ -319,7 +319,7 @@ private actor SiteSaveFakeAPI: SavedWhyAPI {
     }
     func savedWhyOptions() async throws -> SavedWhyOptions { SavedWhyOptions() }
     func saveWhy(url: String, answer: SavedWhyAnswer, at: Date, addedAt: String?) async throws {}
-    func saveSiteItem(site: String, url: String, text: String) async throws -> SiteSaveReply {
+    func saveSiteItem(site: String, url: String, text: String, folder: String?) async throws -> SiteSaveReply {
         if refusing { throw APIError.httpError(409, "Sleep is updating your memory") }
         saved.append("\(site) \(url)")
         return SiteSaveReply(status: "created", url: url, title: "Post by @alpha_user", origin: "x-bookmarks",

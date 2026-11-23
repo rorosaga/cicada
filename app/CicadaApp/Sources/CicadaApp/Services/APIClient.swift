@@ -686,7 +686,7 @@ protocol SavedWhyAPI: Sendable {
     func savedWhySuggest(url: String, title: String) async throws -> SavedWhyModelScores
     /// G221 — a save the person made inside a site (X's Bookmark), noticed from their own click: stored under that
     /// site's own source, index-only until they say why.
-    func saveSiteItem(site: String, url: String, text: String) async throws -> SiteSaveReply
+    func saveSiteItem(site: String, url: String, text: String, folder: String?) async throws -> SiteSaveReply
     /// G221 — the person took a post off their list on the site: the save stays, marked since when.
     func unsaveSiteItem(site: String, url: String) async throws
 }
@@ -707,7 +707,7 @@ extension SavedWhyAPI {
     func savedWhySuggest(url: String, title: String) async throws -> SavedWhyModelScores { SavedWhyModelScores() }
 
     /// A client with no site-save door (most tests): refused as an older backend refuses an unknown route.
-    func saveSiteItem(site: String, url: String, text: String) async throws -> SiteSaveReply {
+    func saveSiteItem(site: String, url: String, text: String, folder: String?) async throws -> SiteSaveReply {
         throw APIError.httpError(404, "site saves are not supported here")
     }
     func unsaveSiteItem(site: String, url: String) async throws {}
@@ -2776,9 +2776,11 @@ actor APIClient {
         try await post("/sources/saved-why/suggest", body: ["url": url, "title": title])
     }
 
-    func saveSiteItem(site: String, url: String, text: String) async throws -> SiteSaveReply {
-        var body = ["site": site, "url": url]
+    func saveSiteItem(site: String, url: String, text: String, folder: String?) async throws -> SiteSaveReply {
+        var body: [String: Any] = ["site": site, "url": url]
         if !text.isEmpty { body["text"] = text }
+        // The person's own list on the site the post was filed in (a YouTube playlist), as the site names it.
+        if let folder, !folder.isEmpty { body["folders"] = [folder] }
         return try await post("/sources/site-save", body: body)
     }
 
