@@ -2291,21 +2291,31 @@ and per flagged doubt pair, at most 8 a drain (`MAX_LOOKS`), and none when nothi
 100-conversation batch the Stage 2 bound is 20 names; the tail's is 8.
 
 **Measured (2026-11-23).** *The replay battery* (`same_name_battery.py`, 71 labelled single judge inputs, the small judge on a key
-at about $0.0003 a call): the code before (`origin/dev`, 10 replays a case) kept 216 of 240 two-person replays apart (90%) and cut
-no one of 460 one-person replays; an established page against a different person's mention was kept apart in 69 of 90 (77%; an
-established family page against a colleague's mention in 0 of 10). With this design and the second reading: 248 of 250 two-person
-replays kept apart (99%), the established-page cases 89 of 90 (99%), and **0 false splits of one person in 460 replays** (0 of 460 and 0
-of 920 in two earlier versions of the prompt, 1 of 920 in a third: one input, not reproduced in 60 replays). *The stories*
-(`same_name_stories.py`, 30 stories in English, Spanish and French; the code before 20 replays each, this design 8 each; ok =
-the expected end state and number of questions): two people new in one batch 59 of 60 → 24 of 24; two people already joined on one
-page then a clarifying conversation **0 of 100 → 38 of 40** (the page split by conversation, one commit); two people the record never tells
-apart **0 of 60 → 24 of 24**, one question each (the code before blended them in 41 of 60 and asked nothing); a doubt a later
-conversation settles as one person **33 of 60 → 24 of 24** (the code before cut one person in 27), no question; one person in many
-settings, one whose life moves on, a thin first mention, an established page re-read: all ok before and after (240 of 240; 96 of 96),
-**no question**. Where the code before already did well (an established page, then a different person's mention, in the stories)
-it still does: 80 of 80 → 32 of 32. *The benchmark* (3 runs, both people): the fixture's two Marcs apart 3 of 3 runs (the code before: 2 of
-3, and about 1 run in 3 joined by a silent one-person answer that the second reading now catches), one person kept as one 5 of 5 each run, others' words kept off the person 13 of 13; questions 5, 2, 4 a run (the code before
-5, 3, 3), the second Marc's pair being asked once only when the second look cannot tell them apart.
+at about $0.0003 a call, the second reading on): the code before (`origin/dev`, 10 replays a case) kept 216 of 240 two-person
+replays apart (90%) and cut no one of 460 one-person replays; an established page against a different person's mention was kept
+apart in 69 of 90 (77%; an established family page against a colleague's mention in 0 of 10). As landed: **248 of 250** two-person
+replays kept apart (99%) and **0 false splits of one person in 460 replays** (one earlier wording of the prompt cut one person
+once in 920; that input was not reproduced in 60 more). *The stories* (`same_name_stories.py`, 30 stories in English, Spanish and
+French; the code before 20 replays each, as landed 8 each; ok = the expected end state and number of questions): two people new
+in one batch 59 of 60 → 24 of 24; two people already joined on one page, then a clarifying conversation **0 of 100 → 39 of 40**
+(the page split by conversation, one commit); two people the record never tells apart **0 of 60 → 24 of 24**, one question each
+(the code before blended them in 41 of 60 and asked nothing); a doubt a later conversation links: the code before cut one person
+in two in 27 of 60 and said nothing, as landed **24 of 24 end as the one question with the link in it** (never joined by Sleep,
+ruling 74); one person in many settings, one whose life moves on, a thin first mention, an established page re-read: all ok
+before and after (240 of 240; 96 of 96), **no question and no split**. The stories replay a simulated bank; **the real path**
+(the stager, `sleep_cycle.run`, the tail, a real engine) was run on a scratch bank with a three-phase, twelve-conversation story
+of three first names, six times: no real person was cut in two in any run and no bank was left with an uncommitted file; a page
+that had taken a second person's conversations was split by the tail into the right two as one commit in 2 runs, and in the
+others that person waited on a held line in doubt. Those runs found two defects the simulation could not: the store left
+modified and uncommitted when a flag was taken with nothing to read, and **a second person's page answering to the bare name**
+while the first person was still a held line (the only page so titled took the name's key in Stage 2's index, so the first
+person's held claims were released onto the other person's page). A page recorded apart from the name's own slug no longer
+holds the name's key (`_second_person_titles`); the two runs made to hit that path then kept each person's facts their own.
+*Known limits.* A split leaves the page's Summary as it was until the page is next rewritten (a Summary sentence has no
+provenance of its own), so one sentence about the other person can outlive the split. A thin conversation joined earlier
+(nothing in it to contrast) stays where it was. A conversation that names both people ("X from work met my cousin X") is
+one mention a name to Stage 2, and Stage 1 sometimes names the two with a qualifier in the name, which is not a bare name
+and is not judged here. *The benchmark* (3 runs, both people, as landed): the fixture's two Marcs apart in 3 of 3 runs (the code before joined them in 1 run of 3 on a one-person answer, and so did a fresh control of `dev` the same day), one person kept as one 5 of 5 each run, others' words kept off the person 13 of 13, pages made or not made 14 of 14, updates 12, 12, 13 of 13 (control 12, 12, 12), every fact a claim or held under a waiting name (52 of 52 each run; claims 48, 46, 51). Questions 6, 7, 3 a run against 3, 2, 5 for the control and 5, 3, 3 before: one of them is the pair of Marcs, asked once in 1 run of 3 when the second look could not tell them apart; the rest are other proposers' run-to-run spread. $0.68 a run against $0.64: the second reading, about three main-model calls a person.
 
 **Which way a relationship points (2026-11-23).** A role the other side holds toward the person ("my <role> X") was
 sometimes written backwards at Stage 1: `<user> | <role> of | X`, the person as the holder. Nothing downstream can catch it

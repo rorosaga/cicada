@@ -84,7 +84,7 @@ conversations, about 20 per leg. `report` prints the calls and tokens for each l
 **The same-name rule has two replays of its own** (a run makes about six judge calls and one same-name pair, so it
 cannot see a one-in-ten defect; both cost cents and need only `ANTHROPIC_API_KEY`):
 
-- `same_name_battery.py`: 70 labelled single judge inputs (46 one person, 24 two), each replayed N times through the real
+- `same_name_battery.py`: 71 labelled single judge inputs (46 one person, 25 two), each replayed N times through the real
   `same_name_people.plan`. Scored as a false split (one person cut in two) or a missed split (two kept as one).
 - `same_name_stories.py`: 30 invented stories (English, Spanish, French) of a name that comes up over several batches:
   two people both new in one batch, one established first, a page that already holds two, two that nothing tells

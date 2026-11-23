@@ -3,9 +3,9 @@
 Two people who share a first name are told apart on a located contrast (`same_name_people`). When the record shows two
 different kinds of person but nothing that says both cannot be one, the second is held apart in doubt: on a person of its
 own, never blended into the first's page, and the pair is recorded here, **not** in `merge_rejections` (a split pair is
-never joined again; a doubt may be, when a later conversation links the two). `same_name_tend` settles a doubt (a located
-contrast makes it a split, a located link joins the two) or, only once the whole record has been read and cannot, asks the
-person once.
+never joined again; a doubt may be, by the person). `same_name_tend` settles a doubt as two people on a located contrast
+or, only once the whole record has been read and cannot tell, asks the person once (a located link is said in that
+question; Sleep itself joins no one, ruling 74).
 
 ``<bank>/_same_name_doubts.yaml``, tracked in the bank's git and committed with the batch or the tail step that changed it
 (it sits beside ``_merge_rejected.yaml``, which it never replaces): ``pairs`` (``a``, ``b`` page or line ids, ``since``,
