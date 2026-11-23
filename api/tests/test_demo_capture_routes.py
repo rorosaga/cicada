@@ -35,6 +35,8 @@ GATED = {
     ("POST", "/sources/github/connect/poll"): "/sources/github/connect/poll",
     ("POST", "/sources/github/connect/installation"): "/sources/github/connect/installation",
     ("POST", "/sources/saved-why"): "/sources/saved-why",
+    ("POST", "/sources/site-save"): "/sources/site-save",         # G221: a save noticed inside a site
+    ("POST", "/sources/site-unsave"): "/sources/site-unsave",     # G221: taken off the list on the site
     ("PUT", "/sources/saved-why"): "/sources/saved-why",          # G191 v3: the person's edit of one answer
     ("POST", "/sources/bookmarks/remove"): "/sources/bookmarks/remove",   # G191 v3: Remove on a bookmark's page
     ("POST", "/sources/upload"): "/sources/upload",

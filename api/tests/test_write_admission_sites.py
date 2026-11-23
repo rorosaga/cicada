@@ -451,6 +451,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/github/connect/installation": (OUTSIDE, None),
     "DELETE /sources/github/connect": (NONE, None),
     "POST /sources/saved-why": (ADMITTED, None),       # G191: the answer on the link's episode, committed alone
+    "POST /sources/site-save": (ADMITTED, None),       # G221: a save noticed inside a site, committed alone
+    "POST /sources/site-unsave": (ADMITTED, None),     # G221: the off-the-list mark, committed alone
     "PUT /sources/saved-why": (ADMITTED, None),        # G191 v3: the person's edit of one answer, committed alone
     "POST /sources/bookmarks/remove": (ADMITTED, None),   # G191 v3: the page archived, the episode tombstoned
     "POST /sources/upload": (INTAKE, None),

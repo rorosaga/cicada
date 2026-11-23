@@ -686,7 +686,9 @@ protocol SavedWhyAPI: Sendable {
     func savedWhySuggest(url: String, title: String) async throws -> SavedWhyModelScores
     /// G221 — a save the person made inside a site (X's Bookmark), noticed from their own click: stored under that
     /// site's own source, index-only until they say why.
-    func saveSiteItem(site: String, url: String) async throws -> SiteSaveReply
+    func saveSiteItem(site: String, url: String, text: String) async throws -> SiteSaveReply
+    /// G221 — the person took a post off their list on the site: the save stays, marked since when.
+    func unsaveSiteItem(site: String, url: String) async throws
 }
 
 /// `POST /sources/site-save` (G221) — a save made inside a site, as the backend stored it: the link in its canonical
@@ -705,9 +707,10 @@ extension SavedWhyAPI {
     func savedWhySuggest(url: String, title: String) async throws -> SavedWhyModelScores { SavedWhyModelScores() }
 
     /// A client with no site-save door (most tests): refused as an older backend refuses an unknown route.
-    func saveSiteItem(site: String, url: String) async throws -> SiteSaveReply {
+    func saveSiteItem(site: String, url: String, text: String) async throws -> SiteSaveReply {
         throw APIError.httpError(404, "site saves are not supported here")
     }
+    func unsaveSiteItem(site: String, url: String) async throws {}
 
     /// A client that cannot edit (tests that never edit): refused as the backend refuses an unknown answer.
     func editSavedWhy(url: String, at: String, answer: SavedWhyAnswer) async throws -> SavedWhyReply {
@@ -2698,8 +2701,14 @@ actor APIClient {
         try await post("/sources/saved-why/suggest", body: ["url": url, "title": title])
     }
 
-    func saveSiteItem(site: String, url: String) async throws -> SiteSaveReply {
-        try await post("/sources/site-save", body: ["site": site, "url": url])
+    func saveSiteItem(site: String, url: String, text: String) async throws -> SiteSaveReply {
+        var body = ["site": site, "url": url]
+        if !text.isEmpty { body["text"] = text }
+        return try await post("/sources/site-save", body: body)
+    }
+
+    func unsaveSiteItem(site: String, url: String) async throws {
+        try await post("/sources/site-unsave", body: ["site": site, "url": url])
     }
 
     /// G191 — the person's answer, attached by the backend to that bookmark's episode (`POST /sources/saved-why`).

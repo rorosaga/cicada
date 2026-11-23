@@ -11,6 +11,8 @@ extension Copy {
         static let notNow = "Not now"
         static let yes = "Yes"
         static let usesLabel = "What Cicada does with it"
+        /// G221 — a site's Yes, said back: it is connected now, with nothing more to do.
+        static func connected(_ site: String) -> String { "Connected. Saving on \(site) will ask why." }
 
         /// Two or three concrete things Cicada does with that kind of source.
         static func uses(_ kind: ConnectSuggestApps.Kind) -> [String] {
@@ -24,6 +26,7 @@ extension Copy {
             case .meetings: ["Remember what a meeting decided", "Find who said what"]
             case .dictation: ["Remember what you said aloud", "Find a thought you dictated"]
             case .notion: ["Find a page by what it means", "Tie docs to your projects"]
+            case .saves: ["Ask why at the moment you save", "Find a saved post by what it's about"]
             }
         }
 
@@ -47,6 +50,7 @@ extension Copy {
             case .meetings: "Only transcripts are read, never audio."
             case .dictation: "Only what you dictate is read."
             case .notion: "Only pages you share are read."
+            case .saves: "Only the save button you click and its post are read."
             }
         }
 

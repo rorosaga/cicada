@@ -638,10 +638,13 @@ SAVED_WHY_BUSY = "Sleep is updating your memory — your answer wasn't saved. Tr
 
 class SiteSaveRequest(BaseModel):
     """A save the person just made inside a site, noticed by the app from the control they clicked (G221)."""
-    #: The site's key in ``saved_lists.PLATFORMS`` (``x``).
+    #: The site's key (``x``, ``instagram``, ``github``, ``tiktok``; ``site_saves.target``).
     site: str = Field(..., min_length=1, max_length=20)
     #: The post's own link, in any spelling of that site's.
     url: str = Field(..., min_length=1, max_length=2000)
+    #: The post's own words as its page showed them to the person, when the app could read them: a preview of the
+    #: post, never the person's words.
+    text: str | None = Field(None, max_length=4000)
 
 
 class SiteSaveResponse(BaseModel):
@@ -656,56 +659,102 @@ class SiteSaveResponse(BaseModel):
     addedAt: str
 
 
+class SiteUnsaveResponse(BaseModel):
+    #: ``marked`` (the save now says since when it is off the list), ``unchanged`` or ``unknown`` (never saved here).
+    status: str
+    url: str
+
+
 #: A save noticed while Sleep holds the pages (the app tries again with the next save; nothing is written).
 SITE_SAVE_BUSY = "Sleep is updating your memory — this save is not in Cicada yet."
 
 
 @router.post("/sources/site-save", response_model=SiteSaveResponse, dependencies=_DEMO_GATE)
 async def save_site_item(request: SiteSaveRequest, settings: Settings = Depends(get_settings)) -> SiteSaveResponse:
-    """G221 (owner 2026-11-23) — the person saved a post inside a site (X's Bookmark) and the app noticed their own
-    click. The post becomes one saved item under that site's own origin and list label — the row
-    ``cicada_record_saved_list`` and the site's connector write for the same post, by the same canonical link and
-    aliases, so a later list read is this row and never a second one.
+    """G221 (owner 2026-11-23) — the person saved a post inside a site (X's Bookmark, Instagram's Save, GitHub's Star,
+    TikTok's Favorite) and the app noticed their own click. The post becomes one saved item under that site's own
+    origin and list label — the row ``cicada_record_saved_list`` and the site's connector write for the same post, by
+    the same canonical link and aliases (``site_saves.target``), so a later list read is this row and never a second.
 
-    Nothing is fetched (the post is behind a login) and no model runs: the row is the link and a title made from it.
-    Like every save from a platform's list it is index-only until the person says why (ruling 62); the notch's answer
-    (``POST /sources/saved-why``, by the returned ``url``) is what makes Sleep read it. 422 for a site with no saved
-    list or a link that is not a post of it, 409 in a demo bank or while Sleep holds the pages. Committed alone, as
-    the person."""
-    from api.services import episode_ids, saved_lists
+    Nothing is fetched (the post is behind a login) and no model runs: the row is the link, a title, and the post's
+    own words when the app could read them off the person's page. Like every save from a platform's list it is
+    index-only until the person says why (ruling 62); the notch's answer (``POST /sources/saved-why``, by the
+    returned ``url``) is what makes Sleep read it. A post saved again after an unsave loses its ``left_site_at``
+    mark. 422 for a site with no saved list or a link that is not a post of it, 409 in a demo bank or while Sleep
+    holds the pages. Committed alone, as the person."""
+    from api.services import episode_ids, site_saves
     from api.services.media_ingestor import MediaMeta, PreparedItem
 
-    platform = saved_lists.PLATFORMS.get(request.site)
-    found = saved_lists.canonical(request.site, request.url) if platform is not None else None
-    if platform is None or found is None:
+    target = site_saves.target(request.site, request.url)
+    if target is None:
         raise HTTPException(status_code=422, detail="That is not a post of a site Cicada keeps saves for.")
-    url, aliases = found
+    url = target.url
     memory_path = Path(settings.memory_path)
-    title = media_ingestor._fallback_title(url)
+    text = site_saves.clean_text(request.text)
+    title = site_saves.title_for(text, media_ingestor._fallback_title(url))
     added_at = episode_ids.utc_now_seconds()
-    item = RawItem(url=url, title=title, folder=platform.folder, origin=platform.origin, aliases=list(aliases),
-                   defer_enrich=True, added_at=added_at)
-    meta = MediaMeta(title=title, site=media_ingestor._site_of(url), media_type=media_ingestor._classify(url))
+    item = RawItem(url=url, title=title, folder=target.folder, origin=target.origin, aliases=list(target.aliases),
+                   preview=text or None, defer_enrich=True, added_at=added_at)
+    meta = MediaMeta(title=title, description=text, site=media_ingestor._site_of(url),
+                     media_type=media_ingestor._classify(url))
 
     async def write() -> SiteSaveResponse:
         def stage():
             idx = media_ingestor.load_url_index(memory_path)
             result = media_ingestor.write_prepared(PreparedItem(item, meta), memory_path, idx, append_list=True)
             media_ingestor.save_url_index(memory_path, idx)
-            return result
+            cleared = False
+            if result.status != "created" and result.episode_id:
+                episode = memory_path / "episodes" / f"{result.episode_id}.md"
+                cleared = episode.is_file() and site_saves.clear_left(episode)
+            return result, cleared
 
-        result = await run_in_threadpool(stage)
-        if result.status == "created":
+        result, cleared = await run_in_threadpool(stage)
+        paths = (["sources/url_index.json", f"entities/{result.media_entity_id}.md",
+                  f"episodes/{result.episode_id}.md"] if result.status == "created"
+                 else [f"episodes/{result.episode_id}.md"] if cleared else [])
+        if paths:
             try:
-                await media_ingestor._commit_media(
-                    memory_path, 1,
-                    ["sources/url_index.json", f"entities/{result.media_entity_id}.md",
-                     f"episodes/{result.episode_id}.md"],
-                    author="user", sessions=None, trigger="user/site_save")
+                await media_ingestor._commit_media(memory_path, 1, paths, author="user", sessions=None,
+                                                   trigger="user/site_save")
             except Exception as e:  # noqa: BLE001 — a non-git bank (tests) keeps the save
                 logger.warning(f"Site save commit failed: {type(e).__name__}: {e}")
-        return SiteSaveResponse(status=result.status, url=url, title=result.title or title, origin=platform.origin,
+        return SiteSaveResponse(status=result.status, url=url, title=result.title or title, origin=target.origin,
                                 episodeId=result.episode_id, mediaEntityId=result.media_entity_id, addedAt=added_at)
+
+    return await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(SITE_SAVE_BUSY))
+
+
+@router.post("/sources/site-unsave", response_model=SiteUnsaveResponse, dependencies=_DEMO_GATE)
+async def unsave_site_item(request: SiteSaveRequest, settings: Settings = Depends(get_settings)) -> SiteUnsaveResponse:
+    """G221 — the person took a post off their list on the site (the app noticed their own click). Nothing is removed
+    here: the save, its reasons and whatever Sleep learned from it stay, and the save's episode records since when it
+    is off the list (``left_site_at``, served as ``leftBrowser`` beside a bookmark's). A post Cicada never held is
+    ``unknown`` and nothing is written. 422 and 409 as ``POST /sources/site-save``. Committed alone, as the person."""
+    from api.services import episode_ids, site_saves
+
+    target = site_saves.target(request.site, request.url)
+    if target is None:
+        raise HTTPException(status_code=422, detail="That is not a post of a site Cicada keeps saves for.")
+    memory_path = Path(settings.memory_path)
+    try:
+        episode_id, _, path = saved_why.find_episode(memory_path, target.url)
+    except saved_why.SavedWhyError:
+        return SiteUnsaveResponse(status="unknown", url=target.url)
+
+    async def write() -> SiteUnsaveResponse:
+        changed = await run_in_threadpool(site_saves.mark_left, path, episode_ids.utc_now_seconds())
+        if changed:
+            from api.services import git_service
+
+            try:
+                await git_service.commit_paths(memory_path, git_service.build_commit_message(
+                    f"Sources: off the list on {target.name} {date.today().isoformat()}",
+                    [f"episodes/{episode_id}.md: updated (trigger: user/site_unsave)"], authors=["user"]),
+                    [f"episodes/{episode_id}.md"])
+            except Exception as e:  # noqa: BLE001 — a non-git bank (tests) keeps the mark
+                logger.warning(f"Site unsave commit failed: {type(e).__name__}: {e}")
+        return SiteUnsaveResponse(status="marked" if changed else "unchanged", url=target.url)
 
     return await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(SITE_SAVE_BUSY))
 
@@ -972,6 +1021,20 @@ def _left_browser(left_by_hash: dict, raw_key: str, entry: dict) -> list[Bookmar
             for channel, at in marks]
 
 
+def _left_site(fm: dict) -> list[BookmarkLeft]:
+    """G221 — a save the person took off their list on the site itself: the same "no longer in …" line a bookmark
+    that left its browser shows, named for the site."""
+    from api.services import saved_lists, site_saves
+
+    at = site_saves.left_at(fm)
+    if not at:
+        return []
+    origin = str(fm.get("origin") or "")
+    name = next((platform.name for platform in saved_lists.PLATFORMS.values() if platform.origin == origin),
+                "GitHub" if origin == "github-starred" else origin)
+    return [BookmarkLeft(browser=name, channel=origin, since=at)]
+
+
 def _capture_thumbs(memory_path: Path) -> dict[str, str]:
     """G191 v3: the newest capture thumbnail of every captured page, as its route (`/explore/captures/...`) — one
     listing of `captures/` (only the pages someone explored have a folder), never a fetch. Never raises."""
@@ -1189,7 +1252,8 @@ async def list_sources(
                     saved_why_history=_saved_why_history_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
                     last_saved_at=saved_why.last_saved(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
                     capture_thumb=capture_thumbs.get(entity_id),
-                    left_browser=_left_browser(left_by_hash, raw_key, entry),
+                    left_browser=_left_browser(left_by_hash, raw_key, entry)
+                    + _left_site(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
                     device=_device_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
                     tags=tags,
                     status=status,

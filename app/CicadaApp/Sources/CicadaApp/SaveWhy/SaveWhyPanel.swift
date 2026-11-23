@@ -460,7 +460,7 @@ struct SaveWhySourceMark: View {
                 .interpolation(.high)
                 .scaledToFit()
                 .frame(width: size, height: size)
-                .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
+                .clipShape(CicadaTheme.shape(size * 0.22))
                 .accessibilityLabel(OriginIconography.label(for: origin))
         }
     }

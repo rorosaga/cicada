@@ -65,3 +65,55 @@ def test_a_link_that_is_not_a_post_of_a_known_site_is_refused_unwritten(tmp_path
     r = _client(memory, monkeypatch).post("/sources/site-save", json=body)
     assert r.status_code == 422
     assert not any((memory / "episodes").glob("*.md"))
+
+
+def test_the_posts_own_words_title_the_row_and_are_never_the_persons(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    saved = _client(memory, monkeypatch).post("/sources/site-save", json={
+        "site": "x", "url": POST, "text": "  a way to sync two   replicas without a server  "}).json()
+    assert saved["title"] == "a way to sync two replicas without a server"
+    fm, body = _episode(memory, saved["episodeId"])
+    assert "a way to sync two replicas without a server" in body
+    assert history_index.kind(fm) == "list"          # the post's words are no reason: still index-only
+
+
+def test_an_unsave_marks_the_save_and_saving_again_clears_the_mark(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    client = _client(memory, monkeypatch)
+    assert client.post("/sources/site-unsave", json={"site": "x", "url": POST}).json()["status"] == "unknown"
+    saved = client.post("/sources/site-save", json={"site": "x", "url": POST}).json()
+    assert client.post("/sources/site-unsave", json={"site": "x", "url": POST}).json()["status"] == "marked"
+    fm, _ = _episode(memory, saved["episodeId"])
+    assert fm["left_site_at"]
+    assert client.post("/sources/site-unsave", json={"site": "x", "url": POST}).json()["status"] == "unchanged"
+    again = client.post("/sources/site-save", json={"site": "x", "url": POST}).json()
+    assert again["status"] == "duplicate"
+    fm, _ = _episode(memory, saved["episodeId"])
+    assert "left_site_at" not in fm
+
+
+@pytest.mark.parametrize("site,url,stored,origin", [
+    ("instagram", "https://www.instagram.com/alpha_user/reel/AbCdEfGhIjK/", "https://www.instagram.com/reel/AbCdEfGhIjK/", "instagram-saved"),
+    ("github", "https://github.com/alpha-org/alpha-project/", "https://github.com/alpha-org/alpha-project", "github-starred"),
+    ("tiktok", "https://www.tiktok.com/@alpha.user/video/7300000000000000001", "https://www.tiktok.com/@alpha.user/video/7300000000000000001", "tiktok-saved"),
+])
+def test_the_other_sites_store_under_their_own_origin(tmp_path, monkeypatch, site, url, stored, origin):
+    memory = _bank(tmp_path)
+    saved = _client(memory, monkeypatch).post("/sources/site-save", json={"site": site, "url": url}).json()
+    assert saved["status"] == "created" and saved["url"] == stored and saved["origin"] == origin
+    fm, _ = _episode(memory, saved["episodeId"])
+    assert history_index.kind(fm) == "list"
+
+
+def test_one_instagram_post_is_one_row_by_any_of_its_addresses(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    client = _client(memory, monkeypatch)
+    first = client.post("/sources/site-save", json={"site": "instagram", "url": "https://www.instagram.com/p/AbCdEfGhIjK/"}).json()
+    again = client.post("/sources/site-save", json={"site": "instagram", "url": "https://www.instagram.com/reel/AbCdEfGhIjK/"}).json()
+    assert again["status"] == "duplicate" and again["episodeId"] == first["episodeId"]
+
+
+def test_githubs_own_sections_are_never_a_repository(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    r = _client(memory, monkeypatch).post("/sources/site-save", json={"site": "github", "url": "https://github.com/sponsors/alpha"})
+    assert r.status_code == 422

@@ -272,6 +272,8 @@ ROUTES: dict[str, str] = {
     "POST /sources/poll-feeds": FORWARD,
     "POST /sources/rss": FORWARD,
     "POST /sources/saved-why": FORWARD,
+    "POST /sources/site-save": FORWARD,
+    "POST /sources/site-unsave": FORWARD,
     "POST /sources/telegram/code": REFUSE,          # Telegram's session lives on the home (ruling 47a)
     "POST /sources/telegram/connect": REFUSE,
     "POST /sources/telegram/disconnect": REFUSE,
