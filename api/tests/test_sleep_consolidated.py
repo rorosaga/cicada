@@ -79,6 +79,30 @@ def test_a_page_changed_after_it_was_made_is_listed_as_new_once(tmp_path, monkey
     assert f"e-{ids[0]}" not in [p.id for p in out.updated]
 
 
+def test_a_page_carries_the_commits_that_changed_it_and_its_span_diff_is_one_change(tmp_path, monkeypatch):
+    """Owner 2026-11-23 ("see what page or chunk of page was modified"): each page lists the consolidation's commits
+    that touched it, oldest first, and ``?since=`` on its diff route reads the whole span as one before → after."""
+    memory, cfg, ids = _run(tmp_path, monkeypatch, n=2, cap=2)
+    eid = f"e-{ids[0]}"
+    page = memory / "entities" / f"{eid}.md"
+    page.write_text(page.read_text(encoding="utf-8") + "\nA later line.\n", encoding="utf-8")
+    git(memory, "add", "-A")
+    git(memory, "commit", "-qm", "edit")
+    head = git(memory, "rev-parse", "HEAD").strip()
+    commits = sleep_consolidated.run_commits(memory, "sleep_card") + [head]
+    out = asyncio.run(sleep_consolidated.build(memory, commits))
+    made = next(p for p in out.created if p.id == eid)
+    assert made.commits[-1] == head and len(made.commits) == 2, "the batch that made it, then the edit"
+    client = _client(cfg)
+    span = client.get(f"/entities/{eid}/history/{head}/diff", params={"since": made.commits[0]}).json()
+    added = [ln["text"] for ln in span["lines"] if ln["kind"] == "add"]
+    assert "A later line." in added and len(added) > 1, "the page's making and the later edit, in one diff"
+    one = client.get(f"/entities/{eid}/history/{head}/diff").json()
+    assert [ln["text"] for ln in one["lines"] if ln["kind"] == "add" and ln["text"]] == ["A later line."]
+    refused = client.get(f"/entities/{eid}/history/{head}/diff", params={"since": "--output=/tmp/x"}).json()
+    assert refused["lines"] == [], "a since that is not a hash never reaches git"
+
+
 def test_a_plain_cycles_items_and_the_refusals(tmp_path, monkeypatch):
     memory, cfg, ids = _run(tmp_path, monkeypatch, n=2, cap=5)
     client = _client(cfg)

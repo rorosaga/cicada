@@ -137,10 +137,9 @@ extension DesignConsistencyLintTests {
                       "ListRowSurface draws the shared fill too")
     }
 
-    /// DR-75 — a page's way to add is `PageAddButton` in its eyebrow; a bare `+` is the Sleep tab row's alone (R-DL14).
+    /// DR-75 — a page's way to add is `PageAddButton` in its eyebrow (the Sleep tab row's `+` left, owner 2026-11-23).
     func testAPageAddsThroughOneLabelledButton() throws {
         let allowed: [String: String] = [
-            "SleepTabRow.swift": "R-DL14: the one-shot import's door and ⌘N's only home",
             "GraphControlGroup.swift": "zoom in, not an add",
         ]
         var bare: [String] = []

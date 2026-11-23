@@ -1,15 +1,15 @@
 import SwiftUI
 
 /// The Sleep page's list row (DESIGN §3.4, DR-45): the four tabs with their counts in tabular `textTertiary`, then the
-/// selected list's tools — Saved's View menu, find (⌘F) on a list of saved items, and the one-shot import's `+` (⌘N,
-/// the Feed's door, R-DL14). With nothing open it is the sticky header under the room; with an item open it rides the
-/// columns' eyebrow. A tab switch never animates (DR-60): the caller runs it in `Instant.run`.
+/// selected list's tools — Saved's View menu and find (⌘F) on a list of saved items. With nothing open it is the sticky
+/// header under the room; with an item open it rides the columns' eyebrow. A tab switch never animates (DR-60): the
+/// caller runs it in `Instant.run`. Its Add button is gone (owner 2026-11-23: "I don't get why there is an add"): it
+/// only opened the Sources page, which the rail already opens and which keeps its own Add.
 struct SleepTabRow: View {
     let tabs: [TextTab<SleepTab>]
     let selected: SleepTab
     let select: (SleepTab) -> Void
     @Binding var findOpen: Bool
-    let onAdd: () -> Void
     /// Only the sticky row names nothing on its left; beside an open item the eyebrow says where the list is.
     var showsTools = true
 
@@ -36,14 +36,6 @@ struct SleepTabRow: View {
         if selected.hasFind {
             PageFindButton(isOpen: $findOpen).padding(.leading, CicadaTheme.spacingSM)
         }
-        // R-DL14 — the one-shot import's door (G126), a plain icon, and ⌘N's only home. The page draws one row at a
-        // time (the sticky one with nothing open, the eyebrow's beside an item), so ⌘N has one publisher.
-        // ROR-118 round 4 - the door says its word beside the plus and is a DR-40 neutral button (round 3's quiet text read
-        // as detached); it ends the row on the room's right edge, where the list's last column ends.
-        NeutralButton(title: Copy.SleepTabs.add, systemImage: "plus", size: .compact,
-                      shortcut: KeyboardShortcut("n", modifiers: .command),
-                      help: Copy.Lists.addSourceShortcut, action: onAdd)
-            .accessibilityLabel(Copy.addASource)
     }
 
     /// The tabs on screen with their counts; Past reads carries none (it is not a pile).

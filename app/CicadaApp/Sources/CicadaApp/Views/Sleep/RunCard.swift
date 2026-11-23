@@ -71,25 +71,38 @@ struct RunCardModel: Equatable, Identifiable {
     }
 
     /// Every card Past nights draws, newest first: one per run, one per plain Sleep cycle; decay and inbox commits drop.
-    /// `items` are the dropdowns' lists as far as they have loaded (`SleepViewModel.consolidated`): the card's question
-    /// count is the dropdown's own, so the two never disagree; before a card's items load it names no questions.
     static func cards(_ entries: [SleepHistoryEntry], details: [String: SleepRunDetail] = [:],
-                      items: [SleepConsolidatedKey: SleepConsolidated] = [:],
                       locale: Locale = .autoupdatingCurrent, timeZone: TimeZone = .current) -> [RunCardModel] {
         PastNightItem.group(entries).compactMap {
-            make($0, detail: nil, details: details, items: items, locale: locale, timeZone: timeZone)
+            make($0, detail: nil, details: details, locale: locale, timeZone: timeZone)
         }
     }
 
-    /// The questions a card names: the dropdown's raised and settled, whole counts; `nil` until its items load.
-    static func questions(_ items: SleepConsolidated?) -> Int? {
-        guard let items else { return nil }
-        return items.count("questions_raised", items.questionsRaised.count)
-            + items.count("questions_settled", items.questionsSettled.count)
+    /// The sources a card's marks show (owner 2026-11-23: "cards with logos"): each origin the read's conversations
+    /// came from once, the one it read most first (ties keep the conversations' order). Empty until its items load.
+    static func origins(_ items: SleepConsolidated?) -> [String] {
+        guard let items else { return [] }
+        var counts: [String: Int] = [:]
+        var order: [String] = []
+        for c in items.conversations {
+            if counts[c.origin] == nil { order.append(c.origin) }
+            counts[c.origin, default: 0] += 1
+        }
+        return order.enumerated()
+            .sorted { (counts[$0.element] ?? 0, -$0.offset) > (counts[$1.element] ?? 0, -$1.offset) }
+            .map(\.element)
+    }
+
+    /// The pages a card names before it is opened: new ones first, then the updated, as far as listed; and how many
+    /// it changed in all (the server's whole counts, so "+N" never undercounts a capped list).
+    static func pagePreview(_ items: SleepConsolidated?) -> (pages: [SleepConsolidated.Page], total: Int) {
+        guard let items else { return ([], 0) }
+        let pages = items.created + items.updated
+        let total = items.count("created", items.created.count) + items.count("updated", items.updated.count)
+        return (pages, max(total, pages.count))
     }
 
     static func make(_ item: PastNightItem, detail: SleepRunDetail? = nil, details: [String: SleepRunDetail] = [:],
-                     items: [SleepConsolidatedKey: SleepConsolidated] = [:],
                      locale: Locale = .autoupdatingCurrent, timeZone: TimeZone = .current) -> RunCardModel? {
         switch item {
         case .cycle(let entry):
@@ -98,8 +111,7 @@ struct RunCardModel: Equatable, Identifiable {
             return RunCardModel(
                 id: entry.commitHash, key: .commit(entry.commitHash), ranAt: entry.date, starter: nil, catchUp: nil,
                 summary: Copy.RunCard.summary(conversations: conversations, created: entry.entitiesCreated,
-                                              updated: entry.entitiesUpdated,
-                                              questions: questions(items[.commit(entry.commitHash)]), locale: locale),
+                                              updated: entry.entitiesUpdated, locale: locale),
                 engine: entry.engine ?? entry.usageSummary?.engine,
                 models: entry.authors.filter { $0 != "user" }, usage: entry.usageSummary,
                 durationMs: entry.durationMs, outcome: .finished, members: [entry])
@@ -112,7 +124,7 @@ struct RunCardModel: Equatable, Identifiable {
                 starter: ref.startedBy == "schedule" ? Copy.RunCard.startedBySchedule : Copy.RunCard.startedByYou,
                 catchUp: RunPresentation.catchUp(ref, timeZone: timeZone),
                 summary: Copy.RunCard.summary(conversations: ref.filed, created: ref.created, updated: ref.updated,
-                                              questions: questions(items[.run(ref.id)]), locale: locale),
+                                              locale: locale),
                 engine: newest.engine ?? ref.usageSummary?.engine, models: models,
                 usage: ref.usageSummary ?? (members.count == 1 ? newest.usageSummary : nil),
                 durationMs: ref.readMs > 0 ? ref.readMs : nil,
@@ -229,9 +241,13 @@ enum RunItemGroups {
 
 // MARK: - The card
 
-/// DR-9, DR-37 (a card holds a group — here one consolidation's head and its dropdown), DR-39 (the dropdown starts
-/// collapsed), DR-44 (pages are `Tag`s), DR-48 (rows), DR-52 (real marks), DR-53 (`DisclosureChevron`), DR-60/61 (a key
-/// never animates). A resting ring on `bgFocus`, no shadow; §9 2026-10-26 records the owner's card over the list rows.
+/// One consolidation as a card (owner 2026-11-23: "a better redesign that fits the cards with logos and less dense and
+/// less amount of info … I want to easily see what was consolidated"): the sources it read as their marks, when it ran,
+/// one line of what it read and what that changed, and the pages it changed by name. The engine, models, plan usage or
+/// cost and how long it read live in the dropdown's "Models and batches" (ruling 12's figures, each with its basis).
+/// DR-9 (a ring, no shadow), DR-37 (a card holds a group), DR-39 (starts collapsed), DR-44 (pages are `Tag`s), DR-52
+/// (real marks), DR-60/61 (a key never animates). No chevron (owner 2026-11-23, as on Waiting's source cards): the whole
+/// card opens on a click, and its ring lifts under the pointer.
 struct RunCardView: View {
     let card: RunCardModel
     let isOpen: Bool
@@ -244,7 +260,7 @@ struct RunCardView: View {
     var showsUsage = true
     let onToggle: () -> Void
     var onSelectEntity: ((String) -> Void)?
-    /// Asked once the card is on screen: its items carry the question count its summary names (the dropdown's own).
+    /// Asked once the card is on screen: its items carry the marks and the page names the card shows.
     var onAppear: () -> Void = {}
 
     @State private var hovering = false
@@ -262,28 +278,34 @@ struct RunCardView: View {
                         .foregroundStyle(CicadaTheme.textSecondary)
                     InlineLink(title: Copy.Sensitive.review) { router?.routeToInbox() }
                 }
-                .padding(.horizontal, CicadaTheme.scaled(14))
+                .padding(.leading, Self.textInset)
+                .padding(.trailing, Self.padding)
                 .padding(.bottom, CicadaTheme.scaled(10))
             }
             if isOpen {
                 RunItemsView(card: card, items: items, failed: itemsFailed, runDetail: runDetail,
-                             cycleDetail: cycleDetail, onSelectEntity: onSelectEntity)
-                    .padding(.horizontal, CicadaTheme.scaled(14))
-                    .padding(.bottom, CicadaTheme.scaled(14))
+                             cycleDetail: cycleDetail, showsUsage: showsUsage, onSelectEntity: onSelectEntity)
+                    .padding(.leading, Self.textInset - CicadaTheme.scaled(8))
+                    .padding(.trailing, Self.padding)
+                    .padding(.bottom, Self.padding)
                     .transition(.opacity)
             }
         }
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
-        .ringed(hovering && !isOpen ? .strong : .resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+        .background(CicadaTheme.shape(CicadaTheme.radiusLarge).fill(CicadaTheme.bgFocus))
+        .ringed(hovering && !isOpen ? .strong : .resting, in: CicadaTheme.shape(CicadaTheme.radiusLarge))
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
         .onAppear(perform: onAppear)
     }
 
+    static var padding: CGFloat { CicadaTheme.spacingLG }
+    /// Where the card's words start, so the dropdown lines up under the summary.
+    static var textInset: CGFloat { padding }
+
     private var head: some View {
-        Button(action: onToggle) {
-            HStack(alignment: .top, spacing: CicadaTheme.scaled(10)) {
-                VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
-                    HStack(spacing: CicadaTheme.spacingSM) {
+        let preview = RunCardModel.pagePreview(items)
+        return Button(action: onToggle) {
+            VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
+                    HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
                         Text("\(card.dayText()), \(card.timeText())")
                             .font(CicadaTheme.rowFont)
                             .monospacedDigit()
@@ -297,27 +319,27 @@ struct RunCardView: View {
                         // DR-38: a card with a summary has finished; only another ending is worth a word.
                         if card.outcome != .finished { outcome }
                     }
-                    if let catchUp = card.catchUp {
-                        Text(catchUp)
-                            .font(CicadaTheme.metaFont)
+                    // The sources it read, as their marks, leading the line that says what it read (owner 2026-11-23).
+                    HStack(alignment: .center, spacing: CicadaTheme.spacingSM) {
+                        let origins = RunCardModel.origins(items)
+                        if !origins.isEmpty { RunSourceMarks(origins: origins) }
+                        Text(card.summary)
+                            .font(CicadaTheme.bodyFont)
                             .monospacedDigit()
                             .foregroundStyle(CicadaTheme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    Text(card.summary)
-                        .font(CicadaTheme.bodyFont)
-                        .monospacedDigit()
-                        .foregroundStyle(CicadaTheme.textPrimary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    meta
-                }
-                DisclosureChevron(isOpen: isOpen)
-                    .padding(.top, CicadaTheme.scaled(4))
+                    if !preview.pages.isEmpty {
+                        RunPagePreview(pages: preview.pages, total: preview.total)
+                    }
             }
-            .padding(CicadaTheme.scaled(14))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Self.padding)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
         .onHover { hovering = $0 }
+        .help(card.catchUp ?? "")
         .accessibilityElement(children: .combine)
         .accessibilityLabel(card.accessibilityLabel())
         .accessibilityValue(isOpen ? Copy.Lists.expanded : Copy.Lists.collapsed)
@@ -338,63 +360,134 @@ struct RunCardView: View {
                 .foregroundStyle(card.outcome.needsYou ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
         }
     }
+}
 
-    /// The engine's mark and words, the plan usage or cost (its basis on hover), and how long it read — one wrapping
-    /// line of `textTertiary` facts.
-    private var meta: some View {
-        FlowLayout(spacing: CicadaTheme.scaled(10)) {
-            if let words = card.engineWords {
-                HStack(spacing: CicadaTheme.scaled(4)) {
-                    if let engine = card.engine {
-                        EngineMark(engine: engine, size: CicadaTheme.scaled(12), model: card.models.first)
-                    }
-                    Text(words).lineLimit(1).truncationMode(.tail)
+/// The sources a consolidation read, as their real marks (DR-52), overlapping like a stack of faces, most-read first;
+/// a fourth source and beyond is a "+N" on the last place. Drawn only once the items say what it read.
+struct RunSourceMarks: View {
+    let origins: [String]
+
+    static let places = 3
+    static var mark: CGFloat { CicadaTheme.scaled(20) }
+    static var step: CGFloat { CicadaTheme.scaled(15) }
+    static var knock: CGFloat { CicadaTheme.scaled(2) }
+
+    var body: some View {
+        let shown = origins.count > Self.places ? Array(origins.prefix(Self.places - 1)) : origins
+        let extra = origins.count - shown.count
+        let places = shown.count + (extra > 0 ? 1 : 0)
+        ZStack(alignment: .topLeading) {
+            ForEach(Array(shown.enumerated()), id: \.element) { i, origin in
+                tile { StudyListCard.mark(origin, size: Self.mark) }
+                    .offset(x: CGFloat(i) * Self.step)
+                    .zIndex(Double(Self.places - i))
+            }
+            if extra > 0 {
+                tile {
+                    Text(Copy.RunCard.moreSources(extra))
+                        .font(CicadaTheme.badgeFont)
+                        .monospacedDigit()
+                        .foregroundStyle(CicadaTheme.textSecondary)
                 }
-            }
-            if showsUsage, let usage = card.usageLine() {
-                Text(usage)
-                    .monospacedDigit()
-                    .help(card.usageHelp ?? "")
-            }
-            if let took = card.durationText {
-                Text(took).monospacedDigit()
+                .offset(x: CGFloat(shown.count) * Self.step)
             }
         }
-        .font(CicadaTheme.metaFont)
-        .foregroundStyle(CicadaTheme.textTertiary)
+        .frame(width: Self.mark + 2 * Self.knock + CGFloat(max(places - 1, 0)) * Self.step,
+               height: Self.mark + 2 * Self.knock, alignment: .topLeading)
+        .help(origins.isEmpty ? "" : Copy.RunCard.readFrom(origins.map { OriginIconography.label(for: $0) }))
+        .accessibilityHidden(true)   // the card's label says what it read
+    }
+
+    /// One place: the mark (or a stand-in) on a quiet tile, knocked out of the card by 2 pt so overlaps stay legible.
+    private func tile<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+        content()
+            .frame(width: Self.mark, height: Self.mark)
+            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgBadge))
+            .padding(Self.knock)
+            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall + Self.knock).fill(CicadaTheme.bgFocus))
+    }
+}
+
+/// The pages a closed card names, on one line: as many as fit, then "+N" for the rest (owner 2026-11-23: "easily
+/// see what was consolidated"). Neutral `Tag`s (DR-44); a click anywhere opens the card, where each page opens.
+struct RunPagePreview: View {
+    let pages: [SleepConsolidated.Page]
+    let total: Int
+    @Environment(Store.self) private var store: Store?
+
+    var body: some View {
+        let names = store?.entityNames ?? .empty
+        let labels = pages.prefix(6).map { RunItemGroups.pageLabel($0, names: names) }
+        ViewThatFits(in: .horizontal) {
+            ForEach(Array(stride(from: labels.count, through: 1, by: -1)), id: \.self) { n in
+                row(Array(labels.prefix(n)))
+            }
+            row([])
+        }
+    }
+
+    private func row(_ shown: [String]) -> some View {
+        HStack(spacing: CicadaTheme.scaled(6)) {
+            ForEach(Array(shown.enumerated()), id: \.offset) { _, label in
+                Tag(text: label).lineLimit(1).fixedSize()
+            }
+            if total > shown.count {
+                Text(Copy.RunCard.morePages(total - shown.count))
+                    .font(CicadaTheme.metaFont)
+                    .monospacedDigit()
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize()
+            }
+        }
     }
 }
 
 // MARK: - The dropdown
 
-/// What the consolidation read and wrote, grouped (DR-39 folds through `DisclosureHeader`, the one fold): the
-/// conversations open to the Reader, pages open to the page, questions open in the Inbox. Then its models and
-/// batches — ruling 12's figures, each with its basis — under one fold of their own.
+/// What the consolidation read and changed: its conversations (open in the Reader), every page it made or changed —
+/// each one's change a click away (owner 2026-11-23: "see from it what page or chunk of page/pages was modified") —
+/// then its questions and, under one fold, the engine, plan usage or cost, time and batches (ruling 12).
 struct RunItemsView: View {
     let card: RunCardModel
     let items: SleepConsolidated?
     let failed: Bool
     let runDetail: SleepRunDetail?
     let cycleDetail: SleepCycleDetail?
+    var showsUsage = true
     var onSelectEntity: ((String) -> Void)?
 
-    @State private var openGroups: Set<String> = ["conversations", "created"]
+    @State private var openGroups: Set<String> = []
     @State private var showingAll: Set<String> = []
     @State private var detailsOpen = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
             if let items {
-                ForEach(RunItemGroups.groups(items)) { group in
-                    DisclosureHeader(title: group.title, summary: Copy.RunCard.count(group.count, .autoupdatingCurrent),
-                                     summaryWhenOpen: true, isOpen: openGroups.contains(group.id), fillsWidth: true,
-                                     spokenTitle: group.title) { toggleGroup(group.id) }
-                    if openGroups.contains(group.id) {
-                        rows(group, items)
-                            .transition(.opacity)
+                if !items.conversations.isEmpty {
+                    section(Copy.RunCard.conversationsRead, count: items.count("conversations", items.conversations.count)) {
+                        let all = showingAll.contains("conversations")
+                        let list = all ? items.conversations : Array(items.conversations.prefix(RunItemGroups.preview))
+                        ForEach(list) { ConsolidatedConversationRow(conversation: $0) }
+                        more("conversations", shown: list.count, total: items.conversations.count)
                     }
                 }
+                let pages = RunCardModel.pagePreview(items)
+                if !pages.pages.isEmpty {
+                    section(Copy.RunCard.pagesChanged, count: pages.total) {
+                        let all = showingAll.contains("pages")
+                        let list = all ? pages.pages : Array(pages.pages.prefix(RunItemGroups.preview))
+                        let made = Set(items.created.map(\.id))
+                        ForEach(list) { page in
+                            RunPageRow(page: page, isNew: made.contains(page.id),
+                                       commits: page.commits.isEmpty && items.commits.count == 1 ? items.commits
+                                                                                                : page.commits,
+                                       onSelectEntity: onSelectEntity)
+                        }
+                        more("pages", shown: list.count, total: pages.pages.count)
+                    }
+                }
+                questions(items)
                 if items.truncated {
                     note(Copy.RunCard.moreNotListed)
                 }
@@ -403,15 +496,53 @@ struct RunItemsView: View {
             } else {
                 note(Copy.RunCard.loading)
             }
-            DisclosureHeader(title: Copy.RunCard.detailsTitle, isOpen: detailsOpen, fillsWidth: true) {
-                let animation = RunCardMotion.current(reduceMotion: reduceMotion)
-                withAnimation(animation) { detailsOpen.toggle() }
-            }
-            if detailsOpen {
-                details.transition(.opacity)
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                DisclosureHeader(title: Copy.RunCard.detailsTitle, isOpen: detailsOpen, fillsWidth: true) {
+                    let animation = RunCardMotion.current(reduceMotion: reduceMotion)
+                    withAnimation(animation) { detailsOpen.toggle() }
+                }
+                if detailsOpen {
+                    details.transition(.opacity)
+                }
             }
             if let replaced = runDetail?.replaced, replaced > 0 {
                 note(Copy.Sensitive.replaced(replaced))
+            }
+        }
+    }
+
+    private func section<C: View>(_ title: String, count: Int, @ViewBuilder rows: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+            SectionLabel(Eyebrow.text(title, Copy.RunCard.count(count, .autoupdatingCurrent)))
+                .padding(.horizontal, CicadaTheme.scaled(8))
+                .padding(.bottom, CicadaTheme.scaled(2))
+            // Lazy, like every "All N" (inbox freeze, 2026-10-29).
+            LazyVStack(alignment: .leading, spacing: 0) { rows() }
+        }
+    }
+
+    /// The questions it raised and settled: a fold each, closed — they are the Inbox's, the card only points at them.
+    @ViewBuilder
+    private func questions(_ items: SleepConsolidated) -> some View {
+        let groups = RunItemGroups.groups(items).filter { $0.kind == .raised || $0.kind == .settled }
+        if !groups.isEmpty {
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                ForEach(groups) { group in
+                    DisclosureHeader(title: group.title, summary: Copy.RunCard.count(group.count, .autoupdatingCurrent),
+                                     summaryWhenOpen: true, isOpen: openGroups.contains(group.id), fillsWidth: true,
+                                     spokenTitle: group.title) { toggleGroup(group.id) }
+                    if openGroups.contains(group.id) {
+                        let questions = group.kind == .raised ? items.questionsRaised : items.questionsSettled
+                        let all = showingAll.contains(group.id)
+                        let list = all ? questions : Array(questions.prefix(RunItemGroups.preview))
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(list) { ConsolidatedQuestionRow(question: $0) }
+                            more(group.id, shown: list.count, total: questions.count)
+                        }
+                        .padding(.leading, CicadaTheme.scaled(18))
+                        .transition(.opacity)
+                    }
+                }
             }
         }
     }
@@ -427,37 +558,12 @@ struct RunItemsView: View {
     }
 
     @ViewBuilder
-    private func rows(_ group: RunItemGroups.Group, _ items: SleepConsolidated) -> some View {
-        let all = showingAll.contains(group.id)
-        // Lazy, like every "All N" (inbox freeze, 2026-10-29).
-        LazyVStack(alignment: .leading, spacing: 0) {
-            switch group.kind {
-            case .conversations:
-                let list = all ? items.conversations : Array(items.conversations.prefix(RunItemGroups.preview))
-                ForEach(list) { ConsolidatedConversationRow(conversation: $0) }
-                more(group, shown: list.count, total: items.conversations.count)
-            case .created, .updated:
-                let pages = group.kind == .created ? items.created : items.updated
-                let list = all ? pages : Array(pages.prefix(RunItemGroups.preview * 3))
-                ConsolidatedPageTags(pages: list, onSelectEntity: onSelectEntity)
-                    .padding(.vertical, CicadaTheme.scaled(4))
-                more(group, shown: list.count, total: pages.count)
-            case .raised, .settled:
-                let questions = group.kind == .raised ? items.questionsRaised : items.questionsSettled
-                let list = all ? questions : Array(questions.prefix(RunItemGroups.preview))
-                ForEach(list) { ConsolidatedQuestionRow(question: $0) }
-                more(group, shown: list.count, total: questions.count)
+    private func more(_ id: String, shown: Int, total: Int) -> some View {
+        if total > RunItemGroups.preview, shown < total || showingAll.contains(id) {
+            TextButton(title: showingAll.contains(id) ? Copy.RunCard.showFewer : Copy.RunCard.showAll(total)) {
+                toggleShowAll(id)
             }
-        }
-        .padding(.leading, CicadaTheme.scaled(18))
-    }
-
-    @ViewBuilder
-    private func more(_ group: RunItemGroups.Group, shown: Int, total: Int) -> some View {
-        if total > RunItemGroups.preview, shown < total || showingAll.contains(group.id) {
-            TextButton(title: showingAll.contains(group.id) ? Copy.RunCard.showFewer : Copy.RunCard.showAll(total)) {
-                toggleShowAll(group.id)
-            }
+            .padding(.horizontal, CicadaTheme.scaled(8))
         }
     }
 
@@ -465,12 +571,36 @@ struct RunItemsView: View {
         Text(text)
             .font(CicadaTheme.metaFont)
             .foregroundStyle(CicadaTheme.textTertiary)
+            .padding(.horizontal, CicadaTheme.scaled(8))
             .frame(minHeight: CicadaTheme.scaled(DisclosureHeader.height), alignment: .leading)
     }
 
+    /// The facts the card's head no longer carries — the engine and models, the plan share or cost with its basis on
+    /// hover (ruling 12), how long it read, a scheduled catch-up — then the run's batches or the cycle's models.
     @ViewBuilder
     private var details: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+            VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
+                if let words = card.engineWords {
+                    HStack(spacing: CicadaTheme.scaled(5)) {
+                        if let engine = card.engine {
+                            EngineMark(engine: engine, size: CicadaTheme.scaled(12), model: card.models.first)
+                        }
+                        Text(words).lineLimit(1).truncationMode(.tail)
+                    }
+                }
+                if showsUsage, let usage = card.usageLine() {
+                    Text(usage).monospacedDigit().help(card.usageHelp ?? "")
+                }
+                if let took = card.durationText {
+                    Text(Copy.RunCard.took(took)).monospacedDigit()
+                }
+                if let catchUp = card.catchUp {
+                    Text(catchUp).monospacedDigit()
+                }
+            }
+            .font(CicadaTheme.metaFont)
+            .foregroundStyle(CicadaTheme.textSecondary)
             switch card.key {
             case .run:
                 RunDetailBlock(detail: runDetail, onSelectEntity: onSelectEntity)
@@ -479,6 +609,124 @@ struct RunItemsView: View {
             }
         }
         .padding(.leading, CicadaTheme.scaled(18))
+    }
+}
+
+/// One page the read made or changed (owner 2026-11-23): its name, "New" when the read made it, and — a click away —
+/// what changed on it: one diff from before the read's first commit that touched it to after its last (`?since=`), in
+/// the History tab's `DiffView`. The arrow opens the page. A page gone since shows its name and opens nothing.
+struct RunPageRow: View {
+    let page: SleepConsolidated.Page
+    let isNew: Bool
+    /// The read's commits that changed the page, oldest first; empty when not recorded (an older backend).
+    let commits: [String]
+    var onSelectEntity: ((String) -> Void)?
+    /// Tests hand the loader in; the live row reads the backend.
+    /// Renders seed it open (the snapshot); a live row starts closed.
+    var initiallyOpen = false
+    var loadDiff: (String, String, String?) async throws -> EntityDiff = { id, until, since in
+        if let since { try await APIClient.shared.fetchEntityCommitDiff(id: id, commitHash: until, since: since) }
+        else { try await APIClient.shared.fetchEntityCommitDiff(id: id, commitHash: until) }
+    }
+
+    @State private var open = false
+    @State private var diff: EntityDiff?
+    @State private var failed = false
+    @State private var hovering = false
+    @Environment(Store.self) private var store: Store?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var canShowChange: Bool { !page.gone && !commits.isEmpty }
+
+    var body: some View {
+        let label = RunItemGroups.pageLabel(page, names: store?.entityNames ?? .empty)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: CicadaTheme.scaled(2)) {
+                Button { press(label) } label: {
+                    HStack(spacing: CicadaTheme.spacingSM) {
+                        Text(label)
+                            .font(CicadaTheme.bodyFont)
+                            .foregroundStyle(page.gone ? CicadaTheme.textTertiary : CicadaTheme.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        if isNew { Tag(text: Copy.RunCard.newPage) }
+                        Spacer(minLength: CicadaTheme.spacingSM)
+                        // Said on the row the pointer is on, and on an open one — never down every row (less dense).
+                        if canShowChange && (hovering || open) {
+                            Text(open ? Copy.RunCard.hideChange : Copy.RunCard.showChange)
+                                .font(CicadaTheme.metaFont)
+                                .foregroundStyle(hovering ? CicadaTheme.textSecondary : CicadaTheme.textTertiary)
+                        }
+                    }
+                    .padding(.horizontal, CicadaTheme.scaled(8))
+                    .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
+                    .rowHoverFill(hovering: hovering)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.cicadaPlain)
+                .onHover { hovering = $0 }
+                .disabled(page.gone)
+                .help(page.gone ? Copy.RunCard.goneHelp : canShowChange ? Copy.RunCard.changeHelp(label) : page.id)
+                .accessibilityLabel(canShowChange ? Copy.RunCard.changeHelp(label) : Copy.RunCard.openPage(label))
+                .accessibilityValue(canShowChange ? (open ? Copy.Lists.expanded : Copy.Lists.collapsed) : "")
+                if !page.gone {
+                    IconButton(systemName: "arrow.up.right", help: Copy.RunCard.openPage(label)) {
+                        onSelectEntity?(page.id)
+                    }
+                }
+            }
+            if open {
+                change
+                    .padding(.horizontal, CicadaTheme.scaled(8))
+                    .padding(.vertical, CicadaTheme.spacingXS)
+                    .transition(.opacity)
+            }
+        }
+        .onAppear { if initiallyOpen { open = true } }
+        .task(id: open) { if open, diff == nil { await fetch() } }
+    }
+
+    private func press(_ label: String) {
+        guard canShowChange else { onSelectEntity?(page.id); return }
+        let animation = RunCardMotion.current(reduceMotion: reduceMotion)
+        withAnimation(animation) { open.toggle() }
+    }
+
+    @ViewBuilder
+    private var change: some View {
+        if let diff {
+            if DiffModel(diff).isEmpty {
+                Text(Copy.RunCard.noChange)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+            } else {
+                // The diff scrolls inside a short window, so one long page never pushes the rest of the card away.
+                ScrollView(.vertical) { DiffView(diff: diff) }
+                    .frame(height: Self.height(lines: DiffModel(diff).lines.count))
+                    .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgBase))
+                    .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+                    .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+            }
+        } else if failed {
+            DiffView.error { Task { await fetch() } }
+        } else {
+            DiffView.loading
+        }
+    }
+
+    /// The diff's window: its rows' height up to twelve rows, then it scrolls.
+    static func height(lines: Int) -> CGFloat {
+        CicadaTheme.scaled(CGFloat(min(max(lines, 1), 12)) * 18 + 8)
+    }
+
+    private func fetch() async {
+        guard let until = commits.last else { return }
+        failed = false
+        do {
+            diff = try await loadDiff(page.id, until, commits.count > 1 ? commits.first : nil)
+        } catch {
+            failed = true
+        }
     }
 }
 
@@ -517,31 +765,6 @@ private struct ConsolidatedConversationRow: View {
         .onHover { hovering = $0 }
         .help(conversation.id)
         .accessibilityLabel(Copy.RunCard.openConversation(label))
-    }
-}
-
-/// The pages a run made or changed, as neutral `Tag`s by name (DR-44, DR-54): a click opens the page; a page gone since
-/// shows its id and opens nothing.
-private struct ConsolidatedPageTags: View {
-    let pages: [SleepConsolidated.Page]
-    var onSelectEntity: ((String) -> Void)?
-    @Environment(Store.self) private var store: Store?
-
-    var body: some View {
-        let names = store?.entityNames ?? .empty
-        FlowLayout(spacing: 6) {
-            ForEach(pages) { page in
-                let label = RunItemGroups.pageLabel(page, names: names)
-                if page.gone {
-                    Tag(text: label).opacity(0.6).help(Copy.RunCard.goneHelp)
-                } else {
-                    Button { onSelectEntity?(page.id) } label: { Tag(text: label) }
-                        .buttonStyle(.cicadaPlain)
-                        .help(page.id)
-                        .accessibilityLabel(Copy.RunCard.openPage(label))
-                }
-            }
-        }
     }
 }
 

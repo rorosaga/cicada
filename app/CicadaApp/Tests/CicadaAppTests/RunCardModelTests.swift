@@ -76,7 +76,7 @@ final class RunCardModelTests: XCTestCase {
         XCTAssertEqual(cards.count, 1)
         let card = cards[0]
         XCTAssertEqual(card.key, .run("sleep_leg1"))
-        XCTAssertEqual(card.summary, "9 conversations · 9 new pages")
+        XCTAssertEqual(card.summary, "9 conversations → 9 new pages")
         XCTAssertEqual(card.starter, "You started it")
         XCTAssertEqual(card.engineWords, "Claude Code (your plan) · model-a, model-b")
         XCTAssertEqual(card.durationText, "2 h 14 m")
@@ -92,23 +92,29 @@ final class RunCardModelTests: XCTestCase {
         XCTAssertEqual(cards.map(\.id), ["abc1234"])
         let card = cards[0]
         XCTAssertEqual(card.key, .commit("abc1234"))
-        XCTAssertEqual(card.summary, "3 conversations · 1 new page · 2 updates")
+        XCTAssertEqual(card.summary, "3 conversations → 1 new page, 2 updated")
         XCTAssertNil(card.starter, "a plain cycle never recorded who started it")
         XCTAssertEqual(card.engineWords, "Claude Code (your plan) · claude-haiku-5-5")
         XCTAssertEqual(card.durationText, "23 s")
     }
 
-    func testTheSummaryDropsWhatItHasNothingToSay() {
-        XCTAssertEqual(Copy.RunCard.summary(conversations: 12, created: 3, updated: 18, questions: 2, locale: us),
-                       "12 conversations · 3 new pages · 18 updates · 2 questions")
-        XCTAssertEqual(Copy.RunCard.summary(conversations: 1, created: 0, updated: 0, questions: 0, locale: us),
-                       "1 conversation · nothing new")
-        XCTAssertEqual(Copy.RunCard.summary(conversations: 2, created: nil, updated: nil, questions: nil, locale: us),
+    /// Owner 2026-11-23 ("less dense … easily see what was consolidated"): what it read → what that changed;
+    /// questions are the dropdown's.
+    func testTheSummaryIsWhatItReadThenWhatItChanged() {
+        XCTAssertEqual(Copy.RunCard.summary(conversations: 12, created: 3, updated: 18, locale: us),
+                       "12 conversations → 3 new pages, 18 updated")
+        XCTAssertEqual(Copy.RunCard.summary(conversations: 12, created: 0, updated: 4, locale: us),
+                       "12 conversations → 4 pages updated")
+        XCTAssertEqual(Copy.RunCard.summary(conversations: 1, created: 0, updated: 0, locale: us),
+                       "1 conversation → nothing new")
+        XCTAssertEqual(Copy.RunCard.summary(conversations: 2, created: nil, updated: nil, locale: us),
                        "2 conversations", "unknown is never said as zero")
-        XCTAssertEqual(Copy.RunCard.summary(conversations: nil, created: nil, updated: nil, questions: nil, locale: us),
+        XCTAssertEqual(Copy.RunCard.summary(conversations: nil, created: nil, updated: nil, locale: us),
                        Copy.RunCard.nothingRecorded)
-        XCTAssertEqual(Copy.RunCard.summary(conversations: 1_200, created: 1, updated: nil, questions: nil, locale: us),
-                       "1,200 conversations · 1 new page")
+        XCTAssertEqual(Copy.RunCard.summary(conversations: nil, created: 1, updated: 2, locale: us),
+                       "1 new page, 2 updated")
+        XCTAssertEqual(Copy.RunCard.summary(conversations: 1_200, created: 1, updated: nil, locale: us),
+                       "1,200 conversations → 1 new page")
     }
 
     func testHowARunEnded() {
@@ -144,7 +150,7 @@ final class RunCardModelTests: XCTestCase {
         withRun.run = ref
         let card = try XCTUnwrap(RunCardModel.cards([withRun], locale: us).first)
         XCTAssertEqual(card.starter, "On schedule")
-        XCTAssertEqual(card.summary, "2 conversations · 1 update")
+        XCTAssertEqual(card.summary, "2 conversations → 1 page updated")
     }
 
     // MARK: The dropdown
@@ -180,16 +186,31 @@ final class RunCardModelTests: XCTestCase {
         XCTAssertNil(inside, "an assistive press opens in one frame whatever event came last")
     }
 
-    /// The card's question count is the dropdown's (raised + settled); before its items load it names none.
-    func testTheCardsQuestionsAreTheDropdownsCount() throws {
-        let e = try fixture(SleepHistoryEntry.self, "sleep-history-run.json")
-        XCTAssertFalse(try XCTUnwrap(RunCardModel.cards([e], locale: us).first).summary.contains("question"))
-        let items = SleepConsolidated(questionsRaised: [.init(id: "inbox-1")], questionsSettled: [.init(id: "inbox-2")],
-                                      counts: ["questions_raised": 1, "questions_settled": 1])
-        let card = try XCTUnwrap(RunCardModel.cards([e], items: [.run("sleep_leg1"): items], locale: us).first)
-        XCTAssertEqual(card.summary, "9 conversations · 9 new pages · 2 questions")
-        XCTAssertEqual(RunCardModel.questions(items), 2)
-        XCTAssertNil(RunCardModel.questions(nil))
+    /// Owner 2026-11-23 ("cards with logos"): a card's marks are the sources it read, most-read first, each once.
+    func testTheCardsMarksAreTheSourcesItReadMostFirst() {
+        let items = SleepConsolidated(conversations: [.init(id: "1", origin: "chatgpt"), .init(id: "2", origin: "claude-code"),
+                                                      .init(id: "3", origin: "claude-code"), .init(id: "4", origin: "telegram")])
+        XCTAssertEqual(RunCardModel.origins(items), ["claude-code", "chatgpt", "telegram"], "ties keep the read's order")
+        XCTAssertEqual(RunCardModel.origins(nil), [], "nothing until the items load")
+    }
+
+    /// The pages a closed card names: new first, then updated; "+N" counts from the server's whole counts.
+    func testTheCardsPagesAreNewThenUpdatedWithTheWholeCount() {
+        let items = SleepConsolidated(created: [.init(id: "alpha")], updated: [.init(id: "beta"), .init(id: "gamma")],
+                                      counts: ["created": 1, "updated": 40], truncated: true)
+        let preview = RunCardModel.pagePreview(items)
+        XCTAssertEqual(preview.pages.map(\.id), ["alpha", "beta", "gamma"])
+        XCTAssertEqual(preview.total, 41)
+        XCTAssertEqual(RunCardModel.pagePreview(nil).total, 0)
+    }
+
+    /// items-3: a page carries the read's commits that changed it; an older backend's page decodes with none.
+    func testAPageDecodesItsCommitsAndAnOlderPageHasNone() throws {
+        let new = try JSONDecoder().decode(SleepConsolidated.Page.self,
+                                           from: Data(#"{"id":"alpha","commits":["aaa1111","bbb2222"]}"#.utf8))
+        XCTAssertEqual(new.commits, ["aaa1111", "bbb2222"])
+        let old = try JSONDecoder().decode(SleepConsolidated.Page.self, from: Data(#"{"id":"alpha"}"#.utf8))
+        XCTAssertEqual(old.commits, [])
     }
 
     // MARK: The view model

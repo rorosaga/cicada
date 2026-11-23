@@ -39,6 +39,21 @@ final class SaveWhySuggestTests: XCTestCase {
 
     // MARK: - (2) The field grows to a cap, then scrolls
 
+    /// Owner 2026-11-23 ("the text is cutting off"): the field is measured in the size it is drawn in. It drew in
+    /// `metaFont` (13 pt since ROR-118) and measured at 12, so a wrapped second line was clipped.
+    func testTheFieldIsMeasuredInTheFontItIsDrawnIn() throws {
+        let panel = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/CicadaApp/SaveWhy/SaveWhyPanel.swift"), encoding: .utf8)
+        let field = try XCTUnwrap(panel.range(of: "TextField(Copy.SaveWhy.placeholder"))
+        let modifiers = String(panel[field.lowerBound...].prefix(400))
+        XCTAssertTrue(modifiers.contains(".font(SaveWhyField.swiftUIFont)"), "drawn in the size it is measured in")
+        XCTAssertEqual(SaveWhyField.font.pointSize, CicadaTheme.scaled(SaveWhyField.fontSize))
+        // The owner's own answer, at the panel's field width: two lines on screen, so two lines tall.
+        let answer = "really useful, maybe smething that i can implement for cicada so as to compress some of the things"
+        XCTAssertEqual(SaveWhyField.lineCount(answer, width: 340), 2)
+    }
+
     func testTheFieldGrowsALineAtATimeUpToFiveThenScrolls() {
         let width: CGFloat = 360
         XCTAssertEqual(SaveWhyField.lineCount("", width: width), 1, "empty is one line, never zero")

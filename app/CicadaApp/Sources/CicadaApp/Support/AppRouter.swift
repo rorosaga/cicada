@@ -64,9 +64,8 @@ final class AppRouter {
 
     /// Sets both fields together — a `pendingAddSource` with no matching
     /// tab-switch would stage a sheet nobody ever sees, since the Sleep page
-    /// only consumes it once it's actually on screen. The one-shot import's
-    /// door (⌘N, the `+` on Sleep's list row) lives on the Sleep page since
-    /// the Feed folded into it (2026-10-16).
+    /// only consumes it once it's actually on screen. A hand-off naming a tile
+    /// opens that tile's flow on the Sleep page (the Feed folded into it, 2026-10-16).
     func routeToAddSource(_ tile: AddSourceTile) {
         closeSettings()
         // G217 — the tile's entry in the one catalogue (the Sources page), which opens its flow.

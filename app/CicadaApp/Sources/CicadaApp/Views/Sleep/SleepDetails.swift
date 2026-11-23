@@ -52,21 +52,19 @@ struct SleepWaitingList: View {
                 .id(DetailsSection.waiting.anchorID)
                 .saturation(liveness.saturation)
             if let kept = queue?.kept, kept > 0 {
-                // ROR-118 round 5 - the list's own last card (owner 2026-11-23), in the table's columns: the chevron's slot, the mark's tile,
-                // the words in the name column and the number in the Items column, so it is a row, not a stranded line.
+                // ROR-118 round 5 - the list's own last card (owner 2026-11-23), drawn like a source's: the mark's tile with
+                // its number as the badge (the same day's badge ruling), the words in the name column.
                 HStack(spacing: CicadaTheme.spacingSM) {
-                    Color.clear.frame(width: CicadaTheme.iconPoints(.inline), height: 1)
                     Image(systemName: "tray")
                         .font(CicadaTheme.icon(.inline))
                         .foregroundStyle(CicadaTheme.textSecondary)
-                        .frame(width: CicadaTheme.scaled(22), height: CicadaTheme.scaled(22))
+                        .frame(width: StudyListCard.markSize, height: StudyListCard.markSize)
                         .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgBadge))
+                        .overlay(alignment: .topTrailing) { StudyListCard.badge(kept) }
+                        .padding(.trailing, CicadaTheme.spacingXS)
                     Text(Copy.SleepV5.keptForLookupRow).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
                         .lineLimit(1)
                     Spacer(minLength: CicadaTheme.spacingMD)
-                    Text(UsageFormat.count(kept)).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
-                        .monospacedDigit()
-                        .frame(minWidth: CicadaTheme.scaled(StudyListCard.countColumn), alignment: .trailing)
                 }
                 .padding(.horizontal, StudyListCard.cardInset)
                 .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine + 16))
