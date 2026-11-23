@@ -247,6 +247,9 @@ def test_in_one_batch_two_people_of_one_name_are_a_page_and_a_held_line(tmp_path
     assert extracted[0]["values"][0]["source_page"] == "marc-2"
     assert "source_page" not in extracted[1]["relationships"][0]
     assert out["name_to_id"]["marc"] == "marc"
+    from api.services import merge_rejections
+
+    assert merge_rejections.load_split(memory) == {("marc", "marc-2")}, "the pair Sleep decided, and only that one"
     assert len(judged.calls) == 1
 
 
@@ -321,3 +324,36 @@ def test_a_second_person_below_the_bar_waits_and_never_joins_the_plain_line(tmp_
     out = _run(er.resolve([_extraction("ep2", WORK)], [], _settings(memory)))
     assert out["changes"] == [] and set(judged.spy.parked) == {"marc-2"}
     assert judged.spy.parked["marc-2"].episodes() == ["ep2"] and judged.spy.parked["marc-2"].title == "Marc"
+    from api.services import merge_rejections
+
+    assert merge_rejections.load_split(memory) == {("marc", "marc-2")}, "kept apart before the line is ever a page"
+
+
+def test_a_cancelled_batch_records_no_pair(tmp_path, judged):
+    from api.services import merge_rejections
+
+    memory = _bank(tmp_path)
+    polls = {"n": 0}
+
+    def cancel():
+        polls["n"] += 1
+        return polls["n"] > 1   # the plan's poll passes; the loop's first poll cancels
+
+    judged.answer = TWO
+    _run(er.resolve([_extraction("ep1", FAMILY), _extraction("ep2", WORK), _extraction("ep3", WORK)], [],
+                    _settings(memory), cancel_check=cancel))
+    assert merge_rejections.load_split(memory) == set() and not (memory / merge_rejections.FILE).exists()
+    assert judged.spy.parked == {}
+
+
+def test_a_later_conversation_of_a_known_person_records_nothing_new(tmp_path, judged):
+    from api.services import merge_rejections
+
+    memory = _bank(tmp_path)
+    merge_rejections.add_split(memory, "marc", "marc-2")
+    before = (memory / merge_rejections.FILE).read_text()
+    plain, second = _page("marc", WORK, ["ep2", "ep3"]), _page("marc-2", FAMILY, ["ep1", "ep4"])
+    judged.answer = {"people": [{"conversations": ["A"], "same_as": 2}]}
+    _run(er.resolve([_extraction("ep9", "my brother-in-law is a carpenter and built the shelves", target="Alpine Town")],
+                    [plain, second], _settings(memory)))
+    assert (memory / merge_rejections.FILE).read_text() == before

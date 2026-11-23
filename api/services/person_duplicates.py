@@ -265,11 +265,6 @@ def candidates(memory_path: Path, *, floor: float = LIST_FLOOR) -> list[Pair]:
             pair = tuple(sorted((pa.id, pb.id)))
             if pair in kept_apart or (pa.role and pb.role):
                 continue
-            if fold(pa.name) == fold(pb.name):
-                # One title on two people pages is a decision already made, never a lead (2026-11-23): a name joins
-                # the page titled so, so a second page under it exists only because the person, or Sleep on two
-                # conversations that cannot describe one person (`same_name_people`), said it is someone else.
-                continue
             signals: dict[str, tuple[str, str]] = {}
             for x in pa.names:
                 for y in pb.names:

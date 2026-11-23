@@ -2147,10 +2147,17 @@ included) and is created under the next free id (`marc-2`, `marc-3`: `_another_i
 waits as a held line keyed by that id (`PendingEntity.title` says the name its page will carry), so the plain name's line
 never receives its claims. Every edge and value of those conversations that names the person is pinned to the id
 (`source_page` / `target_page`, as a correspondent's are). A later conversation finds each person again as a page or a line
-under the name and is judged against them, so after both pages exist a new conversation lands on the right one. Two people
-pages under one title are never a duplicate lead (`person_duplicates.candidates` skips an identical-title pair: it exists
-only because someone decided it), so the split raises no "Is Marc the same as Marc?" question and Sleep's own two-signal join
-never takes it back; the person merges them with `cicada_merge_pages` as for any pair. Cost: one disambiguation call per
+under the name and is judged against them, so after both pages exist a new conversation lands on the right one. Each pair Sleep itself decides is two people (a new
+person against the plain name's page and every person the judge compared them with, never any other same-titled pair) is
+written to `_merge_rejected.yaml`'s `split:` list (`merge_rejections.add_split`) as one of the batch's deferred Stage 2
+writes: flushed only when the batch is not cancelled, and committed by the batch's own `git add -A` commit with the
+inbox files and pending lines it writes beside it. A person held as a line (`marc-2`) is recorded the moment the line is
+first held, so the pair is already kept apart when it becomes a page. `person_duplicates`, the dedup sweep and Sleep's
+tending read that list (`kept_apart`), so the split raises no "Is Marc the same as Marc?" question and Sleep's two-signal
+join never takes it back. Two same-titled pages nobody split (a chat participant's `<id>-person` page beside a same-named
+page from a conversation) stay leads and joinable, as before. The person's own merge of the two pages clears the pair
+(`page_join.merge` calls `merge_rejections.clear_pairs`), so merging them with `cicada_merge_pages` works as for any pair.
+Cost: one disambiguation call per
 bare name with something to compare (the fixture's second person: 5 across both drains, the first's 2), bounded by the
 batch's bare names, never by the bank. The G209 first-name guard (`_first_name_across`, a one-word name heard outside a chat
 against a full-name page) and the promotion bar are unchanged.

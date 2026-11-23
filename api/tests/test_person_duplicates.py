@@ -127,10 +127,22 @@ def test_a_pair_the_person_called_two_people_never_joins(bank):
     assert pd.join_reason(bank, "nur", "noor") == ""
 
 
-def test_two_pages_under_one_title_are_never_a_lead(bank):
-    """2026-11-23 (`same_name_people`): a name joins the page titled so, so a second page under the same title exists
-    only because someone decided it is another person. It is never a duplicate lead, a question or a Sleep join."""
+def test_a_pair_sleep_split_is_never_a_lead_but_two_same_titled_pages_that_were_not_are(bank):
+    """2026-11-23 (`same_name_people`): Sleep records each pair it decided is two people (`merge_rejections.add_split`),
+    and only those are left alone. A chat participant's `<id>-person` page beside a same-named page from a conversation was
+    never decided, and is exactly the pair one person across sources needs to be brought together."""
+    from api.services import merge_rejections
+
     _page(bank, "marc", "Marc", source_episodes=["ep_2026-01-01_001"])
     _page(bank, "marc-2", "Marc", source_episodes=["ep_2026-01-05_001"])
+    _page(bank, "marc-person", "Marc", source_episodes=["ep_2026-01-09_001"])
     bank_index.invalidate()
-    assert not any({"marc", "marc-2"} == {p.a, p.b} for p in pd.candidates(bank))
+    pairs = {frozenset((p.a, p.b)) for p in pd.candidates(bank)}
+    assert {frozenset(("marc", "marc-2")), frozenset(("marc", "marc-person")),
+            frozenset(("marc-2", "marc-person"))} <= pairs, "as on dev: an undecided same-titled pair is a lead"
+    merge_rejections.add_split(bank, "marc", "marc-2")
+    merge_rejections.add_split(bank, "marc-2", "marc-person")
+    bank_index.invalidate()
+    pairs = {frozenset((p.a, p.b)) for p in pd.candidates(bank)}
+    assert frozenset(("marc", "marc-2")) not in pairs and frozenset(("marc-2", "marc-person")) not in pairs
+    assert frozenset(("marc", "marc-person")) in pairs, "the pair nobody split stays a lead"
