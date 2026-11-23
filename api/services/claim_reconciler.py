@@ -990,7 +990,8 @@ def _adopt_value_attribute(new: Claim, slot: list[Claim]) -> None:
 
 def _place_ending(new: Claim, ending: "predicates.Ending", slot: list[Claim], settings, today: str,
                   audit: list[dict], untimed=frozenset(),
-                  ended_by: "Callable[[str], str | None] | None" = None) -> "Claim | bool":
+                  ended_by: "Callable[[str], str | None] | None" = None,
+                  ended_values: "frozenset[str]" = frozenset()) -> "Claim | bool":
     """A claim whose label says a belief stopped being true (``predicates.build_endings_fn``; 2026-10-14).
 
     A multi-valued place ends only on evidence that it ended — this, a stated end (``claim_expiry``) or the
@@ -1027,6 +1028,10 @@ def _place_ending(new: Claim, ending: "predicates.Ending", slot: list[Claim], se
         # Python" beside "written in Python"); a value whose whole literal names the dropped thing ends with it.
         targets += [c for c in slot if open_(c) and c.subject == new.subject and is_value_claim(c)
                     and sanitize_id(str(c.object or "")) == sanitize_id(str(new.object or "")) and c not in targets]
+        # ... and one that carries it with more ("Python with Pillow"): `value_ended` asked the judge, with the ending's
+        # own words, and only the ones it said this ending made out of date arrive here.
+        targets += [c for c in slot if c.id in ended_values and open_(c) and c.subject == new.subject
+                    and is_value_claim(c) and c not in targets]
     if not targets and not (ending.synonym or new.predicate == canonical):
         return False
     if ending.mode == predicates.ENDING_PAST and targets:
@@ -1160,11 +1165,14 @@ def reconcile_stage3(
     decay: bool = True,
     revised: dict[str, str] | None = None,
     redated: dict[str, str] | None = None,
+    ended_values: dict[str, set[str]] | None = None,
 ) -> tuple[dict[str, list[Claim]], list[dict], list[dict]]:
     """Trust-gated invalidate-and-supersede over claims. Nothing deleted.
 
     ``revised``: :func:`_place_claim`'s — the claims an edited conversation stopped saying (G104). ``redated``: its
-    claims an edited conversation now dates differently (G104 slice 3, review).
+    claims an edited conversation now dates differently (G104 slice 3, review). ``ended_values``: ``{ending claim id:
+    {value claim ids}}`` — values the judge said that ending made out of date (`value_ended`); :func:`_place_ending`
+    closes them with the link, on the same guards.
 
     ``decay=False`` skips ``_decay_claims`` only (a drain's batches before the
     last; see ``sleep_drain``).
@@ -1270,8 +1278,8 @@ def reconcile_stage3(
             raw_label = None
         ending = endings_fn(str(raw_label or new.predicate))
         ended_by = getattr(endings_fn, "ended_by", None)
-        if ending is not None and _place_ending(new, ending, slot, settings, today, audit, untimed,
-                                                ended_by) is not False:
+        if ending is not None and _place_ending(new, ending, slot, settings, today, audit, untimed, ended_by,
+                                                frozenset((ended_values or {}).get(new.id, ()))) is not False:
             continue
         # A predicate an ending also ends (`also_ends`, or a qualified label) reads that canonical's departures.
         canonical = (ended_by(new.predicate) if ended_by else None) or new.predicate
