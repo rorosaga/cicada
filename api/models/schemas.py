@@ -4364,6 +4364,23 @@ class SleepQueueItem(CamelModel):
     batch: Optional[int] = None
 
 
+class SleepKeptSource(CamelModel):
+    """One source's share of what is kept for lookup: how many, and its newest item's time."""
+    origin: str
+    count: int
+    newest: Optional[str] = None
+
+
+class SleepKept(CamelModel):
+    """``GET /sleep/kept`` (owner 2026-11-23): what is kept for lookup (ruling 62) — ``sources`` the whole breakdown,
+    ``items`` one source's page (newest first) when ``origin`` was asked, else empty."""
+    total: int = 0
+    sources: list[SleepKeptSource] = Field(default_factory=list)
+    origin: Optional[str] = None
+    offset: int = 0
+    items: list[EpisodeQueueItem] = Field(default_factory=list)
+
+
 class SleepQueueResponse(CamelModel):
     total: int
     offset: int = 0

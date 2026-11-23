@@ -1355,6 +1355,32 @@ struct SleepCancelResponse: Codable {
     let cycleId: String?
 }
 
+/// `GET /sleep/kept` (owner 2026-11-23): what is kept for lookup (ruling 62) — every source's count, and one source's
+/// page of items (newest first) when an origin was asked.
+struct SleepKept: Codable {
+    struct Source: Codable, Identifiable, Equatable {
+        var origin: String
+        var count: Int
+        var newest: String? = nil
+        var id: String { origin }
+    }
+
+    var total: Int = 0
+    var sources: [Source] = []
+    var items: [EpisodeQueueItem] = []
+
+    init(total: Int = 0, sources: [Source] = [], items: [EpisodeQueueItem] = []) {
+        self.total = total; self.sources = sources; self.items = items
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        total = (try? c.decodeIfPresent(Int.self, forKey: .total)) ?? 0
+        sources = (try? c.decodeIfPresent([Source].self, forKey: .sources)) ?? []
+        items = (try? c.decodeIfPresent([EpisodeQueueItem].self, forKey: .items)) ?? []
+    }
+}
+
 struct EpisodeQueueItem: Codable, Identifiable {
     let id: String
     let timestamp: String
@@ -3676,6 +3702,15 @@ actor APIClient {
     /// timed out." while the backend kept working; the backend's own clock is 300 s a call and an unreadable reply is
     /// asked once more (`ask_failure.ASK_WAIT_S`, the same number).
     static let askTimeout: TimeInterval = 600
+
+    /// `GET /sleep/kept` — what is kept for lookup: the breakdown by source, plus one source's page when asked.
+    func fetchSleepKept(origin: String? = nil, offset: Int = 0, limit: Int = 30) async throws -> SleepKept {
+        var path = "/sleep/kept?offset=\(offset)&limit=\(limit)"
+        if let origin, let q = origin.addingPercentEncoding(withAllowedCharacters: .alphanumerics) {
+            path += "&origin=\(q)"
+        }
+        return try await get(path)
+    }
 
     /// `GET /sleep/episodes?processed=false` — only the episodes still waiting for Sleep (the Sleep page's Waiting rows,
     /// a source's queue strip), revalidated with its ETag: a 304 keeps the rows held. Not a Store
