@@ -64,6 +64,8 @@ class _Ref:
     last: str | None = None
     #: G104 slice 3: how many of ``episodes`` were removed from their source (tombstoned, kept as evidence).
     removed: int = 0
+    #: G244: the newest agent edit of a source file this reference holds (`source_spans.edited_by`), if any.
+    edited_by: tuple | None = None   # (harness, model, at)
 
     @property
     def source_removed(self) -> bool:
@@ -153,6 +155,9 @@ class _Sources:
             ref.episodes.append(doc_id)
             if source_spans.removed_at(fm) is not None:
                 ref.removed += 1
+            if (editor := source_spans.edited_by(fm)) is not None and (ref.edited_by is None
+                                                                       or (editor.at or "") > (ref.edited_by[2] or "")):
+                ref.edited_by = (editor.harness, editor.model, editor.at)
             if said:
                 # By instant, never by string (G114 R2): a bank holds naive, `Z` and `+00:00` stamps side by side.
                 when = episode_ids.timestamp_sort_key
@@ -273,6 +278,9 @@ def _ref_dict(ref: _Ref) -> dict:
            "sourceKind": ref.source_kind}
     if ref.source_removed:
         out["sourceRemoved"] = True   # G104 slice 3: absent means "still there", as every older client reads it
+    if ref.edited_by is not None:   # G244 (ruling 76): absent means no agent edited it
+        harness, model, at = ref.edited_by
+        out["editedBy"] = {"harness": harness, "model": model, "at": at}
     return out
 
 
@@ -366,6 +374,8 @@ def ref_words(ref: dict) -> str:
     where = ", ".join(b for b in (ref.get("harness") or ref.get("origin"), when) if b)
     title = f' "{ref["title"]}"' if ref.get("title") else ""
     gone = " (source removed, kept as evidence)" if ref.get("sourceRemoved") else ""
+    editor = ref.get("editedBy")
+    gone += f" (edited by {source_spans.editor_words(editor)})" if editor else ""
     return f"[{ref['n']}] {ref['kind']}{title}" + (f" ({where})" if where else "") + gone
 
 

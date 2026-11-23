@@ -53,12 +53,13 @@ exec "$CICADA_PYTHON" "$CICADA_BACKEND_DIR/app/mcp/server.py" "$@"
 EOF
 cat > "$BIN/cicada-hook" <<'EOF'
 #!/bin/sh
-# cicada-hook capture|recall|registry|cursor|cursor_registry [args] — local hooks and
-# the hook registry the app runs to install them.
+# cicada-hook capture|recall|source-edit|registry|cursor|cursor_registry [args] — local hooks and
+# the hook registry the app runs to install them. `source-edit` is api/hooks/source_edit.py (G244).
 . "$(dirname "$0")/cicada-env"
 case "$1" in
   capture|recall|registry|cursor|cursor_registry) name="$1"; shift ;;
-  *) echo "usage: cicada-hook capture|recall|registry|cursor|cursor_registry [args]" >&2; exit 2 ;;
+  source-edit) name=source_edit; shift ;;
+  *) echo "usage: cicada-hook capture|recall|source-edit|registry|cursor|cursor_registry [args]" >&2; exit 2 ;;
 esac
 exec "$CICADA_PYTHON" "$CICADA_BACKEND_DIR/app/api/hooks/$name.py" "$@"
 EOF

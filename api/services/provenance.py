@@ -606,6 +606,7 @@ def entity_provenance(
         row.best = _best_span(docs, row.episode_ids, spans_by_episode, name, entity_id)
         if row.best is not None:
             row.best.source_removed = docs.removed(row.best.episode)
+            _mark_corrected(row.best, docs.meta(row.best.episode))
 
     pages: list[ProvenancePage] = []
     for doc_id, claim_ids in sorted(page_claims.items()):
@@ -688,7 +689,16 @@ def _section_evidence(ev: Evidence, docs: _Episodes, allowed: set[str]) -> Secti
                                grown=row.status == evidence.SPAN_GROWN, held=docs.held(ev.episode))
     if row.span is not None:
         row.span.source_removed = row.source_removed
+        _mark_corrected(row.span, indexed)
     return row
+
+
+def _mark_corrected(span: ProvenanceSpan, indexed) -> None:
+    """G244 (ruling 76): the span's words were changed by an agent's edit of the source file (`source_spans.corrected_by`,
+    derived on read). A span with no offsets (stale, held) is never marked."""
+    if span.start is None or span.end is None or span.held or span.stale or indexed is None:
+        return
+    span.corrected_by = source_spans.corrected_by(indexed.frontmatter, span.start, span.end)
 
 
 def _sections(parsed, docs: _Episodes, shown: list[ProvenanceConversation],

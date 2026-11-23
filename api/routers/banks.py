@@ -261,6 +261,9 @@ async def delete_bank(name: str, settings: Settings = Depends(get_settings)) -> 
     from api.services import page_reads
 
     page_reads.forget_bank(counter_id)
+    from api.services import source_edits
+
+    source_edits.forget_bank(counter_id)   # G244: an agent's edit waiting for a sync goes with its bank
     logger.info(f"Moved bank '{name}' to the trash")
     data = bank_registry.list_banks(root)
     return BankTrashResponse(

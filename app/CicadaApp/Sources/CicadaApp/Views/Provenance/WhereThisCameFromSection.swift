@@ -249,6 +249,10 @@ struct WhereThisCameFromSection: View {
                 // G104 slice 3: the words are kept; say only that their source is gone.
                 Text(Copy.Provenance.sourceRemoved).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
             }
+            if let note = best.correctedBy?.note {
+                // G244: who edited the words in their source; the speaker label above is unchanged.
+                Text(note).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+            }
         }
     }
 

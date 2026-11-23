@@ -141,6 +141,8 @@ struct PageBlocks: Codable, Equatable {
             var conversationId: String?
             /// G104 slice 3 — every conversation this reference holds was removed from its source (kept as evidence).
             var sourceRemoved: Bool?
+            /// G244 — an agent edited a source this reference holds (ruling 76); the server's `editedBy`.
+            var editedBy: CorrectedBy?
 
             var id: Int { n }
         }
@@ -298,6 +300,11 @@ struct PageCitationDetail: Codable, Equatable {
     var lines: Int?
     /// G104 slice 3 — the source behind this reference was removed; what it taught stays.
     var sourceRemoved: Bool?
+    /// G244 — an agent edited the source behind this reference (ruling 76); the server's `editedBy`.
+    var editedBy: CorrectedBy?
+
+    /// The popover's correction note: the located span's when its words were changed, else the reference's own record.
+    var correctionNote: String? { (span?.correctedBy ?? editedBy)?.note }
 
     /// Whether the popover says so: the reference's own word, or the located span's.
     var isSourceRemoved: Bool { sourceRemoved == true || span?.sourceRemoved == true }

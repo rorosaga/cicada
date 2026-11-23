@@ -598,6 +598,61 @@ async def capture_agent_memory(req: AgentMemoryRequest, request: Request, settin
     return {"status": "ok", "bank": memory_path.name, **report}
 
 
+class SourceEditRequest(BaseModel):
+    """G244 (ruling 76): an agent edited a file of a watched folder. What the agent's own process observed — the folder it
+    matched (``GET /sources/folders``), the file's relative path, the sha256 of the bytes it left, who it is — never the
+    file's words, and a path the backend never opens. Snake_case: the sender is a stdlib hook (or ``cicada source-edit``).
+    Every value is checked by ``source_edits.clean``; a bad one is a ``refused`` answer with an enum reason, not a 422."""
+
+    folder_id: str = Field(..., max_length=128)
+    relpath: str = Field(..., max_length=1024)
+    sha256: str = Field(..., max_length=128)
+    harness: str = Field(..., max_length=64)
+    session_id: str | None = Field(None, max_length=256)
+    #: The harness's own transcript for this session, to read the model and effort of its last turn from — only one
+    #: ``transcript_capture.validate_transcript_path`` accepts is opened; any other is ignored, never an error.
+    transcript_path: str | None = Field(None, max_length=4096)
+    #: The tool that made the edit (``Edit``, ``Write``, ``cli``): a short label, dropped when it is not one.
+    tool: str | None = Field(None, max_length=64)
+    #: When the edit was made (UTC ISO); absent, unreadable or in the future is now.
+    at: str | None = Field(None, max_length=64)
+
+
+@router.post("/capture/source-edit", dependencies=[Depends(refuse_capture_into_demo)])
+@write_admission.route()   # held, never refused: a record is a few labels, the attach is frontmatter only
+async def capture_source_edit(req: SourceEditRequest, settings: Settings = Depends(get_settings)):
+    """G244 (ruling 76): record that an agent edited a source file, so the words it changed are marked as its
+    contribution — its harness, model and effort, session and time — instead of reading as the recorder's.
+
+    Matched by content, in either order (`source_edits`): the folder's episodes that already hold ``sha256`` carry the
+    contribution at once, in one commit under the agent as ``Cicada-Author`` and its session as ``Cicada-Session`` (a split
+    note's untouched sections excepted); otherwise the record waits seven days for the sync that stages those bytes.
+
+    ``200`` always, with ``{"status": "attached" | "held" | "refused", "episodes": [ids], "reason"?}``; ``reason`` is an
+    enum (``unknown_folder``, ``bad_sha``, ``bad_harness``, ``bad_session``, ``bad_relpath``, ``replica``; ``no_change``
+    on an ``attached`` that had no word to mark). 409 while a demo bank is open. The backend never opens ``relpath``."""
+    from api.services import folder_source, runtime_layout, source_edits
+
+    memory_path = settings.memory_path
+    if runtime_layout.is_replica():
+        return {"status": "refused", "episodes": [], "reason": "replica"}
+    try:
+        edit = source_edits.clean(memory_path, folder_id=req.folder_id, relpath=req.relpath, sha256=req.sha256,
+                                  harness=req.harness, session_id=req.session_id, tool=req.tool, at=req.at)
+    except source_edits.Refused as refusal:
+        logger.info(f"capture: a source edit was refused: {refusal.reason}")
+        return {"status": "refused", "episodes": [], "reason": refusal.reason}
+    out = await asyncio.to_thread(source_edits.receive, memory_path, edit, req.transcript_path)
+    if out.paths:
+        await folder_source.commit_paths_for(memory_path, out.paths, subject="Agent edit of a source",
+                                             trigger="folder/source-edit", author=edit.harness, session=edit.session)
+    logger.info(f"capture: a source edit by {edit.harness} {out.status} ({len(out.episodes)} episode(s))")
+    body = {"status": out.status, "episodes": out.episodes}
+    if out.reason:
+        body["reason"] = out.reason
+    return body
+
+
 # ── G212 (owner 2026-10-22): a paired phone's captures ─────────────────────────────────────────────────────────────
 # A phone paired as `capture` (`device_tokens.KINDS`) reaches only `/sources/save` (a link and its note), the note and
 # file routes below, and its own recent captures (`auth.CAPTURE_ROUTES`). The writes take any token; the list is a

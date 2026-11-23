@@ -80,12 +80,15 @@ from pathlib import Path
 
 MARKER = "api/hooks/capture.py"
 RECALL_MARKER = "api/hooks/recall.py"
+SOURCE_EDIT_MARKER = "api/hooks/source_edit.py"
 #: Every script Cicada registers, by the name ``uninstall --hook`` takes (G149),
 #: with each of the forms its command takes: a checkout's script path, and a
 #: release app's launcher (G182: ``"…/bin/cicada-hook" capture --harness …``).
 MARKERS = {
     "capture": (MARKER, 'cicada-hook" capture '),
     "recall": (RECALL_MARKER, 'cicada-hook" recall '),
+    # G244: the PostToolUse hook that records an agent's edit of a watched source file (a matcher on the file tools).
+    "source-edit": (SOURCE_EDIT_MARKER, 'cicada-hook" source-edit '),
 }
 _ALL_MARKERS = tuple(m for forms in MARKERS.values() for m in forms)
 DEFAULT_TIMEOUT_S = 5
@@ -166,7 +169,14 @@ def _entries(data: dict, event: str) -> list:
     return entries
 
 
-def install(path: Path, *, event: str, command: str, timeout: int | None = None) -> str:
+def _entry(command: str, timeout: int, matcher: str | None) -> dict:
+    entry: dict = {"hooks": [{"type": "command", "command": command, "timeout": timeout}]}
+    if matcher:
+        entry = {"matcher": matcher, **entry}   # a tool event (PostToolUse) says which tools it fires for
+    return entry
+
+
+def install(path: Path, *, event: str, command: str, timeout: int | None = None, matcher: str | None = None) -> str:
     explicit = timeout
     timeout = default_timeout(event) if timeout is None else timeout
     data = load(path)
@@ -184,10 +194,10 @@ def install(path: Path, *, event: str, command: str, timeout: int | None = None)
             if isinstance(e, dict):
                 e["hooks"] = [h for h in (e.get("hooks") or []) if not _ours(h, mine)]
         _prune(data, event)
-        _entries(data, event).append({"hooks": [{"type": "command", "command": command, "timeout": timeout}]})
+        _entries(data, event).append(_entry(command, timeout, matcher))
         _save(path, data)
         return "updated"
-    entries.append({"hooks": [{"type": "command", "command": command, "timeout": timeout}]})
+    entries.append(_entry(command, timeout, matcher))
     _save(path, data)
     return "added"
 
@@ -490,6 +500,7 @@ def main(argv=None) -> int:
     ap.add_argument("--command", default="")
     ap.add_argument("--timeout", type=int, default=None,
                     help=f"seconds ({DEFAULT_TIMEOUT_S}); Gemini CLI's events count milliseconds")
+    ap.add_argument("--matcher", default=None, help="a tool event's matcher, e.g. 'Edit|Write|MultiEdit|NotebookEdit'")
     ap.add_argument("--hook", choices=tuple(MARKERS), default=None)
     ap.add_argument("--option", default=None, help="plugin: print this plugin setting's saved value")
     ap.add_argument("--cicada-home", default=None, help="plugin: where the app's launchers live ($CICADA_HOME)")
@@ -499,7 +510,7 @@ def main(argv=None) -> int:
         if args.action == "install":
             if not args.command:
                 ap.error("--command is required for install")
-            print(f"{install(path, event=args.event, command=args.command, timeout=args.timeout)}: {path}")
+            print(f"{install(path, event=args.event, command=args.command, timeout=args.timeout, matcher=args.matcher)}: {path}")
             return 0
         if args.action == "plugin":
             state, detail = plugin_state(path, Path(args.cicada_home).expanduser() if args.cicada_home else None)

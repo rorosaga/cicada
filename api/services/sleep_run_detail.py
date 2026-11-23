@@ -66,7 +66,8 @@ def _corrections(memory_path: Path, summary: dict) -> SleepRunCorrections | None
         pages_kept=[SleepRunKeptPage(page=r["page"], episode=r["episode"], support=r.get("support") or "")
                     for r in c.get("pages_kept") or []],
         aliases_dropped=int(c.get("aliases_dropped") or 0), held_dropped=int(c.get("held_dropped") or 0),
-        questions_withdrawn=int(c.get("questions_withdrawn") or 0))
+        questions_withdrawn=int(c.get("questions_withdrawn") or 0),
+        by={str(k): str(v) for k, v in (c.get("by") or {}).items()})
 
 
 async def build(memory_path: Path, drain_id: str) -> SleepRunDetail | None:

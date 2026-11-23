@@ -9,7 +9,8 @@ place that says *what*, in three forms that carry the same facts:
 * **one dated History line** on each page a correction changed, naming the corrected conversation's id — never a second
   one for a page and conversation ``revision_prose`` already wrote a line for in the same batch;
 * **two lines in the Sleep commit body** (``corrections: revised ep_…``, ``corrections: archived <page>``): ids only,
-  shaped so no manifest parser reads them as a file.
+  shaped so no manifest parser reads them as a file. A revised conversation whose source file an agent edited says who
+  (``corrections: revised ep_… (edited by claude-code)``, ``by`` in the entry, G244): a harness label, never a word.
 
 Ids, counts and enums only — never a title, an alias, a held name or a claim's words (the run record, the commit body and
 telemetry carry nothing else). ``None`` is "no revision", never a record of zeros."""
@@ -31,18 +32,22 @@ _COUNTS = ("claims_withdrawn", "claims_superseded", "passages_rewritten", "alias
 
 
 def batch_entry(cascade: dict | None, *, withdrawn: int = 0, superseded: int = 0, rewritten: int = 0,
-                revised_out: dict[str, str] | None = None) -> dict | None:
+                revised_out: dict[str, str] | None = None, editors: dict[str, str] | None = None) -> dict | None:
     """One batch's record, or ``None`` when no conversation was revised. ``cascade`` is ``Report.as_dict()``;
     ``withdrawn`` / ``superseded`` the claim pipeline's counts for the claims only the removed text said (closed with a
     record, replaced by the revision's own value); ``rewritten`` the passages ``revision_prose`` rewrote. A conversation
-    that only replaced a claim's value counts as revised too (``revised_out``'s episodes)."""
+    that only replaced a claim's value counts as revised too (``revised_out``'s episodes). ``editors`` is ``{episode id:
+    harness}`` for a source file an agent edited (`source_edits.editors`, G244): the entry's ``by`` names it for each
+    revised conversation that has one, so the person is told who changed it, never only that it changed."""
     cascade = cascade or {}
     revised = sorted({*(cascade.get("revised") or []), *(revised_out or {}).values()})
     if not revised:
         return None
     held = cascade.get("held") or {}
+    by = {ep: str(editors[ep]) for ep in revised if (editors or {}).get(ep)}
     return {
         "revised": revised,
+        **({"by": by} if by else {}),
         "claims_withdrawn": int(withdrawn or 0),
         "claims_superseded": int(superseded or 0),
         "passages_rewritten": int(rewritten or 0),
@@ -72,6 +77,9 @@ def merge(a: dict | None, b: dict | None) -> dict | None:
     if not b:
         return dict(a)
     out = {"revised": sorted({*a.get("revised", []), *b.get("revised", [])})[:MAX_LISTED]}
+    by = {**(a.get("by") or {}), **(b.get("by") or {})}
+    if by:
+        out["by"] = {ep: h for ep, h in by.items() if ep in out["revised"]}
     for name in _COUNTS:
         out[name] = int(a.get(name) or 0) + int(b.get(name) or 0)
     out["pages_archived"] = _union(a.get("pages_archived") or [], b.get("pages_archived") or [], lambda r: r["page"])
@@ -96,12 +104,15 @@ def commit_lines(entry: dict | None) -> list[str]:
     if not entry:
         return []
     out: list[str] = []
+    by = entry.get("by") or {}
     for label, ids in (("revised", entry.get("revised") or []),
                        ("archived", [r["page"] for r in entry.get("pages_archived") or []])):
         if not ids:
             continue
         more = len(ids) - MAX_IN_COMMIT
-        out.append(f"corrections: {label} {', '.join(ids[:MAX_IN_COMMIT])}" + (f" (+{more} more)" if more > 0 else ""))
+        # G244: a revised conversation whose source file an agent edited says who — `ep_… (edited by claude-code)`.
+        named = [f"{i} (edited by {by[i]})" if label == "revised" and by.get(i) else i for i in ids[:MAX_IN_COMMIT]]
+        out.append(f"corrections: {label} {', '.join(named)}" + (f" (+{more} more)" if more > 0 else ""))
     return out
 
 

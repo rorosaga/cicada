@@ -145,6 +145,11 @@ class EpisodeDraft:
     #: episode, never a tombstone. The caller (`folder_source`) decides WHO replaces WHOM; the stager never parses a
     #: name or compares a time.
     replaces: list[str] = field(default_factory=list)
+    #: G244 (ruling 76): the agent edits (`source_edits`) behind this draft's bytes — ``[{harness, model?, effort?,
+    #: session?, at}]``. Written, when the body changes or the episode is new, as the episode's ``contributions``
+    #: (`CONTRIBUTIONS_KEY`); never part of the body, the hash or ``extra``. The caller (`folder_source`) decides
+    #: which edits a file's bytes carry, by content; the stager only records them.
+    edits: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -492,6 +497,10 @@ def write_new(draft: EpisodeDraft, episodes_dir: Path, body: str, digest: str,
     if draft.source_id is not None:
         fm["source_id"] = draft.source_id
         fm["source_updated_at"] = draft.source_updated_at
+    if draft.edits:   # G244, before `_apply_common`: the turn sidecar stays the last key
+        from api.services import source_edits   # review B1: whole-body ranges only for a file the agent wrote whole
+        whole = source_edits.whole_body_is_theirs(e.get("tool") for e in draft.edits)
+        with_contributions(fm, contribution_entries(draft.edits, digest, changed_ranges(None, body) if whole else []))
     _apply_common(fm, draft, stamps, body)
     # Audit K01: `date_counts` was seeded at the start of the call, and a writer
     # in another process (an MCP server, the Stop hook) may have taken the id
@@ -534,6 +543,57 @@ MAX_REPLACED = 20
 _NOT_CONSOLIDATED_BY = frozenset({PARSED_ONLY, history_index.INDEXED_BY})
 
 
+#: G244 (ruling 76): an agent edited the source file this episode holds — ``[{harness, model?, effort?, session?, at,
+#: content_hash, ranges}]``, newest first, at most :data:`MAX_CONTRIBUTIONS`. ``content_hash`` is the body's hash after the
+#: edit and ``ranges`` the changed ``[start, end]`` character ranges of that body against the one it replaced, so a span
+#: is marked corrected only while the body is still the one the edit made (`source_spans`). Outside ``content_hash``
+#: (frontmatter), kept by every later edit in place, written by this module only.
+CONTRIBUTIONS_KEY = "contributions"
+MAX_CONTRIBUTIONS = 20
+#: Changed ranges one contribution keeps (frontmatter is parsed on every cold scan); a longer list drops its tail —
+#: fewer marked spans, never a wrong one.
+MAX_CONTRIBUTION_RANGES = 128
+
+
+def changed_ranges(prior: str | None, body: str) -> list[list[int]]:
+    """The ``[start, end]`` ranges of ``body`` that differ from the ``prior`` body it replaced (``episode_revision.diff``,
+    by line, whitespace ignored); the whole body when there is no prior (a new episode). Adjacent ranges are one."""
+    from api.services import episode_revision
+
+    body = body.strip()   # the document a span indexes is the parsed body, stripped (`evidence.source_document`)
+    if prior is None:
+        return [[0, len(body)]] if body else []
+    spans: list[list[int]] = []
+    for lo, hi in episode_revision.diff(prior, body)[0]:
+        if spans and lo <= spans[-1][1]:
+            spans[-1][1] = max(spans[-1][1], hi)
+        else:
+            spans.append([lo, hi])
+    return spans[:MAX_CONTRIBUTION_RANGES]
+
+
+def contribution_entries(edits: list[dict], digest: str, ranges: list[list[int]]) -> list[dict]:
+    """``edits`` as stored contributions, newest first, with the body they made (``digest``) and its changed ranges."""
+    out = []
+    for e in sorted(edits, key=lambda e: episode_ids.timestamp_sort_key(e.get("at")), reverse=True):
+        entry = {k: e[k] for k in ("harness", "model", "effort", "session", "at") if e.get(k)}
+        entry["content_hash"] = digest
+        entry["ranges"] = [list(r) for r in ranges]
+        out.append(entry)
+    return out
+
+
+def with_contributions(fm: dict, entries: list[dict]) -> None:
+    """``entries`` first in ``fm``'s ``contributions``, an entry already there (same harness, session, time and body)
+    kept once, the list capped."""
+    if not entries:
+        return
+    held = [c for c in fm.get(CONTRIBUTIONS_KEY) or [] if isinstance(c, dict)]
+    same = lambda a, b: all(a.get(k) == b.get(k) for k in ("harness", "session", "at", "content_hash"))  # noqa: E731
+    kept = [c for c in held if not any(same(c, e) for e in entries)]
+    fm[CONTRIBUTIONS_KEY] = [*entries, *kept][:MAX_CONTRIBUTIONS]
+
+
 def revision_record(fm: dict, *, at: str | None = None) -> dict:
     """The ``revised`` record an edit in place writes over ``fm`` (the episode's frontmatter BEFORE the edit)."""
     prior = fm.get(REVISED_KEY) if isinstance(fm.get(REVISED_KEY), dict) else {}
@@ -558,8 +618,11 @@ def update_in_place(path: Path, draft: EpisodeDraft, body: str, digest: str, sta
     """Same file, same id, same original timestamp; new body, re-queued (G20), marked as a revision (``revised``).
     ``previous_sid`` is the source id the episode held before a draft took it over (`EpisodeDraft.replaces`): it joins
     ``previous_source_ids`` and the held-file marker is cleared."""
-    fm = dict(markdown_parser.parse(path).frontmatter)
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter)
     fm[REVISED_KEY] = revision_record(fm)
+    if draft.edits:   # G244: the prior body is in hand here — the changed ranges are against it
+        with_contributions(fm, contribution_entries(draft.edits, digest, changed_ranges(parsed.body, body)))
     if previous_sid and previous_sid != draft.source_id:
         _remember_source(fm, previous_sid)
     fm.pop(HELD_GONE_KEY, None)
@@ -979,6 +1042,26 @@ def set_pinned(path: Path, pinned: bool) -> bool:
         fm[PINNED_KEY] = True
     else:
         fm.pop(PINNED_KEY, None)
+    markdown_parser.write(path, fm, parsed.body)
+    return True
+
+
+@_under_episode_lock
+def add_contribution(path: Path, entry: dict, *, content_sha: str) -> bool:
+    """An agent's edit recorded AFTER the folder sync staged its bytes (`source_edits.attach`): ``entry`` joins the
+    episode's ``contributions``. Frontmatter only — the body, its hash, the queue and every span are untouched. Refused
+    (``False``) when the episode no longer holds ``content_sha``'s bytes (a later edit moved on: the record would
+    describe a body that is gone) and when the entry is already there."""
+    parsed = markdown_parser.parse(path)
+    fm = dict(parsed.frontmatter)
+    if fm.get("content_sha") != content_sha or entry.get("content_hash") != fm.get("content_hash"):
+        return False
+    before = list(fm.get(CONTRIBUTIONS_KEY) or [])
+    with_contributions(fm, [entry])
+    if fm.get(CONTRIBUTIONS_KEY) == before:
+        return False
+    if "turns" in fm:
+        fm["turns"] = fm.pop("turns")  # R-PB4: the sidecar stays the last key
     markdown_parser.write(path, fm, parsed.body)
     return True
 

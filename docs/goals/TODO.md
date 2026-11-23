@@ -3809,6 +3809,24 @@ A whole row moves to DONE only after its remaining implementation and required a
    model. Hex 3.4.0 itself only rewrites an export in place, which was already a revision. **Trigger to revisit:** a page
    the person restores after this rule archived it, measured.
 
+76. **An agent's edit of a source is a contribution, recorded by a hook, with its model and harness (owner, 2026-11-23; G244, extends ruling 75 and G105's "a hook, never the model's memory").**
+   The owner, on an agent correcting a meeting transcript in a watched folder: "if you come and change something in the
+   transcript for example … that 'contribution' should be documented, with your model, harness, etc. even if it is the
+   raw file directly. this with anything, thats the provenance value we are building from." Approved after the design
+   was put to him ("go ahead with the hook fix you propose"). (a) **A hook records it, never the agent's memory:** Claude
+   Code's `PostToolUse` on its file tools runs `cicada-hook source-edit`; a shell command's edit is declared with
+   `cicada source-edit <file>`; never a heuristic over mtimes (a wrong attribution is worse than none). (b) **The backend
+   never opens the path:** the hook, the agent's own process, matches the file against the watched folders (cached), hashes
+   the bytes and posts the hash, never a word; a file outside every folder posts nothing and costs no request. (c)
+   **Matched by content, either order**, held 7 days outside every bank and git; the episode carries `contributions`
+   (harness, model and effort from the transcript when it validates, else the session's captured turn, else omitted,
+   never guessed; the changed ranges). (d) **A corrected line stays its speaker's words**, marked `correctedBy` on the
+   span and noted beside the citation; trust, `evidence_kind` and the speaker are unchanged, the agent named, never
+   trusted more or less. (e) The Corrections record says who edited each revised episode. *Why:* every write through
+   Cicada's own tools carries harness, session and model, while a direct file edit carried nothing, and the corrected words
+   read as the recorder's. **Trigger to revisit:** a wrong attribution measured (a hash matched to the wrong episode), or a
+   harness whose hook can name the editor more cheaply.
+
 74. **Sleep joins two people pages when two independent signals agree (owner, 2026-11-07; ROR-136, amends rulings 29 and 41's "a question only").**
    The owner agreed to Sleep joining pairs he would spot at a glance, and warned: "I remember you mentioned some pairs that
    I'm pretty sure have nothing to do with each other." (a) The signals are kinds of evidence, counted once each

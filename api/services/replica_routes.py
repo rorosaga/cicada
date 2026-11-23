@@ -140,6 +140,7 @@ ROUTES: dict[str, str] = {
     # --- capture: queued here while the home is away --------------------------------------------------------------------
     "POST /capture/agent-memory": CAPTURE,
     "POST /capture/file": CAPTURE,
+    "POST /capture/source-edit": CAPTURE,                # G244: an agent's edit of a source file, recorded by hash
     "POST /capture/isbn": CAPTURE,                       # G233: a scanned book waits in the outbox like a note
     "POST /sources/apple-books/sync": CAPTURE,           # G39: the app's Apple Books read, a reader's posts
     "PUT /sources/apple-books/settings": FORWARD,

@@ -528,7 +528,41 @@ struct SleepRunDetail: Codable, Equatable {
             enum CodingKeys: String, CodingKey { case page, episode, support }
         }
 
+        /// One conversation the run revised. The server lists an id, or an id with `by` — the harness that edited the
+        /// source file directly (G244, ruling 76); either shape decodes, and `by` is `nil` when nobody is named.
+        struct Revised: Codable, Equatable, Identifiable {
+            var episode: String
+            var by: String?
+            var id: String { episode }
+
+            init(episode: String, by: String? = nil) { self.episode = episode; self.by = by }
+
+            init(from decoder: Decoder) throws {
+                if let single = try? decoder.singleValueContainer(), let id = try? single.decode(String.self) {
+                    episode = id
+                    by = nil
+                    return
+                }
+                let c = try decoder.container(keyedBy: CodingKeys.self)
+                let id = ((try? c.decodeIfPresent(String.self, forKey: .episode)) ?? nil)
+                    ?? ((try? c.decodeIfPresent(String.self, forKey: .id)) ?? nil) ?? ""
+                episode = id
+                let who = ((try? c.decodeIfPresent(String.self, forKey: .by)) ?? nil)?.trimmingCharacters(in: .whitespaces)
+                by = (who?.isEmpty == false) ? who : nil
+            }
+
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encode(episode, forKey: .episode)
+                try c.encodeIfPresent(by, forKey: .by)
+            }
+
+            enum CodingKeys: String, CodingKey { case episode, id, by }
+        }
+
         var conversationsRevised: Int
+        /// The revised conversations, each with who edited its source when the server said (G244).
+        var revised: [Revised]
         var claimsWithdrawn: Int
         var claimsSuperseded: Int
         var passagesRewritten: Int
@@ -538,10 +572,11 @@ struct SleepRunDetail: Codable, Equatable {
         var heldDropped: Int
         var questionsWithdrawn: Int
 
-        init(conversationsRevised: Int = 0, claimsWithdrawn: Int = 0, claimsSuperseded: Int = 0,
+        init(conversationsRevised: Int = 0, revised: [Revised] = [], claimsWithdrawn: Int = 0, claimsSuperseded: Int = 0,
              passagesRewritten: Int = 0, pagesArchived: [ArchivedPage] = [], pagesKept: [KeptPage] = [],
              aliasesDropped: Int = 0, heldDropped: Int = 0, questionsWithdrawn: Int = 0) {
-            self.conversationsRevised = conversationsRevised; self.claimsWithdrawn = claimsWithdrawn
+            self.conversationsRevised = conversationsRevised; self.revised = revised
+            self.claimsWithdrawn = claimsWithdrawn
             self.claimsSuperseded = claimsSuperseded; self.passagesRewritten = passagesRewritten
             self.pagesArchived = pagesArchived; self.pagesKept = pagesKept; self.aliasesDropped = aliasesDropped
             self.heldDropped = heldDropped; self.questionsWithdrawn = questionsWithdrawn
@@ -551,6 +586,14 @@ struct SleepRunDetail: Codable, Equatable {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             func int(_ key: CodingKeys) -> Int { ((try? c.decodeIfPresent(Int.self, forKey: key)) ?? nil) ?? 0 }
             conversationsRevised = int(.conversationsRevised)
+            revised = ((try? c.decodeIfPresent([Revised].self, forKey: .revised)) ?? nil) ?? []
+            // G244: the server names editors as `by: {episode id: harness}` beside the id list.
+            let named = try? decoder.container(keyedBy: EditorKeys.self)
+            let editors = ((try? named?.decodeIfPresent([String: String].self, forKey: .by)) ?? nil) ?? [:]
+            revised = revised.map { r in
+                guard r.by == nil, let who = editors[r.episode]?.trimmingCharacters(in: .whitespaces), !who.isEmpty else { return r }
+                return Revised(episode: r.episode, by: who)
+            }
             claimsWithdrawn = int(.claimsWithdrawn); claimsSuperseded = int(.claimsSuperseded)
             passagesRewritten = int(.passagesRewritten)
             pagesArchived = ((try? c.decodeIfPresent([ArchivedPage].self, forKey: .pagesArchived)) ?? nil) ?? []
@@ -559,8 +602,11 @@ struct SleepRunDetail: Codable, Equatable {
             questionsWithdrawn = int(.questionsWithdrawn)
         }
 
+        /// Read only: `by` is folded into `revised` on decode, so encoding writes it there.
+        private enum EditorKeys: String, CodingKey { case by }
+
         enum CodingKeys: String, CodingKey {
-            case conversationsRevised, claimsWithdrawn, claimsSuperseded, passagesRewritten, pagesArchived, pagesKept
+            case conversationsRevised, revised, claimsWithdrawn, claimsSuperseded, passagesRewritten, pagesArchived, pagesKept
             case aliasesDropped, heldDropped, questionsWithdrawn
         }
     }
