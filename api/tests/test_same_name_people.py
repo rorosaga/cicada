@@ -521,3 +521,30 @@ def test_the_judge_is_shown_a_known_page_conversation_by_conversation(tmp_path, 
     _run(er.resolve([_extraction("ep9", "a runner who joined the race")], [page], _settings(memory)))
     prompt = judged.calls[0]
     assert "[person 1]" in prompt and "Marc works in the Lyon office" in prompt and "the speaker's cousin in Glasgow" in prompt
+
+
+# the defect found on the merged rule (#800), night-all r2: the judge stated ONE located contrast between two groups and
+# the first rule asked every group for its own, so the pair stayed one blended page
+NIGHT = _mentions(
+    ("e1", "(2026-09-29) Marc is Noor Haddad's brother-in-law, a carpenter based in Annecy, who was coming to help assemble shelves. Facts: Marc is a carpenter (menuisier) in Annecy.; Marc is Noor Haddad's brother-in-law."),
+    ("e2", "(2026-10-02) Colleague on the banking app usability study who is moving to the Berlin office. Facts: Marc said on 2026-10-02 he is moving to the Berlin office in March, after which he is remote for the study."),
+    ("e3", "(2026-10-14) Marc is a participant in a meeting with Noor Haddad who is moving to Berlin. Facts: Marc said his move to Berlin is confirmed for the 15th of March."))
+
+
+def test_one_stated_contrast_between_two_groups_is_enough_for_both():
+    answer = ans("BC", "A", pairs=[(2, 1, "different", "Marc is a carpenter (menuisier) in Annecy.",
+                                    "Colleague on the banking app usability study who is moving to the Berlin office.")])
+    result = _run(snp.plan("Marc", NIGHT, [], _judge(answer)))
+    assert result.moves == {"e1": snp.Destination("new", "g1")}, "the larger group is the plain person; the carpenter is the other"
+
+
+def test_with_a_person_on_record_a_group_is_never_made_new_because_another_groups_contrast_points_at_it():
+    """Safety of the same rule: a contrast between the carpenter and the known colleague says nothing against the group
+    that has no contrast of its own, so that group is not cut from the known page; the answer is incoherent and splits nothing."""
+    known = [snp.Identity("page", "marc", True, "(2026-10-04) a colleague on the banking study who said he is moving to the Berlin office in March and will stay remote for the readout")]
+    # letters: A, B, C this batch's; D the known colleague page
+    answer = ans("A", "BC", "D", pairs=[(1, 3, "different", "a carpenter (menuisier) in Annecy", "a colleague on the banking study")])
+    assert _run(snp.plan("Marc", NIGHT, known, _judge(answer))).moves == {}
+    # the same statement, with the group that holds the known page as the other side: a located split of the carpenter only
+    answer = ans("A", "BCD", pairs=[(1, 2, "different", "a carpenter (menuisier) in Annecy", "a colleague on the banking study")])
+    assert _run(snp.plan("Marc", NIGHT, known, _judge(answer))).moves == {"e1": snp.Destination("new", "g0")}
