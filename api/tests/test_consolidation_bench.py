@@ -99,3 +99,25 @@ def test_planted_errors_are_plausible_and_compare_reads_folders(tmp_path):
             '{"summary": {"points_claim": %d}, "people": {}}' % value)
     out = bench.compare(tmp_path, "key-sonnet", "key-haiku")
     assert "| points_claim | 30.5 | 22 | yes |" in out
+
+
+def test_a_role_must_read_true_as_written(tmp_path):
+    """"My landlord Mr Duarte": the owner as the landlord of him, or him as having the owner for a landlord, is wrong."""
+    fx = bench.load_fixture()
+    pages = [_page("ines-varga", "Ines Varga", owner=True), _page("mr-duarte", "Mr. Duarte")]
+
+    def relation(subject, predicate, obj, **kw):
+        return {**_claim(f"{subject} {predicate} {obj}", page=subject, **kw), "predicate": predicate, "object": obj}
+
+    def verdict(*claims):
+        (tmp_path / "entities").mkdir(exist_ok=True)
+        snap = {"model": "t", "clock": CLOCK.isoformat(), "claims": list(claims), "pages": pages, "questions": [],
+                "phases": [], "episodes_unprocessed": 0}
+        return next(r for r in bench.score(snap, tmp_path, fx)["roles"] if r["id"] == "R2")["ok"]
+
+    assert verdict(relation("mr-duarte", "landlord-of", "ines-varga"))
+    assert verdict(relation("ines-varga", "has-landlord", "mr-duarte"))
+    assert verdict(relation("ines-varga", "tenant-of", "mr-duarte"))
+    assert not verdict(relation("ines-varga", "landlord-of", "mr-duarte"))
+    assert not verdict(relation("mr-duarte", "has-landlord", "ines-varga"))
+    assert verdict(relation("ines-varga", "landlord-of", "mr-duarte", valid_to="2026-11-01"))   # closed: not held

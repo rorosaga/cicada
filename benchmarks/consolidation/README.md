@@ -36,6 +36,7 @@ the conversation's own day.
 | updates (12) | code | Is the new value current and the old one closed? Each one is *correct*, *both current*, *stale only* or *missing*. U4 is the silent edit (a revision). |
 | two values kept apart (2) | code | Two real attributes of one thing said apart (a postcard's price and an A4 print's, a trip's budget and its flights) must both stay current: the counter-case to an update closing the wrong value (`apart_values` in the gold; Noor only). |
 | others' words (7) | code | A suggestion the person declined or changed, a book only the assistant named, a partner's hobby, a move asked about and refused, and a third Sam are not held as the person's facts or joined to the wrong Sam. A claim that says the thing was declined is not a violation. |
+| a role reads true (2) | code | A role someone holds to the person ("my brother-in-law Marc", "my landlord") must read true as the claim is written: never the person as the holder ("<person> brother-in-law of Marc"), never the holder as having it (`roles` in the gold). |
 | people (4) | code | A nickname and a full name, a name and a handle, end up as one page; two people called Sam stay two pages; no page holds what is said of each of two people called Marc. |
 | pages (10) | code | Whoever is mentioned in 2+ conversations gets a page; a one-off mention gets none. |
 | dated (3) | code | "Yesterday" and "in two weeks" are dated from the conversation, not from the day Sleep ran. |
