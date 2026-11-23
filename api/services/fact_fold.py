@@ -89,7 +89,8 @@ THING: {name}
 Reply with JSON only, one answer per line you can name: {{"answers": [{{"line": <line number>, "in_full_by": <the other \
 line's number>}}]}}"""
 
-CHECK = """A page may delete a line (DROP) only if another line (KEEP) already says everything it says.
+CHECK = """A page about ONE thing ({thing}) may delete a line (DROP) only if another line (KEEP) already says everything \
+it says. Every line is about {thing}: a line that names it and a line that leaves its name out say the same.
 
 For each pair, list what DROP says that KEEP does not: each date, number, name, amount, qualifier, reason, relation, \
 tense or negation. Write [] when there is nothing. {names}
@@ -463,7 +464,8 @@ def checks(pairs: list[tuple[Line, Line]], ask: Ask, judge: Callable[[str], dict
     if not pairs:
         return []
     rows = [f"{i}. DROP: {d.text}\n   KEEP: {k.text}" for i, (d, k) in enumerate(pairs, 1)]
-    reply = judge(CHECK.format(names=_names_block(ask).replace("\n", " ").strip(), pairs="\n".join(rows)))
+    reply = judge(CHECK.format(thing=ask.name, names=_names_block(ask).replace("\n", " ").strip(),
+                                pairs="\n".join(rows)))
     raw = reply.get("pairs") if isinstance(reply, dict) else None
     ok: set[int] = set()
     for answer in raw if isinstance(raw, list) else []:
