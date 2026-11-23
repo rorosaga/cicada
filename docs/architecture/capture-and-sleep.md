@@ -759,7 +759,24 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   sync (`draft_for_file(speaker_names=)`, `meeting.named_by_person`), and the stored meeting is relabelled in place
   (`episode_staging.relabel_in_place`: turn stamps move with the text, a `revised` revision Sleep reads where it
   changed). The person themselves is refused (52a); no tending rule, judge or other conversation settles it, and a
-  question whose meeting is gone is retired. An edited transcript carries the stager's `revised` record (above), so Sleep reads it as a revision. Wispr Flow's meetings stay
+  question whose meeting is gone is retired. An edited transcript carries the stager's `revised` record (above), so Sleep reads it as a revision.
+  **A tool's note is no turn (2026-11-23):** an HTML comment line (`<!-- … -->`) is never a turn, and an italic line
+  before the first speaker is a note about the recording — `meeting.notes` (code spans, which carry commands and ids,
+  dropped), and when it says which tool split the remote voices, `meeting.voices_split_by` + `meeting.voices` (read from
+  the sentence "… split on this Mac with <tool> (N voices)", no tool name is matched). Never a turn, never anyone's words;
+  a file that has such a note is a revision of its one episode (its body lost the line). **The reader's names (derived on
+  read, `meeting_transcripts.speaker_display`, the one place):** `GET /episodes/{id}/text` serves each meeting speaker turn's
+  `speaker` as the label the record lists for it (`meeting.speakers`: the recorder's, or the name the person gave, which
+  always wins) and `speakerKind` — `named`, `numbered` (`Speaker 1` whatever the diarizer spelled, `SPEAKER_01` too),
+  `group` (`Them`) or `unknown`, the last two with no name — and a `meeting` object (`recorder`, `duration_s`, `app`,
+  `attendees` as a count, `voices_split_by`, `voices`, and `summary_turn`: the first turn when it is the recorder's
+  `Summary (written by …)` block, found on read by `is_summary_turn`, so no stored body changes). Sleep still reads the
+  summary as the recorder's words. **A source deleted before anything read it (ruling 75):** a tombstone of an episode no
+  model or agent ever consolidated (`processed` false, no `revised.consolidated_hash`) settles it as `processed: true`,
+  `processed_by: source-deleted` (`episode_staging.DELETED_UNREAD`, in `_NOT_CONSOLIDATED_BY`): it leaves every waiting
+  count and list, Sleep never reads it, the file stays, `source_deleted_at` stays; the source posted again re-queues it
+  (`_requeue_for_authorship`), a rule change never does while it is deleted, and one tombstoned before the rule is settled
+  by the folder's next sync (`settle_deleted_unread`). Every folder-staged source whose words are not the person's own authored note — a meeting, an agent's file — while the person's own note deleted before Sleep read it is still read (rulings 13/16); a read the person's own words owe (a woken save, a reason, ruling 62) is never taken back by a deletion. Wispr Flow's meetings stay
   on their own reader (above), now under the same Sources section; their summary and notes blocks are quoted through the
   same `summary_text` (#579 review, 2026-11-03), so a model line reading `User: …` opens no turn there either.
 - **Messages conversations the person ticks (G179, 2026-10-15).** The app lists `chat.db`'s 200 most recent chats for

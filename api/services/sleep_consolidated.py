@@ -27,8 +27,8 @@ from api.services import bank_index, git_service
 
 #: Folded into the routes' ETag: bump it when the body's shape changes.
 #: items-2 (G227): a page row whose title another page shares adds `qualifier` and `displayName`.
-#: items-3 (owner 2026-11-23): a page row carries the consolidation's commits that changed it (`commits`).
-SHAPE = "items-3"
+#: items-4: a recorder's meetings carry its origin (`queue_origin`). items-3 (owner 2026-11-23): a page row carries the consolidation's commits that changed it (`commits`).
+SHAPE = "items-4"
 CAP = 200
 
 _EPISODE = re.compile(r"^episodes/(?P<name>[^/]+\.md)$")
@@ -61,13 +61,13 @@ def _header(memory_path: Path, subdir: str, name: str) -> dict:
 
 
 def _conversation(memory_path: Path, name: str) -> SleepConsolidatedConversation:
-    from api.services.sleep_cycle import _derive_origin
+    from api.services.sleep_cycle import queue_origin
 
     fm = _header(memory_path, "episodes", name)
     return SleepConsolidatedConversation(
         id=str(fm.get("id") or name[:-3]),
         title=(str(fm.get("title")).strip() or None) if fm.get("title") else None,
-        origin=str(fm.get("origin") or _derive_origin(fm.get("source"))) if fm else "unknown",
+        origin=queue_origin(fm) if fm else "unknown",
         timestamp=str(fm.get("timestamp")) if fm.get("timestamp") else None,
     )
 

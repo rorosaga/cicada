@@ -99,6 +99,12 @@ class Transcript:
     duration_s: int | None = None
     attendees: list[str] = field(default_factory=list)
     app: str = ""
+    #: Italic lines a recorder or a tool left between the heading and the first speaker (``_Remote speakers split on
+    #: this Mac with … (2 voices)._``): metadata about the recording, never a turn and never anyone's words.
+    notes: list[str] = field(default_factory=list)
+    #: What a note says split the remote voices, and into how many — from the note's own words (:func:`_voices_note`).
+    voices_split_by: str = ""
+    voices: int | None = None
 
 
 # --- Small readers -------------------------------------------------------------------------------------------------
@@ -190,6 +196,30 @@ def _duration(value: str) -> int | None:
     if not (hours or minutes or seconds):
         return None
     return sum(int(m.group(1)) * k for m, k in ((hours, 3600), (minutes, 60), (seconds, 1)) if m)
+
+
+#: A line that is only an HTML comment (``<!-- hex-speakers -->``, ``<!-- hex:notes -->``): a marker for a tool, never words.
+_COMMENT_LINE = re.compile(r"^(?:<!--.*?-->\s*)+$")
+#: An italic-only line (``_note_`` or ``*note*``) — how a recorder and the tools around it write a note about the file.
+_ITALIC_LINE = re.compile(r"^(?:_(?P<u>[^_].*?)_|\*(?P<s>[^*].*?)\*)$")
+#: "… split on this Mac with <tool> (N voices)": which tool told the voices apart and how many it found. The tool is
+#: read from the sentence, never matched by name.
+_VOICES_NOTE = re.compile(r"\bsplit\b.*?\bwith\s+(?P<tool>[^()]{2,80}?)\s*\((?P<n>\d{1,3})\s+(?:voices?|speakers?)\)", re.IGNORECASE)
+MAX_NOTES = 5
+
+
+def _note_text(value: str) -> str:
+    """A note as kept: one line, 240 characters, and without any sentence holding a code span (a command to run, which
+    carries ids and paths: "Rename with `…`.")."""
+    kept = [s for s in re.split(r"(?<=[.!?])\s+", " ".join(value.split())) if "`" not in s]
+    return " ".join(kept)[:240].strip(" _*")
+
+
+def _voices_note(t: "Transcript", note: str) -> None:
+    m = _VOICES_NOTE.search(note)
+    if m and not t.voices_split_by:
+        t.voices_split_by = " ".join(m.group("tool").split())[:80]
+        t.voices = int(m.group("n"))
 
 
 def _append(lines: list[Line], label: str, text: str, offset: float | None) -> None:
@@ -357,6 +387,8 @@ def _parse_text(text: str) -> Transcript:
         if not line:
             # A paragraph that opens no turn goes back to the speaker before it (`evidence.turns`' own rule).
             continue
+        if _COMMENT_LINE.match(line):
+            continue   # a tool's marker, never words — whether or not a turn is open
         if line.startswith("# ") and not t.title and not in_turns:
             t.title = line[2:].strip()
             continue
@@ -385,10 +417,26 @@ def _parse_text(text: str) -> Transcript:
             current = Line("", line, None)
             t.lines.append(current)
     t.lines = [ln for ln in t.lines if ln.text.strip()]
+    if t.lines:
+        # Before the first speaker, an italic line is a note about the recording (a tool that split the voices, the
+        # recorder's own remark), not a turn: metadata, never anyone's words. With no speaker at all the preamble is
+        # the file's only text and stays so.
+        rest = []
+        for ln in preamble:
+            m = _ITALIC_LINE.match(ln)
+            note = _note_text(m.group("u") or m.group("s")) if m else ""
+            if m and note:
+                if len(t.notes) < MAX_NOTES:
+                    t.notes.append(note)
+                _voices_note(t, m.group("u") or m.group("s"))
+            elif not m:
+                rest.append(ln)
+        preamble = rest
     if not t.lines and preamble:
         # No speaker grammar at all: each paragraph is one unknown speaker's — never the person's own words.
         for para in re.split(r"\n\s*\n", body):
-            kept = [r for r in para.split("\n") if r.strip() and not r.startswith("#") and not _META.match(r.strip())]
+            kept = [r for r in para.split("\n") if r.strip() and not r.startswith("#") and not _META.match(r.strip())
+                    and not _COMMENT_LINE.match(r.strip())]
             _append(t.lines, "", " ".join(kept), None)
     elif preamble:
         t.lines.insert(0, Line("", " ".join(preamble)))
@@ -645,6 +693,11 @@ def draft_for_file(folder: dict, relpath: str, text: str, *, mtime_iso: str, sha
         meeting["app"] = t.app
     if t.summary_writer:
         meeting["summary_writer"] = t.summary_writer
+    if t.notes:
+        meeting["notes"] = list(t.notes)
+    if t.voices_split_by:
+        meeting["voices_split_by"] = t.voices_split_by
+        meeting["voices"] = t.voices
     if named:
         # ROR-142: the placeholders the person named, so a reader can say where each name came from.
         meeting["named_by_person"] = dict(named)
@@ -664,3 +717,79 @@ def draft_for_file(folder: dict, relpath: str, text: str, *, mtime_iso: str, sha
 def is_meeting(fm: dict | None) -> bool:
     """A meeting episode, by its own record."""
     return isinstance(fm, dict) and fm.get("folder_kind") == KIND and isinstance(fm.get("meeting"), dict)
+
+
+# --- The reader (derived on read, never stored) ----------------------------------------------------------------------
+
+#: What a speaker line is, for the app to say in words: ``named`` — a name (the recorder's, or the person's own answer,
+#: ROR-142); ``numbered`` — a diarized voice or a numbered guest (``Speaker 1``); ``group`` — a track that may hold
+#: several people (Hex's ``Them``); ``unknown`` — nothing says who.
+NAMED, NUMBERED, GROUP, UNKNOWN_KIND = "named", "numbered", "group", "unknown"
+_NUMBERED = re.compile(r"(?P<role>[^\d]{2,}?)[\s_-]*(?P<n>\d{1,3}|(?<=[\s_-])[a-z])", re.IGNORECASE)
+_SPEAKER_WORD = frozenset({"speaker", "spk"})
+_SUMMARY_HEAD = re.compile(r"^Summary \(written by [^()\n]{1,80}\)\s*(?:\n|$)")
+
+
+def _deslug(slug: str) -> str:
+    """A marker's slug as words, for a speaker the meeting record does not list (``alice-example`` → ``Alice Example``)."""
+    return " ".join(word.capitalize() for word in re.split(r"[-_\s]+", slug) if word)
+
+
+def speaker_display(marker_text: str | None, meeting: dict | None) -> tuple[str | None, str]:
+    """``(name, kind)`` for a turn's ``speaker:<slug>`` marker, the ONE place a placeholder becomes words (ROR-142).
+
+    The label is the one the meeting record lists for that slug (what the recorder wrote, or the name the person gave),
+    else the slug read back as words. A placeholder with a number is ``Speaker 1`` (``SPEAKER_01``, ``spk 1`` too);
+    another numbered one keeps its role word (``Guest 3``); a group track (``Them``) and a bare placeholder
+    (``Unknown Speaker``) carry no name — the app says "Others on the call" and "Someone else". Anything else is a name,
+    as written. A marker that is not a ``speaker:`` one has none."""
+    raw = str(marker_text or "")
+    if not raw.lower().startswith("speaker:"):
+        return None, UNKNOWN_KIND
+    slug = raw[len("speaker:"):].strip()
+    labels = {marker(str(label)): str(label) for label in (meeting or {}).get("speakers") or []}
+    label = labels.get(raw) or _deslug(slug)
+    if not label or slug in ("", UNKNOWN):
+        return None, UNKNOWN_KIND
+    if is_group_placeholder(label):
+        return None, GROUP
+    if is_placeholder(label):
+        numbered = _NUMBERED.fullmatch(" ".join(label.split()))
+        if numbered is None:
+            return None, UNKNOWN_KIND
+        role = numbered.group("role").strip().casefold()
+        word = "Speaker" if role in _SPEAKER_WORD else " ".join(w.capitalize() for w in role.split())
+        n = numbered.group("n")
+        return f"{word} {int(n) if n.isdigit() else n.upper()}", NUMBERED
+    return label, NAMED
+
+
+def is_summary_turn(text: str | None) -> bool:
+    """Whether a turn's words are the recorder's summary (:func:`summary_text`'s heading): the first line of the one
+    ``assistant:`` turn a meeting body opens with."""
+    return bool(text) and _SUMMARY_HEAD.match(text) is not None
+
+
+def meeting_wire(fm: dict, *, summary_turn: int | None) -> dict | None:
+    """The facts of a meeting episode the reader shows in its header, from the record alone (nothing is stored for it):
+    duration, the app, how many attendees, the summary's writer and its turn index, and — when a tool split the voices —
+    which one and how many. ``None`` for any other episode."""
+    if not is_meeting(fm):
+        return None
+    meeting = fm["meeting"]
+    out: dict = {"recorder": meeting.get("recorder") if meeting.get("recorder") in RECORDERS else None,
+                 "summary_turn": summary_turn}
+    if isinstance(meeting.get("duration_s"), int) and not isinstance(meeting.get("duration_s"), bool):
+        out["duration_s"] = meeting["duration_s"]
+    if meeting.get("app"):
+        out["app"] = str(meeting["app"])[:64]
+    attendees = meeting.get("attendees")
+    if isinstance(attendees, list) and attendees:
+        out["attendees"] = len(attendees)
+    if meeting.get("summary_writer"):
+        out["summary_writer"] = str(meeting["summary_writer"])[:200]
+    if meeting.get("voices_split_by"):
+        out["voices_split_by"] = str(meeting["voices_split_by"])[:80]
+        if isinstance(meeting.get("voices"), int) and not isinstance(meeting.get("voices"), bool):
+            out["voices"] = meeting["voices"]
+    return out

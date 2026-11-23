@@ -1586,6 +1586,10 @@ Round 4 (C2–C4):
 - On an episode (G133/G134): `turns` (the G118 per-turn sidecar), `evidence_kind`,
   `source_deleted_at`, and a section's `content_sha` — see the Awake rails; on a conversation, `turn_extras` and
   `unsent_turns` (2026-10-20, above).
+- On a meeting episode's `meeting` record (ROR-142 follow-up, 2026-11-23): `notes` (a recorder's or tool's italic lines
+  before the first speaker, at most 5), `voices_split_by` + `voices` (a tool that told the remote voices apart and how many
+  it found); and `processed_by: source-deleted` on a tombstoned episode nothing ever consolidated (`capture-and-sleep.md`,
+  "Meeting transcripts").
 - On an episode a folder source made (G244, TODO ruling 76): **`contributions`**, newest first, at most 20, each
   `{harness, model, effort, session, at, content_hash, ranges}` — an agent edited the source file directly. `model` and
   `effort` are the last agent turn of the hook's `transcript_path` when `transcript_capture.validate_transcript_path`

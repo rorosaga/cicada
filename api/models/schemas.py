@@ -1434,6 +1434,27 @@ class EpisodeTurn(CamelModel):
     fidelity: Optional[str] = None
     #: 2026-10-20 (`turn_extras`): what made this turn part of a conversation beside its words; null when nothing.
     extras: Optional["EpisodeTurnExtras"] = None
+    #: A meeting speaker's line (`meeting_transcripts.speaker_display`): ``speaker`` is then the name to show
+    #: (``Speaker 1``, a name) and null for a group track or an unknown voice; ``speaker_kind`` is ``named`` |
+    #: ``numbered`` | ``group`` | ``unknown`` so the app says "Others on the call" / "Someone else" in its own words.
+    #: Null on every other turn.
+    speaker_kind: Optional[str] = None
+
+
+class EpisodeMeeting(CamelModel):
+    """What a meeting episode's reader header says, from its own record (`meeting_transcripts.meeting_wire`): the recorder's
+    summary is the turn at ``summary_turn`` (drawn as the header's card, never a bubble); the rest are the meeting's
+    facts. ``voices_split_by``/``voices``: a tool that told the remote voices apart did it — ``Speaker 1``/``2`` are its
+    guess."""
+
+    recorder: Optional[str] = None
+    summary_turn: Optional[int] = None
+    summary_writer: Optional[str] = None
+    duration_s: Optional[int] = None
+    app: Optional[str] = None
+    attendees: Optional[int] = None
+    voices_split_by: Optional[str] = None
+    voices: Optional[int] = None
 
 
 class EpisodeReaction(CamelModel):
@@ -1628,6 +1649,8 @@ class EpisodeText(CamelModel):
     relay: Optional[EpisodeRelay] = None
     #: 2026-10-20: messages their senders unsent, by position (`turn_extras`).
     unsent: list[EpisodeUnsent] = []
+    #: A meeting transcript's facts and where its summary is; null for every other episode and for a page.
+    meeting: Optional[EpisodeMeeting] = None
 
 
 EpisodeTurn.model_rebuild()

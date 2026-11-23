@@ -3037,7 +3037,8 @@ async def _run_stages(
         # slice, so the study list's denominators never move mid-cycle.
         by_origin: dict[str, int] = {}
         for ep in episodes:
-            by_origin[str(ep.get("origin") or "unknown")] = by_origin.get(str(ep.get("origin") or "unknown"), 0) + 1
+            key = str(ep.get("queue_origin") or ep.get("origin") or "unknown")
+            by_origin[key] = by_origin.get(key, 0) + 1
         _state.queue_by_origin = by_origin
     _state.batch_total = len(episodes)
 
@@ -3169,7 +3170,7 @@ async def _run_stages(
         _state.stage1_progress += 1
 
     def _on_episode_done(ep: dict) -> None:
-        origin = str(ep.get("origin") or "unknown")
+        origin = str(ep.get("queue_origin") or ep.get("origin") or "unknown")
         _state.read_by_origin[origin] = _state.read_by_origin.get(origin, 0) + 1
 
     flagged: dict[str, list[str]] = {}
@@ -3977,6 +3978,8 @@ def _get_unprocessed_episodes(
             # legacy `source` (origin-and-harness-sync.md §1b). Propagated into
             # extracted claims so each belief records which harness it came from.
             "origin": fm.get("origin") or _derive_origin(source),
+            # The group the Sleep page counts it under (`queue_origin`); `origin` above stays the claims' provenance.
+            "queue_origin": queue_origin(fm),
             "timestamp": str(fm.get("timestamp", "") or ""),
             # Ruling 39: a feed item's published moment — it makes the episode no time signal (`episode_time`).
             **({"published_at": str(fm["published_at"])} if fm.get("published_at") else {}),
@@ -4065,6 +4068,21 @@ def _derive_origin(source: str | None) -> str:
     return s
 
 
+def queue_origin(fm: dict) -> str:
+    """The origin the Sleep page groups an episode under (display only — extraction keeps the stamped ``origin``): the
+    same as :func:`_derive_origin`, except that a meeting from a known recorder's folder is that recorder's (``hex``), so
+    its group wears the recorder's own icon and name instead of a generic folder's. Every list and count the Sleep page
+    draws reads this one function, so a group's rows and its number never disagree."""
+    origin = str(fm.get("origin") or _derive_origin(fm.get("source")))
+    meeting = fm.get("meeting")
+    if origin == "folder" and fm.get("folder_kind") == "meetings" and isinstance(meeting, dict):
+        from api.services import meeting_transcripts
+
+        if meeting.get("recorder") in meeting_transcripts.RECORDERS:
+            return str(meeting["recorder"])
+    return origin
+
+
 def episode_headers(memory_path: Path, processed: bool | None = None) -> list[bank_index.IndexedFile]:
     """Every episode's cached header (``bank_index``: one scandir, a YAML parse only for a file that changed), in the
     cycle's chronology, optionally only the waiting (``processed=False``) or the read ones. No body is read: the Sleep
@@ -4096,7 +4114,7 @@ def episode_row(f: bank_index.IndexedFile) -> dict:
         "source": source,
         # G9 origin, same derivation as `_get_unprocessed_episodes` — an explicit `origin:` field if present, else
         # derived from the legacy `source`, so the Sleep debt breakdown groups by the harness-normalized id.
-        "origin": fm.get("origin") or _derive_origin(source),
+        "origin": queue_origin(fm),
         "title": fm.get("title"),
         "body": f.body() or "",
         "processed": bool(fm.get("processed", False)),

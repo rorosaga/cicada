@@ -29,28 +29,27 @@ def owner_beliefs(memory_path: Path) -> int | None:
 
 def origin_of_ids(memory_path: Path, ids) -> dict[str, str]:
     """Each id's harness-normalised origin, from frontmatter alone."""
-    from api.services.sleep_cycle import _derive_origin
+    from api.services.sleep_cycle import queue_origin
 
     want = set(ids)
     out: dict[str, str] = {}
     for f in bank_index.files(memory_path, "episodes"):
         ep_id = str(f.frontmatter.get("id", f.stem))
         if ep_id in want:
-            out[ep_id] = str(f.frontmatter.get("origin") or _derive_origin(f.frontmatter.get("source")))
+            out[ep_id] = queue_origin(f.frontmatter)
     return out
 
 
 def unprocessed_ids(memory_path: Path) -> dict[str, str]:
     """Every waiting episode id -> its origin (one cached frontmatter pass)."""
     from api.services import history_index
-    from api.services.sleep_cycle import _derive_origin
+    from api.services.sleep_cycle import queue_origin
 
     out: dict[str, str] = {}
     for f in bank_index.files(memory_path, "episodes"):
         if not history_index.waits_for_model(f.frontmatter):
             continue
-        out[str(f.frontmatter.get("id", f.stem))] = str(
-            f.frontmatter.get("origin") or _derive_origin(f.frontmatter.get("source")))
+        out[str(f.frontmatter.get("id", f.stem))] = queue_origin(f.frontmatter)
     return out
 
 

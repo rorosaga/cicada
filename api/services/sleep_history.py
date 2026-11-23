@@ -28,7 +28,7 @@ def attach_durations(entries, events) -> None:
 def episodes_by_origin(memory_path: Path, ep_ids: list[str]) -> dict[str, int]:
     """Resolve `source: ep_…` refs to their `origin` through the bank index
     (engine-free; a missing page counts as `unknown`)."""
-    from api.services.sleep_cycle import _derive_origin
+    from api.services.sleep_cycle import queue_origin
 
     wanted = set(ep_ids)
     by_id: dict[str, str] = {}
@@ -36,7 +36,7 @@ def episodes_by_origin(memory_path: Path, ep_ids: list[str]) -> dict[str, int]:
         fm = f.frontmatter or {}
         eid = str(fm.get("id") or f.path.stem)
         if eid in wanted:
-            by_id[eid] = str(fm.get("origin") or _derive_origin(fm.get("source")))
+            by_id[eid] = queue_origin(fm)
     out: dict[str, int] = {}
     for eid in ep_ids:
         origin = by_id.get(eid, "unknown")

@@ -180,14 +180,19 @@ struct EpisodeTurn: Codable, Hashable, Identifiable {
     /// 2026-10-20 (`turn_extras`) — reactions, a reply's target, attachments, edited, forwarded-from, code runs; nil
     /// when the turn has none and against an older backend.
     var extras: EpisodeTurnExtras? = nil
+    /// A meeting speaker's line (`meeting_transcripts.speaker_display`): with it `speaker` is the name to show; the kind
+    /// says what a missing name is — `group` (a track of several people) or `unknown`. Nil on every other turn and
+    /// against an older backend.
+    var speakerKind: String? = nil
 
     var id: Int { index }
 
     init(index: Int, start: Int, contentStart: Int, end: Int, role: String = "user",
          marker: String? = nil, speaker: String? = nil, ts: String? = nil,
          model: String? = nil, effort: String? = nil, t: Int? = nil, fidelity: VideoFidelity? = nil,
-         extras: EpisodeTurnExtras? = nil) {
+         extras: EpisodeTurnExtras? = nil, speakerKind: String? = nil) {
         self.extras = extras
+        self.speakerKind = speakerKind
         self.index = index
         self.start = start
         self.contentStart = contentStart
@@ -203,7 +208,7 @@ struct EpisodeTurn: Codable, Hashable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case index, start, contentStart, end, role, marker, speaker, ts, model, effort, t, fidelity, extras
+        case index, start, contentStart, end, role, marker, speaker, ts, model, effort, t, fidelity, extras, speakerKind
     }
 
     init(from decoder: Decoder) throws {
@@ -221,6 +226,49 @@ struct EpisodeTurn: Codable, Hashable, Identifiable {
         t = (try? c.decodeIfPresent(Int.self, forKey: .t)) ?? nil
         fidelity = ((try? c.decodeIfPresent(String.self, forKey: .fidelity)) ?? nil).flatMap(VideoFidelity.init(rawValue:))
         extras = (try? c.decodeIfPresent(EpisodeTurnExtras.self, forKey: .extras)) ?? nil
+        speakerKind = (try? c.decodeIfPresent(String.self, forKey: .speakerKind)) ?? nil
+    }
+}
+
+/// What a meeting transcript's reader header says (`EpisodeMeeting`, from the episode's own record): the recorder's
+/// summary is the turn at `summaryTurn` — drawn as the header's card, never a bubble — and the rest are the meeting's
+/// facts. `voicesSplitBy`/`voices`: a tool on this Mac told the remote voices apart, so `Speaker 1`/`2` are its guess.
+struct EpisodeMeeting: Codable, Hashable {
+    var recorder: String? = nil
+    var summaryTurn: Int? = nil
+    var summaryWriter: String? = nil
+    var durationS: Int? = nil
+    var app: String? = nil
+    var attendees: Int? = nil
+    var voicesSplitBy: String? = nil
+    var voices: Int? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case recorder, summaryTurn, summaryWriter, durationS, app, attendees, voicesSplitBy, voices
+    }
+
+    init(recorder: String? = nil, summaryTurn: Int? = nil, summaryWriter: String? = nil, durationS: Int? = nil,
+         app: String? = nil, attendees: Int? = nil, voicesSplitBy: String? = nil, voices: Int? = nil) {
+        self.recorder = recorder
+        self.summaryTurn = summaryTurn
+        self.summaryWriter = summaryWriter
+        self.durationS = durationS
+        self.app = app
+        self.attendees = attendees
+        self.voicesSplitBy = voicesSplitBy
+        self.voices = voices
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        recorder = (try? c.decodeIfPresent(String.self, forKey: .recorder)) ?? nil
+        summaryTurn = (try? c.decodeIfPresent(Int.self, forKey: .summaryTurn)) ?? nil
+        summaryWriter = (try? c.decodeIfPresent(String.self, forKey: .summaryWriter)) ?? nil
+        durationS = (try? c.decodeIfPresent(Int.self, forKey: .durationS)) ?? nil
+        app = (try? c.decodeIfPresent(String.self, forKey: .app)) ?? nil
+        attendees = (try? c.decodeIfPresent(Int.self, forKey: .attendees)) ?? nil
+        voicesSplitBy = (try? c.decodeIfPresent(String.self, forKey: .voicesSplitBy)) ?? nil
+        voices = (try? c.decodeIfPresent(Int.self, forKey: .voices)) ?? nil
     }
 }
 
@@ -481,6 +529,9 @@ struct EpisodeText: Codable, Hashable {
     var receivedAt: String? = nil
     /// ROR-15 — Notes' own id for an Apple Note, so the note on screen can be drawn as Notes draws it; nil otherwise.
     var noteId: String? = nil
+    /// A meeting transcript's header facts and where its summary is (`EpisodeMeeting`); nil for every other document
+    /// and against an older backend.
+    var meeting: EpisodeMeeting? = nil
 
     var isPage: Bool { kind == "page" }
     var isPageRead: Bool { source == EvidenceSpeaker.pageReadSource }
@@ -514,7 +565,7 @@ struct EpisodeText: Codable, Hashable {
     enum CodingKeys: String, CodingKey {
         case episode, kind, text, length, hash, truncated, title, timestamp, harness, origin
         case conversationId, captureKind, sourceKind, turns, focus, agent, watch, source, correspondent, device, relay, site, unsent
-        case receivedAt
+        case receivedAt, meeting
     }
 
     init(from decoder: Decoder) throws {
@@ -526,6 +577,7 @@ struct EpisodeText: Codable, Hashable {
         site = (try? c.decodeIfPresent(String.self, forKey: .site)) ?? nil
         unsent = (try? c.decodeIfPresent([EpisodeUnsent].self, forKey: .unsent)) ?? []
         receivedAt = (try? c.decodeIfPresent(String.self, forKey: .receivedAt)) ?? nil
+        meeting = (try? c.decodeIfPresent(EpisodeMeeting.self, forKey: .meeting)) ?? nil
         episode = try c.decodeIfPresent(String.self, forKey: .episode) ?? ""
         kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "episode"
         text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
