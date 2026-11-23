@@ -71,8 +71,11 @@ extension Copy {
         static func meetingSummary(by recorder: String?) -> String {
             recorder.map { "Summary · written by \($0)" } ?? "Summary"
         }
-        static let meetingSummaryMore = "More"
-        static let meetingSummaryLess = "Less"
+        static let meetingSummaryMore = "Show the whole summary"
+        static let meetingSummaryLess = "Show less"
+        static let meetingSummaryOpen = "Summary shown in full"
+        static let meetingSummaryClosed = "Summary folded"
+        static func meetingInvited(_ n: Int) -> String { n == 1 ? "1 person invited" : "\(n) people invited" }
         static let meetingSummaryHelp = "The recorder's own summary of the meeting. Cicada reads it as the recorder's words, never yours."
         static func meetingFacts(minutes: Int?, app: String?, attendees: Int?) -> String? {
             var parts: [String] = []

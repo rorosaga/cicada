@@ -95,7 +95,9 @@ enum EpisodeRowText {
     /// names it once (DR-38), and the mark carries it at a glance.
     static func footer(_ item: EpisodeQueueItem, target: String?, now: Date = Date(),
                        showsState: Bool = true) -> [String] {
-        var parts = target.map { [$0] } ?? []
+        // A meeting says its length where a file would say its name (its call app's mark leads the footer).
+        var parts = item.meeting != nil ? (MeetingApp.length(seconds: item.meeting?.durationS).map { [$0] } ?? [])
+                                        : (target.map { [$0] } ?? [])
         if let date = parse(item.changedAt ?? item.timestamp) ?? parse(item.timestamp) {
             parts.append(Copy.OriginCard.ago(date, now: now))
         }
@@ -280,6 +282,12 @@ struct EpisodeCard: View {
     private var mark: some View {
         if let site = SavedLinkMarkModel.mark(item) {
             SavedLinkMark(mark: site, size: .inline)
+        } else if let app = MeetingApp.origin(for: item.meeting?.app) {
+            // Owner 2026-11-23: a meeting wears its call app's mark (Google Meet, Zoom, Teams…); the recorder heads
+            // the group above.
+            OriginMark(origin: app, size: CicadaTheme.scaled(16))
+                .help(item.meeting?.app ?? "")
+                .accessibilityLabel(item.meeting?.app ?? "")
         } else {
             OriginMark(origin: item.origin, size: CicadaTheme.scaled(16))
         }
