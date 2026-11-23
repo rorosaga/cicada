@@ -45,31 +45,66 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 FIXTURE = Path(__file__).with_name("fixture.json")
+#: Every invented person, by the folder name a leg gives them. Each runs on a bank of their own.
+PEOPLE = {"ines": FIXTURE, "noor": Path(__file__).with_name("fixture_noor.json")}
 MONTHS_ES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre",
              "noviembre", "diciembre")
+MONTHS_FR = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre",
+             "novembre", "décembre")
 _DAY_TOKEN = re.compile(r"\{day:([+-]\d+)\}")
 _DATE_TOKEN = re.compile(r"^\{date:([+-]?\d+)\}$")
 
 
 # ---- the fixture, on a clock -----------------------------------------------------------------------------------------
 
-def load_fixture(path: Path = FIXTURE) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
+def load_fixture(path: Path | str = FIXTURE) -> dict:
+    """A fixture by path, or by a person's name in ``PEOPLE``."""
+    path = PEOPLE.get(path, path) if isinstance(path, str) else path
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 def _day(clock: date, offset: int) -> date:
     return clock + timedelta(days=offset)
 
 
-def _spoken(d: date, spanish: bool) -> str:
-    return f"{d.day} de {MONTHS_ES[d.month - 1]}" if spanish else f"{d.day} {d.strftime('%B')}"
+def _spoken(d: date, lang: str) -> str:
+    if lang == "es":
+        return f"{d.day} de {MONTHS_ES[d.month - 1]}"
+    if lang == "fr":
+        return f"{d.day} {MONTHS_FR[d.month - 1]}"
+    return f"{d.day} {d.strftime('%B')}"
+
+
+def _lang(texts: list[str]) -> str:
+    """The conversation's language for writing a date, by its common words (a name's accent decides nothing)."""
+    words = re.findall(r"[a-zà-ÿ']+", " ".join(texts).lower())
+    score = {"es": sum(w in {"el", "la", "que", "mi", "se", "para", "una", "con", "y"} for w in words),
+             "fr": sum(w in {"je", "mon", "ma", "les", "des", "une", "et", "est", "vient", "pour"} or w.startswith("j'")
+                       for w in words)}
+    best = max(score, key=score.get)
+    return best if score[best] >= 2 else "en"
+
+
+def render_texts(texts: list[str], day_offset: int, clock: date, lang: str | None = None) -> list[str]:
+    """Texts with ``{day:+N}`` written out from the conversation's own day, in the conversation's language."""
+    lang, base = lang or _lang(texts), _day(clock, day_offset)
+    return [_DAY_TOKEN.sub(lambda m: _spoken(base + timedelta(days=int(m.group(1))), lang), t) for t in texts]
 
 
 def render_turns(conv: dict, clock: date) -> list[str]:
-    """A conversation's turns with ``{day:+N}`` written out from the conversation's own day."""
-    spanish = any(ch in "".join(conv["turns"]) for ch in "ñáéíóú¿¡")
-    base = _day(clock, conv["day"])
-    return [_DAY_TOKEN.sub(lambda m: _spoken(base + timedelta(days=int(m.group(1))), spanish), t) for t in conv["turns"]]
+    """A chat's turns, or a meeting's lines, with ``{day:+N}`` written out."""
+    if conv.get("kind") == "meeting":
+        return render_texts([text for _, text in conv["lines"]], conv["day"], clock, conv.get("lang"))
+    return render_texts(conv["turns"], conv["day"], clock, conv.get("lang"))
+
+
+def meeting_markdown(conv: dict, clock: date) -> tuple[str, str]:
+    """A meeting as the Hex recorder exports it (``meeting_transcripts`` parses it): its file name and its text."""
+    day = _day(clock, conv["day"])
+    lines = [f"# {conv['title']}", "", f"- **Date:** {day.isoformat()} 10:00", "", "## Transcript", ""]
+    for i, ((label, _), text) in enumerate(zip(conv["lines"], render_turns(conv, clock))):
+        lines += [f"**{label}** · {i * 20 // 60:02d}:{i * 20 % 60:02d}", text, ""]
+    return f"{day.isoformat()} 1000 {conv['title']}.md", "\n".join(lines)
 
 
 def date_spellings(d: date) -> list[str]:
@@ -100,7 +135,9 @@ def norm(text: str) -> str:
 
 
 def _alt_re(alt: str) -> re.Pattern:
-    return re.compile(r"(?<![a-z0-9])" + re.escape(norm(alt)))
+    """A spelling at a word start; one that ends in a digit must end there too, so "20" never matches "2026"."""
+    spelled = norm(alt)
+    return re.compile(r"(?<![a-z0-9])" + re.escape(spelled) + (r"(?![0-9])" if spelled[-1:].isdigit() else ""))
 
 
 def matches(text: str, groups: list[list[str]]) -> bool:
@@ -115,7 +152,7 @@ def claim_text(c: dict) -> str:
 
 ENDED = re.compile(r"\b(?:dropped|left|stopped|no longer|moved off|moved from|switched from|replaced|abandoned)\b")
 NEGATION = re.compile(r"\b(?:not|never|no longer|declined|decided against|rejected|against|won't|doesn't|didn't|"
-                      r"too expensive|instead of|stayed? on|staying|hypothetical|if|ruled out|refused|skipped)\b")
+                      r"too expensive|instead of|stayed? on|staying|hypothetical|if|ruled out|refused|skipped|dropped|skips?)\b")
 
 
 def is_current(c: dict) -> bool:
@@ -124,9 +161,12 @@ def is_current(c: dict) -> bool:
 
 def said_by(c: dict) -> str:
     """Whose words a claim rests on, from its evidence spans (``observer`` is ``agent`` on every Sleep claim):
-    ``person`` for a span of the person's own turn, ``assistant`` for the assistant's, ``inferred`` for no span."""
+    ``person`` for a span of the person's own turn, ``speaker`` for another person in a meeting, ``assistant`` for the
+    assistant's (or a recorder's summary), ``inferred`` for no span."""
     kinds = {e.get("kind") for e in c.get("evidence") or []}
-    return "person" if kinds & {"user", "speaker"} else "assistant" if "assistant" in kinds else "inferred"
+    if "user" in kinds:
+        return "person"
+    return "speaker" if "speaker" in kinds else "assistant" if "assistant" in kinds else "inferred"
 
 
 def is_person(c: dict) -> bool:
@@ -136,11 +176,22 @@ def is_person(c: dict) -> bool:
 # ---- one leg ---------------------------------------------------------------------------------------------------------
 
 def _drafts(convs: list[dict], clock: date, *, revised_at: str | None = None):
-    from api.services import episode_staging
+    import hashlib
+
+    from api.services import episode_staging, meeting_transcripts
 
     drafts = []
     for conv in convs:
         day = _day(clock, conv["day"]).isoformat()
+        if conv.get("kind") == "meeting":
+            name, text = meeting_markdown(conv, clock)
+            draft = meeting_transcripts.draft_for_file(
+                {"id": "bench-meetings", "recorder": "hex"}, name, text, mtime_iso=f"{day}T11:00:00+00:00",
+                sha=hashlib.sha256(text.encode()).hexdigest(), tz_name="UTC")
+            if draft is None:
+                raise SystemExit(f"{conv['id']}: the meeting parser read no transcript")
+            drafts.append(draft)
+            continue
         turns = [episode_staging.Turn(text=t, speaker="user" if i % 2 == 0 else "assistant",
                                       ts=f"{day}T10:{i:02d}:00+00:00") for i, t in enumerate(render_turns(conv, clock))]
         drafts.append(episode_staging.EpisodeDraft(
@@ -220,7 +271,8 @@ def leg_label(engine: str, model: str, judge: str) -> str:
     return f"{engine}:{model}" + ("" if judge == model else f" judge:{judge}")
 
 
-def run_leg(model: str, out: Path, *, clock: date, engine: str = "plan", judge: str | None = None) -> dict:
+def run_leg(model: str, out: Path, *, clock: date, engine: str = "plan", judge: str | None = None,
+            person: str = "ines") -> dict:
     """One model, both phases, on a fresh bank under ``out``. Runs in its own process (see ``main``). ``judge`` is
     Sleep's own Stage 2 judge; unset, the product's default for the engine (the small tier on both)."""
     from benchmarks.engine_parity import _leg_environment, _refuse_real_paths
@@ -228,7 +280,7 @@ def run_leg(model: str, out: Path, *, clock: date, engine: str = "plan", judge: 
     _refuse_real_paths(out)
     bank, home = out / "bank", out / "home"
     home.mkdir(parents=True, exist_ok=True)
-    fixture = load_fixture()
+    fixture = load_fixture(person)
     with _leg_environment(home, bank):
         return _run_leg(model, out, bank, home, fixture, clock, engine, judge or "haiku")
 
@@ -338,6 +390,15 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
     for row in gold["people"]["apart"]:
         joined = [p["id"] for p in pages if matches(_page_names(p), [[row["a"]], [row["b"]]])]
         people.append({"id": row["id"], "why": row["why"], "ok": not joined, "pages": joined})
+    for row in gold["people"].get("apart_facts", []):
+        # Two people one name can mean: no page may hold what is said about each (a merge keeps both).
+        a_groups, b_groups = expand_groups(row["a"], clock), expand_groups(row["b"], clock)
+        joined = []
+        for page in pages:
+            own = [c for c in claims if page["id"] in (c.get("subject"), c.get("object"))]
+            if any(matches(claim_text(c), a_groups) for c in own) and any(matches(claim_text(c), b_groups) for c in own):
+                joined.append(page["id"])
+        people.append({"id": row["id"], "why": row["why"], "ok": not joined, "pages": joined})
 
     def has_page(term) -> list[str]:
         return [p["id"] for p in pages if not p["owner"] and matches(_page_names(p), [term if isinstance(term, list) else [term]])]
@@ -347,12 +408,21 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
 
     dated = []
     for row in gold["dated"]:
-        want = _day(clock, row["date"]).isoformat()
         hit = held(expand_groups(row["says"], clock))
         froms = sorted(({str(c.get(k) or "")[:10] for c in hit for k in ("valid_from", "expected_end", "target")}
-                        | {d for c in hit for d in re.findall(r"\d{4}-\d{2}-\d{2}", str(c.get("object") or ""))})
+                        | {d for c in hit for d in re.findall(r"\d{4}-\d{2}(?:-\d{2})?", str(c.get("object") or ""))})
                        - {""})
-        dated.append({"id": row["id"], "why": row["why"], "want": want, "ok": want in froms, "valid_from": froms,
+        if row.get("month_of"):
+            # A month said without a year or a day ("in March"): any date in that month, or the month's name.
+            month = int(row["month_of"])
+            want = f"month {month:02d}"
+            ok = (any(len(d) >= 7 and d[5:7] == f"{month:02d}" for d in froms)
+                  or any(matches(claim_text(c), [[date(2000, month, 1).strftime("%B"), MONTHS_FR[month - 1]]])
+                         for c in hit))
+        else:
+            want = _day(clock, row["date"]).isoformat()
+            ok = want in froms
+        dated.append({"id": row["id"], "why": row["why"], "want": want, "ok": ok, "valid_from": froms,
                       "on_run_day": date.today().isoformat() in froms})
 
     # The conversations keep the person's words as said (the sensitive rail holds a secret back from engines and pages,
@@ -364,7 +434,7 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
     for path in bank.rglob("*"):
         if path.is_file() and ".git" not in path.parts and "episodes" not in path.parts and path.name not in derived:
             try:
-                if gold["secret"] in path.read_text(encoding="utf-8", errors="ignore"):
+                if gold.get("secret") and gold["secret"] in path.read_text(encoding="utf-8", errors="ignore"):
                     leaked.append(str(path.relative_to(bank)))
             except OSError:
                 pass
@@ -380,11 +450,16 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
         "failures": [ph for ph in snap["phases"] if ph.get("error") or ph.get("stop")],
     }
 
+    matched = bank.parent / "match.json"
+    judged_ids = set(json.loads(matched.read_text(encoding="utf-8")).get("held", [])) if matched.exists() else None
+    for pt in points:
+        pt["judged"] = pt["claim"] or (judged_ids is not None and pt["id"] in judged_ids)
     total = lambda rows, key="ok": sum(1 for r in rows if r[key])  # noqa: E731
     return {
         "model": snap["model"],
         "summary": {
             "points_claim": total(points, "claim"), "points_anywhere": total(points, "anywhere"), "points": len(points),
+            "points_judged": total(points, "judged") if judged_ids is not None else None,
             "updates_correct": sum(1 for u in updates if u["verdict"] == "correct"),
             "updates_both": sum(1 for u in updates if u["verdict"] == "both_current"),
             "updates_missing": sum(1 for u in updates if u["verdict"] in ("missing", "stale_only")),
@@ -406,18 +481,18 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
 
 JUDGE_PROMPT = """You check a memory system's notes against the conversation they cite.
 
-The conversation is between a person (USER), whose name is {owner}, and an AI assistant (ASSISTANT). The memory is
-{owner}'s, so a claim about {owner} is a claim about the USER. The memory system read it and wrote the
-claims below. Each claim says whose words it rests on: "the person" means the memory treats it as something the person
-said, did or holds; "the assistant" means it is recorded as the assistant's statement; "an inference" means the memory
-cites no line for it.
+The memory is {owner}'s. In each conversation, lines starting "user:" are {owner}'s own words, "assistant:" an AI
+assistant's (or, in a meeting, the recorder's summary), and "speaker:<name>:" another person in a meeting. A claim
+about {owner} is a claim about the user. Each claim says whose words it rests on: "the person" means the memory treats
+it as something {owner} said, did or holds; "the assistant" or "another speaker" means it is recorded as theirs; "an
+inference" means the memory cites no line for it.
 
 Label every claim with exactly one of:
 - "supported": the conversation says it, credited to the right speaker (a plain rewording counts, and so does a date
   worked out from the conversation's date, like "yesterday").
 - "inferred": not said in so many words, but a safe, obvious inference from what was said.
-- "misattributed": the content is in the conversation, but only the ASSISTANT said or suggested it while the claim
-  credits the person (or the person declined it).
+- "misattributed": the content is in the conversation, but only the assistant or another speaker said or suggested it
+  while the claim credits {owner} (or {owner} declined it).
 - "unsupported": the conversation does not say it, contradicts it, or it gets a name, value or date wrong.
 
 Conversation{plural}:
@@ -432,7 +507,8 @@ LABELS = ("supported", "inferred", "misattributed", "unsupported")
 
 
 def _credited(c: dict) -> str:
-    return {"person": "the person", "assistant": "the assistant"}.get(said_by(c), "an inference, no quote")
+    return {"person": "the person", "assistant": "the assistant",
+            "speaker": "another speaker"}.get(said_by(c), "an inference, no quote")
 
 
 def _cited(c: dict) -> list[str]:
@@ -441,13 +517,24 @@ def _cited(c: dict) -> list[str]:
     return sorted(dict.fromkeys(eps))[:3]
 
 
-def judge_leg(leg: Path, judge_fn, owner: str) -> dict:
+def _json_reply(judge_fn, prompt: str) -> dict:
+    """One judge call, read as JSON; asked twice before giving up. ``{}`` leaves what it covers ungraded, never wrong."""
+    for _ in range(2):
+        try:
+            reply = judge_fn(prompt)
+            return json.loads(reply[reply.find("{"): reply.rfind("}") + 1])
+        except Exception as exc:  # noqa: BLE001
+            print(f"judge retry ({type(exc).__name__})", file=sys.stderr)
+    return {}
+
+
+def _label_groups(unit: Path, judge_fn, owner: str, claims: list[dict]) -> tuple[list[dict], int]:
+    """Every claim labelled against the conversations it cites, one call per group of cited conversations."""
     from api.services import markdown_parser
 
-    snap = json.loads((leg / "snapshot.json").read_text(encoding="utf-8"))
     groups: dict[tuple, list[dict]] = {}
     unsourced = 0
-    for c in snap["claims"]:
+    for c in claims:
         eps = tuple(_cited(c))
         if not eps:
             unsourced += 1
@@ -457,36 +544,180 @@ def judge_leg(leg: Path, judge_fn, owner: str) -> dict:
     for eps, cs in groups.items():
         convs = []
         for ep in eps:
-            path = leg / "bank" / "episodes" / f"{ep}.md"
+            path = unit / "bank" / "episodes" / f"{ep}.md"
             parsed = markdown_parser.parse(path) if path.exists() else None
             when = str((parsed.frontmatter or {}).get("timestamp") or "")[:10] if parsed else ""
             convs.append(f"--- {ep}, dated {when or 'unknown'} ---\n{parsed.body.strip() if parsed else '(missing)'}")
         lines = [f"{i + 1}. [{_credited(c)}] {c['text'] or claim_text(c)}" for i, c in enumerate(cs)]
-        prompt = JUDGE_PROMPT.format(owner=owner, plural="s" if len(eps) > 1 else "", conversations="\n\n".join(convs),
-                                     claims="\n".join(lines))
-        verdicts = {}
-        for _ in range(2):
-            try:
-                reply = judge_fn(prompt)
-                body = reply[reply.find("{"): reply.rfind("}") + 1]
-                verdicts = {int(v["n"]): v for v in json.loads(body).get("labels", []) if v.get("label") in LABELS}
-                break
-            except Exception as exc:  # noqa: BLE001 — a judge failure leaves the claims ungraded, never wrong
-                verdicts = {}
-                print(f"judge retry ({type(exc).__name__})", file=sys.stderr)
+        reply = _json_reply(judge_fn, JUDGE_PROMPT.format(owner=owner, plural="s" if len(eps) > 1 else "",
+                                                          conversations="\n\n".join(convs), claims="\n".join(lines)))
+        verdicts = {int(v["n"]): v for v in reply.get("labels", []) if isinstance(v, dict) and v.get("label") in LABELS}
         for i, c in enumerate(cs):
             v = verdicts.get(i + 1)
             labels.append({"claim": c["id"], "page": c["page"], "credited": _credited(c), "text": c["text"],
                            "episodes": list(eps), "label": v["label"] if v else None, "why": v.get("why") if v else None})
+    return labels, unsourced
+
+
+def _rates(counts: dict, graded: int) -> dict:
+    return {"precision": round((counts["supported"] + counts["inferred"]) / graded, 3) if graded else None,
+            "hallucination": round(counts["unsupported"] / graded, 3) if graded else None,
+            "misattribution": round(counts["misattributed"] / graded, 3) if graded else None}
+
+
+def judge_leg(unit: Path, judge_fn, owner: str) -> dict:
+    """Precision: every claim of one person's bank against its conversations (``judge.json``)."""
+    snap = json.loads((unit / "snapshot.json").read_text(encoding="utf-8"))
+    labels, unsourced = _label_groups(unit, judge_fn, owner, snap["claims"])
     graded = [x for x in labels if x["label"]]
     counts = {k: sum(1 for x in graded if x["label"] == k) for k in LABELS}
     result = {"counts": counts, "graded": len(graded), "ungraded": len(labels) - len(graded), "unsourced": unsourced,
-              "precision": round((counts["supported"] + counts["inferred"]) / len(graded), 3) if graded else None,
-              "hallucination": round(counts["unsupported"] / len(graded), 3) if graded else None,
-              "misattribution": round(counts["misattributed"] / len(graded), 3) if graded else None,
-              "labels": labels}
-    (leg / "judge.json").write_text(json.dumps(result, indent=1, ensure_ascii=False), encoding="utf-8")
+              **_rates(counts, len(graded)), "labels": labels}
+    _write(unit / "judge.json", result)
     return result
+
+
+MATCH_PROMPT = """A memory system read {owner}'s conversations and wrote the claims below. For each FACT, say whether
+one or more claims state it, in any words or language: a claim that says less (a different value, only part of it) does
+not hold it. Use only the claims.
+
+Claims:
+{claims}
+
+Facts:
+{facts}
+
+Reply with JSON only: {{"held": [<fact id>, ...]}}"""
+
+
+def match_missed(unit: Path, judge_fn, fixture: dict) -> dict:
+    """The facts the spelling match missed, asked of the judge against every claim (``match.json``). A fact the
+    spelling found is never asked: the judge can only add, so ``points_judged`` >= ``points_claim``."""
+    snap = json.loads((unit / "snapshot.json").read_text(encoding="utf-8"))
+    sc = score(snap, unit / "bank", fixture)
+    missed = {p["id"] for p in sc["points"] if not p["claim"]}
+    facts = [r for r in fixture["gold"]["points"] if r["id"] in missed and r.get("fact")]
+    held: list[str] = []
+    if facts:
+        claims = "\n".join(f"- {c['text'] or claim_text(c)}" for c in snap["claims"])
+        reply = _json_reply(judge_fn, MATCH_PROMPT.format(owner=fixture["owner"], claims=claims,
+                                                          facts="\n".join(f"{r['id']}: {r['fact']}" for r in facts)))
+        held = sorted(i for i in (reply.get("held") or []) if i in missed)
+    result = {"asked": sorted(missed), "held": held}
+    _write(unit / "match.json", result)
+    return result
+
+
+def _plant(claims: list[dict], pages: list[dict], n: int) -> list[dict]:
+    """``n`` copies of real claims made wrong in ways that read as plausible, so a judge that waves things through
+    shows: a date one day off, a number a little off, or the thing pointed at swapped for another page of the SAME
+    type (a person for a person, a place for a place). Same evidence, so the judge reads the same conversation."""
+    import random
+
+    rng = random.Random(7)
+    by_id = {p["id"]: p for p in pages if not p["owner"]}
+    pool = [c for c in sorted(claims, key=lambda c: c["id"]) if _cited(c)]
+    rng.shuffle(pool)
+    planted: list[dict] = []
+    kinds = ("date", "number", "swap")
+    for c in pool:
+        if len(planted) >= n:
+            break
+        want = kinds[len(planted) % len(kinds)]
+        text, obj = c["text"] or "", str(c["object"])
+        if want == "date" and (m := re.search(r"\d{4}-\d{2}-\d{2}", text + " " + obj)):
+            wrong = (date.fromisoformat(m.group()) + timedelta(days=1)).isoformat()
+            planted.append({**c, "kind": "date", "text": text.replace(m.group(), wrong) if m.group() in text
+                            else f"{text} on {wrong}", "object": obj.replace(m.group(), wrong)})
+        elif want == "number" and (m := re.search(r"(?<![\d-])\d{1,4}(?![\d-])", text)):
+            value = int(m.group())
+            wrong = str(value + 1 if value < 20 else round(value * 1.2))
+            planted.append({**c, "kind": "number", "text": text[:m.start()] + wrong + text[m.end():],
+                            "object": obj.replace(m.group(), wrong, 1)})
+        elif want == "swap" and obj in by_id and str(by_id[obj]["name"]) in text:
+            same = [p for p in by_id.values() if p["id"] != obj and p.get("type") == by_id[obj].get("type")
+                    and str(p["name"]).lower() not in text.lower()]
+            if same:
+                other = rng.choice(same)
+                planted.append({**c, "kind": "swap", "text": text.replace(str(by_id[obj]["name"]), str(other["name"])),
+                                "object": other["id"]})
+        else:
+            continue
+        planted[-1]["id"] = f"planted_{len(planted) - 1}"
+    return planted
+
+
+def plant_errors(unit: Path, judge_fn, owner: str, n: int) -> dict:
+    """How many planted errors the judge catches (``canary.json``), each judged among the real claims citing the same
+    conversations, as precision judges them — so a judge that waves things through shows here."""
+    snap = json.loads((unit / "snapshot.json").read_text(encoding="utf-8"))
+    planted = _plant(snap["claims"], snap["pages"], n)
+    shown = list(planted)
+    for c in snap["claims"]:
+        if any(tuple(_cited(c)) == tuple(_cited(p)) for p in planted):
+            shown.append(c)
+    labels, _ = _label_groups(unit, judge_fn, owner, shown)
+    ids = {p["id"] for p in planted}
+    mine = [x for x in labels if x["claim"] in ids]
+    caught = sum(1 for x in mine if x["label"] in ("unsupported", "misattributed"))
+    result = {"planted": len(planted), "graded": sum(1 for x in mine if x["label"]), "caught": caught,
+              "labels": mine, "kinds": {p["id"]: p["kind"] for p in planted}}
+    _write(unit / "canary.json", result)
+    return result
+
+
+def _write(path: Path, data) -> None:
+    path.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+
+
+def units(leg: Path) -> list[tuple[str, Path]]:
+    """The people a leg ran, each with their own folder; a leg from before people were split is Ines's alone."""
+    found = [(p.name, p) for p in sorted(leg.iterdir()) if p.name in PEOPLE and (p / "snapshot.json").exists()]
+    return found or ([("ines", leg)] if (leg / "snapshot.json").exists() and (leg / "bank").exists() else [])
+
+
+def aggregate(leg: Path) -> None:
+    """A leg's own score, snapshot and judge files: the sum over its people (rates recomputed from the sums)."""
+    people = [(name, unit) for name, unit in units(leg) if unit != leg]
+    if not people:
+        return
+    scores = {name: json.loads((u / "score.json").read_text(encoding="utf-8")) for name, u in people
+              if (u / "score.json").exists()}
+    snaps = {name: json.loads((u / "snapshot.json").read_text(encoding="utf-8")) for name, u in people}
+    if len(scores) != len(people):
+        return
+    summary: dict = {}
+    for sc in scores.values():
+        for k, v in sc["summary"].items():
+            if k == "span_rate":
+                continue
+            if v is None or summary.get(k, 0) is None:
+                summary[k] = None
+            else:
+                summary[k] = summary.get(k, 0) + v
+    spans = sum(sc["integrity"]["claims_with_span"] for sc in scores.values())
+    summary["span_rate"] = round(spans / summary["claims_total"], 3) if summary.get("claims_total") else 0.0
+    first = next(iter(snaps.values()))
+    _write(leg / "score.json", {"model": first["model"], "summary": summary, "people": {
+        n: sc["summary"] for n, sc in scores.items()}})
+    usage = {k: sum(sn["usage"].get(k) or 0 for sn in snaps.values())
+             for k in ("calls", "failed", "input", "cache_read", "output")}
+    usage["cost_usd"] = round(sum(sn["usage"].get("cost_usd") or 0 for sn in snaps.values()), 4)
+    _write(leg / "snapshot.json", {"model": first["model"], "engine": first.get("engine"), "clock": first["clock"],
+                                   "usage": usage, "phases": [p for sn in snaps.values() for p in sn["phases"]],
+                                   "episodes_unprocessed": sum(sn.get("episodes_unprocessed") or 0
+                                                               for sn in snaps.values())})
+    judged = [json.loads((u / "judge.json").read_text(encoding="utf-8")) for _, u in people
+              if (u / "judge.json").exists()]
+    if len(judged) == len(people):
+        counts = {k: sum(j["counts"][k] for j in judged) for k in LABELS}
+        graded = sum(j["graded"] for j in judged)
+        out = {"counts": counts, "graded": graded, **_rates(counts, graded)}
+        canaries = [json.loads((u / "canary.json").read_text(encoding="utf-8")) for _, u in people
+                    if (u / "canary.json").exists()]
+        if len(canaries) == len(people):
+            out.update(canary_planted=sum(c["graded"] for c in canaries), canary_caught=sum(c["caught"] for c in canaries))
+        _write(leg / "judge.json", out)
 
 
 def make_judge(model: str, home: Path):
@@ -529,6 +760,11 @@ def report(out: Path) -> str:
         snap = json.loads((leg / "snapshot.json").read_text(encoding="utf-8"))
         j = json.loads((leg / "judge.json").read_text(encoding="utf-8")) if (leg / "judge.json").exists() else {}
         row = dict(s["summary"])
+        if j.get("canary_planted"):
+            row["canary"] = round(j["canary_caught"] / j["canary_planted"], 3)
+        elif (leg / "canary.json").exists():
+            c = json.loads((leg / "canary.json").read_text(encoding="utf-8"))
+            row["canary"] = round(c["caught"] / c["graded"], 3) if c.get("graded") else None
         row.update({"precision": j.get("precision"), "hallucination": j.get("hallucination"),
                     "misattribution": j.get("misattribution"),
                     "calls": snap["usage"]["calls"], "failed_calls": snap["usage"]["failed"],
@@ -540,6 +776,7 @@ def report(out: Path) -> str:
         by_model.setdefault(re.sub(r"-r\d+$", "", leg.name), []).append(row)
     first = next(iter(by_model.values()), [{}])[0]
     cols = [("points_claim", f"facts held as claims /{first.get('points', '?')}"),
+            ("points_judged", "facts held, judge-matched"),
             ("points_anywhere", "facts anywhere on a page"),
             ("updates_correct", f"updates correct /{first.get('updates', '?')}"),
             ("updates_both", "updates: old still current"),
@@ -549,7 +786,7 @@ def report(out: Path) -> str:
             ("pages_ok", f"page made / not made right /{first.get('pages_checks', '?')}"),
             ("dated_ok", f"relative dates right /{first.get('dated', '?')}"),
             ("precision", "claims supported (judge)"), ("hallucination", "claims unsupported (judge)"),
-            ("misattribution", "claims misattributed (judge)"),
+            ("misattribution", "claims misattributed (judge)"), ("canary", "planted errors the judge caught"),
             ("span_rate", "claims with a located span"), ("integrity_breaks", "integrity breaks"),
             ("claims_total", "claims"), ("pages_total", "pages"), ("questions", "inbox questions"),
             ("calls", "model calls"), ("failed_calls", "failed calls"), ("unread", "conversations left unread"), ("input_k", "input tokens (k)"),
@@ -572,40 +809,105 @@ def report(out: Path) -> str:
 
 # ---- CLI -------------------------------------------------------------------------------------------------------------
 
+def _leg_name(engine: str, model: str, judge: str, k: int) -> str:
+    return f"{engine}-{model}" + ("" if judge == model else f"-j{judge}") + f"-r{k}"
+
+
+def rescore(leg: Path) -> None:
+    for name, unit in units(leg):
+        snap = json.loads((unit / "snapshot.json").read_text(encoding="utf-8"))
+        _write(unit / "score.json", score(snap, unit / "bank", load_fixture(name)))
+    aggregate(leg)
+
+
+def compare(out: Path, a: str, b: str) -> str:
+    """Two settings' legs side by side: each measure's means, and whether the gap is wider than both settings' own
+    spreads (their ranges do not overlap). Then each fact and update that one setting gets in every run and the other
+    in none."""
+    def group(name: str) -> list[Path]:
+        return [leg for leg in legs(out) if re.sub(r"-r\d+$", "", leg.name) == name]
+
+    ga, gb = group(a), group(b)
+    if not ga or not gb:
+        return f"no legs named {a if not ga else b} in {out}"
+    rows = ["| measure | " + a + f" (n={len(ga)}) | " + b + f" (n={len(gb)}) | clear |", "|---|---|---|---|"]
+    sa = [json.loads((x / "score.json").read_text(encoding="utf-8"))["summary"] for x in ga]
+    sb = [json.loads((x / "score.json").read_text(encoding="utf-8"))["summary"] for x in gb]
+    for key in ("points_claim", "points_judged", "updates_correct", "forbid_ok", "people_ok", "pages_ok", "dated_ok",
+                "claims_total", "pages_total"):
+        va = [s[key] for s in sa if s.get(key) is not None]
+        vb = [s[key] for s in sb if s.get(key) is not None]
+        if not va or not vb:
+            continue
+        clear = "yes" if min(va) > max(vb) or min(vb) > max(va) else ""
+        rows.append(f"| {key} | {sum(va) / len(va):.3g} | {sum(vb) / len(vb):.3g} | {clear} |")
+
+    def facts(legs_: list[Path]) -> dict[str, list[bool]]:
+        out_: dict[str, list[bool]] = {}
+        for leg in legs_:
+            for name, unit in units(leg):
+                sc = json.loads((unit / "score.json").read_text(encoding="utf-8"))
+                for p in sc["points"]:
+                    out_.setdefault(f"{name}:{p['id']}", []).append(p["claim"])
+                for u in sc["updates"]:
+                    out_.setdefault(f"{name}:{u['id']}", []).append(u["verdict"] == "correct")
+        return out_
+
+    fa, fb = facts(ga), facts(gb)
+    only_a = sorted(k for k in fa if all(fa[k]) and k in fb and not any(fb[k]))
+    only_b = sorted(k for k in fb if all(fb[k]) and k in fa and not any(fa[k]))
+    rows += ["", f"always in {a}, never in {b}: {', '.join(only_a) or 'none'}",
+             f"always in {b}, never in {a}: {', '.join(only_b) or 'none'}"]
+    return "\n".join(rows)
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="benchmarks.consolidation.run", description=__doc__.split("\n\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
-    r = sub.add_parser("run", help="run each model REPEATS times, each leg in its own process")
+    r = sub.add_parser("run", help="run each model REPEATS times, each person of each leg in its own process")
     r.add_argument("--models", default="haiku", help="tiers, comma separated (opus,sonnet,haiku)")
     r.add_argument("--engine", choices=("plan", "key"), default="plan",
                    help="plan: the signed-in Claude plan; key: ANTHROPIC_API_KEY from --key-file (spends money)")
     r.add_argument("--sleep-judge", default="haiku", help="Sleep's Stage 2 judge tier (the product default: haiku)")
+    r.add_argument("--people", default=",".join(PEOPLE), help=f"comma separated, of {', '.join(PEOPLE)}")
+    r.add_argument("--parallel", type=int, default=1, help="processes at once (a key takes several; keep 1 on a plan)")
     r.add_argument("--key-file", type=Path, default=Path("~/.cicada/secrets.env"))
     r.add_argument("--repeats", type=int, default=1)
     r.add_argument("--out", type=Path, required=True)
-    r.add_argument("--clock", help="the day the fixture's days count from (default today, UTC)")
-    leg = sub.add_parser("leg", help="one model on one fresh bank (what `run` spawns)")
+    r.add_argument("--clock", help="the day the fixtures' days count from (default today, UTC)")
+    leg = sub.add_parser("leg", help="one model, one person, one fresh bank (what `run` spawns)")
     leg.add_argument("--model", required=True)
     leg.add_argument("--out", type=Path, required=True)
     leg.add_argument("--clock", required=True)
     leg.add_argument("--engine", choices=("plan", "key"), default="plan")
     leg.add_argument("--sleep-judge", default="haiku")
+    leg.add_argument("--person", default="ines", choices=list(PEOPLE))
     sc = sub.add_parser("score", help="re-score legs from their banks, no model")
     sc.add_argument("out", type=Path)
-    j = sub.add_parser("judge", help="grade each leg's claims against the conversations they cite")
+    j = sub.add_parser("judge", help="precision, judge-matched facts and planted errors, per person")
     j.add_argument("out", type=Path)
     j.add_argument("--judge-model", default="opus")
-    j.add_argument("--fresh", action="store_true", help="re-judge legs that already have judge.json")
+    j.add_argument("--fresh", action="store_true", help="re-judge what is already judged")
+    j.add_argument("--no-match", action="store_true", help="skip asking the judge about the facts spelling missed")
+    j.add_argument("--plant", type=int, default=6, help="planted errors per person (0: none)")
+    cmp_ = sub.add_parser("compare", help="two settings (folder names less -rN) side by side")
+    cmp_.add_argument("out", type=Path)
+    cmp_.add_argument("a")
+    cmp_.add_argument("b")
     rep = sub.add_parser("report")
     rep.add_argument("out", type=Path)
     a = p.parse_args(argv)
 
     if a.cmd == "leg":
-        snap = run_leg(a.model, a.out, clock=date.fromisoformat(a.clock), engine=a.engine, judge=a.sleep_judge)
-        print(json.dumps({"model": a.model, "phases": snap["phases"], "claims": len(snap["claims"]),
-                          "pages": len(snap["pages"]), "calls": snap["usage"]["calls"]}, ensure_ascii=False))
+        snap = run_leg(a.model, a.out, clock=date.fromisoformat(a.clock), engine=a.engine, judge=a.sleep_judge,
+                       person=a.person)
+        print(json.dumps({"model": a.model, "person": a.person, "phases": snap["phases"],
+                          "claims": len(snap["claims"]), "pages": len(snap["pages"]), "calls": snap["usage"]["calls"]},
+                         ensure_ascii=False))
         return 0
     if a.cmd == "run":
+        from concurrent.futures import ThreadPoolExecutor
+
         clock = a.clock or datetime.now(timezone.utc).date().isoformat()
         a.out.mkdir(parents=True, exist_ok=True)
         if a.engine == "key":
@@ -616,38 +918,58 @@ def main(argv: list[str] | None = None) -> int:
                 print("No ANTHROPIC_API_KEY in --key-file or the environment.", file=sys.stderr)
                 return 2
             os.environ["ANTHROPIC_API_KEY"] = key   # the legs inherit it; never printed or written
-        status = 0
+        people = [x.strip() for x in a.people.split(",") if x.strip()]
+        jobs: list[tuple[Path, str, str]] = []
         for k in range(1, a.repeats + 1):
             for model in [m.strip() for m in a.models.split(",") if m.strip()]:
-                out = a.out / (f"{a.engine}-{model}" + ("" if a.sleep_judge == model else f"-j{a.sleep_judge}")
-                               + f"-r{k}")
-                if (out / "score.json").exists():
-                    print(f"{out.name}: done already, skipped")
-                    continue
-                print(f"{out.name}: running", flush=True)
-                proc = subprocess.run([sys.executable, "-m", "benchmarks.consolidation.run", "leg", "--model", model,
-                                       "--out", str(out), "--clock", clock, "--engine", a.engine,
-                                       "--sleep-judge", a.sleep_judge], cwd=REPO)
-                status = status or proc.returncode
+                leg_dir = a.out / _leg_name(a.engine, model, a.sleep_judge, k)
+                for person in people:
+                    if (leg_dir / person / "score.json").exists():
+                        print(f"{leg_dir.name}/{person}: done already, skipped")
+                    else:
+                        jobs.append((leg_dir, model, person))
+
+        def one(job: tuple[Path, str, str]) -> int:
+            leg_dir, model, person = job
+            (leg_dir / person).mkdir(parents=True, exist_ok=True)
+            print(f"{leg_dir.name}/{person}: running", flush=True)
+            with open(leg_dir / f"{person}.log", "w") as log:
+                return subprocess.run([sys.executable, "-m", "benchmarks.consolidation.run", "leg", "--model", model,
+                                       "--out", str(leg_dir / person), "--clock", clock, "--engine", a.engine,
+                                       "--sleep-judge", a.sleep_judge, "--person", person],
+                                      cwd=REPO, stdout=log, stderr=subprocess.STDOUT).returncode
+
+        with ThreadPoolExecutor(max_workers=max(1, a.parallel)) as pool:
+            codes = list(pool.map(one, jobs))
+        for leg_dir in sorted({j[0] for j in jobs}):
+            aggregate(leg_dir)
         print(report(a.out))
-        return status
+        return next((c for c in codes if c), 0)
     if a.cmd == "score":
-        fixture = load_fixture()
-        for leg_dir in sorted(x for x in a.out.iterdir() if (x / "snapshot.json").exists()):
-            snap = json.loads((leg_dir / "snapshot.json").read_text(encoding="utf-8"))
-            (leg_dir / "score.json").write_text(json.dumps(score(snap, leg_dir / "bank", fixture), indent=1,
-                                                           ensure_ascii=False), encoding="utf-8")
+        for leg_dir in sorted(x for x in a.out.iterdir() if units(x)):
+            rescore(leg_dir)
         print(report(a.out))
         return 0
     if a.cmd == "judge":
         judge_fn = make_judge(a.judge_model, a.out / "_judge_home")
-        for leg_dir in legs(a.out):
-            if (leg_dir / "judge.json").exists() and not a.fresh:
-                continue
-            res = judge_leg(leg_dir, judge_fn, load_fixture()["owner"])
-            print(f"{leg_dir.name}: precision {res['precision']} hallucination {res['hallucination']} "
-                  f"misattribution {res['misattribution']} ({res['graded']} graded, {res['ungraded']} ungraded)")
+        for leg_dir in sorted(x for x in a.out.iterdir() if x.is_dir() and units(x)):
+            for name, unit in units(leg_dir):
+                owner = load_fixture(name)["owner"]
+                if a.fresh or not (unit / "judge.json").exists():
+                    res = judge_leg(unit, judge_fn, owner)
+                    print(f"{leg_dir.name}/{name}: precision {res['precision']} hallucination {res['hallucination']} "
+                          f"misattribution {res['misattribution']} ({res['graded']} graded, {res['ungraded']} ungraded)")
+                if not a.no_match and (a.fresh or not (unit / "match.json").exists()):
+                    m = match_missed(unit, judge_fn, load_fixture(name))
+                    print(f"{leg_dir.name}/{name}: the judge found {len(m['held'])} of {len(m['asked'])} missed facts")
+                if a.plant and (a.fresh or not (unit / "canary.json").exists()):
+                    c = plant_errors(unit, judge_fn, owner, a.plant)
+                    print(f"{leg_dir.name}/{name}: caught {c['caught']} of {c['graded']} planted errors")
+            rescore(leg_dir)
         print(report(a.out))
+        return 0
+    if a.cmd == "compare":
+        print(compare(a.out, a.a, a.b))
         return 0
     print(report(a.out))
     return 0

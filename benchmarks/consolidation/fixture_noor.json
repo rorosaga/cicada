@@ -1,0 +1,654 @@
+{
+ "about": "A second invented person, for what the first leaves out: meeting transcripts with several speakers (only the 'You' lines are hers), a long chat with facts buried in the assistant's suggestions, French, two different people called Marc, a handle, and values that change. Every name, company and place is invented or generic. Days count from the run's clock; {day:+N} is the conversation's day plus N.",
+ "owner": "Noor Haddad",
+ "conversations": [
+  {
+   "id": "n01",
+   "phase": 1,
+   "day": -58,
+   "title": "Cartolina",
+   "turns": [
+    "I'm starting a little side business called Cartolina: I print my travel photos as postcards and sell them. I set up the shop on Shopify this weekend, each card is 4 euros.",
+    "Nice! Have you looked at WooCommerce? It's cheaper than Shopify once you have a WordPress site.",
+    "I don't have a WordPress site and don't want one, Shopify is fine for now.",
+    "Fair enough. Shopify's templates are good for photo products anyway."
+   ]
+  },
+  {
+   "id": "n02",
+   "phase": 1,
+   "day": -55,
+   "title": "Étagères",
+   "turns": [
+    "Mon beau-frère Marc vient m'aider à monter des étagères ce week-end. Il est menuisier à Annecy, donc ça devrait aller vite.",
+    "Pratique d'avoir un menuisier dans la famille ! Vous avez déjà acheté le bois ?",
+    "Oui, du chêne. Il apporte ses outils."
+   ]
+  },
+  {
+   "id": "n03",
+   "phase": 1,
+   "day": -52,
+   "kind": "meeting",
+   "title": "Brightfield research sync",
+   "lines": [
+    [
+     "You",
+     "Okay, let's start. The banking app usability study, where are we?"
+    ],
+    [
+     "Léa",
+     "Recruitment is done. The study starts on the {day:+5}, we have eight participants."
+    ],
+    [
+     "You",
+     "Great. I'll run the interviews myself, all eight, and Léa takes notes."
+    ],
+    [
+     "Marc",
+     "Before I forget, I'm moving to the Berlin office in March, so after that I'm remote for this project."
+    ],
+    [
+     "You",
+     "Congrats Marc. We'll keep you on the readout."
+    ],
+    [
+     "Léa",
+     "I'll share my research template on Slack after this."
+    ]
+   ]
+  },
+  {
+   "id": "n04",
+   "phase": 1,
+   "day": -50,
+   "title": "Japan trip",
+   "turns": [
+    "I'm planning two weeks in Japan in spring with my partner Idris. Budget around 3000 euros for both of us, not counting flights.",
+    "Lovely. For two weeks I'd suggest Tokyo, Kyoto, Osaka and Hiroshima, with a rail pass.",
+    "Tokyo and Kyoto for sure. Skip Osaka, Idris went last year and didn't like it.",
+    "Then you could add Kanazawa instead, it's quieter and great for photography.",
+    "Ooh, yes, Kanazawa. I'll bring my Fujifilm X100V, it's the only camera I travel with.",
+    "Good choice for street photography. Any food restrictions I should keep in mind for restaurant tips?",
+    "I'm vegetarian, and I'm allergic to peanuts, so that matters a lot.",
+    "Noted. Shojin ryori, Buddhist temple cuisine, is fully vegetarian, Kyoto has many temples that serve it.",
+    "Perfect, book that in Kyoto. Idris will eat anything.",
+    "I'll also suggest a ryokan night in Hakone with an onsen.",
+    "No onsen for us, Idris has tattoos and many don't allow them.",
+    "Understood, I'll leave Hakone out. Do you want a rail pass?",
+    "Yes, the 14-day one."
+   ]
+  },
+  {
+   "id": "n05",
+   "phase": 1,
+   "day": -48,
+   "title": "Research template",
+   "turns": [
+    "Léa sent me her research template on Slack, she's @leaux there. It's way better than mine.",
+    "What makes it better?",
+    "It has a section for the participant's own words, verbatim, separate from our interpretation."
+   ]
+  },
+  {
+   "id": "n06",
+   "phase": 1,
+   "day": -44,
+   "title": "Premières ventes",
+   "turns": [
+    "J'ai vendu mes 20 premières cartes Cartolina ! Surtout des photos de Lisbonne.",
+    "Félicitations ! Qui sont les acheteurs ?",
+    "Surtout des amis d'amis, pour l'instant."
+   ]
+  },
+  {
+   "id": "n07",
+   "phase": 1,
+   "day": -40,
+   "kind": "meeting",
+   "title": "Brightfield weekly",
+   "lines": [
+    [
+     "Marc",
+     "My Berlin move is confirmed for the 15th of March."
+    ],
+    [
+     "You",
+     "The banking study is going well, but the readout will be next month, not this one."
+    ],
+    [
+     "Léa",
+     "Fine by me, I need the time to code the notes."
+    ]
+   ]
+  },
+  {
+   "id": "n08",
+   "phase": 2,
+   "day": -25,
+   "title": "Moving the shop",
+   "turns": [
+    "I moved Cartolina from Shopify to Etsy, the fees were eating everything and Etsy brings buyers on its own.",
+    "Makes sense for a small shop. Did you keep the same listings?",
+    "Yes, same photos, same descriptions."
+   ]
+  },
+  {
+   "id": "n09",
+   "phase": 2,
+   "day": -22,
+   "title": "Prix",
+   "turns": [
+    "J'ai augmenté le prix des cartes Cartolina à 5 euros, le papier coûte plus cher.",
+    "Les ventes ont baissé ?",
+    "Pas du tout, au contraire."
+   ]
+  },
+  {
+   "id": "n10",
+   "phase": 2,
+   "day": -20,
+   "title": "New flat",
+   "turns": [
+    "We moved from Lyon to Grenoble yesterday! Idris got a job at the university hospital there.",
+    "Big change! How are you finding it?",
+    "Boxes everywhere, but the mountains are right there. I'm keeping my job at Brightfield, remote."
+   ]
+  },
+  {
+   "id": "n11",
+   "phase": 2,
+   "day": -18,
+   "kind": "meeting",
+   "title": "Banking study readout prep",
+   "lines": [
+    [
+     "You",
+     "Headline: seven of the eight participants failed the transfer flow."
+    ],
+    [
+     "Léa",
+     "And I'm going on parental leave in January, so I'll hand my notes to you before that."
+    ],
+    [
+     "You",
+     "Understood. I'll present the findings to the bank myself."
+    ],
+    [
+     "Marc",
+     "I can join from Berlin for the readout."
+    ]
+   ]
+  },
+  {
+   "id": "n12",
+   "phase": 2,
+   "day": -15,
+   "title": "Japan budget",
+   "turns": [
+    "We raised the Japan budget to 3500 euros, Kyoto is more expensive than I thought.",
+    "That gives you room for the temple dinners.",
+    "Exactly, and maybe one nice ryokan without an onsen."
+   ]
+  },
+  {
+   "id": "n13",
+   "phase": 2,
+   "day": -12,
+   "title": "Cartolina sales",
+   "turns": [
+    "Cartolina is at 85 cards sold now, Etsy really changed things.",
+    "That's more than four times the first batch. Restocking?",
+    "Yes, printing another hundred."
+   ]
+  },
+  {
+   "id": "n14",
+   "phase": 2,
+   "day": -8,
+   "title": "Visit",
+   "turns": [
+    "My brother-in-law Marc came to Grenoble to help us put up the shelves again, he drove from Annecy.",
+    "Second time he's helping with shelves!",
+    "He says he'll invoice us next time."
+   ]
+  },
+  {
+   "id": "n15",
+   "phase": 2,
+   "day": -3,
+   "title": "Leak",
+   "turns": [
+    "The plumber, Mr. Fabre, finally came about the leak under the sink.",
+    "Was it a quick fix?",
+    "Ten minutes and a new seal."
+   ]
+  }
+ ],
+ "gold": {
+  "points": [
+   {
+    "id": "N01",
+    "fact": "Cartolina sells Noor's travel photos as postcards",
+    "says": [
+     "cartolina",
+     [
+      "postcard",
+      "card",
+      "photo"
+     ]
+    ]
+   },
+   {
+    "id": "N02",
+    "fact": "Noor's brother-in-law Marc is a carpenter",
+    "says": [
+     [
+      "marc",
+      "beau frere",
+      "brother in law"
+     ],
+     [
+      "carpenter",
+      "menuisier"
+     ]
+    ]
+   },
+   {
+    "id": "N03",
+    "fact": "Noor runs the banking study interviews herself",
+    "says": [
+     [
+      "interview",
+      "study"
+     ],
+     [
+      "run",
+      "runs",
+      "conduct",
+      "leads",
+      "lead"
+     ]
+    ]
+   },
+   {
+    "id": "N04",
+    "fact": "The banking study has eight participants",
+    "says": [
+     [
+      "eight",
+      "8"
+     ],
+     "participant"
+    ]
+   },
+   {
+    "id": "N05",
+    "fact": "Noor and Idris are partners",
+    "says": [
+     "idris",
+     "partner"
+    ]
+   },
+   {
+    "id": "N06",
+    "fact": "Noor is vegetarian",
+    "says": [
+     "vegetarian"
+    ]
+   },
+   {
+    "id": "N07",
+    "fact": "Noor is allergic to peanuts",
+    "says": [
+     [
+      "peanut",
+      "arachide"
+     ]
+    ]
+   },
+   {
+    "id": "N08",
+    "fact": "Noor travels with a Fujifilm X100V",
+    "says": [
+     [
+      "x100v",
+      "fujifilm"
+     ]
+    ]
+   },
+   {
+    "id": "N09",
+    "fact": "Léa goes by @leaux on Slack",
+    "says": [
+     [
+      "lea",
+      "leaux"
+     ],
+     [
+      "leaux",
+      "slack",
+      "handle"
+     ]
+    ]
+   },
+   {
+    "id": "N10",
+    "fact": "The Japan trip includes Kyoto",
+    "says": [
+     [
+      "japan",
+      "trip"
+     ],
+     "kyoto"
+    ]
+   },
+   {
+    "id": "N11",
+    "fact": "The Japan trip adds Kanazawa",
+    "says": [
+     "kanazawa"
+    ]
+   },
+   {
+    "id": "N12",
+    "fact": "Noor works at Brightfield",
+    "says": [
+     "brightfield",
+     [
+      "works",
+      "employ",
+      "researcher",
+      "job"
+     ]
+    ]
+   },
+   {
+    "id": "N13",
+    "fact": "Seven of eight participants failed the transfer flow",
+    "says": [
+     [
+      "seven",
+      "7"
+     ],
+     [
+      "transfer",
+      "fail"
+     ]
+    ]
+   },
+   {
+    "id": "N14",
+    "fact": "Noor will present the findings to the bank",
+    "says": [
+     [
+      "present",
+      "readout"
+     ],
+     [
+      "finding",
+      "bank",
+      "study"
+     ]
+    ]
+   },
+   {
+    "id": "N15",
+    "fact": "Marc, a colleague, moves to the Berlin office",
+    "says": [
+     "marc",
+     "berlin"
+    ]
+   },
+   {
+    "id": "N16",
+    "fact": "Léa goes on parental leave in January",
+    "says": [
+     "lea",
+     [
+      "parental",
+      "leave"
+     ]
+    ]
+   },
+   {
+    "id": "N17",
+    "fact": "The Japan trip uses a 14-day rail pass",
+    "says": [
+     [
+      "rail pass",
+      "jr pass"
+     ]
+    ]
+   },
+   {
+    "id": "N18",
+    "fact": "Idris got a job at the university hospital in Grenoble",
+    "says": [
+     "idris",
+     [
+      "hospital",
+      "hopital"
+     ]
+    ]
+   }
+  ],
+  "updates": [
+   {
+    "id": "V1",
+    "why": "a shop moved platform",
+    "current": [
+     "cartolina",
+     "etsy"
+    ],
+    "stale": [
+     "cartolina",
+     "shopify"
+    ]
+   },
+   {
+    "id": "V2",
+    "why": "a price raised, said in French",
+    "current": [
+     "cartolina",
+     [
+      "5 euro",
+      "5 eur",
+      "€5",
+      "5€",
+      "5 €"
+     ]
+    ],
+    "stale": [
+     "cartolina",
+     [
+      "4 euro",
+      "4 eur",
+      "€4",
+      "4€",
+      "4 €"
+     ]
+    ]
+   },
+   {
+    "id": "V3",
+    "why": "a move to another city",
+    "current": [
+     "grenoble",
+     [
+      "lives",
+      "live",
+      "moved",
+      "home"
+     ]
+    ],
+    "stale": [
+     "lyon",
+     [
+      "lives",
+      "live",
+      "home"
+     ]
+    ]
+   },
+   {
+    "id": "V4",
+    "why": "a budget raised",
+    "current": [
+     [
+      "3500",
+      "3,500",
+      "3 500"
+     ]
+    ],
+    "stale": [
+     [
+      "3000",
+      "3,000",
+      "3 000"
+     ]
+    ]
+   },
+   {
+    "id": "V5",
+    "why": "a count grows",
+    "current": [
+     "85"
+    ],
+    "stale": [
+     "cartolina",
+     "20"
+    ]
+   }
+  ],
+  "forbid": [
+   {
+    "id": "G1",
+    "why": "Marc's move to Berlin, said in a meeting, is Marc's, never Noor's",
+    "says": [
+     "berlin"
+    ],
+    "on_owner": true
+   },
+   {
+    "id": "G2",
+    "why": "the assistant suggested WooCommerce; she declined",
+    "says": [
+     "woocommerce"
+    ],
+    "person_only": true
+   },
+   {
+    "id": "G3",
+    "why": "Osaka was dropped from the trip",
+    "says": [
+     "osaka"
+    ],
+    "person_only": true
+   },
+   {
+    "id": "G4",
+    "why": "Léa's parental leave is Léa's",
+    "says": [
+     "parental"
+    ],
+    "on_owner": true
+   },
+   {
+    "id": "G5",
+    "why": "the two Marcs: the carpenter in Annecy is not the colleague moving to Berlin",
+    "says": [
+     [
+      "berlin",
+      "brightfield",
+      "product"
+     ],
+     [
+      "annecy",
+      "carpenter",
+      "menuisier",
+      "brother in law",
+      "beau frere"
+     ]
+    ]
+   },
+   {
+    "id": "G6",
+    "why": "Hakone and an onsen were suggested and refused",
+    "says": [
+     [
+      "hakone",
+      "onsen"
+     ]
+    ],
+    "person_only": true
+   }
+  ],
+  "people": {
+   "same": [
+    {
+     "id": "M1",
+     "names": [
+      "lea",
+      "leaux"
+     ],
+     "why": "a name and a Slack handle"
+    }
+   ],
+   "apart": [],
+   "apart_facts": [
+    {
+     "id": "M2",
+     "why": "two people called Marc: the brother-in-law carpenter in Annecy and the colleague moving to Berlin",
+     "a": [
+      [
+       "berlin"
+      ]
+     ],
+     "b": [
+      [
+       "annecy",
+       "carpenter",
+       "menuisier",
+       "brother in law",
+       "beau frere"
+      ]
+     ]
+    }
+   ]
+  },
+  "pages": {
+   "expected": [
+    "cartolina",
+    "idris",
+    [
+     "lea",
+     "leaux"
+    ]
+   ],
+   "not_expected": [
+    "fabre",
+    "woocommerce"
+   ]
+  },
+  "dated": [
+   {
+    "id": "E1",
+    "why": "'yesterday' in a conversation 20 days ago",
+    "says": [
+     "grenoble"
+    ],
+    "date": -21
+   },
+   {
+    "id": "E2",
+    "why": "'the 15th of March', said in a meeting, is Marc's move",
+    "says": [
+     "berlin"
+    ],
+    "month_of": "03"
+   }
+  ],
+  "secret": ""
+ }
+}
