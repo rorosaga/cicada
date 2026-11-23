@@ -531,7 +531,8 @@ monté le prix à 5 euros"). Under each line the prompt, and the check, show the
 from the conversation (`value_alignment.Words`, through `source_spans.Source`): only a span of the person's own turn
 (`user`) that locates now — offsets inside the text, hash unchanged, no gap line, nothing `sensitive_text` is sure of —
 cut to 240 characters; an inference, an assistant's or another speaker's words, a stale span or one with no offsets is
-absent, never searched for, never fuzzy, and the line is then what it was. One read per conversation per batch, never
+absent, never searched for, never fuzzy, and the line is then what it was (a call with no line carrying words gets exactly the
+prompts it got before: the note about the words is added only when some line has them). One read per conversation per batch, never
 more than the 40 listed lines. The words are shown to help read what a value is of, and the prompts say they never make
 two lines one attribute (two things raised the same way — the rent and the deposit — stay two; the check still decides).
 Nothing added per batch: same one call per page, same one check per proposal, same bounds, same door
