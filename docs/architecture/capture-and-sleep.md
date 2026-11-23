@@ -2217,8 +2217,8 @@ resolved by choosing "same"; **a question is the last resort**, asked only after
 *The states a mention can be in.* **Joined** (the plain person, or a known page) → **apart** (a located contrast: a person
 of its own, `<slug>-2`, the same clean title, G227's `_another_id`, the pair in `_merge_rejected.yaml`'s `split:` list, for
 good) or **in doubt** (a person of its own too, but the pair is in `_same_name_doubts.yaml` and never in `split:`). A doubt
-becomes **apart** on a located contrast, or is **asked** once; it is **joined** only by the person (their answer, their merge,
-their own words on the record). Which facts are
+becomes **apart** on a located contrast, **joined** by Sleep on a located link two reads agree on (ruling 74a), and otherwise
+**waits**; it is **asked** about once only when it reads like one person or like nothing either way. Which facts are
 whose while a mention is in doubt: its conversation's beliefs, edges and values are pinned to its own person (a held line, or
 a page once it meets the promotion bar), exactly as a split's are; the plain page never receives them, so an agent reading
 `marc` is told nothing about the other Marc, and recall, Ask and the page list the two as same-titled pages told apart by
@@ -2266,10 +2266,28 @@ over a split.** That commit holds the split and nothing else; what Sleep remembe
 back, and the page is marked as one Sleep never splits (`same_name_doubts.one`). A person page another was folded into on
 the person's word (their merge, an agent's on their ask, an answered question: `entity_merge.merge_entities`, every caller
 but the dedup sweep, which passes `by_sleep`) carries the same mark, written in the merge's own commit and named in
-`merge_footprint`, so a pair they joined is never cut again. **Sleep joins no one here.** Ruling 74 joins two people pages
-on two kinds of evidence code can count, and the main model's reading of two quotes is not one of them: a located link is
-said in the question ("Both seem to be said of one person: …") and the person joins the two with a tap. **The question**
-is asked only when the read gave an answer that can be stood on (a plain *cannot tell*, or a located link): a failed call,
+`merge_footprint`, so a pair they joined is never cut again. **Sleep joins two people it held in doubt when a later
+conversation links them (ruling 74a, owner 2026-11-23: "manual joins shouldnt be the priority. cicada itself should do it
+automatically").** `settle_pair` must find a located link (one fact each side states, each quote in its own side's
+descriptions and more than the name), and because a wrong join is the costly mistake the whole record is **read a second
+time**: only two reads that both find a link join the pair, through `page_join.merge` (`by_sleep`: Sleep's own join does
+not mark the page as one Sleep never splits, so a later located contrast can still part it), one commit authored `cicada`,
+trigger `sleep/same-name`, undone with `page_join.undo`. The doubt leaves the store in the store's own commit first and
+what Sleep remembers of the join (`same_name_doubts.joined`) is written after, so the join's commit holds the join alone.
+**An undo is the person saying they are two:** `same_name_tend.reconcile` (no engine; it runs in the tail whenever Sleep
+has a join or split of its own on record, flagged or not, one `git log` for all of them) finds the commit taken back and
+records the pair in `split:` for good, never joined or asked about again; meanwhile `kept_apart` already covers it
+(`same_name_doubts.kept`). A page in two doubt pairs is never joined by Sleep, and when only one read finds the link it
+is said in the question ("Both seem to be said of one person: …"). **An undo is never refused because of the store:**
+`page_join.undo` takes `_same_name_doubts.yaml` back by meaning (`same_name_doubts.reverse`: what the undone commit added
+leaves, what it removed returns, everything written since stays). Before this the file's few adjacent lines made the
+line-based reverse refuse the person's undo of their own merge of two people once Sleep had rewritten it (a fault of the
+first version of this section, on `dev` for a few hours). **Fewer questions (owner 2026-11-23: "the fewer the asks the
+better").** A plain *cannot tell* also says how the two read (`leaning`): like **two** different people (different worlds
+with nothing in common, a relative and a colleague), like **one**, or neither. Two who read like two **wait apart and
+nobody is asked**: each keeps their own facts, the pair stays a doubt (never a split, so a later link still joins them),
+and the next conversation that names the name has them read again. **The question** is only for a pair that reads like
+one person or like nothing either way, and only when the read gave an answer that can be stood on: a failed call,
 an unreadable answer, quotes that are not there, or a side with no conversation of its own on record is not "the record
 does not say", asks nothing and does not spend the pair's one question (the doubt stays, and the next conversation that
 names the name flags it again). It is only for a doubt both sides of which are pages (a person held on a line has nothing resting on
@@ -2300,8 +2318,8 @@ French; the code before 20 replays each, as landed 8 each; ok = the expected end
 in one batch 59 of 60 → 24 of 24; two people already joined on one page, then a clarifying conversation **0 of 100 → 39 of 40**
 (the page split by conversation, one commit); two people the record never tells apart **0 of 60 → 24 of 24**, one question each
 (the code before blended them in 41 of 60 and asked nothing); a doubt a later conversation links: the code before cut one person
-in two in 27 of 60 and said nothing, as landed **24 of 24 end as the one question with the link in it** (never joined by Sleep,
-ruling 74); one person in many settings, one whose life moves on, a thin first mention, an established page re-read: all ok
+in two in 27 of 60 and said nothing; #814 ended all 24 as the one question with the link in it, and with ruling 74a **24 of 24
+are joined by Sleep, no question** (both reads found the link each time); one person in many settings, one whose life moves on, a thin first mention, an established page re-read: all ok
 before and after (240 of 240; 96 of 96), **no question and no split**. The stories replay a simulated bank; **the real path**
 (the stager, `sleep_cycle.run`, the tail, a real engine) was run on a scratch bank with a three-phase, twelve-conversation story
 of three first names, six times: no real person was cut in two in any run and no bank was left with an uncommitted file; a page
@@ -2315,7 +2333,7 @@ holds the name's key (`_second_person_titles`); the two runs made to hit that pa
 provenance of its own), so one sentence about the other person can outlive the split. A thin conversation joined earlier
 (nothing in it to contrast) stays where it was. A conversation that names both people ("X from work met my cousin X") is
 one mention a name to Stage 2, and Stage 1 sometimes names the two with a qualifier in the name, which is not a bare name
-and is not judged here. *The benchmark* (3 runs, both people, as landed): the fixture's two Marcs apart in 3 of 3 runs (the code before joined them in 1 run of 3 on a one-person answer, and so did a fresh control of `dev` the same day), one person kept as one 5 of 5 each run, others' words kept off the person 13 of 13, pages made or not made 14 of 14, updates 12, 12, 13 of 13 (control 12, 12, 12), every fact a claim or held under a waiting name (52 of 52 each run; claims 48, 46, 51). Questions 6, 7, 3 a run against 3, 2, 5 for the control and 5, 3, 3 before: one of them is the pair of Marcs, asked once in 1 run of 3 when the second look could not tell them apart; the rest are other proposers' run-to-run spread. $0.68 a run against $0.64: the second reading, about three main-model calls a person.
+and is not judged here. *The benchmark* (3 runs, both people, as landed): the fixture's two Marcs apart in 3 of 3 runs (the code before joined them in 1 run of 3 on a one-person answer, and so did a fresh control of `dev` the same day), one person kept as one 5 of 5 each run, others' words kept off the person 13 of 13, pages made or not made 14 of 14, updates 12, 12, 13 of 13 (control 12, 12, 12), every fact a claim or held under a waiting name (52 of 52 each run; claims 48, 46, 51). Questions 6, 7, 3 a run against 3, 2, 5 for the control and 5, 3, 3 before: one of them is the pair of Marcs, asked once in 1 run of 3 when the second look could not tell them apart; the rest are other proposers' run-to-run spread. $0.68 a run against $0.64: the second reading, about three main-model calls a person. *With ruling 74a (2026-11-23, the stories again):* two people the record never tells apart stay apart in **60 of 60** replays with **no question** (one each before) and no wrong join; an established page then a different person 32 of 32 with no question (7 of 32 asked before). On the benchmark (3 runs): the two Marcs apart in 3 of 3 and **no question about them in any run** (asked in 1 run of 3 before; in 2 runs the pair waits as a doubt), Sleep joined no one (there is no one to join), one person kept as one 5 of 5, others' words 13 of 13, questions 4, 4, 3 a run against 6, 7, 3, the same $0.68 a run.
 
 **Which way a relationship points (2026-11-23).** A role the other side holds toward the person ("my <role> X") was
 sometimes written backwards at Stage 1: `<user> | <role> of | X`, the person as the holder. Nothing downstream can catch it
