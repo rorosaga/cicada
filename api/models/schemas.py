@@ -5008,6 +5008,7 @@ class SavedWhyEarlier(CamelModel):
     project: Optional[str] = None
     text: Optional[str] = None
     at: Optional[str] = None
+    via: Optional[str] = None
 
 
 class SavedWhyRecord(CamelModel):
@@ -5023,6 +5024,8 @@ class SavedWhyRecord(CamelModel):
     added_at: Optional[str] = None
     # G191 v3 — when the person last changed this answer (`PUT /sources/saved-why`); `None` when never.
     edited_at: Optional[str] = None
+    # 2026-11-23 — where it was given: an origin key ("chrome-bookmark", "cicada"); `None` before this was recorded.
+    via: Optional[str] = None
     # 2026-11-23 — what the answer said before each edit, oldest first (`at`: when those words were set).
     before: list[SavedWhyEarlier] = []
 
@@ -5050,6 +5053,8 @@ class SavedWhyRequest(CamelModel):
     # G191 v3 — the moment of saving this answers (the browser's instant from the sync's `fresh` item), so an answer
     # for a bookmark saved again is a new dated reason and the same moment answered again replaces its own.
     added_at: Optional[str] = None
+    # 2026-11-23 — where the answer was given, as an origin key ("chrome-bookmark", "cicada").
+    via: Optional[str] = None
 
 
 class SavedWhyEditRequest(CamelModel):
@@ -5061,6 +5066,7 @@ class SavedWhyEditRequest(CamelModel):
     reasons: list[str] = []
     project: Optional[str] = None
     text: Optional[str] = None
+    via: Optional[str] = None
 
 
 class SavedWhyResponse(CamelModel):

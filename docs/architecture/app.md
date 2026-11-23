@@ -1257,8 +1257,14 @@ answer had been held through Sleep's 409 and landed eight minutes later, unseen.
 (`BookmarkReasonsSection`) now lists every answer the outbox holds about its link (`SaveWhyOutbox.merge`, refreshed on
 `SaveWhyOutbox.didChange`), marked "Waiting for Sleep to finish"; its own Add and Edit (`SavedWhyWrite`) hold a write
 refused for a passing reason in the same outbox (`holdFromPage`) instead of failing, flashing "Kept — it saves as soon
-as Sleep finishes"; an edit of an answer still held changes the held one. An edited answer shows the words it replaced
-(`before`, "Before (date): …").
+as Sleep finishes"; an edit of an answer still held changes the held one.
+**The reasons as a history of cards (owner 2026-11-23, DESIGN_RULES §9).** The page draws `ReasonTimeline.entries`: every
+answer as it stands and every wording an edit replaced (`before`), newest first, each an `OriginCard` — the words, then
+the app it was given in and how long ago (`via`: the browser's bookmark origin for the panel, `cicada` for the page;
+an answer from before `via` existed shows the bookmark's browser only for its very first wording). The newest is the
+coloured card, the rest fade; a click expands one to its full words, its dates and Edit. `via` rides the answer
+(`SavedWhyAnswer.given(in:)`, never part of its equality); a backend that refuses the unknown field (422 naming `via`)
+gets the answer again without it (`APIClient.withoutViaOnAnOlderBackend`), so the outbox never drops it.
 
 **Ask why, live (2026-10-14, branch `fix/notch-live`).** Measured on the owner's Mac: the panel came 18 s after a
 Chrome save, a Safari save was never seen, and "Something else…" was found open with nothing chosen. Four changes:

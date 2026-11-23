@@ -144,13 +144,15 @@ struct SaveWhyOutbox {
             var shaped = SavedWhyRecord(reasons: entry.answer.reasons,
                                         labels: entry.answer.reasons.map { labels[$0] ?? $0 },
                                         project: entry.answer.project, text: entry.answer.text,
-                                        at: stamp(entry.at), addedAt: entry.addedAt, held: true)
+                                        at: stamp(entry.at), addedAt: entry.addedAt, via: entry.answer.via,
+                                        held: true)
             if let editAt = entry.editAt, let i = out.firstIndex(where: { $0.at == editAt }) {
                 shaped.at = out[i].at
                 shaped.addedAt = out[i].addedAt
                 shaped.before = (out[i].before ?? []) + [SavedWhyEarlier(reasons: out[i].reasons, labels: out[i].labels,
                                                                          project: out[i].project, text: out[i].text,
-                                                                         at: out[i].editedAt ?? out[i].at)]
+                                                                         at: out[i].editedAt ?? out[i].at,
+                                                                         via: out[i].via)]
                 out[i] = shaped
             } else if entry.editAt == nil {
                 out.append(shaped)

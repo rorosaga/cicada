@@ -485,8 +485,8 @@ final class BookmarksV3Tests: XCTestCase {
     @MainActor
     func testAPageWriteSleepRefusesIsHeldAndShownAsWaiting() async {
         let suite = "BookmarksV3Tests.held.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.suite(suite)!
+        defer { defaults.removePersistentDomain(forName: TestDefaults.path(suite)) }
         let outbox = SaveWhyOutbox(defaults: defaults)
         let api = FakeSyncAPI()
         let store = Store(cache: SnapshotCache(root: FileManager.default.temporaryDirectory
@@ -533,6 +533,51 @@ final class BookmarksV3Tests: XCTestCase {
                                                         answers: binding, hold: hold))
         XCTAssertFalse(refused)
         XCTAssertEqual(outbox.entries.count, 2)
+    }
+
+    /// Owner 2026-11-23: "show how the reason evolves … by a glance we can see the app, the reason, how long ago it
+    /// was". Every answer and every wording an edit replaced is one entry, newest first, each with where it was given;
+    /// an answer from before `via` was recorded is the bookmark's browser only for the very first wording.
+    func testTheReasonTimelineIsNewestFirstWithWhereEachWasGiven() {
+        let first = SavedWhyRecord(labels: ["To read later"], text: "worth applying to", at: "2026-11-18T10:30:51+00:00",
+                                   editedAt: "2026-11-20T09:00:00+00:00", via: "cicada",
+                                   before: [SavedWhyEarlier(text: "their hiring page", at: "2026-11-18T10:30:51+00:00")])
+        let resave = SavedWhyRecord(text: "saw them again at a talk", at: "2026-11-22T18:00:00+00:00",
+                                    via: "safari-bookmark")
+        let held = SavedWhyRecord(text: "for May", at: "2026-11-23T08:00:00Z", held: true)
+        let entries = ReasonTimeline.entries([first, resave, held], bookmarkOrigin: "chrome-bookmark")
+        XCTAssertEqual(entries.map(\.text), ["for May", "saw them again at a talk", "To read later — worth applying to",
+                                             "their hiring page"])
+        XCTAssertEqual(entries.map(\.origin), [nil, "safari-bookmark", "cicada", "chrome-bookmark"])
+        XCTAssertEqual(entries.map(\.answerAt), ["2026-11-23T08:00:00Z", "2026-11-22T18:00:00+00:00",
+                                                 "2026-11-18T10:30:51+00:00", nil], "an earlier wording is history only")
+        XCTAssertTrue(entries[0].held)
+        XCTAssertTrue(entries[3].earlier)
+        XCTAssertEqual(ReasonTimeline.words(labels: [], project: nil, text: "  "), "")
+    }
+
+    /// An older backend refuses the unknown `via` (422); the person's answer goes once more without it, never dropped.
+    func testAnOlderBackendStillGetsTheAnswerWithoutVia() async throws {
+        var sent: [String?] = []
+        let answer = SavedWhyAnswer(text: "worth applying to", via: "cicada")
+        try await APIClient.withoutViaOnAnOlderBackend(answer) { a in
+            sent.append(a.via)
+            if a.via != nil { throw APIError.httpError(422, "{\"detail\":[{\"loc\":[\"body\",\"via\"]}]}") }
+        }
+        XCTAssertEqual(sent, ["cicada", nil])
+        do {
+            try await APIClient.withoutViaOnAnOlderBackend(answer) { _ in throw APIError.httpError(422, "Pick a reason") }
+            XCTFail("a refusal about the answer itself still fails")
+        } catch {}
+    }
+
+    func testTheCardsAgeReadsAtAGlance() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let en = Locale(identifier: "en_US")
+        XCTAssertEqual(Copy.OriginCard.ago(now.addingTimeInterval(-5 * 86_400), now: now, locale: en), "5d ago")
+        XCTAssertEqual(Copy.OriginCard.ago(now.addingTimeInterval(-3 * 3_600), now: now, locale: en), "3h ago")
+        XCTAssertEqual(Copy.OriginCard.ago(now.addingTimeInterval(-20), now: now, locale: en), Copy.Catalog.justNow)
+        XCTAssertEqual(OriginIconography.label(for: OriginIconography.cicada), "Cicada")
     }
 
     @MainActor
@@ -603,6 +648,7 @@ final class BookmarksV3Tests: XCTestCase {
         let posts = await api.posts
         XCTAssertEqual(posts.map(\.url), [saved.url])
         XCTAssertEqual(posts.map(\.answer), [SavedWhyAnswer(reasons: ["design"])])
+        XCTAssertEqual(posts.map(\.answer.via), ["chrome-bookmark"], "given over Chrome (2026-11-23)")
         XCTAssertEqual(posts.map(\.addedAt), [saved.addedAt])
         XCTAssertEqual(presenter.shown, 1, "one panel, bound — never a second for the same save")
     }

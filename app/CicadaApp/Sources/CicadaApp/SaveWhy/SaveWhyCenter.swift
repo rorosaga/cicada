@@ -725,6 +725,7 @@ final class SaveWhyCenter {
                 timer = nil
             case .post(let answer):
                 guard !previewing, let state else { continue }
+                let answer = answer.given(in: SavedBookmarkLookup.origin(forChannel: state.channel))
                 let at = now()
                 if leavingByBubble, let item = state.item {
                     if !confirmed { unconfirmedAnswer = (answer, at, state.channel, item.url) }
@@ -747,6 +748,7 @@ final class SaveWhyCenter {
                 posting = Task { @MainActor [weak self] in await self?.deliver(entry) }
             case .edit(let answer, let at):
                 guard !previewing, let item = state?.item else { continue }
+                let answer = answer.given(in: SavedBookmarkLookup.origin(forChannel: item.channel))
                 let entry = SaveWhyOutbox.Entry(url: item.url, answer: answer, at: now(), addedAt: item.addedAt,
                                                 channel: item.channel, editAt: at, bank: activeBank?())
                 if leavingByBubble {

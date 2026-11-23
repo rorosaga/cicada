@@ -258,7 +258,8 @@ final class SaveWhySuggestTests: XCTestCase {
         XCTAssertEqual(posts.first?.answer, SavedWhyAnswer(reasons: ["design", "moodboard"],
                                                            text: "the light on the shelves"))
         XCTAssertEqual(posts.first?.answer.body["reasons"] as? [String], ["design", "moodboard"])
-        XCTAssertEqual(Set((posts.first?.answer.body ?? [:]).keys), ["reasons", "text"], "the wire's shape is unchanged")
+        // 2026-11-23: plus where it was given — the one addition, sent again without it to an older backend.
+        XCTAssertEqual(Set((posts.first?.answer.body ?? [:]).keys), ["reasons", "text", "via"])
     }
 
     /// No search model installed: the backend answers `basis: none` and the panel ranks on its own — and nothing in

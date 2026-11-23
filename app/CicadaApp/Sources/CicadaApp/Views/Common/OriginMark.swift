@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// One origin, one mark, at any size: the installed app's icon → a bundled
@@ -22,6 +23,7 @@ struct OriginMark: View {
     @MainActor
     static func hasRealMark(_ origin: String,
                             appIcon: @MainActor (String) -> Bool = { InstalledAppIcon.image(bundleId: $0, size: 16) != nil }) -> Bool {
+        if origin == OriginIconography.cicada { return true }
         if let bundleId = OriginIconography.appBundleId(for: origin), appIcon(bundleId) { return true }
         guard let name = OriginIconography.logoName(for: origin) else { return false }
         return LogoImage.exists(name: name)
@@ -29,7 +31,9 @@ struct OriginMark: View {
 
     var body: some View {
         Group {
-            if let bundleId = OriginIconography.appBundleId(for: origin),
+            if origin == OriginIconography.cicada {
+                Image(nsImage: NSApplication.shared.applicationIconImage).resizable().interpolation(.high).scaledToFit()
+            } else if let bundleId = OriginIconography.appBundleId(for: origin),
                let icon = InstalledAppIcon.image(bundleId: bundleId, size: size) {
                 Image(nsImage: icon).resizable().interpolation(.high).scaledToFit()
             } else if let name = OriginIconography.logoName(for: origin), LogoImage.exists(name: name) {

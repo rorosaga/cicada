@@ -185,7 +185,8 @@ Seven rails hold across all of them:
   (≤ 500). `GET /sources/saved-why/options` serves the four reasons and an always-empty `projects` — deterministic, no
   model. `explore_plan` reads `someday` as the minimal capture, like `read_later` (the page as it looked when saved). The wire for a later
   reader is the source record: `GET /sources` → `items[].savedWhy` `{reasons, labels, project, text, at, addedAt,
-  editedAt, before}`, read from the episode (null when nobody was asked), with `savedWhyHistory` (every answer, oldest first,
+  editedAt, via, before}` (`via`: where the answer was given, an origin key the app draws — `chrome-bookmark`, `cicada`;
+  422 for anything else), read from the episode (null when nobody was asked), with `savedWhyHistory` (every answer, oldest first,
   when there are several) and `lastSavedAt` (the newest moment of saving the record knows). **Remove (G191 v3):**
   `POST /sources/bookmarks/remove` archives the media page and tombstones the episode (`bookmark_forget`), never an
   unlink; the person's answers stay. The browser's copy is the app's to remove (Chrome through Apple Events on the

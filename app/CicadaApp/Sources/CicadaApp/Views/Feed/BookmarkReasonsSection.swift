@@ -63,14 +63,17 @@ struct BookmarkReasonsSection: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            ForEach(Array(shown.enumerated().reversed()), id: \.offset) { index, record in
-                if editing == .some(record.at) {
-                    editor
-                } else {
-                    answerRow(record, resave: index > 0)
+            if editing == .some(nil) { editor }
+            // 2026-11-23 — how the reason evolved, newest first: one card per answer and per wording it replaced.
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                ForEach(Array(timeline.enumerated()), id: \.element.id) { index, entry in
+                    if let at = entry.answerAt, editing == .some(at) {
+                        editor
+                    } else {
+                        reasonCard(entry, current: index == 0)
+                    }
                 }
             }
-            if editing == .some(nil) { editor }
             HStack(spacing: CicadaTheme.spacingMD) {
                 if editing == nil {
                     TextButton(title: Copy.Bookmarks.addReason, help: Copy.Bookmarks.addReason) { begin(nil) }
@@ -127,38 +130,29 @@ struct BookmarkReasonsSection: View {
         }
     }
 
-    private func answerRow(_ record: SavedWhyRecord, resave: Bool) -> some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.scaled(4)) {
+    private func reasonCard(_ entry: ReasonTimeline.Entry, current: Bool) -> some View {
+        OriginCard(text: entry.text, origin: entry.origin, date: entry.date,
+                   note: entry.held ? Copy.Bookmarks.heldNote : entry.earlier ? Copy.Bookmarks.replacedNote : nil,
+                   tone: current ? .current : .past) {
             HStack(alignment: .firstTextBaseline) {
-                Text(record.isHeld ? Copy.Bookmarks.heldLine : Copy.Bookmarks.answerLine(record, resave: resave))
+                Text(entry.held ? Copy.Bookmarks.heldLine
+                     : entry.record.map { Copy.Bookmarks.answerLine($0, resave: entry.resave) }
+                     ?? Copy.Bookmarks.replacedLine(entry.date))
                     .font(CicadaTheme.metaFont)
                     .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer()
-                if editing == nil {
+                if editing == nil, let record = entry.record {
                     TextButton(title: Copy.Bookmarks.edit, help: Copy.Bookmarks.edit) { begin(record) }
                 }
             }
-            let names = record.labels + (record.project.map { [projectName($0)] } ?? [])
-            if !names.isEmpty {
-                Text(names.joined(separator: " · "))
-                    .font(CicadaTheme.detailBodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-            }
-            if let text = record.text, !text.isEmpty {
-                Text("“\(text)”") // count-lint:ok — the person's quoted words, no number
-                    .font(CicadaTheme.detailBodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            // 2026-11-23 — what an edit replaced, newest first: every reason the person wrote stays in view.
-            ForEach(Array((record.before ?? []).enumerated().reversed()), id: \.offset) { _, earlier in
-                Text(Copy.Bookmarks.beforeLine(earlier))
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
+    }
+
+    /// Every answer and every wording it replaced, newest first.
+    private var timeline: [ReasonTimeline.Entry] {
+        ReasonTimeline.entries(shown, bookmarkOrigin: item.origin, project: projectName)
     }
 
     /// The backend's answers with what the app still holds about this link.
@@ -240,6 +234,7 @@ struct BookmarkReasonsSection: View {
         guard !answer.isEmpty, let target = editing else { return }
         let labels = Dictionary(offered.map { ($0.key, $0.label) }, uniquingKeysWith: { first, _ in first })
         let url = item.url, bank = store.bank, center = saveWhy
+        let answer = answer.given(in: OriginIconography.cicada)
         editing = nil
         // An answer still held is not on the backend yet: the held one changes, and goes when it can.
         if let target, let center, held.contains(where: { $0.editAt == nil && SaveWhyOutbox.stamp($0.at) == target }) {

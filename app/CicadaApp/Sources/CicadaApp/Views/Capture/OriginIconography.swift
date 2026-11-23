@@ -80,6 +80,9 @@ enum OriginIconography {
         "opencode", "hermes", "openclaw",
     ]
 
+    /// The origin of something done in Cicada's own app; its mark is the running app's icon (`OriginMark`).
+    static let cicada = "cicada"
+
     static func label(for origin: String) -> String {
         switch origin {
         // "mcp" is the legacy origin of what an agent saved through Cicada's own tools (before G9 normalised the
@@ -87,6 +90,8 @@ enum OriginIconography {
         // person would, never the protocol — the Sleep page's Waiting group read "MCP".
         case "mcp": "Saved by an agent"
         case "claude-code": "Claude Code"
+        // 2026-11-23 — something the person did in Cicada's own app (a reason written on a bookmark's page).
+        case OriginIconography.cicada: "Cicada"
         // G124 R17 — harness ids an MCP client stamps (`mcp/server.py`
         // SESSION) read as the Sources grid's harness cards. Generic on
         // purpose: an unlisted harness falls through to `capitalized`.

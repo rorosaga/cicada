@@ -33,6 +33,7 @@ when it is the same answer again — the same ``at`` (the app's retry of a held 
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -109,6 +110,22 @@ MAX_TEXT = 500
 HEADING = "## Why it was saved"
 #: Agent-authored sections the answer must sit above, so a marker-less line is never read as the agent's.
 _BEFORE = ("## Note", "## User note")
+#: Where an answer was given (2026-11-23, owner: "by a glance we can see the app, the reason, how long ago it was"): an
+#: origin key the app draws a mark for — a browser's bookmark origin ("chrome-bookmark") for the panel over it, "cicada"
+#: for the app's own bookmark page. Never a URL or a name; an answer given before this has none.
+_VIA = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
+
+
+def via_of(raw: str | None) -> str | None:
+    """The answer's ``via`` as stored, ``None`` when not sent; :class:`SavedWhyError` (422) for anything else."""
+    text = (raw or "").strip()
+    if not text:
+        return None
+    if not _VIA.match(text):
+        raise SavedWhyError(422, "`via` must be a short origin key")
+    return text
+
+
 #: The commit trigger.
 TRIGGER = "user/saved_why"
 WRITER = "saved-why"
@@ -374,16 +391,18 @@ def render_all(memory_path: Path, records: list[dict], *, episode_added_at: str 
     return "\n\n".join(paragraphs)
 
 
-def _record(answer: Answer, *, at: str, added_at: str | None) -> dict:
+def _record(answer: Answer, *, at: str, added_at: str | None, via: str | None = None) -> dict:
     text, _ = episode_scrub.scrub(answer.text) if answer.text else (None, 0)
     record = {"reasons": list(answer.reasons), "project": answer.project, "text": text, "at": at}
     if added_at:
         record["added_at"] = added_at
+    if via:
+        record["via"] = via
     return record
 
 
 def attach(memory_path: Path, *, url: str, answer: Answer, at: str | None = None,
-           added_at: str | None = None, bank: str | None = None) -> dict:
+           added_at: str | None = None, bank: str | None = None, via: str | None = None) -> dict:
     """Write ``answer`` onto the saved link's episode: a new dated reason beside the earlier ones, or in place of the
     same answer sent again (:func:`_same_answer`). ``added_at`` is the moment of saving it answers (the browser's
     instant, when the app has it). Returns the wire shape plus ``episode_id``, ``media_entity_id`` and ``changed``.
@@ -392,7 +411,7 @@ def attach(memory_path: Path, *, url: str, answer: Answer, at: str | None = None
     episode_id, media_entity_id, path = find_episode(memory_path, url)
     at = at or episode_ids.utc_now_seconds()
     added_at = saved_at.validate_instant(added_at) if added_at else None
-    record = _record(answer, at=at, added_at=added_at)
+    record = _record(answer, at=at, added_at=added_at, via=via)
     seen: dict = {}
 
     def build(fm: dict):
@@ -410,7 +429,8 @@ def attach(memory_path: Path, *, url: str, answer: Answer, at: str | None = None
             "history": history_wire(seen.get("records") or [record], added_at=episode_added)}
 
 
-def edit(memory_path: Path, *, url: str, at: str, answer: Answer, bank: str | None = None) -> dict:
+def edit(memory_path: Path, *, url: str, at: str, answer: Answer, bank: str | None = None,
+         via: str | None = None) -> dict:
     """The person changed one answer (the one said at ``at``) — from the app's bookmark page or any client of the
     route. Its time and its moment of saving are kept, ``edited_at`` records the change; every other answer is
     untouched. :class:`SavedWhyError` 404 when the link has no answer said at ``at``."""
@@ -423,7 +443,7 @@ def edit(memory_path: Path, *, url: str, at: str, answer: Answer, bank: str | No
         records = records_of(fm)
         for i, r in enumerate(records):
             if str(r.get("at") or "") == at:
-                new = _record(answer, at=at, added_at=r.get("added_at"))
+                new = _record(answer, at=at, added_at=r.get("added_at"), via=via)
                 if _same_words(r, new):
                     # 2026-10-19 (owner: the star on a saved page opens the same panel, filled in): an edit that
                     # changes nothing writes nothing — no `edited_at`, no rewrite, no commit, not queued for Sleep.
@@ -461,7 +481,8 @@ def _before(stored: dict) -> list[dict]:
     kept = [dict(b) for b in (stored.get(BEFORE_KEY) or []) if isinstance(b, dict)]
     kept.append({"reasons": list(stored.get("reasons") or []), "project": stored.get("project") or None,
                  "text": stored.get("text") or None,
-                 "at": str(stored.get("edited_at") or stored.get("at") or "") or None})
+                 "at": str(stored.get("edited_at") or stored.get("at") or "") or None,
+                 **({"via": stored["via"]} if stored.get("via") else {})})
     return kept[-MAX_BEFORE:]
 
 
@@ -491,6 +512,7 @@ def wire(record: dict | None, *, added_at: str | None) -> dict | None:
         "at": str(record.get("at") or "") or None,
         "added_at": str(record.get("added_at") or "") or added_at,
         "edited_at": str(record.get("edited_at") or "") or None,
+        "via": str(record.get("via") or "") or None,
         "before": [_earlier_wire(b) for b in (record.get(BEFORE_KEY) or []) if isinstance(b, dict)],
     }
 
@@ -498,7 +520,8 @@ def wire(record: dict | None, *, added_at: str | None) -> dict | None:
 def _earlier_wire(version: dict) -> dict:
     reasons = [str(k) for k in (version.get("reasons") or []) if str(k) in LABELS]
     return {"reasons": reasons, "labels": [LABELS[k] for k in reasons], "project": version.get("project") or None,
-            "text": version.get("text") or None, "at": str(version.get("at") or "") or None}
+            "text": version.get("text") or None, "at": str(version.get("at") or "") or None,
+            "via": str(version.get("via") or "") or None}
 
 
 def history_wire(records: list[dict], *, added_at: str | None) -> list[dict]:

@@ -122,12 +122,12 @@ extension Copy {
         /// Mac and sent on its own.
         static let held = "Kept — it saves as soon as Sleep finishes"
         static let heldLine = "Waiting for Sleep to finish · saves on its own"
-        /// An edited answer's earlier wording: "Before (Nov 18, 11:30): “…”".
-        static func beforeLine(_ earlier: SavedWhyEarlier) -> String {
-            var parts = earlier.labels
-            if let text = earlier.text, !text.isEmpty { parts.append("“\(text)”") }
-            let when = earlier.at.flatMap(Self.day).map { " (\($0))" } ?? ""
-            return "Before\(when): " + parts.joined(separator: " · ")
+        /// The card's word for a held answer, and for a wording an edit replaced (2026-11-23).
+        static let heldNote = "Waiting for Sleep"
+        static let replacedNote = "Before an edit"
+        static func replacedLine(_ date: Date?) -> String {
+            guard let date else { return "What it said before an edit." }
+            return "What it said from \(date.formatted(.dateTime.day().month(.abbreviated).hour().minute())) until an edit."
         }
 
         // G191 v4 — a bookmark that left the browser: Cicada keeps it and says so.

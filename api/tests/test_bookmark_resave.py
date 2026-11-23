@@ -268,6 +268,23 @@ def test_an_edit_days_after_sleep_read_it_keeps_the_earlier_words_and_queues_it_
     assert [b["text"] for b in row["savedWhy"]["before"]] == ["their hiring page", "worth applying to"]
 
 
+def test_each_answer_says_where_it_was_given_and_an_edit_keeps_the_earlier_place(tmp_path, monkeypatch):
+    """Owner 2026-11-23: "by a glance we can see the app, the reason, how long ago it was". `via` is an origin key the
+    app draws a mark for; an edit records its own and the replaced wording keeps the one it was given in."""
+    memory = _bank(tmp_path, git=True)
+    item, client = _saved(memory, monkeypatch)
+    said = _at(30)
+    r = client.post("/sources/saved-why", json={"url": C["url"], "text": "a reference", "at": said,
+                                                "via": "chrome-bookmark"})
+    assert r.json()["savedWhy"]["via"] == "chrome-bookmark"
+    r = client.put("/sources/saved-why", json={"url": C["url"], "at": said, "text": "a reference for the deck",
+                                               "via": "cicada"})
+    record = r.json()["savedWhy"]
+    assert record["via"] == "cicada" and record["before"][0]["via"] == "chrome-bookmark"
+    bad = client.post("/sources/saved-why", json={"url": C["url"], "text": "x", "via": "https://evil.example"})
+    assert bad.status_code == 422
+
+
 def _commits(memory) -> int:
     out = subprocess.run(["git", "-C", str(memory), "rev-list", "--count", "HEAD"], capture_output=True, text=True)
     return int(out.stdout.strip() or 0) if out.returncode == 0 else 0
