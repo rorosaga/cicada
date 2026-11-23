@@ -3090,6 +3090,12 @@ the rest counted) and releases them onto the page, first and through Stage 3, in
 gives the name one — a holding line leaves the store only then, or when the person's "same as" answer on the name
 lands its claims on the page they named (G209, *held names* below). A Stage-4 skill seen in one conversation waits in a
 store of its own (see *A new skill page needs two conversations*).
+**A held name meets the pages its own batch creates (G148, 2026-11-23; `entity_resolver._join_held_to_creates`).** Stage 2
+decides the most specific name first, so "Halvard Analytics" said once was held before "Halvard" said twice became a
+page, and a held name was never a candidate for a later one: the claim about the long name kept an id with no page and
+a job change closed only the other (`benchmarks/consolidation` U1, every model). After the loop, each thing this batch
+held — never a person, whose joins keep ruling 74 — is judged once against the creates it shares a word or an alias
+with, by the same judge and cache; only `same` folds its mentions and line into that page.
 
 **Every mention in a batch is credited (2026-10-08).** Several conversations in one batch can name an entity by the
 same lower-cased name. Stage 2 judges and promotes the name once, on its strongest extraction (first on a confidence
