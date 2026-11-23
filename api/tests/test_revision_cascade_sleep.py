@@ -186,3 +186,48 @@ def test_the_same_page_with_a_second_conversation_is_kept(tmp_path, monkeypatch)
     assert [(r["page"], r["support"]) for r in report["pages_kept"]] == [("zed-unknown", "other_conversation")]
     assert report["pages_kept"][0]["claims"]
     assert (memory / "inbox" / "inbox-050.md").exists()          # the question stays: the page is not gone
+
+
+# --------------------------------------------------------------------------- the held PROSE gap (benchmark, T6)
+
+EP_PROSE, EP_PROSE_2 = "ep_2026-11-05_001", "ep_2026-11-06_001"
+PROSE_V1 = "user: Notes.\nZed Unknown's trip starts on the 5th.\nZed Unknown is the sister of Dana Example.\nalpha tasks continue."
+PROSE_V2 = "user: Notes.\nZed Unknown's trip starts on the 12th.\nZed Unknown is the sister of Dana Example.\nalpha tasks continue."
+
+
+def _prose_answer(chunk: str) -> dict:
+    """The first read says the old date in a summary, a key fact and a history entry; the unrelated fact is steady."""
+    if "Zed Unknown" not in chunk:
+        return {"entities": [], "relationships": [], "values": []}
+    date = (re.search(r"trip starts on the (\w+)", chunk) or [None, ""])[1]
+    facts = ["Zed Unknown is the sister of Dana Example."]
+    history = []
+    summary = "A person."
+    if date:
+        summary = f"Zed Unknown's trip starts on the {date}."
+        facts.insert(0, f"The trip starts on the {date}.")
+        history.append({"date": "2026-11-05", "event": f"Trip planned for the {date}."})
+    return {"entities": [{"name": "Zed Unknown", "type": "person", "confidence": 0.6, "summary": summary,
+                          "key_facts": facts, "history_entries": history}], "relationships": [], "values": []}
+
+
+def test_held_prose_only_the_removed_text_said_does_not_seed_the_new_page(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    _write(memory, EP_PROSE, PROSE_V1)
+    _git(memory, "init", "-q")
+    _commit(memory, "capture")
+    _run(memory, monkeypatch, _prose_answer)
+    line = next(e for e in pending_store.load(memory) if e.name == "Zed Unknown")
+    assert "5th" in line.summary and any("5th" in f for f in line.key_facts)    # the first read's prose is held
+    assert any("5th" in h["event"] for h in line.history_entries)
+    _commit(memory, "Sleep cycle")
+    _revise(memory, EP_PROSE, PROSE_V1, PROSE_V2)
+    _write(memory, EP_PROSE_2, OTHER, day=None)
+    _run(memory, monkeypatch, _prose_answer)
+
+    page = markdown_parser.parse(memory / "entities" / "zed-unknown.md")
+    assert "5th" not in page.body and "5th" not in json.dumps(page.frontmatter, default=str)
+    assert "12th" in page.body                                          # what the revision says now
+    assert "sister of Dana Example" in page.body                        # an unchanged fact survives
+    assert sleep_cycle._state.revision_cascade["held"]["prose_dropped"] == 3    # summary, key fact, history entry
+    assert pending_store.waiting(memory)[0] == 0
