@@ -2213,27 +2213,29 @@ one and a person already on record under the name (a page titled so, or a line h
 (Stage 2's disambiguation model, one call a name, at most 20 names a batch, 12 conversations and 6 known people a call,
 the rest left as it was) groups the conversations by person and says which known person each fits. **Positive evidence
 only, and a life that moves on is one person (2026-11-23, the false split):** two conversations are two people only when
-they state something that **cannot be true of one person at the same time** (two employers and two home towns in the same
-month, a different generation, a relationship to the speaker one person cannot hold beside the other), and the judge must
-quote that pair of facts, one from each side, as its reason. A **change since the earlier conversation is the same
-person**: a new job, a promotion, a move, a retirement, a marriage, a baby. The first prompt named "a different trade or
-employer, home town" as the contrast and so split a partner who got a job and moved city from their own page, a friend who
-was promoted, a colleague who left abroad (the judge's reason was always the job or the town); the part split off was held
-on a line nobody sees and its facts were lost to the page. Replaying the judge's real inputs (`same_name_battery`, below),
-that prompt split one person in 87 of 680 calls (13%), 82 of 240 on a held-out set, and the four stored Idris inputs 13 to 17
-times in 20; the rewrite splits none of the one-person cases. A description silent about something says nothing about it (a
-known person with no job on record may well have one), a date is read (each description is headed by its conversation's
-day), and when unsure between "a known person" and "someone new" the judge chooses the known person; the price is a missed
-split when a **known page** is up against a mention of a different kind of person (an established family page and a
-colleague's mention: about 1 call in 3 joins them, which is the pre-2026-11-23 behaviour, never worse). Dropping the
-"choose the known person" sentence was tried and made a real one-person input split in 8 of 10; a thin description, an
-unreadable answer, a failed call or a group that states no contrast keeps the old behaviour (one person, nothing asked). A
-person the judge would make new also needs a description of at least 15 words on **both** sides (`MIN_WORDS`): a description
-that says one thing (a person who "put in a word") has nothing to contradict, and the model read a thin earlier line as a
-different person from a richer later one (measured, 1 run of 3 on the fixture's first person); such a person stays with the
-plain name. (A second, narrow "could both be true?" pass was tried and dropped: it read a carpenter and a research
-colleague as one person over time, so it kept the wrong join the rule exists to prevent; the same test inside the one
-prompt, asked of the two facts the judge quotes, is what the rewrite uses.)
+they state something that **cannot be true of one person at the same time**, and **dates decide**: descriptions a few weeks
+apart that give different jobs or home towns, with neither saying anything changed, are two people; descriptions months
+apart, or one that says something changed (a new job, a move, a promotion, a retirement, a marriage, a baby), are one
+person's life moving on; a different generation, or a relationship to the speaker one person cannot hold beside the other,
+also makes two. The first prompt named "a different trade or employer, home town" as the contrast and so split a partner who
+got a job and moved city from their own page, a friend who was promoted, a colleague who left abroad (the judge's reason was
+always the job or the town); the part split off was held on a line nobody sees and its facts were lost to the page.
+**A split must be located, in code** (`same_name_people._contrast_located`): each group that is a person not on record yet
+must give a `contrast` of two facts copied word for word from the descriptions, `here` from the group's own conversations
+and `there` from outside them (another conversation or a known person); words that occur in none, a missing contrast, or
+both from one side, leave the conversations where they were (never a second person). A benchmark run answered `same_as:
+null` for a friend's conversation while its own reason said it fits the known person; the located contrast makes that
+answer harmless. A description silent about something says nothing about it (a known person with no job on record may well
+have one), each description is headed by its conversation's day, and when unsure between "a known person" and "someone new"
+the judge chooses the known person. **Measured** by replaying the judge's real inputs (`same_name_battery`, below) through
+the real engine and judge: the first prompt split one person in 87 of 680 calls (13%) on the first set and 82 of 240 (34%)
+on a held-out set, and the four stored Idris inputs 13 to 17 times in 20; the rewrite splits none of 460 calls (all one-person
+cases) and, with the located contrast, none of 276 more. **The price** is a missed split, the pre-2026-11-23 behaviour and
+never worse, when a **known page** is up against a mention of a different kind of person (an established family page and a
+colleague's mention: the judge reads the later one as the same person's change), and sometimes when the first conversations
+of a batch are all new (a carpenter and a colleague three days apart, joined in 2 of 3 benchmark runs); dropping the "choose
+the known person" sentence made a real one-person input split in 8 of 10, so it stays. A thin description, an
+unreadable answer, a failed call or a group that states no contrast keeps the old behaviour (one person, nothing asked).
 A conversation a page or line already lists (a re-read) is that person and is not judged; a mention that describes nothing
 is not judged; the owner's page, a nickname or relation page (`role_people`), a contact-card participant and a
 correspondent never enter. What the judge says goes through the machinery G227 built: the person the plain name reaches

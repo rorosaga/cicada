@@ -16,7 +16,8 @@ The rule is positive evidence only. A different setting, topic or time says noth
 met at home, at work, on a trip. And a life moves on: a new job, a move, a promotion, a retirement is the same person
 later, never another (the first prompt named "a different employer or home town" as the contrast and split a partner who
 got a job in another city from their own page, in about one run in ten). Two conversations are two people only when they
-state something that cannot be true of one person at the same time, and the judge quotes it. Anything else, a thin
+state something that cannot be true of one person at the same time, and the judge copies the two facts from the
+descriptions (`_contrast_located`: a split whose words occur in none stays one person). Anything else, a thin
 description, a judge that fails or answers unreadably, is the old behaviour: the name stays one person. Nothing is
 asked of the person: a split is a plain decision the next conversation can see on the pages, and the person's own
 "these are one" (a merge) stands as it always did.
@@ -46,6 +47,8 @@ TEXT_CHARS = 600
 IDENTITY_CHARS = 900
 #: Words of description each side of a split needs: a description that says one thing has nothing to contradict.
 MIN_WORDS = 15
+#: Letters a quoted contrast needs, taken together: "a colleague" says something, "is" does not.
+MIN_QUOTE_CHARS = 8
 
 _LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -59,13 +62,13 @@ CONVERSATIONS (each is what that one conversation says about the "{name}" it nam
 Rules:
 - A wrong join is a serious memory error: it tells the person things about someone that are true of another. A wrong split is just as serious: one person's history is cut in two, and the part nobody sees is lost. Decide only from what the descriptions say.
 - People change. A new job or employer, a promotion, a move to another city or country, a graduation, a retirement, a marriage, a baby, a new home: the same person says different things about their work or home in a later conversation than in an earlier one. A later description that differs from an earlier one is that person's life moving on, NOT a different person. Dates matter: ask whether the later description could be the same person after an ordinary change since the earlier one. If it could, they are the same person.
-- Put conversations in different groups ONLY when they state something that cannot be true of one person at the same time: two different jobs or two different home towns in conversations a few days or weeks apart, or interleaved in time (one person does not have two employers and two home towns in the same month); a different generation (a nine-year-old and a retired person); a relationship to the speaker that one person cannot hold alongside the other (a grandmother and an intern). A description that is silent about something says nothing about it: a known person with no job on record may well have one.
+- Put conversations in different groups ONLY when they state something that cannot be true of one person at the same time. Dates decide. Descriptions dated within a few weeks of each other describe the person at the same moment: if they give different jobs or employers, or different home towns or countries, and neither says that something changed, they are two people (one person does not have two employers and two home towns in the same month). Descriptions months or years apart may be one person after an ordinary change, and a description that itself says something changed (a new job, a move, a promotion, a retirement) is a change, not a second person. Two more things one person cannot be: of a different generation (a nine-year-old and a retired person), and held in a relationship to the speaker that cannot be held beside the other (a grandmother and an intern). A known person's description is older than the conversations. A description that is silent about something says nothing about it: a known person with no job on record may well have one.
 - A different setting, topic or time is NOT a difference: one person is met at home, at work, on a trip, at a race. When a description is thin, or everything said could be true of one person, they are the same person.
 - A conversation that fits a known person goes with them ("same_as": that person's number). A conversation that fits none of them is a person not on record yet ("same_as": null); conversations that fit each other go in one group. When unsure between "a known person" and "someone new", choose the known person.
-- For every group that is not a known person, "reason" must quote the two facts that cannot both be true of one person at the same time, one from each side, and say why.
+- Every group that is not a known person ("same_as": null) must give its "contrast" when there is anything to compare it with: copy, word for word, the facts that cannot both be true of one person at the same time, "here" from this group's own description and "there" from a description outside the group or from a known person. A contrast you cannot copy from the descriptions is no contrast: put the conversation with the person it fits.
 
 Answer in JSON only, every conversation in exactly one group:
-{{"people": [{{"conversations": ["A", "C"], "same_as": 1, "reason": "one short sentence"}}]}}
+{{"people": [{{"conversations": ["A", "C"], "same_as": 1, "reason": "one short sentence"}}, {{"conversations": ["B"], "same_as": null, "contrast": {{"here": "words copied from B", "there": "words copied from a description outside B"}}, "reason": "one short sentence"}}]}}
 """
 
 
@@ -145,6 +148,41 @@ def build_prompt(name: str, mentions: list[Mention], identities: list[Identity])
     return PROMPT.format(name=name, known=_known_block(identities), conversations=rows)
 
 
+def _squash(text: object) -> str:
+    """A quote or a description compared on its words alone: case, runs of space, edge quotes and punctuation aside."""
+    return re.sub(r"\s+", " ", str(text or "")).strip().strip("\"'`“”‘’«».,;:!? ").lower()
+
+
+def _located(quote: object, texts: list[str]) -> bool:
+    """The quote occurs word for word in one of the texts (never fuzzy, as the evidence spans are not), and says
+    something: a few letters occur anywhere. An ellipsis joins pieces, each of which must occur."""
+    pieces = [_squash(p) for p in re.split(r"\.{3}|…", str(quote or ""))]
+    pieces = [p for p in pieces if p]
+    if not pieces or sum(len(p) for p in pieces) < MIN_QUOTE_CHARS:
+        return False
+    haystack = [_squash(t) for t in texts]
+    return all(any(p in h for h in haystack) for p in pieces)
+
+
+def _contrast_located(group: dict, letters: list[str], mentions: list[Mention], identities: list[Identity]) -> bool:
+    """A group that is a person not on record yet is a split, and a split is a claim: the judge must copy, from the
+    descriptions, the two facts that cannot both be true of one person at the same time, one from this group's own
+    conversations and one from outside them (another conversation, or a known person). A group with nothing outside it
+    to differ from is not a split, so it needs no contrast. A contrast that does not occur in the descriptions, or one
+    that is missing, is no split: the judge reasoned its way to "another person" without a fact to point at (a note that
+    said the conversation "fits person 1" next to a null was read as a new person: the false split of a friend)."""
+    indexes = {_LETTERS.find(x) for x in letters if len(x) == 1}
+    own = [m.text for i, m in enumerate(mentions) if i in indexes]
+    outside = [m.text for i, m in enumerate(mentions) if i not in indexes] + [i.text for i in identities]
+    if not own or not outside:
+        return True
+    contrast = group.get("contrast")
+    if not isinstance(contrast, dict):
+        return False
+    here, there = contrast.get("here"), contrast.get("there")
+    return (_located(here, own) and _located(there, outside)) or (_located(there, own) and _located(here, outside))
+
+
 def read(parsed: object, mentions: list[Mention], identities: list[Identity]) -> dict[str, tuple[str, str]] | None:
     """The judge's groups as ``{episode: ("known", index) | ("new", group)}``; ``None`` for an answer that does not
     line up (never a guess: the caller keeps the old behaviour). A conversation the answer leaves out, or lists twice
@@ -170,6 +208,8 @@ def read(parsed: object, mentions: list[Mention], identities: list[Identity]) ->
         reason = str(group.get("reason") or "").strip()
         if known is None and not reason:
             return None
+        if known is None and not _contrast_located(group, letters, mentions, identities):
+            continue   # no located contrast: these conversations stay where they were, never a second person
         for letter in letters:
             index = _LETTERS.find(letter) if len(letter) == 1 else -1
             if not 0 <= index < len(mentions):

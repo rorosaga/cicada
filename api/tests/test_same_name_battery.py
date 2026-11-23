@@ -3,16 +3,29 @@ its scoring tells a false split (one person cut in two) from a missed one. No mo
 from __future__ import annotations
 
 import asyncio
+import re
 
 from api.services import same_name_people as snp
 from benchmarks.consolidation import same_name_battery as battery
 
 
+def _words_of(prompt):
+    """What each conversation and known person says, as the prompt shows it: the fake judge copies its contrast from here."""
+    said = {m.group(1): m.group(2) for m in re.finditer(r"(?m)^\(([A-Z])\) \(\d{4}-\d{2}-\d{2}\) (.+)$", prompt)}
+    known = re.search(r"\[1\] (.+?)(?:\n\n|\nCONVERSATIONS)", prompt, re.S)
+    return said, (known.group(1).strip() if known else "")
+
+
 def _every_conversation_its_own_person(system, prompt):
     async def go():
-        letters = [chr(65 + i) for i in range(12) if f"({chr(65 + i)}) " in prompt]
-        return {"people": [{"conversations": [letter], "same_as": None, "reason": "a fact the other cannot share: " + "x " * 20}
-                           for letter in letters]}
+        said, known = _words_of(prompt)
+        letters = list(said)
+        out = []
+        for letter in letters:
+            others = [said[x] for x in letters if x != letter] + ([known] if known else [])
+            out.append({"conversations": [letter], "same_as": None, "reason": "a fact the other cannot share: " + "x " * 20,
+                        "contrast": {"here": said[letter][:30], "there": others[0][:30] if others else ""}})
+        return {"people": out}
     return go()
 
 

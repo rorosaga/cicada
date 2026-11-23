@@ -37,9 +37,12 @@ def _judge(answer):
     return judge
 
 
+FAM_Q, WORK_Q = "a carpenter in a small mountain town", "a colleague on the research team"   # words both texts hold
 TWO = {"people": [
-    {"conversations": ["A"], "same_as": None, "reason": "a carpenter in a small town, not a colleague"},
-    {"conversations": ["B", "C"], "same_as": None, "reason": "works at the firm and moves to another city"}]}
+    {"conversations": ["A"], "same_as": None, "reason": "a carpenter in a small town, not a colleague",
+     "contrast": {"here": FAM_Q, "there": WORK_Q}},
+    {"conversations": ["B", "C"], "same_as": None, "reason": "works at the firm and moves to another city",
+     "contrast": {"here": WORK_Q, "there": FAM_Q}}]}
 ONE = {"people": [{"conversations": ["A", "B", "C"], "same_as": None, "reason": "the same person in three settings"}]}
 CARPENTER = "(2026-09-29) the speaker's brother-in-law, a carpenter in a small mountain town who builds furniture and helps with shelves"
 COLLEAGUE = "(2026-10-02) a colleague on the research team at the firm who is moving to another office next spring and works remotely"
@@ -61,14 +64,17 @@ def test_a_person_with_a_thin_description_is_never_split_from_a_richer_one():
     known = [snp.Identity("line", "teo", True, "(2026-10-21) put in a word for the speaker at the firm")]
     later = _mentions(("e9", "(2026-11-13) head of product at the firm after a promotion, two levels above the speaker, "
                              "who also reviews the team's quarterly plans"))
-    answer = {"people": [{"conversations": ["A"], "same_as": None, "reason": "different roles"}]}
+    answer = {"people": [{"conversations": ["A"], "same_as": None, "reason": "different roles",
+                          "contrast": {"here": "head of product at the firm", "there": "put in a word for the speaker"}}]}
     result = _run(snp.plan("Teo", later, known, _judge(answer)))
     assert result.moves == {} and result.thin == 1
 
 
 def test_a_thin_new_person_is_kept_with_the_plain_name_too():
     short = _mentions(("e1", "(2026-09-29) a carpenter"), ("e2", COLLEAGUE), ("e3", COLLEAGUE))
-    result = _run(snp.plan("Marc", short, [], _judge(TWO)))
+    thin = {"people": [{**TWO["people"][0], "contrast": {"here": "a carpenter", "there": WORK_Q}},
+                       {**TWO["people"][1], "contrast": {"here": WORK_Q, "there": "a carpenter"}}]}
+    result = _run(snp.plan("Marc", short, [], _judge(thin)))
     assert result.moves == {} and result.thin == 1
 
 
@@ -77,8 +83,9 @@ def test_words_are_counted_without_the_date():
 
 
 def test_a_tie_keeps_the_earlier_conversation_plain():
-    two = {"people": [{"conversations": ["A"], "same_as": None, "reason": "x"},
-                      {"conversations": ["B"], "same_as": None, "reason": "y"}]}
+    two = {"people": [{"conversations": ["A"], "same_as": None, "reason": "x",
+                       "contrast": {"here": FAM_Q, "there": WORK_Q}},
+                      {"conversations": ["B"], "same_as": None, "reason": "y", "contrast": {"here": WORK_Q, "there": FAM_Q}}]}
     result = _run(snp.plan("Marc", M[:2], [], _judge(two)))
     assert result.moves == {"e2": snp.Destination("new", "g1")}
 
@@ -97,7 +104,8 @@ def test_an_answer_that_does_not_line_up_keeps_the_old_behaviour(answer):
 
 
 def test_a_conversation_the_answer_leaves_out_stays_with_the_name():
-    partial = {"people": [{"conversations": ["B"], "same_as": None, "reason": "x"}]}
+    partial = {"people": [{"conversations": ["B"], "same_as": None, "reason": "x",
+                           "contrast": {"here": WORK_Q, "there": FAM_Q}}]}
     known = [snp.Identity("page", "marc", True, COLLEAGUE)]
     assert _run(snp.plan("Marc", M, known, _judge(partial))).moves == {
         "e2": snp.Destination("new", "g0")}
@@ -111,7 +119,8 @@ def test_known_people_a_conversation_joins_the_one_it_fits():
 
 def test_with_a_plain_person_on_record_a_new_group_is_never_the_plain_one():
     known = [snp.Identity("page", "marc", True, COLLEAGUE)]
-    answer = {"people": [{"conversations": ["A", "B"], "same_as": None, "reason": "a carpenter"},
+    answer = {"people": [{"conversations": ["A", "B"], "same_as": None, "reason": "a carpenter",
+                          "contrast": {"here": FAM_Q, "there": "a colleague on the research team at the firm"}},
                          {"conversations": ["C"], "same_as": 1}]}
     assert _run(snp.plan("Marc", M, known, _judge(answer))).moves == {
         "e1": snp.Destination("new", "g0"), "e2": snp.Destination("new", "g0")}
@@ -145,8 +154,36 @@ def test_the_prompt_says_a_life_that_changes_is_one_person_and_a_split_names_two
     prompt = snp.build_prompt("Idris", _mentions(("e1", "(2026-11-03) Got a job at the hospital in Grenoble.")),
                               [snp.Identity("page", "idris", True, "Idris is the speaker's partner.")])
     assert "People change" in prompt and "NOT a different person" in prompt and "headed by that conversation's date" in prompt
-    assert "quote the two facts" in prompt and "silent about something says nothing" in prompt
-    assert "choose the known person" in prompt
+    assert "copy, word for word, the facts that cannot both be true" in prompt and "silent about something says nothing" in prompt
+    assert "choose the known person" in prompt and "Dates decide" in prompt
+
+
+@pytest.mark.parametrize("contrast", [
+    None, "text", {}, {"here": WORK_Q}, {"here": "a colleague on the research team", "there": "a plumber in Oslo"},
+    {"here": "is", "there": "a"}, {"here": FAM_Q, "there": FAM_Q},
+], ids=["missing", "not a dict", "empty", "one side", "a fact the descriptions never state", "too short to say anything",
+        "both from one side"])
+def test_a_split_without_a_located_contrast_is_no_split(contrast):
+    """2026-11-23: the judge answered `same_as: null` while its own reason said the conversation fits the known person
+    (the false split of a friend in a benchmark run). A person Sleep would make new is a claim: two facts copied from
+    the descriptions, one from the group and one from outside it. Without them the conversations stay."""
+    known = [snp.Identity("page", "marc", True, COLLEAGUE)]
+    group = {"conversations": ["A"], "same_as": None, "reason": "a different person", "contrast": contrast}
+    result = _run(snp.plan("Marc", M[:1], known, _judge({"people": [group]})))
+    assert result.moves == {}
+
+
+def test_a_split_with_a_located_contrast_in_either_order_stands_and_a_lone_group_needs_none():
+    known = [snp.Identity("page", "marc", True, COLLEAGUE)]
+    for here, there in ((FAM_Q, WORK_Q), (WORK_Q, FAM_Q)):
+        answer = {"people": [{"conversations": ["A"], "same_as": None, "reason": "r", "contrast": {"here": here, "there": there}}]}
+        assert _run(snp.plan("Marc", M[:1], known, _judge(answer))).moves == {"e1": snp.Destination("new", "g0")}
+    # the words may be quoted with edge quotes, other case, an ellipsis between two pieces
+    quoted = {"here": f"\"{FAM_Q.upper()}\"", "there": "a colleague ... research team at the firm"}
+    answer = {"people": [{"conversations": ["A"], "same_as": None, "reason": "r", "contrast": quoted}]}
+    assert _run(snp.plan("Marc", M[:1], known, _judge(answer))).moves == {"e1": snp.Destination("new", "g0")}
+    # nothing outside the group to differ from: one person, so no contrast is asked for
+    assert _run(snp.plan("Marc", M, [], _judge(ONE))).moves == {}
 
 
 def test_only_a_bare_name_is_for_this_rule():
@@ -331,7 +368,8 @@ def test_a_second_person_below_the_bar_waits_and_never_joins_the_plain_line(tmp_
     pending_store.save(memory, [pending_store.PendingEntity(
         name="Marc", type="person", description="", source_episode="ep1", confidence=0.8, tags=[],
         history_entries=[], summary=FAMILY, heard_in=[{"episode": "ep1"}])])
-    judged.answer = {"people": [{"conversations": ["A"], "same_as": None, "reason": "a colleague, not a carpenter"}]}
+    judged.answer = {"people": [{"conversations": ["A"], "same_as": None, "reason": "a colleague, not a carpenter",
+                                 "contrast": {"here": WORK_Q, "there": FAM_Q}}]}
     out = _run(er.resolve([_extraction("ep2", WORK)], [], _settings(memory)))
     assert out["changes"] == [] and set(judged.spy.parked) == {"marc-2"}
     assert judged.spy.parked["marc-2"].episodes() == ["ep2"] and judged.spy.parked["marc-2"].title == "Marc"

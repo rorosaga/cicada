@@ -32,9 +32,6 @@ sys.path.insert(0, str(REPO))
 from api.services import same_name_people as snp  # noqa: E402
 
 CASES = Path(__file__).with_name("same_name_cases.json")
-MODELS = {"haiku": "claude-haiku-5-5", "sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5"}
-#: USD per million tokens (input, output): `api/services/price_supplement.py`.
-PRICES = {"haiku": (0.1, 0.5), "sonnet": (2.0, 10.0), "opus": (4.0, 20.0)}
 
 
 def load_cases(path: Path = CASES) -> list[dict]:
