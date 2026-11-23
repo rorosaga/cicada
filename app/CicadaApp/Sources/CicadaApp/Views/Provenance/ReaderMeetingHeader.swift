@@ -104,10 +104,7 @@ struct ReaderMeetingHeaderView: View {
             }
             Spacer(minLength: 0)
             if expandable {
-                Image(systemName: open ? "chevron.up" : "chevron.down")
-                    .font(CicadaTheme.icon(.disclosure))
-                    .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
-                    .accessibilityHidden(true)
+                DisclosureChevron(isOpen: open, color: hovering ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
             }
         }
         .font(CicadaTheme.metaFont)
