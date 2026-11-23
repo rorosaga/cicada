@@ -1769,7 +1769,7 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     ROR-114: ``handle`` and ``profile_url`` are the person's own handle and profile link as the signed-in page showed
     them. A link is kept only if it is ``https`` on that platform's own host; either is kept beside the list's status
     (machine state, never a bank), and one that does not pass is left out and said so."""
-    from api.services import media_ingestor, reading_settings, saved_lists
+    from api.services import media_ingestor, reading_settings, save_folders, saved_lists
     from api.services.media_ingestor import MediaMeta, PreparedItem, RawItem
 
     memory_path = ctx.memory_path()
@@ -1831,7 +1831,7 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     if ctx.sleep_answer:
         return SAVED_LIST_SLEEPING
     idx = media_ingestor.load_url_index(memory_path)
-    created = duplicates = listed = dropped = 0
+    created = duplicates = listed = dropped = refiled = 0
     seen: set[str] = set()
     paths: list[str] = []
     for row in rows:
@@ -1865,6 +1865,14 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
             if res.collection_added:
                 listed += 1
                 paths.append(f"entities/{res.media_entity_id}.md")
+        # G221: the site's own folders the row says the post is filed in — on that one save, in place (a post saved
+        # before is not saved again), and readable when a folder carries the person's reason.
+        if row.get("folders"):
+            filed = save_folders.file_save(memory_path, res.episode_id, p.origin, add=row.get("folders"))
+            if filed["path"] and filed["path"] not in paths:
+                paths.append(filed["path"])
+                if res.status != "created":
+                    refiled += 1
     index_file = memory_path / "sources" / "url_index.json"
     index_changed = False
     if created or duplicates:
@@ -1883,7 +1891,8 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     if paths:
         lines = ([f"sources/url_index.json: updated (trigger: {ctx.trigger})"] if index_changed else []) + (
             [f"{created} saved {p.name} post(s) (trigger: {ctx.trigger})"] if created else []) + (
-            [f"{listed} saved link(s) now list {p.name} {p.label} (trigger: {ctx.trigger})"] if listed else [])
+            [f"{listed} saved link(s) now list {p.name} {p.label} (trigger: {ctx.trigger})"] if listed else []) + (
+            [f"{refiled} saved post(s) filed in more folders (trigger: {ctx.trigger})"] if refiled else [])
         agent_commits.commit_write(memory_path, subject=ctx.commit_subject, lines=lines, paths=paths,
                                    author=ctx.author, session=ctx.session_id)
     extra = f" {dropped} row(s) were not {p.name} posts and were left out." if dropped else ""

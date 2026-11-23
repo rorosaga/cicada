@@ -1170,7 +1170,7 @@ def _why(memory_path: Path, episode_id) -> dict | None:
     f = bank_index.file(memory_path, "episodes", f"{episode_id}.md")
     records = saved_why.records_of((f.frontmatter or {}) if f is not None else {})
     if not records:
-        return None
+        return _folder_why(memory_path, (f.frontmatter or {}) if f is not None else {})
     newest = saved_why.wire(records[-1], added_at=None) or {}
     labels = list(newest.get("labels") or [])
     if project := newest.get("project"):
@@ -1182,6 +1182,22 @@ def _why(memory_path: Path, episode_id) -> dict | None:
     if not labels and not text:
         return None
     return {"labels": labels, "text": text or None}
+
+
+def _folder_why(memory_path: Path, fm: dict) -> dict | None:
+    """G221: a save with no answer of its own shows what its folders' reasons say, marked: ``fromFolders`` names the
+    folders (said about them, never about this save), so a row never shows it as the person's answer about the save."""
+    from api.services import save_folders
+
+    held = save_folders.inherited(memory_path, fm)
+    if not held:
+        return None
+    labels = list(dict.fromkeys(label for e in held for label in e["labels"]))
+    text = " ".join(" ".join(str(e["text"]).split()) for e in held if e.get("text"))
+    if text:
+        text, _ = episode_scrub.scrub(text)
+        text = text if len(text) <= WHY_CAP else text[: WHY_CAP - 1].rstrip() + "…"
+    return {"labels": labels, "text": text or None, "fromFolders": [e["folder"] for e in held]}
 
 
 #: What Notes itself calls a note (`id of note`). An id from an older shape, or a key made up when a dump had none,

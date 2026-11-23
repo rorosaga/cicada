@@ -566,11 +566,16 @@ REASON_HEADINGS = (HEADING, "## Saved because")
 class Reason:
     """The newest reason the person gave for saving a link: ``text`` one scrubbed line (the reasons' labels, then their
     own words), ``at`` when it was said (empty for a ``## Saved because`` reason, which is as old as the save), and
-    the ``episode`` it is written on."""
+    the ``episode`` it is written on.
+
+    ``inherited_from`` (G221): the folders whose reason this is, when the save has none of its own and sits in a folder
+    the person gave one — said about the folder, never about this save. It is empty for a save's own reason; the text of
+    an inherited one begins ``From its folder "<name>":`` so a reader that shows only the line still tells the two apart."""
 
     text: str
     at: str
     episode: str
+    inherited_from: tuple[str, ...] = ()
 
 
 def _one_line(parts: list[str]) -> str:
@@ -586,8 +591,11 @@ def reason_of(memory_path: Path, episode_ids) -> Reason | None:
     Never writes, never calls a model."""
     from api.services import explore_plan
 
+    from api.services import save_folders
+
     memory_path = Path(memory_path)
     best: Reason | None = None
+    folder_best: Reason | None = None
     for raw in episode_ids or ():
         ep = str(raw or "").strip()
         if not ep.startswith("ep_"):
@@ -614,7 +622,17 @@ def reason_of(memory_path: Path, episode_ids) -> Reason | None:
             text, at = (_one_line([because]) if because else ""), ""
         if text and (best is None or at > best.at):
             best = Reason(text=text, at=at, episode=ep)
-    return best
+        if not text:
+            # G221: no reason of its own on this episode — its folders' reasons, marked as theirs. Only ever the
+            # fallback: a save's own reason, on any of its episodes, wins.
+            held = save_folders.inherited(memory_path, f.frontmatter or {})
+            if held:
+                said, when = save_folders.compose(held)
+                said = _one_line([said])
+                if said and (folder_best is None or when > folder_best.at):
+                    folder_best = Reason(text=said, at=when, episode=ep,
+                                         inherited_from=tuple(e["folder"] for e in held))
+    return best if best is not None else folder_best
 
 
 def reason_span(memory_path: Path, episode_id: str) -> tuple[int, int] | None:

@@ -392,6 +392,7 @@ TOOLS = [
                             "url": {"type": "string"},
                             "author": {"type": "string"},
                             "text": {"type": "string", "description": "As shown (500 characters kept)."},
+                            "folders": {"type": "array", "items": {"type": "string"}, "description": "The site's own folders, collections or boards this post is filed in, as the page shows them (a few). Optional; they only label the save, and a post already saved is filed in them rather than saved again."},
                             "id": {"type": "string", "description": "Goodreads: the number in /book/show/<id>."},
                             "title": {"type": "string", "description": "Goodreads only."},
                             "shelf": {"type": "string", "enum": ["read", "currently-reading", "to-read"], "description": "Goodreads only."},

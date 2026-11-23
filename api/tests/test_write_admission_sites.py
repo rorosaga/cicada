@@ -452,6 +452,9 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "DELETE /sources/github/connect": (NONE, None),
     "POST /sources/saved-why": (ADMITTED, None),       # G191: the answer on the link's episode, committed alone
     "PUT /sources/saved-why": (ADMITTED, None),        # G191 v3: the person's edit of one answer, committed alone
+    "POST /sources/save-folder-reason": (ADMITTED, None),   # G221: a folder's reason and its saves' readiness, committed alone
+    "PUT /sources/save-folder-reason": (ADMITTED, None),
+    "DELETE /sources/save-folder-reason": (ADMITTED, None),
     "POST /sources/bookmarks/remove": (ADMITTED, None),   # G191 v3: the page archived, the episode tombstoned
     "POST /sources/upload": (INTAKE, None),
     "POST /sources/rss": (INTAKE, None),
@@ -903,6 +906,8 @@ GET_ROUTES: dict[str, tuple[str, str]] = {
     "GET /state": (HELD, "refreshes and commits _state.md (a cursor) inside admission; skipped while Sleep holds "
                          "the pages — the tail refreshes it then"),
     "GET /inbox": (NONE, "names a commit in a comment only"),
+    "GET /sources": (NONE, "G221: names `save_folders` — reads each save's folders and their reasons"),
+    "GET /sources/save-folders": (NONE, "G221: reads a site's folders and their reasons; writes nothing"),
     "GET /entities/{entity_id}/history": (NONE, "reads commits"),
     "GET /entities/{entity_id}/history/{commit_hash}/diff": (NONE, "reads a commit"),
     "GET /entities/{entity_id}/blame": (NONE, "reads commits (G198: git blame and the commits' trailers)"),

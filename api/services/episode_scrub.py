@@ -42,6 +42,7 @@ WRITERS = frozenset({
     "note",  # G212: a note a paired device sent (`/capture/note`)
     "file",  # G91: a photo or file a paired device sent (`/capture/file`) — its caption and name, a text file's words
     "saved-why",  # G191: the person's answer to "what made you save this?"
+    "folder-reason",  # G221: the person's reason for a whole folder of a site's saves
     "imessage",  # G179: a ticked Messages conversation's words, both sides
     "whatsapp",  # G179 (2026-10-28): a ticked WhatsApp chat's words, every speaker
     "telegram-chats",  # ruling 47a: a ticked Telegram chat's words, every speaker
