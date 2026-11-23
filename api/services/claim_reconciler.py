@@ -37,6 +37,7 @@ from loguru import logger
 
 from api.models.schemas import DecayClass
 from api.services import decay_policy, episode_time, phone_numbers, predicates
+from api.services.id_utils import sanitize_id
 from api.services.claims import (HAPPENED, MILESTONE, Claim, Evidence, event_cardinality, is_event, is_record,
                                  is_value_claim, same_value_attribute, stated_end)
 
@@ -1021,6 +1022,11 @@ def _place_ending(new: Claim, ending: "predicates.Ending", slot: list[Claim], se
 
     targets = [c for c in slot if open_(c) and c.subject == new.subject and ends(c)
                and same_object(c, new) and not is_event(c) and not is_record(c)]
+    if ending.mode == predicates.ENDING_OVER and new.object_kind == "node":
+        # G148 (2026-11-23): what was dropped may also be held as a value of the same thing ("implementation language:
+        # Python" beside "written in Python"); a value whose whole literal names the dropped thing ends with it.
+        targets += [c for c in slot if open_(c) and c.subject == new.subject and is_value_claim(c)
+                    and sanitize_id(str(c.object or "")) == sanitize_id(str(new.object or "")) and c not in targets]
     if not targets and not (ending.synonym or new.predicate == canonical):
         return False
     if ending.mode == predicates.ENDING_PAST and targets:

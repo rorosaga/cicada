@@ -134,13 +134,15 @@ def test_the_trailer_says_what_served_the_commit():
     assert direct_engines.trailer_engine("litellm", []) == "litellm"
 
 
-def test_a_default_is_the_lists_small_tier_once_read(client, key):  # noqa: F811
-    assert anthropic_models.default_model() == "anthropic/claude-haiku-5-5"
-    key.models = [*key.models, {"id": "claude-haiku-6", "line": "haiku", "lifecycle": "active",
-                                "created_at": "2026-12-01T00:00:00Z", "display_name": "Claude Haiku 6"}]
+def test_a_default_is_the_lists_standard_tier_once_read_and_the_judge_its_small_one(client, key):  # noqa: F811
+    """Owner 2026-11-23: a Claude key starts on Sonnet, as the plan does; Sleep's judge stays the small tier."""
+    assert anthropic_models.default_model() == "anthropic/claude-sonnet-5-5"
+    assert anthropic_models.default_judge() == "anthropic/claude-haiku-5-5"
+    key.models = [*key.models, {"id": "claude-sonnet-6", "line": "sonnet", "lifecycle": "active",
+                                "created_at": "2026-12-01T00:00:00Z", "display_name": "Claude Sonnet 6"}]
     client.post("/sleep/engine/models/refresh", json={"id": "byok"})
     body = client.get("/sleep/engine").json()
-    assert next(p for p in body["providers"] if p["id"] == "anthropic")["defaultModel"] == "anthropic/claude-haiku-6"
+    assert next(p for p in body["providers"] if p["id"] == "anthropic")["defaultModel"] == "anthropic/claude-sonnet-6"
 
 
 def test_another_keys_stage_pin_stands_when_the_key_is_not_claude(monkeypatch, tmp_path):

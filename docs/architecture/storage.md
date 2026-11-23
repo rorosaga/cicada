@@ -398,7 +398,12 @@ rail (`inbox_tend.may_close`, review 2026-10-17): a value resting only on the as
 never closes one resting on the person's own (an evidence span in their turn, or their answer), in either order; it is
 asked about instead (`value_kept_for_persons_words` in the audit). Two Stage-1 reads name one attribute in other words, so a value adopts the predicate of
 the open value on its slot whose attribute words match (`claims.same_value_attribute`: the same words after filler
-such as "number of", or one set inside the other when the smaller has two or more — "age" never meets "dog age"). A
+such as "number of", or one set inside the other when the smaller has two or more — "age" never meets "dog age").
+**A value moves to the thing it measures (G148, 2026-11-23; `claims.route_values_to_their_thing`):** before Stage 3, a value
+whose attribute words beyond another page's open value attribute are all words of that page's id, the rest naming the
+same attribute, takes that page and that predicate — "half marathon goal time" on the person meets "goal finish time" on
+the race — when exactly one page and one value match; else it stays. Stage 1 is also told a value about a thing goes
+on the thing, a changed value is the new value, and the person's plans, decisions and scheduled dates are values. A
 value said before the one the page holds (a drain reads conversations in any order) is kept as closed history,
 `superseded_by` the first value said after it (so history never overlaps), never asked about (`superseded_on_arrival`). The value stays in key facts too — **until a later value replaces it** (owner
 2026-11-07, `replaced_facts`): in the write that closes the claim, a Key Facts bullet that says the replaced value (a whole-word
@@ -423,12 +428,15 @@ person's own statement under an agent's word, never one last said after the endi
 history; with none open, a label that is a synonym ("previously worked at") is closed history and any other ("left")
 keeps its own label. **An `over` label also ends its canonical's relatives (2026-10-23, benchmarks/newuser):** the
 seed's `also_ends` under a canonical (for `uses`: `depends-on`, `backed-by`, `runs-on`, `hosted-on`, `deployed-on`,
-`stores-data-in`, `stores-in`, `authenticates-with`, `integrates-with`) and any object-qualified label of the canonical
+`stores-data-in`, `stores-in`, `authenticates-with`, `integrates-with`; since 2026-11-23 also `written-in`,
+`is-written-in`, `implemented-in`, `coded-in`, `programmed-in`, `developed-in`) and any object-qualified label of the canonical
 or of one of those (`uses-for-auth-and-data`, `stores-data-in-<x>-postgres`; the longest listed prefix decides,
 `EndingFn.ended_by`) close on the same subject and object under the same guards, each keeping its own predicate — so
 "dropped Supabase" ends "uses for auth and data Supabase" and "depends on Supabase" too, where it used to end only a
 plain `uses`. A predicate two canonicals list ends nothing; a relative said after the ending stays current (the newest
-dated statement wins, ruling 26), and one said before it, read after, is closed history like the canonical.
+dated statement wins, ruling 26), and one said before it, read after, is closed history like the canonical. **An `over` ending also closes a value naming what ended (G148,
+2026-11-23):** an open value on the same subject whose whole literal is the ended thing ("implementation language:
+Python" beside "dropped Python") closes with it; a value naming anything else stays.
 `past` ("worked at", "interned at") reinforces an open place and never closes it — only the canonical itself, never a
 relative; with none open it is closed history, never a current place. **Order never decides:** a mention said on or before a departure already on
 the page (a "left" claim, or an ending record's own words) is kept as closed history, whatever order the claims are

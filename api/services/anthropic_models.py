@@ -103,8 +103,13 @@ def tier(name: str) -> str | None:
 
 
 def default_model() -> str:
-    """What the API-key card writes for this provider, and the judge's model on a Claude key: the small tier, as on the
-    plan (``agent_disambiguation_model``)."""
+    """What the API-key card writes for this provider: the standard tier, as on the plan (``agent_model``). Owner
+    2026-11-23, on the consolidation benchmark: Sonnet holds more facts as claims than Haiku and fails no calls."""
+    return tier("standard") or stored_id(next(m for m, ln in DOCUMENTED if ln == TIER_LINE["standard"]))
+
+
+def default_judge() -> str:
+    """Sleep's Stage 2 judge on a Claude key: the small tier, as on the plan (``agent_disambiguation_model``)."""
     return tier("small") or stored_id(DOCUMENTED[0][0])
 
 
