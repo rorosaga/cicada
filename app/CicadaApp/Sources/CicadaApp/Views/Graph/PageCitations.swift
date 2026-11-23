@@ -1,16 +1,18 @@
 import SwiftUI
 
-// MARK: - The article carries the beliefs (ruling 48 (16), DR-80)
+// MARK: - The article carries the beliefs (ruling 48 (16), DR-80, amended 2026-11-23)
 //
-// A cited line ends with a quiet superscript per source, like an encyclopedia's citations. The numbers, and which line
-// each source backs, are the server's (`page_citations`): decided when the page was written, never guessed here. A
-// marker opens a popover — a floating surface (DR-10), never an inline expansion — with who said it, when and the
-// located words (DR-18), and *Show in conversation* into the Reader (DR-31). Its details are read when it opens.
+// A cited passage ends in **one cluster of its sources' own marks** — where each was said (the ChatGPT, Claude or Notes
+// mark, a chat app's mark, the agent's mark), up to three, then "+N" — never a run of superscript numbers (owner
+// 2026-11-23: *"also the number for references I dont really like"*). Which passage each source backs is the server's
+// (`page_citations`): decided when the page was written, never guessed here. The cluster opens a popover — a floating
+// surface (DR-10), never an inline expansion — that lists every source of the passage as a row: its mark, who and where,
+// the day, the located words (DR-18) and *Show in conversation* into the Reader (DR-31). A row's details are read when
+// it is shown, one `GET /entities/{id}/citations/{n}` each.
 //
-// Keys: every cited line keeps its sources in the focus order as small chips in its gutter (the 🔗's place, owner
-// 2026-10-26: never only on hover), so Tab moves from marker to marker, ⏎ opens one, Esc closes it.
+// Keys: the cluster is in the focus order, ⏎ opens it, Esc closes it; hovering it opens it after a rest.
 
-/// Which marker is open: a source as cited by the line ending at `at`, or by a belief sentence.
+/// Which source is open: a source as cited by the line ending at `at`, or by a belief sentence.
 struct CiteKey: Hashable, Identifiable {
     let n: Int
     var at: Int? = nil
@@ -19,139 +21,185 @@ struct CiteKey: Hashable, Identifiable {
 
     var id: String { "\(n)|\(at ?? -1)|\(claim ?? "")" }
 
-    /// The marker's link inside a line of text: `cicada://cite/<n>?at=<offset>` (or `claim=<id>`).
-    var url: URL? {
-        var parts = URLComponents()
-        parts.scheme = "cicada"
-        parts.host = "cite"
-        parts.path = "/\(n)"
-        var query: [URLQueryItem] = []
-        if let at { query.append(URLQueryItem(name: "at", value: String(at))) }
-        if let claim { query.append(URLQueryItem(name: "claim", value: claim)) }
-        if inferred { query.append(URLQueryItem(name: "inferred", value: "1")) }
-        parts.queryItems = query.isEmpty ? nil : query
-        return parts.url
-    }
-
     init(n: Int, at: Int? = nil, claim: String? = nil, inferred: Bool = false) {
         self.n = n
         self.at = at
         self.claim = claim
         self.inferred = inferred
     }
-
-    /// A marker link back to its key; nil for any other link.
-    init?(url: URL) {
-        guard url.scheme == "cicada", url.host == "cite",
-              let n = Int(url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))) else { return nil }
-        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-        self.n = n
-        at = items.first { $0.name == "at" }?.value.flatMap(Int.init)
-        claim = items.first { $0.name == "claim" }?.value
-        inferred = items.first { $0.name == "inferred" }?.value == "1"
-    }
 }
 
 enum CitationMarks {
-    /// The superscripts after a line: one per source, at the caption size (11 pt, the section label's size without its
-    /// weight — the label face has one reader, `SectionLabel`), `textTertiary` (DR-80), each a link to its popover. A
-    /// thin space keeps them off the full stop.
-    static func text(_ keys: [CiteKey]) -> Text {
-        guard !keys.isEmpty else { return Text(verbatim: "") }
-        var out = AttributedString()
-        for (i, key) in keys.enumerated() {
-            var run = AttributedString((i == 0 ? "\u{2009}" : "\u{2009}") + String(key.n))
-            run.font = CicadaTheme.captionFont
-            run.baselineOffset = CicadaTheme.scaled(5)
-            run.foregroundColor = CicadaTheme.textTertiary
-            run.link = key.url
-            out.append(run)
-        }
-        return Text(out)
-    }
-
     /// A line's keys, in the order its sources were cited.
     static func keys(_ markers: [PageBlocks.Citations.Marker]) -> [CiteKey] {
         markers.flatMap { marker in marker.refs.map { CiteKey(n: $0, at: marker.at) } }
     }
-}
 
-/// Opens a marker clicked inside a line of text; every other link goes on to the card's own handler (wikilinks, the
-/// web), so a line keeps its links.
-struct CitationLinkHandler: ViewModifier {
-    @Binding var open: CiteKey?
-    @Environment(\.openURL) private var parent
-
-    func body(content: Content) -> some View {
-        content.environment(\.openURL, OpenURLAction { url in
-            if let key = CiteKey(url: url) {
-                open = key
-                return .handled
-            }
-            parent(url)
-            return .handled
-        })
+    /// The one cluster that ends a passage citing `keys`: nil when it cites nothing.
+    static func cluster(_ keys: [CiteKey], in citations: PageBlocks.Citations?) -> (SourceClusterModel, [CiteKey])? {
+        guard !keys.isEmpty else { return nil }
+        let model = SourceClusterModel(keys: keys.map { citations?.markKey(forRef: $0.n) }, drawn: PageSourceMark.isDrawn)
+        return model.isEmpty ? nil : (model, keys)
     }
 }
 
-/// VoiceOver (and any assistive client) opens a line's sources without hovering or finding the superscript: one named
-/// action per source on the line itself ("Source 2"), the way a line's links are reached (`LineLinksAction`).
-struct CitationActions: ViewModifier {
-    let keys: [CiteKey]
-    @Binding var open: CiteKey?
-
-    func body(content: Content) -> some View {
-        keys.reduce(AnyView(content)) { view, key in
-            AnyView(view.accessibilityAction(named: Copy.Pages.citeSpoken(key.n)) { open = key })
-        }
-    }
-}
-
-/// A cited line's sources in its gutter: small focusable chips, shown on hover and while one holds focus. Hovering a
-/// chip, clicking it, or ⏎ on it opens its popover.
-struct CitationChips: View {
+/// The cluster of marks that ends a cited passage: one small rounded tile per mark, side by side with a 2 pt gap so each
+/// reads on its own, and quieter than the words — at rest the tiles are dim, at full on hover, keyboard focus and while
+/// the popover is open. It sits on the line's baseline, glued to the last word by the flow.
+struct SourceCluster: View {
+    let model: SourceClusterModel
     let keys: [CiteKey]
     let entityId: String
-    let visible: Bool
-    @State private var open: CiteKey?
-    @FocusState private var focused: CiteKey?
+
+    @State private var open = false
+    @State private var hovering = false
+    @State private var previewHovered = false
+    @State private var openedByHover = false
+    @State private var hoverTask: Task<Void, Never>?
+    @FocusState private var focused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// A tile on the text line: just taller than the lowercase, as the line's own height allows.
+    static var tile: CGFloat { CicadaTheme.scaled(15) }
+    /// How present the marks are at rest: the eye reads the sentence first.
+    static let restingOpacity = 0.62
+
+    private var shape: RoundedRectangle { CicadaTheme.shape(CicadaTheme.scaled(6)) }
+    private var lit: Bool { hovering || focused || open }
 
     var body: some View {
-        HStack(spacing: CicadaTheme.scaled(2)) {
-            ForEach(keys) { key in
-                Text(verbatim: String(key.n))
-                    .font(CicadaTheme.captionFont.monospacedDigit())
-                    .foregroundStyle(focused == key || open == key ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
-                    .frame(minWidth: CicadaTheme.scaled(18), minHeight: CicadaTheme.scaled(18))
-                    .background(CicadaTheme.shape(CicadaTheme.radiusXS)
-                        .fill(focused == key || open == key ? CicadaTheme.bgSelected : .clear))
-                    .contentShape(Rectangle())
-                    .focusable()
-                    .focused($focused, equals: key)
-                    .focusEffectDisabled()
-                    .onTapGesture { open = key }
-                    .onHover { if $0 { open = key } }
-                    .onKeyPress(.return) {
-                        open = key
-                        return .handled
-                    }
-                    .help(Copy.Pages.citeHelp(key.n))
-                    .accessibilityLabel(Copy.Pages.citeSpoken(key.n))
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityAction { open = key }
-                    .popover(item: Binding(get: { open == key ? key : nil }, set: { if $0 == nil { open = nil } }),
-                             arrowEdge: .bottom) { key in
-                        CitationPopover(entityId: entityId, key: key)
-                    }
+        Button {
+            hoverTask?.cancel()
+            openedByHover = false
+            open = true
+        } label: {
+            HStack(spacing: CicadaTheme.scaled(2)) {
+                ForEach(model.marks, id: \.self) { key in
+                    SourceMarkTile(key: key, size: Self.tile)
+                }
+                .opacity(lit ? 1 : Self.restingOpacity)
+                if model.marks.isEmpty {
+                    // No source of this passage has a real mark: the words say how many, never a stand-in glyph.
+                    Text(Copy.Pages.sourcesSpoken(model.total))
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize()
+                } else if let more = model.moreWords {
+                    Text(more)
+                        .font(CicadaTheme.metaFont)
+                        .monospacedDigit()
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize()
+                        .padding(.leading, CicadaTheme.scaled(2))
+                }
+            }
+            .padding(.horizontal, CicadaTheme.scaled(2))
+            .padding(.vertical, CicadaTheme.scaled(1))
+            .background(shape.fill(lit ? CicadaTheme.bgSelected : .clear))
+            .contentShape(shape)
+        }
+        .buttonStyle(.cicadaPlain)
+        // The tiles' centre sits where lowercase letters do, so the cluster reads on the words' line.
+        .alignmentGuide(.firstTextBaseline) { d in d.height / 2 + CicadaTheme.scaled(4) }
+        .onHover(perform: pointer)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled()
+        .onKeyPress(.return) {
+            openedByHover = false
+            open = true
+            return .handled
+        }
+        .popover(isPresented: $open, arrowEdge: .bottom) {
+            CitationsPopover(entityId: entityId, keys: keys)
+                .onHover { inside in
+                    previewHovered = inside
+                    if !inside { leave() }
+                }
+        }
+        .help(Copy.Pages.sourcesHelp(model.total))
+        .accessibilityLabel(Copy.Pages.sourcesSpoken(model.total))
+        .accessibilityHint(Copy.Pages.sourcesHint)
+        .accessibilityAddTraits(.isButton)
+    }
+
+    /// Dwell to open, grace to close (the evidence chip's rule, `CicadaTiming`): sweeping the pointer across a page opens
+    /// nothing, and a popover the pointer left closes unless it was opened by a click or a key.
+    private func pointer(inside: Bool) {
+        hovering = inside
+        hoverTask?.cancel()
+        hoverTask = Task { @MainActor in
+            let wait = inside ? CicadaTiming.hoverPreviewDelay : CicadaTiming.hoverPreviewGrace
+            try? await Task.sleep(for: .seconds(wait))
+            guard !Task.isCancelled else { return }
+            if inside {
+                if hovering, !open {
+                    openedByHover = true
+                    open = true
+                }
+            } else {
+                closeIfIdle()
             }
         }
-        .opacity(visible || focused != nil || open != nil ? 1 : 0)
+    }
+
+    private func leave() {
+        hoverTask?.cancel()
+        hoverTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(CicadaTiming.hoverPreviewGrace))
+            guard !Task.isCancelled else { return }
+            closeIfIdle()
+        }
+    }
+
+    private func closeIfIdle() {
+        if openedByHover, !hovering, !previewHovered { open = false }
     }
 }
 
-/// A marker's popover: the kind and who · when, the located words with the cited span (DR-18) or, for a line written
-/// from a conversation with no quote located, the conversation's title; then *Show in conversation* (DR-31).
-struct CitationPopover: View {
+/// Every source of a passage, one row each: its mark, who and where and what it is called, the day, the located words
+/// and the way into the conversation. The app's floating surface (DR-10: `bgMenu`, never the system's translucent grey),
+/// as tall as its rows up to a cap and scrolling inside past it, so no row is ever sliced.
+struct CitationsPopover: View {
+    let entityId: String
+    let keys: [CiteKey]
+    /// The rows' own height, measured as they load (a row grows when its source is read).
+    @State private var contentHeight: CGFloat = 0
+
+    static var maxHeight: CGFloat { CicadaTheme.scaled(420) }
+    static var width: CGFloat { CicadaTheme.scaled(380) }
+
+    /// Past the cap the rows scroll, and the last of them fades out over this much instead of being sliced.
+    private static var fade: CGFloat { CicadaTheme.scaled(22) }
+
+    var body: some View {
+        let scrolls = contentHeight > Self.maxHeight
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                ForEach(keys) { key in CitationSourceRow(entityId: entityId, key: key) }
+            }
+            .padding(CicadaTheme.spacingMD)
+            .padding(.bottom, scrolls ? Self.fade : 0)   // the last row clears the fade when scrolled to the end
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+        }
+        .frame(width: Self.width)
+        .frame(height: contentHeight > 0 ? min(contentHeight, Self.maxHeight) : CicadaTheme.scaled(96))
+        .mask {
+            VStack(spacing: 0) {
+                Rectangle().fill(.black)
+                if scrolls {
+                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: Self.fade)
+                }
+            }
+        }
+        .background(CicadaTheme.bgMenu)
+    }
+}
+
+/// One source of a passage, read when its row is first shown.
+struct CitationSourceRow: View {
     let entityId: String
     let key: CiteKey
     @Environment(ProvenanceRouter.self) private var router: ProvenanceRouter?
@@ -162,73 +210,89 @@ struct CitationPopover: View {
         case loading
         case loaded(PageCitationDetail)
         case failed
-        /// The page was renumbered since this marker was drawn (409): its line no longer cites this source.
+        /// The page was renumbered since this passage was drawn (409): its line no longer cites this source.
         case stale
     }
 
+    private var markSize: CGFloat { CicadaTheme.scaled(20) }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            switch phase {
-            case .loading:
-                Text(Copy.Pages.readingSource).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-            case .failed:
-                Text(Copy.Pages.sourceUnavailable).font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            case .stale:
-                Text(Copy.Pages.sourceMoved).font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            case .loaded(let detail):
-                loaded(detail)
+        HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
+            mark
+                .frame(width: markSize, height: markSize)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                switch phase {
+                case .loading:
+                    Text(Copy.Pages.readingSource).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                case .failed:
+                    Text(Copy.Pages.sourceUnavailable).font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                case .stale:
+                    Text(Copy.Pages.sourceMoved).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                case .loaded(let detail):
+                    loaded(detail)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(CicadaTheme.spacingMD)
-        .frame(width: CicadaTheme.scaled(340), alignment: .leading)
         .task(id: key) { await load() }
     }
 
     @ViewBuilder
-    private func loaded(_ d: PageCitationDetail) -> some View {
-        let today = ISODay.today()
-        let when = PageWords.refWhen(first: d.first, last: d.last, today: today)
-        let place = d.kind == "conversation"
-            ? ProvenanceSummary.placeName(harness: d.harness, origin: d.origin) : nil
-        HStack(spacing: CicadaTheme.scaled(6)) {
-            Text(PageWords.popoverKind(d, inferred: key.inferred))
-                .font(CicadaTheme.metaMediumFont)
-                .foregroundStyle(CicadaTheme.textPrimary)
-            Text([when, place.map { $0.prefix(1).uppercased() + $0.dropFirst() }].compactMap { $0 }
-                .joined(separator: " · "))
-                .font(CicadaTheme.metaFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            Text(verbatim: String(d.n)).font(CicadaTheme.captionFont.monospacedDigit())
-                .foregroundStyle(CicadaTheme.textTertiary)
+    private var mark: some View {
+        if case .loaded(let d) = phase {
+            SourceMarkTile(key: PageWords.markKey(kind: d.kind, harness: d.harness, origin: d.origin), size: markSize)
+        } else {
+            CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgBadge.opacity(0.5))
         }
+    }
+
+    @ViewBuilder
+    private func loaded(_ d: PageCitationDetail) -> some View {
+        let when = PageWords.refWhen(first: d.first, last: d.last, today: ISODay.today())
+        HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
+            Text(line(d)).font(CicadaTheme.metaFont).lineLimit(2)
+            Spacer(minLength: 0)
+            if let when {
+                Text(when).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
+                    .fixedSize()
+            }
+        }
+        let kind = PageWords.popoverKind(d, inferred: key.inferred)
         if let span = d.span, !span.excerpt.isEmpty {
             let parts = QuoteBlock.parts(excerpt: span.excerpt, mentionOffsets: span.mentionOffsets)
             QuoteBlock(before: parts.before, span: parts.span, after: parts.after, kind: span.displayKind,
-                       label: nil, caption: span.stale ? Copy.Provenance.staleCaption : nil,
+                       label: kind, caption: span.stale ? Copy.Provenance.staleCaption : nil,
                        style: span.stale ? .plain : .wash, lineLimit: 6)
+        } else {
+            Text(kind).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textTertiary)
         }
         if d.isSourceRemoved {
-            // G104 slice 3, DR-80: a quiet note in the popover, never a banner and never a change to the quote (DR-18).
+            // G104 slice 3, DR-80: a quiet note, never a banner and never a change to the quote (DR-18).
             Text(Copy.Provenance.sourceRemoved).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
         }
         if let note = d.correctionNote {
             // G244, DR-80/DR-18: the same quiet note for an agent's edit of the source; the quote is never changed.
             Text(note).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
         }
-        HStack(spacing: CicadaTheme.spacingSM) {
-            if let title = d.title, !title.isEmpty {
-                Text(title).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
+        if router != nil, target(d) != nil {
+            TextButton(title: Copy.Provenance.showIn(d.sourceKind ?? d.kind) + " ›", inline: true, flushLeading: true) {
+                open(d)
             }
-            Spacer(minLength: 0)
-            if router != nil, target(d) != nil {
-                TextButton(title: Copy.Provenance.showIn(d.sourceKind ?? d.kind) + " ›") { open(d) }
-                    .fixedSize()
-            }
+            .fixedSize()
         }
+    }
+
+    /// "You, in ChatGPT · <title>" — who and where in the secondary ink, the title in the primary (References' line).
+    private func line(_ d: PageCitationDetail) -> AttributedString {
+        var who = AttributedString(PageWords.who(kind: d.kind, harness: d.harness, origin: d.origin,
+                                                 correspondent: d.correspondent))
+        who.foregroundColor = CicadaTheme.textSecondary
+        guard let title = d.title, !title.isEmpty else { return who }
+        var rest = AttributedString(" · \(title)")
+        rest.foregroundColor = CicadaTheme.textPrimary
+        return who + rest
     }
 
     private func target(_ d: PageCitationDetail) -> ReaderTarget? {
@@ -268,7 +332,7 @@ struct CitationPopover: View {
     }
 }
 
-/// Popovers already read, by page and marker — in memory, a few hundred at most. A page's are dropped whenever its
+/// Popovers already read, by page and source — in memory, a few hundred at most. A page's are dropped whenever its
 /// blocks change (`track`: a re-read after a write, an agent's edit, Sleep's push) as well as on its next open, so a
 /// renumbered page never shows an old source. Not a Store domain.
 @MainActor

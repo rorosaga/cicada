@@ -39,44 +39,46 @@ final class SaveWhySuggestTests: XCTestCase {
 
     // MARK: - (2) The field grows to a cap, then scrolls
 
-    /// Owner 2026-11-23 ("the text is cutting off"): the field is measured in the size it is drawn in. It drew in
-    /// `metaFont` (13 pt since ROR-118) and measured at 12, so a wrapped second line was clipped.
-    func testTheFieldIsMeasuredInTheFontItIsDrawnIn() throws {
+    /// Owner 2026-11-23 (twice, "the text is cutting off"): the field's height is its own layout, never a line count
+    /// predicted beside it — capped at five lines by `lineLimit`, drawn in the field's one font.
+    func testTheFieldSizesItselfUpToFiveLines() throws {
         let panel = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/CicadaApp/SaveWhy/SaveWhyPanel.swift"), encoding: .utf8)
         let field = try XCTUnwrap(panel.range(of: "TextField(Copy.SaveWhy.placeholder"))
-        let modifiers = String(panel[field.lowerBound...].prefix(400))
-        XCTAssertTrue(modifiers.contains(".font(SaveWhyField.swiftUIFont)"), "drawn in the size it is measured in")
-        XCTAssertEqual(SaveWhyField.font.pointSize, CicadaTheme.scaled(SaveWhyField.fontSize))
-        // The owner's own answer, at the panel's field width: two lines on screen, so two lines tall.
-        let answer = "really useful, maybe smething that i can implement for cicada so as to compress some of the things"
-        XCTAssertEqual(SaveWhyField.lineCount(answer, width: 340), 2)
-    }
-
-    func testTheFieldGrowsALineAtATimeUpToFiveThenScrolls() {
-        let width: CGFloat = 360
-        XCTAssertEqual(SaveWhyField.lineCount("", width: width), 1, "empty is one line, never zero")
-        XCTAssertEqual(SaveWhyField.lineCount("a few words", width: width), 1)
-        XCTAssertEqual(SaveWhyField.lineCount("one\ntwo\nthree", width: width), 3, "each line break is a line")
-        XCTAssertEqual(SaveWhyField.lineCount("one\n", width: width), 2, "a trailing break opens the next line")
-        let long = String(repeating: "the colours on the hero section ", count: 8)
-        XCTAssertGreaterThan(SaveWhyField.lineCount(long, width: width), 2, "long words wrap and grow the field too")
-        XCTAssertEqual(SaveWhyField.lineCount(long, width: width), SaveWhyField.lineCount(long, width: width))
-
-        let six = (1...6).map { "line \($0)" }.joined(separator: "\n")
-        XCTAssertEqual(SaveWhyField.lineCount(six, width: width), 6)
+        let modifiers = String(panel[field.lowerBound...].prefix(500))
+        XCTAssertTrue(modifiers.contains(".lineLimit(1...SaveWhyField.maxLines)"))
+        XCTAssertTrue(modifiers.contains(".fixedSize(horizontal: false, vertical: true)"), "its own height")
+        XCTAssertFalse(modifiers.contains(".frame(height:"), "never a predicted height")
+        XCTAssertTrue(modifiers.contains(".font(SaveWhyField.swiftUIFont)"))
         XCTAssertEqual(SaveWhyField.maxLines, 5)
-        XCTAssertEqual(SaveWhyField.visibleLines(1), 1)
-        XCTAssertEqual(SaveWhyField.visibleLines(3), 3)
-        XCTAssertEqual(SaveWhyField.visibleLines(6), 5, "past the cap the field scrolls; it never grows further")
-        XCTAssertEqual(SaveWhyField.visibleLines(0), 1)
         let line = SaveWhyField.lineHeight()
         XCTAssertGreaterThan(line, 10)
-        XCTAssertEqual(SaveWhyField.textHeight(lines: 1, lineHeight: line), line)
-        XCTAssertEqual(SaveWhyField.textHeight(lines: 9, lineHeight: line), 5 * line)
         // The window is made tall enough up front for the field at its cap and two rows of suggestions.
         XCTAssertGreaterThanOrEqual(SaveWhyField.growthReserve, 4 * line)
+    }
+
+    /// The real panel: words that wrap, and one word longer than the field, grow the card a line at a time to five
+    /// lines and no further.
+    func testTheCardGrowsWithTheFieldsOwnLines() async throws {
+        let api = SuggestFakeAPI(more: bank)
+        let controller = SaveWhyPanelController()
+        let center = await center(api, presenter: controller)
+        await center.noticed(look("https://www.youtube.com/watch?v=w", title: "A film"), live: true)
+        let panel = try XCTUnwrap(controller.window)
+        func height(after text: String) async throws -> CGFloat {
+            center.send(.draftChanged(text))
+            try await Task.sleep(for: .milliseconds(400))
+            return panel.cardHeight
+        }
+        let one = try await height(after: "a few words")
+        let line = SaveWhyField.lineHeight()
+        let wrapped = try await height(after: String(repeating: "this is my favorit ", count: 9))
+        XCTAssertEqual(wrapped - one, 2 * line, accuracy: line / 2, "three wrapped lines: two lines taller")
+        let longWord = try await height(after: "this is a long reason" + String(repeating: "this", count: 52))
+        XCTAssertEqual(longWord - one, 4 * line, accuracy: line / 2, "a long word broken over five lines")
+        let more = try await height(after: "this is a long reason" + String(repeating: "this", count: 90))
+        XCTAssertEqual(more, longWord, accuracy: 1, "past five lines the field scrolls; the card never grows further")
     }
 
     /// The growth eases through `CicadaMotion` (DR-61) and is gone under Reduce Motion (DR-66); the suggestions keep
@@ -425,6 +427,12 @@ final class SaveWhySuggestTests: XCTestCase {
             ("lines-1", "https://www.youtube.com/watch?v=demo", "Alpha launch film", "The pacing of the intro"),
             ("lines-3", "https://www.youtube.com/watch?v=demo", "Alpha launch film",
              "The pacing of the intro\nthe type on the title cards\nand the sound design"),
+            // Owner 2026-11-23: words that WRAP (no line break), and one word longer than the field — both clipped
+            // while the field's height was predicted by a separate text measurement.
+            ("wrap-3", "https://www.youtube.com/watch?v=demo", "Alpha launch film",
+             String(repeating: "this is my favorit ", count: 9).trimmingCharacters(in: .whitespaces)),
+            ("long-word", "https://www.youtube.com/watch?v=demo", "Alpha launch film",
+             "this is a long reason" + String(repeating: "this", count: 52)),
             ("lines-6", "https://www.youtube.com/watch?v=demo", "Alpha launch film",
              (1...6).map { "A thought, line \($0)" }.joined(separator: "\n")),
             ("youtube", "https://www.youtube.com/watch?v=demo", "Alpha launch film", ""),
@@ -445,11 +453,17 @@ final class SaveWhySuggestTests: XCTestCase {
                 let name = "\(shot.name)-\(scheme == .dark ? "dark" : "light").png"
                 try render(SaveWhyPanelView(center: center, focus: SaveWhyFocus(), notch: notch), scheme: scheme,
                            to: base.appendingPathComponent(name))
+                if !shot.text.isEmpty {
+                    // Being typed in: AppKit lays the words out in the field editor, which is what the person sees.
+                    let focus = SaveWhyFocus()
+                    try render(SaveWhyPanelView(center: center, focus: focus, notch: notch), scheme: scheme,
+                               to: base.appendingPathComponent("editing-" + name), focus: focus)
+                }
             }
         }
     }
 
-    private func render(_ view: some View, scheme: ColorScheme, to url: URL) throws {
+    private func render(_ view: some View, scheme: ColorScheme, to url: URL, focus: SaveWhyFocus? = nil) throws {
         // The panel is notch black in both appearances and draws AppKit's own field dark (`darkAqua`, as the live
         // panel sets it); only the desktop behind it follows the appearance.
         let desktop = scheme == .dark ? Color(white: 0.12) : Color(white: 0.93)
@@ -460,10 +474,18 @@ final class SaveWhySuggestTests: XCTestCase {
         host.frame = CGRect(origin: .zero, size: CGSize(width: SaveWhyPanelView.width + 2 * SaveWhyNotch.ear + 80,
                                                         height: 360))
         host.appearance = NSAppearance(named: .darkAqua)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = NSWindow(contentRect: host.frame.offsetBy(dx: -20_000, dy: -20_000),
+                              styleMask: focus == nil ? [.borderless] : [.titled], backing: .buffered, defer: false)
         window.appearance = host.appearance
         window.contentView = host
+        if focus != nil { window.makeKeyAndOrderFront(nil) }
+        defer { window.orderOut(nil) }
         host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        if let focus {
+            focus.request()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+        }
         RunLoop.main.run(until: Date().addingTimeInterval(0.6))
         host.layoutSubtreeIfNeeded()
         let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))

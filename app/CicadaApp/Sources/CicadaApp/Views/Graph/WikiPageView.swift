@@ -15,14 +15,27 @@ struct WikiPageView: View {
     /// The page's citations (`PageBlocks.citations`): a row draws the markers whose line ends inside it. Nil: none.
     var citations: PageBlocks.Citations? = nil
 
+    @Environment(Store.self) private var store: Store?
+
     var body: some View {
         let article = WikiArticleCache.shared.article(key)
+        let index = store?.linkIndex ?? .empty
+        let related = RelatedCardModel.rows(in: article, resolve: index.resolve)
+        // A list's slot rule (owner 2026-10-28): the picture column stays while some card has a picture.
+        let slot = RelatedCard.slotWidth(related.values.compactMap { card in
+            card.target.flatMap { target in
+                store.flatMap { !EntityPictureLayout.isEmpty(target.type, picture: $0.picture(for: target.id)) }
+                    == true ? target.type : nil
+            }
+        })
         LazyVStack(alignment: .leading, spacing: 0) {
             // Identified by its scroll anchor, so the card can scroll a lazy row into view (`anchor`).
             ForEach(article.rows, id: \.anchor) { row in
                 WikiRowView(row: row, onSource: onLineSource, entityId: entityId,
-                            cites: Self.cites(row, in: citations), citesGutter: citations != nil)
-                    .padding(.top, row.id == 0 ? 0 : WikiRowView.gap(above: row, after: article.rows[row.id - 1]))
+                            cluster: CitationMarks.cluster(Self.cites(row, in: citations), in: citations),
+                            related: related[row.id], relatedSlot: slot, index: index)
+                    .padding(.top, row.id == 0 ? 0 : WikiRowView.gap(above: row, after: article.rows[row.id - 1],
+                                                                       cards: related))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -75,13 +88,17 @@ struct WikiRowView: View {
     let row: WikiRow
     let onSource: ((WikiRow) -> Void)?
     var entityId: String? = nil
-    /// DR-80 — the line's citation markers, drawn after its last word and in its gutter for the keys.
-    var cites: [CiteKey] = []
-    /// The article is cited: every text row keeps the gutter, so cited and uncited lines share one measure.
-    var citesGutter = false
+    /// DR-80 (amended 2026-11-23) — the passage's sources as one cluster of marks, glued to its last word.
+    var cluster: (SourceClusterModel, [CiteKey])? = nil
+    /// A Related list item drawn as a card (owner 2026-11-23): the page it names, and what is said of the link.
+    var related: RelatedCardModel? = nil
+    /// The Related list's picture column, in units: 0 when no card draws a picture, else wide enough for the widest
+    /// (a media page's 3:2 thumbnail), so every card's name starts at one edge.
+    var relatedSlot: CGFloat = 0
+    /// Which page a wikilink means, for the chip it becomes.
+    var index: PageLinkIndex = .empty
     @Environment(Store.self) private var store: Store?
     @State private var hovering = false
-    @State private var openCite: CiteKey?
     @State private var showLinks = false
     @FocusState private var linksFocused: Bool
     /// The site icons of the row's mentions, by link URL (`MentionIcon`), loaded once the page's link facts say the
@@ -91,9 +108,9 @@ struct WikiRowView: View {
     @State private var status: String?
 
     /// `MarkdownBody`'s rhythm: blocks `spacingSM` apart, a list's items 4 apart, a heading given room above.
-    static func gap(above row: WikiRow, after previous: WikiRow) -> CGFloat {
+    static func gap(above row: WikiRow, after previous: WikiRow, cards: [Int: RelatedCardModel] = [:]) -> CGFloat {
         switch (row.kind, previous.kind) {
-        case (.item, .item): return 4
+        case (.item, .item): return cards[row.id] != nil && cards[previous.id] != nil ? CicadaTheme.scaled(6) : 4
         case (.heading(let level), _): return CicadaTheme.spacingSM + (level <= 2 ? CicadaTheme.spacingSM : CicadaTheme.spacingXS)
         default: return CicadaTheme.spacingSM
         }
@@ -106,11 +123,11 @@ struct WikiRowView: View {
         }
     }
 
-    /// The gutter's width is kept for every text row of a cited article, so cited and uncited lines share one measure.
+    /// The gutter holds the line-source affordance, where the host asks for one.
     private var hasGutter: Bool {
         switch row.kind {
         case .rule, .embed, .image, .link: false
-        default: hasSource || citesGutter
+        default: hasSource
         }
     }
 
@@ -148,20 +165,13 @@ struct WikiRowView: View {
                             LinkLinePopover(refs: row.links, entityId: entityId)
                         }
                 }
-                if !cites.isEmpty, let entityId {
-                    CitationChips(keys: cites, entityId: entityId, visible: hovering)
-                } else if hasSource, hovering, let onSource {
+                if hasSource, hovering, let onSource {
                     IconButton(systemName: "text.quote", help: Copy.Graph.lineSource) { onSource(row) }
                 }
             }
             .offset(y: -CicadaTheme.scaled(5))
         }
         .onHover { hovering = $0 }
-        .modifier(CitationLinkHandler(open: $openCite))
-        .modifier(CitationActions(keys: cites, open: $openCite))
-        .popover(item: $openCite, arrowEdge: .bottom) { key in
-            if let entityId { CitationPopover(entityId: entityId, key: key) }
-        }
         .modifier(LineLinksAction(enabled: hasLinks) { showLinks = true })
         .contextMenu {
             if let entityId, !switchable.isEmpty {
@@ -197,14 +207,40 @@ struct WikiRowView: View {
         }
     }
 
-    /// The row's text in the current theme, each mention led by its site's icon (`WikiInline.composed`), then its
-    /// citation markers (DR-80).
+    /// The row's text in the current theme, each mention led by its site's icon (`WikiInline.composed`). A heading's;
+    /// a paragraph, an item and a quote go through `prose`, where a link is a chip.
     private func text(_ font: Font) -> Text {
-        let marks = CitationMarks.text(cites)
-        guard !row.links.isEmpty, WikiInline.hasSitePart(row.text) else { return Text(row.text) + marks }
+        guard !row.links.isEmpty, WikiInline.hasSitePart(row.text) else { return Text(row.text) }
         return WikiInline.composed(WikiInline.themed(row.text, font: font)) { url in
             MentionIcon.text(icons[url])
-        } + marks
+        }
+    }
+
+    /// The row's pieces when it carries a link chip or the passage's source cluster (owner 2026-11-23); nil for a line
+    /// that is only words, which stays one selectable `Text` (`PageInline`).
+    private var flow: [PageInlinePiece]? {
+        guard PageInline.flowEnabled else { return nil }
+        let withCluster = entityId == nil ? nil : cluster
+        guard withCluster != nil || row.text.runs.contains(where: { $0.link != nil }) else { return nil }
+        let pieces = PageInline.pieces(of: row.text, resolve: index.resolve, cluster: withCluster)
+        return PageInline.needsFlow(pieces) ? pieces : nil
+    }
+
+    /// A paragraph's, an item's or a quote's words: one `Text` when they are only words (select them by dragging),
+    /// else the flow with its chips and its cluster.
+    @ViewBuilder
+    private func prose(font: Font, ink: Color, italic: Bool = false) -> some View {
+        if let pieces = flow {
+            PageInlineFlow(pieces: pieces, font: font, ink: ink, italic: italic, entityId: entityId)
+        } else {
+            text(font)
+                .font(font)
+                .lineSpacing(CicadaTheme.scaled(2))
+                .foregroundStyle(ink)
+                .italic(italic)
+                .textSelection(.enabled)
+                .modifier(lineSource)
+        }
     }
 
     @ViewBuilder
@@ -218,28 +254,23 @@ struct WikiRowView: View {
                 .accessibilityAddTraits(.isHeader)
                 .modifier(lineSource)
         case .paragraph:
-            text(CicadaTheme.bodyFont)
-                .font(CicadaTheme.bodyFont)
-                .lineSpacing(CicadaTheme.scaled(2))
-                .foregroundStyle(CicadaTheme.textPrimary)
-                .textSelection(.enabled)
-                .modifier(lineSource)
+            prose(font: CicadaTheme.bodyFont, ink: CicadaTheme.textPrimary)
         case .item(let marker, let indent):
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(marker)
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .frame(minWidth: 16, alignment: .trailing)
-                    .accessibilityHidden(true)
-                text(CicadaTheme.bodyFont)
-                    .font(CicadaTheme.bodyFont)
-                    .lineSpacing(CicadaTheme.scaled(2))
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                    .textSelection(.enabled)
-                    .modifier(lineSource)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            if let related {
+                RelatedCard(model: related, slot: relatedSlot)
+                    .padding(.leading, CGFloat(indent) * 14)
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(marker)
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .frame(minWidth: 16, alignment: .trailing)
+                        .accessibilityHidden(true)
+                    prose(font: CicadaTheme.bodyFont, ink: CicadaTheme.textPrimary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.leading, CGFloat(indent) * 14)
             }
-            .padding(.leading, CGFloat(indent) * 14)
         case .code:
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(row.text)
@@ -254,12 +285,7 @@ struct WikiRowView: View {
         case .quote:
             HStack(alignment: .top, spacing: 0) {
                 Rectangle().fill(CicadaTheme.ring(.strong)).frame(width: 3)
-                text(CicadaTheme.bodyFont)
-                    .font(CicadaTheme.bodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .italic()
-                    .textSelection(.enabled)
-                    .modifier(lineSource)
+                prose(font: CicadaTheme.bodyFont, ink: CicadaTheme.textSecondary, italic: true)
                     .padding(.leading, CicadaTheme.spacingSM)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }

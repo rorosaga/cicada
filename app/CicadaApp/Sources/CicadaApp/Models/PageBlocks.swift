@@ -181,6 +181,11 @@ struct PageBlocks: Codable, Equatable {
         var markers: [Marker]
         var markersTotal: Int
         var refs: [Ref]
+        /// `blocks-7` — the mark each reference wears where it is cited: the distinct keys, and per reference (by number
+        /// order, `refMarks[n - 1]`) an index into them. A passage may cite a source past the six References lines; it
+        /// still draws its own mark. Empty from an older backend: a cluster then draws nothing for it, never a guess.
+        var markKeys: [String]
+        var refMarks: [Int]
         var total: Int
         var conversations: Int
         var web: Int
@@ -190,14 +195,17 @@ struct PageBlocks: Codable, Equatable {
         var beliefsTotal: Int?
 
         enum CodingKeys: String, CodingKey {
-            case markers, markersTotal, refs, total, conversations, web, pages, beliefs, beliefsTotal
+            case markers, markersTotal, refs, markKeys, refMarks, total, conversations, web, pages, beliefs, beliefsTotal
         }
 
-        init(markers: [Marker] = [], markersTotal: Int = 0, refs: [Ref] = [], total: Int = 0, conversations: Int = 0,
+        init(markers: [Marker] = [], markersTotal: Int = 0, refs: [Ref] = [], markKeys: [String] = [],
+             refMarks: [Int] = [], total: Int = 0, conversations: Int = 0,
              web: Int = 0, pages: Int = 0, beliefs: [Belief] = [], beliefsTotal: Int? = 0) {
             self.markers = markers
             self.markersTotal = markersTotal
             self.refs = refs
+            self.markKeys = markKeys
+            self.refMarks = refMarks
             self.total = total
             self.conversations = conversations
             self.web = web
@@ -216,6 +224,8 @@ struct PageBlocks: Codable, Equatable {
             }
             markersTotal = (try? c.decodeIfPresent(Int.self, forKey: .markersTotal)) ?? markers.count
             refs = (try? c.decodeIfPresent([Ref].self, forKey: .refs)) ?? []
+            markKeys = (try? c.decodeIfPresent([String].self, forKey: .markKeys)) ?? []
+            refMarks = (try? c.decodeIfPresent([Int].self, forKey: .refMarks)) ?? []
             total = (try? c.decodeIfPresent(Int.self, forKey: .total)) ?? refs.count
             conversations = (try? c.decodeIfPresent(Int.self, forKey: .conversations)) ?? 0
             web = (try? c.decodeIfPresent(Int.self, forKey: .web)) ?? 0
@@ -230,12 +240,21 @@ struct PageBlocks: Codable, Equatable {
             try c.encode(markers.map { [$0.at] + $0.refs }, forKey: .markers)
             try c.encode(markersTotal, forKey: .markersTotal)
             try c.encode(refs, forKey: .refs)
+            try c.encode(markKeys, forKey: .markKeys)
+            try c.encode(refMarks, forKey: .refMarks)
             try c.encode(total, forKey: .total)
             try c.encode(conversations, forKey: .conversations)
             try c.encode(web, forKey: .web)
             try c.encode(pages, forKey: .pages)
             try c.encode(beliefs, forKey: .beliefs)
             try c.encode(beliefsTotal, forKey: .beliefsTotal)
+        }
+
+        /// The mark key of reference `n` (`blocks-7`), or nil when the backend sent none for it.
+        func markKey(forRef n: Int) -> String? {
+            guard n >= 1, n <= refMarks.count else { return nil }
+            let index = refMarks[n - 1]
+            return markKeys.indices.contains(index) ? markKeys[index] : nil
         }
 
         /// The markers whose line ends inside `range` (a `WikiRow.source`): a line's own markers, never its neighbour's.

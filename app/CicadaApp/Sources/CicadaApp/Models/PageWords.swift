@@ -63,14 +63,58 @@ enum PageWords {
     /// One reference's lead: "You, in Claude Code", "You, in Messages · with Bob Example", "Looked up", or the page's
     /// name for another page of the bank.
     static func refWho(_ ref: PageBlocks.Citations.Ref) -> String {
-        switch ref.kind {
+        who(kind: ref.kind, harness: ref.harness, origin: ref.origin, correspondent: ref.correspondent)
+    }
+
+    /// `refWho`'s words from a reference's own fields, so a popover row (`PageCitationDetail`) says them the same way.
+    static func who(kind: String, harness: String?, origin: String?, correspondent: String?) -> String {
+        switch kind {
         case "web": return Copy.Pages.lookedUp
         case "page": return Copy.Pages.fromPage
         default:
-            let place = ProvenanceSummary.placeName(harness: ref.harness, origin: ref.origin)
+            let place = ProvenanceSummary.placeName(harness: harness, origin: origin)
             let you = Copy.Pages.you(in: place.prefix(1).uppercased() + place.dropFirst())
-            return ref.correspondent.map { "\(you) · \(Copy.Pages.with($0))" } ?? you
+            return correspondent.map { "\(you) · \(Copy.Pages.with($0))" } ?? you
         }
+    }
+
+    /// The mark a source wears: a looked-up page `web`, another page `page`, else the agent's product, else the channel
+    /// it came in by — `page_citations.mark_key`'s rule, for a source whose fields the app holds (a popover's).
+    static func markKey(kind: String, harness: String?, origin: String?) -> String {
+        if kind == "web" || kind == "page" { return kind }
+        if let h = harness?.trimmingCharacters(in: .whitespaces), !h.isEmpty, h != "unknown", h != "mcp" { return h }
+        let o = origin?.trimmingCharacters(in: .whitespaces) ?? ""
+        return o.isEmpty ? SourceClusterModel.unknown : o
+    }
+
+    /// One line of the References list: the source's mark, who and where, its title, its day. The same source cited
+    /// twice (two imports of one conversation, a page re-read the same day) is one line, never two.
+    struct ReferenceRow: Equatable, Identifiable {
+        let id: String
+        let markKey: String
+        let who: String
+        let title: String?
+        let when: String?
+        let removed: Bool
+        /// G244: a quiet note when an agent edited the source (the quote is never changed).
+        var edited: String? = nil
+    }
+
+    static func referenceRows(_ refs: [PageBlocks.Citations.Ref], today: ISODay,
+                              locale: Locale = .autoupdatingCurrent) -> [ReferenceRow] {
+        var seen = Set<String>()
+        var rows: [ReferenceRow] = []
+        for ref in refs {
+            let mark = markKey(kind: ref.kind, harness: ref.harness, origin: ref.origin)
+            let who = refWho(ref)
+            let title = ref.title.flatMap { $0.isEmpty ? nil : $0 }
+            let when = refWhen(first: ref.first, last: ref.last, today: today, locale: locale)
+            let key = [mark, who, title ?? "", when ?? ""].joined(separator: "\u{1F}")
+            guard seen.insert(key).inserted else { continue }
+            rows.append(ReferenceRow(id: key, markKey: mark, who: who, title: title, when: when,
+                                     removed: ref.sourceRemoved == true, edited: ref.editedBy?.note))
+        }
+        return rows
     }
 
     /// The reference's day or range: "Oct 9", "Jun 4 – Yesterday" (DR-58).

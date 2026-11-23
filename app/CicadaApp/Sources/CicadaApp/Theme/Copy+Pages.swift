@@ -41,8 +41,16 @@ extension Copy {
         static let references = "References"
         static let history = "History"
         static let historyHelp = "Who wrote each change to this page"
-        static func citeHelp(_ n: Int) -> String { "Source \(n): who said it and when" }
-        static func citeSpoken(_ n: Int) -> String { "Source \(n)" }
+        /// The cluster of marks that ends a cited passage (owner 2026-11-23: marks, not numbers).
+        static func sourcesHelp(_ n: Int) -> String { n == 1 ? "1 source: who said it and when" : "\(n) sources: who said them and when" }
+        static func sourcesSpoken(_ n: Int) -> String { n == 1 ? "1 source" : "\(n) sources" }
+        static let sourcesHint = "Shows where this was said"
+        /// A link on the page drawn as a chip.
+        static func openPage(_ name: String) -> String { "Open \(name)" }
+        static let opensPage = "Opens the page"
+        static let opensInBrowser = "Opens in your browser"
+        /// A line drawn with chips and its sources is copied from its menu, not selected.
+        static let copyLine = "Copy line"
         static let readingSource = "Reading where this came from…"
         static let sourceUnavailable = "Couldn't read this source."
         static let sourceMoved = "This line changed since the page was drawn. Its sources are being read again."

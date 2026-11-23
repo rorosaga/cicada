@@ -1521,10 +1521,10 @@ should grow smoothly for the first few lines and then scroll; more reasons that 
 what is being saved).** *The field grows.* `TextField(axis: .vertical)` starts at one line and grows a line at a time as
 the words wrap or break (⌥⏎, the Mac's line break in a field; Return still saves) up to **five lines**
 (`SaveWhyField.maxLines`), then scrolls inside. Five because the words cap at 500 characters and a line holds about 60,
-so five show ≈ 300 — most answers whole — while the card stays a short drop from the notch. The height is measured, not
-left to AppKit (`SaveWhyField.lineCount`: the text's own breaks plus wrapping at the field's measured width, in the
-field's font — `SaveWhyField.fontSize`, the one number the field is both drawn and measured in, since a 12-vs-13 pt drift
-clipped a wrapped second line, owner 2026-11-23), so the card and the notch's shape grow with it in one transaction: `CicadaMotion.fieldGrow` (0.12 s,
+so five show ≈ 300 — most answers whole — while the card stays a short drop from the notch. The height is the field's
+own layout (`lineLimit(1...maxLines)` with a vertical `fixedSize`), never a line count measured beside it: that
+prediction clipped what it under-counted — first at the wrong size, then a long word the field editor broke differently
+(owner 2026-11-23, twice) — so the card and the notch's shape grow with it in one transaction: `CicadaMotion.fieldGrow` (0.12 s,
 `CicadaCurve.out`), in one frame under Reduce Motion. DR-60 lists keyboard *commands*; a field growing to hold typed words
 is the content's own size, which the owner asked to be smooth — dated ruling in DESIGN_RULES (2026-10-23). The window is
 made `SaveWhyField.growthReserve` taller than the card up front (clear below it, the view top-aligned), so it never resizes
@@ -2278,15 +2278,27 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   the type block (the brand block, `PageBrandBlock`, above the article when looks are what the page is about — two or
   more, or no article — then the look tiles; a folder, a repository), *Marked* (`PageMarks`, ruling 64: a book's highlights word for word, each note under its passage, the day), *Ongoing* (`PageOngoing`, open happenings and
   planned milestones on the Projects band's hollow node, at most five), the article carrying its beliefs, and
-  *References* (`PageReferences`, at most six numbered lines, then "N conversations and M web pages in all · who wrote
-  each change is in History", with a History link). **The article carries the beliefs (DR-80):** every line the
-  page's write-time provenance cites ends with a superscript per source (`CitationMarks`, `labelFont`, `textTertiary`,
-  a `cicada://cite/<n>?at=<offset>` link); a click opens a popover (`CitationPopover`: the kind — *You said*,
-  *<agent> replied*, *Looked up*, *From this conversation*, *Inferred* — when, where, the located words through
-  `QuoteBlock` (DR-18) and *Show in conversation* into the Reader, DR-31), read lazily from
-  `GET /entities/{id}/citations/{n}` and held in `CitationDetailCache`. Keys and VoiceOver: each cited line keeps its
-  sources as focusable chips in the gutter (the 🔗's place; ⏎ opens, Esc closes) and as named actions "Source N" on
-  the line. A page whose prose cites nothing yet draws its beliefs as one paragraph of sentences
+  *References* (`PageReferences`, at most six cards — `ReferenceCard`, each led by its source's mark, never a number; the
+  same line and day cited twice is one card — then "N conversations and M web pages in all · who wrote
+  each change is in History", with a History link). **The article carries the beliefs (DR-80, amended 2026-11-23):**
+  every line the page's write-time provenance cites ends with **one cluster of its sources' marks** (`SourceCluster`,
+  one 15 pt `SourceMarkTile` per mark, 2 pt apart, dim at rest and full on hover, focus and while open; the first of each
+  kind of source, up to three, then a quiet "+N" — a source with no real mark draws none, `PageSourceMark`;
+  `SourceClusterModel`), glued to the last word; a click, a hover after `hoverPreviewDelay` or Tab then ⏎ opens
+  `CitationsPopover` (the app's `bgMenu` surface, sized to its rows up to 420 pt, then scrolling with a faded last row), one `CitationSourceRow` per source — its mark, "You, in <app> · <title>", the day, the kind
+  (*You said*, *<agent> replied*, *Looked up*, *From this conversation*, *Inferred*) and located words through `QuoteBlock`
+  (DR-18) and *Show in conversation* into the Reader, DR-31 — each read lazily from
+  `GET /entities/{id}/citations/{n}` and held in `CitationDetailCache`. The marks come from `citations.markKeys` /
+  `refMarks` (`blocks-7`, one per reference, so a source past the six References lines still wears its own).
+  **Links are chips (2026-11-23):** a wikilink or web link in a paragraph, item or quote is a `PageLinkChip` wearing the
+  resolved page's own name and picture (`PageLinkIndex`, memoised per graph snapshot as `Store.linkIndex`: an id, else
+  exactly one page by name or alias; anything else keeps its written words) or the site's bundled mark
+  (`PageChipMark`) — **the first mention of a page in a passage is the chip, later ones a quiet link** (`PageQuietWordView`: the
+  name in body ink, a hover fill, the same click; an ambiguous ref is one too, so no link on the page is blue); a line with a
+  chip, quiet link or cluster is cut into `PageInline` pieces and laid out by `InlineFlowLayout` (baseline-aligned, a
+  touching piece never starts a line, the cluster glued to the last word only, a glued run wider than the column broken
+  between its pieces), a line of only words stays one `Text`. **Related** list items are `RelatedCard`s (picture, the page's name, the words after the dash); the tab bar's
+  scroll view fades its first 16 pt (`fadedTopEdge`). A page whose prose cites nothing yet draws its beliefs as one paragraph of sentences
   (`PageBeliefSentences`): an inference worded "It seems that …", an ended one "(until March 2025)"; past twelve, "N
   more in Perspectives". **Gone from the page:** the beliefs list, *Where this came from*, the person's *How you know*
   and *What's happening*, the facts strip, *Details* and the empty *Looks* fold; *How it fades*, *Add a link* and *Add
