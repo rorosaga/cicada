@@ -181,3 +181,18 @@ def test_vector_index_still_exports_the_store_names():
 
     assert vector_index.PendingEntity is pending_store.PendingEntity
     assert vector_index.PENDING_STORE_FILE == pending_store.PENDING_STORE_FILE == "pending_entities.jsonl"
+
+
+def test_drop_held_takes_only_the_named_claims_off_and_leaves_the_line(tmp_path):
+    """G104 slice 3 (T3): a held claim only a removed line said is dropped by id; the line and its other claims stay."""
+    from api.services.claims import Claim
+
+    line = pending_store.PendingEntity(
+        name="Zed Unknown", type="person", description="d", source_episode="ep_2026-11-01_001", confidence=0.5, tags=[],
+        history_entries=[], held_claims=[Claim(id=i, text="x", subject="zed-unknown", predicate="description").to_dict()
+                                         for i in ("clm_1", "clm_2")])
+    pending_store.upsert(tmp_path, line)
+    assert pending_store.drop_held(tmp_path, ["clm_1", "clm_nope"]) == 1
+    assert pending_store.drop_held(tmp_path, []) == 0
+    (kept,) = pending_store.load(tmp_path)
+    assert [d["id"] for d in kept.held_claims] == ["clm_2"] and kept.name == "Zed Unknown"

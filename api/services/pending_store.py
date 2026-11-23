@@ -537,6 +537,59 @@ def reanchor_held(memory_path: Path, move: Callable[[list[Claim]], int]) -> int:
         return moved
 
 
+def withdraw_episode(memory_path: Path, episode_id: str, gone: Callable[[PendingEntity], bool]) -> dict[str, int]:
+    """G104 slice 3 (T3): ``episode_id`` was edited and ``gone(line)`` says a line's name is no longer in it. Each such
+    line leaves that conversation: out of ``heard_in`` (and ``source_episode`` moves to the next one), its held claims
+    only that conversation said go with it. A line it was the ONLY conversation of is removed whole, with its inputs and
+    links. A name heard elsewhere keeps its description, summary and key facts — the extraction's text is not
+    attributable per conversation. One read, one write only when something changed, under ``_LOCK``. Returns
+    ``{"lines_removed", "episodes_left", "claims_dropped"}``."""
+    counts = {"lines_removed": 0, "episodes_left": 0, "claims_dropped": 0}
+    with _LOCK:
+        entries = load(memory_path)
+        kept: list[PendingEntity] = []
+        for line in entries:
+            if episode_id not in line.episodes() or not gone(line):
+                kept.append(line)
+                continue
+            others = [e for e in line.episodes() if e != episode_id]
+            if not others:
+                counts["lines_removed"] += 1
+                counts["claims_dropped"] += len(line.held_claims)
+                continue
+            line.heard_in = [r for r in line.heard_in if r.get("episode") != episode_id]
+            if line.source_episode == episode_id:
+                line.source_episode = others[0]
+            before = len(line.held_claims)
+            line.held_claims = [d for d in line.held_claims
+                                if not (d.get("source_episodes") and set(d["source_episodes"]) <= {episode_id})]
+            counts["episodes_left"] += 1
+            counts["claims_dropped"] += before - len(line.held_claims)
+            kept.append(line)
+        if counts["lines_removed"] or counts["episodes_left"]:
+            save(memory_path, kept)
+    return counts
+
+
+def drop_held(memory_path: Path, claim_ids: Iterable[str]) -> int:
+    """G104 slice 3 (T3): take the claims ``claim_ids`` off every line that holds them — a conversation was edited and
+    only its removed text said them, so they must never reach a page. Each line stays (what else it heard is still a
+    first mention). One read, one write only when a claim left. Returns how many claims left."""
+    ids = {str(i) for i in claim_ids if i}
+    if not ids:
+        return 0
+    with _LOCK:
+        entries = load(memory_path)
+        gone = 0
+        for e in entries:
+            kept = [d for d in e.held_claims if d.get("id") not in ids]
+            gone += len(e.held_claims) - len(kept)
+            e.held_claims = kept
+        if gone:
+            save(memory_path, entries)
+        return gone
+
+
 def ready(memory_path: Path, target_of: Callable[[str, str], str],
           decided: Iterable[str] = ()) -> list[Release]:
     """Read-only: the holding lines whose claims can go onto a page NOW (R-HP5).

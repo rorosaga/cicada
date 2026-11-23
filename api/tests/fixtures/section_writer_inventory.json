@@ -1291,6 +1291,26 @@
       "disposition": "refresh_or_preserve"
     }
   ],
+  "services/revision_cascade.py": [
+    {
+      "function": "_page",
+      "method": "write",
+      "frontmatter": "pfm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_page",
+      "method": "write",
+      "frontmatter": "pfm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "restore",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
   "services/bookmark_forget.py": [
     {
       "function": "forget",
