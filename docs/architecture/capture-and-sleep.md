@@ -2081,7 +2081,15 @@ to cascade, but being aware tho. This is smth that should extend to all sources"
   is listed with the support that kept it. An alias said only in the removed text, on no owner, project or media page,
   is dropped (never added to the person's removed aliases). A held name (`pending_store`) loses the revised conversation
   from `heard_in` and every held claim only the removed text said (`drop_held`) before release, so a page born in the
-  revising drain never carries the old value. **Nothing cascades past independent support.**
+  revising drain never carries the old value; the same goes for the held line's first-read prose (summary, key facts,
+  history) that says a removed word (`pending_store.drop_prose`). A page that lost a claim but whose name the revised
+  conversation still says is kept (`still_named`). **A claim whose date came from a corrected line** (its span on an
+  unchanged line, its start or end said by the changed lines — `episode_revision.says_day`, ISO or a day near its month,
+  six languages, no model): the revision's re-read item is kept by `keep_changed` and supersedes the old-dated claim in
+  Stage 3 (`redated`, no question); a held old-dated claim is dropped before release. A relative date moves nothing.
+  **Removed words** (`revision_prose.tokens`) count any word with a digit, but a numeral counts as removed only when a
+  number replaced it ("5 December" → "12 December"), never a timestamp or list number on a removed line.
+  **Nothing cascades past independent support.**
 - **Told, not asked** (ruling 75 f): each run's detail carries a `corrections` object (null when nothing was revised):
   conversations revised, claims withdrawn / superseded, passages rewritten, pages archived (openable, with Restore),
   aliases dropped, held claims dropped, questions withdrawn, pages kept and why — ids, enums and counts only; every
