@@ -216,6 +216,8 @@ extension Copy.Provenance {
     static let noBeliefs = "No beliefs are recorded on this page yet."
     static let unavailable = "Couldn't load where this came from."
     static let notInBank = "No longer in this bank"
+    /// G104 slice 3 — a quiet note beside a citation whose source was removed from where it came from.
+    static let sourceRemoved = "Removed from its source, kept as evidence"
     static let staleCaption = "This conversation changed since, so the words may have moved"
     static let inferredByCicada = "Inferred by Cicada"
     static func showAllConversations(_ n: Int) -> String { "Show all \(UsageFormat.count(n))" }

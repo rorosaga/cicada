@@ -238,12 +238,18 @@ struct WhereThisCameFromSection: View {
         let style: QuoteBlock.Style = best.stale ? .plain : (best.derived ? .bold : .wash)
         let caption: String = best.stale ? Copy.Provenance.staleCaption
             : (best.derived ? Copy.Provenance.derivedCaption : Copy.Provenance.quotedCaption)
-        return QuoteBlock(before: parts.before, span: parts.span, after: parts.after, kind: best.displayKind,
-                          label: EvidenceLabel.speaker(kind: best.displayKind,
-                                                       agent: EvidenceSpeaker.agentName(harness: row.harness,
-                                                                                         origin: row.origin),
-                                                       source: row.source, origin: row.origin),
-                          caption: caption, style: style, lineLimit: 4)
+        return VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            QuoteBlock(before: parts.before, span: parts.span, after: parts.after, kind: best.displayKind,
+                       label: EvidenceLabel.speaker(kind: best.displayKind,
+                                                    agent: EvidenceSpeaker.agentName(harness: row.harness,
+                                                                                      origin: row.origin),
+                                                    source: row.source, origin: row.origin),
+                       caption: caption, style: style, lineLimit: 4)
+            if best.sourceRemoved {
+                // G104 slice 3: the words are kept; say only that their source is gone.
+                Text(Copy.Provenance.sourceRemoved).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+            }
+        }
     }
 
     private func open(_ row: ProvenanceConversation) {

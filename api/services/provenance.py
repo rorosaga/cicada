@@ -357,6 +357,12 @@ class _Episodes:
                 self._bodies[ep_id] = None
         return self._bodies[ep_id]
 
+    def removed(self, ep_id: str) -> bool:
+        """G104 slice 3: the source behind this conversation was removed (its tombstone); the words and the claims
+        they taught are kept, so this is the one thing a citation adds about it."""
+        indexed = self.meta(ep_id) if evidence.is_episode_id(ep_id) else None
+        return indexed is not None and source_spans.removed_at(indexed.frontmatter) is not None
+
     def held(self, ep_id: str) -> tuple:
         """Where this document holds what may not be drawn (G235, ROR-16); `source_spans` keeps it per body."""
         if ep_id not in self._held:
@@ -598,6 +604,8 @@ def entity_provenance(
     shown = rows[:MAX_PROVENANCE_CONVERSATIONS]
     for row in shown:
         row.best = _best_span(docs, row.episode_ids, spans_by_episode, name, entity_id)
+        if row.best is not None:
+            row.best.source_removed = docs.removed(row.best.episode)
 
     pages: list[ProvenancePage] = []
     for doc_id, claim_ids in sorted(page_claims.items()):
@@ -644,6 +652,7 @@ def _section_evidence(ev: Evidence, docs: _Episodes, allowed: set[str]) -> Secti
         source_title=str(fm.get('title') or ev.episode),
         conversation_id=_opt(fm.get('session_id')) or _opt(fm.get('source_id')),
         status='not_checked' if safe else 'missing',
+        source_removed=bool(safe and is_episode and source_spans.removed_at(fm) is not None),
     )
     if not safe:
         return row
@@ -677,6 +686,8 @@ def _section_evidence(ev: Evidence, docs: _Episodes, allowed: set[str]) -> Secti
     else:
         row.span = _span_model(text, ev.episode, ev.start, ev.end, hash=ev.hash, kind=ev.kind,
                                grown=row.status == evidence.SPAN_GROWN, held=docs.held(ev.episode))
+    if row.span is not None:
+        row.span.source_removed = row.source_removed
     return row
 
 

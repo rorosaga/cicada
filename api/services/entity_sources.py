@@ -48,6 +48,8 @@ def gather_entity_sources(memory_path: Path, entity_id: str, *, mode: str = "chu
             # G110 gate B2: a long capture's dropped-middle marker reads as Cicada's note, never a turn's words.
             "chunk": evidence.label_gaps(eppar.body, evidence.gap_ranges(eppar.frontmatter, eppar.body)),
             "source_id": sid,
+            # G104 slice 3: the tombstone's stamp, so a reader can say the source behind it was removed.
+            "source_deleted_at": eppar.frontmatter.get("source_deleted_at"),
             "conversation": convs.get(sid) if convs else None,
         })
     return {"entity_id": entity_id, "episodes": episodes, "degraded": degraded}

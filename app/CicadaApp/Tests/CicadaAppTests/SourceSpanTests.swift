@@ -21,6 +21,30 @@ final class SourceSpanTests: XCTestCase {
         XCTAssertEqual(span.claimId, "c")
     }
 
+    /// G104 slice 3 — a removed source is a boolean beside `status`, never a status: the span still draws what its
+    /// offsets say, and an older backend that sends nothing reads as "still there".
+    func testASourceRemovedIsABooleanBesideTheStatusAndAbsentMeansStillThere() throws {
+        let gone = try decode(SourceSpan.self, #"{"source":"ep_1","status":"current","at":{"type":"text","start":3,"end":9},"sourceRemoved":true}"#)
+        XCTAssertTrue(gone.sourceRemoved)
+        XCTAssertEqual(gone.status, .current)
+        XCTAssertEqual(gone.range, 3..<9)
+        let older = try decode(SourceSpan.self, #"{"source":"ep_1","status":"current"}"#)
+        XCTAssertFalse(older.sourceRemoved)
+    }
+
+    func testTheOtherCitationShapesDecodeTheSameField() throws {
+        let span = try decode(ProvenanceSpan.self, #"{"episode":"ep_1","kind":"user","excerpt":"x","sourceRemoved":true}"#)
+        XCTAssertTrue(span.sourceRemoved)
+        XCTAssertFalse(try decode(ProvenanceSpan.self, #"{"episode":"ep_1","kind":"user"}"#).sourceRemoved)
+        let evidence = try decode(SectionEvidence.self, #"{"sourceTitle":"T","sourceRemoved":true}"#)
+        XCTAssertTrue(evidence.sourceRemoved)
+        let ref = try decode(PageBlocks.Citations.Ref.self, #"{"n":1,"kind":"conversation","sourceRemoved":true}"#)
+        XCTAssertEqual(ref.sourceRemoved, true)
+        let detail = try decode(PageCitationDetail.self, #"{"n":1,"kind":"conversation","span":{"episode":"ep_1","kind":"user","sourceRemoved":true}}"#)
+        XCTAssertTrue(detail.isSourceRemoved, "the located span's word counts when the reference carries none")
+        XCTAssertFalse(try decode(PageCitationDetail.self, #"{"n":1,"kind":"conversation"}"#).isSourceRemoved)
+    }
+
     func testWhatMayNotBeDrawnHasNoRangeWhateverIsSent() throws {
         for status in ["stale", "held", "unlocated", "something-new"] {
             let span = try decode(SourceSpan.self, #"{"source":"ep_1","status":"\#(status)","at":{"type":"text","start":3,"end":9}}"#)

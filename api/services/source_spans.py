@@ -47,7 +47,7 @@ from api.services.claims import Claim, is_current, is_event, is_record, parse_cl
 
 CURRENT, GROWN, STALE, DERIVED, HELD, UNLOCATED = "current", "grown", "stale", "derived", "held", "unlocated"
 #: Rides each route's ETag ``extra``: what these fields mean moved.
-SHAPE = "spans1"
+SHAPE = "spans2"
 
 #: What a source is, for the words a citation opens it with and for the layout that draws it.
 CONVERSATION, NOTE, MEETING, BOOK, SAVE, PAGE, WEB, VIDEO, ITEM = (
@@ -55,6 +55,19 @@ CONVERSATION, NOTE, MEETING, BOOK, SAVE, PAGE, WEB, VIDEO, ITEM = (
 _NOTE_ORIGINS = frozenset({"apple-notes", "folder"})
 _ITEM_ORIGINS = frozenset({"rss", "calendar", "calendar-local"})
 _PAGE_READ = "page-read"   # `page_read.SOURCE`
+
+
+def removed_at(fm: dict | None) -> str | None:
+    """G104 slice 3: the day the source this document came from was removed (``source_deleted_at``, the tombstone
+    ``episode_staging`` stamps), or ``None``. A tombstone keeps the words and every claim they taught; this is only the
+    one derived fact a citation says about them, read each time and never written to a page."""
+    at = (fm or {}).get("source_deleted_at")
+    return (str(at)[:10] or None) if at else None
+
+
+def removed_sentence(day: str) -> str:
+    """The single wording, on every door that says it (``cicada_sources``, ``cicada_recall_detail``)."""
+    return f"Removed from its source on {day}; kept as evidence."
 
 
 def kind_of(doc_id: str, fm: dict | None) -> str:
@@ -145,6 +158,9 @@ class Source:
     override: str | None
     gaps: tuple
     held: tuple
+    #: G104 slice 3: the source behind this document was removed. A boolean beside ``status``, never a status: the
+    #: tombstoned words and hash are still here, so what the offsets say is unchanged.
+    removed: bool = False
 
     @classmethod
     def of(cls, doc_id: str, fm: dict | None, text: str) -> "Source":
@@ -153,7 +169,8 @@ class Source:
         override = authorship.of(fm) if is_episode else None
         gaps = evidence.gap_ranges(fm, text) if is_episode else ()
         return cls(doc_id, fm, text, is_episode, override, gaps,
-                   held_ranges(doc_id, fm, text, override=override, gaps=gaps))
+                   held_ranges(doc_id, fm, text, override=override, gaps=gaps),
+                   removed=is_episode and removed_at(fm) is not None)
 
     @classmethod
     def open(cls, memory_path: Path | None, doc_id: str) -> "Source | None":
@@ -181,17 +198,19 @@ class Source:
         """The wire shape of a stored span. Only what may be drawn carries an ``at``."""
         status = self.status(start, end, hash)
         return SourceSpan(source=self.id, status=status, kind=kind, hash=hash or "", claim_id=claim_id, current=current,
-                          at=SpanAt(start=start, end=end) if status in (CURRENT, GROWN) else None)
+                          at=SpanAt(start=start, end=end) if status in (CURRENT, GROWN) else None,
+                          source_removed=self.removed)
 
     def derived(self, start: int, end: int) -> SourceSpan:
         """A name match found at read (R-PB9). A secret is not a name, but the same door holds it."""
         status = HELD if overlaps_held(start, end, self.held) else DERIVED
         return SourceSpan(source=self.id, status=status, kind="derived",
-                          at=SpanAt(start=start, end=end) if status == DERIVED else None)
+                          at=SpanAt(start=start, end=end) if status == DERIVED else None, source_removed=self.removed)
 
     def nothing(self, kind: str = "reasoning", *, claim_id: str | None = None, current: bool = True) -> SourceSpan:
         """A citation with nothing to locate: it opens the source."""
-        return SourceSpan(source=self.id, status=UNLOCATED, kind=kind, claim_id=claim_id, current=current)
+        return SourceSpan(source=self.id, status=UNLOCATED, kind=kind, claim_id=claim_id, current=current,
+                          source_removed=self.removed)
 
 
 # ---- which pages cite which source ------------------------------------------------------------------------------------
