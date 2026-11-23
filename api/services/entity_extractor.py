@@ -252,8 +252,9 @@ states as true at the time; when it states two for the same thing, the later one
   an allergy, a first language, a condition they manage, a rule they live by, a job title ("job title": "<title> at
   <employer>"), what a project or thing does ("what it does"), what someone is going to do (a leave, a degree, a visit).
   The attribute names the kind ("diet": "pescatarian"); a kind a person can hold several of gets one attribute each,
-  naming the item ("shellfish allergy": "allergic"), so one never replaces another. It is theirs only when they said it of
-  themselves (the user's own line, or a speaker's own line, that speaker's): never an assistant's guess. A mood or a
+  naming the item ("shellfish allergy": "allergic"), so one never replaces another. It rests on the user's own line (or a
+  speaker's own line, that speaker's), about themselves or about someone else ("my brother is starting a
+  pottery course" is a value on him): never an assistant's guess. A mood or a
   passing remark is no value; a finding of a study or test ("participants who failed": "3 of 10") is. Before you answer,
   read each entity's key_facts once more: one that states such a fact, a plan or a finding and has no values[] entry yet
   gets one.

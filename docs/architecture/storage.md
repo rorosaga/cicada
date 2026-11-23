@@ -401,6 +401,15 @@ before it is written; a rerun finishes an interrupted run, committing the pages 
 migration's bytes and nothing else; a Related link that is no edge and no `related:` slug keeps its line as it was;
 `hub_pages`).
 
+**A standing fact about someone else is a value too (2026-11-23, `others` worker).** The "standing facts" rule in Stage 1's
+prompt ended "it is theirs only when they said it of themselves", which the model read as the owner's facts alone: what
+the user says of a sister (she is starting a master's) reached her page as a Key Facts sentence and, in 3 of 4 reads of one
+conversation, never as a claim, so a later "she changed course" had nothing to replace. The rule now says the value rests on
+the user's own line (or a speaker's own, that speaker's) about themselves **or about someone else**, never on an assistant's
+guess; the same read gave the value in 6 of 6 and 6 of 6. A fact about a one-off person or thing stays held with the name
+(`pending_store`, `held_claims`) until the promotion rule is met: that is a claim waiting, not prose, and the benchmark
+reports it apart (`points_held`).
+
 **A value that changes is a claim a later value closes (stated values, 2026-10-17).** LongMemEval knowledge-update
 (G148): a count said as three and later as four, and a personal-best time said twice, both stayed as two undated lines
 of prose with no claim to supersede — Stage 1 emitted only entity-to-entity relationships, and an unseen predicate

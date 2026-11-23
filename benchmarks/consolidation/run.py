@@ -159,7 +159,7 @@ ENDS_WHAT = re.compile(r"\b(?:dropped|dropping|left|leaving|stopped|stopping|no 
                        r"abandoning|migrated from|migrating from|ported from)\b(?:\W+\w+){0,3}"
                        # ... or the ending said after the old value: "the Python version was dropped"
                        r"|(?:\w+\W+){1,3}(?:was|were|is|has been|got)\W+(?:dropped|replaced|abandoned|retired|removed|rewritten)\b")
-NEGATION = re.compile(r"\b(?:not|never|no longer|declined|decided against|rejected|against|won't|doesn't|didn't|"
+NEGATION = re.compile(r"\b(?:not|never|no|no longer|declined|decided against|rejected|against|won't|doesn't|didn't|"
                       r"too expensive|instead of|stayed? on|staying|hypothetical|if|ruled out|refused|skipped|dropped|skips?|"
                       r"without|sans|sin)\b")
 
@@ -383,6 +383,24 @@ def held_lines(bank: Path) -> list[dict]:
     return found
 
 
+def held_claim_texts(bank: Path) -> list[str]:
+    """What the claims held under a waiting name say (``held_claims`` in ``pending_entities.jsonl``): Stage 1 wrote the
+    claim, but its subject is below the promotion bar, so it waits with the name and is written when a page is made.
+    A held claim is a claim (subject, predicate, object, a located span), not prose; it is just not on a page yet."""
+    path = bank / "pending_entities.jsonl"
+    texts: list[str] = []
+    if path.exists():
+        for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            try:
+                line = json.loads(raw)
+            except ValueError:
+                continue
+            for c in (line.get("held_claims") or []) if isinstance(line, dict) else []:
+                if isinstance(c, dict):
+                    texts.append(claim_text(c))
+    return texts
+
+
 def score(snap: dict, bank: Path, fixture: dict) -> dict:
     clock = date.fromisoformat(snap["clock"])
     gold = fixture["gold"]
@@ -394,18 +412,29 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
         return hit
 
     points = []
+    waiting = held_claim_texts(bank)
     for row in gold["points"]:
         groups = expand_groups(row["says"], clock)
         hit = held(groups)
+        # ``held_waiting``: no claim on a page, but one held under a waiting name (a one-off person or thing, below the
+        # promotion bar by design) says it. Apart from ``claim``, which stays "on a page".
+        waits = [t for t in waiting if matches(t, groups)] if not hit else []
         points.append({"id": row["id"], "claim": bool(hit), "anywhere": bool(hit) or any(matches(t, groups) for t in prose),
-                       "matched": [claim_text(c) for c in hit[:3]]})
+                       "held_waiting": bool(waits), "matched": [claim_text(c) for c in hit[:3]] or waits[:3]})
+
+    owner_id = next((p["id"] for p in pages if p["owner"]), None)
+
+    def about(row, c) -> bool:
+        """An update ``on_owner`` is about the owner's own job, home, ...: another person's claim that happens to name the
+        same employer (a colleague's "works at <the old employer>", true of them) is neither its old nor its new value."""
+        return not row.get("on_owner") or owner_id in (c.get("subject"), c.get("object"))
 
     updates = []
     for row in gold["updates"]:
-        cur = [c for c in held(expand_groups(row["current"], clock)) if is_current(c)]
+        cur = [c for c in held(expand_groups(row["current"], clock)) if is_current(c) and about(row, c)]
         # A claim that says the old value ended ("dropped Python") is the change itself, never the stale value.
         stale_groups = expand_groups(row["stale"], clock)
-        stale = [c for c in held(stale_groups) if is_current(c)
+        stale = [c for c in held(stale_groups) if is_current(c) and about(row, c)
                  and not ENDED.search(norm(c.get("predicate") or ""))
                  and matches(ENDS_WHAT.sub(" ", norm(claim_text(c))), stale_groups)]
         verdict = ("correct" if cur and not stale else "both_current" if cur else "stale_only" if stale else "missing")
@@ -421,7 +450,6 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
                       "ok": any(x["id"] != y["id"] for x in cur_a for y in cur_b),
                       "a": [claim_text(c) for c in cur_a[:3]], "b": [claim_text(c) for c in cur_b[:3]]})
 
-    owner_id = next((p["id"] for p in pages if p["owner"]), None)
     forbid = []
     for row in gold["forbid"]:
         bad = [c for c in held(expand_groups(row["says"], clock))
@@ -539,7 +567,8 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
     return {
         "model": snap["model"],
         "summary": {
-            "points_claim": total(points, "claim"), "points_anywhere": total(points, "anywhere"), "points": len(points),
+            "points_claim": total(points, "claim"), "points_held": total(points, "held_waiting"),
+            "points_anywhere": total(points, "anywhere"), "points": len(points),
             "points_judged": total(points, "judged") if judged_ids is not None else None,
             "updates_correct": sum(1 for u in updates if u["verdict"] == "correct"),
             "updates_both": sum(1 for u in updates if u["verdict"] == "both_current"),
@@ -871,6 +900,7 @@ def report(out: Path) -> str:
         by_model.setdefault(re.sub(r"-r\d+$", "", leg.name), []).append(row)
     first = next(iter(by_model.values()), [{}])[0]
     cols = [("points_claim", f"facts held as claims /{first.get('points', '?')}"),
+            ("points_held", "facts held as a claim under a waiting name, not on a page"),
             ("points_judged", "facts held, judge-matched"),
             ("points_anywhere", "facts anywhere on a page"),
             ("updates_correct", f"updates correct /{first.get('updates', '?')}"),
@@ -936,7 +966,7 @@ def compare(out: Path, a: str, b: str) -> str:
     rows = ["| measure | " + a + f" (n={len(ga)}) | " + b + f" (n={len(gb)}) | clear |", "|---|---|---|---|"]
     sa = [json.loads((x / "score.json").read_text(encoding="utf-8"))["summary"] for x in ga]
     sb = [json.loads((x / "score.json").read_text(encoding="utf-8"))["summary"] for x in gb]
-    for key in ("points_claim", "points_judged", "updates_correct", "apart_ok", "forbid_ok", "roles_ok", "people_ok", "one_person_ok", "pages_ok", "dated_ok",
+    for key in ("points_claim", "points_held", "points_judged", "updates_correct", "apart_ok", "forbid_ok", "roles_ok", "people_ok", "one_person_ok", "pages_ok", "dated_ok",
                 "claims_total", "pages_total"):
         va = [s[key] for s in sa if s.get(key) is not None]
         vb = [s[key] for s in sb if s.get(key) is not None]
