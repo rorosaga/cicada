@@ -428,12 +428,15 @@ person's own statement under an agent's word, never one last said after the endi
 history; with none open, a label that is a synonym ("previously worked at") is closed history and any other ("left")
 keeps its own label. **An `over` label also ends its canonical's relatives (2026-10-23, benchmarks/newuser):** the
 seed's `also_ends` under a canonical (for `uses`: `depends-on`, `backed-by`, `runs-on`, `hosted-on`, `deployed-on`,
-`stores-data-in`, `stores-in`, `authenticates-with`, `integrates-with`) and any object-qualified label of the canonical
+`stores-data-in`, `stores-in`, `authenticates-with`, `integrates-with`; since 2026-11-23 also `written-in`,
+`is-written-in`, `implemented-in`, `coded-in`, `programmed-in`, `developed-in`) and any object-qualified label of the canonical
 or of one of those (`uses-for-auth-and-data`, `stores-data-in-<x>-postgres`; the longest listed prefix decides,
 `EndingFn.ended_by`) close on the same subject and object under the same guards, each keeping its own predicate — so
 "dropped Supabase" ends "uses for auth and data Supabase" and "depends on Supabase" too, where it used to end only a
 plain `uses`. A predicate two canonicals list ends nothing; a relative said after the ending stays current (the newest
-dated statement wins, ruling 26), and one said before it, read after, is closed history like the canonical.
+dated statement wins, ruling 26), and one said before it, read after, is closed history like the canonical. **An `over` ending also closes a value naming what ended (G148,
+2026-11-23):** an open value on the same subject whose whole literal is the ended thing ("implementation language:
+Python" beside "dropped Python") closes with it; a value naming anything else stays.
 `past` ("worked at", "interned at") reinforces an open place and never closes it — only the canonical itself, never a
 relative; with none open it is closed history, never a current place. **Order never decides:** a mention said on or before a departure already on
 the page (a "left" claim, or an ending record's own words) is kept as closed history, whatever order the claims are
