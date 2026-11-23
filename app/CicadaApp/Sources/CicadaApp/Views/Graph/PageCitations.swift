@@ -38,18 +38,18 @@ enum CitationMarks {
     /// The one cluster that ends a passage citing `keys`: nil when it cites nothing.
     static func cluster(_ keys: [CiteKey], in citations: PageBlocks.Citations?) -> (SourceClusterModel, [CiteKey])? {
         guard !keys.isEmpty else { return nil }
-        let model = SourceClusterModel(keys: keys.map { citations?.markKey(forRef: $0.n) })
+        let model = SourceClusterModel(keys: keys.map { citations?.markKey(forRef: $0.n) }, drawn: PageSourceMark.isDrawn)
         return model.isEmpty ? nil : (model, keys)
     }
 }
 
-/// The cluster of marks that ends a cited passage. It sits on the line's baseline, glued to the last word by the flow.
+/// The cluster of marks that ends a cited passage: one small rounded tile per mark, side by side with a 2 pt gap so each
+/// reads on its own, and quieter than the words — at rest the tiles are dim, at full on hover, keyboard focus and while
+/// the popover is open. It sits on the line's baseline, glued to the last word by the flow.
 struct SourceCluster: View {
     let model: SourceClusterModel
     let keys: [CiteKey]
     let entityId: String
-    /// What the marks are knocked out of: the page's ground.
-    var ground: Color = CicadaTheme.bgBase
 
     @State private var open = false
     @State private var hovering = false
@@ -59,7 +59,13 @@ struct SourceCluster: View {
     @FocusState private var focused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// A tile on the text line: just taller than the lowercase, as the line's own height allows.
+    static var tile: CGFloat { CicadaTheme.scaled(15) }
+    /// How present the marks are at rest: the eye reads the sentence first.
+    static let restingOpacity = 0.62
+
     private var shape: RoundedRectangle { CicadaTheme.shape(CicadaTheme.scaled(6)) }
+    private var lit: Bool { hovering || focused || open }
 
     var body: some View {
         Button {
@@ -67,14 +73,34 @@ struct SourceCluster: View {
             openedByHover = false
             open = true
         } label: {
-            RunSourceMarks(origins: model.marks, style: .passage, more: model.more, ground: ground)
-                .padding(.horizontal, CicadaTheme.scaled(2))
-                .background(shape.fill(hovering || focused || open ? CicadaTheme.bgSelected : .clear))
-                .contentShape(shape)
+            HStack(spacing: CicadaTheme.scaled(2)) {
+                ForEach(model.marks, id: \.self) { key in
+                    SourceMarkTile(key: key, size: Self.tile)
+                }
+                .opacity(lit ? 1 : Self.restingOpacity)
+                if model.marks.isEmpty {
+                    // No source of this passage has a real mark: the words say how many, never a stand-in glyph.
+                    Text(Copy.Pages.sourcesSpoken(model.total))
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize()
+                } else if let more = model.moreWords {
+                    Text(more)
+                        .font(CicadaTheme.metaFont)
+                        .monospacedDigit()
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .fixedSize()
+                        .padding(.leading, CicadaTheme.scaled(2))
+                }
+            }
+            .padding(.horizontal, CicadaTheme.scaled(2))
+            .padding(.vertical, CicadaTheme.scaled(1))
+            .background(shape.fill(lit ? CicadaTheme.bgSelected : .clear))
+            .contentShape(shape)
         }
         .buttonStyle(.cicadaPlain)
-        // The marks' centre sits where lowercase letters do, so the cluster reads on the words' line.
-        .alignmentGuide(.firstTextBaseline) { d in d.height / 2 + CicadaTheme.scaled(5) }
+        // The tiles' centre sits where lowercase letters do, so the cluster reads on the words' line.
+        .alignmentGuide(.firstTextBaseline) { d in d.height / 2 + CicadaTheme.scaled(4) }
         .onHover(perform: pointer)
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
         .focusable()
@@ -133,20 +159,42 @@ struct SourceCluster: View {
 }
 
 /// Every source of a passage, one row each: its mark, who and where and what it is called, the day, the located words
-/// and the way into the conversation. A floating surface (DR-10); long lists scroll.
+/// and the way into the conversation. The app's floating surface (DR-10: `bgMenu`, never the system's translucent grey),
+/// as tall as its rows up to a cap and scrolling inside past it, so no row is ever sliced.
 struct CitationsPopover: View {
     let entityId: String
     let keys: [CiteKey]
+    /// The rows' own height, measured as they load (a row grows when its source is read).
+    @State private var contentHeight: CGFloat = 0
+
+    static var maxHeight: CGFloat { CicadaTheme.scaled(420) }
+    static var width: CGFloat { CicadaTheme.scaled(380) }
+
+    /// Past the cap the rows scroll, and the last of them fades out over this much instead of being sliced.
+    private static var fade: CGFloat { CicadaTheme.scaled(22) }
 
     var body: some View {
+        let scrolls = contentHeight > Self.maxHeight
         ScrollView {
             LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
                 ForEach(keys) { key in CitationSourceRow(entityId: entityId, key: key) }
             }
             .padding(CicadaTheme.spacingMD)
+            .padding(.bottom, scrolls ? Self.fade : 0)   // the last row clears the fade when scrolled to the end
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
         }
-        .frame(width: CicadaTheme.scaled(380))
-        .frame(maxHeight: CicadaTheme.scaled(420))
+        .frame(width: Self.width)
+        .frame(height: contentHeight > 0 ? min(contentHeight, Self.maxHeight) : CicadaTheme.scaled(96))
+        .mask {
+            VStack(spacing: 0) {
+                Rectangle().fill(.black)
+                if scrolls {
+                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: Self.fade)
+                }
+            }
+        }
+        .background(CicadaTheme.bgMenu)
     }
 }
 
@@ -194,8 +242,7 @@ struct CitationSourceRow: View {
     @ViewBuilder
     private var mark: some View {
         if case .loaded(let d) = phase {
-            RunSourceMarks.markView(PageWords.markKey(kind: d.kind, harness: d.harness, origin: d.origin),
-                                    size: markSize)
+            SourceMarkTile(key: PageWords.markKey(kind: d.kind, harness: d.harness, origin: d.origin), size: markSize)
         } else {
             CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgBadge.opacity(0.5))
         }

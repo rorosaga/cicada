@@ -50,38 +50,62 @@ struct InlineFlowLayout: Layout {
     }
 
     /// The line breaking, pure: greedy, a piece and everything glued after it placed whole or not at all, so a
-    /// full stop never starts a line and the source cluster is never alone on one. A unit wider than the line sits on a
-    /// line by itself and overflows it.
+    /// full stop never starts a line and the source cluster is never alone on one. Everywhere else a line may break, as
+    /// plain text does. A glued run wider than the whole line is broken between its pieces, so only a single piece wider
+    /// than the line ever overflows it.
     static func arrange(_ items: [Measure], width: CGFloat, space: CGFloat) -> [Line] {
         var lines: [Line] = []
         var current = Line()
-        var index = 0
-        while index < items.count {
-            var unit: [Entry] = []
-            var unitWidth: CGFloat = 0
-            var cursor = index
-            repeat {
-                let item = items[cursor]
-                let lead = unit.isEmpty ? 0 : item.lead
-                unit.append(Entry(index: cursor, x: unitWidth + lead, size: item.size, ascent: item.ascent))
-                unitWidth += lead + item.size.width
-                cursor += 1
-            } while cursor < items.count && items[cursor].glued
-            index = cursor
 
+        /// Places `run` (indices of pieces that must stay together) on the current line, or on a new one.
+        func place(_ run: Range<Int>) {
+            var entries: [Entry] = []
+            var runWidth: CGFloat = 0
+            for index in run {
+                let lead = entries.isEmpty ? 0 : items[index].lead
+                entries.append(Entry(index: index, x: runWidth + lead, size: items[index].size,
+                                     ascent: items[index].ascent))
+                runWidth += lead + items[index].size.width
+            }
             let gap = current.entries.isEmpty ? 0 : space
-            if !current.entries.isEmpty, width.isFinite, current.width + gap + unitWidth > width {
+            if !current.entries.isEmpty, width.isFinite, current.width + gap + runWidth > width {
                 lines.append(current)
                 current = Line()
             }
             let start = current.entries.isEmpty ? 0 : current.width + space
-            for var entry in unit {
+            for var entry in entries {
                 entry.x += start
                 current.entries.append(entry)
                 current.ascent = max(current.ascent, entry.ascent)
                 current.descent = max(current.descent, entry.size.height - entry.ascent)
             }
-            current.width = start + unitWidth
+            current.width = start + runWidth
+        }
+
+        var index = 0
+        while index < items.count {
+            var end = index + 1
+            var runWidth = items[index].size.width
+            while end < items.count, items[end].glued {
+                runWidth += items[end].lead + items[end].size.width
+                end += 1
+            }
+            if width.isFinite, end - index > 1, runWidth > width {
+                var from = index
+                while from < end {
+                    var to = from + 1
+                    var w = items[from].size.width
+                    while to < end, w + items[to].lead + items[to].size.width <= width {
+                        w += items[to].lead + items[to].size.width
+                        to += 1
+                    }
+                    place(from..<to)
+                    from = to
+                }
+            } else {
+                place(index..<end)
+            }
+            index = end
         }
         if !current.entries.isEmpty { lines.append(current) }
         return lines
@@ -127,7 +151,8 @@ struct PageInlineFlow: View {
     var italic = false
     /// The page the line is on: its icon route serves a linked site's mark (`LinkFactsCache`), its popover reads its sources.
     let entityId: String?
-    @Environment(\.openURL) private var openURL
+    /// The quiet link under the pointer, so every word of one link lights together.
+    @State private var hoveredGroup: Int?
 
     var body: some View {
         InlineFlowLayout(space: InlineFlowLayout.spaceWidth(size: CicadaTheme.scaled(14)),
@@ -165,8 +190,61 @@ struct PageInlineFlow: View {
             PageLinkChip(face: .page(target), url: url, entityId: entityId)
         case .external(let url, let label):
             PageLinkChip(face: .web(label: label), url: url, entityId: entityId)
+        case .quiet(let word):
+            PageQuietWordView(word: word, font: font, ink: ink, italic: italic, hovering: hoveredGroup == word.group) {
+                if $0 { hoveredGroup = word.group } else if hoveredGroup == word.group { hoveredGroup = nil }
+            }
         case .cluster(let model, let keys):
             if let entityId { SourceCluster(model: model, keys: keys, entityId: entityId) }
         }
+    }
+}
+
+/// One word of a quiet link: the page's name (or the words as written) in body ink — no picture, no fill, no underline,
+/// no accent — and on hover or keyboard focus a soft fill behind the whole link. The same click as the chip's: it opens
+/// the page, or for a ref that matched no single page asks which (G227). The words of a link are one control for
+/// assistive tech: the first carries its label.
+struct PageQuietWordView: View {
+    let word: PageQuietWord
+    let font: Font
+    let ink: Color
+    let italic: Bool
+    let hovering: Bool
+    let onHover: (Bool) -> Void
+
+    @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        let shape = CicadaTheme.shape(CicadaTheme.cornerRadiusSmall)
+        Button { openURL(word.url) } label: {
+            Text(word.text)
+                .font(font)
+                .foregroundStyle(ink)
+                .italic(italic)
+                .fixedSize()
+                .background {
+                    // Reaches 2 pt past the word each side, so the fills of a name's words meet across the space.
+                    shape.fill(hovering || focused ? CicadaTheme.bgHover : .clear)
+                        .padding(.horizontal, -CicadaTheme.scaled(2))
+                        .padding(.vertical, -CicadaTheme.scaled(1))
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.cicadaPlain)
+        .onHover(perform: onHover)
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+        .focusable(word.first)
+        .focused($focused)
+        .focusEffectDisabled()
+        .onKeyPress(.return) {
+            openURL(word.url)
+            return .handled
+        }
+        .help(word.first ? Copy.Pages.openPage(word.label) : "")
+        .accessibilityHidden(!word.first)
+        .accessibilityLabel(word.label)
+        .accessibilityAddTraits(.isLink)
     }
 }

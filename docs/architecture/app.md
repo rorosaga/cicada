@@ -2282,9 +2282,10 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   same line and day cited twice is one card — then "N conversations and M web pages in all · who wrote
   each change is in History", with a History link). **The article carries the beliefs (DR-80, amended 2026-11-23):**
   every line the page's write-time provenance cites ends with **one cluster of its sources' marks** (`SourceCluster`,
-  `RunSourceMarks` in its `.passage` style: the first of each kind of source, up to three, then a quiet "+N";
+  one 15 pt `SourceMarkTile` per mark, 2 pt apart, dim at rest and full on hover, focus and while open; the first of each
+  kind of source, up to three, then a quiet "+N" — a source with no real mark draws none, `PageSourceMark`;
   `SourceClusterModel`), glued to the last word; a click, a hover after `hoverPreviewDelay` or Tab then ⏎ opens
-  `CitationsPopover`, one `CitationSourceRow` per source — its mark, "You, in <app> · <title>", the day, the kind
+  `CitationsPopover` (the app's `bgMenu` surface, sized to its rows up to 420 pt, then scrolling with a faded last row), one `CitationSourceRow` per source — its mark, "You, in <app> · <title>", the day, the kind
   (*You said*, *<agent> replied*, *Looked up*, *From this conversation*, *Inferred*) and located words through `QuoteBlock`
   (DR-18) and *Show in conversation* into the Reader, DR-31 — each read lazily from
   `GET /entities/{id}/citations/{n}` and held in `CitationDetailCache`. The marks come from `citations.markKeys` /
@@ -2292,9 +2293,11 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   **Links are chips (2026-11-23):** a wikilink or web link in a paragraph, item or quote is a `PageLinkChip` wearing the
   resolved page's own name and picture (`PageLinkIndex`, memoised per graph snapshot as `Store.linkIndex`: an id, else
   exactly one page by name or alias; anything else keeps its written words) or the site's bundled mark
-  (`PageChipMark`); a line with a chip or cluster is cut into `PageInline` pieces and laid out by `InlineFlowLayout`
-  (baseline-aligned, a touching piece never starts a line, the cluster never alone), a line of only words stays one
-  `Text`. **Related** list items are `RelatedCard`s (picture, the page's name, the words after the dash); the tab bar's
+  (`PageChipMark`) — **the first mention of a page in a passage is the chip, later ones a quiet link** (`PageQuietWordView`: the
+  name in body ink, a hover fill, the same click; an ambiguous ref is one too, so no link on the page is blue); a line with a
+  chip, quiet link or cluster is cut into `PageInline` pieces and laid out by `InlineFlowLayout` (baseline-aligned, a
+  touching piece never starts a line, the cluster glued to the last word only, a glued run wider than the column broken
+  between its pieces), a line of only words stays one `Text`. **Related** list items are `RelatedCard`s (picture, the page's name, the words after the dash); the tab bar's
   scroll view fades its first 16 pt (`fadedTopEdge`). A page whose prose cites nothing yet draws its beliefs as one paragraph of sentences
   (`PageBeliefSentences`): an inference worded "It seems that …", an ended one "(until March 2025)"; past twelve, "N
   more in Perspectives". **Gone from the page:** the beliefs list, *Where this came from*, the person's *How you know*

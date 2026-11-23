@@ -94,8 +94,9 @@ struct PageLinkChip: View {
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .padding(.leading, drawsPicture ? pictureWidth + CicadaTheme.scaled(9) : CicadaTheme.scaled(8))
-                .padding(.trailing, CicadaTheme.scaled(8))
+                .padding(.leading, drawsPicture ? pictureWidth + CicadaTheme.scaled(8) : CicadaTheme.scaled(6))
+                // Snug on the trailing side: a full stop or a bracket after the chip must read as hugging it.
+                .padding(.trailing, CicadaTheme.scaled(6))
                 .overlay(alignment: .leading) {
                     picture
                         .padding(.leading, CicadaTheme.scaled(4))

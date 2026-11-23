@@ -37,18 +37,86 @@ final class PageInlineTests: XCTestCase {
         XCTAssertEqual(MarkdownBody.entityIDs("bob-example", in: nodes), ["bob-example"])
     }
 
-    func testAnAmbiguousOrUnknownRefKeepsItsWrittenWordsAndTodaysClick() {
+    func testAnAmbiguousOrUnknownRefKeepsItsWrittenWordsAndTodaysClickAsAQuietLink() throws {
         for written in ["[[Gamma]]", "[[Nobody Known]]"] {
             let pieces = PageInline.pieces(of: line("See \(written) now."), resolve: index.resolve)
-            XCTAssertFalse(PageInline.needsFlow(pieces), "\(written) stays words in one selectable Text")
-            let linked = pieces.contains { piece in
-                if case .word(let attr) = piece.token { return attr.runs.contains { $0.link != nil } }
-                return false
+            let quiet = pieces.compactMap { piece -> PageQuietWord? in
+                if case .quiet(let word) = piece.token { return word }
+                return nil
             }
-            XCTAssertTrue(linked, "\(written) keeps its link, and the click's own choice (G227)")
+            XCTAssertFalse(quiet.isEmpty, "\(written) is a quiet link, never blue underlined text in a Text")
+            XCTAssertTrue(PageInline.needsFlow(pieces), "a quiet link is a view (its hover fill), so the line is a flow")
+            let url = try XCTUnwrap(quiet.first?.url)
+            XCTAssertNotNil(PageInline.entityRef(url), "\(written) keeps the click it always had, which asks which (G227)")
+            XCTAssertEqual(quiet.map { String($0.text.characters) }.joined(separator: " "),
+                           written.dropFirst(2).dropLast(2).description, "the written words")
+            for word in quiet {
+                XCTAssertNil(word.text.runs.first?.link, "no link attribute left to draw blue")
+                XCTAssertNil(word.text.runs.first?.underlineStyle)
+            }
+            XCTAssertEqual(quiet.filter(\.first).count, 1, "one control: its first word carries the label")
+            XCTAssertFalse(pieces.contains { if case .entity = $0.token { return true }; return false },
+                           "no chip for a ref that means no single page")
         }
         XCTAssertNil(index.resolve("Gamma"), "two pages answer to the name")
         XCTAssertEqual(index.resolve("gamma-ide")?.name, "Gamma (IDE)", "an id names exactly one page, qualified")
+    }
+
+    func testTheFirstMentionOfAPageIsTheChipAndLaterOnesInThePassageAreQuietLinks() {
+        let pieces = PageInline.pieces(
+            of: line("[[bob-example]] met [[Bobby E.]] and [[B. Example]] with [[alpha-project]], then [[alpha-project]]."),
+            resolve: index.resolve)
+        var shape: [String] = []
+        for piece in pieces {
+            switch piece.token {
+            case .entity(let target, _): shape.append("chip:\(target.id)")
+            case .quiet(let word) where word.first: shape.append("quiet:\(word.label)")
+            default: break
+            }
+        }
+        XCTAssertEqual(shape, ["chip:bob-example", "quiet:Bob Example", "quiet:Bob Example", "chip:alpha-project",
+                               "quiet:Alpha Project"],
+                       "every spelling of one page counts once: the first is the chip, the rest are quiet")
+        let quietWords = pieces.compactMap { piece -> String? in
+            if case .quiet(let word) = piece.token, word.label == "Bob Example" { return String(word.text.characters) }
+            return nil
+        }
+        XCTAssertEqual(quietWords, ["Bob", "Example", "Bob", "Example"], "the page's own name, a word each so it wraps")
+        XCTAssertEqual(PageInline.plainText(pieces),
+                       "Bob Example met Bob Example and Bob Example with Alpha Project, then Alpha Project.")
+    }
+
+    func testEachPassageCountsItsOwnFirstMention() {
+        // A bullet and a paragraph are each one `pieces` call: the same page is a chip again in the next passage.
+        for text in ["[[bob-example]] and [[bob-example]]", "[[bob-example]] again"] {
+            let chips = PageInline.pieces(of: line(text), resolve: index.resolve).filter {
+                if case .entity = $0.token { return true }
+                return false
+            }
+            XCTAssertEqual(chips.count, 1)
+        }
+    }
+
+    func testAQuietLinkOpensTheSamePageAsTheChip() throws {
+        let pieces = PageInline.pieces(of: line("[[bob-example]] and [[Bobby E.]]"), resolve: index.resolve)
+        guard case .entity(_, let chipURL)? = pieces.first?.token,
+              case .quiet(let word)? = pieces.last?.token else { return XCTFail("a chip then a quiet link") }
+        XCTAssertEqual(word.url, chipURL, "the page's id, so an alias never asks which")
+    }
+
+    func testAQuietLinksFirstWordTouchesWhatTouchedIt() {
+        let pieces = PageInline.pieces(of: line("[[bob-example]] met ([[Bobby E.]])."), resolve: index.resolve)
+        let shape = pieces.map { piece -> String in
+            let glue = piece.glued ? "~" : ""
+            switch piece.token {
+            case .word(let attr): return glue + String(attr.characters)
+            case .entity: return glue + "<chip>"
+            case .quiet(let word): return glue + "q:" + String(word.text.characters)
+            default: return "?"
+            }
+        }
+        XCTAssertEqual(shape, ["<chip>", "met", "(", "~q:Bob", "q:Example", "~)."],
+                       "brackets and a full stop hug a quiet link as they hug a word")
     }
 
     func testAnExternalLinkIsAChipWearingItsOwnWords() {
@@ -116,18 +184,27 @@ final class PageInlineTests: XCTestCase {
         XCTAssertEqual(five.marks.count + five.more, five.total)
     }
 
-    func testASourceTheBackendNamedNoMarkStillCountsAndDrawsTheStandIn() {
-        let model = SourceClusterModel(keys: [nil, "notes"])
-        XCTAssertEqual(model.marks, [SourceClusterModel.unknown, "notes"])
-        XCTAssertEqual(model.total, 2)
+    func testASourceWithNoRealMarkCountsButDrawsNone() {
+        // A key the backend gave no mark for, and a place the app has no real mark of: counted in the "+N", never a tile.
+        let model = SourceClusterModel(keys: [nil, "notes", "some-folder"], drawn: { $0 == "notes" })
+        XCTAssertEqual(model.marks, ["notes"])
+        XCTAssertEqual(model.more, 2)
+        XCTAssertEqual(model.total, 3)
+        let none = SourceClusterModel(keys: ["some-folder"], drawn: { _ in false })
+        XCTAssertTrue(none.marks.isEmpty)
+        XCTAssertFalse(none.isEmpty, "the cluster still opens the popover; its words say how many")
         XCTAssertTrue(SourceClusterModel(keys: []).isEmpty)
+        XCTAssertFalse(PageSourceMark.isDrawn(SourceClusterModel.unknown), "the unknown stand-in is never drawn")
+        XCTAssertTrue(PageSourceMark.isDrawn("web"), "a looked-up page's globe is an explicit mark")
+        XCTAssertTrue(PageSourceMark.isDrawn("page"))
     }
 
     func testAPassageEndsInExactlyOneClusterAfterItsLastWord() {
         let keys = [CiteKey(n: 1, at: 10), CiteKey(n: 2, at: 10), CiteKey(n: 4, at: 10)]
-        let citations = PageBlocks.Citations(markKeys: ["claude-code", "notes", "web"], refMarks: [0, 1, 1, 2, 0, 2])
+        let citations = PageBlocks.Citations(markKeys: ["web", "page", "unknown"], refMarks: [0, 1, 1, 2, 0, 2])
         let cluster = CitationMarks.cluster(keys, in: citations)
-        XCTAssertEqual(cluster?.0.marks, ["claude-code", "notes", "web"])
+        XCTAssertEqual(cluster?.0.marks, ["web", "page"], "the unknown source is counted, not drawn")
+        XCTAssertEqual(cluster?.0.more, 1)
         let pieces = PageInline.pieces(of: line("It opens in December."), resolve: index.resolve, cluster: cluster)
         let clusters = pieces.filter { if case .cluster = $0.token { return true }; return false }
         XCTAssertEqual(clusters.count, 1, "one cluster per passage, never a run of markers")
@@ -246,6 +323,17 @@ final class PageInlineTests: XCTestCase {
     func testAUnitWiderThanTheLineIsAloneAndOverflowsRatherThanLooping() {
         let lines = InlineFlowLayout.arrange([measure(30), measure(300), measure(30)], width: 100, space: 4)
         XCTAssertEqual(lines.map { $0.entries.map(\.index) }, [[0], [1], [2]])
+    }
+
+    func testAGluedRunWiderThanTheLineBreaksBetweenItsPiecesAndNeverOverflows() {
+        // A 70 pt chip, a 5 pt full stop touching it and a 30 pt cluster 5 pt away, in a 90 pt column.
+        let items = [measure(70), measure(5, glued: true), measure(30, glued: true, lead: 5)]
+        let lines = InlineFlowLayout.arrange(items, width: 90, space: 4)
+        XCTAssertEqual(lines.map { $0.entries.map(\.index) }, [[0, 1], [2]])
+        XCTAssertTrue(lines.allSatisfy { $0.width <= 90 })
+        // Wide enough, the same run stays one unit and moves whole to the next line.
+        let whole = InlineFlowLayout.arrange([measure(60)] + items, width: 120, space: 4)
+        XCTAssertEqual(whole.map { $0.entries.map(\.index) }, [[0], [1, 2, 3]])
     }
 
     func testAnUnboundedWidthIsOneLine() {

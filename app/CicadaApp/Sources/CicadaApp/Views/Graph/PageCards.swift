@@ -103,7 +103,7 @@ struct ReferenceCard: View {
 
     var body: some View {
         HStack(spacing: CicadaTheme.spacingMD) {
-            RunSourceMarks.markView(row.markKey, size: CicadaTheme.scaled(20))
+            SourceMarkTile(key: row.markKey, size: CicadaTheme.scaled(20))
                 .frame(width: CicadaTheme.scaled(20), height: CicadaTheme.scaled(20))
                 .accessibilityHidden(true)
             Text(line)
@@ -132,5 +132,58 @@ struct ReferenceCard: View {
         var rest = AttributedString(" · \(title)")
         rest.foregroundColor = CicadaTheme.textPrimary
         return who + rest + gone + edited
+    }
+}
+
+// MARK: - A source's mark on this page (owner 2026-11-23)
+
+/// Which sources draw a mark on an entity page. A real mark or none, never a generic glyph: a web lookup and another
+/// page of the bank have their own (the globe and the page glyph, explicit marks the Sleep page's cluster wears too);
+/// every other place is an origin that draws only when the app has its real mark — the installed app's icon or a bundled
+/// logo (`OriginMark.hasRealMark`). Anything else (an unknown channel, a folder) draws nothing and its row's words
+/// ("You, in <place>") carry it.
+enum PageSourceMark {
+    nonisolated(unsafe) private static var memo: [String: Bool] = [:]
+
+    /// Called from a view's body, so on the main actor (installed-app icons are looked up there).
+    static func isDrawn(_ key: String) -> Bool {
+        if key == "web" || key == "page" { return true }
+        return MainActor.assumeIsolated {
+            if let held = memo[key] { return held }
+            let real = key != SourceClusterModel.unknown && OriginMark.hasRealMark(key)
+            memo[key] = real
+            return real
+        }
+    }
+}
+
+/// One source's mark on a small rounded tile (the neutral `bgBadge` one the Sleep page's marks sit on), scaled to the
+/// size asked: 14 pt on the text line in a cluster, 20 pt in a References card or a popover row. A source with no real
+/// mark draws an empty slot of the same size.
+struct SourceMarkTile: View {
+    let key: String
+    let size: CGFloat
+
+    var body: some View {
+        if PageSourceMark.isDrawn(key) {
+            let inner = (size * 0.74).rounded()
+            ZStack {
+                switch key {
+                case "web":
+                    Image(systemName: "globe").font(CicadaTheme.font(size: size * 0.6, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                case "page":
+                    Image(systemName: "doc.text").font(CicadaTheme.font(size: size * 0.6, weight: .medium))
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                default:
+                    OriginMark(origin: key, size: inner)
+                }
+            }
+            .frame(width: size, height: size)
+            .background(CicadaTheme.shape(max(CicadaTheme.scaled(4), size * 0.26)).fill(CicadaTheme.bgBadge))
+            .accessibilityHidden(true)
+        } else {
+            Color.clear.frame(width: size, height: size)
+        }
     }
 }

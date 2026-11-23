@@ -119,6 +119,7 @@ extension DesignConsistencyLintTests {
             "ScenerySettings.swift": "a Settings picker tile resting on bgFocus",
             "LinkCards.swift": "a link card resting on bgFocus",
             "PageLinkChip.swift": "an inline link chip resting on bgFocus, not a list row (owner 2026-11-23)",
+            "PageInlineFlow.swift": "an inline quiet link's hover fill behind its words, not a list row (owner 2026-11-23)",
             "PageCards.swift": "a Related or References card resting on bgFocus, not a list row (owner 2026-11-23)",
             "ProjectSentence.swift": "a story row: bgFocus and the strong ring while selected, grows in place (Projects v2)",
             "EngineChooser.swift": "a Settings engine card resting on surface",
