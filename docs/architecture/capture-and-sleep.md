@@ -3931,8 +3931,8 @@ where it stands, the facts worth remembering once each. What changed, besides pr
   to an earlier incoming one, after trivial normalization — case, accents, whitespace, wikilink brackets, trailing
   punctuation. Never containment, never stopword or preposition removal: "works at Acme" inside "works at Acme's
   competitor", "uses Postgres" inside "uses Postgres or SQLite", "launched" against "will launch" are all kept.
-  Paraphrases and more specific restatements fold only through opt-in synthesis, behind its guard; with synthesis off
-  near-duplicates stay — a duplicate is cheaper than a lost fact. Used by Stage 2's same-name fold, every section
+  Paraphrases and more specific restatements fold only through the judged, code-checked step (`fact_fold`, *Facts keep
+  their context* below) — never a word rule; with no engine they stay, a duplicate being cheaper than a lost fact. Used by Stage 2's same-name fold, every section
   merge, the re-read gate and the pending store. An existing bullet is never removed or reworded.
 - **Offline eval:** `python -m benchmarks.system.page_quality --scratch <new-dir>` runs the production Stage 1
   post-processing, Stage 2, Stage 3 and the page writer over synthetic conversations with recorded Stage-1 answers
@@ -3977,7 +3977,7 @@ is about, who did it, and never say one thing twice. Four mechanisms, each engin
   machine page, never on a page a person edited (`extend_existing=False`). Measured on the owner bank: 109 facts on 79
   pages fold, every one of 25 sampled loss-free. Paraphrase is not touched: ~2,700 facts on 477 pages pair up at
   content-word Jaccard ≥ 0.6, and 2,741 Key Facts on 772 pages re-introduce their page ("X is a …", a displaced
-  orientation) — only the opt-in synthesis call folds those (ruling 23).
+  orientation) — since 2026-11-23 the judged fold below takes the paraphrases (ruling 23's amendment).
 - **A link in new text is written under the page's own name (`link_names`, G148, owner report 2026-11-23).** Stage 1
   reads each conversation alone, so it wrote `[[Girlfriend]]`, `[[<nickname>]]` and `[[<owner>'s girlfriend]]` for one
   person; Stage 2 resolved all three to her page, but the text kept the spelling — one page read as three people, equal
@@ -4007,6 +4007,47 @@ is about, who did it, and never say one thing twice. Four mechanisms, each engin
   than one way (the record on a page written before this), a `SAME_PAGE` list — only for spellings read inside the
   page's own neighbourhood (its own name or id in another form, a page it already relates to; never a bank-wide alias) — "`as` is another name of `is`" — with a
   rule to write it once under the one name and never as different people.
+- **A fact a page already says in full is not added again (`fact_fold`, G148, owner report 2026-11-23; amends ruling 23).**
+  The page-merge call was cut to the Summary and the new History lines (2026-10-24), so nothing folded a fact said again
+  in other words: one artist's page held 16 bullets stating about 3 facts, and 3,073 Key Facts on 708 pages of the owner
+  bank (53,680 on 4,302 pages) restate an earlier bullet (content-word Jaccard ≥ 0.6, a rough detector). A word rule that
+  guesses is out (ruling 23: rule folds lost information); a judgement guarded by code is in, built as `value_alignment`
+  is (#783). In Stage 3 (`conflict_resolver._fold_facts`, after the link rewrite and before any article or summary call,
+  so a page that gains nothing new falls to the "re-read" gate) a page whose update brings a fact **no bullet equals or
+  extends** gets ONE call to Sleep's small judge: the new facts and the existing bullets most like them (shared words,
+  names, numbers — a bound on the prompt, never a decision; a fact that shares none, another language, is shown beside
+  the newest bullets), asked per line which other line already says it **in full**, with the other names of every page
+  linked in the lines listed ("Alice Example is also called Girlfriend"). Then **the guard (`fact_fold.covers`) no answer
+  can talk past**: the dropped fact's numbers and dates, months and weekdays (six languages), negation and tense words,
+  and every name it carries (a capitalised word, a link's target) must be in the line that holds it — the page's own
+  names, the owner's and the other names of a linked page excepted; a proposal the guard refuses is never put to the
+  second reader. **The check**: one more call per page lists, per pair, everything the dropped fact says that the other
+  does not; a fold needs the list empty and `same` true, and the guard again. What a fold does: the incoming fact is not
+  added; an existing bullet a new one says in full is replaced by it (a machine page only — `extend_existing`, never a
+  page a person edited, never a pinned correction); the dropped fact's G118 rows move onto the holder
+  (`section_provenance.FOLDS`, in `merge_selected` and `refresh`), so the page still shows every conversation that said
+  it. A pair that says the same both ways keeps the older bullet; a chain is followed to the bullet that is kept and the
+  guard runs on that pair too. **Cost**: nothing for a page that gains no such fact; otherwise one ask and at most one
+  check, at most `MAX_ASKS` (24) pages a batch (the pages gaining most first), `MAX_NEW` 12 new facts and `MAX_LINES` 40
+  lines each, at most 24 pairs checked — so at most 48 small-tier calls a batch, and typically one pair of calls per page
+  that was updated with a new fact. Small tier on the engine the cycle resolved (`judge_for`, the same bill as Stage 2's
+  judge, never a metered key the person did not choose); refused past a metered key's spending line
+  (`sleep_spend.LINE_STAGES`); never on the capture path. A cap, a cancel or any failed or unreadable call keeps what
+  the writer did before. **Known limits, stated**: the guard's negation and tense words are English and Spanish, and a
+  pair that differs only in a relation or a verb with no number, name or date ("favourite artist" / "favourite album",
+  "has a sister" / "has a brother") is the model's to tell apart alone — measured below; a fact in another language folds
+  only when its names are spelled as the holder's (Europa / Europe does not: a miss, never a loss). **Not covered:**
+  History lines (dated, one event each: a repeat there is rarer and an event on another day is another event) and Open
+  Questions (a question is closed by an answer, not a repeat); the same module could take them. **Dry run**:
+  `api/scripts/fact_fold_dry_run.py` (read-only; per-item rows; `--judge` runs Sleep's judge on a bank copy, `--pairs`
+  the invented pair set). **Measured** (`benchmarks/system/fact_fold_eval.py`, invented person, 7 conversations, haiku on
+  the plan): 13 Key Facts / 7 favourite-artist bullets / 1 near-duplicate pair before, with links rewritten 13 / 7 / 3
+  (the pairs are what the rewrite makes alike), with the fold 9 / 3 / 0, 12 judge calls for 6 updates, every date and
+  name kept, all 7 conversations still shown as sources of the favourite-artist facts. The 15 invented pairs
+  (`tests/fixtures/fact_fold_pairs.json`: reworded, shorter, another language, an alias; an added date or month, another
+  month or number, a negation, another person, an added name, a plan for a done thing, artist for album, sister for
+  brother) with haiku: 0 false folds of 11, 1 missed of 4 that should fold, in 2 runs; the code guard alone, answered
+  "yes" to everything, folds none of the 8 that a number, date, name or negation tells apart.
 - **Who said it, who did it.** A claim resting only on the other side's words is theirs (`entity_extractor
   .assistant_observer`): a texted agent's (G179), and now a harness session's agent (`external:<harness>`) and a chat
   export's assistant (`external:chatgpt|claude|gemini`); a relayed episode (`evidence_kind`) keeps its own rail. Such

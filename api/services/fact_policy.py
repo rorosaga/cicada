@@ -132,6 +132,27 @@ def union(existing: list[str], incoming: list[str], *, extend_existing: bool = F
     return items, folded + len(existing) + len(kept) - len(items)
 
 
+#: The key a write's fields carry the judged folds under (`fact_fold`): ``{dropped text: the text holding it}``.
+FOLDS_KEY = "_fact_folds"
+
+
+def drop_folded(items: list[str], folds: dict[str, str]) -> list[str]:
+    """``items`` without each one a judged fold sent to a holder (`fact_fold`: ``{dropped text: holder text}``), when the
+    holder is still among them — itself, or a longer item that extends it (an `extends` fold took its place). An item
+    whose holder is gone stays: nothing is dropped on a holder that is not there."""
+    if not folds:
+        return list(items)
+    keyed = {normalized(k): v for k, v in folds.items()}
+    out = []
+    for item in items:
+        holder = keyed.get(normalized(item))
+        if holder is not None and any(other is not item and (restates(other, holder) or extends(other, holder))
+                                      for other in items):
+            continue
+        out.append(item)
+    return out
+
+
 # --------------------------------------------------------------------------- sentences
 
 _ABBREVIATIONS = frozenset("e.g i.e etc vs mr mrs ms dr st jr sr inc ltd co no approx dept est fig u.s u.k a.m p.m "

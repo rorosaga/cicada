@@ -113,4 +113,5 @@ def test_a_drains_stage_three_gets_the_pause_and_the_counter_but_a_plain_cycle_c
     seen.clear()
     memory2 = seed_bank(tmp_path / "plain", episode_ids(2))
     asyncio.run(sleep_cycle.run(settings(memory2, sleep_max_episodes_per_cycle=25), "sleep_plain"))
-    assert seen == [[]], "a plain cycle's call is exactly what it always was"
+    # a plain cycle's call is what it always was: no pause, no counter; only the fact fold's judge (G148) may ride along
+    assert seen and all(set(k) <= {"fact_judge"} for k in seen)

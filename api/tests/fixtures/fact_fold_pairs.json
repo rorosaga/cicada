@@ -1,0 +1,21 @@
+{
+  "_note": "Invented pairs for `fact_fold`. `drop` is a fact a write would add (or an existing bullet), `keep` the bullet that may hold it. `fold`: whether a person would let the drop go. `guard`: what the code check (`fact_fold.covers`) decides on its own; `blind` marks a pair only the model can tell apart (no number, date, name or negation word differs). `names` / `own` are the page's other names and the allowed words.",
+  "pairs": [
+    {"id": "reworded", "keep": "Artist X is [[Alice Example]]'s favourite artist", "drop": "[[Alice Example]]'s favourite artist is Artist X.", "fold": true, "guard": true},
+    {"id": "shorter", "keep": "Moved to Berlin in March 2026", "drop": "Moved to Berlin", "fold": true, "guard": true},
+    {"id": "another_language", "keep": "Likes jazz and plays the saxophone on weekends.", "drop": "Le gusta el jazz y toca el saxofón los fines de semana.", "fold": true, "guard": true},
+    {"id": "alias_and_owner", "keep": "Favourite artist of [[Alice Example]]", "drop": "Owner Example's girlfriend's favourite artist.", "fold": true, "guard": true,
+     "names": {"Alice Example": ["Girlfriend", "Owner Example's girlfriend"]}, "own": ["Owner Example"]},
+    {"id": "adds_a_date", "keep": "Moved to Berlin", "drop": "Moved to Berlin in March 2026", "fold": false, "guard": false},
+    {"id": "adds_a_month", "keep": "Birthday is on the 19th", "drop": "Birthday is on the 19th of March", "fold": false, "guard": false},
+    {"id": "other_month", "keep": "Birthday on 19 March", "drop": "Birthday on 19 November", "fold": false, "guard": false},
+    {"id": "other_number", "keep": "Pays 40 euros a month for the gym", "drop": "Pays 45 euros a month for the gym", "fold": false, "guard": false},
+    {"id": "negation", "keep": "Is vegetarian", "drop": "Is not vegetarian", "fold": false, "guard": false},
+    {"id": "other_person", "keep": "Works with [[Bob Example]] on the report", "drop": "Works with [[Carol Example]] on the report", "fold": false, "guard": false},
+    {"id": "added_name", "keep": "Favourite restaurant is in Lisbon", "drop": "Favourite restaurant is Casa Example in Lisbon", "fold": false, "guard": false},
+    {"id": "plan_for_done", "keep": "Plans to visit Lisbon", "drop": "Planned to visit Lisbon next spring", "fold": false, "guard": false},
+    {"id": "artist_for_album", "keep": "Favourite artist of [[Alice Example]]", "drop": "Favourite album of [[Alice Example]]", "fold": false, "guard": true, "blind": true},
+    {"id": "other_relation", "keep": "Has a sister", "drop": "Has a brother", "fold": false, "guard": true, "blind": true},
+    {"id": "done_for_plan", "keep": "Plans to visit Lisbon", "drop": "Visited Lisbon", "fold": false, "guard": true, "blind": true}
+  ]
+}

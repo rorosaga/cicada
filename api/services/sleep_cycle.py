@@ -3373,8 +3373,11 @@ async def _run_stages(
     read_ids = {e.get("episode_id") for e in extracted}
     correcting = {i: g for i, r in revisions.items() if i in read_ids and (g := _words_taken(r))} \
         if revisions else {}
+    from api.services import fact_fold
     changes = await resolve_and_prune(
         resolved_changes, existing, settings, **decay_kw,
+        # G148: a fact a page already states in full is not added again — the small judge, one ask and one check a page.
+        **_accepting(resolve_and_prune, fact_judge=fact_fold.judge_for(settings)),
         **(_accepting(resolve_and_prune, revised=correcting) if correcting else {}),
         # A pause must be able to land between pages (each is a paid call), and the strip counts them.
         **(_accepting(resolve_and_prune, cancel_check=_cancel_requested,
