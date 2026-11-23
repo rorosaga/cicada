@@ -25,6 +25,13 @@ class _Judge:
         return self.answers.pop(0) if self.answers else {}
 
 
+def _says(line, same_as):
+    return {"answers": [{"line": line, "same_as": same_as, "why": "test"}]}
+
+
+YES, NO = {"same_attribute": True}, {"same_attribute": False}
+
+
 class _Settings:
     def __init__(self, memory_path):
         self.memory_path = memory_path
@@ -39,12 +46,14 @@ def _old_and_new():
     return old, new
 
 
-def test_a_new_attribute_with_something_to_join_is_one_call_for_the_page():
+def test_a_new_attribute_with_something_to_join_is_one_call_for_the_page_and_one_check_per_join():
     old, new = _old_and_new()
-    judge = _Judge({"same": [[1, 2]]})
+    judge = _Judge(_says(1, 2), YES)
     audit = value_alignment.align([new], {"shop-example": [old]}, judge)
-    assert len(judge.prompts) == 1
-    assert "price per card: 4 euros" in judge.prompts[0] and "prix des tirages: 5 euros" in judge.prompts[0]
+    assert len(judge.prompts) == 2          # the page, then the one join it proposed
+    assert "NEW" in judge.prompts[0] and "price per card: 4 euros" in judge.prompts[0]
+    assert "prix des tirages: 5 euros" in judge.prompts[0]
+    assert "EARLIER: shop-example price per card: 4 euros" in judge.prompts[1]
     assert new.predicate == old.predicate and old.predicate == "value-of-price-per-card"
     assert audit == [{"action": "value_aligned", "claim": "c_new", "from": "value-of-prix-des-tirages",
                       "to": "value-of-price-per-card"}]
@@ -52,7 +61,7 @@ def test_a_new_attribute_with_something_to_join_is_one_call_for_the_page():
 
 def test_the_newer_value_then_closes_the_older_and_nothing_is_deleted(tmp_path):
     old, new = _old_and_new()
-    value_alignment.align([new], {"shop-example": [old]}, _Judge({"same": [[1, 2]]}))
+    value_alignment.align([new], {"shop-example": [old]}, _Judge(_says(1, 2), YES))
     predicates.install_predicate_map(tmp_path)
     reconciled, _nudges, _audit = reconcile_stage3([new], {"shop-example": [old]}, _Settings(tmp_path),
                                                    cardinality_fn=lambda _p: False, now_date="2026-11-23", decay=False)
@@ -63,9 +72,9 @@ def test_the_newer_value_then_closes_the_older_and_nothing_is_deleted(tmp_path):
 
 def test_two_real_attributes_stay_two_when_the_judge_says_different(tmp_path):
     old, new = _old_and_new()
-    judge = _Judge({"same": []})
+    judge = _Judge({"answers": [{"line": 1, "same_as": None, "why": "a print is not a card"}]})
     assert value_alignment.align([new], {"shop-example": [old]}, judge) == []
-    assert new.predicate == "value-of-prix-des-tirages"
+    assert new.predicate == "value-of-prix-des-tirages" and len(judge.prompts) == 1
     predicates.install_predicate_map(tmp_path)
     reconciled, _n, _a = reconcile_stage3([new], {"shop-example": [old]}, _Settings(tmp_path),
                                           cardinality_fn=lambda _p: False, now_date="2026-11-23", decay=False)
@@ -89,7 +98,7 @@ def test_a_page_with_no_other_value_is_never_asked():
 def test_two_values_one_conversation_stated_are_never_one_attribute():
     old = _value("c_old", "price per card", "4 euros", "2026-09-26", "ep_2026-09-26_001")
     new = _value("c_new", "print price", "18 euros", "2026-09-26", "ep_2026-09-26_001")
-    judge = _Judge({"same": [[1, 2]]})
+    judge = _Judge(_says(1, 2), YES)
     value_alignment.align([new], {"shop-example": [old]}, judge)
     assert judge.prompts == [] and new.predicate == "value-of-print-price"
 
@@ -112,38 +121,57 @@ def test_a_value_read_again_is_the_pages_own_and_never_asked():
     assert judge.prompts == []
 
 
-def test_only_new_claims_are_renamed_and_a_group_of_old_ones_changes_nothing():
+def test_only_new_claims_are_renamed_and_a_line_that_is_not_new_is_never_asked_about():
     a = _value("c_a", "price per card", "4 euros", "2026-09-26", "ep_2026-09-26_001")
     b = _value("c_b", "card cost", "4 euros", "2026-09-27", "ep_2026-09-27_001")
     new = _value("c_new", "prix des tirages", "5 euros", "2026-11-01", "ep_2026-11-01_001")
-    judge = _Judge({"same": [[1, 2]]})   # lines: 1 = the new one first, 2 and 3 the old ones
+    # lines: 1 = the new one, then the old ones newest first (2 = card cost, 3 = price per card)
+    judge = _Judge({"answers": [{"line": 2, "same_as": 3}, {"line": 1, "same_as": 2}]}, YES)
     value_alignment.align([new], {"shop-example": [a, b]}, judge)
     assert a.predicate == "value-of-price-per-card" and b.predicate == "value-of-card-cost"
-    assert new.predicate in ("value-of-price-per-card", "value-of-card-cost")
+    assert new.predicate == "value-of-card-cost" and len(judge.prompts) == 2
 
 
 def test_new_values_of_one_batch_join_each_other_the_earliest_staying_put():
     first = _value("c_1", "price per card", "4 euros", "2026-09-26", "ep_2026-09-26_001")
     second = _value("c_2", "prix des cartes", "5 euros", "2026-11-01", "ep_2026-11-01_001")
-    judge = _Judge({"same": [[1, 2]]})
+    judge = _Judge({"answers": [{"line": 2, "same_as": 1}]}, YES)
     value_alignment.align([second, first], {"shop-example": []}, judge)
-    assert len(judge.prompts) == 1 and second.predicate == first.predicate == "value-of-price-per-card"
+    assert second.predicate == first.predicate == "value-of-price-per-card"
 
 
-def test_a_confused_answer_changes_nothing():
+def test_a_join_the_second_opinion_refuses_is_never_made():
+    """A study's start date once joined its readout date on one wrong answer: both must agree."""
+    old = _value("c_old", "start date", "2026-10-07", "2026-10-02", "ep_2026-10-02_001", subject="study-example")
+    new = _value("c_new", "readout date", "2026-11", "2026-10-14", "ep_2026-10-14_001", subject="study-example")
+    judge = _Judge(_says(1, 2), NO)
+    assert value_alignment.align([new], {"study-example": [old]}, judge) == []
+    assert new.predicate == "value-of-readout-date" and len(judge.prompts) == 2
+
+
+def test_a_check_that_is_not_a_plain_yes_refuses_the_join():
     old, new = _old_and_new()
-    for reply in ({"same": [[1, 9]]}, {"same": [[1]]}, {"same": "yes"}, {"same": [["a", "b"]]}, {}, {"other": 1}):
-        assert value_alignment.align([new], {"shop-example": [old]}, _Judge(reply)) == []
+    for answer in ({}, {"same_attribute": "yes"}, {"same_attribute": None}, {"other": True}):
+        assert value_alignment.align([new], {"shop-example": [old]}, _Judge(_says(1, 2), answer)) == []
         assert new.predicate == "value-of-prix-des-tirages"
 
 
-def test_a_line_the_judge_puts_in_two_groups_keeps_only_the_first():
+def test_a_confused_answer_changes_nothing_and_costs_no_check():
+    old, new = _old_and_new()
+    for reply in ({"answers": [{"line": 1, "same_as": 9}]}, {"answers": [{"line": 1, "same_as": 1}]},
+                  {"answers": [{"line": 2, "same_as": 1}]},   # line 2 is the old one: only a NEW line is ever renamed
+                  {"answers": [{"line": "a", "same_as": "b"}]}, {"answers": "yes"}, {"answers": [3]}, {}, {"same": [[1, 2]]}):
+        judge = _Judge(reply)
+        assert value_alignment.align([new], {"shop-example": [old]}, judge) == []
+        assert new.predicate == "value-of-prix-des-tirages" and len(judge.prompts) == 1
+
+
+def test_a_line_answered_twice_keeps_only_its_first_answer():
     a = _value("c_a", "price per card", "4 euros", "2026-09-26", "ep_2026-09-26_001")
     n1 = _value("c_n1", "prix des tirages", "5 euros", "2026-11-01", "ep_2026-11-01_001")
-    n2 = _value("c_n2", "tarif", "6 euros", "2026-11-02", "ep_2026-11-02_001")
-    ask = value_alignment.questions([n1, n2], {"shop-example": [a]})[0]
-    got = value_alignment.groups({"same": [[1, 3], [3, 2]]}, ask)
-    assert [[ln.n for ln in g] for g in got] == [[1, 3]]
+    ask = value_alignment.questions([n1], {"shop-example": [a]})[0]
+    got = value_alignment.proposals({"answers": [{"line": 1, "same_as": 2}, {"line": 1, "same_as": 2}]}, ask)
+    assert len(got) == 1
 
 
 def test_a_judge_that_fails_costs_the_alignment_never_the_batch():
@@ -182,5 +210,8 @@ def test_pages_asked_per_batch_are_bounded():
 def test_the_prompt_tells_the_judge_to_keep_unlike_things_apart():
     old, new = _old_and_new()
     text = value_alignment.prompt(value_alignment.questions([new], {"shop-example": [old]})[0])
-    for phrase in ("When unsure, they are DIFFERENT", "can both be true at once", "what it includes", "THING: shop example"):
+    for phrase in ("A second reader checks every answer", "what it includes", "THING: shop example", "1. NEW"):
         assert phrase in text
+    check = value_alignment.CHECK
+    for phrase in ("When unsure, they are different", "can both be true at once", "what it includes"):
+        assert phrase in check

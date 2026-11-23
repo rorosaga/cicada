@@ -7,17 +7,19 @@ and in French, "prix des cartes: 5 euros". Two sets of words with nothing in com
 
 Words cannot decide it in any language, and a list of spellings fits one case. What decides it is meaning, read where
 the page is: after Stage 1 and before Stage 3, for each page that gains an attribute no value on it is worded like
-(`orphans`), ONE call to Sleep's small judge lists that page's values and asks which lines state the same attribute.
-A line it joins to another is renamed to that line's predicate, and Stage 3 does the rest as it always has: the newer
-value closes the older (`valid_to`, `superseded_by`), nothing is deleted, and the trust rules still decide who may close
-whom. The judge never edits a claim; it only names which attribute a new value belongs to.
+(`orphans`), ONE call to Sleep's small judge shows that page's values and asks, for each new line, which other line
+states the same attribute (`proposals`). Each proposed join is then put to the judge once more, alone, as a correction
+or not (`confirmed`): a join needs both to say yes, because **a false join is as bad as a miss** — a study's start date
+once joined its readout date on one wrong answer, and the newer closed the older. A joined line is renamed to the other's
+predicate, and Stage 3 does the rest as it always has: the newer value closes the older (`valid_to`, `superseded_by`),
+nothing is deleted, and the trust rules still decide who may close whom. The judge never edits a claim.
 
-**A false join is as bad as a miss** (a postcard's price and a print's price are two values), so the prompt says to
-keep apart anything that could be true at once, and the code adds two rails the model cannot talk its way past: a pair
-that one conversation stated together is never one attribute, and only a newly read value is ever renamed.
+Two rails the model cannot talk its way past: values one conversation stated together are never one attribute, and only a
+newly read value is ever renamed.
 
-**Calls:** none on a page that gains no new attribute or has nothing to join it to; otherwise one per page per batch,
-at most `MAX_ASKS` pages a batch, at most `MAX_LINES` lines a call (`questions`). Never on the capture path.
+**Calls:** none on a page that gains no new attribute or has nothing to join it to; otherwise one per page per batch (at
+most `MAX_ASKS` pages, `MAX_LINES` lines each) plus one check per proposed join (at most `MAX_CHECKS` a batch). Joins are
+rare, so checks are few. Never on the capture path.
 """
 from __future__ import annotations
 
@@ -36,23 +38,38 @@ STAGE = "value_match"
 MAX_ASKS = 24
 MAX_LINES = 40
 MAX_LINE_CHARS = 160
+#: Proposed joins checked per batch (each is one more call); a batch past it keeps what Stage 3 would have done.
+MAX_CHECKS = 40
 
 PROMPT = """One person's memory page for ONE thing lists values stated about it, one line each: the attribute as it was \
 worded when stated (conversations word it differently, sometimes in another language), its value, and the date it was \
-said. Find the lines that state the SAME attribute of this thing, so that a later value replaces an earlier one.
+said. Lines marked NEW were just read; the others are already on the page.
 
-Lines are the SAME only when they measure one and the same property of this thing and the later value would make the \
-earlier one obsolete. Lines are DIFFERENT when anything about what is measured differs: what it is of (a card or a \
-print), what it includes (with or without flights), its scope, period or distance (5k or 10k), its role (a goal or a \
-result, a minimum or a maximum), or its kind (a price, a count, a date). Two lines that can both be true at once are \
-DIFFERENT. When unsure, they are DIFFERENT.
+For each NEW line, name the OTHER line, if any, that states the same attribute of this thing in other words: the \
+later value would then replace the earlier one. A second reader checks every answer you give, so name the closest \
+line whenever the NEW line could be that attribute reworded, translated or shortened; answer null only when no line \
+could be it. Attributes that differ in anything measured are not the same: what it is of (a flat or its garage), what \
+it includes (with or without tax), its scope or period (this year or last), its role (a target or an actual, a start \
+or an end, a minimum or a maximum).
 
 THING: {name}
 LINES:
 {lines}
 
-Reply with JSON only: {{"same": [[line numbers stating one attribute], ...]}}. Leave out a line with no match. \
-{{"same": []}} when none."""
+Reply with JSON only, one answer per NEW line: {{"answers": [{{"line": <NEW line number>, "same_as": <the other \
+line's number, or null>}}]}}"""
+
+CHECK = """One person's memory holds two values stated about the same thing ({name}), said at different times.
+
+EARLIER: {earlier}
+LATER: {later}
+
+Is LATER a new value for the very same attribute as EARLIER (reworded or translated), so that EARLIER is now out of \
+date? Or do they measure different things that can both be true at once: what it is of (a flat or its garage), what it \
+includes (with or without tax), its scope or period (this year or last), its role (a target or an actual, a start or an \
+end, a minimum or a maximum), or its kind (a price, a count, a date)? When unsure, they are different.
+
+Reply with JSON only: {{"why": "<what is measured in each, a few words>", "same_attribute": true or false}}"""
 
 
 @dataclass
@@ -149,38 +166,70 @@ def questions(incoming: list, existing_by_subject: dict) -> list[Ask]:
     return [a for _, _, a in asks[:MAX_ASKS]]
 
 
+def _sentence(line: Line) -> str:
+    """What one line says: the claim's own sentence, which keeps the attribute's spelling as said ("Teamgröße") where the
+    predicate's slug folds accents away; without a sentence, the slug and the value. Then the day it was said."""
+    c = line.latest
+    said = str(c.valid_from or "")[:10]
+    text = " ".join((c.text or "").split()) or f"{_label(line.predicate)}: {' '.join(str(c.object).split())}"
+    return text[:MAX_LINE_CHARS] + (f" ({said})" if said else "")
+
+
 def prompt(ask: Ask) -> str:
-    rows = []
-    for line in ask.lines:
-        c = line.latest
-        said = str(c.valid_from or "")[:10]
-        # The claim's own sentence keeps the attribute's spelling as said ("Teamgröße"); the predicate's slug folds
-        # accents away. Without a sentence, the slug and the value.
-        said_as = " ".join((c.text or "").split()) or f"{_label(line.predicate)}: {' '.join(str(c.object).split())}"
-        rows.append(f"{line.n}. {said_as[:MAX_LINE_CHARS]}" + (f" ({said})" if said else ""))
+    rows = [f"{line.n}. {'NEW ' if line.incoming else ''}{_sentence(line)}" for line in ask.lines]
     return PROMPT.format(name=ask.subject.replace("-", " "), lines="\n".join(rows))
 
 
-def groups(reply: dict, ask: Ask) -> list[list[Line]]:
-    """The judge's groups as lines: real line numbers only, two or more each, no line twice (a model that puts one
-    attribute in two groups has not decided, so the later group is dropped)."""
+def proposals(reply: dict, ask: Ask) -> list[tuple[Line, Line]]:
+    """The judge's answers as ``(new line, the line it restates)``: real line numbers only, a NEW line once, never itself.
+    An answer that is null, missing or confused proposes nothing."""
     by_n = {line.n: line for line in ask.lines}
     seen: set[int] = set()
-    out: list[list[Line]] = []
-    raw = reply.get("same") if isinstance(reply, dict) else None
-    for group in raw if isinstance(raw, list) else []:
-        nums: list[int] = []
-        for item in group if isinstance(group, list) else []:
-            try:
-                n = int(re.sub(r"\D", "", str(item)) or 0)
-            except ValueError:
-                continue
-            if n in by_n and n not in nums:
-                nums.append(n)
-        if len(nums) >= 2 and not seen & set(nums):
-            seen |= set(nums)
-            out.append([by_n[n] for n in nums])
+    out: list[tuple[Line, Line]] = []
+    raw = reply.get("answers") if isinstance(reply, dict) else None
+    for answer in raw if isinstance(raw, list) else []:
+        if not isinstance(answer, dict):
+            continue
+        try:
+            n, m = int(answer.get("line")), int(answer.get("same_as"))
+        except (TypeError, ValueError):
+            continue
+        new, other = by_n.get(n), by_n.get(m)
+        if new is None or other is None or new is other or not new.incoming or n in seen or not _joinable(new, other):
+            continue
+        seen.add(n)
+        out.append((new, other))
     return out
+
+
+def confirmed(new: Line, other: Line, ask: Ask, judge: Callable[[str], dict]) -> bool:
+    """A second, narrower opinion on one proposed join: is the later a correction of the earlier, or can both stand? A
+    join needs both to say so, so one wrong answer in a page of values never closes a true one (a study's start date was
+    once joined to its readout date). Costs one call per proposal, and proposals are rare."""
+    first, second = sorted((new, other), key=lambda ln: (str(ln.latest.valid_from or ""), ln.incoming))
+    reply = judge(CHECK.format(name=ask.subject.replace("-", " "), earlier=_sentence(first), later=_sentence(second)))
+    return isinstance(reply, dict) and reply.get("same_attribute") is True
+
+
+def groups(pairs: list[tuple[Line, Line]]) -> list[list[Line]]:
+    """Confirmed pairs as groups of lines that are one attribute (a line joined to a line that is itself joined to a
+    third is one group of three)."""
+    parent: dict[int, int] = {}
+
+    def find(i: int) -> int:
+        while parent.setdefault(i, i) != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    lines: dict[int, Line] = {}
+    for new, other in pairs:
+        lines[new.n], lines[other.n] = new, other
+        parent[find(new.n)] = find(other.n)
+    by_root: dict[int, list[Line]] = {}
+    for n, line in lines.items():
+        by_root.setdefault(find(n), []).append(line)
+    return list(by_root.values())
 
 
 def rename(group: list[Line]) -> list[tuple[str, str, str]]:
@@ -205,21 +254,31 @@ def rename(group: list[Line]) -> list[tuple[str, str, str]]:
 
 
 def align(incoming: list, existing_by_subject: dict, judge: Callable[[str], dict] | None) -> list[dict]:
-    """Rename the batch's new values onto the attribute they restate, one judge call per page that needs it. ``judge``
-    takes a prompt and returns the parsed JSON object (``{}`` for none). Mutates ``incoming``; returns audit entries.
-    A failed call costs that page its alignment, never the batch (Stage 3 then runs as it did before this step)."""
+    """Rename the batch's new values onto the attribute they restate: one judge call per page that needs it, then one
+    check per join it proposes. ``judge`` takes a prompt and returns the parsed JSON object (``{}`` for none). Mutates
+    ``incoming``; returns audit entries. A failed call costs the batch its joins from then on, never a claim (Stage 3
+    then runs as it did before this step)."""
     if judge is None:
         return []
     audit: list[dict] = []
-    for ask in questions(incoming, existing_by_subject):
-        try:
-            reply = judge(prompt(ask))
-        except Exception as exc:  # noqa: BLE001 - no judge answer means no alignment, never a lost batch
-            logger.info(f"value alignment: a call failed ({type(exc).__name__}); the rest of the batch keeps its words")
-            break
-        for group in groups(reply, ask):
-            for claim_id, was, now in rename(group):
-                audit.append({"action": "value_aligned", "claim": claim_id, "from": was, "to": now})
+    asked = checked = 0
+    try:
+        for ask in questions(incoming, existing_by_subject):
+            asked += 1
+            kept = []
+            for new, other in proposals(judge(prompt(ask)), ask):
+                if checked >= MAX_CHECKS:
+                    break
+                checked += 1
+                if confirmed(new, other, ask, judge):
+                    kept.append((new, other))
+            for group in groups(kept):
+                for claim_id, was, now in rename(group):
+                    audit.append({"action": "value_aligned", "claim": claim_id, "from": was, "to": now})
+    except Exception as exc:  # noqa: BLE001 - no judge answer means no alignment, never a lost batch
+        logger.info(f"value alignment: a call failed ({type(exc).__name__}); the rest of the batch keeps its words")
+    if asked:
+        logger.info(f"value alignment: {asked} page(s) asked, {checked} join(s) checked, {len(audit)} value(s) joined")
     return audit
 
 
