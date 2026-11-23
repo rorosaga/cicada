@@ -45,7 +45,6 @@ final class PageInlineTests: XCTestCase {
                 return nil
             }
             XCTAssertFalse(quiet.isEmpty, "\(written) is a quiet link, never blue underlined text in a Text")
-            XCTAssertTrue(PageInline.needsFlow(pieces), "a quiet link is a view (its hover fill), so the line is a flow")
             let url = try XCTUnwrap(quiet.first?.url)
             XCTAssertNotNil(PageInline.entityRef(url), "\(written) keeps the click it always had, which asks which (G227)")
             XCTAssertEqual(quiet.map { String($0.text.characters) }.joined(separator: " "),
@@ -155,9 +154,9 @@ final class PageInlineTests: XCTestCase {
         XCTAssertEqual(shape, ["Hello", "<chip>", "~,", "and", "bold", "~."], "a full stop touches the word before it")
     }
 
-    func testALineOfOnlyWordsIsNeverCutUp() {
+    func testALineOfOnlyWordsHasNoChipNorCluster() {
         let pieces = PageInline.pieces(of: line("A plain line with **bold** and `code`."), resolve: index.resolve)
-        XCTAssertFalse(PageInline.needsFlow(pieces))
+        XCTAssertTrue(pieces.allSatisfy { if case .word = $0.token { return true }; return false })
         XCTAssertEqual(PageInline.plainText(pieces), "A plain line with bold and code.")
     }
 
@@ -290,62 +289,120 @@ final class PageInlineTests: XCTestCase {
         XCTAssertEqual(cards.count, 2)
     }
 
-    // MARK: The layout keeps a cluster off a line of its own
+    // MARK: One text, selected like any Mac text (owner 2026-11-23, "ok rebuild")
 
-    private func measure(_ width: CGFloat, glued: Bool = false, lead: CGFloat = 0, ascent: CGFloat = 12,
-                         height: CGFloat = 17) -> InlineFlowLayout.Measure {
-        .init(size: CGSize(width: width, height: height), ascent: ascent, glued: glued, lead: lead)
+    @MainActor
+    private func document(_ rows: [WikiRow], cluster: (SourceClusterModel, [CiteKey])? = nil,
+                          width: CGFloat = 480) -> (PageTextDocument, PageTextView) {
+        _ = NSApplication.shared
+        let context = PageAttachmentContext()
+        let paragraphs = PageRun.paragraphs(rows, entityId: "alpha-project", citations: nil, lone: cluster, related: [:],
+                                            index: index)
+        let doc = PageText.build(paragraphs, context: context)
+        let view = PageTextView()
+        view.document = doc
+        context.textView = view
+        view.textStorage?.setAttributedString(doc.text)
+        _ = view.height(for: width)
+        return (doc, view)
     }
 
-    func testTheFlowBreaksLinesWithAGluedPieceNeverStartingOne() {
-        // 4 words of 40 pt in a 100 pt line: two per line. The last word carries a 16 pt cluster, glued, 5 pt away.
-        let items = [measure(40), measure(40), measure(40), measure(40), measure(16, glued: true, lead: 5)]
-        let lines = InlineFlowLayout.arrange(items, width: 110, space: 4)
-        XCTAssertEqual(lines.map { $0.entries.map(\.index) }, [[0, 1], [2, 3, 4]],
-                       "the cluster stays on the last word's line")
-        // A word that would only fit without its cluster moves to the next line WITH it.
-        let tight = InlineFlowLayout.arrange([measure(40), measure(40), measure(16, glued: true, lead: 5)], width: 90, space: 4)
-        XCTAssertEqual(tight.map { $0.entries.map(\.index) }, [[0], [1, 2]], "the last word takes its cluster with it")
-        XCTAssertEqual(tight[1].entries[1].x, 40 + 5, accuracy: 0.01, "glued: no word space, the lead only")
+    func testACopyOfTheWholeRunIsProseNotObjectCharacters() async throws {
+        let article = WikiArticle.build("""
+        # Title
+
+        Bob met [[bob-example]] and [[Alpha Project]] twice, then [[bob-example]] again.
+
+        - first with [[alpha-project]]
+        1. second
+
+        > quoted [[gamma-ide]] words
+        """)
+        let cluster = (SourceClusterModel(keys: ["claude-code", "notes"]), [CiteKey(n: 1, at: 1)])
+        let (doc, _) = await document(article.rows, cluster: cluster)
+        let all = doc.plain(NSRange(location: 0, length: doc.text.length))
+        XCTAssertFalse(all.contains("\u{FFFC}"), "an attachment is never copied as the object character")
+        XCTAssertFalse(all.contains(PageText.joiner), "a word joiner is never copied")
+        XCTAssertEqual(all.components(separatedBy: "\n"), [
+            "Title",
+            "Bob met Bob Example and Alpha Project twice, then Bob Example again.",
+            "- first with Alpha Project",
+            "1. second",
+            "quoted Gamma (IDE) words",
+        ], "a chip is its page's name, the cluster nothing, a bullet \"- \"; one line break per paragraph")
     }
 
-    func testTheFlowAlignsEveryPieceOnTheLinesBaseline() throws {
-        // A chip taller than a word, and a cluster whose baseline guide sits lower: one baseline for the line, whose
-        // height is the tallest above it plus the deepest below it.
-        let items = [measure(30, ascent: 12, height: 17), measure(50, ascent: 14, height: 21),
-                     measure(24, ascent: 14.5, height: 19)]
-        let line = try XCTUnwrap(InlineFlowLayout.arrange(items, width: 400, space: 4).first)
-        XCTAssertEqual(line.ascent, 14.5, accuracy: 0.01)
-        XCTAssertEqual(line.descent, 7, accuracy: 0.01)
-        XCTAssertEqual(line.height, 21.5, accuracy: 0.01)
+    func testAChipAndTheClusterAreAttachmentsAndAQuietLinkIsTextCarryingALink() async throws {
+        let article = WikiArticle.build("See [[bob-example]] and [[Nobody Known]] then [[bob-example]].")
+        let (doc, _) = await document(article.rows)
+        var attachments = 0
+        doc.text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: doc.text.length)) { value, _, _ in
+            if value is PageInlineAttachment { attachments += 1 }
+        }
+        XCTAssertEqual(attachments, 1, "the first mention of a page is the chip; the unknown ref and the repeat are quiet")
+        var links = 0
+        doc.text.enumerateAttribute(.link, in: NSRange(location: 0, length: doc.text.length)) { value, _, _ in
+            if value is URL { links += 1 }
+        }
+        XCTAssertGreaterThan(links, 0)
+        XCTAssertEqual(doc.groups.count, 2, "two quiet links, each a group that lights together")
+        let blue = doc.text.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        XCTAssertEqual(blue, NSColor(CicadaTheme.textPrimary), "no accent on the page's words")
+        doc.text.enumerateAttribute(.underlineStyle, in: NSRange(location: 0, length: doc.text.length)) { value, _, _ in
+            XCTAssertNil(value, "no underline anywhere")
+        }
     }
 
-    func testAUnitWiderThanTheLineIsAloneAndOverflowsRatherThanLooping() {
-        let lines = InlineFlowLayout.arrange([measure(30), measure(300), measure(30)], width: 100, space: 4)
-        XCTAssertEqual(lines.map { $0.entries.map(\.index) }, [[0], [1], [2]])
+    func testAFullStopAndTheClusterAreJoinedToTheirNeighbourSoTheyNeverStartALine() async throws {
+        let article = WikiArticle.build("Met [[bob-example]]. Then it ended.")
+        let cluster = (SourceClusterModel(keys: ["claude-code"]), [CiteKey(n: 1, at: 1)])
+        let (doc, _) = await document(article.rows, cluster: cluster)
+        let text = doc.text.string
+        let object = try XCTUnwrap(text.firstIndex(of: "\u{FFFC}"))
+        let after = text.index(after: object)
+        XCTAssertEqual(text[after], Character(PageText.joiner), "a joiner between the chip and the full stop")
+        XCTAssertTrue(text.hasSuffix(PageText.joiner + "\u{FFFC}"), "the cluster is joined to the last word")
     }
 
-    func testAGluedRunWiderThanTheLineBreaksBetweenItsPiecesAndNeverOverflows() {
-        // A 70 pt chip, a 5 pt full stop touching it and a 30 pt cluster 5 pt away, in a 90 pt column.
-        let items = [measure(70), measure(5, glued: true), measure(30, glued: true, lead: 5)]
-        let lines = InlineFlowLayout.arrange(items, width: 90, space: 4)
-        XCTAssertEqual(lines.map { $0.entries.map(\.index) }, [[0, 1], [2]])
-        XCTAssertTrue(lines.allSatisfy { $0.width <= 90 })
-        // Wide enough, the same run stays one unit and moves whole to the next line.
-        let whole = InlineFlowLayout.arrange([measure(60)] + items, width: 120, space: 4)
-        XCTAssertEqual(whole.map { $0.entries.map(\.index) }, [[0], [1, 2, 3]])
+    func testARunIsOneLayoutSoADragCrossesParagraphs() async throws {
+        let article = WikiArticle.build("First paragraph with [[bob-example]] in it.\n\nSecond paragraph.\n\n- an item")
+        let (doc, view) = await document(article.rows)
+        XCTAssertEqual(doc.rows.count, 3, "paragraphs, a list item: one text")
+        let range = NSRange(location: 6, length: doc.text.length - 6)
+        view.setSelectedRange(range)
+        XCTAssertEqual(view.selectedRange(), range, "one selection spans every paragraph of the run")
+        XCTAssertEqual(doc.row(at: doc.rows[2].range.location), doc.rows[2].id)
     }
 
-    func testAnUnboundedWidthIsOneLine() {
-        let lines = InlineFlowLayout.arrange(Array(repeating: measure(50), count: 20), width: .infinity, space: 4)
-        XCTAssertEqual(lines.count, 1)
+    func testRowsBreakIntoRunsAtACardCodeOrImageAndAtTheCap() {
+        let markdown = (0..<130).map { "Paragraph \($0)." }.joined(separator: "\n\n")
+            + "\n\n```\ncode\n```\n\nAfter code.\n\n- [[bob-example]] — knows"
+        let article = WikiArticle.build(markdown)
+        let related = RelatedCardModel.rows(in: article, resolve: index.resolve)
+        let blocks = PageBlock.blocks(article.rows, related: related)
+        XCTAssertEqual(blocks.filter(\.isText).map(\.rows.count).prefix(4), [40, 40, 40, 10])
+        XCTAssertFalse(blocks.first { !$0.isText }.map { $0.rows.count != 1 } ?? true, "a code block is a block of its own")
+        XCTAssertEqual(blocks.reduce(0) { $0 + $1.rows.count }, article.rows.count, "every row is in exactly one block")
+    }
+
+    func testTheGapsBetweenParagraphsAreTheStacksLessTheLineSpacingTextKitAddsUnderThem() async throws {
+        let article = WikiArticle.build("Intro.\n\n- one\n- two")
+        let (doc, _) = await document(article.rows)
+        func before(_ row: Int) -> CGFloat {
+            let style = doc.text.attribute(.paragraphStyle, at: doc.rows[row].range.location, effectiveRange: nil) as? NSParagraphStyle
+            return style?.paragraphSpacingBefore ?? -1
+        }
+        XCTAssertEqual(before(0), 0)
+        XCTAssertEqual(before(1), CicadaTheme.spacingSM - CicadaTheme.scaled(2))
+        XCTAssertEqual(before(2), 4 - CicadaTheme.scaled(2))
     }
 
     // MARK: Cost at owner scale
 
     /// The first screen of an owner-sized page (~1,000 Key Facts, each with a wikilink and a cited source), laid out
-    /// lazily as the card draws it: lines as one `Text` each (before chips) against chips and clusters. The budget test
-    /// always runs; the numbers print with `CICADA_APP_BENCH=1`.
+    /// lazily as the card draws it, as runs of rows in one text each. Before this engine, on the same fixture: lines as
+    /// one `Text` each 16.14 ms, chips + clusters as one `Text` per word 73.73 ms. The budget test always runs; the
+    /// numbers print with `CICADA_APP_BENCH=1`.
     @MainActor
     func testTheFirstScreenOfAnOwnerSizedPageStaysCheapWithChips() throws {
         CicadaTheme.uiScale = 1
@@ -359,15 +416,17 @@ final class PageInlineTests: XCTestCase {
         let article = WikiArticle.build(WikiPageFixture.prose)
         let cluster = (SourceClusterModel(keys: ["claude-code", "notes", "chatgpt-export", "web"]),
                        [CiteKey(n: 1, at: 1), CiteKey(n: 2, at: 1)])
-        func layout(_ flow: Bool) -> Double {
-            PageInline.flowEnabled = flow
-            defer { PageInline.flowEnabled = true }
+        let related = RelatedCardModel.rows(in: article, resolve: index.resolve)
+        let blocks = PageBlock.blocks(article.rows, related: related)
+        func layout(_ count: Int) -> Double {
             _ = NSApplication.shared
             let start = DispatchTime.now().uptimeNanoseconds
             let view = ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(article.rows) { WikiRowView(row: $0, onSource: nil, entityId: "owner-example",
-                                                       cluster: cluster, index: index) }
+                    ForEach(Array(blocks.prefix(count)), id: \.first.anchor) { block in
+                        PageRun(rows: block.rows, entityId: "owner-example", citations: nil, related: related,
+                                index: index, lone: cluster)
+                    }
                 }
             }
             .environment(store)
@@ -377,11 +436,11 @@ final class PageInlineTests: XCTestCase {
             hosting.layoutSubtreeIfNeeded()
             return Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000
         }
-        _ = layout(false)
-        let plain = (0..<3).map { _ in layout(false) }.min() ?? 0
-        let chips = (0..<3).map { _ in layout(true) }.min() ?? 0
-        print(String(format: "BENCH first screen, lines as one Text   %8.2f ms", plain))
-        print(String(format: "BENCH first screen, chips + clusters    %8.2f ms", chips))
+        _ = layout(1)
+        let chips = (0..<3).map { _ in layout(blocks.count) }.min() ?? 0
+        let one = (0..<3).map { _ in layout(1) }.min() ?? 0
+        print(String(format: "BENCH first screen, one text per run of <=40 rows (%d blocks, lazy) %8.2f ms", blocks.count, chips))
+        print(String(format: "BENCH one full run (40 rows, chips + clusters)                       %8.2f ms", one))
         XCTAssertLessThan(chips, 2_500, "a generous bound for a debug build on a loaded machine")
     }
 

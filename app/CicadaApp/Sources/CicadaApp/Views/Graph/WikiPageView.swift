@@ -7,8 +7,6 @@ import SwiftUI
 /// ends with its sources' markers and keeps them in its gutter for the keys (`PageCitations`).
 struct WikiPageView: View {
     let key: WikiArticleCache.Key
-    /// Opens a line's provenance in the Reader (`LineProvenance`); nil hides the affordance.
-    var onLineSource: ((WikiRow) -> Void)? = nil
     /// The page the article is (owner rulings 2026-10-14): its link facts draw the link cards and its edit route
     /// takes the person's view switch. Nil: links draw from their own words and nothing can be switched.
     var entityId: String? = nil
@@ -28,14 +26,22 @@ struct WikiPageView: View {
                     == true ? target.type : nil
             }
         })
+        let blocks = Self.blocks(article.rows, related: related)
         LazyVStack(alignment: .leading, spacing: 0) {
-            // Identified by its scroll anchor, so the card can scroll a lazy row into view (`anchor`).
-            ForEach(article.rows, id: \.anchor) { row in
-                WikiRowView(row: row, onSource: onLineSource, entityId: entityId,
-                            cluster: CitationMarks.cluster(Self.cites(row, in: citations), in: citations),
-                            related: related[row.id], relatedSlot: slot, index: index)
-                    .padding(.top, row.id == 0 ? 0 : WikiRowView.gap(above: row, after: article.rows[row.id - 1],
-                                                                       cards: related))
+            // Identified by the first row's scroll anchor, so the card can scroll a lazy block into view (`anchor`).
+            ForEach(blocks, id: \.first.anchor) { block in
+                Group {
+                    if block.isText {
+                        PageRun(rows: block.rows, entityId: entityId, citations: citations,
+                                related: related, index: index)
+                    } else {
+                        WikiRowView(row: block.first, entityId: entityId, related: related[block.first.id],
+                                    relatedSlot: slot, index: index)
+                    }
+                }
+                .padding(.top, block.first.id == 0 ? 0 : WikiRowView.gap(above: block.first,
+                                                                          after: article.rows[block.first.id - 1],
+                                                                          cards: related))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -84,11 +90,12 @@ extension WikiRow {
     var anchor: String { WikiPageView.anchor(id) }
 }
 
+/// One row of the article that is not a run of prose — a code block, a rule, an embed, an image, a link drawn as a block,
+/// a Related card — or, drawn alone (a preview, a test), one row of text as a run of one.
 struct WikiRowView: View {
     let row: WikiRow
-    let onSource: ((WikiRow) -> Void)?
     var entityId: String? = nil
-    /// DR-80 (amended 2026-11-23) — the passage's sources as one cluster of marks, glued to its last word.
+    /// DR-80 (amended 2026-11-23) — a lone text row's sources as one cluster of marks, glued to its last word.
     var cluster: (SourceClusterModel, [CiteKey])? = nil
     /// A Related list item drawn as a card (owner 2026-11-23): the page it names, and what is said of the link.
     var related: RelatedCardModel? = nil
@@ -97,15 +104,6 @@ struct WikiRowView: View {
     var relatedSlot: CGFloat = 0
     /// Which page a wikilink means, for the chip it becomes.
     var index: PageLinkIndex = .empty
-    @Environment(Store.self) private var store: Store?
-    @State private var hovering = false
-    @State private var showLinks = false
-    @FocusState private var linksFocused: Bool
-    /// The site icons of the row's mentions, by link URL (`MentionIcon`), loaded once the page's link facts say the
-    /// icon route serves them.
-    @State private var icons: [String: NSImage] = [:]
-    /// What the last view change from this line's right-click menu said ("Saving…", "Saved · shown as a bookmark").
-    @State private var status: String?
 
     /// `MarkdownBody`'s rhythm: blocks `spacingSM` apart, a list's items 4 apart, a heading given room above.
     static func gap(above row: WikiRow, after previous: WikiRow, cards: [Int: RelatedCardModel] = [:]) -> CGFloat {
@@ -116,160 +114,25 @@ struct WikiRowView: View {
         }
     }
 
-    private var hasSource: Bool {
-        switch row.kind {
-        case .rule, .embed, .image, .link: false
-        default: onSource != nil
-        }
-    }
-
-    /// The gutter holds the line-source affordance, where the host asks for one.
-    private var hasGutter: Bool {
-        switch row.kind {
-        case .rule, .embed, .image, .link: false
-        default: hasSource
-        }
-    }
-
-    /// The line's web links have a 🔗 in the gutter: their previews and, on the page's own card, each link's view menu.
-    /// It shows on hover and while it holds keyboard focus (it stays in the focus order, owner 2026-10-26: never only
-    /// on hover); a right-click on the line opens the same choices.
-    private var hasLinks: Bool { !row.links.isEmpty }
-
-    /// The links on a text line the person can switch (a block row's card carries its own menu).
-    private var switchable: [LinkRef] {
-        guard entityId != nil else { return [] }
-        if case .link = row.kind { return [] }
-        return row.links.filter { $0.markdown.hasPrefix("[") }
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-            content
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if let status {
-                Text(status)
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            }
-        }
-        .padding(.trailing, CicadaTheme.scaled(28) * CGFloat((hasGutter ? 1 : 0) + (hasLinks ? 1 : 0)))
-        .overlay(alignment: .topTrailing) {
-            HStack(spacing: 0) {
-                if hasLinks {
-                    IconButton(systemName: "link", help: Copy.Links.linksOnLine) { showLinks = true }
-                        .focused($linksFocused)
-                        .opacity(hovering || showLinks || linksFocused ? 1 : 0)
-                        .popover(isPresented: $showLinks, arrowEdge: .trailing) {
-                            LinkLinePopover(refs: row.links, entityId: entityId)
-                        }
-                }
-                if hasSource, hovering, let onSource {
-                    IconButton(systemName: "text.quote", help: Copy.Graph.lineSource) { onSource(row) }
-                }
-            }
-            .offset(y: -CicadaTheme.scaled(5))
-        }
-        .onHover { hovering = $0 }
-        .modifier(LineLinksAction(enabled: hasLinks) { showLinks = true })
-        .contextMenu {
-            if let entityId, !switchable.isEmpty {
-                ForEach(Array(switchable.enumerated()), id: \.offset) { _, ref in
-                    LinkViewMenuItems(ref: ref, fact: LinkFactsCache.shared.fact(ref.url, on: entityId),
-                                      entityId: entityId, status: $status, titled: switchable.count > 1)
-                }
-            }
-        }
-        .task(id: iconKey) { await loadIcons() }
-    }
-
-    private var lineSource: LineSourceAction { LineSourceAction(enabled: hasSource) { onSource?(row) } }
-
-    // MARK: Mentions
-
-    /// The row's mentions whose site icon the page's icon route serves (`LinkFact.icon`), as the task's key: it reruns
-    /// when the link facts arrive or the bank changes.
-    private var iconKey: String {
-        guard let entityId, WikiInline.hasSitePart(row.text) else { return "" }
-        let served = WikiInline.mentionURLs(row.text).filter { LinkFactsCache.shared.fact($0, on: entityId).icon }
-        return served.isEmpty ? "" : "\(store?.bank ?? "")|\(entityId)|\(served.joined(separator: " "))"
-    }
-
-    private func loadIcons() async {
-        guard !iconKey.isEmpty, let entityId, let bank = store?.bank else { return }
-        for url in WikiInline.mentionURLs(row.text) where icons[url] == nil {
-            let fact = LinkFactsCache.shared.fact(url, on: entityId)
-            guard fact.icon, let site = fact.site ?? LinkGrammar.site(url),
-                  let image = await SiteIconStore.shared.image(site: site, bank: bank, entity: entityId, saved: nil)
-            else { continue }
-            icons[url] = MentionIcon.rounded(image)
-        }
-    }
-
-    /// The row's text in the current theme, each mention led by its site's icon (`WikiInline.composed`). A heading's;
-    /// a paragraph, an item and a quote go through `prose`, where a link is a chip.
-    private func text(_ font: Font) -> Text {
-        guard !row.links.isEmpty, WikiInline.hasSitePart(row.text) else { return Text(row.text) }
-        return WikiInline.composed(WikiInline.themed(row.text, font: font)) { url in
-            MentionIcon.text(icons[url])
-        }
-    }
-
-    /// The row's pieces when it carries a link chip or the passage's source cluster (owner 2026-11-23); nil for a line
-    /// that is only words, which stays one selectable `Text` (`PageInline`).
-    private var flow: [PageInlinePiece]? {
-        guard PageInline.flowEnabled else { return nil }
-        let withCluster = entityId == nil ? nil : cluster
-        guard withCluster != nil || row.text.runs.contains(where: { $0.link != nil }) else { return nil }
-        let pieces = PageInline.pieces(of: row.text, resolve: index.resolve, cluster: withCluster)
-        return PageInline.needsFlow(pieces) ? pieces : nil
-    }
-
-    /// A paragraph's, an item's or a quote's words: one `Text` when they are only words (select them by dragging),
-    /// else the flow with its chips and its cluster.
-    @ViewBuilder
-    private func prose(font: Font, ink: Color, italic: Bool = false) -> some View {
-        if let pieces = flow {
-            PageInlineFlow(pieces: pieces, font: font, ink: ink, italic: italic, entityId: entityId)
-        } else {
-            text(font)
-                .font(font)
-                .lineSpacing(CicadaTheme.scaled(2))
-                .foregroundStyle(ink)
-                .italic(italic)
-                .textSelection(.enabled)
-                .modifier(lineSource)
-        }
+        content
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
     private var content: some View {
         switch row.kind {
-        case .heading(let level):
-            text(Self.headingFont(level))
-                .font(Self.headingFont(level))
-                .foregroundStyle(CicadaTheme.textPrimary)
-                .textSelection(.enabled)
-                .accessibilityAddTraits(.isHeader)
-                .modifier(lineSource)
-        case .paragraph:
-            prose(font: CicadaTheme.bodyFont, ink: CicadaTheme.textPrimary)
-        case .item(let marker, let indent):
+        case .heading, .paragraph, .quote:
+            PageRun(rows: [row], entityId: entityId, citations: nil, related: [:], index: index,
+                    lone: cluster)
+        case .item(_, let indent):
             if let related {
                 RelatedCard(model: related, slot: relatedSlot)
                     .padding(.leading, CGFloat(indent) * 14)
             } else {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(marker)
-                        .font(CicadaTheme.bodyFont)
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                        .frame(minWidth: 16, alignment: .trailing)
-                        .accessibilityHidden(true)
-                    prose(font: CicadaTheme.bodyFont, ink: CicadaTheme.textPrimary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(.leading, CGFloat(indent) * 14)
+                PageRun(rows: [row], entityId: entityId, citations: nil, related: [:], index: index,
+                        lone: cluster)
             }
         case .code:
             ScrollView(.horizontal, showsIndicators: false) {
@@ -277,18 +140,10 @@ struct WikiRowView: View {
                     .font(CicadaTheme.monoFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .textSelection(.enabled)
-                    .modifier(lineSource)
                     .padding(CicadaTheme.spacingSM)
             }
             .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgFocus))
             .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
-        case .quote:
-            HStack(alignment: .top, spacing: 0) {
-                Rectangle().fill(CicadaTheme.ring(.strong)).frame(width: 3)
-                prose(font: CicadaTheme.bodyFont, ink: CicadaTheme.textSecondary, italic: true)
-                    .padding(.leading, CicadaTheme.spacingSM)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
         case .rule:
             Rectangle().fill(CicadaTheme.ring(.resting)).frame(height: 1).padding(.vertical, 2)
                 .accessibilityHidden(true)
@@ -300,14 +155,56 @@ struct WikiRowView: View {
             LinkBlockView(ref: ref, note: note, entityId: entityId)
         }
     }
+}
 
-    private static func headingFont(_ level: Int) -> Font {
-        switch level {
-        case 1: CicadaTheme.titleFont
-        case 2: CicadaTheme.headingFont
-        case 3: CicadaTheme.bodyFont.weight(.semibold)
-        default: CicadaTheme.captionFont.weight(.semibold)
+/// A stretch of the article the text engine draws as one text: consecutive paragraphs, headings, list items and quotes
+/// (never a Related card, a code block, a rule, an image, an embed or a link drawn as a block), so a drag selects across
+/// all of them. `PageBlock.maxRows` bounds one text: it is laid out whole when it is drawn, and a long list is many.
+struct PageBlock {
+    let rows: [WikiRow]
+    let isText: Bool
+    var first: WikiRow { rows[0] }
+
+    /// The most rows in one text; also capped by `maxCharacters`, so a page of long paragraphs is not one huge layout.
+    static let maxRows = 40
+    static let maxCharacters = 24_000
+
+    static func isText(_ row: WikiRow, related: [Int: RelatedCardModel]) -> Bool {
+        switch row.kind {
+        case .heading, .paragraph, .quote: true
+        case .item: related[row.id] == nil
+        default: false
         }
+    }
+
+    static func blocks(_ rows: [WikiRow], related: [Int: RelatedCardModel]) -> [PageBlock] {
+        var out: [PageBlock] = []
+        var run: [WikiRow] = []
+        var characters = 0
+        func flush() {
+            if !run.isEmpty { out.append(PageBlock(rows: run, isText: true)) }
+            run = []
+            characters = 0
+        }
+        for row in rows {
+            guard isText(row, related: related) else {
+                flush()
+                out.append(PageBlock(rows: [row], isText: false))
+                continue
+            }
+            let size = row.text.characters.count
+            if run.count >= maxRows || characters + size > maxCharacters { flush() }
+            run.append(row)
+            characters += size
+        }
+        flush()
+        return out
+    }
+}
+
+extension WikiPageView {
+    static func blocks(_ rows: [WikiRow], related: [Int: RelatedCardModel]) -> [PageBlock] {
+        PageBlock.blocks(rows, related: related)
     }
 }
 
@@ -335,32 +232,5 @@ enum MentionIcon {
         return Text(Image(systemName: "globe"))
             .font(CicadaTheme.font(size: 11))
             .foregroundStyle(CicadaTheme.textTertiary)
-    }
-}
-/// VoiceOver reaches a line's links without hovering: the same popover the 🔗 opens.
-struct LineLinksAction: ViewModifier {
-    let enabled: Bool
-    let action: () -> Void
-
-    func body(content: Content) -> some View {
-        if enabled {
-            content.accessibilityAction(named: Copy.Links.linksOnLine, action)
-        } else {
-            content
-        }
-    }
-}
-
-/// VoiceOver reaches a line's source without hovering: an action on the line's own text, which keeps its links.
-struct LineSourceAction: ViewModifier {
-    let enabled: Bool
-    let action: () -> Void
-
-    func body(content: Content) -> some View {
-        if enabled {
-            content.accessibilityAction(named: Copy.Graph.lineSource, action)
-        } else {
-            content
-        }
     }
 }
