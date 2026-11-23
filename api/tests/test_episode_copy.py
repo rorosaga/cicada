@@ -65,3 +65,43 @@ def test_sleep_episodes_carries_what_a_click_copies_and_the_rows_day(tmp_path, m
     page = rows["ep_2026-10-02_001"]
     assert (page["copyKind"], page["copyValue"], page["changedAt"]) == ("link", "https://example.com/read",
                                                                        "2026-10-02T09:00:00Z")
+
+
+# --- where the original opens (owner 2026-11-23) ---------------------------------------------------------------
+
+SESSION = "0f3c2a10-1111-4222-8333-444455556666"
+
+
+def test_a_note_opens_in_notes_and_a_page_at_its_link():
+    note = {"id": "ep_1", "origin": "apple-notes", "note_id": "x-coredata://ABC-123/ICNote/p42"}
+    assert episode_copy.open_target(note) == ("note", "x-coredata://ABC-123/ICNote/p42")
+    assert episode_copy.open_target({"note_id": "tell app \"Finder\""}) is None, "only Notes' own id form"
+    assert episode_copy.open_target({"url": "https://example.com/a", "origin": "chrome-bookmark"}) == (
+        "web", "https://example.com/a")
+    assert episode_copy.open_target({"url": "file:///etc/passwd"}) is None, "only an http(s) link"
+
+
+def test_only_a_claude_code_session_with_a_real_id_resumes():
+    fm = {"session_id": SESSION, "harness": "claude-code", "origin": "claude-code"}
+    assert episode_copy.open_target(fm) == ("session", SESSION)
+    assert episode_copy.open_target({**fm, "harness": "codex"}) is None, "no launcher for another harness"
+    assert episode_copy.open_target({**fm, "session_id": "ses_minted"}) is None, "a minted id resumes nothing"
+
+
+def test_an_imported_conversation_opens_its_page_at_its_provider():
+    assert episode_copy.open_target({"source": "chatgpt", "source_id": SESSION}) == (
+        "web", f"https://chatgpt.com/c/{SESSION}")
+    assert episode_copy.open_target({"source": "claude", "source_id": SESSION.upper()}) == (
+        "web", f"https://claude.ai/chat/{SESSION}")
+    assert episode_copy.open_target({"source": "claude", "source_id": f"claude-project:{SESSION}"}) is None
+    assert episode_copy.open_target({"source": "gemini_export", "source_id": SESSION}) is None
+
+
+def test_a_folder_file_opens_only_with_its_full_path_and_a_chat_names_nothing():
+    fm = {"origin": "folder", "folder_id": "notes-abc123", "relpath": "plans/q4.md"}
+    assert episode_copy.open_target(fm, folder_root=lambda fid: "/tmp/notes") == ("file", "/tmp/notes/plans/q4.md")
+    assert episode_copy.open_target(fm, folder_root=lambda fid: None) is None, "a relative path shows nothing in Finder"
+    assert episode_copy.open_target({"origin": "chrome-tab-group"}, "one https://example.net/one") == (
+        "web", "https://example.net/one")
+    assert episode_copy.open_target({"origin": "chrome-tab-group"}, "https://a.example/ https://b.example/") is None
+    assert episode_copy.open_target({"origin": "imessage", "conversation": "ab" * 16}) is None

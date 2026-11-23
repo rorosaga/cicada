@@ -148,11 +148,22 @@ struct EpisodeCard: View {
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
         .help(EpisodeRowText.help(kind: kind, timestamp: item.timestamp, changedAt: item.changedAt, id: item.id))
         .contextMenu {
+            // Owner 2026-11-23: the original, where it lives — first, then the copy.
+            if let opens = EpisodeOpen.target(item),
+               let label = EpisodeOpen.label(opens, appName: EpisodeOpen.installedAppName) {
+                Button(label) { openOriginal(opens) }
+            }
             Button(Copy.SleepDetailsWords.copyAction(kind), action: copy)
         }
         .accessibilityLabel(EpisodeRowText.cardLabel(item, target: target))
         .accessibilityHint(Copy.SleepDetailsWords.openHint(kind))
         .accessibilityAction(named: Text(Copy.SleepDetailsWords.copyAction(kind)), copy)
+        .accessibilityActions {
+            if let opens = EpisodeOpen.target(item),
+               let label = EpisodeOpen.label(opens, appName: EpisodeOpen.installedAppName) {
+                Button(label) { openOriginal(opens) }
+            }
+        }
     }
 
     private var footer: some View {
@@ -190,6 +201,15 @@ struct EpisodeCard: View {
         switch EpisodeRowAction.primary(item, readerAvailable: reader != nil) {
         case .open(let target): reader?.open(target)
         case .copy: copy()
+        }
+    }
+
+    /// The menu's "Open in …": runs on that click alone; a problem (or a resumed session's line) is said as a toast.
+    private func openOriginal(_ target: EpisodeOpen.Target) {
+        Task { @MainActor in
+            guard let words = await EpisodeOpen.open(target) else { return }
+            store?.flash(words)
+            AccessibilityNotification.Announcement(words).post()
         }
     }
 

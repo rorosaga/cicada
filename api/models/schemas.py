@@ -4045,6 +4045,11 @@ class EpisodeQueueItem(CamelModel):
     # G212 — the device id that posted it (`device` frontmatter, G181 phase 3; None = this server), so the Sleep page's
     # machines strip opens each machine's own queue. An id, never a name (`GET /devices/status` names it).
     device: Optional[str] = None
+    # Owner 2026-11-23 (episodes-6) — where the original can be opened (`episode_copy.open_target`): "web" (a link),
+    # "session" (a Claude Code session id), "note" (Notes' own id), "file" (a full path); None when nothing names it
+    # (a chat: the app opens the chat's app). The app checks the value again before it opens anything.
+    open_kind: Optional[str] = None
+    open_value: Optional[str] = None
 
 
 SCHEDULE_MODES = ("manual", "daily", "interval", "after_import")
