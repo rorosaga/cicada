@@ -2031,10 +2031,13 @@ async def sync_notes(
 
     result = await notes_sync.sync_notes(memory_path, dump=request.notes_dump, accounts=request.note_accounts,
                                          locked_ids=request.locked_note_ids, locked_keys=request.locked_note_keys,
-                                         pinned_ids=request.pinned_note_ids)
+                                         pinned_ids=request.pinned_note_ids, folder_paths=request.note_folder_paths,
+                                         folders=request.note_folders)
 
-    # G234: a locked note leaves only this count in the bank; the ids posted beside the dump are never stored.
+    # G234: a locked note leaves only this count in the bank; the ids posted beside the dump are never stored. A.4: and
+    # whether pins could be read, and the folder list in Notes' own order (names only).
     sync_state.record_sync(memory_path, "notes", count=int(result.get("total") or 0),
-                           extra={notes_sync.LOCKED_COUNT_KEY: int(result.get("locked") or 0)})
+                           extra=notes_sync.state_extra(int(result.get("locked") or 0), request.pinned_note_ids is not None,
+                                                        request.note_folders))
 
     return NotesSyncResponse(**result)
