@@ -1,6 +1,7 @@
 """G148: the consolidation benchmark's scorer reads a bank the way its README says. No model, no Sleep."""
 from __future__ import annotations
 
+import json
 from datetime import date
 
 from benchmarks.consolidation import run as bench
@@ -199,3 +200,27 @@ def test_a_current_claim_that_says_the_old_value_was_replaced_is_not_holding_it(
     assert verdict("Loomwright core language: TypeScript", "Loomwright implementation language: Python") == "both_current"
     # a claim that merely holds the old value beside something it replaced is still the old value
     assert verdict("Loomwright core language: TypeScript", "Loomwright uses Python, replacing Perl") == "both_current"
+
+
+def test_one_person_must_stay_one_a_second_page_or_a_held_titled_line_is_a_false_split(tmp_path):
+    fx = {"people": {"one": [{"id": "O4", "names": ["idris"], "why": "x"}]}}
+    gold = {"people": {"same": [], "apart": [], "one": fx["people"]["one"]}}
+
+    def check(pages, lines):
+        (tmp_path / "pending_entities.jsonl").write_text("\n".join(json.dumps(x) for x in lines), encoding="utf-8")
+        snap = {"model": "t", "clock": CLOCK.isoformat(), "claims": [], "pages": pages, "questions": [], "phases": [],
+                "episodes_unprocessed": 0}
+        fixture = {**bench.load_fixture("noor"), "gold": {**bench.load_fixture("noor")["gold"], "people": gold["people"]}}
+        return next(r for r in bench.score(snap, tmp_path, fixture)["one_person"] if r["id"] == "O4")
+
+    owner = _page("noor-haddad", "Noor Haddad", owner=True)
+    assert check([owner, _page("idris", "Idris")], [])["ok"] is True
+    # a held line below the promotion bar that carries a title is a second person nobody sees (the stored `idris-2`)
+    split_line = {"name": "idris-2", "type": "person", "title": "Idris"}
+    held = check([owner, _page("idris", "Idris")], [split_line, {"name": "Fujifilm", "type": "tool"}])
+    assert held["ok"] is False and held["held_lines"] == ["idris-2"]
+    two_pages = check([owner, _page("idris", "Idris"), _page("idris-2", "Idris")], [])
+    assert two_pages["ok"] is False and two_pages["pages"] == ["idris", "idris-2"]
+    # a plain held line (no title) is the one person, held; a project of the same name is no person
+    assert check([owner], [{"name": "idris", "type": "person"}])["ok"] is True
+    assert check([owner, _page("idris", "Idris"), _page("idris-2", "Idris", type_="project")], [])["ok"] is True
