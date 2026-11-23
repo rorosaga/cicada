@@ -393,8 +393,10 @@ MAX_SAME_PAGE = 40
 
 def same_spellings(sources, names) -> list[dict]:
     """The spellings the inputs link for a page that has another name: ``[{"as": "Girlfriend", "is": "Alice Example"}]``,
-    from the links in the inputs' own text (`link_names.Names`: only a spelling exactly one page answers to). The
-    inputs keep the words the page holds; this tells the writer they name one page."""
+    from the links in the inputs' own text. ``names`` is a `link_names.Scope`: only a spelling exactly one page answers
+    to AND this page reads as that page (its own name or id in another form, or a page it already relates to) — a
+    generic alias another conversation used for someone else is never declared "one page". The inputs keep the words
+    the page holds; this tells the writer they name one page."""
     found: dict[str, str] = {}
     for source in sources:
         for match in _WIKILINK.finditer(source.text):

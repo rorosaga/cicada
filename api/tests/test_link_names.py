@@ -5,7 +5,7 @@ from datetime import datetime
 
 from api.config import Settings
 from api.services import conflict_resolver as cr
-from api.services import entity_article, link_names, markdown_parser, section_provenance
+from api.services import entity_article, entity_resolver, link_names, markdown_parser, section_provenance
 
 
 def _page(page_id, name, aliases=(), status="active", type="person"):
@@ -118,14 +118,120 @@ def test_the_article_writer_is_told_which_spellings_are_one_page():
         def __init__(self, text):
             self.text = text
 
+    related = _page("artist-example", "Artist Example", [])
+    related["frontmatter"]["related"] = ["alice-example"]
+    scope = link_names.Names([*PAGES, related]).scope("artist-example")
     found = entity_article.same_spellings(
         [Src("Favourite artist of [[Girlfriend]]"), Src("Favourite of [[Ally]] and [[Alice Example]]"),
-         Src("[[Bob]] came along")], NAMES)
+         Src("[[Bob]] came along")], scope)
     assert found == [{"as": "Ally", "is": "Alice Example"}, {"as": "Girlfriend", "is": "Alice Example"}]
+    # A page that does not relate to her is not told her aliases are her: its "Girlfriend" is someone else's.
+    stranger = link_names.Names([*PAGES, _page("artist-example", "Artist Example", [])]).scope("artist-example")
+    assert entity_article.same_spellings([Src("Favourite artist of [[Girlfriend]]")], stranger) == []
 
 
 def test_linkable_offers_one_name_a_page():
     original = "## Key Facts\n- Favourite of [[Girlfriend]]\n- Also [[Ally]] and [[Alice Example]]\n"
     known = {"Alice Example", "Girlfriend", "Ally", "alice-example"}
-    assert cr._linkable(original, {}, {}, known, NAMES) == ["Alice Example"]
+    related = _page("artist-example", "Artist Example", [])
+    related["frontmatter"]["related"] = ["alice-example"]
+    scope = link_names.Names([*PAGES, related]).scope("artist-example")
+    assert cr._linkable(original, {}, {}, known, scope) == ["Alice Example"]
+    assert cr._linkable(original, {}, {}, known, NAMES.scope("other-page")) == ["Alice Example", "Ally", "Girlfriend"]
     assert cr._linkable(original, {}, {}, known) == ["Alice Example", "Ally", "Girlfriend"]
+
+
+# --- scope: a bank-wide alias match alone never rewrites (review 2026-11-23) -------------------------------------------
+
+def _change(page_id, entity, action="update"):
+    return {"id": page_id, "action": action, "entity": entity}
+
+
+def _stranger_pages(**fm):
+    """A friend's page that does not relate to Alice, in a bank where Alice's page holds generic aliases."""
+    friend = _page("friend-example", "Friend Example", [])
+    friend["frontmatter"].update(fm)
+    return [*PAGES, friend]
+
+
+def _rewritten(changes, pages):
+    link_names.rewrite_changes(changes, pages)
+    return [changes[0]["entity"]["key_facts"][0]]
+
+
+def test_an_alias_with_no_resolution_in_the_batch_and_no_relation_stays_as_written():
+    # "Girlfriend" is an alias of Alice's page, but this friend's page is about someone else's girlfriend.
+    changes = [_change("friend-example", {"name": "Friend Example", "key_facts": ["Gift for [[Girlfriend]]"]})]
+    assert _rewritten(changes, _stranger_pages()) == ["Gift for [[Girlfriend]]"]
+
+
+def test_a_name_stage_two_left_pending_is_not_written_as_the_bank_wide_alias_holder():
+    # Stage 2 declined "Girlfriend": it waits in the pending store as "Girlfriend (unnamed)", so no change names it, and
+    # no change targets Alice's page. The link stays.
+    changes = [_change("friend-example", {"name": "Friend Example", "key_facts": ["Gift for [[Girlfriend]]"]}),
+               _change("carol-example", {"name": "Carol Example", "key_facts": ["Plays [[Ally]]"]})]
+    out = _rewritten(changes, _stranger_pages())
+    assert out == ["Gift for [[Girlfriend]]"]
+    assert changes[1]["entity"]["key_facts"] == ["Plays [[Ally]]"]
+
+
+def test_a_spelling_stage_two_resolved_in_this_batch_is_rewritten():
+    changes = [_change("friend-example", {"name": "Friend Example", "key_facts": ["Gift for [[Girlfriend]]"]}),
+               _change("alice-example", {"name": "Girlfriend", "key_facts": ["Likes jazz"]})]
+    assert _rewritten(changes, _stranger_pages()) == ["Gift for [[Alice Example]]"]
+    # An alias an extraction listed counts the same.
+    changes = [_change("friend-example", {"name": "Friend Example", "key_facts": ["Gift for [[Ally]]"]}),
+               _change("alice-example", {"name": "Alice Example", "aliases": ["Ally"], "key_facts": ["x"]})]
+    assert _rewritten(changes, _stranger_pages()) == ["Gift for [[Alice Example]]"]
+
+
+def test_a_name_merged_into_the_pages_extraction_is_still_a_batch_resolution():
+    """`_merge_entity_payload` keeps the preferred name only; the other name is recorded off the page (`SAID_AS`)."""
+    merged = entity_resolver._merge_entity_payload(
+        {"name": "Alice Example", "summary": "A friend.", "key_facts": ["a"]},
+        {"name": "Girlfriend", "summary": "", "key_facts": ["b"]})
+    assert merged["name"] == "Alice Example" and merged[link_names.SAID_AS] == ["Alice Example", "Girlfriend"]
+    chained = entity_resolver._merge_entity_payload(merged, {"name": "Ally", "key_facts": ["c"]})
+    assert chained[link_names.SAID_AS] == ["Alice Example", "Girlfriend", "Ally"]
+    changes = [_change("friend-example", {"name": "Friend Example", "key_facts": ["Gift for [[Girlfriend]]"]}),
+               _change("alice-example", merged)]
+    assert _rewritten(changes, _stranger_pages()) == ["Gift for [[Alice Example]]"]
+
+
+def test_the_pages_own_name_or_id_in_another_form_is_rewritten_without_a_relation():
+    for spelling in ("alice example", "ALICE-EXAMPLE", "alice-example"):
+        changes = [_change("friend-example", {"name": "Friend Example", "key_facts": [f"Met [[{spelling}]]"]})]
+        assert _rewritten(changes, _stranger_pages()) == ["Met [[Alice Example]]"]
+
+
+def test_a_page_that_already_relates_to_the_target_reads_its_alias_there():
+    related = _stranger_pages(related=["alice-example"])
+    changes = [_change("friend-example", {"name": "Friend Example", "key_facts": ["Gift for [[Girlfriend]]"]})]
+    assert _rewritten(changes, related) == ["Gift for [[Alice Example]]"]
+    # ... through its Related block / a link under her own name / a claim naming her, too.
+    for body in ("## Related\n- [[Alice Example]]\n", "Likes [[Alice Example]].\n",
+                 "```claims\n- id: c1\n  predicate: knows\n  object: alice-example\n  object_kind: node\n```\n"):
+        pages = _stranger_pages()
+        pages[-1]["body"] = body
+        changes = [_change("friend-example", {"name": "Friend Example", "key_facts": ["Gift for [[Girlfriend]]"]})]
+        assert link_names.Names(pages).relations("friend-example") == {"alice-example"}, body
+        assert _rewritten(changes, pages) == ["Gift for [[Alice Example]]"], body
+
+
+def test_a_link_under_an_alias_is_not_a_relation():
+    # Reading an existing [[Girlfriend]] as a relation would be the same bank-wide guess one step removed.
+    pages = _stranger_pages()
+    pages[-1]["body"] = "Gift for [[Girlfriend]].\n"
+    assert link_names.Names(pages).relations("friend-example") == frozenset()
+
+
+def test_a_merged_name_is_never_written_to_the_page(tmp_path):
+    merged = entity_resolver._merge_entity_payload(
+        {"name": "Alice Example", "type": "person", "summary": "A friend.", "key_facts": ["a"]},
+        {"name": "Girlfriend", "type": "person", "summary": "", "key_facts": ["b"]})
+    existing = _bank(tmp_path)
+    out = asyncio.run(cr.resolve_and_prune(
+        [{"id": "alice-example", "action": "update", "source_episode": "ep_2026-11-19_001", "entity": merged}],
+        existing, Settings(), decay=False, now=datetime(2026, 11, 20)))
+    cr.apply_changes(out, tmp_path)
+    assert "_said_as" not in (tmp_path / "entities" / "alice-example.md").read_text()

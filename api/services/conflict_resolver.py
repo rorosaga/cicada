@@ -457,11 +457,13 @@ def _article_job(change: dict, existing_entity: dict, new_entity: dict, context:
     name = str(fm.get("name") or new_entity.get("name") or change["id"])
     fields = {k: new_entity.get(k) or [] for k in ("key_facts", "history_entries", "links", "open_questions")}
     record = entity_article.record_sections(strip_claims_block(original), str(entity_type), fields)
+    spellings = context.get("spellings")
+    scope = spellings.scope(str(change.get("id") or "") or None) if spellings is not None else None
     inputs = entity_article.build(
         name=name, entity_type=str(entity_type), frontmatter=fm, original_body=original, record=record,
         incoming=new_entity, today=context["today"], update_days=_change_dates(change), owner=context["owner"],
-        linkable=_linkable(original, record, context["names"], context["known"], context.get("spellings")),
-        same_page=context.get("spellings"))
+        linkable=_linkable(original, record, context["names"], context["known"], scope),
+        same_page=scope)
     # A hub page's record (the owner's: thousands of activity claims) is more than one prompt holds: the writer gets
     # its strongest inputs (`entity_article.fit`); the record below the article keeps every one.
     inputs = entity_article.fit(inputs, max_chars=context["max_chars"], people=context.get("people") or ())

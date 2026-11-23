@@ -3973,13 +3973,22 @@ is about, who did it, and never say one thing twice. Four mechanisms, each engin
   source rows (`section_provenance.INPUTS`) carrying the same text move with it, so no row is lost; the person's words
   are the conversation's and the evidence spans point there. Only a resolution that is certain: exactly one non-dropped
   page answers to the spelling (name, alias, id) and the page's own name resolves back to that page alone (G227: a
-  shared title is neither's); an unknown or ambiguous spelling stays as written, nothing is guessed from similarity,
-  no page is renamed or merged. A plain mention with no brackets ("<owner>'s partner's favourite artist") is **not**
+  shared title is neither's), **and the spelling is scoped to that page** (`link_names.Scope`): a page holds generic
+  aliases ("girlfriend", "partner", "she") that mean someone else in another conversation, and Stage 2 may have
+  declined to resolve the very word (`role_people`: a relation-only person is merged only on the person's answer or
+  evidence on the record), so a bank-wide match alone never rewrites. It does when (a) Stage 2 resolved that spelling
+  to the page in this same batch (an extraction on the page's create/update was named so or listed it as an alias —
+  a merged input's name is kept off the page in the transient `_said_as` key of `entity_resolver._merge_entity_payload`,
+  never written), (b) the spelling is the page's own name or id in another case or spacing (never an alias), or
+  (c) the page being written already relates to the target (its `related`, a link in its body under the target's own
+  name — `## Related` included — or a claim naming it). Otherwise the link stays exactly as written. An unknown or
+  ambiguous spelling stays as written, nothing is guessed from similarity, no page is renamed or merged. A plain mention with no brackets ("<owner>'s partner's favourite artist") is **not**
   touched and Stage 1 is not told the bank's names: that would send it names per prompt for a model's guess to use,
   and `role_people` already titles a relation-only person. Text already on a page is never rewritten (a bullet's
   rows are keyed by its words), so old bullets keep their spelling and heal only as the fold below takes them. The
   article writer (`entity_article`) is offered one name a page in LINKABLE and, when its inputs spell a page more
-  than one way (the record on a page written before this), a `SAME_PAGE` list — "`as` is another name of `is`" — with a
+  than one way (the record on a page written before this), a `SAME_PAGE` list — only for spellings read inside the
+  page's own neighbourhood (its own name or id in another form, a page it already relates to; never a bank-wide alias) — "`as` is another name of `is`" — with a
   rule to write it once under the one name and never as different people.
 - **Who said it, who did it.** A claim resting only on the other side's words is theirs (`entity_extractor
   .assistant_observer`): a texted agent's (G179), and now a harness session's agent (`external:<harness>`) and a chat
