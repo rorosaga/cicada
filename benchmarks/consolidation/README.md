@@ -18,11 +18,11 @@ Two invented people, each on a bank of their own; a leg's score is the sum over 
   silent edit that moves a date, a long conversation where the person takes one of the assistant's four suggestions,
   changes another and refuses two, "in two weeks", and a third Sam with no surname.
 
-`fixture_noor.json` holds Noor Haddad's, 15 conversations, for what Ines's leave out: two **meeting transcripts** in
+`fixture_noor.json` holds Noor Haddad's, 16 conversations, for what Ines's leave out: two **meeting transcripts** in
 Hex's format, staged by the real parser (`meeting_transcripts.draft_for_file`), where only the `You` lines are hers and
 every other speaker's words are theirs; a long chat with facts buried among the assistant's suggestions; **French**;
 **two people called Marc** (a brother-in-law who is a carpenter, a colleague moving to Berlin) that must not share a page;
-a Slack **handle** that is Léa; a month said without a day ("in March"); and five values that change.
+a Slack **handle** that is Léa; a month said without a day ("in March"); and six values that change.
 
 Phase 1 is consolidated with one drain. Phase 2 is then staged on the same bank and drained again, so updates meet a
 memory that already holds the old values. Days count from the run's clock. A `{day:+N}` in a turn is written out from

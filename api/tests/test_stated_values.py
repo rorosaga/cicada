@@ -136,3 +136,45 @@ def test_an_older_value_closes_before_the_next_value_said_after_it(tmp_path):
     reconciled, _, _ = _reconcile(tmp_path, [two], [three, four])
     by_id = {c.id: c for c in reconciled["alice-example"]}
     assert by_id["clm_2"].valid_to == "2023-08-01" and by_id["clm_2"].superseded_by == "clm_3"
+
+
+# ---- standing facts of a person (2026-11-23) --------------------------------------------------------------------------
+
+def test_a_standing_trait_replaced_later_stays_in_history(tmp_path):
+    """A diet said once and changed a year on: the new value closes the old, the old stays dated."""
+    old = _said_by(_value("clm_diet_1", "diet", "vegetarian", "2025-02-01"), "user")
+    new = _said_by(_value("clm_diet_2", "diet", "eats fish again", "2026-03-01"), "user")
+    reconciled, nudges, _ = _reconcile(tmp_path, [new], [old])
+    by_id = {c.id: c for c in reconciled["alice-example"]}
+    assert by_id["clm_diet_1"].valid_to == "2026-03-01" and by_id["clm_diet_1"].superseded_by == "clm_diet_2"
+    assert by_id["clm_diet_1"].object == "vegetarian" and by_id["clm_diet_2"].valid_to is None and nudges == []
+
+
+def test_two_allergies_are_two_attributes_and_both_stay(tmp_path):
+    """The prompt names the item in the attribute when a person can hold several of a kind, so one never replaces another."""
+    peanut = _said_by(_value("clm_a1", "peanut allergy", "allergic", "2025-02-01"), "user")
+    shellfish = _said_by(_value("clm_a2", "shellfish allergy", "allergic", "2026-03-01"), "user")
+    reconciled, nudges, _ = _reconcile(tmp_path, [shellfish], [peanut])
+    by_id = {c.id: c for c in reconciled["alice-example"]}
+    assert by_id["clm_a1"].valid_to is None and by_id["clm_a2"].valid_to is None and nudges == []
+
+
+def test_another_speakers_trait_is_theirs_never_the_persons(tmp_path):
+    """A colleague's own statement is a value on the colleague, with the speaker's evidence; it never reaches the person."""
+    extracted = [{"episode_id": "ep_2026-11-05_001", "origin": "benchmark", "relationships": [], "values": [
+        {"entity": "Bob Example", "attribute": "parental leave start", "value": "2027-01",
+         "source_episode": "ep_2026-11-05_001", "source_episode_timestamp": "2026-11-05T10:00:00+00:00",
+         "evidence": [{"episode": "ep_2026-11-05_001", "start": 10, "end": 30, "kind": "speaker", "hash": "abc"}]}]}]
+    [claim] = entities_to_claims(extracted, None)
+    assert claim.subject == "bob-example" and claim.evidence[0].kind == "speaker"
+
+
+def test_the_prompt_asks_for_standing_facts_as_values_and_keeps_them_apart():
+    from api.services.entity_extractor import EXTRACTION_SYSTEM_PROMPT
+
+    low = " ".join(EXTRACTION_SYSTEM_PROMPT.split())
+    section = low.split("VALUES (values[])")[1].split("EXTRACTION GUIDELINES")[0]
+    assert "STANDING FACTS ARE VALUES TOO" in section
+    assert "a diet" in section and "an allergy" in section and "never an assistant's guess" in section
+    assert "one attribute each" in section          # several of a kind never replace each other
+    assert "WHO SOMEONE IS TO THE USER" in low

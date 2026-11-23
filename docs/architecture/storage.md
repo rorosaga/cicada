@@ -403,7 +403,15 @@ such as "number of", or one set inside the other when the smaller has two or mor
 whose attribute words beyond another page's open value attribute are all words of that page's id, the rest naming the
 same attribute, takes that page and that predicate — "half marathon goal time" on the person meets "goal finish time" on
 the race — when exactly one page and one value match; else it stays. Stage 1 is also told a value about a thing goes
-on the thing, a changed value is the new value, and the person's plans, decisions and scheduled dates are values. A
+on the thing, a changed value is the new value, and the person's plans, decisions and scheduled dates are values. **Standing facts are values too (2026-11-23).** A trait of a person that links to no other entity (a diet, an allergy, a
+first language, a condition they manage, a job title), what a project or thing does, what someone is going to do (a leave, a
+degree, a visit) and a finding of a study were prose only: the extraction had a place for a link and a number, none for them
+(measured on the consolidation benchmark: a diet and an allergy stayed in Key Facts in 3 of 3 runs). Stage 1 is now told they are
+`values[]` on whoever they are about, the attribute naming the kind ("diet"; "job title", valued "<title> at <employer>", so a promotion or a move closes the old one); a kind a person can hold
+several of (allergies) gets one attribute per item, so one never replaces another; and "who someone is to the user" ("my partner")
+is a relationship of its own, never only a shared act. It is the person's only when they said it of themselves; another speaker's
+own line is that speaker's, an assistant's guess is nothing (the owner's-words rail is unchanged), and a changed trait is a
+newer value that closes the old one, which stays in History. Matching and reconciliation are unchanged. A
 value said before the one the page holds (a drain reads conversations in any order) is kept as closed history,
 `superseded_by` the first value said after it (so history never overlaps), never asked about (`superseded_on_arrival`). The value stays in key facts too — **until a later value replaces it** (owner
 2026-11-07, `replaced_facts`): in the write that closes the claim, a Key Facts bullet that says the replaced value (a whole-word
