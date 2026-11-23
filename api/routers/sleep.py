@@ -440,7 +440,8 @@ async def sleep_queue(
 
 #: Bumped when a row of `GET /sleep/episodes` gains a field or changes for the same files (folded into its ETag).
 #: episodes-5: `site` is the link's own host, not its registrable domain (owner 2026-11-23).
-EPISODES_SHAPE = "episodes-5"   # episodes-4: a recorder's meetings group under it (`queue_origin`); episodes-3: `device` (G212); episodes-2: `site` (owner 2026-10-20)
+#: episodes-6: `openKind` / `openValue` — where the original opens (owner 2026-11-23).
+EPISODES_SHAPE = "episodes-6"   # episodes-4: a recorder's meetings group under it (`queue_origin`); episodes-3: `device` (G212); episodes-2: `site` (owner 2026-10-20)
 
 
 @router.get("/sleep/episodes", response_model=list[EpisodeQueueItem])
@@ -475,6 +476,7 @@ async def sleep_episodes(
         body = ep["body"]
         fm = ep["frontmatter"]
         kind, value = episode_copy.copy_target(fm, body, roots)
+        opens = episode_copy.open_target(fm, body, roots)
         items.append(
             EpisodeQueueItem(
                 id=ep["id"],
@@ -491,6 +493,8 @@ async def sleep_episodes(
                 changed_at=episode_copy.changed_at(fm) or ep["timestamp"],
                 site=reading_hosts.mark_key(url) if (url := channel_items.saved_episode_url(fm)) else None,
                 device=str(fm.get("device") or "") or None,
+                open_kind=opens[0] if opens else None,
+                open_value=opens[1] if opens else None,
             )
         )
     return items

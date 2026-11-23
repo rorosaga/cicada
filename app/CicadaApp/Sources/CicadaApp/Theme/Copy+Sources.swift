@@ -175,6 +175,16 @@ extension Copy {
             + (total == 1 ? noun.one : noun.many)
     }
     /// G161 (ROR-111) — the control that opens an item where it lives. Each names the person's own source.
+    /// Owner 2026-11-23 — a queued episode's right-click "Open in …" (`EpisodeOpen`).
+    enum EpisodeOpen {
+        static func openIn(_ app: String) -> String { "Open in \(app)" }
+        /// A chat has no address in the bank, so its app opens, not the chat: said as "Open Messages", never "Open in".
+        static func openApp(_ app: String) -> String { "Open \(app)" }
+        static let claudeCode = "Claude Code"
+        static let showInFinder = "Show in Finder"
+        static let fileGone = "That file is no longer where it was."
+    }
+
     enum Place {
         static let inNotes = "Open in Notes"
         static let inBrowser = "Open in browser"

@@ -1384,10 +1384,14 @@ struct EpisodeQueueItem: Codable, Identifiable {
     let site: String?
     /// G212 — the device id that posted it (nil: this server, or an older backend), for the machines strip's queues.
     var device: String? = nil
+    /// Owner 2026-11-23 — where the original opens (`episode_copy.open_target`): "web", "session", "note" or "file",
+    /// and its link, session id, note id or path. Nil when nothing names it and from an older backend.
+    var openKind: String? = nil
+    var openValue: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, timestamp, source, origin, title, preview, chars, processed, copyKind, copyValue, changedAt, site
-        case device
+        case device, openKind, openValue
     }
 
     init(from decoder: Decoder) throws {
@@ -1405,6 +1409,8 @@ struct EpisodeQueueItem: Codable, Identifiable {
         changedAt = try c.decodeIfPresent(String.self, forKey: .changedAt)
         site = try c.decodeIfPresent(String.self, forKey: .site)
         device = try c.decodeIfPresent(String.self, forKey: .device)
+        openKind = try c.decodeIfPresent(String.self, forKey: .openKind)
+        openValue = try c.decodeIfPresent(String.self, forKey: .openValue)
     }
 }
 
