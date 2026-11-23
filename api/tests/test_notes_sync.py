@@ -126,12 +126,13 @@ def test_sync_notes_unchanged_note_skipped_on_second_sync(tmp_path):
 def test_sync_notes_modified_note_reemits_updated_episode(tmp_path):
     memory = _memory(tmp_path)
     run(notes_sync.sync_notes(memory, dump=_dump(NOTE_1, NOTE_2)))
+    before = {p.name for p in (memory / "episodes").glob("ep_*.md")}
 
     result = run(notes_sync.sync_notes(memory, dump=_dump(NOTE_1, NOTE_2_EDITED)))
     assert result == {"new": 0, "updated": 1, "skipped": 1, "total": 2, "excluded": 0, "locked": 0, "retired": 0}
 
     episodes = list((memory / "episodes").glob("ep_*.md"))
-    assert len(episodes) == 3  # original 2 + 1 fresh episode for the edit
+    assert {p.name for p in episodes} == before   # the edit is the same episode in place (G104), never a third
 
     from api.services import markdown_parser
 
@@ -364,3 +365,217 @@ def test_an_unreadable_or_future_date_falls_back_to_now():
     assert notes_sync._aware("2026-03-03T11:30:00", "x") == ""
     assert notes_sync._aware("2999-01-01T00:00:00", "0") == ""
     assert notes_sync._aware("2026-03-03T11:30:00", "-18000") == "2026-03-03T16:30:00+00:00"
+
+
+# --- An edited note is a revision of its one episode (G104, 2026-11-23) --------------------------------------------
+
+
+def _episodes(memory):
+    from api.services import markdown_parser
+
+    return {p.name: markdown_parser.parse(p) for p in sorted((memory / "episodes").glob("ep_*.md"))}
+
+
+def _sleep_read(path):
+    """Sleep consolidated it: `processed: true` by sleep, the file as Sleep leaves it."""
+    from api.services import markdown_parser
+
+    parsed = markdown_parser.parse(path)
+    markdown_parser.write(path, {**parsed.frontmatter, "processed": True, "processed_by": "sleep"}, parsed.body)
+
+
+def _again(record: str, old: str, new: str) -> str:
+    return record.replace(old, new)
+
+
+def test_an_edit_is_one_episode_revised_in_place_and_requeued(tmp_path):
+    memory = _memory(tmp_path)
+    run(notes_sync.sync_notes(memory, dump=NOTE_2))
+    ((name, first),) = _episodes(memory).items()
+    _sleep_read(memory / "episodes" / name)
+    first = _episodes(memory)[name]
+
+    run(notes_sync.sync_notes(memory, dump=NOTE_2_EDITED))
+    ((name2, edited),) = _episodes(memory).items()
+    assert name2 == name and edited.frontmatter["id"] == first.frontmatter["id"]
+    fm = edited.frontmatter
+    assert fm["processed"] is False and "processed_by" not in fm
+    assert fm["revised"]["count"] == 1 and fm["revised"]["previous_hash"] == first.frontmatter["content_hash"]
+    # Sleep read the first body, so the revision names it: only what changed is read again.
+    assert fm["revised"]["consolidated_hash"] == first.frontmatter["content_hash"]
+    assert fm["source_id"] == "apple-notes:note-2" and fm["note_id"] == "note-2" and fm["folder"] == "Work"
+    assert fm["received_at"] == first.frontmatter["received_at"]   # stamped once, at creation
+    assert "action items added" in edited.body
+
+    again_edit = _again(_again(NOTE_2_EDITED, "2026-07-05", "2026-07-06"), "added", "added, owners named")
+    run(notes_sync.sync_notes(memory, dump=again_edit))
+    ((_, again),) = _episodes(memory).items()
+    assert again.frontmatter["revised"]["count"] == 2 and again.frontmatter["id"] == first.frontmatter["id"]
+
+
+def test_the_modification_date_is_never_in_the_body_so_a_revision_changes_only_the_edit(tmp_path):
+    """`**Modified:**` changed on every edit: in the body it was a changed line of every revision."""
+    from api.services import episode_revision
+
+    memory = _memory(tmp_path)
+    run(notes_sync.sync_notes(memory, dump=NOTE_2))
+    ((_, first),) = _episodes(memory).items()
+    run(notes_sync.sync_notes(memory, dump=NOTE_2_EDITED))
+    ((_, edited),) = _episodes(memory).items()
+    assert "Modified" not in first.body and "Modified" not in edited.body
+    assert edited.frontmatter["source_updated_at"] == "2026-07-05"
+    changed, removed, _blocks = episode_revision.diff(first.body, edited.body)
+    assert [edited.body[a:b].strip() for a, b in changed] == ["Discussed Q3 roadmap — action items added"]
+    assert [first.body[a:b].strip() for a, b in removed] == ["Discussed Q3 roadmap"]
+
+
+def test_an_unchanged_note_is_not_written_at_all(tmp_path):
+    memory = _memory(tmp_path)
+    run(notes_sync.sync_notes(memory, dump=_dump(NOTE_1, NOTE_2)))
+    files = [*(memory / "episodes").glob("ep_*.md"), memory / "sources" / notes_sync.NOTES_INDEX_FILENAME]
+    stamps = {p: (p.stat().st_mtime_ns, p.read_bytes()) for p in files}
+    run(notes_sync.sync_notes(memory, dump=_dump(NOTE_1, NOTE_2)))
+    assert {p: (p.stat().st_mtime_ns, p.read_bytes()) for p in files} == stamps
+
+
+def test_a_note_notes_touched_with_the_same_words_is_not_requeued(tmp_path):
+    """The date moved and no word did: the index takes the date, Sleep reads nothing again."""
+    import json
+
+    memory = _memory(tmp_path)
+    run(notes_sync.sync_notes(memory, dump=NOTE_2))
+    ((name, first),) = _episodes(memory).items()
+    _sleep_read(memory / "episodes" / name)
+    touched = _record("note-2", "Meeting notes", "Discussed Q3 roadmap", "2026-07-02", "2026-07-09", "Work")
+    result = run(notes_sync.sync_notes(memory, dump=touched))
+    assert (result["updated"], result["skipped"]) == (0, 1)
+    ((_, after),) = _episodes(memory).items()
+    assert after.frontmatter["processed"] is True and "revised" not in after.frontmatter
+    idx = json.loads((memory / "sources" / notes_sync.NOTES_INDEX_FILENAME).read_text())
+    assert idx["note-2"]["modified"] == "2026-07-09" and idx["note-2"]["episode_id"] == first.frontmatter["id"]
+    assert run(notes_sync.sync_notes(memory, dump=touched))["skipped"] == 1   # and it stays skipped
+
+
+def test_the_notes_own_date_follows_its_edits_while_its_id_keeps_its_day(tmp_path):
+    memory = _memory(tmp_path)
+    run(notes_sync.sync_notes(memory, dump=_dated("n1", "Idea", "d1", "2026-03-03T11:30:00", "0")))
+    ((name, _first),) = _episodes(memory).items()
+    assert name.startswith("ep_2026-03-03_")
+    edited = FIELD_SEP.join(["n1", "Idea", "body text, more", "c", "d2", "Notes", "2026-03-05T09:00:00", "0"])
+    run(notes_sync.sync_notes(memory, dump=edited))
+    ((name2, after),) = _episodes(memory).items()
+    assert name2 == name   # ruling 34: an id is never renamed
+    assert after.frontmatter["timestamp"] == "2026-03-05T09:00:00+00:00"
+    assert after.frontmatter["redated_from"] == "2026-03-03T11:30:00+00:00"
+
+
+def _old_shape_bank(memory, *, processed=True):
+    """A bank an earlier version synced: the episode has `note_id` and no `source_id`, its `content_hash` is a hash of
+    the key and the date (never of the words), its body carries the `**Modified:**` line, and the index points at it."""
+    import json
+
+    from api.services import markdown_parser
+
+    fm = {"id": "ep_2026-07-02_001", "timestamp": "2026-07-02T10:00:00+00:00", "source": "apple-notes",
+          "origin": "apple-notes", "title": "Meeting notes", "processed": processed, "content_hash": "0ld5hash0000",
+          "note_id": "note-2", "folder": "Work", "tags": ["Work"]}
+    if processed:
+        fm["processed_by"] = "sleep"
+    path = memory / "episodes" / "ep_2026-07-02_001.md"
+    markdown_parser.write(
+        path, fm, "# Meeting notes\n\n**Folder:** Work\n**Modified:** 2026-07-02\n\nDiscussed Q3 roadmap")
+    (memory / "sources" / notes_sync.NOTES_INDEX_FILENAME).write_text(json.dumps(
+        {"note-2": {"episode_id": fm["id"], "modified": "2026-07-02", "note_id": "note-2", "account": None,
+                    "folder": "Work"}}))
+    return path
+
+
+def test_upgrading_rewrites_no_unchanged_note(tmp_path):
+    memory = _memory(tmp_path)
+    path = _old_shape_bank(memory)
+    index = memory / "sources" / notes_sync.NOTES_INDEX_FILENAME
+    before = (path.stat().st_mtime_ns, path.read_bytes(), index.stat().st_mtime_ns, index.read_bytes())
+    old = _record("note-2", "Meeting notes", "Discussed Q3 roadmap", "2026-07-02", "2026-07-02", "Work")
+    result = run(notes_sync.sync_notes(memory, dump=old))
+    assert (result["new"], result["updated"], result["skipped"]) == (0, 0, 1)
+    assert (path.stat().st_mtime_ns, path.read_bytes(), index.stat().st_mtime_ns, index.read_bytes()) == before
+
+
+def test_the_first_edit_after_upgrading_revises_the_latest_old_episode(tmp_path):
+    from api.services import markdown_parser
+
+    memory = _memory(tmp_path)
+    path = _old_shape_bank(memory)
+    result = run(notes_sync.sync_notes(memory, dump=NOTE_2_EDITED))
+    assert (result["new"], result["updated"]) == (0, 1)
+    assert [p.name for p in (memory / "episodes").glob("ep_*.md")] == [path.name]   # not one more
+    parsed = markdown_parser.parse(path)
+    fm = parsed.frontmatter
+    assert fm["id"] == "ep_2026-07-02_001" and fm["source_id"] == "apple-notes:note-2"
+    assert fm["processed"] is False and fm["revised"]["count"] == 1
+    assert fm["revised"]["consolidated_hash"] == "0ld5hash0000"   # git's copy of the version Sleep read is the prior
+    assert "action items added" in parsed.body and "Modified" not in parsed.body
+    # and the next edit finds it by its identity like any other
+    run(notes_sync.sync_notes(memory, dump=_again(NOTE_2_EDITED, "2026-07-05", "2026-07-06")))
+    assert len(list((memory / "episodes").glob("ep_*.md"))) == 1
+
+
+def test_an_unread_old_episode_edited_is_simply_replaced_in_place(tmp_path):
+    from api.services import markdown_parser
+
+    memory = _memory(tmp_path)
+    path = _old_shape_bank(memory, processed=False)
+    run(notes_sync.sync_notes(memory, dump=NOTE_2_EDITED))
+    fm = markdown_parser.parse(path).frontmatter
+    assert fm["processed"] is False and "consolidated_hash" not in fm["revised"]
+
+
+def test_an_edit_and_a_pin_moved_together_both_land(tmp_path):
+    memory = _memory(tmp_path)
+    run(notes_sync.sync_notes(memory, dump=NOTE_2, pinned_ids=["note-2"]))
+    run(notes_sync.sync_notes(memory, dump=NOTE_2_EDITED, pinned_ids=["note-2"]))
+    ((_, ep),) = _episodes(memory).items()
+    assert ep.frontmatter["pinned"] is True   # kept through the edit
+    run(notes_sync.sync_notes(memory, dump=_again(NOTE_2_EDITED, "2026-07-05", "2026-07-06"), pinned_ids=[]))
+    ((_, ep),) = _episodes(memory).items()
+    assert "pinned" not in ep.frontmatter
+
+
+# --- End to end: Sleep reads only what the edit changed ---------------------------------------------------------
+
+
+def test_sleep_rereads_only_what_an_edit_of_a_note_changed(tmp_path, monkeypatch):
+    from api.services import entity_extractor, markdown_parser
+    from api.tests.test_episode_revision_sleep import _claims, _git, _run
+    from api.tests.test_sleep_cycle_hold import _bank
+
+    memory = _bank(tmp_path)
+    markdown_parser.write(memory / "entities" / "alpha-project.md",
+                          {"name": "alpha-project", "type": "project", "status": "active", "confidence": 0.9},
+                          "## Summary\nalpha-project is a synthetic project.\n")
+    filler = "\n".join(f"Filler line {i} about nothing in particular." for i in range(25))
+    v1 = f"{filler}\nalpha-project uses tokio for async work."
+    v2 = f"The alpha-project design review meeting is on Thursday.\n{v1}"
+    run(notes_sync.sync_notes(memory, dump=_record("n-alpha", "Alpha notes", v1, "c", "d1", "Work")))
+    commit = ["-c", "user.email=t@example.invalid", "-c", "user.name=t"]
+    _git(memory, "init", "-q")
+    _git(memory, *commit, "add", "-A")
+    _git(memory, *commit, "commit", "-qm", "capture")
+    first: list[str] = []
+    _run(memory, monkeypatch, first)
+    (name,) = [p.name for p in (memory / "episodes").glob("ep_*.md")]
+    assert markdown_parser.parse(memory / "episodes" / name).frontmatter["processed"] is True
+    _git(memory, *commit, "add", "-A")
+    _git(memory, *commit, "commit", "-qm", "Sleep cycle")
+    assert any("tokio" in p for p in first)
+
+    run(notes_sync.sync_notes(memory, dump=_record("n-alpha", "Alpha notes", v2, "c", "d2", "Work")))
+    assert [p.name for p in (memory / "episodes").glob("ep_*.md")] == [name]   # still one conversation
+    second: list[str] = []
+    _run(memory, monkeypatch, second)
+    assert len(second) == 1 and entity_extractor.episode_revision.REVISION_NOTE in second[0]
+    assert "design review meeting is on Thursday" in second[0] and "tokio" not in second[0]
+    claims = {(c.predicate, c.object): c for c in _claims(memory)}
+    assert ("value-of-design-review-day", "Thursday") in claims
+    tokio = claims[("uses", "tokio")]
+    assert len(tokio.evidence) == 1 and set(tokio.source_episodes) == {name.removesuffix(".md")}
