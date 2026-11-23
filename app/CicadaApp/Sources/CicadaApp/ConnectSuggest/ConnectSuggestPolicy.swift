@@ -122,7 +122,7 @@ struct ConnectSuggestMemory: Codable, Equatable, Sendable {
         case yes
         /// No: never again for that source, until Settings undoes it.
         case no
-        /// Not now (or the panel left on its own): once more, no sooner than `ConnectSuggestPolicy.snooze`.
+        /// Not now (or the panel left on its own): again after the next wait of `ConnectSuggestPolicy.waits`.
         case notNow
     }
 
@@ -136,7 +136,7 @@ struct ConnectSuggestMemory: Codable, Equatable, Sendable {
     }
 
     var sources: [String: Source] = [:]
-    /// The last suggestion of any source: at most one a day overall.
+    /// The last suggestion of any source: at most one a day between different sources.
     var lastShown: Date?
 
     /// The sources the person said No to, oldest first — Settings' undo list.
@@ -152,12 +152,16 @@ struct ConnectSuggestMemory: Codable, Equatable, Sendable {
 /// - **On by default, one switch** (Settings → General): the suggestion is the person's way to learn what Cicada can
 ///   read without a tour, it only ever names an app they just chose to open, and the caps below keep it to a handful
 ///   a month. Off silences every suggestion at once.
-/// - **Once per source, ever**, unless the person says Not now: then once more, no sooner than 14 days later, and that
-///   is the last (`maxShows`). The panel leaving on its own counts as Not now, so someone who never looks at it sees
-///   each app at most twice, at least two weeks apart. 14 days: long enough that "not now" is honoured as "not this
-///   fortnight", short enough that a person who meant "after this deadline" is asked again while the app still matters.
+/// - **Not now waits longer each time** (`waits`; owner 2026-11-23: "14 days is a lot. maybe a progressive cooldown is
+///   better. like a first a couple of hours. then a day, and so on until max 14 days"): two hours after the first, then
+///   a day, three days, a week and two weeks, and the offer after the two-week wait is the last. The panel leaving on
+///   its own counts as Not now, so an offer missed once is back the same afternoon, and someone who never looks at it
+///   sees each source six times over about a month and then never. Found live: one untouched panel used to silence a
+///   source for 14 days, which read as the feature being broken.
 /// - **No is never again** for that source; Settings lists it with Suggest again.
-/// - **At most one a day**, all sources together (a rolling 24 h, so no day boundary or zone decides it).
+/// - **At most one a day between different sources** (a rolling 24 h, so no day boundary or zone decides it). A
+///   source's own return follows its own wait: the cap is against a pile of different offers, not against the one the
+///   person put off.
 /// - **Never in the first minute** after the app launched (it is still opening windows, restoring, asking for
 ///   things), nor in the first minute after Cicada launched (the memory's sources are not read yet). A suggestion is
 ///   never deferred to later: it belongs to the moment the person entered the app, so a refused one waits for the next
@@ -167,8 +171,10 @@ struct ConnectSuggestMemory: Codable, Equatable, Sendable {
 ///   offer's Yes landed behind the Welcome), and never for a source that is set up (connected, waiting on a sign-in
 ///   or on an agent).
 enum ConnectSuggestPolicy {
-    static let snooze: TimeInterval = 14 * 24 * 3600
-    static let maxShows = 2
+    /// How long a source waits after each Not now, by how many times it has shown; the offer after the last wait is
+    /// the last one.
+    static let waits: [TimeInterval] = [2 * 3600, 24 * 3600, 3 * 24 * 3600, 7 * 24 * 3600, 14 * 24 * 3600]
+    static var maxShows: Int { waits.count + 1 }
     static let dailyGap: TimeInterval = 24 * 3600
     static let launchQuiet: TimeInterval = 60
     /// How long the app must stay in front before the panel shows: a ⌘-Tab that passes through it is not entering it.
@@ -230,9 +236,13 @@ enum ConnectSuggestPolicy {
             // Shown before and not answered Yes or No: only after a Not now, and not before the snooze ends. A record
             // with a show but no answer (the app quit while it showed) counts as Not now from when it showed.
             let since = source.answeredAt ?? source.lastShown ?? .distantPast
-            guard c.now.timeIntervalSince(since) >= snooze else { return .skip(.snoozed) }
+            guard c.now.timeIntervalSince(since) >= waits[source.shown - 1] else { return .skip(.snoozed) }
         }
-        if let last = memory.lastShown, c.now.timeIntervalSince(last) < dailyGap { return .skip(.dailyCap) }
+        // The cap is between different sources: when the last offer of all was this source's own, its wait above
+        // already decided.
+        if let last = memory.lastShown, last != source.lastShown, c.now.timeIntervalSince(last) < dailyGap {
+            return .skip(.dailyCap)
+        }
         if c.now.timeIntervalSince(c.cicadaLaunchedAt) < launchQuiet { return .skip(.cicadaJustLaunched) }
         if let launched = c.appLaunchedAt, c.now.timeIntervalSince(launched) < launchQuiet {
             return .skip(.appJustLaunched)

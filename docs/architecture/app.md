@@ -1640,14 +1640,16 @@ traces' ground (G218). *Connected* is the catalogue's own word for that entry (`
 `SourceCatalog.status`, the Store's `channels` and `sourcesOverview` with this Mac's readers): only `off` is offered;
 connected, needs sign-in and waiting for an agent never are, and an entry not read yet or absent here is never guessed.
 *Respect* (`ConnectSuggestPolicy`, pure, clock injected): on by default (Settings → General → **Suggest connecting apps**;
-the offer only ever names an app the person just chose to open, and the caps keep it to a handful a month); once per
-source, ever; **Not now** — and the panel leaving on its own after `timeout` (12 s, the ask-why question's patience; the
+the offer only ever names an app the person just chose to open, and the caps keep it to a handful a month);
+**Not now** — and the panel leaving on its own after `timeout` (12 s, the ask-why question's patience; the
 pointer resting on it holds it; measured on `systemUptime`, as the ask-why panel's clock is, so a wall clock stepped back
 never freezes it), the person leaving the app, or the ask-why question taking the notch (`SaveWhyCenter.willShow`, set
-by `ConnectSuggestCenter.yields(to:)` at launch, so it holds with the main window closed) — allows one more
-offer no sooner than 14 days later, and that is the last (`maxShows` 2); **No** is never again, undone by *Suggest
+by `ConnectSuggestCenter.yields(to:)` at launch, so it holds with the main window closed) — puts the
+source off for a wait that grows each time (`waits`, owner 2026-11-23: two hours, a day, three days, a week, two weeks),
+and the offer after the two-week wait is the last (`maxShows` 6; one untouched panel used to silence a source for 14
+days, which read as the feature being broken); **No** is never again, undone by *Suggest
 again* in that Settings card; **Yes** is never asked again (the source's page is where it is finished); at most one
-offer a day across sources (rolling 24 h); never in the first minute after the app launched or after Cicada did; never
+offer a day between different sources (rolling 24 h; a source's own return follows its own wait); never in the first minute after the app launched or after Cicada did; never
 deferred to later (a refused offer waits for the next time the app is brought forward — it belongs to the moment of
 entering); never while the ask-why panel shows, never in a demo memory, never before the active memory is known, and
 **never before that memory's setup ran or was skipped** (`OnboardingState`; found live: a Yes over the Welcome opened the
