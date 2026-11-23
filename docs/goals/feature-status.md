@@ -9,7 +9,7 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 
 | ID | Feature | Status | PR | Updated |
 |---|---|---|---|---|
-| [G148](memory-evolution.md#g148) | Consolidation benchmark v3: a second person (meetings with speakers, French, a long chat, two Marcs, a handle), judge-matched facts, plausible planted errors to check the judge, `compare`, parallel legs | Merged | branch `feat/g148-bench-v2` | 2026-11-23 |
+| [G148](memory-evolution.md#g148) | Consolidation benchmark v3: a second person (meetings with speakers, French, a long chat, two Marcs, a handle), judge-matched facts, plausible planted errors to check the judge, `compare`, parallel legs | Merged | #780 | 2026-11-23 |
 | [G148](memory-evolution.md#g148) | Consolidation fixes from the benchmark: plans, decisions and scheduled dates as values; a value moves to the thing it measures; a drop closes a value naming it; a one-off act dated when it happened; Sonnet a Claude key's default. Sonnet on a key: facts 26 → 29.5 of 34, updates 3.5 → 4.5 of 6, dates 3 of 3 | Merged | #779 | 2026-11-23 |
 | [G148](memory-evolution.md#g148) | Consolidation benchmark: what Sleep wrote, per model (facts, updates, others' words, people, pages, dates, integrity, judge precision) on an invented person's two phases; a held name now joins the page its own batch creates (U1 0 → 6 of 6 legs) | Merged | #775 | 2026-11-23 |
 | [G148](memory-evolution.md#g148) | Ask: why the whole conversation beats it on LoCoMo (14 of 20 losses are facts in the bank that the prompt did not carry), a wider window and every page's items ranked by meaning: slept LoCoMo 156 → 163 of 200, LongMemEval_S 80 → 79 | PR open | branch `perf/beat-control` | 2026-11-09 |
