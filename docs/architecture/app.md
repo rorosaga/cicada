@@ -2415,10 +2415,20 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   starts a line and the cluster is never alone on one. **A copy is prose** (`PageText.plainKey`): a chip or quiet link
   its page's name, the cluster and joiners nothing, a bullet "- ", one line break per paragraph; `writeSelection(to:)`
   gives the same to Services. A line with web links keeps its 🔗 button and right-click view choices (`PageRun`: the
-  button follows the row's frame, the menu is an `NSMenu` built from the same `LinkCardModel`). A selection leaves when
-  the person selects in another run. A heading's links are quiet, never chips. `PageBeliefSentences` uses the same
-  engine. What is not here: a drag stops at a Related card, code block, image or the 40-row cut; a quiet link is not a
-  Tab stop (chips and the cluster are).
+  button follows the row's frame, the menu is an `NSMenu` built from the same `LinkCardModel`; the button is SwiftUI drawn
+  over the text view, so the text view's `hitTest` answers nil over it and its click is the button's). A selection leaves
+  when the person selects in another run. A heading's links are quiet, never chips. `PageBeliefSentences` uses the same
+  engine. **The keyboard (verified 2026-11-24):** the key-view loop does not reach a view that lives inside text (a SwiftUI
+  `.focusable()` chip was never a Tab stop), so the text view owns Tab for what is in it — `PageStop`s in reading order,
+  chips, quiet links and clusters: arriving by Tab lands on the first (Shift-Tab, the last), Tab and Shift-Tab move
+  between them and past the last leave for the next control, ⏎ opens a chip or quiet link (the page's `openURL`) and
+  the cluster's popover (`PageKeyFocus.activation`). A chip and the cluster draw focus as they draw hover (the view is
+  told, `PageAttachmentRoot`); a quiet link's hover and focus fill is one soft rounded shape drawn under the text by the
+  text view (a group is unique across the run's rows). A run with nothing to land on is not a Tab stop. **Accessibility:**
+  the views inside the text are the run's accessibility children, in reading order — a chip reads as a link ("Opens the
+  page"), the cluster as a button ("6 sources") — beside the text's own links. The header's Summary draws its links in the
+  text's ink, no underline (`MarkdownBody.inlineAttributed(quietLinks:)`). What is not here: a drag stops at a Related
+  card, code block, image or the 40-row cut.
   **A link never shows as brackets anywhere in the app (2026-11-23):** page text shown as a plain line — a search row's
   title, detail and passage, an Ask citation and gap, a question and its options, Home's lead question, the catch-up
   bar, a list row's one line (Clusters), the hover card, a history line, a belief, a project sentence, the Reader's title,

@@ -152,7 +152,10 @@ struct MarkdownBody: View {
     ///
     /// `links` (a screen with the graph in reach) makes each wikilink read as the page's own name; nil keeps the
     /// words it was written under (the entity article's own flow resolves a link from its URL, not its text).
-    static func inlineAttributed(_ raw: String, links: PageLinkIndex? = nil) -> AttributedString {
+    ///
+    /// `quietLinks`: a link is the text's own ink with no underline, still a link and still tappable — the entity page
+    /// draws no link blue or underlined (DESIGN_RULES §9, 2026-11-23), the header's Summary included.
+    static func inlineAttributed(_ raw: String, links: PageLinkIndex? = nil, quietLinks: Bool = false) -> AttributedString {
         let prepped = linkifyWikilinks(raw, links: links)
         var attr: AttributedString
         if let parsed = try? AttributedString(
@@ -172,8 +175,8 @@ struct MarkdownBody: View {
         // Both wikilinks (cicada://) and real markdown links get the same
         // accent + underline treatment so a tappable span always reads as one.
         for run in attr.runs where run.link != nil {
-            attr[run.range].foregroundColor = CicadaTheme.accent
-            attr[run.range].underlineStyle = .single
+            attr[run.range].foregroundColor = quietLinks ? CicadaTheme.textPrimary : CicadaTheme.accent
+            attr[run.range].underlineStyle = quietLinks ? nil : .single
         }
         return attr
     }

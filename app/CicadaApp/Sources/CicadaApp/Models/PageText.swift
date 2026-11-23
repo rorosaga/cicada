@@ -30,9 +30,24 @@ struct PageTextParagraph: Equatable {
     var gutter = false
 }
 
+/// A thing in the text the keyboard can land on, in reading order: a chip, a quiet link (all its words), the cluster.
+/// A quiet link's hover fill and its focus are one drawing (`PageTextView`), a chip's and the cluster's their own views'.
+struct PageStop: Equatable {
+    enum Kind: Equatable { case chip, quiet, cluster }
+    let kind: Kind
+    /// A chip's or cluster's stop number (its attachment's), or a quiet link's group.
+    let id: Int
+    /// The characters it covers (a quiet link: from its first word to its last).
+    let range: NSRange
+    /// What ⏎ opens; the cluster opens its own popover.
+    let url: URL?
+}
+
 /// A run, built: the text and where each row sits in it.
 struct PageTextDocument {
     let text: NSAttributedString
+    /// The keyboard's stops, in order.
+    var stops: [PageStop] = []
     /// Each paragraph's id and its range in `text` (the line break after it excluded), in order.
     let rows: [(id: Int, range: NSRange)]
     /// The characters of each quiet link, by group, so the words of one link light together.
@@ -145,9 +160,10 @@ enum PageText {
         let out = NSMutableAttributedString()
         var rows: [(id: Int, range: NSRange)] = []
         var groups: [Int: [NSRange]] = [:]
+        var stops: [PageStop] = []
         for (n, paragraph) in paragraphs.enumerated() {
             let start = out.length
-            append(paragraph, to: out, groups: &groups, context: context)
+            append(paragraph, to: out, groups: &groups, stops: &stops, groupBase: n * 10_000, context: context)
             let end = out.length
             rows.append((paragraph.id, NSRange(location: start, length: end - start)))
             let separator = n == paragraphs.count - 1 ? "" : "\n"
@@ -158,11 +174,12 @@ enum PageText {
                 out.addAttribute(quoteKey, value: true, range: NSRange(location: start, length: out.length - start))
             }
         }
-        return PageTextDocument(text: out, rows: rows, groups: groups)
+        return PageTextDocument(text: out, stops: stops, rows: rows, groups: groups)
     }
 
     private static func append(_ paragraph: PageTextParagraph, to out: NSMutableAttributedString,
-                               groups: inout [Int: [NSRange]], context: PageAttachmentContext) {
+                               groups: inout [Int: [NSRange]], stops: inout [PageStop], groupBase: Int,
+                               context: PageAttachmentContext) {
         let base = baseFont(paragraph.style)
         let color = ink(paragraph.style)
         let italic = paragraph.style == .quote
@@ -189,7 +206,13 @@ enum PageText {
             attrs[groupKey] = group
             let at = out.length
             out.append(NSAttributedString(string: text, attributes: attrs))
-            groups[group, default: []].append(NSRange(location: at, length: (text as NSString).length))
+            let range = NSRange(location: at, length: (text as NSString).length)
+            groups[group, default: []].append(range)
+            if let last = stops.last, last.kind == .quiet, last.id == group {
+                stops[stops.count - 1] = PageStop(kind: .quiet, id: group, range: NSUnionRange(last.range, range), url: url)
+            } else {
+                stops.append(PageStop(kind: .quiet, id: group, range: range, url: url))
+            }
         }
 
         var previous: PageInlinePiece?
@@ -211,7 +234,7 @@ enum PageText {
                 if !piece.glued {
                     // One space between words that had one; a quiet link's own words share its link.
                     if case .quiet(let word) = piece.token, case .quiet(let before)? = previous?.token, word.group == before.group {
-                        quiet(" ", intent: nil, url: word.url, group: word.group)
+                        quiet(" ", intent: nil, url: word.url, group: groupBase + word.group)
                     } else {
                         out.append(NSAttributedString(string: " ", attributes: plainAttrs(base)))
                     }
@@ -229,30 +252,37 @@ enum PageText {
             case .quiet(let word):
                 for run in word.text.runs {
                     quiet(String(word.text[run.range].characters), intent: run.inlinePresentationIntent, url: word.url,
-                          group: word.group)
+                          group: groupBase + word.group)
                 }
             case .entity(let target, let url):
                 if isHeading {
                     quiet(target.name, intent: nil, url: url, group: -1 - out.length)
                 } else {
-                    attach(.chip(.page(target), url), to: out, plain: target.name, font: base, color: color, context: context)
+                    attach(.chip(.page(target), url), to: out, stops: &stops, plain: target.name, font: base, color: color, context: context)
                 }
             case .external(let url, let label):
                 if isHeading {
                     quiet(label, intent: nil, url: url, group: -1 - out.length)
                 } else {
-                    attach(.chip(.web(label: label), url), to: out, plain: label, font: base, color: color, context: context)
+                    attach(.chip(.web(label: label), url), to: out, stops: &stops, plain: label, font: base, color: color, context: context)
                 }
             case .cluster(let model, let keys):
-                attach(.cluster(model, keys), to: out, plain: "", font: base, color: color, context: context)
+                attach(.cluster(model, keys), to: out, stops: &stops, plain: "", font: base, color: color, context: context)
             }
             previous = piece
         }
     }
 
-    private static func attach(_ content: PageAttachmentContent, to out: NSMutableAttributedString, plain: String,
-                               font: NSFont, color: NSColor, context: PageAttachmentContext) {
-        let attachment = PageInlineAttachment(content: content, font: font, context: context)
+    private static func attach(_ content: PageAttachmentContent, to out: NSMutableAttributedString,
+                               stops: inout [PageStop], plain: String, font: NSFont, color: NSColor,
+                               context: PageAttachmentContext) {
+        let attachment = PageInlineAttachment(content: content, font: font, context: context, stop: stops.count)
+        switch content {
+        case .chip(_, let url):
+            stops.append(PageStop(kind: .chip, id: stops.count, range: NSRange(location: out.length, length: 1), url: url))
+        case .cluster:
+            stops.append(PageStop(kind: .cluster, id: stops.count, range: NSRange(location: out.length, length: 1), url: nil))
+        }
         let string = NSMutableAttributedString(attachment: attachment)
         string.addAttributes([.font: font, .foregroundColor: color, plainKey: plain],
                              range: NSRange(location: 0, length: string.length))

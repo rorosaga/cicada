@@ -14,6 +14,35 @@ enum PageAttachmentContent: Equatable {
     case cluster(SourceClusterModel, [CiteKey])
 }
 
+/// Where the keyboard is in a run: the stop's number, and a count that goes up on each ⏎ (the cluster opens on it).
+@MainActor @Observable
+final class PageKeyFocus {
+    var stop: Int?
+    var activation = 0
+}
+
+/// A chip or the cluster as the attachment hosts it: the same views the page always drew, told whether the keyboard is on
+/// them.
+struct PageAttachmentRoot: View {
+    let content: PageAttachmentContent
+    let stop: Int
+    let entityId: String?
+    let focus: PageKeyFocus
+
+    var body: some View {
+        let focused = focus.stop == stop
+        switch content {
+        case .chip(let face, let url):
+            PageLinkChip(face: face, url: url, entityId: entityId, focused: focused)
+        case .cluster(let model, let keys):
+            if let entityId {
+                SourceCluster(model: model, keys: keys, entityId: entityId, focused: focused, activation: focus.activation)
+                    .padding(.leading, PageAttachmentContext.clusterLead)
+            }
+        }
+    }
+}
+
 /// What the hosted views need from the SwiftUI environment they cannot inherit (an attachment's view lives inside an
 /// AppKit view), and the one measure cache of their sizes. One per run, owned by its coordinator.
 @MainActor
@@ -28,16 +57,11 @@ final class PageAttachmentContext {
     /// The gap before the cluster: the breathing room the flow gave it after the last word.
     static var clusterLead: CGFloat { CicadaTheme.scaled(5) }
 
-    func root(_ content: PageAttachmentContent) -> AnyView {
-        var view: AnyView
-        switch content {
-        case .chip(let face, let url):
-            view = AnyView(PageLinkChip(face: face, url: url, entityId: entityId))
-        case .cluster(let model, let keys):
-            view = entityId.map { id in
-                AnyView(SourceCluster(model: model, keys: keys, entityId: id).padding(.leading, Self.clusterLead))
-            } ?? AnyView(EmptyView())
-        }
+    /// Which stop the keyboard is on (`PageTextView` owns Tab and ⏎; the attachments only draw it).
+    let keyFocus = PageKeyFocus()
+
+    func root(_ content: PageAttachmentContent, stop: Int = -1) -> AnyView {
+        var view = AnyView(PageAttachmentRoot(content: content, stop: stop, entityId: entityId, focus: keyFocus))
         view = AnyView(view.environment(store).environment(router))
         if let openURL { view = AnyView(view.environment(\.openURL, openURL)) }
         return view
@@ -96,11 +120,14 @@ final class PageInlineAttachment: NSTextAttachment {
     let content: PageAttachmentContent
     let font: NSFont
     let context: PageAttachmentContext
+    /// Its number among the keyboard's stops (`PageStop.id`).
+    let stop: Int
 
-    init(content: PageAttachmentContent, font: NSFont, context: PageAttachmentContext) {
+    init(content: PageAttachmentContent, font: NSFont, context: PageAttachmentContext, stop: Int) {
         self.content = content
         self.font = font
         self.context = context
+        self.stop = stop
         super.init(data: nil, ofType: nil)
     }
 
@@ -132,7 +159,9 @@ final class PageAttachmentProvider: NSTextAttachmentViewProvider {
 
     override func loadView() {
         guard let attachment else { return }
-        let host = PageAttachmentHost(rootView: MainActor.assumeIsolated { attachment.context.root(attachment.content) })
+        let host = PageAttachmentHost(rootView: MainActor.assumeIsolated {
+            attachment.context.root(attachment.content, stop: attachment.stop)
+        })
         host.onResize = { [weak attachment] size in
             guard let attachment else { return }
             MainActor.assumeIsolated { attachment.context.resized(attachment.content, to: size) }
@@ -190,8 +219,23 @@ final class PageTextView: NSTextView {
     var watchedRows: Set<Int> = []
     var onHoverRow: ((Int?) -> Void)?
     var onMenu: ((Int) -> NSMenu?)?
-    private var hoveredGroup: Int?
+    private var hoveredGroup: Int? {
+        didSet { if hoveredGroup != oldValue { setNeedsDisplay(bounds) } }
+    }
     private var lastFrames: [Int: CGRect] = [:]
+    /// What ⏎ does on a link (the page's own `openURL`).
+    var onOpen: ((URL) -> Void)?
+    var keyFocus: PageKeyFocus?
+    /// The stop the keyboard is on, an index into the document's stops; nil when it is on none.
+    private(set) var focusedStop: Int? {
+        didSet {
+            guard focusedStop != oldValue else { return }
+            keyFocus?.stop = focusedStop.flatMap { stops.indices.contains($0) && stops[$0].kind != .quiet ? $0 : nil }
+            setNeedsDisplay(bounds)
+            if let focusedStop { scrollToVisible(stopRect(focusedStop).insetBy(dx: 0, dy: -CicadaTheme.scaled(48))) }
+        }
+    }
+    private var stops: [PageStop] { document?.stops ?? [] }
 
     convenience init() {
         self.init(usingTextLayoutManager: true)
@@ -216,7 +260,11 @@ final class PageTextView: NSTextView {
     // MARK: Size
 
     /// The height of the whole run at `width`: laid out once, here.
-    func height(for width: CGFloat) -> CGFloat {
+    func height(for proposed: CGFloat) -> CGFloat {
+        // SwiftUI gives the view the half point below what it proposed (509.6 proposed, 509.5 laid out): measured at the
+        // proposal a line could wrap one fewer than the view needs, and a hair of float noise in the proposal (509.6,
+        // 509.6000000000001) was a new measure, a full layout of the run, each time.
+        let width = max((proposed * 2).rounded(.down) / 2, 1)
         if let measured, measured.width == width { return measured.height }
         textContainer?.size = NSSize(width: width, height: .greatestFiniteMagnitude)
         guard let layout = textLayoutManager else { return 0 }
@@ -273,7 +321,22 @@ final class PageTextView: NSTextView {
         }
         guard frames != lastFrames else { return }
         lastFrames = frames
+        // Where a row's 🔗 button sits (SwiftUI draws it over this view): clicks there are the button's.
+        buttonRects = frames.values.map {
+            CGRect(x: bounds.width - PageText.gutterWidth, y: $0.minY - CicadaTheme.scaled(5),
+                   width: PageText.gutterWidth, height: CicadaTheme.scaled(28))
+        }
         onRowFrames?(frames)
+    }
+
+    /// The 🔗 buttons are SwiftUI views drawn over this one. An AppKit view above them takes their clicks, so a click on
+    /// one is passed through (`hitTest` answers nil) to the SwiftUI view beneath.
+    private var buttonRects: [CGRect] = []
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = convert(point, from: superview)
+        if buttonRects.contains(where: { $0.contains(local) }) { return nil }
+        return super.hitTest(point)
     }
 
     // MARK: Copy
@@ -295,11 +358,153 @@ final class PageTextView: NSTextView {
         AppPasteboard.copy(prose(range))
     }
 
-    /// A selection leaves when the person selects in another run, not lingering greyed out beside the new one.
+    // MARK: Keyboard
+    //
+    // The key-view loop does not reach a view that lives inside text, so this view owns the keyboard for what is in it:
+    // arriving by Tab lands on the first chip, quiet link or cluster (by Shift-Tab, the last), Tab and Shift-Tab move
+    // between them and past the last leave for the next control, ⏎ opens it (the cluster opens its popover). A
+    // run with nothing to land on is not a Tab stop at all.
+
+    override var canBecomeKeyView: Bool { !stops.isEmpty && super.canBecomeKeyView }
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became, !stops.isEmpty {
+            switch window?.keyViewSelectionDirection {
+            case .selectingNext: focusedStop = 0
+            case .selectingPrevious: focusedStop = stops.count - 1
+            default: break
+            }
+        }
+        return became
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        focusedStop = nil
+        super.mouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if event.keyCode == 48, flags.subtracting(.shift).isEmpty {
+            moveFocus(backward: flags.contains(.shift))
+            return
+        }
+        if event.keyCode == 36 || event.keyCode == 76, flags.isEmpty, activateFocused() { return }
+        super.keyDown(with: event)
+    }
+
+    private func moveFocus(backward: Bool) {
+        let next: Int
+        if let focusedStop {
+            next = backward ? focusedStop - 1 : focusedStop + 1
+        } else {
+            // On the text with nothing lit (after a click): the first stop from where the person is.
+            let at = selectedRange().location
+            next = backward ? (stops.lastIndex { $0.range.location < at } ?? -1)
+                            : (stops.firstIndex { $0.range.location >= at } ?? stops.count)
+        }
+        if stops.indices.contains(next) {
+            focusedStop = next
+        } else {
+            focusedStop = nil
+            if backward { window?.selectPreviousKeyView(self) } else { window?.selectNextKeyView(self) }
+        }
+    }
+
+    private func activateFocused() -> Bool {
+        guard let focusedStop, stops.indices.contains(focusedStop) else { return false }
+        let stop = stops[focusedStop]
+        if stop.kind == .cluster {
+            keyFocus?.activation += 1
+        } else if let url = stop.url {
+            onOpen?(url)
+        }
+        return true
+    }
+
+    /// A new text arrived: the keyboard stays where it was when the same things are still there, else it is on none.
+    func didRebuild(oldStops: [PageStop]) {
+        if oldStops != stops { focusedStop = nil }
+        needsDisplay = true
+    }
+
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
-        if resigned, selectedRange().length > 0 { setSelectedRange(NSRange(location: selectedRange().location, length: 0)) }
+        if resigned {
+            focusedStop = nil
+            // A selection leaves when the person selects in another run, not lingering greyed out beside the new one.
+            if selectedRange().length > 0 { setSelectedRange(NSRange(location: selectedRange().location, length: 0)) }
+        }
         return resigned
+    }
+
+    // MARK: Quiet links: the soft rounded fill
+
+    private func textRange(_ range: NSRange) -> NSTextRange? {
+        guard let storage = textContentStorage,
+              let start = storage.location(storage.documentRange.location, offsetBy: range.location),
+              let end = storage.location(start, offsetBy: max(range.length, 1)) else { return nil }
+        return NSTextRange(location: start, end: end)
+    }
+
+    /// The boxes a range occupies, one a line.
+    private func boxes(_ range: NSRange) -> [CGRect] {
+        guard let layout = textLayoutManager, let textRange = textRange(range) else { return [] }
+        var out: [CGRect] = []
+        layout.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, frame, _, _ in
+            out.append(frame)
+            return true
+        }
+        return out
+    }
+
+    private func stopRect(_ index: Int) -> CGRect {
+        boxes(stops[index].range).reduce(CGRect.null) { $0.union($1) }
+    }
+
+    /// The words of a link under the pointer or the keyboard take the soft fill together, as a quiet link always did —
+    /// drawn here as a rounded shape under the text, which a text background attribute cannot be.
+    override func draw(_ dirtyRect: NSRect) {
+        var lit: [NSRange] = []
+        if let hoveredGroup, let ranges = document?.groups[hoveredGroup], let first = ranges.first {
+            lit.append(ranges.dropFirst().reduce(first, NSUnionRange))
+        }
+        if let focusedStop, stops.indices.contains(focusedStop), stops[focusedStop].kind == .quiet {
+            lit.append(stops[focusedStop].range)
+        }
+        if !lit.isEmpty {
+            NSColor(CicadaTheme.bgHover).setFill()
+            let radius = CicadaTheme.cornerRadiusSmall
+            for range in lit {
+                for box in boxes(range) {
+                    let rect = box.insetBy(dx: -CicadaTheme.scaled(2), dy: 0)
+                    guard rect.intersects(dirtyRect) else { continue }
+                    NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+                }
+            }
+        }
+        super.draw(dirtyRect)
+    }
+
+    // MARK: Accessibility
+
+    /// A chip reads as a link and the cluster as a button: the views inside the text are the run's children too.
+    override func accessibilityChildren() -> [Any]? {
+        var children = super.accessibilityChildren() ?? []
+        var hosts: [NSView] = []
+        func collect(_ view: NSView) {
+            for sub in view.subviews { if sub is PageAttachmentHost { hosts.append(sub) } else { collect(sub) } }
+        }
+        collect(self)
+        // In reading order: top to bottom, then left to right, in this view's own space.
+        let place = { (host: NSView) -> (CGFloat, CGFloat) in
+            let box = self.convert(host.bounds, from: host)
+            return ((box.midY / 12).rounded(), box.minX)
+        }
+        hosts.sort { place($0) < place($1) }
+        children.append(contentsOf: hosts)
+        return children
     }
 
     // MARK: Pointer
@@ -345,20 +550,7 @@ final class PageTextView: NSTextView {
     }
 
     /// The words of the link under the pointer take the soft fill together (`bgHover`), as the quiet link always did.
-    private func setHovered(group: Int?) {
-        guard group != hoveredGroup, let storage = textStorage, let document else { return }
-        storage.beginEditing()
-        if let old = hoveredGroup {
-            for range in document.groups[old] ?? [] { storage.removeAttribute(.backgroundColor, range: range) }
-        }
-        if let group {
-            for range in document.groups[group] ?? [] {
-                storage.addAttribute(.backgroundColor, value: NSColor(CicadaTheme.bgHover), range: range)
-            }
-        }
-        storage.endEditing()
-        hoveredGroup = group
-    }
+    private func setHovered(group: Int?) { hoveredGroup = group }
 
     // MARK: Menu
 
@@ -436,14 +628,26 @@ struct PageTextRunView: NSViewRepresentable {
         view.onRowFrames = onRowFrames
         view.onHoverRow = onHoverRow
         view.onMenu = onMenu
+        view.onOpen = { [weak coordinator] url in coordinator?.openURL?(url) }
+        view.keyFocus = env.keyFocus
         view.watchedRows = watched
         if coordinator.paragraphs != paragraphs || coordinator.look != look {
             coordinator.paragraphs = paragraphs
             coordinator.look = look
             let document = PageText.build(paragraphs, context: env)
+            let oldStops = view.document?.stops ?? []
+            let oldText = view.textStorage?.string
+            let selection = view.selectedRange()
             view.document = document
             view.invalidateMeasure()
             view.textStorage?.setAttributedString(document.text)
+            // A page that reloads under a selection keeps it when the words are the same (a cluster's count, a
+            // picture arriving); a changed text starts clean.
+            if oldText == document.text.string, selection.length > 0,
+               NSMaxRange(selection) <= (document.text.string as NSString).length {
+                view.setSelectedRange(selection)
+            }
+            view.didRebuild(oldStops: oldStops)
             view.invalidateIntrinsicContentSize()
             view.scheduleRowFrames()
         }
@@ -451,6 +655,7 @@ struct PageTextRunView: NSViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: PageTextView, context: Context) -> CGSize? {
         let width = proposal.width.map { $0.isFinite ? $0 : 480 } ?? 480
-        return CGSize(width: width, height: nsView.height(for: max(width, 1)))
+        let h = nsView.height(for: max(width, 1))
+        return CGSize(width: width, height: h)
     }
 }

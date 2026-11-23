@@ -374,6 +374,57 @@ final class PageInlineTests: XCTestCase {
         XCTAssertEqual(doc.row(at: doc.rows[2].range.location), doc.rows[2].id)
     }
 
+    /// The keyboard's stops (the key-view loop does not reach a view inside text, so the text view owns Tab and ⏎).
+    func testTheKeyboardStopsAreChipsQuietLinksAndTheClusterInReadingOrder() async throws {
+        let article = WikiArticle.build("""
+        First [[bob-example]] then [[alpha-project]] and [[bob-example]] again.
+
+        Second paragraph repeats [[alpha-project]] and [[Nobody Known]].
+        """)
+        let cluster = (SourceClusterModel(keys: ["claude-code"]), [CiteKey(n: 1, at: 1)])
+        let (doc, _) = await document(article.rows, cluster: cluster)
+        // A passage's first mention is the chip, later ones quiet: row one has two chips and a quiet link plus a cluster,
+        // row two a chip, a quiet link for the unknown ref... in text order.
+        let kinds = doc.stops.map(\.kind)
+        XCTAssertEqual(kinds.filter { $0 == .cluster }.count, 2, "each row ends in its cluster")
+        XCTAssertEqual(doc.stops.map(\.range.location), doc.stops.map(\.range.location).sorted(), "in reading order")
+        for (n, stop) in doc.stops.enumerated() where stop.kind != .quiet {
+            XCTAssertEqual(stop.id, n, "a chip's or cluster's stop number is its place among the stops")
+            XCTAssertEqual(stop.range.length, 1)
+        }
+        XCTAssertTrue(doc.stops.filter { $0.kind == .chip }.allSatisfy { $0.url != nil }, "⏎ on a chip opens its link")
+        XCTAssertTrue(doc.stops.filter { $0.kind == .cluster }.allSatisfy { $0.url == nil }, "⏎ on the cluster opens its popover")
+    }
+
+    /// A quiet link's group was a counter per row, so two rows' links shared a group and one hover lit both (a fill
+    /// from the first to the last of them).
+    func testQuietLinkGroupsAreUniqueAcrossTheRowsOfARun() async throws {
+        let article = WikiArticle.build("A [[bob-example]] [[bob-example]].\n\nB [[bob-example]] [[bob-example]].")
+        let (doc, _) = await document(article.rows)
+        let quiet = doc.stops.filter { $0.kind == .quiet }
+        XCTAssertEqual(quiet.count, 2, "one quiet link a row")
+        XCTAssertEqual(Set(quiet.map(\.id)).count, 2, "each its own group")
+        for stop in quiet {
+            let ranges = try XCTUnwrap(doc.groups[stop.id])
+            XCTAssertTrue(ranges.allSatisfy { NSIntersectionRange($0, stop.range).length == $0.length },
+                          "a group holds one link's words, never the same words of another row")
+        }
+    }
+
+    /// The header's Summary is no link blue or underlined either (the page draws no link that way).
+    func testQuietLinksInTheSummaryKeepTheTextsInkAndNoUnderline() {
+        let loud = MarkdownBody.inlineAttributed("see [[Bob Example]] now")
+        let quiet = MarkdownBody.inlineAttributed("see [[Bob Example]] now", quietLinks: true)
+        for run in loud.runs where run.link != nil { XCTAssertNotNil(run.underlineStyle) }
+        var links = 0
+        for run in quiet.runs where run.link != nil {
+            links += 1
+            XCTAssertNil(run.underlineStyle, "no underline")
+            XCTAssertEqual(run.foregroundColor, CicadaTheme.textPrimary, "no accent")
+        }
+        XCTAssertEqual(links, 1, "still a link, still tappable")
+    }
+
     func testRowsBreakIntoRunsAtACardCodeOrImageAndAtTheCap() {
         let markdown = (0..<130).map { "Paragraph \($0)." }.joined(separator: "\n\n")
             + "\n\n```\ncode\n```\n\nAfter code.\n\n- [[bob-example]] — knows"
