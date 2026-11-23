@@ -24,6 +24,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -182,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--cases", type=Path, default=CASES)
     p.add_argument("--only", default="", help="substring of case ids")
     p.add_argument("--kind", default="", help="one or two")
-    p.add_argument("--home", type=Path, default=Path("/tmp/same-name-battery"), help="scratch home for the telemetry")
+    p.add_argument("--home", type=Path, help="scratch home for the telemetry (default: a new temporary folder)")
     p.add_argument("--key-file", type=Path, default=Path("~/.cicada/secrets.env"))
     p.add_argument("--module", type=Path, help="another copy of same_name_people.py to replay (default: this checkout's)")
     p.add_argument("--from-calls", type=Path, help="print cases built from a leg's same_name_calls.jsonl and exit")
@@ -196,7 +197,8 @@ def main(argv: list[str] | None = None) -> int:
 
     os.environ["ANTHROPIC_API_KEY"] = key_from(a.key_file)   # inherited by the call, never printed
     cases = [c for c in load_cases(a.cases) if a.only in c["id"] and (not a.kind or c["kind"] == a.kind)]
-    home, bank = a.home / "home", a.home / "bank"
+    root = a.home or Path(tempfile.mkdtemp(prefix="same-name-battery-"))
+    home, bank = root / "home", root / "bank"
     home.mkdir(parents=True, exist_ok=True)
     bank.mkdir(parents=True, exist_ok=True)
     with _leg_environment(home, bank):

@@ -2230,11 +2230,13 @@ have one), each description is headed by its conversation's day, and when unsure
 the judge chooses the known person. **Measured** by replaying the judge's real inputs (`same_name_battery`, below) through
 the real engine and judge: the first prompt split one person in 87 of 680 calls (13%) on the first set and 82 of 240 (34%)
 on a held-out set, and the four stored Idris inputs 13 to 17 times in 20; the rewrite splits none of 460 calls (all one-person
-cases) and, with the located contrast, none of 276 more. **The price** is a missed split, the pre-2026-11-23 behaviour and
-never worse, when a **known page** is up against a mention of a different kind of person (an established family page and a
-colleague's mention: the judge reads the later one as the same person's change), and sometimes when the first conversations
-of a batch are all new (a carpenter and a colleague three days apart, joined in 2 of 3 benchmark runs); dropping the "choose
-the known person" sentence made a real one-person input split in 8 of 10, so it stays. A thin description, an
+cases) and, with the located contrast, none of 460 more (two replays). On the benchmark (3 runs, 39 judge calls) the rewrite
+alone still split a friend once (the incoherent answer above) and joined the fixture's carpenter and colleague, three days
+apart, in 2 runs of 3; with the located contrast no person is split (`one_person_ok` 5 of 5 in each run) and those two are
+apart in 3 of 3. **The price** is a missed split, the pre-2026-11-23 behaviour and never worse, in about one two-person
+replay in nine (212 of 240 kept), nearly all of them a **known page** up against a mention of a different kind of person
+(an established family page and a colleague's mention: the judge reads the later one as the same person's change); dropping
+the "choose the known person" sentence made a real one-person input split in 8 of 10, so it stays. A thin description, an
 unreadable answer, a failed call or a group that states no contrast keeps the old behaviour (one person, nothing asked).
 A conversation a page or line already lists (a re-read) is that person and is not judged; a mention that describes nothing
 is not judged; the owner's page, a nickname or relation page (`role_people`), a contact-card participant and a
