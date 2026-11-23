@@ -57,7 +57,7 @@ CONVERSATIONS (each is what that one conversation says about the "{name}" it nam
 Rules:
 - A wrong join is a serious memory error: it tells the person things about someone that are true of another. A wrong split is an error too. Decide only from what the descriptions say.
 - Put two conversations in different groups ONLY when the descriptions give each person a fact the other cannot share: a different trade or employer, a different home town or country, a different generation, a relationship one person cannot hold to the speaker. Name that contrast in "reason".
-- A different setting, topic or time is NOT a difference: one person is met at home, at work, on a trip, at a race, and a description that only mentions its setting says nothing about who they are. People also change: a promotion, a new job, a move, a new role in the speaker's life. A description that says less than another, or says something else about the same person, is no contradiction. When a description is thin, or everything said could be true of one person, they are the same person.
+- A different setting, topic or time is NOT a difference: one person is met at home, at work, on a trip, at a race, and a description that only mentions its setting says nothing about who they are. When a description is thin, or everything said could be true of one person, they are the same person.
 - A conversation that fits a known person goes with them ("same_as": that person's number). A conversation that fits none of them is a person not on record yet ("same_as": null); conversations that fit each other go in one group.
 
 Answer in JSON only, every conversation in exactly one group:
