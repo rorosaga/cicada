@@ -479,6 +479,62 @@ final class BookmarksV3Tests: XCTestCase {
         XCTAssertEqual(list, before, "rolled back")
     }
 
+    /// Owner 2026-11-23: "inside the app I tried adding it but it gave me an error because Cicada is currently
+    /// sleeping". A page write Sleep refuses is held in the outbox (never an error, never rolled out of sight) and the
+    /// page shows it as waiting; an edit of it while held changes the held one; an edit shows what it replaced.
+    @MainActor
+    func testAPageWriteSleepRefusesIsHeldAndShownAsWaiting() async {
+        let suite = "BookmarksV3Tests.held.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let outbox = SaveWhyOutbox(defaults: defaults)
+        let api = FakeSyncAPI()
+        let store = Store(cache: SnapshotCache(root: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)), api: api)
+        let url = "https://alpha.example/a"
+        let saved = SavedWhyRecord(text: "their hiring page", at: "2026-10-15T09:00:00+00:00",
+                                   addedAt: "2026-10-15T08:59:50+00:00")
+        var list = [saved]
+        let binding = Binding(get: { list }, set: { list = $0 })
+        api.savedWhyError = APIError.httpError(409, "{\"detail\":\"Sleep is updating your memory\"}")
+        let hold: @MainActor (SavedWhyAnswer, String?) -> Void = { answer, at in
+            outbox.holdFromPage(url: url, answer: answer, editAt: at, at: Date(), bank: "b")
+        }
+        let added = SavedWhyWrite(url: url, at: nil, answer: SavedWhyAnswer(text: "worth applying to"),
+                                  answers: binding, hold: hold)
+        let ok = await store.perform(added)
+        XCTAssertTrue(ok, "a wait is not a failure")
+        XCTAssertTrue(added.wasHeld)
+        XCTAssertEqual(list, [saved], "the backend's list stands; the held answer is shown beside it")
+        XCTAssertEqual(outbox.held(url: url, bank: "b").map(\.answer.text), ["worth applying to"])
+        XCTAssertNil(outbox.entries.first?.editAt)
+        XCTAssertFalse(outbox.entries.first?.isAwaiting ?? true, "sent with the next retry, no sync needed")
+
+        let edit = SavedWhyWrite(url: url, at: saved.at, answer: SavedWhyAnswer(text: "their hiring page, for May"),
+                                 answers: binding, hold: hold)
+        _ = await store.perform(edit)
+        let shown = SaveWhyOutbox.merge(list, held: outbox.held(url: url, bank: "b"), labels: [:])
+        XCTAssertEqual(shown.map(\.text), ["their hiring page, for May", "worth applying to"])
+        XCTAssertTrue(shown.allSatisfy(\.isHeld))
+        XCTAssertEqual(shown[0].at, saved.at, "a held edit shows in place of the answer it changes")
+        XCTAssertEqual(shown[0].before?.map(\.text), ["their hiring page"], "with the words it replaced")
+
+        // Editing the held new answer changes it in place: it is not on the backend, so nothing there to edit.
+        let heldStamp = shown[1].at!
+        outbox.holdFromPage(url: url, answer: SavedWhyAnswer(text: "worth applying to in May"), editAt: heldStamp,
+                            at: Date(), bank: "b")
+        XCTAssertEqual(outbox.entries.count, 2)
+        XCTAssertEqual(SaveWhyOutbox.merge(list, held: outbox.held(url: url, bank: "b"), labels: [:]).map(\.text),
+                       ["their hiring page, for May", "worth applying to in May"])
+
+        // A refusal for good still fails the write.
+        api.savedWhyError = APIError.httpError(422, "{\"detail\":\"Pick a reason or say one\"}")
+        let refused = await store.perform(SavedWhyWrite(url: url, at: nil, answer: SavedWhyAnswer(text: "x"),
+                                                        answers: binding, hold: hold))
+        XCTAssertFalse(refused)
+        XCTAssertEqual(outbox.entries.count, 2)
+    }
+
     @MainActor
     func testRemoveGoesThroughTheStoreToTheRoute() async {
         let api = FakeSyncAPI()

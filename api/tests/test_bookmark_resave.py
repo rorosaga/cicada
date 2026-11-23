@@ -241,6 +241,33 @@ def test_the_person_edits_one_answer_and_keeps_the_others(tmp_path, monkeypatch)
     assert "Cicada-Author: user" in log and saved_why.TRIGGER in log
 
 
+def test_an_edit_days_after_sleep_read_it_keeps_the_earlier_words_and_queues_it_again(tmp_path, monkeypatch):
+    """Owner 2026-11-23: "if I write another reason, it should save also, as part of a history too … if I make a change
+    on the reason a day or a few days after it was consolidated" it is read again. The edit replaces the words Sleep
+    reads (the section holds the current ones only) and keeps each earlier wording on the record, dated; an episode
+    Sleep already read goes back in its queue."""
+    memory = _bank(tmp_path, git=True)
+    item, client = _saved(memory, monkeypatch)
+    said = _at(60)
+    client.post("/sources/saved-why", json={"url": C["url"], "text": "their hiring page", "at": said})
+    path = memory / "episodes" / f"{item['episode_id']}.md"
+    parsed = markdown_parser.parse(path)
+    markdown_parser.write(path, {**parsed.frontmatter, "processed": True, "processed_by": "sleep"}, parsed.body)
+    client.put("/sources/saved-why", json={"url": C["url"], "at": said, "text": "worth applying to"})
+    r = client.put("/sources/saved-why", json={"url": C["url"], "at": said, "reasons": ["someday"],
+                                               "text": "worth applying to next year"})
+    assert r.status_code == 200, r.text
+    record = r.json()["savedWhy"]
+    assert record["text"] == "worth applying to next year"
+    assert [b["text"] for b in record["before"]] == ["their hiring page", "worth applying to"]
+    assert record["before"][0]["at"] == said and record["before"][1]["at"]
+    parsed = markdown_parser.parse(path)
+    assert parsed.frontmatter["processed"] is False and "processed_by" not in parsed.frontmatter
+    assert "worth applying to next year" in parsed.body and "their hiring page" not in parsed.body
+    row = {i["url"]: i for i in client.get("/sources").json()["items"]}[C["url"]]
+    assert [b["text"] for b in row["savedWhy"]["before"]] == ["their hiring page", "worth applying to"]
+
+
 def _commits(memory) -> int:
     out = subprocess.run(["git", "-C", str(memory), "rev-list", "--count", "HEAD"], capture_output=True, text=True)
     return int(out.stdout.strip() or 0) if out.returncode == 0 else 0

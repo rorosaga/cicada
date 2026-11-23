@@ -430,6 +430,7 @@ def edit(memory_path: Path, *, url: str, at: str, answer: Answer, bank: str | No
                     found["record"] = r
                     break
                 new["edited_at"] = episode_ids.utc_now_seconds()
+                new[BEFORE_KEY] = _before(r)
                 records[i] = new
                 found["record"] = new
                 break
@@ -445,6 +446,23 @@ def edit(memory_path: Path, *, url: str, at: str, answer: Answer, bank: str | No
     return {"episode_id": episode_id, "media_entity_id": media_entity_id, "changed": changed,
             "saved_why": wire(found["record"], added_at=episode_added),
             "history": history_wire(found.get("records") or [], added_at=episode_added)}
+
+
+#: The words an edited answer held before each change, oldest first (2026-11-23, owner: "if I write another reason, it
+#: should save also, as part of a history too"). An edit still replaces the answer — the section Sleep reads holds the
+#: current words only, so what the person took back is superseded by the revision (G104), never read again as theirs —
+#: but the earlier wording stays on the record for the app's history. Git holds every version past the cap.
+BEFORE_KEY = "before"
+MAX_BEFORE = 10
+
+
+def _before(stored: dict) -> list[dict]:
+    """The edited answer's earlier versions plus the one being replaced, dated when those words were last set."""
+    kept = [dict(b) for b in (stored.get(BEFORE_KEY) or []) if isinstance(b, dict)]
+    kept.append({"reasons": list(stored.get("reasons") or []), "project": stored.get("project") or None,
+                 "text": stored.get("text") or None,
+                 "at": str(stored.get("edited_at") or stored.get("at") or "") or None})
+    return kept[-MAX_BEFORE:]
 
 
 def _same_words(stored: dict, new: dict) -> bool:
@@ -473,7 +491,14 @@ def wire(record: dict | None, *, added_at: str | None) -> dict | None:
         "at": str(record.get("at") or "") or None,
         "added_at": str(record.get("added_at") or "") or added_at,
         "edited_at": str(record.get("edited_at") or "") or None,
+        "before": [_earlier_wire(b) for b in (record.get(BEFORE_KEY) or []) if isinstance(b, dict)],
     }
+
+
+def _earlier_wire(version: dict) -> dict:
+    reasons = [str(k) for k in (version.get("reasons") or []) if str(k) in LABELS]
+    return {"reasons": reasons, "labels": [LABELS[k] for k in reasons], "project": version.get("project") or None,
+            "text": version.get("text") or None, "at": str(version.get("at") or "") or None}
 
 
 def history_wire(records: list[dict], *, added_at: str | None) -> list[dict]:

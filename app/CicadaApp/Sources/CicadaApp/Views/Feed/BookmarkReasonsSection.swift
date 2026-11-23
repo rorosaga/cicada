@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// G191 v3 — a bookmark's page (the Feed's detail, where the menu bar's history lands): why it was saved, every time
@@ -12,12 +13,21 @@ import SwiftUI
 /// words, then removes it from Chrome through Apple Events when Chrome holds it (the Automation prompt comes only
 /// then), and makes Cicada forget it (`POST /sources/bookmarks/remove`). Safari's bookmarks cannot be changed by
 /// another app: the section says so and opens Safari.
+///
+/// **Nothing written here is lost to Sleep (owner 2026-11-23: "inside the app I tried adding it but it gave me an
+/// error because Cicada is currently sleeping … every time I write a reason for saving something, it should save in
+/// the app").** A write the backend cannot take yet goes to the notch panel's outbox (`SaveWhyOutbox`) and is sent when
+/// Sleep lets go; the list shows every held answer — the panel's too — marked as waiting, so an answer given in the
+/// browser while Sleep wrote is visible here at once. An edit shows the words it replaced (`before`).
 struct BookmarkReasonsSection: View {
     let item: MediaFeedItem
     var onRemoved: () -> Void = {}
 
     @Environment(Store.self) private var store
+    @Environment(SaveWhyCenter.self) private var saveWhy: SaveWhyCenter?
     @State private var answers: [SavedWhyRecord] = []
+    /// Answers about this link the app holds until the backend can take them.
+    @State private var held: [SaveWhyOutbox.Entry] = []
     @State private var editing: String?? = nil   // .some(at) edits that answer; .some(nil) adds one
     @State private var reasons: Set<String> = []
     @State private var project: String?
@@ -53,7 +63,7 @@ struct BookmarkReasonsSection: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            ForEach(Array(answers.enumerated().reversed()), id: \.offset) { index, record in
+            ForEach(Array(shown.enumerated().reversed()), id: \.offset) { index, record in
                 if editing == .some(record.at) {
                     editor
                 } else {
@@ -87,6 +97,7 @@ struct BookmarkReasonsSection: View {
         }
         .task(id: item.id) {
             answers = item.savedWhyAnswers
+            readHeld()
             editing = nil
             if options == .basic, let fetched = try? await APIClient.shared.savedWhyOptions(), !fetched.reasons.isEmpty {
                 Self.cachedOptions = fetched
@@ -94,6 +105,9 @@ struct BookmarkReasonsSection: View {
             }
         }
         .onChange(of: item.savedWhyAnswers) { _, fresh in if editing == nil { answers = fresh } }
+        .onReceive(NotificationCenter.default.publisher(for: SaveWhyOutbox.didChange).receive(on: RunLoop.main)) { _ in
+            readHeld()
+        }
         .confirmationDialog(Copy.Bookmarks.removeTitle, isPresented: $confirmingRemove) {
             if let plan = chromePlan, plan.hasSeveral {
                 // Several copies of the link in Chrome: only this save's copy unless the person asks for all.
@@ -116,7 +130,7 @@ struct BookmarkReasonsSection: View {
     private func answerRow(_ record: SavedWhyRecord, resave: Bool) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.scaled(4)) {
             HStack(alignment: .firstTextBaseline) {
-                Text(Copy.Bookmarks.answerLine(record, resave: resave))
+                Text(record.isHeld ? Copy.Bookmarks.heldLine : Copy.Bookmarks.answerLine(record, resave: resave))
                     .font(CicadaTheme.metaFont)
                     .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textTertiary)
@@ -137,7 +151,26 @@ struct BookmarkReasonsSection: View {
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            // 2026-11-23 — what an edit replaced, newest first: every reason the person wrote stays in view.
+            ForEach(Array((record.before ?? []).enumerated().reversed()), id: \.offset) { _, earlier in
+                Text(Copy.Bookmarks.beforeLine(earlier))
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+    }
+
+    /// The backend's answers with what the app still holds about this link.
+    private var shown: [SavedWhyRecord] { SaveWhyOutbox.merge(answers, held: held, labels: labelMap) }
+
+    private var labelMap: [String: String] {
+        Dictionary((options.reasons + options.more + retired).map { ($0.key, $0.label) },
+                   uniquingKeysWith: { first, _ in first })
+    }
+
+    private func readHeld() {
+        held = saveWhy?.outbox.held(url: item.url, bank: store.bank) ?? []
     }
 
     private var editor: some View {
@@ -206,9 +239,20 @@ struct BookmarkReasonsSection: View {
     private func save() async {
         guard !answer.isEmpty, let target = editing else { return }
         let labels = Dictionary(offered.map { ($0.key, $0.label) }, uniquingKeysWith: { first, _ in first })
-        let write = SavedWhyWrite(url: item.url, at: target, answer: answer, answers: $answers, labels: labels)
+        let url = item.url, bank = store.bank, center = saveWhy
         editing = nil
-        if await store.perform(write) { store.flash(Copy.Bookmarks.saved) }
+        // An answer still held is not on the backend yet: the held one changes, and goes when it can.
+        if let target, let center, held.contains(where: { $0.editAt == nil && SaveWhyOutbox.stamp($0.at) == target }) {
+            center.outbox.holdFromPage(url: url, answer: answer, editAt: target, at: Date(), bank: bank)
+            Task { await center.retryHeld() }
+            store.flash(Copy.Bookmarks.held)
+            return
+        }
+        let hold: (@MainActor (SavedWhyAnswer, String?) -> Void)? = center.map { center in
+            { answer, at in center.outbox.holdFromPage(url: url, answer: answer, editAt: at, at: Date(), bank: bank) }
+        }
+        let write = SavedWhyWrite(url: url, at: target, answer: answer, answers: $answers, labels: labels, hold: hold)
+        if await store.perform(write) { store.flash(write.wasHeld ? Copy.Bookmarks.held : Copy.Bookmarks.saved) }
     }
 
     private func remove(chrome nodes: [BookmarkEntry]) async {

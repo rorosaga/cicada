@@ -919,8 +919,9 @@ def _capture_thumbs(memory_path: Path) -> dict[str, str]:
 #: The `/sources` payload's shape version, folded into its ETag: `saved-why-2` added `savedWhyHistory`,
 #: `lastSavedAt` and `captureThumb` (G191 v3); `saved-why-3` added `leftBrowser` (G191 v4) and the four reason labels;
 #: `device-1` added `device` (G181 phase 3: which of the person's devices posted the save); `site-key-1` added
-#: `siteKey` (owner 2026-10-20: the key every surface draws the item's own site mark under).
-SHAPE = "site-key-1"
+#: `siteKey` (owner 2026-10-20: the key every surface draws the item's own site mark under); `why-before-1` added each
+#: answer's `before` (2026-11-23: the words an edit replaced, for the app's history).
+SHAPE = "why-before-1"
 
 
 def _device_of(fm: dict) -> str | None:

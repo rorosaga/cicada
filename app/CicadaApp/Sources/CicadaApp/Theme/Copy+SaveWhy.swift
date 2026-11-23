@@ -118,6 +118,17 @@ extension Copy {
         }
         static let saved = "Saved"
         static let editFailed = "Your change wasn't saved."
+        /// 2026-11-23 — an answer the backend cannot take yet (Sleep is writing, or the backend is away): kept on this
+        /// Mac and sent on its own.
+        static let held = "Kept — it saves as soon as Sleep finishes"
+        static let heldLine = "Waiting for Sleep to finish · saves on its own"
+        /// An edited answer's earlier wording: "Before (Nov 18, 11:30): “…”".
+        static func beforeLine(_ earlier: SavedWhyEarlier) -> String {
+            var parts = earlier.labels
+            if let text = earlier.text, !text.isEmpty { parts.append("“\(text)”") }
+            let when = earlier.at.flatMap(Self.day).map { " (\($0))" } ?? ""
+            return "Before\(when): " + parts.joined(separator: " · ")
+        }
 
         // G191 v4 — a bookmark that left the browser: Cicada keeps it and says so.
         /// "No longer in Chrome since Oct 15" — one browser; several are named together, newest day first.

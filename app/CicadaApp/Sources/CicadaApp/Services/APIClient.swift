@@ -586,8 +586,23 @@ struct SavedWhyRecord: Codable, Equatable, Sendable, Hashable {
     var at: String? = nil
     var addedAt: String? = nil
     var editedAt: String? = nil
+    /// 2026-11-23 — what this answer said before each edit, oldest first (`at`: when those words were set).
+    var before: [SavedWhyEarlier]? = nil
+    /// Client-only: an answer the app holds because the backend could not take it yet (Sleep writing, the backend
+    /// away) — shown on the page, sent when Sleep lets go. Never on the wire.
+    var held: Bool? = nil
 
     var answer: SavedWhyAnswer { SavedWhyAnswer(reasons: reasons, project: project, text: text) }
+    var isHeld: Bool { held == true }
+}
+
+/// 2026-11-23 — an edited answer's earlier wording, for the page's history.
+struct SavedWhyEarlier: Codable, Equatable, Sendable, Hashable {
+    var reasons: [String] = []
+    var labels: [String] = []
+    var project: String? = nil
+    var text: String? = nil
+    var at: String? = nil
 }
 
 /// G191 v3 — `POST`/`PUT /sources/saved-why`'s answer: the answer written and every answer on the link now.

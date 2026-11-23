@@ -5000,6 +5000,16 @@ class BookmarkSyncResponse(CamelModel):
     fresh_total: int = 0
 
 
+class SavedWhyEarlier(CamelModel):
+    """An edited answer's earlier wording, kept for the history the app shows."""
+
+    reasons: list[str] = []
+    labels: list[str] = []
+    project: Optional[str] = None
+    text: Optional[str] = None
+    at: Optional[str] = None
+
+
 class SavedWhyRecord(CamelModel):
     """G191 — the person's answer to "What made you save this?" on a saved link's source record: the reason keys
     (with their labels), the project it was for, their own words, when they said it (`at`) and when the browser
@@ -5013,6 +5023,8 @@ class SavedWhyRecord(CamelModel):
     added_at: Optional[str] = None
     # G191 v3 — when the person last changed this answer (`PUT /sources/saved-why`); `None` when never.
     edited_at: Optional[str] = None
+    # 2026-11-23 — what the answer said before each edit, oldest first (`at`: when those words were set).
+    before: list[SavedWhyEarlier] = []
 
 
 class BookmarkLeft(CamelModel):
