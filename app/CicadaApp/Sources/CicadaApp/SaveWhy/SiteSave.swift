@@ -568,21 +568,20 @@ enum SiteSaveReader {
                     let found = postLinks(around: ancestor)
                     reading.links = found.before.reversed() + found.after
                     reading.linksBefore = found.before.count
-                    reading.context = found.context
-                } else {
-                    // The row names its post: the post as the page describes it is the nearest labelled block above
-                    // the row (X's article), and the label of the post's own link in it marks where its words begin.
-                    var block = labelled
-                    for _ in 0..<4 {
-                        guard let parent = element(block, kAXParentAttribute as String),
-                              string(parent, kAXRoleAttribute as String) != "AXWebArea" else { break }
-                        block = parent
-                        let described = label(block)
-                        guard !described.isEmpty, described != words else { continue }
-                        reading.context = described
-                        reading.linkLabel = firstPostLinkLabel(in: block)
-                        break
-                    }
+                }
+                // The post as the page describes it: the nearest labelled block above the row whose label says more
+                // than the row's own (X's article), and the label of the post's own link in it, which marks where
+                // the post's words begin.
+                var block = labelled
+                for _ in 0..<10 {
+                    guard let parent = element(block, kAXParentAttribute as String),
+                          string(parent, kAXRoleAttribute as String) != "AXWebArea" else { break }
+                    block = parent
+                    let described = label(block)
+                    guard described.count > words.count, described != words else { continue }
+                    reading.context = described
+                    reading.linkLabel = firstPostLinkLabel(in: block)
+                    break
                 }
                 return reading
             }
@@ -594,13 +593,12 @@ enum SiteSaveReader {
     static let maxContextNodes = 160
 
     /// The post links (`SiteSaveSite.isItemLink`) of the nearest block above `row` that holds any, in reading order
-    /// and split at the row, with that block's own label. Climbs a few levels and reads links only; a block with none
-    /// is passed over.
-    private static func postLinks(around row: AXUIElement) -> (before: [String], after: [String], context: String) {
+    /// and split at the row. Climbs a few levels and reads links only; a block with none is passed over.
+    private static func postLinks(around row: AXUIElement) -> (before: [String], after: [String]) {
         var block = row
         for _ in 0..<maxContextAncestors {
             guard let parent = element(block, kAXParentAttribute as String),
-                  string(parent, kAXRoleAttribute as String) != "AXWebArea" else { return ([], [], "") }
+                  string(parent, kAXRoleAttribute as String) != "AXWebArea" else { return ([], []) }
             block = parent
             var before: [String] = [], after: [String] = [], passedRow = false
             var stack = Array(children(block).reversed()), seen = 0
@@ -618,9 +616,9 @@ enum SiteSaveReader {
                     stack.append(contentsOf: children(next).reversed())
                 }
             }
-            if !before.isEmpty || !after.isEmpty { return (before, after, label(block)) }
+            if !before.isEmpty || !after.isEmpty { return (before, after) }
         }
-        return ([], [], "")
+        return ([], [])
     }
 
     /// The label of the first link in `block` that is exactly a post (its time link), read for nothing else.
