@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import date as _date, datetime, timedelta, timezone
 from pathlib import Path
 
-from api.services import bank_index, episode_time, folder_source
+from api.services import bank_index, episode_time, folder_source, meeting_transcripts
 
 # G134: meetings and dictation are their own section, VOICE & MEETINGS (R-LS25).
 # G39/G233: books — Apple Books, a Goodreads export, a scanned ISBN — are their own section, READING.
@@ -173,8 +173,9 @@ INTENTS = ("saved", "captured")
 #: v11: Spotify's library and listening, G32; v12: Readwise removed by owner direction, 2026-11-03; v13: GitHub, G230;
 #: v14: Substack's saves and reading days, G89; v15: Telegram chats labelled "Telegram", the bot feed
 #: "Telegram bot", 2026-11-04; v16: Apple Books, Goodreads and book scans, the Reading kind, G39/G233; v17: `kept`,
-#: ruling 62; v18: the publications followed, on their own row out of RSS's, G89).
-SHAPE = "overview-v18"
+#: ruling 62; v18: the publications followed, on their own row out of RSS's, G89; v19: a recorder's meeting folder
+#: carries the recorder's mark, 2026-11-23).
+SHAPE = "overview-v19"
 
 #: Sources v4 (owner 2026-10-19: "I don't understand how Sleep is also a source on the page"). A check record is the
 #: episode Cicada writes as the citation for a question a check settled — `web_settle` (a web lookup Sleep or an agent
@@ -290,7 +291,7 @@ def row_key(fm: dict) -> str | None:
     return source_key(fm)
 
 
-def _new_state(key: str, labels: dict[str, str] | None = None) -> dict:
+def _new_state(key: str, labels: dict[str, str] | None = None, marks: dict[str, str] | None = None) -> dict:
     if key.startswith("harness:"):
         harness = key.split(":", 1)[1]
         label, kind, mark, origins, channel = (
@@ -302,7 +303,7 @@ def _new_state(key: str, labels: dict[str, str] | None = None) -> dict:
     elif folder_source.folder_id_of(key) is not None:
         known = (labels or {})
         label, kind, mark, origins, channel = (
-            known.get(key, "Folder (removed)"), "import", "folder", [folder_source.ORIGIN],
+            known.get(key, "Folder (removed)"), "import", (marks or {}).get(key, "folder"), [folder_source.ORIGIN],
             key if key in known else None)
         harness = None
     else:
@@ -358,6 +359,10 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
     episode_key: dict[str, str] = {}
     labels = {folder_source.channel_for(f): str(f.get("label") or "Folder")
               for f in folder_source.list_folders(memory_path)}
+    # A meeting folder set up for a known recorder wears that recorder's mark (the app draws its icon from the Mac and
+    # falls back to the folder's glyph where it is not installed), never a generic folder's.
+    marks = {folder_source.channel_for(f): str(f["recorder"]) for f in folder_source.list_folders(memory_path)
+             if folder_source.is_meetings(f) and f.get("recorder") in meeting_transcripts.RECORDERS}
     today = today or datetime.now(timezone.utc).date()
     window_start = (today - timedelta(days=ACTIVITY_DAYS - 1)).isoformat()
     window_end = today.isoformat()
@@ -378,7 +383,7 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
                              or pageless_feed.get(str(fm.get("id") or f.stem)) == channel_items.SUBSTACK_FEEDS):
             key = channel_items.SUBSTACK_FEEDS
         episode_key[str(fm.get("id") or f.stem)] = key
-        state = states.setdefault(key, _new_state(key, labels))
+        state = states.setdefault(key, _new_state(key, labels, marks))
         state["episodes"] += 1
         if history_index.waits_for_model(fm):
             state["waiting"] += 1
@@ -437,7 +442,7 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
         spec = _BY_ID.get(cid)
         if spec is None and cid not in labels:
             continue
-        state = states.setdefault(cid, _new_state(cid, labels))
+        state = states.setdefault(cid, _new_state(cid, labels, marks))
         if spec is not None and spec.id == "files":
             # Items AND connected follow the set the page renders: a bank
             # holding only imported bookmarks has no Files & links evidence
@@ -462,7 +467,7 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
             state["last_activity_at"] = last_sync
 
     for key, count in saved_media.items():
-        state = states.setdefault(key, _new_state(key, labels))
+        state = states.setdefault(key, _new_state(key, labels, marks))
         state["items"] = count
 
     # Sources v4 — the faces a row shows: the newest first, at most `MAX_FACES`, and how many more there are.

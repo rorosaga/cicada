@@ -89,7 +89,11 @@ write-time G118 provenance (`section_provenance`, matched under each line's exac
 line's end in the served prose (Python `str` offsets, the app's `WikiRow` ranges), at most 3,000 (`markersTotal` the
 real count) — the first six `refs` (`n`, `kind` `conversation|web|page`, `title`, `origin`, `harness`,
 `correspondent`, `first`/`last` said, `episodeId`, `conversationId`; one reference per conversation, a session's or an
-import's episodes together, numbered in reading order), the counts behind References' closing line (`total`,
+import's episodes together, numbered in reading order), `markKeys` + `refMarks` (**`blocks-7`, owner 2026-11-23**: the
+mark every reference wears where it is cited — the distinct keys (`page_citations.mark_key`: `web`, `page`, else the
+agent's product, else the channel) and per reference, by number order, an index into them — for ALL references, so a
+passage's cluster of marks never needs a References line; the card's ETag moves with `SHAPE`, and the client mapping
+is unchanged: `EntityCardCache` decodes the block, an older backend's missing keys decode empty), the counts behind References' closing line (`total`,
 `conversations`, `web`, `pages`), and — only when the prose cites nothing — up to twelve `beliefs` as sentences
 (`claimId`, `text`, `refs`, `until`, `inferred`, `verbatim`; `beliefsTotal` null when part of them is in the claims
 ledger, which the card never reads). Nothing is matched by similarity: which line a source backs was decided when the
@@ -440,7 +444,7 @@ name a `cicada_…` tool; `llms.txt` maps each to its operation), `data`'s shape
 - The device rides three reads, ids only (the app names it from `GET /devices`): `GET /sources` rows (`device`, from
   the save's episode; `SHAPE` `device-1` moves the ETag once, and the app's `SnapshotCache.schema` is 3 in the same
   change), `GET /entities/{id}/provenance` conversations (`device`, the newest one in the group) and
-  `GET /episodes/{id}/text` (`device`). The last two are not Store domains.
+  `GET /episodes/{id}/text` (`device`). The last two are not Store domains. **Meetings (2026-11-23):** a meeting transcript's `/episodes/{id}/text` also carries `meeting` (`recorder`, `summaryTurn`, `summaryWriter`, `durationS`, `app`, `attendees` as a count, `voicesSplitBy`, `voices`) and each meeting speaker turn's `speaker` is the name to show with `speakerKind` (`named`/`numbered`/`group`/`unknown`) — derived on read, additive; `GET /sleep/episodes` shape `episodes-4` and `GET /sources/overview` shape `overview-v19` group and mark a recorder's meetings by the recorder (`app.md`).
 - `CICADA_API_BASE`, else the app's `$CICADA_HOME/api_base` (written only on the person's click in Settings → Devices,
   0600): `runtime_layout._raw_base` and its stdlib twin `hook_client.raw_base` read the file only from the real
   environment or one that names its own `CICADA_HOME`, so a test's bare dict never reaches a home.
@@ -691,7 +695,7 @@ confidence}`; 404 no such page, 409 a page not archived by a correction or while
 the person so the rule never archives it again; demo-gated and forwarded by a replica. `POST /sources/folders/{id}/sync`
 answers `resend` (relpaths): files of a meeting whose held file was deleted, which the app drops from its manifest and
 posts again (or reports deleted). A span, provenance row and page citation carry `sourceRemoved` (boolean) when the
-source episode was deleted (`source_spans` shape `spans2`, `page_blocks` `blocks-6`, provenance `removed1`).
+source episode was deleted (`source_spans` shape `spans2`, `page_blocks` `blocks-7`, provenance `removed1`).
 **`POST /capture/source-edit`** (G244, TODO ruling 76; demo-gated, Awake: no Sleep gate, no model, the capture token or a
 device token) `{folder_id, relpath, sha256, harness, session_id, transcript_path?, tool, at}` → `{status: "attached" |
 "held" | "refused", episodes, reason?}`: an agent's own file tool edited a file in a watched folder, and its hook posts the

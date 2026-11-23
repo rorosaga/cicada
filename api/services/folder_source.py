@@ -666,6 +666,13 @@ def _sync_locked(memory_path: Path, folder: dict, files: list[IncomingFile], del
     staged = episode_staging.stage(drafts, episodes_dir, deleted_source_ids=deleted_sids, bank=memory_path.name)
     out.update(created=staged.created, updated=staged.updated, renamed=staged.renamed,
                tombstoned=staged.tombstoned)
+    # A file deleted before Sleep ever read it taught nothing and leaves the queue (`episode_staging.DELETED_UNREAD`):
+    # this run's tombstones did so already; one stamped before the rule is settled the same way, once.
+    for entries in mine.values():
+        for sid, e in entries:
+            if sid not in staged.touched and episode_staging.is_deleted_unread(e.fm) \
+                    and episode_staging.settle_deleted_unread(e.path):
+                staged.paths.append(episode_staging._rel(e.path, episodes_dir))
     # G244: an edit an episode carries now is no longer waiting; one whose words the stager left alone still is (it
     # expires), because nothing carried it.
     source_edits.consume(memory_path, [(folder["id"], d.extra["relpath"], d.content_sha) for d in drafts

@@ -4,6 +4,11 @@ import SwiftUI
 /// G191 v7 — the panel's field grows with what is written (owner 2026-10-23: "for the first couple of newlines, have
 /// the text input vertically expand smoothly until a limit arrives where it becomes scrollable").
 ///
+/// **The field sizes itself** (owner 2026-11-23, twice: "the text is cutting off"). Its height is AppKit's own layout of
+/// its words — `TextField(axis: .vertical)` with `lineLimit(1...maxLines)` and a vertical `fixedSize` — never a line
+/// count measured beside it. The prediction it replaced measured the words apart from the field (first at the wrong
+/// size, then breaking a long word differently from the field editor) and clipped every line it under-counted.
+///
 /// **The cap is five lines.** The words are capped at 500 characters (`saved_why.MAX_TEXT`); at the field's 13 pt and
 /// its width (≈ 370 pt) a line holds about 60 of them, so five lines show ≈ 300 — most answers whole, never scrolling
 /// — while the card stays a short drop from the notch (≈ 75 pt of text at 1×, the panel well under a quarter of a
@@ -20,12 +25,8 @@ enum SaveWhyField {
     /// The field's own insets (the capsule's padding), at 1×; scaled where drawn.
     static let horizontalInset: CGFloat = 10
     static let verticalInset: CGFloat = 6
-    /// What AppKit's text field keeps clear at the two ends of a line (its line-fragment padding, both sides).
-    static let linePadding: CGFloat = 4
-
-    /// The field's text size at 1×: the ONE number the field is drawn in (`swiftUIFont`) and measured in (`font`).
-    /// Owner 2026-11-23 ("the text is cutting off"): the field drew in `metaFont`, which ROR-118 raised to 13 pt, while
-    /// the measurement stayed at 12 — a line that wrapped on screen still counted as one, and the second was clipped.
+    /// The field's text size at 1×: the ONE number the field is drawn in (`swiftUIFont`) and the window's reserve and
+    /// the capsule's corner are sized from (`font`, `lineHeight`).
     static let fontSize: CGFloat = 13
 
     /// The field's text font, as SwiftUI draws it.
@@ -37,25 +38,6 @@ enum SaveWhyField {
     /// One line's height in `font`.
     static func lineHeight(_ font: NSFont = font) -> CGFloat {
         NSLayoutManager().defaultLineHeight(for: font).rounded(.up)
-    }
-
-    /// How many lines `text` takes at `width` in `font`: its own line breaks plus wrapping, at least one.
-    static func lineCount(_ text: String, width: CGFloat, font: NSFont = font) -> Int {
-        guard !text.isEmpty, width > 1 else { return 1 }
-        // A trailing line break opens a new, empty line the measurement would not count.
-        let measured = text.hasSuffix("\n") ? text + " " : text
-        let rect = (measured as NSString).boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude),
-                                                       options: [.usesLineFragmentOrigin, .usesFontLeading],
-                                                       attributes: [.font: font])
-        return max(1, Int((rect.height / lineHeight(font)).rounded()))
-    }
-
-    /// The lines the field shows: one to `maxLines`; past that it scrolls.
-    static func visibleLines(_ count: Int) -> Int { min(max(count, 1), maxLines) }
-
-    /// The text area's height for `lines` visible lines (the capsule's padding is outside it).
-    static func textHeight(lines: Int, lineHeight: CGFloat = lineHeight()) -> CGFloat {
-        CGFloat(visibleLines(lines)) * lineHeight
     }
 
     /// How much taller the panel can get while it is open: the field at its cap, plus up to two rows of suggested

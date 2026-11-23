@@ -175,6 +175,46 @@ extension Copy {
             + (total == 1 ? noun.one : noun.many)
     }
     /// G161 (ROR-111) — the control that opens an item where it lives. Each names the person's own source.
+    /// Owner 2026-11-23 — a chat's card on the Sleep page (`ChatCard`).
+    enum Chat {
+        static let unnamed = "Unnamed chat"
+        static let unnamedGroup = "Unnamed group"
+        static let notesToYourself = "Notes to yourself"
+        static let sittingsHelp = "Show this chat's sittings"
+    }
+
+    /// Owner 2026-11-23 — the kept-for-lookup card's words (`KeptForLookupCard`).
+    enum Kept {
+        static let explanation = "Saved with no reason. Search, Ask and your agents can find these; Sleep reads one when you talk about it."
+        static let failed = "Couldn't load these."
+        static func showMore(shown: Int, of total: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
+            "Show more (\(UsageFormat.count(shown, locale: locale)) of \(UsageFormat.count(total, locale: locale)))"
+        }
+        static func sourceLabel(_ name: String, count: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
+            "\(name), \(UsageFormat.count(count, locale: locale)) kept"
+        }
+    }
+
+    /// Owner 2026-11-23 — a waiting episode's marker (`EpisodeChange`): the dot's meaning in words.
+    enum EpisodeChangeWords {
+        static let new = "new"
+        static let updated = "updated"
+        static let removed = "deleted at its source"
+        static let newHelp = "New: Sleep has not read this yet"
+        static let updatedHelp = "Updated: changed since Sleep last read it. Open it to see what changed"
+        static let removedHelp = "Deleted where it came from since it was captured"
+    }
+
+    /// Owner 2026-11-23 — a queued episode's right-click "Open in …" (`EpisodeOpen`).
+    enum EpisodeOpen {
+        static func openIn(_ app: String) -> String { "Open in \(app)" }
+        /// A chat has no address in the bank, so its app opens, not the chat: said as "Open Messages", never "Open in".
+        static func openApp(_ app: String) -> String { "Open \(app)" }
+        static let claudeCode = "Claude Code"
+        static let showInFinder = "Show in Finder"
+        static let fileGone = "That file is no longer where it was."
+    }
+
     enum Place {
         static let inNotes = "Open in Notes"
         static let inBrowser = "Open in browser"

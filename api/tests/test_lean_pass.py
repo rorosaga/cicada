@@ -636,6 +636,36 @@ def test_the_queue_route_lists_what_waits_and_counts_what_is_kept(tmp_path):
     assert not any(i["title"] == "Bare one" for i in body["items"])
 
 
+def test_what_is_kept_is_listed_by_source_newest_first(tmp_path):
+    """Owner 2026-11-23: what is kept for lookup, in order — the breakdown by source, then one source's page."""
+    from fastapi.testclient import TestClient
+
+    from api import main
+    from api.config import get_settings
+
+    memory = _bank(tmp_path)
+    idx: dict = {}
+    _save(memory, "https://example.com/a", "Bare one", idx=idx)
+    _save(memory, "https://example.com/b", "Bare two", idx=idx)
+    _save(memory, "https://example.org/s", "From Safari", idx=idx, origin="safari-bookmark")
+    _save(memory, "https://example.com/c", "With a note", idx=idx, note="the person's note")
+    main.app.dependency_overrides[get_settings] = lambda: settings(memory)
+    try:
+        client = TestClient(main.app)
+        whole = client.get("/sleep/kept").json()
+        assert whole["total"] == 3 == client.get("/sleep/queue").json()["kept"], "one predicate, one number"
+        assert [(s["origin"], s["count"]) for s in whole["sources"]] == [("chrome-bookmark", 2), ("safari-bookmark", 1)]
+        assert all(s["newest"] for s in whole["sources"]) and whole["items"] == [], "no source asked: no rows read"
+        chrome = client.get("/sleep/kept", params={"origin": "chrome-bookmark", "limit": 1}).json()
+        assert [i["title"] for i in chrome["items"]] == ["Bare two"], "newest first, one page"
+        assert chrome["items"][0]["openKind"] == "web" and chrome["items"][0]["site"] == "example.com"
+        rest = client.get("/sleep/kept", params={"origin": "chrome-bookmark", "offset": 1}).json()
+        assert [i["title"] for i in rest["items"]] == ["Bare one"]
+        assert client.get("/sleep/kept", params={"origin": "never-a-source"}).json()["items"] == []
+    finally:
+        main.app.dependency_overrides.clear()
+
+
 def test_a_save_queued_before_this_ruling_is_no_waiting_row_before_a_run_takes_it(tmp_path):
     """The 371 bookmarks between the upgrade and the first run: nothing says they wait."""
     memory = _bank(tmp_path)

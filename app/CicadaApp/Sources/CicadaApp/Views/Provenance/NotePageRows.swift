@@ -14,7 +14,8 @@ extension NoteDocument {
     /// The page's rows and the blocks landing reads, with the washes each span gives each line. A note whose first line
     /// is the header's title leaves it to the header, unless a span lies on it.
     func rows(doc: EpisodeText, turn: Int, focus: Range<Int>?, focusStyle: ReaderWash.Style,
-              others: [Range<Int>]) -> [NotePageRow] {
+              others: [Range<Int>], changed: [Range<Int>] = []) -> [NotePageRow] {
+        let stretches = ReaderChanges.minus(changed, cutting: others + [focus].compactMap { $0 })
         var rows: [NotePageRow] = []
         var at = 0
         for (n, block) in blocks.enumerated() {
@@ -22,6 +23,9 @@ extension NoteDocument {
             if let focus { washes += ranges(of: focus, in: block).map { ReaderWash(range: $0, style: focusStyle) } }
             for other in others where other != focus {
                 washes += ranges(of: other, in: block).map { ReaderWash(range: $0, style: .other) }
+            }
+            for stretch in stretches {
+                washes += ranges(of: stretch, in: block).map { ReaderWash(range: $0, style: .changed) }
             }
             washes.sort { $0.range.lowerBound < $1.range.lowerBound }
             at = block.map.first { $0 >= 0 } ?? at
@@ -39,7 +43,7 @@ enum NoteText {
     static func attributed(_ block: NoteDocument.Block, range: Range<Int>, washes: [ReaderWash],
                            reveal: Double) -> AttributedString {
         var out = AttributedString()
-        func rank(_ s: ReaderWash.Style) -> Int { s == .other ? 1 : 0 }
+        func rank(_ s: ReaderWash.Style) -> Int { s.rank }
         let ordered = washes.sorted { ($0.range.lowerBound, rank($0.style)) < ($1.range.lowerBound, rank($1.style)) }
         for run in block.runs {
             let lo = max(run.range.lowerBound, range.lowerBound), hi = min(run.range.upperBound, range.upperBound)
@@ -62,6 +66,7 @@ enum NoteText {
                 case .focus: .current
                 case .other: .other
                 case .mention: .mention
+                case .changed: .changed
                 }
                 piece(min(wash.range.upperBound, hi), mark)
             }

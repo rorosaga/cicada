@@ -52,26 +52,9 @@ struct SleepWaitingList: View {
                 .id(DetailsSection.waiting.anchorID)
                 .saturation(liveness.saturation)
             if let kept = queue?.kept, kept > 0 {
-                // ROR-118 round 5 - the list's own last card (owner 2026-11-23), drawn like a source's: the mark's tile with
-                // its number as the badge (the same day's badge ruling), the words in the name column.
-                HStack(spacing: CicadaTheme.spacingSM) {
-                    Image(systemName: "tray")
-                        .font(CicadaTheme.icon(.inline))
-                        .foregroundStyle(CicadaTheme.textSecondary)
-                        .frame(width: StudyListCard.markSize, height: StudyListCard.markSize)
-                        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgBadge))
-                        .overlay(alignment: .topTrailing) { StudyListCard.badge(kept) }
-                        .padding(.trailing, CicadaTheme.spacingXS)
-                    Text(Copy.SleepV5.keptForLookupRow).font(CicadaTheme.bodyFont).foregroundStyle(CicadaTheme.textSecondary)
-                        .lineLimit(1)
-                    Spacer(minLength: CicadaTheme.spacingMD)
-                }
-                .padding(.horizontal, StudyListCard.cardInset)
-                .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine + 16))
-                .sourceCardChrome(lit: false)
-                .padding(.top, -CicadaTheme.spacingCard + CicadaTheme.spacingSM)
-                .help(Copy.keptForLookup(kept) ?? "")
-                .accessibilityElement(children: .combine)
+                // The list's own last card (owner 2026-11-23): what is kept for lookup, opened in order by source.
+                KeptForLookupCard(kept: kept)
+                    .padding(.top, -CicadaTheme.spacingCard + CicadaTheme.spacingSM)
             }
         }
     }

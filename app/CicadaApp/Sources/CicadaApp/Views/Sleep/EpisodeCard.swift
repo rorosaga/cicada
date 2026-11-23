@@ -1,5 +1,50 @@
 import SwiftUI
 
+/// Owner 2026-11-23 — a waiting episode's marker: "a small marker of a color maybe like yellowish to signify that it
+/// was updated … for a new note then just green, for a deleted one maybe just red". A dot before the title, its
+/// meaning also in words (the footer and `.help`): colour never carries it alone. The Reader shows what changed.
+enum EpisodeChange: String, Equatable {
+    case new, updated, removed
+
+    /// Only a waiting episode wears one; an unknown word from a newer backend is no marker.
+    static func of(_ item: EpisodeQueueItem) -> EpisodeChange? {
+        item.processed ? nil : item.change.flatMap(EpisodeChange.init(rawValue:))
+    }
+
+    var color: Color {
+        switch self {
+        case .new: CicadaTheme.success
+        case .updated: CicadaTheme.warning
+        case .removed: CicadaTheme.danger
+        }
+    }
+
+    /// The footer's word; a new item says nothing more (most of a queue is new — the dot is enough).
+    var footerWord: String? {
+        switch self {
+        case .new: nil
+        case .updated: Copy.EpisodeChangeWords.updated
+        case .removed: Copy.EpisodeChangeWords.removed
+        }
+    }
+
+    var help: String {
+        switch self {
+        case .new: Copy.EpisodeChangeWords.newHelp
+        case .updated: Copy.EpisodeChangeWords.updatedHelp
+        case .removed: Copy.EpisodeChangeWords.removedHelp
+        }
+    }
+
+    var spoken: String {
+        switch self {
+        case .new: Copy.EpisodeChangeWords.new
+        case .updated: Copy.EpisodeChangeWords.updated
+        case .removed: Copy.EpisodeChangeWords.removed
+        }
+    }
+}
+
 /// A queued or read episode's words, pure (`SleepDetailsTests`).
 enum EpisodeRowText {
     /// "Nov 3, 2026 14:02" — the year kept (a queue can span years after a bulk import); "—" for an
@@ -39,21 +84,50 @@ enum EpisodeRowText {
         return parts.joined(separator: " · ")
     }
 
+    /// The same, led by what the marker means when the episode wears one.
+    static func help(_ item: EpisodeQueueItem, kind: String?) -> String {
+        let base = help(kind: kind, timestamp: item.timestamp, changedAt: item.changedAt, id: item.id)
+        return EpisodeChange.of(item).map { "\($0.help) · \(base)" } ?? base
+    }
+
     /// A card's footer after its mark: where it is (a page's site and path, "3 tab links", a file's name), how long
     /// ago it last changed, and "read" once Sleep read it. The source's name is never repeated: the source card above
     /// names it once (DR-38), and the mark carries it at a glance.
-    static func footer(_ item: EpisodeQueueItem, target: String?, now: Date = Date()) -> [String] {
+    static func footer(_ item: EpisodeQueueItem, target: String?, now: Date = Date(),
+                       showsState: Bool = true) -> [String] {
         var parts = target.map { [$0] } ?? []
         if let date = parse(item.changedAt ?? item.timestamp) ?? parse(item.timestamp) {
             parts.append(Copy.OriginCard.ago(date, now: now))
         }
+        // A kept save is neither waiting nor read by a model (ruling 62): it says neither.
+        guard showsState else { return parts }
         if item.processed { parts.append("read") }
+        if let word = EpisodeChange.of(item)?.footerWord { parts.append(word) }
         return parts
     }
 
+    /// The card's two lines of what it says, or nil when they would only repeat the title: a saved link's record
+    /// opens with its title as a heading and then its own bookkeeping ("Source: bookmark", the link), which the
+    /// title and the footer already say (DR-38).
+    static func preview(_ item: EpisodeQueueItem) -> String? {
+        let text = item.preview.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        let title = (item.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty, text.hasPrefix("#") {
+            let heading = text.prefix { $0 != "\n" }.drop { $0 == "#" }.trimmingCharacters(in: .whitespaces)
+            if heading == title { return nil }
+        }
+        return text
+    }
+
     /// What VoiceOver reads for a card: the title, then the footer's words.
-    static func cardLabel(_ item: EpisodeQueueItem, target: String?, now: Date = Date()) -> String {
-        ([item.title ?? Copy.SleepDetailsWords.untitled] + footer(item, target: target, now: now)).joined(separator: ", ")
+    static func cardLabel(_ item: EpisodeQueueItem, target: String?, now: Date = Date(),
+                          showsState: Bool = true) -> String {
+        // The others are footer words.
+        let marker = showsState ? EpisodeChange.of(item).flatMap { $0 == .new ? $0.spoken : nil } : nil
+        return ([item.title ?? Copy.SleepDetailsWords.untitled]
+                + footer(item, target: target, now: now, showsState: showsState)
+                + [marker].compactMap { $0 }).joined(separator: ", ")
     }
 
     private static func parse(_ raw: String) -> Date? {
@@ -116,23 +190,35 @@ enum EpisodeRowAction: Equatable {
 /// `StudyListCard`'s source cards and the room's `SpinePopover` both render it.
 struct EpisodeCard: View {
     let item: EpisodeQueueItem
+    /// False in the kept-for-lookup list (owner 2026-11-23): a kept save neither waits nor was read, so the card
+    /// wears no marker, is never faded and says neither word.
+    var showsState = true
     @Environment(Store.self) private var store: Store?
     @Environment(ProvenanceRouter.self) private var reader: ProvenanceRouter?
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// One Sleep already read is faded until the pointer is on it; a kept save never is.
+    private var faded: Bool { showsState && item.processed }
     private var kind: String? { EpisodeRowAction.copyKind(item) }
     private var target: String? { EpisodeRowText.target(kind: kind, value: item.copyValue) }
 
     var body: some View {
         Button(action: activate) {
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
-                Text(item.title ?? Copy.SleepDetailsWords.untitled)
-                    .font(CicadaTheme.rowFont)
-                    .foregroundStyle(item.processed ? CicadaTheme.textSecondary : CicadaTheme.textPrimary)
-                    .lineLimit(1)
-                if !item.preview.isEmpty {
-                    Text(item.preview)
+                HStack(alignment: .center, spacing: CicadaTheme.scaled(7)) {
+                    if showsState, let change = EpisodeChange.of(item) {
+                        Circle().fill(change.color)
+                            .frame(width: CicadaTheme.scaled(Tag.dotSize + 1), height: CicadaTheme.scaled(Tag.dotSize + 1))
+                            .accessibilityHidden(true)   // the card's label says it
+                    }
+                    Text(item.title ?? Copy.SleepDetailsWords.untitled)
+                        .font(CicadaTheme.rowFont)
+                        .foregroundStyle(faded ? CicadaTheme.textSecondary : CicadaTheme.textPrimary)
+                        .lineLimit(1)
+                }
+                if let preview = EpisodeRowText.preview(item) {
+                    Text(preview)
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .lineLimit(2)
@@ -141,24 +227,37 @@ struct EpisodeCard: View {
                 footer
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .originCardChrome(tone: item.processed ? .past : .plain, hovering: hovering)
+            .originCardChrome(tone: faded ? .past : .plain, hovering: hovering)
         }
         .buttonStyle(.cicadaPlain)
         .onHover { hovering = $0 }
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
-        .help(EpisodeRowText.help(kind: kind, timestamp: item.timestamp, changedAt: item.changedAt, id: item.id))
+        .help(showsState ? EpisodeRowText.help(item, kind: kind)
+                         : EpisodeRowText.help(kind: kind, timestamp: item.timestamp, changedAt: item.changedAt, id: item.id))
         .contextMenu {
+            // Owner 2026-11-23: the original, where it lives — first, then the copy.
+            if let opens = EpisodeOpen.target(item),
+               let label = EpisodeOpen.label(opens, appName: EpisodeOpen.installedAppName) {
+                Button(label) { openOriginal(opens) }
+            }
             Button(Copy.SleepDetailsWords.copyAction(kind), action: copy)
         }
-        .accessibilityLabel(EpisodeRowText.cardLabel(item, target: target))
+        .accessibilityLabel(EpisodeRowText.cardLabel(item, target: target, showsState: showsState))
         .accessibilityHint(Copy.SleepDetailsWords.openHint(kind))
         .accessibilityAction(named: Text(Copy.SleepDetailsWords.copyAction(kind)), copy)
+        .accessibilityActions {
+            if let opens = EpisodeOpen.target(item),
+               let label = EpisodeOpen.label(opens, appName: EpisodeOpen.installedAppName) {
+                Button(label) { openOriginal(opens) }
+            }
+        }
     }
 
     private var footer: some View {
         HStack(spacing: CicadaTheme.scaled(6)) {
             mark
-            ForEach(Array(EpisodeRowText.footer(item, target: target).enumerated()), id: \.offset) { index, part in
+            ForEach(Array(EpisodeRowText.footer(item, target: target, showsState: showsState).enumerated()),
+                    id: \.offset) { index, part in
                 if index > 0 { Text("·") }
                 Text(part).monospacedDigit()
             }
@@ -190,6 +289,15 @@ struct EpisodeCard: View {
         switch EpisodeRowAction.primary(item, readerAvailable: reader != nil) {
         case .open(let target): reader?.open(target)
         case .copy: copy()
+        }
+    }
+
+    /// The menu's "Open in …": runs on that click alone; a problem (or a resumed session's line) is said as a toast.
+    private func openOriginal(_ target: EpisodeOpen.Target) {
+        Task { @MainActor in
+            guard let words = await EpisodeOpen.open(target) else { return }
+            store?.flash(words)
+            AccessibilityNotification.Announcement(words).post()
         }
     }
 

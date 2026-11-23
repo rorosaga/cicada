@@ -110,6 +110,8 @@ enum EvidenceSpeaker {
             return Copy.Videos.mediaTurnMeta(time: mediaTime(turn.t), fidelity: turn.fidelity)
         case "speaker":
             // G179 — the other side of a message conversation, by the name the person sees.
+            // ROR-142 — a meeting's group track is "Others on the call"; a numbered voice or a name arrives as words.
+            if turn.speakerKind == "group" { return Copy.Provenance.othersOnTheCall }
             return correspondent ?? named(turn.speaker) ?? Copy.Provenance.someoneElse
         case "gap":
             // G110 gate B2 — the dropped-middle marker: Cicada's own line, never "You" or the agent.
@@ -192,7 +194,7 @@ enum ReaderText {
         let rawCount = ScalarText(block.text).count
         let stripped = ExcerptText.stripMarkup(block.text, keepLines: true)
         let text = ScalarText(stripped.text)
-        func rank(_ s: ReaderWash.Style) -> Int { s == .other ? 1 : 0 }
+        func rank(_ s: ReaderWash.Style) -> Int { s.rank }
         let washes = block.washes
             .filter { $0.range.lowerBound >= 0 && $0.range.upperBound <= rawCount && !$0.range.isEmpty }
             .map { ReaderWash(range: stripped.map($0.range), style: $0.style) }
@@ -208,6 +210,7 @@ enum ReaderText {
             case .focus: .current
             case .other: .other
             case .mention: .mention
+            case .changed: .changed
             }
             out.append(.init(text: text.slice(wash.range.lowerBound, wash.range.upperBound), mark: mark))
             cursor = wash.range.upperBound
@@ -227,6 +230,17 @@ struct ReaderWash: Hashable {
         case mention
         /// Another span the same entity cites: the soft wash, no underline (P4).
         case other
+        /// A stretch that changed since Sleep last read the source (owner 2026-11-23): `washChanged`.
+        case changed
+
+        /// At one offset the cited span wins over a soft one, and both over a changed stretch.
+        var rank: Int {
+            switch self {
+            case .focus, .mention: 0
+            case .other: 1
+            case .changed: 2
+            }
+        }
     }
     let range: Range<Int>
     let style: Style
@@ -284,7 +298,7 @@ enum ReaderLayout {
     /// split into one wash per block (§4.4). Offsets past a truncated text
     /// are dropped.
     static func blocks(doc: EpisodeText, scalars: ScalarText, focus: Range<Int>?,
-                       focusStyle: ReaderWash.Style, others: [Range<Int>] = [],
+                       focusStyle: ReaderWash.Style, others: [Range<Int>] = [], changed: [Range<Int>] = [],
                        locale: Locale = .autoupdatingCurrent,
                        timeZone: TimeZone = .autoupdatingCurrent) -> [ReaderBlock] {
         doc.turns.flatMap { turn -> [ReaderBlock] in
@@ -309,6 +323,10 @@ enum ReaderLayout {
                 }
                 if let focus { add(focus, focusStyle) }
                 for other in others where other != focus { add(other, .other) }
+                // What changed is drawn around the cited spans, never over them (a wash inside another is skipped).
+                for stretch in ReaderChanges.minus(changed, cutting: others + [focus].compactMap { $0 }) {
+                    add(stretch, .changed)
+                }
                 washes.sort { $0.range.lowerBound < $1.range.lowerBound }
                 return ReaderBlock(
                     index: turn.index, chunk: n, role: turn.role, speaker: speaker, mark: mark, time: time,
@@ -365,6 +383,60 @@ enum ReaderLayout {
 /// a name not found, a span held back) opens the source and says nothing (ROR-16).
 enum ReaderBanner: Hashable {
     case stale, grown, derived, truncated
+    /// Owner 2026-11-23 — a waiting source Sleep read before and that changed since: how many stretches are washed
+    /// below, and the words the edit took out.
+    case updated(parts: Int, removed: [String])
+    /// A waiting source that was deleted where it came from.
+    case deletedAtSource
+}
+
+/// Owner 2026-11-23 — "when I open it, on the side panel, highlight the part/s that were updated, kind of like in git
+/// how you can see what was changed, but in a more general user friendly way". Pure: the stretches the Reader washes
+/// (`EpisodeText.changes`, the backend's diff against the version Sleep read) and the one sentence above the text.
+enum ReaderChanges {
+    /// The changed stretches inside the shown text, in order: each cut to the text, its trailing line break dropped
+    /// (a washed line break is an empty band at a line's end), neighbours joined.
+    static func ranges(_ doc: EpisodeText, scalars: ScalarText) -> [Range<Int>] {
+        guard let changes = doc.changes, changes.state == "updated" else { return [] }
+        var out: [Range<Int>] = []
+        for pair in changes.changed where pair.count == 2 {
+            let lo = max(0, pair[0])
+            var hi = min(pair[1], scalars.count)
+            while hi > lo, scalars.slice(hi - 1, hi).allSatisfy(\.isNewline) { hi -= 1 }
+            guard hi > lo else { continue }
+            if let last = out.last, lo <= last.upperBound + 1 {
+                out[out.count - 1] = last.lowerBound..<max(last.upperBound, hi)
+            } else {
+                out.append(lo..<hi)
+            }
+        }
+        return out
+    }
+
+    /// `ranges` with every `cutting` range taken out, so a cited span keeps its own wash inside a changed stretch.
+    static func minus(_ ranges: [Range<Int>], cutting: [Range<Int>]) -> [Range<Int>] {
+        guard !cutting.isEmpty else { return ranges }
+        let cuts = cutting.sorted { $0.lowerBound < $1.lowerBound }
+        var out: [Range<Int>] = []
+        for range in ranges {
+            var cursor = range.lowerBound
+            for cut in cuts where cut.upperBound > cursor && cut.lowerBound < range.upperBound {
+                if cut.lowerBound > cursor { out.append(cursor..<cut.lowerBound) }
+                cursor = max(cursor, cut.upperBound)
+            }
+            if cursor < range.upperBound { out.append(cursor..<range.upperBound) }
+        }
+        return out
+    }
+
+    /// The sentence above the text; nil for a new source (nothing to compare) and for one already read.
+    static func banner(_ doc: EpisodeText, parts: Int) -> ReaderBanner? {
+        switch doc.changes?.state {
+        case "updated": .updated(parts: parts, removed: doc.changes?.removed ?? [])
+        case "removed": .deletedAtSource
+        default: nil
+        }
+    }
 }
 
 struct ReaderPresentation: Hashable {
@@ -414,6 +486,10 @@ struct ReaderPresentation: Hashable {
             focus = nil
         }
         if doc.truncated { banners.append(.truncated) }
+        // What changed since Sleep read it leads the sentences; opened for no span, the Reader lands on the first.
+        let changed = ReaderChanges.ranges(doc, scalars: ScalarText(doc.text))
+        if let banner = ReaderChanges.banner(doc, parts: changed.count) { banners.insert(banner, at: 0) }
+        if focus == nil, landing == nil { landing = changed.first?.lowerBound }
         return ReaderPresentation(focus: focus, focusStyle: style, banners: banners,
                                   landing: focus?.lowerBound ?? landing.map { min($0, max(0, textCount - 1)) })
     }

@@ -1521,10 +1521,10 @@ should grow smoothly for the first few lines and then scroll; more reasons that 
 what is being saved).** *The field grows.* `TextField(axis: .vertical)` starts at one line and grows a line at a time as
 the words wrap or break (⌥⏎, the Mac's line break in a field; Return still saves) up to **five lines**
 (`SaveWhyField.maxLines`), then scrolls inside. Five because the words cap at 500 characters and a line holds about 60,
-so five show ≈ 300 — most answers whole — while the card stays a short drop from the notch. The height is measured, not
-left to AppKit (`SaveWhyField.lineCount`: the text's own breaks plus wrapping at the field's measured width, in the
-field's font — `SaveWhyField.fontSize`, the one number the field is both drawn and measured in, since a 12-vs-13 pt drift
-clipped a wrapped second line, owner 2026-11-23), so the card and the notch's shape grow with it in one transaction: `CicadaMotion.fieldGrow` (0.12 s,
+so five show ≈ 300 — most answers whole — while the card stays a short drop from the notch. The height is the field's
+own layout (`lineLimit(1...maxLines)` with a vertical `fixedSize`), never a line count measured beside it: that
+prediction clipped what it under-counted — first at the wrong size, then a long word the field editor broke differently
+(owner 2026-11-23, twice) — so the card and the notch's shape grow with it in one transaction: `CicadaMotion.fieldGrow` (0.12 s,
 `CicadaCurve.out`), in one frame under Reduce Motion. DR-60 lists keyboard *commands*; a field growing to hold typed words
 is the content's own size, which the owner asked to be smooth — dated ruling in DESIGN_RULES (2026-10-23). The window is
 made `SaveWhyField.growthReserve` taller than the card up front (clear below it, the view top-aligned), so it never resizes
@@ -2321,15 +2321,27 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   the type block (the brand block, `PageBrandBlock`, above the article when looks are what the page is about — two or
   more, or no article — then the look tiles; a folder, a repository), *Marked* (`PageMarks`, ruling 64: a book's highlights word for word, each note under its passage, the day), *Ongoing* (`PageOngoing`, open happenings and
   planned milestones on the Projects band's hollow node, at most five), the article carrying its beliefs, and
-  *References* (`PageReferences`, at most six numbered lines, then "N conversations and M web pages in all · who wrote
-  each change is in History", with a History link). **The article carries the beliefs (DR-80):** every line the
-  page's write-time provenance cites ends with a superscript per source (`CitationMarks`, `labelFont`, `textTertiary`,
-  a `cicada://cite/<n>?at=<offset>` link); a click opens a popover (`CitationPopover`: the kind — *You said*,
-  *<agent> replied*, *Looked up*, *From this conversation*, *Inferred* — when, where, the located words through
-  `QuoteBlock` (DR-18) and *Show in conversation* into the Reader, DR-31), read lazily from
-  `GET /entities/{id}/citations/{n}` and held in `CitationDetailCache`. Keys and VoiceOver: each cited line keeps its
-  sources as focusable chips in the gutter (the 🔗's place; ⏎ opens, Esc closes) and as named actions "Source N" on
-  the line. A page whose prose cites nothing yet draws its beliefs as one paragraph of sentences
+  *References* (`PageReferences`, at most six cards — `ReferenceCard`, each led by its source's mark, never a number; the
+  same line and day cited twice is one card — then "N conversations and M web pages in all · who wrote
+  each change is in History", with a History link). **The article carries the beliefs (DR-80, amended 2026-11-23):**
+  every line the page's write-time provenance cites ends with **one cluster of its sources' marks** (`SourceCluster`,
+  one 15 pt `SourceMarkTile` per mark, 2 pt apart, dim at rest and full on hover, focus and while open; the first of each
+  kind of source, up to three, then a quiet "+N" — a source with no real mark draws none, `PageSourceMark`;
+  `SourceClusterModel`), glued to the last word; a click, a hover after `hoverPreviewDelay` or Tab then ⏎ opens
+  `CitationsPopover` (the app's `bgMenu` surface, sized to its rows up to 420 pt, then scrolling with a faded last row), one `CitationSourceRow` per source — its mark, "You, in <app> · <title>", the day, the kind
+  (*You said*, *<agent> replied*, *Looked up*, *From this conversation*, *Inferred*) and located words through `QuoteBlock`
+  (DR-18) and *Show in conversation* into the Reader, DR-31 — each read lazily from
+  `GET /entities/{id}/citations/{n}` and held in `CitationDetailCache`. The marks come from `citations.markKeys` /
+  `refMarks` (`blocks-7`, one per reference, so a source past the six References lines still wears its own).
+  **Links are chips (2026-11-23):** a wikilink or web link in a paragraph, item or quote is a `PageLinkChip` wearing the
+  resolved page's own name and picture (`PageLinkIndex`, memoised per graph snapshot as `Store.linkIndex`: an id, else
+  exactly one page by name or alias; anything else keeps its written words) or the site's bundled mark
+  (`PageChipMark`) — **the first mention of a page in a passage is the chip, later ones a quiet link** (`PageQuietWordView`: the
+  name in body ink, a hover fill, the same click; an ambiguous ref is one too, so no link on the page is blue); a line with a
+  chip, quiet link or cluster is cut into `PageInline` pieces and laid out by `InlineFlowLayout` (baseline-aligned, a
+  touching piece never starts a line, the cluster glued to the last word only, a glued run wider than the column broken
+  between its pieces), a line of only words stays one `Text`. **Related** list items are `RelatedCard`s (picture, the page's name, the words after the dash); the tab bar's
+  scroll view fades its first 16 pt (`fadedTopEdge`). A page whose prose cites nothing yet draws its beliefs as one paragraph of sentences
   (`PageBeliefSentences`): an inference worded "It seems that …", an ended one "(until March 2025)"; past twelve, "N
   more in Perspectives". **Gone from the page:** the beliefs list, *Where this came from*, the person's *How you know*
   and *What's happening*, the facts strip, *Details* and the empty *Looks* fold; *How it fades*, *Add a link* and *Add
@@ -2340,8 +2352,16 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
 - **Sleep's machines strip (G212):** under the room, `GET /devices/status` polled every `CicadaTiming.machinePoll`
   (30 s) while the page shows, held in memory: each machine by its own name (this server's Computer Name), a green dot
   while connected, how (Local · Tailscale · SSH · Local network), *N waiting*. A click opens that machine's queue in
-  Waiting (rows rebuilt from its own episodes; `GET /sleep/episodes` rows carry `device`, shape `episodes-3`). The
+  Waiting (rows rebuilt from its own episodes; `GET /sleep/episodes` rows carry `device`, shape `episodes-4`). The
   engine line is UI-A's.
+- **A recorder's meetings wear the recorder's own icon (2026-11-23, R-L1, DR-52).** An episode of a meeting folder set up
+  for a known recorder (`meeting.recorder`, today `hex`) is grouped on the Sleep page under that recorder, not "Folder":
+  `sleep_cycle.queue_origin` is the one function every Sleep list, count and past-read row reads (`/sleep/queue`,
+  `/sleep/episodes`, `sleep_progress`, `sleep_consolidated`, `sleep_history`; extraction keeps the stamped `folder`
+  origin), and the Sources card of that folder carries `mark: hex` (`source_overview._new_state`, `marks`). The mark is the
+  Hex app installed on this Mac (`OriginIconography.appBundleId("hex")` → `InstalledAppIcon`, never fetched from the web);
+  without Hex installed the mark falls back to the folder's own glyph and blue. The folder's row on Sources
+  (`FolderChannelRow`) wears it too. A source deleted before Sleep read it is no row and no count (`capture-and-sleep.md`).
 - **Syncing after the app was closed (G229, owner 2026-11-03).** `AwaySyncTracker` (app-level, in the environment;
   `Support/AwaySync.swift`) starts once per launch after every reader is armed. It reads when the app was last open
   (`AppPresence`, `cicada.app.lastOpenAt` in the app's defaults, stamped once a minute while it runs) before stamping
@@ -3058,7 +3078,7 @@ names the same engine and the backend gave no reason to add. A tail link, a spin
 page selects the tab holding it (`SleepTab.holding`) and brings the tab row to the top in one frame. Opening a saved item
 (or the watch run) turns the page into progressive columns: the tab row rides the eyebrow, the list is the triage
 column, the item the detail, the Reader the third column (`AppTab.hostsOwnReader`); Esc closes the rightmost.
-**Source cards (owner 2026-11-23, DESIGN_RULES §9):** the Waiting list is a card per source (`StudyListCard.sourceCard`, `sourceCardChrome`: `surface`, a `radiusLarge` ring that the pointer or its spine lights) whose row is the source's mark wearing what waits as a badge (`RailBadge`, the rail's neutral numeral knocked out of the card; what is left while a cycle reads it, none once read — `queueBadgeCount`), its name, a run's progress, and the Oldest column — no chevron, no Items column (owner 2026-11-23); open, it holds a card per episode (`EpisodeCard`, the `OriginCard` family through `originCardChrome`): the title, two lines of the preview, then `[mark] where · 3h ago · read` — the source's name never repeated (DR-38); a waiting episode `plain`, a read one `past` (faded). The kept-for-lookup line is the list's last card. Each queued episode card (`EpisodeCard`, the Waiting list and the spine popover) is one button: a click opens the stored episode in the Reader (`ReaderTarget(episode:)`, `GET /episodes/{id}/text`, from the top; `EpisodeRowAction.primary`, owner 2026-10-19 — "episode ID copied" gave the person nothing to do). Copying what Sleep would read — `GET /sleep/episodes`'s `copyValue` from `episode_copy` (a page's link, a conversation's session id, a tab group's links, a folder file's full path, else the episode id) — is the row's context menu and a named VoiceOver action ("Copy Link", "Copy Conversation ID"), with its brief toast (`Store.flash`). The footer names only a target a person can read (a site and path, "3 tab links", a file's name), how long ago (`changedAt`: a conversation's last capture, else when it arrived) and "read"; a session id and the raw `ep_` id stay in `.help` ("… · Episode ep_…", DR-54). DR-48, DR-54, DR-69. The worm speaks in that one fixed slot —
+**Source cards (owner 2026-11-23, DESIGN_RULES §9):** the Waiting list is a card per source (`StudyListCard.sourceCard`, `sourceCardChrome`: `surface`, a `radiusLarge` ring that the pointer or its spine lights) whose row is the source's mark wearing what waits as a badge (`RailBadge`, the rail's neutral numeral knocked out of the card; what is left while a cycle reads it, none once read — `queueBadgeCount`), its name, a run's progress, and the Oldest column — no chevron, no Items column (owner 2026-11-23); open, it holds a card per episode (`EpisodeCard`, the `OriginCard` family through `originCardChrome`): the title, two lines of the preview, then `[mark] where · 3h ago · read` — the source's name never repeated (DR-38); a waiting episode `plain`, a read one `past` (faded). **One card per chat (owner 2026-11-23, `ChatCard`, `ChatGroups`):** a chat is stored a sitting at a time, so inside a Messages, WhatsApp or Telegram source card every waiting sitting of one chat stands as one card where its newest stood — the face (the Contacts photo or the photo the chat shares, on this Mac, else a monogram) wearing how many messages wait as the same badge a source's mark wears, the name behind the green "new" dot, and one line ("23 messages · 2 sittings · 2h ago"); a row names its chat as `chat` (`episode_copy.chat_of`: the hash, the recorded name, the sitting's count; `episodes-8`). A click opens a single sitting in the Reader; several open in place as episode cards, each keeping its own marker (a sitting that grew since Sleep read it is "updated", and the Reader highlights the new messages). **Kept for lookup (owner 2026-11-23, `KeptForLookupCard`)** is the list's last card: closed, the tray tile wearing the count (the whole number beside it past 99); open, one sentence of what it is, then a row per source (its real mark, name and count, most kept first), each opening to its items as the same episode cards — newest first, thirty at a time, no new/updated marker and never faded, because a kept save neither waits nor was read — from `GET /sleep/kept` (`sources`, and with `?origin=` that source's page; the same predicate as `/sleep/queue`'s `kept`; nothing fetched until the card opens). A card whose preview would only repeat its title (a saved link's record opens with it as a heading) draws none (`EpisodeRowText.preview`, DR-38). Each queued episode card (`EpisodeCard`, the Waiting list and the spine popover) is one button: a click opens the stored episode in the Reader (`ReaderTarget(episode:)`, `GET /episodes/{id}/text`, from the top; `EpisodeRowAction.primary`, owner 2026-10-19 — "episode ID copied" gave the person nothing to do). Copying what Sleep would read — `GET /sleep/episodes`'s `copyValue` from `episode_copy` (a page's link, a conversation's session id, a tab group's links, a folder file's full path, else the episode id) — is the row's context menu and a named VoiceOver action ("Copy Link", "Copy Conversation ID"), with its brief toast (`Store.flash`). **Open in … (owner 2026-11-23, `EpisodeOpen`):** the same menu leads with the original where it lives — the row names it (`openKind` / `openValue` from `episode_copy.open_target`, `episodes-6`) and the app checks the value again before anything opens (`ItemPlaceOpen`'s link and note rules, a real session uuid, an absolute path): a link in the browser it was saved from when that browser is here ("Open in Google Chrome", else "Open in browser"; an imported conversation at its provider's page), a note through Notes' own `show` ("Open in Notes"), a Claude Code session through `POST /conversations/{id}/resume` and the terminal ("Open in Claude Code"; the Automation prompt is that click's), a folder file revealed ("Show in Finder"). A chat has no address in the bank — only a hash — so its app opens and the menu says "Open Messages", never "Open in". Nothing runs before the click. **New, updated, deleted (owner 2026-11-23, `EpisodeChange`):** a waiting card wears a dot before its title — green new, amber updated (Sleep read a version before and it changed since), red deleted at its source — from the row's `change` (`episode_revision.waiting_state` over the cached header: `source_deleted_at`, else the stager's `revised.consolidated_hash`; `episodes-7`); the meaning is also in words (the footer's "updated" / "deleted at its source", `.help`, VoiceOver's label), never the colour alone; a read card wears none. **What changed, in the Reader:** `GET /episodes/{id}/text` carries `changes` for a waiting episode (`episode_revision.since_read`: one git read of the version Sleep read — the one the `revised` record names — diffed line by line against the text the Reader draws; `changed` offsets into that text, `removed` the words taken out, capped, never for a transcript whose cap slides old turns out; `chg1`). The Reader washes each changed stretch in `washChanged` (`ReaderWash.Style.changed` → `CitedSpan.Mark.changed`, on the plain page, a chat and a formatted note alike; a cited span keeps its own wash inside one, `ReaderChanges.minus`), says so in one sentence above the text with what was taken out struck through (`ReaderBanner.updated` / `.deletedAtSource`), and, opened for no span, lands on the first change. The footer names only a target a person can read (a site and path, "3 tab links", a file's name), how long ago (`changedAt`: a conversation's last capture, else when it arrived) and "read"; a session id and the raw `ep_` id stay in `.help` ("… · Episode ep_…", DR-54). DR-48, DR-54, DR-69. The worm speaks in that one fixed slot —
 `roomSentence` / `wormAnswers`, pure
 `SentenceLine` values over `SleepPageModel` (lead ≤ 40, tail ≤ 80, clock-free; a missing fact
 omits its rung, never shows a guess); the floating bubble is retired. The slot reserves nothing (R-Z5 as amended
@@ -3848,7 +3868,18 @@ that went on after its import, by its own `relayed [ChatGPT]` marker, ruling 58)
 says the words came through the app's model; a run (one side and speaker, turns under 15 minutes apart) shows the face — the
 Messages chat's own picture by `MessageBubbles.face`, the chat parsed from the sitting's `imessage:<chat>:…` source id
 (`ReaderChat.messagesChat`), a monogram for a meeting speaker — or the agent's mark, the name only when it differs from
-the one the header already names (`ReaderChat.namedParty`), and its first stored time, once. A chat's title drops a
+the one the header already names (`ReaderChat.namedParty`), and its first stored time, once. **A meeting (2026-11-23,
+DR-9, DR-10, DR-11, DR-37, DR-38, DR-40, DR-60):** every run of a voice shows its name beside its avatar (a one-to-one chat
+names its other side once; several voices alternate with the person's, so a bare avatar would not say which), and the
+name is the server's word (`speaker`/`speakerKind` on the turn, `meeting_transcripts.speaker_display`: `Speaker 1`, a
+name, "Others on the call" for the group track, "Someone else" for an unknown voice), so the monogram's initials match
+it. The recorder's summary is no bubble: `EpisodeText.meeting.summaryTurn` marks it and `ReaderMeetingHeaderView` draws
+it as a quiet card pinned above the chat, under the title (a chat opens at its newest message, so a row in the history
+would never be seen first) — the other side's bubble fill with the resting ring, "Summary · written by Hex", a *Hide
+summary* / *Show summary* text button (remembered per viewer in the app's defaults, never animated; a summary holding a
+cited passage stays open), the facts the episode holds ("17 min · Google Meet · 3 attendees") and, when a tool split the
+voices, "Voices split on this Mac by <tool> (N voices). Speaker numbers are its guess." The summary scrolls inside the card
+past 220 pt. The stored body is unchanged. A chat's title drops a
 trailing " · YYYY-MM-DD" and its meta drops the day and the turn count, naming the agent only when the capture line
 does not (`ReaderHeader.title`, `chatMeta`); a document's header is unchanged. Day separators ("Today", "Yesterday", a weekday, "Thu, Sep 3") replace a date per turn,
 computed when read; a gate-B2 gap is a centred line with its stamps as clock times. No "turn N", on screen or in

@@ -662,6 +662,10 @@
       ]
      ]
     }
+   ],
+   "one": [
+    {"id": "O4", "names": ["idris"], "why": "the partner, named in many settings, who gets a job and moves city: one person"},
+    {"id": "O5", "names": ["lea", "leaux"], "why": "a colleague named in many settings: one person"}
    ]
   },
   "pages": {

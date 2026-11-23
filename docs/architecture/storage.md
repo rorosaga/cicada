@@ -1273,7 +1273,7 @@ Round 4 (C2–C4):
   **A saved link's own site icon (owner ruling 2026-10-19).** A saved link's row (Sources › a saved source) shows its
   site's own icon, asked of **that site only** — never an icon service, so no one learns what the person saved:
   `GET /sources/saved/{media_entity_id}/site-icon`, asked by the app for a row of a list the person opened (never from
-  the Sleep cycle, never a whole bank; listing items fetches nothing). The site is the registrable domain of THIS link's own URL
+  the Sleep cycle, never a whole bank; listing items fetches nothing). The site is the host of THIS link's own URL, `www.` stripped (owner 2026-11-23: a page on a subdomain drew its parked parent domain's icon, where a browser tab shows the host's own; a subdomain with no icon falls back to its registrable domain's, each discovery in its own budget, a block stopping both)
   from the url index (`channel_items.saved_link_site` → `logo_service.own_site_domain`), for a live media page a `saved`
   source owns; a walled family, a private or reserved name is never asked (the row keeps its bundled mark or monogram).
   **Everywhere (owner 2026-10-20):** every surface that draws a saved link draws this mark (`app.md`, "One mark for a
@@ -1282,7 +1282,7 @@ Round 4 (C2–C4):
   non-conversation episode of a `saved` source (`channel_items.saved_episode_url` / `saved_episode_site`), with the same
   gate, fetch and per-site cache. Rows name the key the mark is drawn under — `siteKey` on `GET /sources` items (shape
   `site-key-1`; only on a page the media route serves, `channel_items.is_saved_link_page`), `site` on `GET /sleep/episodes` rows (`episodes-2`) and on `GET /episodes/{id}/text` (`site1`) — from
-  one function, `reading_hosts.mark_key` (a walled family's name, else the registrable domain); the icon is always asked
+  one function, `reading_hosts.mark_key` (a walled family's name, else the link's own host; a followed feed keeps its registrable domain — feeds are served from plumbing hosts); the icon is always asked
   by an id, never by that name. **A followed feed (ROR-108)** is a site the person chose, on the same footing, through its
   own door because a feed's items are captured, not saved: `GET /sources/feeds/{feed_id}/site-icon` reads the site from
   THAT feed's record (`channel_items.feed_site`), same gate, fetch and per-site cache, only from the RSS page's row, never
@@ -1586,6 +1586,10 @@ Round 4 (C2–C4):
 - On an episode (G133/G134): `turns` (the G118 per-turn sidecar), `evidence_kind`,
   `source_deleted_at`, and a section's `content_sha` — see the Awake rails; on a conversation, `turn_extras` and
   `unsent_turns` (2026-10-20, above).
+- On a meeting episode's `meeting` record (ROR-142 follow-up, 2026-11-23): `notes` (a recorder's or tool's italic lines
+  before the first speaker, at most 5), `voices_split_by` + `voices` (a tool that told the remote voices apart and how many
+  it found); and `processed_by: source-deleted` on a tombstoned episode nothing ever consolidated (`capture-and-sleep.md`,
+  "Meeting transcripts").
 - On an episode a folder source made (G244, TODO ruling 76): **`contributions`**, newest first, at most 20, each
   `{harness, model, effort, session, at, content_hash, ranges}` — an agent edited the source file directly. `model` and
   `effort` are the last agent turn of the hook's `transcript_path` when `transcript_capture.validate_transcript_path`

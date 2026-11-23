@@ -762,6 +762,10 @@ class PageBlockCitations(CamelModel):
     markers: list[list[int]] = []
     markers_total: int = 0
     refs: list[PageCitationRef] = []
+    #: `blocks-7`: the mark every reference wears where it is cited — the distinct keys, and per reference (by number
+    #: order) its index into them. References past the first six have a mark here and no line in ``refs``.
+    mark_keys: list[str] = []
+    ref_marks: list[int] = []
     total: int = 0
     conversations: int = 0
     web: int = 0
@@ -1430,6 +1434,27 @@ class EpisodeTurn(CamelModel):
     fidelity: Optional[str] = None
     #: 2026-10-20 (`turn_extras`): what made this turn part of a conversation beside its words; null when nothing.
     extras: Optional["EpisodeTurnExtras"] = None
+    #: A meeting speaker's line (`meeting_transcripts.speaker_display`): ``speaker`` is then the name to show
+    #: (``Speaker 1``, a name) and null for a group track or an unknown voice; ``speaker_kind`` is ``named`` |
+    #: ``numbered`` | ``group`` | ``unknown`` so the app says "Others on the call" / "Someone else" in its own words.
+    #: Null on every other turn.
+    speaker_kind: Optional[str] = None
+
+
+class EpisodeMeeting(CamelModel):
+    """What a meeting episode's reader header says, from its own record (`meeting_transcripts.meeting_wire`): the recorder's
+    summary is the turn at ``summary_turn`` (drawn as the header's card, never a bubble); the rest are the meeting's
+    facts. ``voices_split_by``/``voices``: a tool that told the remote voices apart did it — ``Speaker 1``/``2`` are its
+    guess."""
+
+    recorder: Optional[str] = None
+    summary_turn: Optional[int] = None
+    summary_writer: Optional[str] = None
+    duration_s: Optional[int] = None
+    app: Optional[str] = None
+    attendees: Optional[int] = None
+    voices_split_by: Optional[str] = None
+    voices: Optional[int] = None
 
 
 class EpisodeReaction(CamelModel):
@@ -1572,6 +1597,16 @@ class EpisodeRelay(CamelModel):
     label: Optional[str] = None
 
 
+class EpisodeChanges(CamelModel):
+    """What changed in a WAITING episode since Sleep last read it (owner 2026-11-23, `episode_revision.since_read`):
+    ``state`` is ``new`` | ``updated`` | ``removed``; ``changed`` are ``[start, end]`` offsets into the document's
+    ``text``; ``removed`` the words an edit took out; ``at`` when it was last edited."""
+    state: str
+    changed: list[list[int]] = Field(default_factory=list)
+    removed: list[str] = Field(default_factory=list)
+    at: Optional[str] = None
+
+
 class EpisodeText(CamelModel):
     """``GET /episodes/{id}/text`` — a whole stored document for the Reader
     (G118 slice 2, design §4.8.1). ``text`` is capped at 400,000 characters
@@ -1624,6 +1659,10 @@ class EpisodeText(CamelModel):
     relay: Optional[EpisodeRelay] = None
     #: 2026-10-20: messages their senders unsent, by position (`turn_extras`).
     unsent: list[EpisodeUnsent] = []
+    #: A meeting transcript's facts and where its summary is; null for every other episode and for a page.
+    meeting: Optional[EpisodeMeeting] = None
+    #: Owner 2026-11-23 (`chg1`): a waiting episode's state and, for one read before and edited since, what changed.
+    changes: Optional[EpisodeChanges] = None
 
 
 EpisodeTurn.model_rebuild()
@@ -3983,6 +4022,16 @@ class SleepConsolidated(CamelModel):
     truncated: bool = False
 
 
+class EpisodeChat(CamelModel):
+    """The chat a waiting sitting belongs to (`episode_copy.chat_of`): its hash, its name when it has one, this
+    sitting's message count, and whether it is a group or the person's notes to themselves."""
+    id: str
+    name: Optional[str] = None
+    messages: int = 0
+    group: bool = False
+    self_chat: bool = False
+
+
 class EpisodeQueueItem(CamelModel):
     id: str
     timestamp: str
@@ -4018,6 +4067,18 @@ class EpisodeQueueItem(CamelModel):
     # G212 — the device id that posted it (`device` frontmatter, G181 phase 3; None = this server), so the Sleep page's
     # machines strip opens each machine's own queue. An id, never a name (`GET /devices/status` names it).
     device: Optional[str] = None
+    # Owner 2026-11-23 (episodes-6) — where the original can be opened (`episode_copy.open_target`): "web" (a link),
+    # "session" (a Claude Code session id), "note" (Notes' own id), "file" (a full path); None when nothing names it
+    # (a chat: the app opens the chat's app). The app checks the value again before it opens anything.
+    open_kind: Optional[str] = None
+    open_value: Optional[str] = None
+    # Owner 2026-11-23 (episodes-7) — how a waiting episode differs from what Sleep knows
+    # (`episode_revision.waiting_state`): "new", "updated" (read before, edited since) or "removed" (deleted at its
+    # source); None once read. The Reader shows what changed (`EpisodeText.changes`).
+    change: Optional[str] = None
+    # Owner 2026-11-23 (episodes-8) — the chat a Messages, WhatsApp or Telegram sitting belongs to, so the Sleep page
+    # draws one card per chat with its messages counted once; None for every other episode.
+    chat: Optional[EpisodeChat] = None
 
 
 SCHEDULE_MODES = ("manual", "daily", "interval", "after_import")
@@ -4314,6 +4375,23 @@ class SleepQueueItem(CamelModel):
     reason: Optional[str] = None    # empty_answer | timed_out | unparseable | refused | other
     attempts: int = 0
     batch: Optional[int] = None
+
+
+class SleepKeptSource(CamelModel):
+    """One source's share of what is kept for lookup: how many, and its newest item's time."""
+    origin: str
+    count: int
+    newest: Optional[str] = None
+
+
+class SleepKept(CamelModel):
+    """``GET /sleep/kept`` (owner 2026-11-23): what is kept for lookup (ruling 62) — ``sources`` the whole breakdown,
+    ``items`` one source's page (newest first) when ``origin`` was asked, else empty."""
+    total: int = 0
+    sources: list[SleepKeptSource] = Field(default_factory=list)
+    origin: Optional[str] = None
+    offset: int = 0
+    items: list[EpisodeQueueItem] = Field(default_factory=list)
 
 
 class SleepQueueResponse(CamelModel):

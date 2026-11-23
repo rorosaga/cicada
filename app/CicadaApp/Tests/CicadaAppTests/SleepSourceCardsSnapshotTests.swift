@@ -23,9 +23,12 @@ final class SleepSourceCardsSnapshotTests: XCTestCase {
             ISO8601DateFormatter().string(from: now.addingTimeInterval(-hoursAgo * 3600))
         }
         func episode(_ id: String, origin: String, title: String, preview: String, hoursAgo: Double,
-                     processed: Bool = false, link: String? = nil) throws -> EpisodeQueueItem {
+                     processed: Bool = false, link: String? = nil, change: String? = "new",
+                     chat: [String: Any]? = nil) throws -> EpisodeQueueItem {
             var json: [String: Any] = ["id": id, "timestamp": stamp(hoursAgo), "source": origin, "origin": origin,
                                        "title": title, "preview": preview, "processed": processed]
+            if let change, !processed { json["change"] = change }
+            if let chat { json["chat"] = chat }
             if let link { json["copyKind"] = "link"; json["copyValue"] = link }
             return try JSONDecoder().decode(EpisodeQueueItem.self, from: JSONSerialization.data(withJSONObject: json))
         }
@@ -35,13 +38,33 @@ final class SleepSourceCardsSnapshotTests: XCTestCase {
                         hoursAgo: 3),
             try episode("ep_2", origin: "claude-code", title: "Why the beta-tool tests flake",
                         preview: "The tests share a temporary folder; two runs at once step on each other's files.",
-                        hoursAgo: 30),
+                        hoursAgo: 30, change: "updated"),
             try episode("ep_3", origin: "claude-code", title: "Reading list for the week",
                         preview: "Three papers on memory for agents, one on scheduling.", hoursAgo: 80, processed: true),
             try episode("ep_4", origin: "chrome-bookmark", title: "A guide to continuous corners",
                         preview: "How squircles differ from rounded rectangles, with examples.", hoursAgo: 50,
                         link: "https://example.com/design/corners"),
         ]
+        let chats = [
+            try episode("ep_m1", origin: "imessage", title: "Messages with bob-example · 2026-11-23",
+                        preview: "bob-example: are we still on for Friday?", hoursAgo: 2,
+                        chat: ["id": "b0b", "name": "bob-example", "messages": 14]),
+            try episode("ep_m2", origin: "imessage", title: "Messages with bob-example · 2026-11-22",
+                        preview: "You: sending the notes tonight", hoursAgo: 26, change: "updated",
+                        chat: ["id": "b0b", "name": "bob-example", "messages": 9]),
+            try episode("ep_m3", origin: "imessage", title: "Messages · alpha-project · 2026-11-22",
+                        preview: "carol-example: the build is green", hoursAgo: 30,
+                        chat: ["id": "a1fa", "name": "alpha-project", "messages": 66, "group": true]),
+        ]
+        for mode in [AppColorScheme.light, .dark] {
+            CicadaTheme.mode = mode
+            let view = StudyListCard(rows: [StudyRow(origin: "imessage", label: "Messages", count: 3, oldestAge: "1d",
+                                                     read: nil, total: nil)],
+                                     episodes: chats, queueLoad: .loaded(count: 3), initiallyOpen: ["imessage"])
+                .padding(CicadaTheme.spacingLG)
+            try snapshot(view, size: CGSize(width: 720, height: 330), mode: mode, store: store, vm: vm,
+                         to: URL(fileURLWithPath: dir).appendingPathComponent("chat-cards-\(mode == .dark ? "dark" : "light").png"))
+        }
         let rows = [
             StudyRow(origin: "claude-code", label: "Claude Code", count: 2, oldestAge: "1d", read: nil, total: nil),
             StudyRow(origin: "chrome-bookmark", label: "Chrome bookmarks", count: 1, oldestAge: "2d", read: nil, total: nil),
@@ -56,6 +79,70 @@ final class SleepSourceCardsSnapshotTests: XCTestCase {
                 .padding(CicadaTheme.spacingLG)
             try snapshot(view, size: CGSize(width: 720, height: 640), mode: mode, store: store, vm: vm,
                          to: URL(fileURLWithPath: dir).appendingPathComponent("sleep-source-cards-\(name).png"))
+        }
+    }
+
+    /// The kept-for-lookup card, opened, with one source opened (owner 2026-11-23).
+    func test_writeTheKeptCard() async throws {
+        guard let dir = ProcessInfo.processInfo.environment["CICADA_SLEEP_CARDS_SNAPSHOTS"], !dir.isEmpty else {
+            throw XCTSkip("set CICADA_SLEEP_CARDS_SNAPSHOTS=<dir> to write the review renders")
+        }
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { CicadaTheme.mode = .dark; CicadaTheme.uiScale = 1 }
+        CicadaTheme.uiScale = 1
+        let store = Store(cache: SnapshotCache(root: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)), api: FakeSyncAPI())
+        let vm = SleepViewModel(store: store, putSchedule: { $0 })
+        func saved(_ id: String, _ title: String, _ link: String, daysAgo: Double) throws -> EpisodeQueueItem {
+            try JSONDecoder().decode(EpisodeQueueItem.self, from: JSONSerialization.data(withJSONObject: [
+                "id": id, "timestamp": ISO8601DateFormatter().string(from: Date().addingTimeInterval(-daysAgo * 86_400)),
+                "source": "bookmark", "origin": "chrome-bookmark", "title": title, "preview": "# " + title,
+                "processed": true, "copyKind": "link", "copyValue": link,
+            ]))
+        }
+        let items = [try saved("ep_1", "A guide to continuous corners", "https://example.com/design/corners", daysAgo: 1),
+                     try saved("ep_2", "How tide tables are computed", "https://example.org/tides", daysAgo: 4),
+                     try saved("ep_3", "CRDTs for local-first apps", "https://example.net/crdts", daysAgo: 9)]
+        let sources: [SleepKept.Source] = [.init(origin: "chrome-bookmark", count: 412), .init(origin: "safari-bookmark", count: 96),
+                                           .init(origin: "chrome-tab-group", count: 14)]
+        for mode in [AppColorScheme.light, .dark] {
+            CicadaTheme.mode = mode
+            let view = KeptForLookupCard(kept: 522, load: { origin, _ in
+                SleepKept(total: 522, sources: sources, items: origin == nil ? [] : items)
+            }, initiallyOpen: true, initiallyOpenSources: ["chrome-bookmark"])
+                .padding(CicadaTheme.spacingLG)
+            try snapshot(view, size: CGSize(width: 720, height: 640), mode: mode, store: store, vm: vm,
+                         to: URL(fileURLWithPath: dir).appendingPathComponent("kept-\(mode == .dark ? "dark" : "light").png"))
+        }
+    }
+
+    /// The Reader's sentence and wash for a source that changed since Sleep read it (owner 2026-11-23).
+    func test_writeTheChangedWash() async throws {
+        guard let dir = ProcessInfo.processInfo.environment["CICADA_SLEEP_CARDS_SNAPSHOTS"], !dir.isEmpty else {
+            throw XCTSkip("set CICADA_SLEEP_CARDS_SNAPSHOTS=<dir> to write the review renders")
+        }
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { CicadaTheme.mode = .dark; CicadaTheme.uiScale = 1 }
+        CicadaTheme.uiScale = 1
+        let store = Store(cache: SnapshotCache(root: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)), api: FakeSyncAPI())
+        let vm = SleepViewModel(store: store, putSchedule: { $0 })
+        let segments: [CitedSpan.Segment] = [
+            .init(text: "Trip to the coast\n\nLeave on Friday after lunch.\n", mark: .plain),
+            .init(text: "Take the ferry, not the bridge: the bridge is closed for repairs.", mark: .changed),
+            .init(text: "\nBook the cabin by the lighthouse.\n", mark: .plain),
+            .init(text: "Bring the big tent as a backup.", mark: .changed),
+        ]
+        for mode in [AppColorScheme.light, .dark] {
+            CicadaTheme.mode = mode
+            let view = VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                ReaderBannerView(banner: .updated(parts: 2, removed: ["Take the bridge; it is faster."]))
+                CitedPassage(segments: segments, font: CicadaTheme.detailBodyFont)
+                ReaderBannerView(banner: .deletedAtSource)
+            }
+            .padding(CicadaTheme.spacingXL)
+            try snapshot(view, size: CGSize(width: 520, height: 330), mode: mode, store: store, vm: vm,
+                         to: URL(fileURLWithPath: dir).appendingPathComponent("reader-changed-\(mode == .dark ? "dark" : "light").png"))
         }
     }
 

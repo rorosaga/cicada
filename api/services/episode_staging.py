@@ -540,7 +540,11 @@ REPLACED_KEY = "replaced_files"
 HELD_GONE_KEY = "held_gone_at"
 MAX_REPLACED = 20
 #: ``processed_by`` values that mean nothing consolidated the body (R-LS10's parser, ``history_index.INDEXED_BY``).
-_NOT_CONSOLIDATED_BY = frozenset({PARSED_ONLY, history_index.INDEXED_BY})
+#: ``processed_by`` of an episode whose source was deleted before anything read it (ROR-142 follow-up, ruling 75): it taught
+#: nothing, so it leaves every waiting queue and Sleep never consolidates it — the file stays, still marked
+#: ``source_deleted_at``. The source posted again re-queues it (`_requeue_for_authorship`).
+DELETED_UNREAD = "source-deleted"
+_NOT_CONSOLIDATED_BY = frozenset({PARSED_ONLY, history_index.INDEXED_BY, DELETED_UNREAD})
 
 
 #: G244 (ruling 76): an agent edited the source file this episode holds — ``[{harness, model?, effort?, session?, at,
@@ -828,7 +832,11 @@ def _requeue_for_authorship(fm: dict, draft: EpisodeDraft) -> None:
     Sleep consolidated agent prose — or never saw the person's words — and the
     folder's idempotence check (``content_sha`` + ``evidence_kind``) then read
     the file as unchanged forever (Track L Task 2 review, round 1)."""
-    if draft.queue_for_sleep and fm.get("processed_by") == PARSED_ONLY:
+    if fm.get("processed_by") == DELETED_UNREAD and fm.get("source_deleted_at"):
+        return   # still deleted: a glob flip or a rule change never brings an unread, deleted file back to the queue
+    if fm.get("processed_by") == DELETED_UNREAD and not draft.queue_for_sleep:
+        fm["processed_by"] = draft.processed_by   # back from a deletion, but an agent's words: parked as before
+    elif draft.queue_for_sleep and fm.get("processed_by") in (PARSED_ONLY, DELETED_UNREAD):
         fm["processed"] = False
         # G114 R6: `processed_by` is written only beside `processed: true`.
         fm.pop("processed_by", None)
@@ -1153,12 +1161,47 @@ def keep_turns_last(fm: dict) -> None:
         fm["turns"] = fm.pop("turns")
 
 
+def is_deleted_unread(fm: dict) -> bool:
+    """A tombstoned episode no model or agent ever consolidated and that still waits: its source went before it was
+    read, so there is nothing to read. An episode consolidated earlier and edited since (``revised.consolidated_hash``)
+    already taught Sleep something and is left to the revision rule (ruling 75)."""
+    revised = fm.get(REVISED_KEY) if isinstance(fm.get(REVISED_KEY), dict) else {}
+    # A read the person's own words owe (a woken save, a reason they gave; ruling 62) is never taken back by a deletion,
+    # and neither is the person's own authored note (rulings 13/16): only a meeting, or words that are not the person's.
+    own = fm.get("evidence_kind") == "user" and not isinstance(fm.get("meeting"), dict)
+    return (bool(fm.get("source_deleted_at")) and not fm.get("processed") and not revised.get("consolidated_hash")
+            and not history_index.owes_a_read(fm) and not own)
+
+
+def _settle_deleted_unread(fm: dict) -> bool:
+    if not is_deleted_unread(fm):
+        return False
+    fm["processed"] = True
+    fm["processed_by"] = DELETED_UNREAD
+    return True
+
+
 @_under_episode_lock
 def _tombstone(path: Path, at: str) -> None:
     parsed = markdown_parser.parse(path)
     fm = dict(parsed.frontmatter)
     fm["source_deleted_at"] = at
+    _settle_deleted_unread(fm)   # deleted before anything read it: nothing to consolidate, nothing waiting
+    if "turns" in fm:
+        fm["turns"] = fm.pop("turns")  # R-PB4: the sidecar stays the last key
     markdown_parser.write(path, fm, parsed.body)
+
+
+def settle_deleted_unread(path: Path) -> bool:
+    """An episode tombstoned before this rule (still ``processed: false``) leaves the queue the same way. Checked under
+    the stage lock (a source posted again runs under it), then written by :func:`_tombstone` with its own stamp kept;
+    returns whether the file changed. Frontmatter only — the body, hash and every span stay."""
+    with STAGE_LOCK:
+        fm = markdown_parser.parse(path).frontmatter
+        if not is_deleted_unread(fm):
+            return False
+        _tombstone(path, str(fm["source_deleted_at"]))
+        return True
 
 
 def _mark(result: StageResult, verb: str, sid: str, entry: IndexEntry, episodes_dir: Path) -> None:
@@ -1399,6 +1442,7 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
         if write:
             _tombstone(entry.path, now)
         entry.fm["source_deleted_at"] = now
+        _settle_deleted_unread(entry.fm)
         result.tombstoned += 1
         result.tombstoned_sources[sid] = entry.id
         result.paths.append(_rel(entry.path, episodes_dir))

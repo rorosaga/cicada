@@ -80,7 +80,9 @@ struct FolderChannelRow: View {
         let reading = localSources.syncing.contains(channel.id)
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: CicadaTheme.spacingMD) {
-                LogoImage.platformTile(name: "", size: CicadaTheme.scaled(28), systemFallback: OriginIconography.symbol(for: "folder"))
+                // A meeting folder set up for a recorder wears that app's own icon from this Mac (R-L1), else the folder's.
+                LogoImage.platformTile(name: "", bundleId: folder?.recorder.flatMap { OriginIconography.appBundleId(for: $0) },
+                                       size: CicadaTheme.scaled(28), systemFallback: OriginIconography.symbol(for: "folder"))
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: CicadaTheme.spacingSM) {
                         Text(channel.label)

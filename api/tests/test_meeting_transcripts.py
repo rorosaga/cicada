@@ -933,3 +933,279 @@ def test_the_route_carries_resend(client):
     post([_file(NAME_A, TEXT_A, mtime=T0), _file(NAME_B, TEXT_B, mtime=T0 + 60)])
     assert post([], [NAME_B])["resend"] == [NAME_A]
     assert post([_file(NAME_A, TEXT_A, mtime=T0)])["resend"] == []
+
+
+# --- A tool's note under the heading, and the reader's names (ROR-142 follow-up) ---------------------------------------
+
+# A Hex export after a local tool split the remote voices: a comment marker and an italic note under the heading, then
+# `Them` turns relabelled `Speaker N`. Placeholders only — never a real meeting.
+HEX_SPLIT = """# Alpha planning
+
+- **Date:** Tuesday, November 3, 2026, 4:01 PM
+- **Duration:** 16:53
+- **App:** Video Call
+- **Attendees:** Bob Example, Carol Example
+
+<!-- hex:notes -->
+## Summary
+
+They agreed to ship the alpha-project beta next week.
+
+_Written on this Mac by a recorder model; check it against the transcript._
+<!-- /hex:notes -->
+
+## Transcript
+
+<!-- split-tool -->
+_Remote speakers split on this Mac with Example-Diarizer 2 (2 voices). Rename with `split-tool name 123 "1=Name"`._
+
+**Speaker 1** · 00:00
+Hello, shall we start?
+
+**You** · 00:03
+Yes, go ahead.
+
+**Speaker 2** · 00:09
+The beta is ready.
+
+**Them** · 00:20
+Sounds good to me.
+"""
+HEX_SPLIT_NAME = "2026-11-03 1601 Alpha planning.md"
+
+
+def test_a_comment_and_a_tools_italic_note_are_never_a_turn_and_never_anyones_words():
+    d = _draft(HEX_SPLIT_NAME, HEX_SPLIT)
+    assert _markers(d) == ["assistant", "speaker:speaker-1", "user", "speaker:speaker-2", "speaker:them"]
+    assert not any("split on this Mac" in t.text or "split-tool" in t.text for t in d.turns)
+    meeting = d.extra["meeting"]
+    assert meeting["voices_split_by"] == "Example-Diarizer 2" and meeting["voices"] == 2
+    assert meeting["notes"] == ["Remote speakers split on this Mac with Example-Diarizer 2 (2 voices)."]
+    assert "split-tool" not in " ".join(meeting["notes"])   # the command it offers is never kept
+    assert meeting["speakers"] == ["Speaker 1", "You", "Speaker 2", "Them"]
+    assert meeting["app"] == "Video Call" and meeting["attendees"] == ["Bob Example", "Carol Example"]
+
+
+def test_a_comment_line_is_never_a_turn_even_with_no_summary_and_no_note():
+    text = HEX.split("<!-- hex:notes -->")[0] + "## Transcript" + HEX.split("## Transcript")[1]
+    text = text.replace("## Transcript\n", "## Transcript\n\n<!-- some-tool -->\n")
+    d = _draft(HEX_NAME, text)
+    assert not any("some-tool" in t.text for t in d.turns)
+    assert "voices_split_by" not in d.extra["meeting"] and "notes" not in d.extra["meeting"]
+    plain = _draft("note.md", "<!-- marker -->\n\nJust some words about the call.")
+    assert [t.text for t in plain.turns] == ["Just some words about the call."]
+
+
+def test_an_export_without_a_summary_keeps_the_note_as_metadata_too():
+    text = HEX_SPLIT.split("<!-- hex:notes -->")[0] + "## Transcript" + HEX_SPLIT.split("## Transcript")[1]
+    d = _draft(HEX_SPLIT_NAME, text)
+    assert _markers(d)[0] == "speaker:speaker-1" and d.extra["meeting"]["voices"] == 2
+
+
+def test_a_note_in_the_middle_of_a_turn_is_that_speakers_words():
+    text = HEX_SPLIT.replace("The beta is ready.", "The beta is ready.\n_really_ ready.")
+    d = _draft(HEX_SPLIT_NAME, text)
+    assert "really" in next(t.text for t in d.turns if t.speaker == "speaker:speaker-2")
+
+
+@pytest.mark.parametrize("label,expected", [
+    ("Speaker 1", ("Speaker 1", "numbered")), ("SPEAKER_02", ("Speaker 2", "numbered")),
+    ("Guest 3", ("Guest 3", "numbered")), ("Speaker A", ("Speaker A", "numbered")),
+    ("Them", (None, "group")), ("Others", (None, "group")),
+    ("Unknown Speaker", (None, "unknown")), ("Alice Example", ("Alice Example", "named")),
+])
+def test_a_speakers_label_is_said_in_words_in_one_place(label, expected):
+    record = {"speakers": ["You", label]}
+    assert mt.speaker_display(mt.marker(label), record) == expected
+
+
+def test_a_marker_with_no_listed_label_is_read_back_as_words_and_unknown_says_so():
+    assert mt.speaker_display("speaker:speaker-2", None) == ("Speaker 2", "numbered")
+    assert mt.speaker_display("speaker:carol-example", {}) == ("Carol Example", "named")
+    assert mt.speaker_display("speaker:unknown", {"speakers": []}) == (None, "unknown")
+    assert mt.speaker_display("user", {}) == (None, "unknown")
+
+
+def test_a_name_the_person_gave_wins_over_the_placeholder():
+    d = mt.draft_for_file(FOLDER, HEX_SPLIT_NAME, HEX_SPLIT, mtime_iso="2026-11-03T18:00:00Z", sha="x",
+                          tz_name="Europe/Madrid", speaker_names={"Speaker 1": "Bob Example"})
+    meeting = d.extra["meeting"]
+    assert meeting["named_by_person"] == {"Speaker 1": "Bob Example"}
+    assert mt.speaker_display("speaker:bob-example", meeting) == ("Bob Example", "named")
+
+
+def test_the_summary_is_found_by_its_heading_and_the_facts_travel(bank):
+    d = _draft(HEX_SPLIT_NAME, HEX_SPLIT)
+    assert mt.is_summary_turn(d.turns[0].text) and not mt.is_summary_turn(d.turns[1].text)
+    assert not mt.is_summary_turn("Summary of the plan: we ship.")
+    fm = {"folder_kind": "meetings", "meeting": d.extra["meeting"]}
+    wire = mt.meeting_wire(fm, summary_turn=0)
+    assert wire == {"recorder": "hex", "summary_turn": 0, "duration_s": 1013, "app": "Video Call", "attendees": 2,
+                    "summary_writer": "Written on this Mac by a recorder model; check it against the transcript.",
+                    "voices_split_by": "Example-Diarizer 2", "voices": 2}
+    assert mt.meeting_wire({"title": "x"}, summary_turn=None) is None
+
+
+def test_the_reader_serves_names_the_summary_and_the_facts(bank, monkeypatch):
+    from api.services import provenance
+
+    folder = fs.register(bank, label="Hex Meetings", path="/m", device="mac-1", kind="meetings", recorder="hex")
+    fs.sync(bank, folder, [_file(HEX_SPLIT_NAME, HEX_SPLIT)], [], tz_name="Europe/Madrid")
+    ep_id = next(p.stem for p in (bank / "episodes").glob("ep_*.md"))
+    doc = provenance.episode_document(bank, ep_id)
+    speakers = [(t.role, t.speaker, t.speaker_kind) for t in doc.turns]
+    assert speakers == [("assistant", None, None), ("speaker", "Speaker 1", "numbered"), ("user", "user", None),
+                        ("speaker", "Speaker 2", "numbered"), ("speaker", None, "group")]
+    assert doc.meeting.summary_turn == doc.turns[0].index == 1 and doc.meeting.attendees == 2 and doc.meeting.voices == 2
+    assert doc.meeting.voices_split_by == "Example-Diarizer 2" and doc.meeting.duration_s == 1013
+
+
+# --- A source deleted before anything read it (ruling 75, follow-up) ---------------------------------------------------
+
+
+def _one(bank, name, text):
+    folder = fs.register(bank, label="Hex Meetings", path="/m", device="mac-1", kind="meetings", recorder="hex")
+    fs.sync(bank, folder, [_file(name, text)], [], tz_name="Europe/Madrid")
+    return folder, mt.source_id(folder["id"], name)
+
+
+def _waiting(bank):
+    from api.services import sleep_progress
+    bank_index.invalidate()
+    return set(sleep_progress.unprocessed_ids(bank))
+
+
+def test_a_meeting_deleted_before_sleep_read_it_leaves_the_queue_and_stays_marked(bank):
+    from api.services import agentic_write
+
+    folder, sid = _one(bank, HEX_NAME, HEX)
+    ep_id = _paths(bank)[sid].stem
+    assert ep_id in _waiting(bank)
+    assert fs.sync(bank, folder, [], [HEX_NAME])["tombstoned"] == 1
+    fm = _episodes(bank)[sid].frontmatter
+    assert fm["source_deleted_at"] and fm["processed"] is True and fm["processed_by"] == "source-deleted"
+    assert ep_id not in _waiting(bank)                       # the Sleep page's rows and its count
+    assert agentic_write.list_unprocessed_episodes(bank) == []   # and what Stage 1 would read
+    assert _paths(bank)[sid].exists() and "Hi Bob" in _episodes(bank)[sid].body   # kept, never deleted
+
+
+def test_the_file_posted_again_requeues_it_with_the_same_bytes_or_new_ones(bank):
+    folder, sid = _one(bank, HEX_NAME, HEX)
+    ep_id = _paths(bank)[sid].stem
+    fs.sync(bank, folder, [], [HEX_NAME])
+    assert ep_id not in _waiting(bank)
+    fs.sync(bank, folder, [_file(HEX_NAME, HEX)], [], tz_name="Europe/Madrid")
+    fm = _episodes(bank)[sid].frontmatter
+    assert ep_id in _waiting(bank) and fm["processed"] is False and "source_deleted_at" not in fm
+    assert "processed_by" not in fm
+    # Deleted again, then posted with edited words: queued as an edit.
+    fs.sync(bank, folder, [], [HEX_NAME])
+    fs.sync(bank, folder, [_file(HEX_NAME, HEX.replace("next week", "on Friday"))], [], tz_name="Europe/Madrid")
+    fm = _episodes(bank)[sid].frontmatter
+    assert ep_id in _waiting(bank) and "source_deleted_at" not in fm and fm["processed"] is False
+
+
+def test_a_meeting_deleted_after_sleep_consolidated_it_is_unchanged(bank):
+    folder, sid = _one(bank, HEX_NAME, HEX)
+    path = _paths(bank)[sid]
+    read = markdown_parser.parse(path)
+    markdown_parser.write(path, {**read.frontmatter, "processed": True, "processed_by": "sleep"}, read.body)
+    fs.sync(bank, folder, [], [HEX_NAME])
+    fm = _episodes(bank)[sid].frontmatter
+    assert fm["source_deleted_at"] and fm["processed_by"] == "sleep"
+
+
+def test_an_edit_sleep_never_read_deleted_keeps_its_revision_for_the_revision_rule(bank):
+    """Consolidated once, edited since (queued as a revision), then the file is deleted: it taught Sleep something, so the
+    deletion does not erase its place in the queue (ruling 75 governs it)."""
+    folder, sid = _one(bank, HEX_NAME, HEX)
+    path = _paths(bank)[sid]
+    read = markdown_parser.parse(path)
+    markdown_parser.write(path, {**read.frontmatter, "processed": True, "processed_by": "sleep"}, read.body)
+    fs.sync(bank, folder, [_file(HEX_NAME, HEX.replace("next week", "on Friday"))], [], tz_name="Europe/Madrid")
+    fs.sync(bank, folder, [], [HEX_NAME])
+    fm = _episodes(bank)[sid].frontmatter
+    assert fm["source_deleted_at"] and fm["processed"] is False
+
+
+def test_one_tombstoned_before_the_rule_is_settled_by_the_next_sync(bank):
+    folder, sid = _one(bank, HEX_NAME, HEX)
+    path = _paths(bank)[sid]
+    read = markdown_parser.parse(path)
+    markdown_parser.write(path, {**read.frontmatter, "source_deleted_at": "2026-11-03T16:05:00+00:00"}, read.body)
+    assert _paths(bank)[sid].stem in _waiting(bank)       # the old shape: tombstoned and still waiting
+    fs.sync(bank, folder, [], [])
+    fm = _episodes(bank)[sid].frontmatter
+    assert fm["processed"] is True and fm["processed_by"] == "source-deleted" and fm["source_deleted_at"]
+    assert _paths(bank)[sid].stem not in _waiting(bank)
+
+
+def test_the_persons_own_note_deleted_before_sleep_read_it_is_still_read(bank):
+    """Rulings 13/16: only a meeting (or words that are not the person's) leaves the queue with its source."""
+    folder = fs.register(bank, label="alpha-project", path="/a", device="mac-1")
+    fs.sync(bank, folder, [_file("mine.md", "Some notes about the alpha-project plan.")], [])
+    fs.sync(bank, folder, [], ["mine.md"])
+    own = next(iter(_episodes(bank).values())).frontmatter
+    assert own["source_deleted_at"] and own["processed"] is False and "processed_by" not in own
+    assert _paths(bank) and next(iter(_paths(bank).values())).stem in _waiting(bank)
+
+
+def test_live_progress_counts_a_recorders_meeting_under_the_recorder_and_claims_keep_the_stamped_origin(bank):
+    from api.services import sleep_cycle
+
+    _one(bank, HEX_NAME, HEX)
+    [ep] = sleep_cycle._get_unprocessed_episodes(bank)
+    assert ep["origin"] == "folder"          # what an extracted claim records
+    assert ep["queue_origin"] == "hex"       # what the Sleep page's tick and seed count (`queue_origin`)
+
+
+def test_the_reader_etag_moves_with_the_meeting_shape():
+    import inspect
+
+    from api.routers import episodes
+
+    assert "|meeting1|" in inspect.getsource(episodes)
+
+
+def test_a_rule_change_never_brings_a_deleted_unread_file_back(bank):
+    from api.services import episode_staging
+
+    folder, sid = _one(bank, HEX_NAME, HEX)
+    fs.sync(bank, folder, [], [HEX_NAME])
+    assert episode_staging.reattribute(_paths(bank)[sid], extra={}, queue_for_sleep=True) is False
+    assert _episodes(bank)[sid].frontmatter["processed"] is True
+
+
+# --- The recorder's icon on the Sleep page and Sources ---------------------------------------------------------------------
+
+
+def test_a_recorders_meetings_group_under_the_recorder_and_other_folders_stay_folders(bank):
+    from api.services import sleep_cycle, sleep_progress
+
+    hex_folder, hex_sid = _one(bank, HEX_NAME, HEX)
+    notes = fs.register(bank, label="alpha-project", path="/a", device="mac-1")
+    fs.sync(bank, notes, [_file("notes.md", "Some notes about the alpha-project plan.")], [])
+    plain = fs.register(bank, label="Calls", path="/c", device="mac-1", kind="meetings")
+    fs.sync(bank, plain, [_file("call.srt", SRT)], [])
+    by_source = {fm.frontmatter["source_id"]: fm.frontmatter for fm in _episodes(bank).values()}
+    assert sleep_cycle.queue_origin(by_source[hex_sid]) == "hex"
+    assert sleep_cycle.queue_origin(by_source[next(s for s in by_source if "call.srt" in s)]) == "folder"
+    assert sleep_cycle.queue_origin(by_source[next(s for s in by_source if "notes.md" in s)]) == "folder"
+    bank_index.invalidate()
+    waiting = sleep_progress.unprocessed_ids(bank)
+    assert sorted(waiting.values()) == ["folder", "folder", "hex"]   # the count and the rows read the same function
+
+
+def test_a_recorders_folder_card_on_sources_carries_the_recorders_mark(bank):
+    from api.services import sync_state
+
+    hex_folder = fs.register(bank, label="Hex Meetings", path="/m", device="mac-1", kind="meetings", recorder="hex")
+    plain = fs.register(bank, label="Calls", path="/c", device="mac-1", kind="meetings")
+    for folder, name, text in ((hex_folder, HEX_NAME, HEX), (plain, "call.srt", SRT)):
+        fs.sync(bank, folder, [_file(name, text)], [], tz_name="Europe/Madrid")
+        sync_state.record_sync(bank, fs.channel_for(folder), count=1)
+    channels = channel_registry.build_channels(bank, telegram_enabled=False)
+    bank_index.invalidate()
+    cards = {o["id"]: o for o in source_overview.build_overview(bank, channels=channels)}
+    assert cards[f"meetings:{hex_folder['id']}"]["mark"] == "hex"
+    assert cards[f"meetings:{plain['id']}"]["mark"] == "folder"

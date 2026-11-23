@@ -29,6 +29,19 @@ extension Copy {
         /// for what it is — found by searching, not quoted by a contributor.
         static let derived = "Found by searching for the name. This was noted before Cicada kept exact quotes."
         static let truncated = "This is very long, so only the first part is shown."
+        /// Owner 2026-11-23 — a waiting source Sleep read before, edited since: what the wash below means.
+        static func updated(parts: Int, removed: Int) -> String {
+            let lead = "Changed since Sleep last read it."
+            var said: [String] = []
+            if parts > 0 { said.append(parts == 1 ? "The highlighted part is new" : "The \(parts) highlighted parts are new") }
+            if removed > 0 { said.append(removed == 1 ? "one part was taken out" : "\(removed) parts were taken out") }
+            guard let first = said.first else { return lead }
+            let rest = said.dropFirst().joined(separator: ", ")
+            return "\(lead) \(first)\(rest.isEmpty ? "" : "; \(rest)")."
+        }
+        static func takenOut(_ words: String) -> String { "Taken out: \(words)" }
+        static func moreTakenOut(_ n: Int) -> String { "and \(n) more" }
+        static let deletedAtSource = "This was deleted where it came from."
         static let gone = "This isn't in this bank any more."
         static let failed = "Couldn't open this."
         static let empty = "Nothing was captured here."
@@ -52,6 +65,26 @@ extension Copy {
         static let setupMessage = "Setup message"
         static let unlabelledMessage = "Unlabelled message"
         static let someoneElse = "Someone else"
+        /// A meeting's group track (Hex's `Them`): the call's audio, which may be several people.
+        static let othersOnTheCall = "Others on the call"
+        /// The meeting header's summary line — the recorder's own, never the person's words (DR-11, DR-37).
+        static func meetingSummary(by recorder: String?) -> String {
+            recorder.map { "Summary · written by \($0)" } ?? "Summary"
+        }
+        static let meetingSummaryHide = "Hide summary"
+        static let meetingSummaryShow = "Show summary"
+        static let meetingSummaryHelp = "The recorder's own summary of the meeting. Cicada reads it as the recorder's words, never yours."
+        static func meetingFacts(minutes: Int?, app: String?, attendees: Int?) -> String? {
+            var parts: [String] = []
+            if let minutes { parts.append(minutes >= 60 ? "\(minutes / 60) h \(minutes % 60) min" : "\(max(minutes, 1)) min") }
+            if let app, !app.isEmpty { parts.append(app) }
+            if let attendees, attendees > 0 { parts.append(attendees == 1 ? "1 attendee" : "\(attendees) attendees") }
+            return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        }
+        /// A tool on this Mac told the remote voices apart: its numbered voices are a model's guess, never names.
+        static func voicesSplit(by tool: String, voices: Int?) -> String {
+            "Voices split on this Mac by \(tool)" + (voices.map { " (\($0) voices)" } ?? "") + ". Speaker numbers are its guess."
+        }
         /// G110 gate B2 — the line Cicada writes where a long conversation's middle was not kept: its own note,
         /// never anyone's words.
         static let notCaptured = "Not captured · Cicada's note"

@@ -5,12 +5,15 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
+    EpisodeChat,
     EpisodeQueueItem,
     ScheduleConfig,
     ScheduleResponse,
     SleepCancelResponse,
     SleepConsolidated,
     SleepCycleDetail,
+    SleepKept,
+    SleepKeptSource,
     SleepDebtResponse,
     SleepDrain,
     SleepEndRunResponse,
@@ -33,6 +36,7 @@ from api.services import (
     bank_index,
     channel_items,
     episode_copy,
+    episode_revision,
     folder_source,
     git_service,
     history_index,
@@ -54,7 +58,7 @@ from api.services import (
 )
 from api.services.connections.registry import get_registry
 from api.services.sleep_cycle import (
-    _derive_origin,
+    queue_origin,
     _episode_sort_key,
     cancelled_is_visible,
     configured_batch_size,
@@ -418,7 +422,7 @@ async def sleep_queue(
             continue
         if processed and (ds is None or ep_id not in ds.filed_ids):
             continue
-        o = str(fm.get("origin") or _derive_origin(fm.get("source")))
+        o = queue_origin(fm)
         st, reason, attempts = "waiting", None, 0
         if ds is not None and (ep_id in frozen or ep_id in ds.filed_ids):
             st, reason, attempts = sleep_drain.episode_state(ds, ep_id)
@@ -439,7 +443,11 @@ async def sleep_queue(
 
 
 #: Bumped when a row of `GET /sleep/episodes` gains a field or changes for the same files (folded into its ETag).
-EPISODES_SHAPE = "episodes-3"   # episodes-3: `device` (G212); episodes-2: `site` (owner 2026-10-20)
+#: episodes-5: `site` is the link's own host, not its registrable domain (owner 2026-11-23).
+#: episodes-6: `openKind` / `openValue` — where the original opens (owner 2026-11-23).
+#: episodes-7: `change` — new, updated or removed at its source (owner 2026-11-23).
+#: episodes-8: `chat` — the chat a sitting belongs to (owner 2026-11-23).
+EPISODES_SHAPE = "episodes-8"   # episodes-4: a recorder's meetings group under it (`queue_origin`); episodes-3: `device` (G212); episodes-2: `site` (owner 2026-10-20)
 
 
 @router.get("/sleep/episodes", response_model=list[EpisodeQueueItem])
@@ -468,12 +476,18 @@ async def sleep_episodes(
     headers = episode_headers(mp, processed)
     response.headers["X-Total-Count"] = str(len(headers))
     window = headers[offset:offset + limit] if limit is not None else headers[offset:]
+    return _episode_items(mp, window)
+
+
+def _episode_items(mp, window) -> list[EpisodeQueueItem]:
+    """One row per episode file in ``window`` (cached headers): the Waiting list's rows and the kept list's."""
     roots = episode_copy.folder_roots(mp)
     items: list[EpisodeQueueItem] = []
     for ep in episode_rows(window):   # a file gone since the listing is skipped, never a 500
         body = ep["body"]
         fm = ep["frontmatter"]
         kind, value = episode_copy.copy_target(fm, body, roots)
+        opens = episode_copy.open_target(fm, body, roots)
         items.append(
             EpisodeQueueItem(
                 id=ep["id"],
@@ -490,9 +504,57 @@ async def sleep_episodes(
                 changed_at=episode_copy.changed_at(fm) or ep["timestamp"],
                 site=reading_hosts.mark_key(url) if (url := channel_items.saved_episode_url(fm)) else None,
                 device=str(fm.get("device") or "") or None,
+                open_kind=opens[0] if opens else None,
+                open_value=opens[1] if opens else None,
+                change=episode_revision.waiting_state(fm),
+                chat=EpisodeChat(**chat) if (chat := episode_copy.chat_of(fm)) else None,
             )
         )
     return items
+
+
+#: Bumped when `GET /sleep/kept` changes shape for the same files (folded into its ETag).
+KEPT_SHAPE = "kept-1"
+
+
+@router.get("/sleep/kept", response_model=SleepKept)
+async def sleep_kept(
+    request: Request,
+    response: Response,
+    origin: str | None = Query(None, max_length=80),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(30, ge=1, le=100),
+    settings: Settings = Depends(get_settings),
+):
+    """What is kept for lookup (ruling 62), in order (owner 2026-11-23: "it would be nice to see what was kept for
+    lookup in a nice orderly manner"): every save with no reason — found by recall, Ask and the hook, read by no
+    model until the person talks about one. ``sources`` is the whole breakdown, most kept first, each with its newest
+    item's time; with ``origin``, ``items`` is that source's page, newest first (``limit`` ≤ 100) — the same rows the
+    Waiting list draws. The same predicate as ``/sleep/queue``'s ``kept`` count, so the two never disagree. Cached
+    headers; a body is read only for the rows sent. Not a Store domain: ETag over ``episodes``."""
+    mp = settings.memory_path
+    folders = sync_service.file_mtime(folder_source.registry_path(mp))
+    etag = sync_service.etag_for(mp, "episodes", extra=f"{KEPT_SHAPE}|{EPISODES_SHAPE}|{origin}|{offset}|{limit}|{folders:.6f}")
+    not_modified = sync_service.conditional(request, response, etag)
+    if not_modified is not None:
+        return not_modified
+    by_origin: dict[str, list] = {}
+    for f in bank_index.files(mp, "episodes"):
+        fm = f.frontmatter
+        if history_index.kind(fm) == "saved" and not fm.get("source_deleted_at"):
+            by_origin.setdefault(queue_origin(fm), []).append(f)
+
+    def stamp(f) -> tuple[str, str]:
+        return str(f.frontmatter.get("timestamp", "") or ""), str(f.frontmatter.get("id", f.stem))
+
+    sources = sorted((SleepKeptSource(origin=o, count=len(files), newest=max(stamp(f) for f in files)[0] or None)
+                      for o, files in by_origin.items()), key=lambda s: (-s.count, s.origin))
+    items: list[EpisodeQueueItem] = []
+    if origin:
+        files = sorted(by_origin.get(origin, []), key=stamp, reverse=True)
+        items = _episode_items(mp, files[offset:offset + limit])
+    return SleepKept(total=sum(s.count for s in sources), sources=sources, origin=origin or None, offset=offset,
+                     items=items)
 
 
 def _run_options_response(settings: Settings) -> SleepRunOptions:

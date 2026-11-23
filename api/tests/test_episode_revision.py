@@ -402,3 +402,56 @@ def test_a_page_another_conversation_made_is_not_the_first_reads(tmp_path):
     ents, rels, vals = _reread()
     assert er.canonical_names(memory, _rev("user: a.", "user: b."), ents, rels, vals) == 0
     assert ents[0]["name"] == "Lucía (sister)"
+
+
+# --------------------------------------------------------------------------- what the person is shown (2026-11-23)
+
+
+def test_a_waiting_episode_is_new_updated_or_removed():
+    assert er.waiting_state({"processed": False}) == "new"
+    assert er.waiting_state({"processed": False, "revised": {"count": 1}}) == "new", "edited, but never read"
+    assert er.waiting_state({"processed": False, "revised": {"count": 2, "consolidated_hash": "h1"}}) == "updated"
+    assert er.waiting_state({"processed": False, "source_deleted_at": "2026-11-23T10:00:00Z",
+                             "revised": {"consolidated_hash": "h1"}}) == "removed"
+    assert er.waiting_state({"processed": True, "revised": {"consolidated_hash": "h1"}}) is None, "read: no marker"
+
+
+def test_the_reader_is_told_which_parts_changed_since_sleep_read_it(tmp_path):
+    """Owner 2026-11-23: an edited note's Reader highlights what changed — offsets into the text it draws."""
+    from api.services import provenance
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    _episode(memory, "Groceries\nmilk\neggs\nbread", processed=True, processed_by="sleep", content_hash="h1")
+    _git(memory, "init", "-q")
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-qm", "Sleep")
+    revised = {"count": 1, "at": "2026-11-23T09:00:00+00:00", "previous_hash": "h1", "consolidated_hash": "h1"}
+    _episode(memory, "Groceries\nmilk\noat milk\nbread\ncoffee", processed=False, content_hash="h2", revised=revised)
+    doc = provenance.episode_document(memory, EP)
+    assert doc.changes.state == "updated" and doc.changes.at == "2026-11-23T09:00:00+00:00"
+    assert [doc.text[s:e].strip() for s, e in doc.changes.changed] == ["oat milk", "coffee"]
+    assert doc.changes.removed == ["eggs"]
+
+    _episode(memory, "A brand new note", processed=False)
+    fresh = provenance.episode_document(memory, EP)
+    assert fresh.changes.state == "new" and fresh.changes.changed == [] and fresh.changes.removed == []
+    _episode(memory, "Read", processed=True, processed_by="sleep")
+    assert provenance.episode_document(memory, EP).changes is None, "a read episode carries no marker"
+
+
+def test_a_grown_transcript_shows_what_is_new_never_what_its_cap_slid_out(tmp_path):
+    from api.services import provenance
+
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    _episode(memory, "user: first.\nassistant: one.", processed=True, processed_by="sleep", content_hash="h1",
+             capture_kind="transcript")
+    _git(memory, "init", "-q")
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-qm", "Sleep")
+    _episode(memory, "assistant: one.\nuser: second.", processed=False, content_hash="h2", capture_kind="transcript",
+             revised={"count": 1, "consolidated_hash": "h1"})
+    changes = provenance.episode_document(memory, EP).changes
+    assert changes.state == "updated" and changes.removed == []
+    assert len(changes.changed) == 1

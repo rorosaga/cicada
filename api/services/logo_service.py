@@ -1285,9 +1285,11 @@ def own_site_bank(bank: str) -> str:
 
 
 def own_site_domain(url: str) -> str | None:
-    """The one name a saved link's own icon is asked of: the registrable domain of the link's URL
-    (`reading_hosts.site_of`), when it is a public-looking domain and not a login-walled family — else None (the row
-    keeps its bundled family mark or its monogram, and nothing is asked)."""
+    """The one name a saved link's own icon is asked of, and cached under: the link's own host, ``www.`` stripped
+    (`reading_hosts.mark_key` — a subdomain is asked for ITS icon, as a browser tab does; owner 2026-11-23), when its
+    registrable domain is a public-looking domain and not a login-walled family — else None (the row keeps its
+    bundled family mark or its monogram, and nothing is asked). A subdomain with no icon of its own falls back to its
+    registrable domain's (`fetch_own_site_icon`)."""
     from api.services import reading_hosts
 
     site = reading_hosts.site_of(url or "")
@@ -1295,7 +1297,8 @@ def own_site_domain(url: str) -> str | None:
         return None
     if reading_hosts.is_walled(f"https://{site}/") or not reading_hosts.is_public_name(site):
         return None
-    return site
+    host = reading_hosts.mark_key(url or "") or site
+    return host if reading_hosts.is_public_name(host) else None
 
 
 def _sniff_ext(body: bytes) -> str | None:
@@ -1566,9 +1569,12 @@ class _Blocked(Exception):
     """The site said no (401/403/407/451): the whole discovery stops, nothing else is asked."""
 
 
-async def _discover(site: str, *, fetcher: Fetcher, resolver: Resolver | None) -> tuple[bytes, str, str | None] | None:
+async def _discover(start: str, *, fetcher: Fetcher, resolver: Resolver | None) -> tuple[bytes, str, str | None] | None:
+    """`start` is the host the discovery begins at — the saved link's own host (a subdomain asks its own homepage and
+    its own fixed paths); `site` is its registrable domain, the bound every same-site hop is checked against."""
     from api.services import reading_hosts
 
+    site = reading_hosts.site_of(start)
     tried: set[str] = set()
     asked: list[str] = []
     svgs: list[str] = []
@@ -1594,9 +1600,9 @@ async def _discover(site: str, *, fetcher: Fetcher, resolver: Resolver | None) -
         asked.append(url)
         return await fetcher(url)
 
-    host = site
-    page = await _follow(f"https://{site}/", homepage_hop, fetcher=counted, resolver=resolver)
-    if page is None and not asked and not site.startswith("www."):
+    host = start
+    page = await _follow(f"https://{start}/", homepage_hop, fetcher=counted, resolver=resolver)
+    if page is None and not asked and start == site and not site.startswith("www."):
         # Nothing was asked: the bare registrable domain has no public address of its own (some sites answer only on
         # their www. host). Ask www. once — the same site, its own SSRF check.
         page = await _follow(f"https://www.{site}/", homepage_hop, fetcher=counted, resolver=resolver)
@@ -1701,13 +1707,23 @@ async def fetch_own_site_icon(
         if not fetch_allowed():
             return None
         fetcher = _http_get
-    try:
-        found = await asyncio.wait_for(_discover(site, fetcher=fetcher, resolver=resolver), OWN_SITE_BUDGET_SECONDS)
-    except _Blocked:
-        return None
-    except asyncio.TimeoutError:
-        logger.debug("own-site icon discovery ran out of its time budget")
-        return None
+    from api.services import reading_hosts
+
+    # A subdomain is asked for its own icon first; only when it has none, its registrable domain's (the brand's icon
+    # most subdomains share). Each discovery has its own budget; a block from the site stops both.
+    apex = reading_hosts.site_of(site)
+    found = None
+    for start in dict.fromkeys((site, apex)):
+        try:
+            found = await asyncio.wait_for(_discover(start, fetcher=fetcher, resolver=resolver),
+                                           OWN_SITE_BUDGET_SECONDS)
+        except _Blocked:
+            return None
+        except asyncio.TimeoutError:
+            logger.debug("own-site icon discovery ran out of its time budget")
+            return None
+        if found is not None:
+            break
     if found is None or found[1] != "svg":
         return found
     # A sanitised SVG: drawn to a PNG out of process (`svg_raster`); only the PNG is ever cached or served.

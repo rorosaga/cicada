@@ -759,7 +759,24 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   sync (`draft_for_file(speaker_names=)`, `meeting.named_by_person`), and the stored meeting is relabelled in place
   (`episode_staging.relabel_in_place`: turn stamps move with the text, a `revised` revision Sleep reads where it
   changed). The person themselves is refused (52a); no tending rule, judge or other conversation settles it, and a
-  question whose meeting is gone is retired. An edited transcript carries the stager's `revised` record (above), so Sleep reads it as a revision. Wispr Flow's meetings stay
+  question whose meeting is gone is retired. An edited transcript carries the stager's `revised` record (above), so Sleep reads it as a revision.
+  **A tool's note is no turn (2026-11-23):** an HTML comment line (`<!-- … -->`) is never a turn, and an italic line
+  before the first speaker is a note about the recording — `meeting.notes` (code spans, which carry commands and ids,
+  dropped), and when it says which tool split the remote voices, `meeting.voices_split_by` + `meeting.voices` (read from
+  the sentence "… split on this Mac with <tool> (N voices)", no tool name is matched). Never a turn, never anyone's words;
+  a file that has such a note is a revision of its one episode (its body lost the line). **The reader's names (derived on
+  read, `meeting_transcripts.speaker_display`, the one place):** `GET /episodes/{id}/text` serves each meeting speaker turn's
+  `speaker` as the label the record lists for it (`meeting.speakers`: the recorder's, or the name the person gave, which
+  always wins) and `speakerKind` — `named`, `numbered` (`Speaker 1` whatever the diarizer spelled, `SPEAKER_01` too),
+  `group` (`Them`) or `unknown`, the last two with no name — and a `meeting` object (`recorder`, `duration_s`, `app`,
+  `attendees` as a count, `voices_split_by`, `voices`, and `summary_turn`: the first turn when it is the recorder's
+  `Summary (written by …)` block, found on read by `is_summary_turn`, so no stored body changes). Sleep still reads the
+  summary as the recorder's words. **A source deleted before anything read it (ruling 75):** a tombstone of an episode no
+  model or agent ever consolidated (`processed` false, no `revised.consolidated_hash`) settles it as `processed: true`,
+  `processed_by: source-deleted` (`episode_staging.DELETED_UNREAD`, in `_NOT_CONSOLIDATED_BY`): it leaves every waiting
+  count and list, Sleep never reads it, the file stays, `source_deleted_at` stays; the source posted again re-queues it
+  (`_requeue_for_authorship`), a rule change never does while it is deleted, and one tombstoned before the rule is settled
+  by the folder's next sync (`settle_deleted_unread`). Every folder-staged source whose words are not the person's own authored note — a meeting, an agent's file — while the person's own note deleted before Sleep read it is still read (rulings 13/16); a read the person's own words owe (a woken save, a reason, ruling 62) is never taken back by a deletion. Wispr Flow's meetings stay
   on their own reader (above), now under the same Sources section; their summary and notes blocks are quoted through the
   same `summary_text` (#579 review, 2026-11-03), so a model line reading `User: …` opens no turn there either.
 - **Messages conversations the person ticks (G179, 2026-10-15).** The app lists `chat.db`'s 200 most recent chats for
@@ -2195,14 +2212,32 @@ name carries its own surname) that has something to compare is judged once: two 
 one and a person already on record under the name (a page titled so, or a line held below the promotion bar). The judge
 (Stage 2's disambiguation model, one call a name, at most 20 names a batch, 12 conversations and 6 known people a call,
 the rest left as it was) groups the conversations by person and says which known person each fits. **Positive evidence
-only:** two conversations are two people only when the descriptions give each a fact the other cannot share (a different
-trade or employer, home town, generation); a different setting, topic or time is never one, and a thin description, an
-unreadable answer, a failed call or a group that states no contrast keeps the old behaviour (one person, nothing asked). A
-person the judge would make new also needs a description of at least 15 words on **both** sides (`MIN_WORDS`): a description
-that says one thing (a person who "put in a word") has nothing to contradict, and the model read a thin earlier line as a
-different person from a richer later one (measured, 1 run of 3 on the fixture's first person); such a person stays with the
-plain name. (A second, narrow "could both be true?" pass was tried and dropped: it read a carpenter and a research
-colleague as one person over time, so it kept the wrong join the rule exists to prevent.)
+only, and a life that moves on is one person (2026-11-23, the false split):** two conversations are two people only when
+they state something that **cannot be true of one person at the same time**, and **dates decide**: descriptions a few weeks
+apart that give different jobs or home towns, with neither saying anything changed, are two people; descriptions months
+apart, or one that says something changed (a new job, a move, a promotion, a retirement, a marriage, a baby), are one
+person's life moving on; a different generation, or a relationship to the speaker one person cannot hold beside the other,
+also makes two. The first prompt named "a different trade or employer, home town" as the contrast and so split a partner who
+got a job and moved city from their own page, a friend who was promoted, a colleague who left abroad (the judge's reason was
+always the job or the town); the part split off was held on a line nobody sees and its facts were lost to the page.
+**A split must be located, in code** (`same_name_people._contrast_located`): each group that is a person not on record yet
+must give a `contrast` of two facts copied word for word from the descriptions, `here` from the group's own conversations
+and `there` from outside them (another conversation or a known person); words that occur in none, a missing contrast, or
+both from one side, leave the conversations where they were (never a second person). A benchmark run answered `same_as:
+null` for a friend's conversation while its own reason said it fits the known person; the located contrast makes that
+answer harmless. A description silent about something says nothing about it (a known person with no job on record may well
+have one), each description is headed by its conversation's day, and when unsure between "a known person" and "someone new"
+the judge chooses the known person. **Measured** by replaying the judge's real inputs (`same_name_battery`, below) through
+the real engine and judge: the first prompt split one person in 87 of 680 calls (13%) on the first set and 82 of 240 (34%)
+on a held-out set, and the four stored Idris inputs 13 to 17 times in 20; the rewrite splits none of 460 calls (all one-person
+cases) and, with the located contrast, none of 460 more (two replays). On the benchmark (3 runs, 39 judge calls) the rewrite
+alone still split a friend once (the incoherent answer above) and joined the fixture's carpenter and colleague, three days
+apart, in 2 runs of 3; with the located contrast no person is split (`one_person_ok` 5 of 5 in each run) and those two are
+apart in 3 of 3. **The price** is a missed split, the pre-2026-11-23 behaviour and never worse, in about one two-person
+replay in nine (212 of 240 kept), nearly all of them a **known page** up against a mention of a different kind of person
+(an established family page and a colleague's mention: the judge reads the later one as the same person's change); dropping
+the "choose the known person" sentence made a real one-person input split in 8 of 10, so it stays. A thin description, an
+unreadable answer, a failed call or a group that states no contrast keeps the old behaviour (one person, nothing asked).
 A conversation a page or line already lists (a re-read) is that person and is not judged; a mention that describes nothing
 is not judged; the owner's page, a nickname or relation page (`role_people`), a contact-card participant and a
 correspondent never enter. What the judge says goes through the machinery G227 built: the person the plain name reaches
@@ -2223,6 +2258,15 @@ tending read that list (`kept_apart`), so the split raises no "Is Marc the same 
 join never takes it back. Two same-titled pages nobody split (a chat participant's `<id>-person` page beside a same-named
 page from a conversation) stay leads and joinable, as before. The person's own merge of the two pages clears the pair
 (`page_join.merge` calls `merge_rejections.clear_pairs`), so merging them with `cicada_merge_pages` works as for any pair.
+**The replay battery** (`benchmarks/consolidation/same_name_battery.py`, `same_name_cases.json`; engine-free tests in
+`test_same_name_battery.py`): the judge's real inputs (rebuilt from stored runs' git history, and a leg's own
+`same_name_calls.jsonl`, which `run.py` now writes beside each bank) plus invented one-person and two-person cases of the
+shapes that matter, each labelled; every case is replayed N times through the real `plan` and the product's own judge call,
+and scored as a **false split** (one person cut in two) or a **missed split**, for cents (Haiku, about $0.0002 a call).
+Run it before changing the prompt, the model or the floor: a benchmark run makes about six judge calls and cannot see a
+one-in-ten defect. The benchmark scores the same thing from the bank (`gold.people.one`, the summary's `one_person_ok`):
+no second page named like a one-person gold entry and no held line carrying a `title`, which three of the four stored
+false splits were (held lines are not pages).
 Cost: one disambiguation call per
 bare name with something to compare (the fixture's second person: 5 across both drains, the first's 2), bounded by the
 batch's bare names, never by the bank. The G209 first-name guard (`_first_name_across`, a one-word name heard outside a chat
@@ -3914,8 +3958,8 @@ where it stands, the facts worth remembering once each. What changed, besides pr
   to an earlier incoming one, after trivial normalization — case, accents, whitespace, wikilink brackets, trailing
   punctuation. Never containment, never stopword or preposition removal: "works at Acme" inside "works at Acme's
   competitor", "uses Postgres" inside "uses Postgres or SQLite", "launched" against "will launch" are all kept.
-  Paraphrases and more specific restatements fold only through opt-in synthesis, behind its guard; with synthesis off
-  near-duplicates stay — a duplicate is cheaper than a lost fact. Used by Stage 2's same-name fold, every section
+  Paraphrases and more specific restatements fold only through the judged, code-checked step (`fact_fold`, *Facts keep
+  their context* below) — never a word rule; with no engine they stay, a duplicate being cheaper than a lost fact. Used by Stage 2's same-name fold, every section
   merge, the re-read gate and the pending store. An existing bullet is never removed or reworded.
 - **Offline eval:** `python -m benchmarks.system.page_quality --scratch <new-dir>` runs the production Stage 1
   post-processing, Stage 2, Stage 3 and the page writer over synthetic conversations with recorded Stage-1 answers
@@ -3960,7 +4004,105 @@ is about, who did it, and never say one thing twice. Four mechanisms, each engin
   machine page, never on a page a person edited (`extend_existing=False`). Measured on the owner bank: 109 facts on 79
   pages fold, every one of 25 sampled loss-free. Paraphrase is not touched: ~2,700 facts on 477 pages pair up at
   content-word Jaccard ≥ 0.6, and 2,741 Key Facts on 772 pages re-introduce their page ("X is a …", a displaced
-  orientation) — only the opt-in synthesis call folds those (ruling 23).
+  orientation) — since 2026-11-23 the judged fold below takes the paraphrases (ruling 23's amendment).
+- **A link in new text is written under the page's own name (`link_names`, G148, owner report 2026-11-23).** Stage 1
+  reads each conversation alone, so it wrote `[[Girlfriend]]`, `[[<nickname>]]` and `[[<owner>'s girlfriend]]` for one
+  person; Stage 2 resolved all three to her page, but the text kept the spelling — one page read as three people, equal
+  facts stopped being equal, a link naming an alias drew no `mentions` edge (`wikilink_resolver` indexes names and ids)
+  and the article writer narrated each spelling as a separate person. At the top of Stage 3 (`conflict_resolver
+  .resolve_and_prune`, before any call reads the text) each `[[link]]` in a create's or update's Summary, Key Facts,
+  History lines and Open Questions whose target is another spelling of ONE page is **rewritten to the page's name**
+  (not piped: every reader unwraps a piped link to its display text, so a piped form keeps the spellings the equality
+  check and the writer read; a link the writer piped on purpose keeps its display text, only the target moves). The
+  source rows (`section_provenance.INPUTS`) carrying the same text move with it, so no row is lost; the person's words
+  are the conversation's and the evidence spans point there. Only a resolution that is certain: exactly one non-dropped
+  page answers to the spelling (name, alias, id) and the page's own name resolves back to that page alone (G227: a
+  shared title is neither's), **and the spelling is scoped to that page** (`link_names.Scope`): a page holds generic
+  aliases ("girlfriend", "partner", "she") that mean someone else in another conversation, and Stage 2 may have
+  declined to resolve the very word (`role_people`: a relation-only person is merged only on the person's answer or
+  evidence on the record), so a bank-wide match alone never rewrites. It does when (a) Stage 2 resolved that spelling
+  to the page in this same batch (an extraction on the page's create/update was named so or listed it as an alias —
+  a merged input's name is kept off the page in the transient `_said_as` key of `entity_resolver._merge_entity_payload`,
+  never written), (b) the spelling is the page's own name or id in another case or spacing (never an alias), or
+  (c) the page being written already relates to the target (its `related`, a link in its body under the target's own
+  name — `## Related` included — or a claim naming it). Otherwise the link stays exactly as written. An unknown or
+  ambiguous spelling stays as written, nothing is guessed from similarity, no page is renamed or merged. A plain mention with no brackets ("<owner>'s partner's favourite artist") is **not**
+  touched and Stage 1 is not told the bank's names: that would send it names per prompt for a model's guess to use,
+  and `role_people` already titles a relation-only person. Text already on a page is never rewritten (a bullet's
+  rows are keyed by its words), so old bullets keep their spelling and heal only as the fold below takes them. The
+  article writer (`entity_article`) is offered one name a page in LINKABLE and, when its inputs spell a page more
+  than one way (the record on a page written before this), a `SAME_PAGE` list — only for spellings read inside the
+  page's own neighbourhood (its own name or id in another form, a page it already relates to; never a bank-wide alias) — "`as` is another name of `is`" — with a
+  rule to write it once under the one name and never as different people.
+- **A fact a page already says in full is not added again (`fact_fold`, G148, owner report 2026-11-23; amends ruling 23).**
+  The page-merge call was cut to the Summary and the new History lines (2026-10-24), so nothing folded a fact said again
+  in other words: one artist's page held 16 bullets stating about 3 facts, and 3,073 Key Facts on 708 pages of the owner
+  bank (53,680 on 4,302 pages) restate an earlier bullet (content-word Jaccard ≥ 0.6, a rough detector). A word rule that
+  guesses is out (ruling 23: rule folds lost information); a judgement guarded by code is in, built as `value_alignment`
+  is (#783). In Stage 3 (`conflict_resolver._fold_facts`, after the link rewrite and before any article or summary call,
+  so a page that gains nothing new falls to the "re-read" gate) a page whose update brings a fact **no bullet equals or
+  extends** gets ONE call to Sleep's small judge: the new facts and the existing bullets most like them (shared words,
+  names, numbers — a bound on the prompt, never a decision; a fact that shares none, another language, is shown beside
+  the newest bullets), asked per line which other line already says it **in full**, with the other names of every page
+  linked in the lines listed ("Alice Example is also called Girlfriend"). Then **the guard (`fact_fold.covers`) no answer
+  can talk past**: the dropped fact's numbers and dates, months and weekdays (six languages), negation and tense words,
+  and every name it carries (a capitalised word, a link's target) must be in the line that holds it — the page's own
+  names, the owner's and the other names of a linked page excepted; a proposal the guard refuses is never put to the
+  second reader. **Who a line means is read in the page's own neighbourhood** (`fact_fold.People`, review 2026-11-23):
+  a name — linked or plain, and the form "<owner>'s <alias>" — that is the name or an alias of exactly ONE page this
+  page relates to (`link_names.Names.relations`, plus any page its own lines link under that page's own name; the
+  owner's page and the written page itself left out) is read as that page, in the guard (both lines are compared with
+  each such mention written as the page's name, and a neighbour the dropped line means must be one the holder means too)
+  and in what the judge and the checker are told ("Mira Lund is also called: girlfriend, partner, Pip, Alex's
+  girlfriend ...; on this page each one means that same person"). It is never bank-wide: "girlfriend" is read among the
+  handful of pages this page relates to, two of them sharing an alias make it no one's (no equivalence), a page that
+  relates to no one gets none, and a line that means another related page, or any number, date or negation the holder
+  lacks, is still refused whatever the judge says. **A fold never loses a link**: when the dropped line links a page the
+  holder does not (the link draws the graph edge and the page chip), `orient` turns the pair round if the linked line
+  can hold the other (droppable, the guard passing that way, the second reader asked about THAT direction) and
+  otherwise drops the pair — no fold. Links are compared by the page they name (a neighbour's id, whatever name the link uses), else by spelling. **The check**: one more call per page lists, per pair, everything the dropped fact says that the other
+  does not; a fold needs the list empty and `same` true, and the guard again. What a fold does: the incoming fact is not
+  added; an existing bullet a new one says in full is replaced by it (a machine page only — `extend_existing`, never a
+  page a person edited, never a pinned correction); the dropped fact's G118 rows move onto the holder
+  (`section_provenance.FOLDS`, in `merge_selected` and `refresh`), so the page still shows every conversation that said
+  it. A pair that says the same both ways keeps the older bullet; a chain (a held by b, b held by c) is followed to the
+  bullet that is kept and the guard and the link rule run on that pair too, so one line ends up holding every
+  conversation's rows. Across writes it works the same way: a bullet an earlier write folded into another has moved its
+  rows onto the holder, and when a later write folds that holder into a fuller one (an existing bullet replaced) those
+  rows move on with it (`merge_selected`/`refresh` read `FOLDS` against the page as it stands). **Cost**: nothing for a page that gains no such fact; otherwise one ask and at most one
+  check, at most `MAX_ASKS` (24) pages a batch (the pages gaining most first), `MAX_NEW` 12 new facts and `MAX_LINES` 40
+  lines each, at most 24 pairs checked — so at most 48 small-tier calls a batch, and typically one pair of calls per page
+  that was updated with a new fact. Small tier on the engine the cycle resolved (`judge_for`, the same bill as Stage 2's
+  judge, never a metered key the person did not choose); refused past a metered key's spending line
+  (`sleep_spend.LINE_STAGES`); never on the capture path. A cap, a cancel or any failed or unreadable call keeps what
+  the writer did before. **Known limits, stated**: the guard's negation and tense words are English and Spanish, and a
+  pair that differs only in a relation or a verb with no number, name or date ("favourite artist" / "favourite album",
+  "has a sister" / "has a brother") is the model's to tell apart alone — measured below; a fact in another language folds
+  only when its names are spelled as the holder's (Europa / Europe does not: a miss, never a loss). **Not covered:**
+  History lines (dated, one event each: a repeat there is rarer and an event on another day is another event) and Open
+  Questions (a question is closed by an answer, not a repeat); the same module could take them. **Dry run**:
+  `api/scripts/fact_fold_dry_run.py` (read-only; per-item rows; `--judge` runs Sleep's judge on a bank copy, `--pairs`
+  the invented pair set). **Measured** (`benchmarks/system/fact_fold_eval.py`, invented person, 7 conversations, haiku on
+  the plan): 13 Key Facts / 7 favourite-artist bullets / 1 near-duplicate pair before, with links rewritten 13 / 7 / 3
+  (the pairs are what the rewrite makes alike), with the fold 9 / 3 / 0, 12 judge calls for 6 updates, every date and
+  name kept, all 7 conversations still shown as sources of the favourite-artist facts. **The reported page** (`--scenario
+  page`: an artist page that relates to the owner's partner, sixteen conversations each bringing one line, the partner
+  named every way — a link under her name, under an alias, an unresolved `[[<owner>'s girlfriend]]`, a nickname,
+  "<owner>'s girlfriend's", "<owner>'s partner's"; invented names): 16 Key Facts before (15 stating the favourite-artist
+  fact, 18 near-duplicate pairs); with the fold 5 (4 favourite-artist bullets, 0 near-duplicate pairs) when links are
+  written under the page's name (#791) and 6 when they are left as written (the page as it was), the favourite-artist
+  fact, both vinyl options, the planned gift and "he is a musician" kept, all 16 conversations still shown as sources of
+  a kept line, 26-29 small-tier calls for 15 writes. Before the neighbourhood the same page went 16 to 13: every refused
+  pair differed only in the name it used for her. A small judge varies run to run (three runs: 5, 8 and 6 Key Facts for the
+  as-written page, 5, 6 and 5 for the rewritten one; the last run is the one with the prompt line below), so the count
+  is a measurement, not a bound.
+  The 18 invented pairs (`tests/fixtures/fact_fold_pairs.json`: reworded, shorter, another language, an alias; an added
+  date or month, another month or number, a negation, another person, an added name, a plan for a done thing, artist for
+  album, sister for brother; and, in a page's neighbourhood, a nickname, the owner's possessive and another related page)
+  with haiku, 2 runs: 0 false folds of 12 a person would keep, 0 missed of 6 that should fold; the code guard alone,
+  answered "yes" to everything, folds none of the 9 that a number, date, name, negation or another person tells apart.
+  The ask also tells the judge to answer every NEW line first (older lines may only name a new one that says them in full):
+  without it a small judge often answered about an older line and skipped the new one.
 - **Who said it, who did it.** A claim resting only on the other side's words is theirs (`entity_extractor
   .assistant_observer`): a texted agent's (G179), and now a harness session's agent (`external:<harness>`) and a chat
   export's assistant (`external:chatgpt|claude|gemini`); a relayed episode (`evidence_kind`) keeps its own rail. Such

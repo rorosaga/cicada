@@ -145,8 +145,11 @@ def test_the_gate_off_asks_nothing_and_records_nothing(tmp_path, monkeypatch):
     assert logo_service.read_meta(logo_service.own_site_bank("bank")) == {}, "an un-asked site is never a cached miss"
 
 
-def test_the_domain_is_the_links_own_registrable_domain():
-    assert logo_service.own_site_domain("https://www.blog.paperfold.io/post/1?x=y") == "paperfold.io"
+def test_the_name_asked_is_the_links_own_host():
+    """Owner 2026-11-23: a page on a subdomain is asked for THAT host's icon (a browser tab's), never its parent's."""
+    assert logo_service.own_site_domain("https://www.blog.paperfold.io/post/1?x=y") == "blog.paperfold.io"
+    assert logo_service.own_site_domain("https://www.paperfold.io/post/1") == "paperfold.io"
+    assert logo_service.own_site_domain("https://blog.paperfold.io:8443/x") == "blog.paperfold.io"
     assert logo_service.own_site_domain("https://www.linkedin.com/posts/someone") is None, "walled: the bundled mark"
     assert logo_service.own_site_domain("http://192.168.1.4/x") is None
     assert logo_service.own_site_domain("http://printer.local/") is None
@@ -698,9 +701,32 @@ def test_rows_carry_the_site_key_their_mark_is_drawn_under(episodes, monkeypatch
         config.get_settings.cache_clear()
 
 
-def test_mark_key_is_site_of_when_valid():
+def test_a_subdomain_asks_its_own_icon_then_its_parents():
+    """The subdomain's homepage and fixed paths first; only when it has no icon, the registrable domain's."""
+    own = Recorder({"https://hub.paperfold.example/favicon.ico": (200, ico(), "image/x-icon"),
+                    "https://paperfold.example/favicon.ico": (200, png(), "image/png")})
+    got = run(logo_service.fetch_own_site_icon("hub.paperfold.example", fetcher=own))
+    assert got is not None and got[1] == "ico", "the subdomain's own icon"
+    assert own.hosts == {"hub.paperfold.example"}, "its parent is never asked when it answers"
+
+    bare = Recorder({"https://paperfold.example/favicon.ico": (200, png(), "image/png")})
+    got = run(logo_service.fetch_own_site_icon("hub.paperfold.example", fetcher=bare))
+    assert got is not None and got[1] == "png", "no icon of its own: its registrable domain's"
+    assert bare.urls[:3] == ["https://hub.paperfold.example/", "https://hub.paperfold.example/apple-touch-icon.png",
+                             "https://hub.paperfold.example/favicon.ico"], "the subdomain first"
+
+    blocked = Recorder({"https://hub.paperfold.example/": (403, b"", "text/html"),
+                        "https://paperfold.example/favicon.ico": (200, png(), "image/png")})
+    assert run(logo_service.fetch_own_site_icon("hub.paperfold.example", fetcher=blocked)) is None
+    assert blocked.hosts == {"hub.paperfold.example"}, "a block stops everything; the parent is not asked"
+
+
+def test_mark_key_is_the_links_own_host():
     from api.services import reading_hosts
-    assert reading_hosts.mark_key("https://blog.paperfold.io/x") == "paperfold.io"
+    assert reading_hosts.mark_key("https://blog.paperfold.io/x") == "blog.paperfold.io"
+    assert reading_hosts.mark_key("https://www.paperfold.io/x") == "paperfold.io"
+    assert reading_hosts.mark_key("blog.paperfold.io") == "blog.paperfold.io"
+    assert reading_hosts.mark_key("https://m.linkedin.com/in/x") == "linkedin", "a family folds whatever the host"
     assert reading_hosts.mark_key("https://user.github.io/p") == "user.github.io"
     assert reading_hosts.mark_key("https://lnkd.in/abc") == "linkedin"
     assert reading_hosts.mark_key("") is None and reading_hosts.mark_key("not a url") is None

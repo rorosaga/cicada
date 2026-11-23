@@ -14,8 +14,8 @@ from api.config import Settings
 from api.models.schemas import DecayClass
 from api.services import (
     alias_policy, decay_policy, decay_tuning, engine_errors, entity_article, entity_body, entity_types, episode_time,
-    fact_sources, json_parse, markdown_parser, page_edits, project_birth, role_people, section_provenance, source_dates,
-    wrong_aliases,
+    fact_fold, fact_policy, fact_sources, json_parse, link_names, markdown_parser, page_edits, project_birth,
+    role_people, section_provenance, source_dates, wrong_aliases,
 )
 from api.services.providers import resolve_llm_fn
 
@@ -70,8 +70,13 @@ async def resolve_and_prune(
     cancel_check=None,
     progress_callback=None,
     revised: dict[str, frozenset[str]] | None = None,
+    fact_judge=None,
 ) -> list[dict]:
     """Apply conflict resolution and temporal decay to all entities.
+
+    ``fact_judge`` (G148, `fact_fold`): Sleep's small judge as ``prompt -> dict`` (`fact_fold.judge_for`). A page whose
+    update brings a fact no bullet equals or extends gets one call (and one check) asking which bullet already says it
+    in full; what a code check confirms is not added again. ``None`` makes no call and the page merges as before.
 
     ``revised`` (G104 slice 2): ``{episode id: the words its edit took away}`` (`revision_prose.changes_of`) for the
     conversations this batch read again as revisions of themselves. The contradiction check is still asked; a
@@ -111,6 +116,12 @@ async def resolve_and_prune(
     can inject a pace without writing the file.
     """
     changes: list[dict] = list(resolved)
+    # A link in new text is written under the page's own name (`link_names`): before any call reads the text, so the
+    # article writer, the contradiction check and the fact union all see one spelling of one page.
+    names = link_names.Names(existing)
+    linked = link_names.rewrite_changes(resolved, names)
+    if linked:
+        logger.info(f"Stage 3: {linked} link(s) in new text written under the page's own name")
     # G194 A1: the day the synthesis and contradiction prompts call today — the decay pass's reference day below.
     cycle_day = (now or datetime.now()).date().isoformat()
 
@@ -120,6 +131,8 @@ async def resolve_and_prune(
     # Synthesize updates and detect contradictions on update branches
     existing_by_id = {e["id"]: e for e in existing}
     update_changes = [c for c in resolved if c.get("action") == "update"]
+    if fact_judge is not None:
+        await _fold_facts(update_changes, existing_by_id, fact_judge, settings, names, cancel_check=cancel_check)
     context = _article_context(existing, settings, cycle_day) if getattr(settings, "page_articles_enabled", False) else None
     # A new page with enough to say gets its article as it is created (`_create_job`), not a mention later.
     create_jobs = [job for job in (_create_job(c, context) for c in resolved if c.get("action") == "create")
@@ -394,6 +407,31 @@ async def resolve_and_prune(
     return changes
 
 
+async def _fold_facts(updates: list[dict], existing_by_id: dict[str, dict], judge, settings: Settings,
+                      names: "link_names.Names", *, cancel_check=None) -> None:
+    """The fact fold's step (`fact_fold`): one ask and one check per page that gains a fact no bullet equals, at most
+    ``agent_max_concurrency`` at once, before any page's article or summary call reads its facts. Each page's answer is
+    recorded on its change; a page the step did not reach (a cap, a cancel, a failed call) merges as it always has."""
+    owner = None
+    try:
+        from api.services import owner_identity
+        owner = owner_identity.owner_name(getattr(settings, "memory_path", None), settings)
+    except Exception:  # noqa: BLE001 - a missing owner costs the owner's name in the allowed words, never the step
+        owner = None
+    wanted = fact_fold.asks(updates, existing_by_id, names=names, owner=owner)
+    if not wanted:
+        return
+
+    async def run(item):
+        return await asyncio.to_thread(fact_fold.decide, item[1], judge)
+
+    concurrency = max(1, int(getattr(settings, "agent_max_concurrency", 1) or 1))
+    decided = await _overlap_pages(wanted, run, concurrency=concurrency, cancel_check=cancel_check)
+    folded = sum(fact_fold.apply(wanted[i][0], found) for i, found in decided.items())
+    logger.info(f"Stage 3: {len(wanted)} page(s) asked which new facts a bullet already says in full, "
+                f"{folded} fact(s) folded")
+
+
 def _article_context(existing: list[dict], settings: Settings, today: str, memory_path=None) -> dict:
     """What every page's article writer shares, read once per stage: the bank's page names (a ``[[link]]`` must name
     one), each id's display name, and the owner's name (G169) — from ``memory_path`` when the caller names the bank
@@ -414,6 +452,7 @@ def _article_context(existing: list[dict], settings: Settings, today: str, memor
     except Exception:  # noqa: BLE001 - a missing owner costs the name, never the article
         owner = None
     return {"known": known, "names": names, "people": people, "owner": owner, "today": today,
+            "spellings": link_names.Names(existing),
             "max_chars": int(getattr(settings, "page_article_max_input_chars", 60000) or 60000),
             "min_material": int(getattr(settings, "page_article_min_material", entity_article.MIN_MATERIAL)
                                 or entity_article.MIN_MATERIAL)}
@@ -422,8 +461,11 @@ def _article_context(existing: list[dict], settings: Settings, today: str, memor
 _LINK = __import__("re").compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
 
 
-def _linkable(original_body: str, record: dict, names: dict[str, str], known: set[str]) -> list[str]:
-    """The pages this one already links to — in its prose, its Related block, its claims — by display name."""
+def _linkable(original_body: str, record: dict, names: dict[str, str], known: set[str],
+              spellings: "link_names.Names | None" = None) -> list[str]:
+    """The pages this one already links to — in its prose, its Related block, its claims — by display name: one name
+    a page, whichever spelling a link used (``spellings``), so the writer is never offered a page's alias beside its
+    name as if they were two pages."""
     from api.services.claims import parse_claims
 
     found = set(_LINK.findall(original_body or ""))
@@ -432,6 +474,8 @@ def _linkable(original_body: str, record: dict, names: dict[str, str], known: se
         found |= {names.get(c.object, "") for c in parse_claims(original_body or "") if c.object_kind == "node"}
     except Exception:  # noqa: BLE001
         pass
+    if spellings is not None:
+        found = {spellings.canonical(n) or n for n in found if n}
     lowered = {k.lower() for k in known}
     return sorted(n for n in found if n and n.strip().lower() in lowered)
 
@@ -445,11 +489,15 @@ def _article_job(change: dict, existing_entity: dict, new_entity: dict, context:
     entity_type = new_entity.get("type") or fm.get("type", "concept")
     name = str(fm.get("name") or new_entity.get("name") or change["id"])
     fields = {k: new_entity.get(k) or [] for k in ("key_facts", "history_entries", "links", "open_questions")}
+    fields[fact_policy.FOLDS_KEY] = new_entity.get(fact_policy.FOLDS_KEY) or {}
     record = entity_article.record_sections(strip_claims_block(original), str(entity_type), fields)
+    spellings = context.get("spellings")
+    scope = spellings.scope(str(change.get("id") or "") or None) if spellings is not None else None
     inputs = entity_article.build(
         name=name, entity_type=str(entity_type), frontmatter=fm, original_body=original, record=record,
         incoming=new_entity, today=context["today"], update_days=_change_dates(change), owner=context["owner"],
-        linkable=_linkable(original, record, context["names"], context["known"]))
+        linkable=_linkable(original, record, context["names"], context["known"], scope),
+        same_page=scope)
     # A hub page's record (the owner's: thousands of activity claims) is more than one prompt holds: the writer gets
     # its strongest inputs (`entity_article.fit`); the record below the article keeps every one.
     inputs = entity_article.fit(inputs, max_chars=context["max_chars"], people=context.get("people") or ())
@@ -961,6 +1009,7 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 "history_entries": new_entity.get("history_entries", []) or [],
                 "links": new_entity.get("links", []) or [],
                 "open_questions": new_entity.get("open_questions", []) or [],
+                fact_policy.FOLDS_KEY: new_entity.get(fact_policy.FOLDS_KEY) or {},
             }
             # G198: the writer's article with the page's pinned corrections in, records and all.
             article = page_edits.correct_article(parsed.frontmatter, change.get("article"))
@@ -1248,6 +1297,7 @@ def _selected_page_inputs(entity: dict, sections: dict[str, str],
             {section_provenance.INPUTS: old_records}, {}, selected)
     selected[section_provenance.INPUTS] = list(selected[section_provenance.INPUTS]) + _split_fact_inputs(
         entity, selected, old_records, original_body)
+    selected[section_provenance.FOLDS] = dict(entity.get(section_provenance.FOLDS) or {})
     return selected
 
 

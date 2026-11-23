@@ -43,6 +43,26 @@ def test_each_cited_line_ends_with_its_markers_and_sources_are_numbered_in_readi
     assert block["beliefs"] == [], "a page whose prose cites draws no belief sentences"
 
 
+def test_every_reference_carries_the_mark_it_wears_where_it_is_cited(tmp_path):
+    """The owner, 2026-11-23: a passage ends in its sources' own marks, never numbers. Marks ride for every reference,
+    not only the six References lines: a passage may cite a source that has no line below the page."""
+    parsed = _page(tmp_path)
+    block = _block(tmp_path, parsed)
+    keys, per_ref = block["markKeys"], block["refMarks"]
+    assert [keys[i] for i in per_ref] == ["claude-code", "messages", "web"], "by reference number, one key each"
+    assert len(keys) == len(set(keys)), "the keys are distinct; a reference holds an index into them"
+
+    refs = [page_citations._Ref(n=1, key="a", kind="conversation", harness="claude-code", origin="mcp"),
+            page_citations._Ref(n=2, key="b", kind="conversation", harness="mcp", origin="chatgpt-export"),
+            page_citations._Ref(n=3, key="c", kind="conversation", harness=None, origin=None),
+            page_citations._Ref(n=4, key="d", kind="page", harness="claude-code", origin="claude-code"),
+            page_citations._Ref(n=5, key="e", kind="conversation", harness="claude-code", origin="claude-code")]
+    assert [page_citations.mark_key(r) for r in refs] == ["claude-code", "chatgpt-export", "unknown", "page",
+                                                          "claude-code"], "the agent's product, else the channel"
+    table_keys, table_refs = page_citations._mark_table(refs)
+    assert table_keys == ["claude-code", "chatgpt-export", "unknown", "page"] and table_refs == [0, 1, 2, 3, 0]
+
+
 def test_an_edited_line_loses_its_marker_rather_than_being_recertified(tmp_path):
     parsed = _page(tmp_path, body=cites.BODY.replace("It opens in December.", "It opened in May."))
     block = _block(tmp_path, parsed)

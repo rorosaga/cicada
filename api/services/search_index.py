@@ -81,7 +81,9 @@ DB_FILE = "search_index.db"
 # "9": an agent's saved note's `docs.meta` carries `evidence_kind: agent` (ruling 50, `authorship.of`), so a hit in it
 # is the agent's words, never the person's; the bump rebuilds every index once.
 # "11": `pas.pairs` holds the overlapping pairs of unspaced scripts (G148, `text_fold.unspaced_pairs`); every index rebuilds once.
-SCHEMA_VERSION = "11"
+# "12": a saved link's site key (`docs.meta.site`) is its own host, not its registrable domain (owner 2026-11-23:
+# a page on a subdomain drew its parked parent's icon); every index rebuilds once.
+SCHEMA_VERSION = "12"
 TOKENIZER = "unicode61 remove_diacritics 2"
 # Prefix indexes for 2-, 3- and 4-character prefixes: type-as-you-go queries
 # are mostly that short, and a prefix with no index is a range scan over

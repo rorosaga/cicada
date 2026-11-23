@@ -278,7 +278,7 @@ def _records(entity: dict, fields=("summary", "description", "key_facts")) -> di
 
 def build(*, name: str, entity_type: str, frontmatter: dict, original_body: str, record: dict,
           incoming: dict, today: str, update_days: list[str], owner: str | None = None,
-          linkable=()) -> Inputs:
+          linkable=(), same_page=None) -> Inputs:
     """The writer's numbered inputs and the prompt's data. ``original_body`` is the page as read (claims included),
     ``record`` its record half after this update (:func:`record_sections`), ``incoming`` the extraction's fields."""
     prose = claims.strip_claims_block(original_body or "")
@@ -365,6 +365,9 @@ def build(*, name: str, entity_type: str, frontmatter: dict, original_body: str,
     fixes = _corrections(frontmatter)
     if fixes:
         data["CORRECTIONS"] = fixes
+    spellings = same_spellings(sources, same_page) if same_page is not None else []
+    if spellings:
+        data["SAME_PAGE"] = spellings
     return Inputs(sources, data)
 
 
@@ -378,6 +381,30 @@ def _corrections(frontmatter: dict) -> list[dict]:
 
 _CORRECTIONS_RULE = ("\n- CORRECTIONS lists fixes made to this page's words: always write each `with`, never its "
                      "`replaced`.")
+
+
+_SAME_PAGE_RULE = ("\n- SAME_PAGE lists names the INPUT writes for one page: each `as` is another name of `is`, one "
+                   "thing. Write it once, under the `is` name; never present the names as different people or "
+                   "things, and never say the record names it differently or lists it again.")
+
+#: Spellings listed to the writer at most (a page whose record links one page under dozens of names).
+MAX_SAME_PAGE = 40
+
+
+def same_spellings(sources, names) -> list[dict]:
+    """The spellings the inputs link for a page that has another name: ``[{"as": "Girlfriend", "is": "Alice Example"}]``,
+    from the links in the inputs' own text. ``names`` is a `link_names.Scope`: only a spelling exactly one page answers
+    to AND this page reads as that page (its own name or id in another form, or a page it already relates to) — a
+    generic alias another conversation used for someone else is never declared "one page". The inputs keep the words
+    the page holds; this tells the writer they name one page."""
+    found: dict[str, str] = {}
+    for source in sources:
+        for match in _WIKILINK.finditer(source.text):
+            spelled = match.group(1).strip()
+            name = names.canonical(spelled)
+            if name and name != spelled:
+                found.setdefault(spelled, name)
+    return [{"as": a, "is": found[a]} for a in sorted(found)[:MAX_SAME_PAGE]]
 
 
 def _item(source: Source) -> dict:
@@ -491,6 +518,8 @@ def prompt(inputs: Inputs, *, max_chars: int) -> str | None:
     rules = PROMPT.replace("OWNER", inputs.data["OWNER"])
     if inputs.data.get("CORRECTIONS"):
         rules = rules.rstrip("\n") + _CORRECTIONS_RULE + "\n"
+    if inputs.data.get("SAME_PAGE"):
+        rules = rules.rstrip("\n") + _SAME_PAGE_RULE + "\n"
     text = rules + "\nDATA:\n" + json.dumps(inputs.data, ensure_ascii=False, indent=0)
     return text if len(text) <= max_chars else None
 

@@ -16,7 +16,7 @@ from thefuzz import fuzz
 
 from api.config import Settings
 from api.services import (agent_engine, alias_policy, application_page, authorship, contact_identity, contacts_local, phone_numbers, correspondents, engine_errors,
-                          entity_body, entity_relations, entity_types, fact_policy, json_parse, owner_identity, pair_evidence, people_directory, person_leads,
+                          entity_body, entity_relations, entity_types, fact_policy, json_parse, link_names, owner_identity, pair_evidence, people_directory, person_leads,
                           project_birth, promotion, quiet_pages, role_people, same_name_people, section_provenance,
                           text_fold, wrong_aliases)
 from api.services.clarification_manager import (
@@ -1622,6 +1622,13 @@ def _merge_entity_payload(base: dict, incoming: dict) -> dict:
     for field in ("website", "decay_class"):
         if not merged.get(field) and incoming.get(field):
             merged[field] = incoming[field]
+    # Every name the inputs were extracted under, kept off the page (a transient key like `section_provenance.INPUTS`):
+    # `link_names` reads a spelling as a page's name only when Stage 2 resolved that spelling onto it in this batch.
+    said = _union_text(base.get(link_names.SAID_AS) or [base.get("name")],
+                       incoming.get(link_names.SAID_AS) or [incoming.get("name")])
+    said = [s for s in said if s]
+    if len(said) > 1:
+        merged[link_names.SAID_AS] = said
     merged["confidence"] = max(
         float(base.get("confidence", 0.0) or 0.0),
         float(incoming.get("confidence", 0.0) or 0.0),

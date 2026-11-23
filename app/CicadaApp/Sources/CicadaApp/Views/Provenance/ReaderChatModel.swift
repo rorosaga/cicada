@@ -284,8 +284,14 @@ enum ReaderChat {
                 last = nil
             }
         }
+        // A meeting's recorder summary is the header card above the chat (`meetingHeader`), never a bubble; the day of
+        // the chat still comes from the first real turn.
+        let summaryTurn = doc.meeting?.summaryTurn
+        let firstIndex = order.first { $0 != summaryTurn }
+        let isMeeting = doc.meeting != nil
         for (position, index) in order.enumerated() {
             guard var turnBlocks = pieces[index], let head = turnBlocks.first else { continue }
+            if index == summaryTurn { continue }
             let turn = turnsByIndex[index]
             var extras = turn?.extras.map { chatExtras($0, doc: doc, pieces: pieces, files: files[index] ?? []) }
             if extras?.isEmpty == true { extras = nil }
@@ -295,7 +301,7 @@ enum ReaderChat {
                 turnBlocks[turnBlocks.count - 1] = cut
             }
             let date = turn?.ts.flatMap { ReaderTime.instant($0, timeZone: timeZone) }
-                ?? (position == 0 ? docDate : nil)
+                ?? (index == firstIndex ? docDate : nil)
 
             // Day separators: the day of the first turn, then wherever it changes.
             if let date {
@@ -333,7 +339,9 @@ enum ReaderChat {
             if startsRun {
                 switch side {
                 case .other:
-                    let name: String? = speaker.isEmpty || speaker == lastOtherName ? nil : speaker
+                    // A one-to-one chat names its other side once; a meeting names every run — several voices alternate
+                    // with the person's, and a bare avatar would not say which (ROR-142).
+                    let name: String? = speaker.isEmpty || (!isMeeting && speaker == lastOtherName) ? nil : speaker
                     if !speaker.isEmpty { lastOtherName = speaker }
                     let avatar = avatar(for: head, doc: doc, chat: chat)
                     if name != nil || avatar != .none || head.time != nil {
@@ -372,6 +380,54 @@ enum ReaderChat {
         // An unsent message after the last turn.
         emitUnsent(before: (order.last ?? 0) + 1)
         return out
+    }
+
+    // MARK: The meeting header (ROR-142 follow-up)
+
+    /// What the card above a meeting's chat says: the recorder's summary (a turn the server marks, drawn here and never
+    /// as a bubble), the meeting's facts, and — when a tool on this Mac split the voices — that its numbers are a guess.
+    struct MeetingHeader: Hashable {
+        let summaryTurn: Int?
+        /// The summary's blocks without the heading line, its quote markers left for `ReaderText.segments` to strip.
+        let summary: [ReaderBlock]
+        /// "Summary · written by Hex"; nil when the recorder wrote none.
+        let title: String?
+        /// The recorder's own note on its summary ("written on this Mac by …") — its words, shown quietly.
+        let writer: String?
+        let facts: String?
+        let voices: String?
+        var hasSummary: Bool { !summary.isEmpty }
+        var holdsFocus: Bool { summary.contains(where: \.holdsFocus) }
+    }
+
+    /// The header for `doc`, or nil when it is no meeting or has nothing to say. Derived from the wire's `meeting` and
+    /// the document's blocks; the stored body is never touched.
+    static func meetingHeader(doc: EpisodeText, blocks: [ReaderBlock]) -> MeetingHeader? {
+        guard let meeting = doc.meeting else { return nil }
+        let summary = blocks.filter { meeting.summaryTurn != nil && $0.index == meeting.summaryTurn }.map(withoutHeading)
+            .filter { !$0.text.isEmpty }
+        let facts = Copy.Provenance.meetingFacts(minutes: meeting.durationS.map { ($0 + 30) / 60 }, app: meeting.app,
+                                                 attendees: meeting.attendees)
+        let voices = meeting.voicesSplitBy.map { Copy.Provenance.voicesSplit(by: $0, voices: meeting.voices) }
+        guard !summary.isEmpty || facts != nil || voices != nil else { return nil }
+        let recorder = meeting.recorder.map { OriginIconography.label(for: $0) }
+        return MeetingHeader(summaryTurn: meeting.summaryTurn, summary: summary,
+                             title: summary.isEmpty ? nil : Copy.Provenance.meetingSummary(by: recorder),
+                             writer: summary.isEmpty ? nil : meeting.summaryWriter, facts: facts, voices: voices)
+    }
+
+    /// The summary's first block without its heading line (`Summary (written by …)`), its washes moved with the text.
+    private static func withoutHeading(_ block: ReaderBlock) -> ReaderBlock {
+        guard block.chunk == 0 else { return block }
+        let text = ScalarText(block.text)
+        let cut = (text.scalars.firstIndex(of: "\n") ?? (text.count - 1)) + 1
+        let washes = block.washes.compactMap { wash -> ReaderWash? in
+            let lo = max(0, wash.range.lowerBound - cut), hi = wash.range.upperBound - cut
+            return hi > lo ? ReaderWash(range: lo..<hi, style: wash.style) : nil
+        }
+        return ReaderBlock(index: block.index, chunk: block.chunk, role: block.role, speaker: block.speaker,
+                           mark: block.mark, time: block.time, text: text.slice(min(cut, text.count), text.count),
+                           contentStart: block.contentStart + cut, washes: washes, showsTurnNumber: block.showsTurnNumber)
     }
 
     // MARK: Extras (2026-10-20)

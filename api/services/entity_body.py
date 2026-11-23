@@ -321,7 +321,8 @@ def _merge_history_bullets(existing: str, new_entries: list[dict]) -> str:
     return _bullets_block(lines)
 
 
-def _merge_facts(existing: str, new_facts: list[str], *, extend_existing: bool = True) -> str:
+def _merge_facts(existing: str, new_facts: list[str], *, extend_existing: bool = True,
+                 folds: dict[str, str] | None = None) -> str:
     """Existing fact bullets, then every new fact that is not a repeat.
 
     A new fact equal to one already there (case, accents, whitespace, wikilink
@@ -329,7 +330,9 @@ def _merge_facts(existing: str, new_facts: list[str], *, extend_existing: bool =
     that another fact says word for word and then more (`fact_policy.extends`) is
     folded into it — the longer one takes the shorter's place, so no word, date or
     number is lost; everything else is kept. ``extend_existing=False`` (a page a
-    person edited) leaves every existing bullet exactly as it is."""
+    person edited) leaves every existing bullet exactly as it is. ``folds``
+    (`fact_fold`, a judged and code-checked step): an existing bullet that a fact
+    on the page already says in full goes, its holder named."""
     items = _bullet_lines(existing)
     seen = {_normalize_fact(it) for it in items}
     fresh: list[str] = []
@@ -341,6 +344,8 @@ def _merge_facts(existing: str, new_facts: list[str], *, extend_existing: bool =
         seen.add(key)
         fresh.append(fact)
     items, _ = fact_policy.union(items, fresh, extend_existing=extend_existing)
+    if folds and extend_existing:
+        items = fact_policy.drop_folded(items, folds)
     return _bullets_block(items)
 
 
@@ -489,7 +494,8 @@ def merge_sections_fallback(existing: dict[str, str], new_fields: dict, *,
                  if _normalize_fact(str(item)) != _normalize_fact(merged.get('Summary', ''))
                  and not fact_policy.covered(str(item), said)]
     if new_facts or merged.get("Key Facts"):
-        facts = _merge_facts(merged.get("Key Facts", ""), new_facts, extend_existing=not human_edited)
+        facts = _merge_facts(merged.get("Key Facts", ""), new_facts, extend_existing=not human_edited,
+                             folds=new_fields.get(fact_policy.FOLDS_KEY))
         if facts:
             merged["Key Facts"] = facts
 

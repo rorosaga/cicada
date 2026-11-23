@@ -347,28 +347,29 @@ struct PageOngoing: View {
 struct PageBeliefSentences: View {
     let entityId: String
     let beliefs: [PageBlocks.Citations.Belief]
+    /// The page's citations: each belief's sources wear their marks (`blocks-7`).
+    var citations: PageBlocks.Citations? = nil
     /// Nil: more than these, uncounted (the page's ledger holds the rest).
     let total: Int?
     var onMore: () -> Void = {}
-    @State private var open: CiteKey?
+
+    /// One flow of sentences, each ending in its own cluster of source marks (DR-80, amended 2026-11-23).
+    static func pieces(_ beliefs: [PageBlocks.Citations.Belief], citations: PageBlocks.Citations?) -> [PageInlinePiece] {
+        var pieces: [PageInlinePiece] = []
+        for belief in beliefs {
+            let keys = belief.refs.map { CiteKey(n: $0, claim: belief.claimId, inferred: belief.inferred) }
+            let more = PageInline.pieces(of: AttributedString(PageWords.sentence(belief)), resolve: { _ in nil },
+                                         cluster: CitationMarks.cluster(keys, in: citations))
+            let offset = pieces.count
+            pieces += more.map { PageInlinePiece(id: offset + $0.id, token: $0.token, glued: $0.glued) }
+        }
+        return pieces
+    }
 
     var body: some View {
         if !beliefs.isEmpty {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                beliefs.reduce(Text(verbatim: "")) { text, belief in
-                    let keys = belief.refs.map { CiteKey(n: $0, claim: belief.claimId, inferred: belief.inferred) }
-                    return text + Text(PageWords.sentence(belief)) + CitationMarks.text(keys) + Text(verbatim: " ")
-                }
-                .font(CicadaTheme.bodyFont)
-                .lineSpacing(CicadaTheme.scaled(2))
-                .foregroundStyle(CicadaTheme.textPrimary)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .modifier(CitationLinkHandler(open: $open))
-                .modifier(CitationActions(keys: beliefs.flatMap { belief in
-                    belief.refs.map { CiteKey(n: $0, claim: belief.claimId, inferred: belief.inferred) }
-                }, open: $open))
-                .popover(item: $open, arrowEdge: .bottom) { CitationPopover(entityId: entityId, key: $0) }
+                PageInlineFlow(pieces: Self.pieces(beliefs, citations: citations), entityId: entityId)
                 if let more = PageWords.moreBeliefs(shown: beliefs.count, total: total) {
                     TextButton(title: more, inline: true, flushLeading: true, action: onMore)
                 }
@@ -380,7 +381,7 @@ struct PageBeliefSentences: View {
 
 // MARK: References (DR-80)
 
-/// Always open, closing the page: numbered sources, one line each, at most six, then the line that says how many in
+/// Always open, closing the page: its sources as cards leading with their marks, one line each, at most six, then the line that says how many in
 /// all and that who wrote each change is in History.
 struct PageReferences: View {
     let citations: PageBlocks.Citations
@@ -395,24 +396,10 @@ struct PageReferences: View {
                     Spacer(minLength: 0)
                     TextButton(title: Copy.Pages.history, help: Copy.Pages.historyHelp, inline: true, action: onHistory)
                 }
+                // Each source is a card leading with its mark, never a number (owner 2026-11-23); the same source cited
+                // twice is one card.
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
-                    ForEach(citations.refs) { ref in
-                        HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
-                            Text(verbatim: String(ref.n))
-                                .font(CicadaTheme.metaFont.monospacedDigit())
-                                .foregroundStyle(CicadaTheme.textTertiary)
-                                .frame(width: CicadaTheme.scaled(16), alignment: .leading)
-                            Text(line(ref))
-                                .font(CicadaTheme.metaFont)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                            Spacer(minLength: CicadaTheme.spacingSM)
-                            if let when = PageWords.refWhen(first: ref.first, last: ref.last, today: today) {
-                                Text(when).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-                                    .lineLimit(1)
-                            }
-                        }
-                    }
+                    ForEach(PageWords.referenceRows(citations.refs, today: today)) { ReferenceCard(row: $0) }
                 }
                 if let closing = PageWords.closingLine(citations) {
                     Text(closing)
@@ -422,19 +409,6 @@ struct PageReferences: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-
-    private func line(_ ref: PageBlocks.Citations.Ref) -> AttributedString {
-        var who = AttributedString(PageWords.refWho(ref))
-        who.foregroundColor = CicadaTheme.textSecondary
-        var gone = AttributedString(ref.sourceRemoved == true ? " · \(Copy.Provenance.sourceRemoved)" : "")
-        gone.foregroundColor = CicadaTheme.textTertiary   // G104 slice 3: quiet, after the title, never in its place
-        var edited = AttributedString(ref.editedBy?.note.map { " · \($0)" } ?? "")   // G244: the same quiet place
-        edited.foregroundColor = CicadaTheme.textTertiary
-        guard let title = ref.title, !title.isEmpty else { return who + gone + edited }
-        var rest = AttributedString(" · \(title)")
-        rest.foregroundColor = CicadaTheme.textPrimary
-        return who + rest + gone + edited
     }
 }
 

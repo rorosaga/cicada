@@ -247,7 +247,9 @@ enum OriginIconography {
         // not deleting it, is what keeps that true.
         case "gemini-cli", "opencode", "hermes", "openclaw": "terminal"
         case "folder": "folder"
-        case "wispr-flow", "hex": "waveform"
+        case "wispr-flow": "waveform"
+        // A recorder's folder of meetings where the recorder's app is not here: the folder's own glyph (2026-11-23).
+        case "hex": "folder"
         // G95 — a folder of meeting transcripts (any recorder's).
         case "meeting-folders": "person.2.wave.2"
         // G218 — activity traces (no episode carries it; its Sources row does).
@@ -298,7 +300,7 @@ enum OriginIconography {
         // picture wherever it is drawn.
         case "saved-link": Color(hex: 0x8896FF)
         // ROR-118 round 5 - a folder wears the system folder's blue, so the Waiting list never mixes a grey glyph with full-colour marks.
-        case "folder": Color(hex: 0x3B9AF2)
+        case "folder", "hex": Color(hex: 0x3B9AF2)
         // `gemini-cli` alone — see the same narrowing in `symbol` above.
         case "gemini-cli": CicadaTheme.textPrimary
         case "unknown": CicadaTheme.textTertiary
