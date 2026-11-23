@@ -2261,8 +2261,8 @@ such lines.
 
 **2026-11-23 (multi-hop reach, slept LoCoMo, `docs/research/2026-11-09-why-full-context-wins-on-locomo.md` §7).** Multi-hop prompts with
 every gold turn shown went 29 → 37 of 76 (all 200 questions: 131 → 145), at 21,379 → 24,780 prompt characters and 11,688 → 12,844
-tokens a question (+10%). Graded, two fresh runs, haiku: 163 → 167 and 168 of 200 (8 / 4 and 11 / 6 gained / lost, neither significant),
-multi-hop 57 → 62 and 61. Recall's door text is byte-identical on all 200 questions. LongMemEval_S unslept 79 → 77 (0 gained, 2 lost,
+tokens a question (+10%). Graded, haiku, two baseline runs (163, multi-hop 57; a fresh replicate 160, 56) against two runs of this (167 and 168, multi-hop
+62 and 61): every run of this beats every baseline run, +4 to +8 overall and +4 to +6 on multi-hop, no pairing significant but one (p = .04). Recall's door text is byte-identical on all 200 questions. LongMemEval_S unslept 79 → 77 (0 gained, 2 lost,
 answers reworded over the same lines), tokens 10,923 → 10,990. `python -m benchmarks.public.run run --paths reach` records Ask's prompt and
 answer-turn reach per question with no model call.
 

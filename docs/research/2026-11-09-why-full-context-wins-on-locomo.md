@@ -98,11 +98,22 @@ Two things the loop ruled out. Embedding every turn of the nearest chunks and ra
 | Stored | 163 | | | 57 | 12 | 91 | 11,688 | 14,341 |
 | After, run 1 (12 prompts reused) | 167 | 8 / 4 | .39 | 62 (5 / 0, p = .06) | 10 | 92 | 12,879 | 15,424 |
 | After, run 2 (all fresh) | 168 | 11 / 6 | .33 | 61 (6 / 2) | 14 | 90 | 12,844 | 15,290 |
+| Baseline replicate: `origin/dev` Ask, all fresh | 160 | | | 56 | 11 | 90 | 11,492 | 14,365 |
 | Control: whole conversation | 168 | | | 65 | | | 33,384 | |
 
 - **Not shown to differ**, as in section 4: the final code is 4 and 5 above the baseline in two independent runs, and the two runs disagree with each other on 13 questions (6 right only in run 1, 7 only in run 2), which is the noise on a pass of 200. Multi-hop is the place it should move and it does in both (57 → 62, 61), open-domain and temporal do not, as expected. Say "+4 to +5 on 200, not significant, in the right category".
+- **The baseline's own spread (added 2026-11-23, one more graded run).** The stored run is one draw, so `origin/dev` Ask was run again, all fresh, in a detached worktree (the Ask files are unchanged between it and the branch's base): 160 right, multi-hop 56, open-domain 11, temporal 90, 11,492 tokens a question, 14,365 per right answer; multi-hop by gold turns shown every 29 (26 right), some 37 (24), none 10 (6). The two baselines differ from each other by 3 overall (7 / 4 gained / lost, p = .55) and by 1 on multi-hop (3 / 2). The two final-code runs differ by 1 overall and 1 on multi-hop.
+
+  | Baseline | After | Overall gained / lost, p | Multi-hop gained / lost, p |
+  |---|---|---|---|
+  | Stored 163 / 57 | Run 1 167 / 62 | 8 / 4, .39 | 5 / 0, .06 |
+  | Stored 163 / 57 | Run 2 168 / 61 | 11 / 6, .33 | 6 / 2, .29 |
+  | Fresh 160 / 56 | Run 1 167 / 62 | 10 / 3, .09 | 7 / 1, .07 |
+  | Fresh 160 / 56 | Run 2 168 / 61 | 10 / 2, .04 | 6 / 1, .13 |
+
+  **Reading, two against two:** every final-code run beats every baseline run, overall by 4 to 8 (the means are 161.5 and 167.5) and on multi-hop by 4 to 6 (56.5 and 61.5), while the baselines differ by 3 and 1 and the final runs by 1 and 1. So the multi-hop gain is clear of the baseline's own spread, and it is the one the reach change predicts (29 → 37 of 76 with every gold turn shown); the overall gain is the same size and direction but is carried mostly by multi-hop, and open-domain and temporal sit inside their noise (open-domain 11 and 12 against 10 and 14, temporal 90 and 91 against 92 and 90). No single pairing is significant except one overall (.04 of four), so with two runs a side this supports "a multi-hop gain of about 5 of 76 and an overall gain of about 6 of 200 beyond the baseline's observed spread, at +10% tokens", not a significance claim.
 - **Reach moved far more than answers did**: every gold turn shown on multi-hop 29 → 37 of 76 (all 200: 131 → 145). Right with every gold turn shown stays 86 to 89%; with some, 68% → 69 to 75%; with none 7 of 10 → 3 of 3 (3 prompts left).
-- **Cost:** +3,400 prompt characters (+16%), +1,160 tokens a question (+10%), +6.6% tokens per right answer, one model call as before; context build p50 422 → 554 and 603 ms (a loaded machine), answer p50 6.5 s → 6.1 and 5.8 s (noise). The owner should see the +10%: the control is 33,000 and is not a target.
+- **Cost:** +3,400 prompt characters (+16%), +1,160 tokens a question (+10% on the stored run, +12% on the fresh baseline's 11,492), +6.6% to +7.5% tokens per right answer (+6% to +7% on the fresh baseline's 14,365), one model call as before; context build p50 422 → 554 and 603 ms (a loaded machine), answer p50 6.5 s → 6.1 and 5.8 s (noise). The owner should see the +10%: the control is 33,000 and is not a target.
 - **LongMemEval_S, unslept, the same 100:** 79 → 77 (0 gained, 2 lost, p = .5), tokens 10,923 → 10,990. Only 32 prompts changed (an unslept bank has few page lines, so the room was already there); the 2 losses have the same lines shown (reach 1 of 1 and 0 of 1 in both) and reworded answers, and the first states the same decline as before.
 - **Recall:** unchanged by construction (`meaning_room` is Ask's argument; recall passes none) and checked: recall's, the hook's and pending's text is byte-identical on all 200 questions before and after, so no graded recall run was spent.
 
