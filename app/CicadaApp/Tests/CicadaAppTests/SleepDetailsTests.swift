@@ -82,10 +82,11 @@ final class SleepDetailsTests: XCTestCase {
         }
     }
 
-    /// DR-37, DR-7 — the lists carry no card and no tinted fill: labels over rows. The room left its card too (the
-    /// Sleep redesign, 2026-10-16: "not inside that rectangle thing").
+    /// DR-37, DR-7 — the lists carry no glass card and no tinted fill. The room left its card too (the Sleep redesign,
+    /// 2026-10-16: "not inside that rectangle thing"). The Waiting list's source and episode cards (owner 2026-11-23)
+    /// are ringed `OriginCard`-family cards with no tint, so they pass this too.
     func test_detailsIsRowsNotCards() throws {
-        for name in ["SleepDetails.swift", "StudyListCard.swift", "ConsolidationHistoryCard.swift", "EpisodeRow.swift",
+        for name in ["SleepDetails.swift", "StudyListCard.swift", "ConsolidationHistoryCard.swift", "EpisodeCard.swift",
                      "SleepView.swift", "SleepTabRow.swift"] {
             let file = try XCTUnwrap(SleepNumbersLintTests.sleepSources().first { $0.lastPathComponent == name })
             let text = try String(contentsOf: file, encoding: .utf8)
@@ -100,34 +101,40 @@ final class SleepDetailsTests: XCTestCase {
                        "the readout left its card too")
     }
 
-    /// DR-48, DR-54 — an episode row's meta line: its time, and "read" once Sleep read it.
-    func test_episodeRowMetaIsTheTimeAndWhetherItWasRead() {
+    /// DR-54, owner 2026-11-23 — an episode card's footer: where it is (else the source's name), how long ago, and
+    /// "read" once Sleep read it.
+    func test_episodeCardFooterIsWhereHowLongAgoAndWhetherItWasRead() throws {
         XCTAssertEqual(EpisodeRowText.time(""), "—")
         XCTAssertEqual(EpisodeRowText.time("not a date at all, longer than sixteen"), "not a date at al",
                        "the raw start (16 characters), never a blank")
-        XCTAssertEqual(EpisodeRowText.meta(target: "example.com", processed: true), "example.com · read")
-        XCTAssertEqual(EpisodeRowText.meta(target: "example.com", processed: false), "example.com")
-        XCTAssertEqual(EpisodeRowText.meta(target: nil, processed: true), "read")
-        XCTAssertNil(EpisodeRowText.meta(target: nil, processed: false), "no line rather than a raw id")
+        let now = ISO8601DateFormatter().date(from: "2026-10-05T12:00:00Z")!
+        func item(processed: Bool, changedAt: String? = nil) throws -> EpisodeQueueItem {
+            var json: [String: Any] = ["id": "ep_1", "timestamp": "2026-10-03T12:00:00Z", "source": "mcp",
+                                       "origin": "claude-code", "title": "Plans", "preview": "", "processed": processed]
+            if let changedAt { json["changedAt"] = changedAt }
+            return try JSONDecoder().decode(EpisodeQueueItem.self, from: JSONSerialization.data(withJSONObject: json))
+        }
+        let waiting = try EpisodeRowText.footer(item(processed: false), target: "example.com", now: now)
+        XCTAssertEqual(waiting.count, 2)
+        XCTAssertEqual(waiting.first, "example.com")
+        XCTAssertTrue(waiting[1].contains("2"), "two days ago: \(waiting[1])")
+        let read = try EpisodeRowText.footer(item(processed: true), target: nil, now: now)
+        XCTAssertEqual(read.count, 2, "no target: the age and \"read\" — never a raw id, never the source again (DR-38)")
+        XCTAssertFalse(read.contains("Claude Code"))
+        XCTAssertEqual(read.last, "read")
+        let kept = try EpisodeRowText.footer(item(processed: false, changedAt: "2026-10-05T11:59:30Z"), target: nil, now: now)
+        XCTAssertEqual(kept.last, Copy.Catalog.justNow, "a conversation that kept going is aged by its last change")
     }
 
     /// A queued row names a copy target a person can read, never a machine id (owner 2026-10-19, DR-54), ends with its
     /// day, and its copy toast says what it copied.
-    func test_episodeRowNamesWhatItCopiesAndEndsWithItsDay() {
+    func test_episodeRowNamesWhatItCopies() {
         XCTAssertEqual(EpisodeRowText.target(kind: "link", value: "https://example.com/a/b?q=1"), "example.com/a/b")
         XCTAssertEqual(EpisodeRowText.target(kind: "link", value: "https://example.com/"), "example.com")
         XCTAssertNil(EpisodeRowText.target(kind: "conversation", value: "0f3c1a2b-9d"), "a session id stays off the row")
         XCTAssertEqual(EpisodeRowText.target(kind: "links", value: "https://a.example\nhttps://b.example"), "2 tab links")
         XCTAssertEqual(EpisodeRowText.target(kind: "path", value: "/tmp/notes/plans/q4.md"), "q4.md")
         XCTAssertNil(EpisodeRowText.target(kind: nil, value: nil), "no raw episode id on the row")
-
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
-        let now = ISO8601DateFormatter().date(from: "2026-10-05T12:00:00Z")!
-        XCTAssertFalse(EpisodeRowText.day("2026-10-03T10:00:00Z", now: now, calendar: calendar).contains("2026"),
-                       "this year's day carries no year")
-        XCTAssertTrue(EpisodeRowText.day("2025-12-30T10:00:00Z", now: now, calendar: calendar).contains("2025"))
-        XCTAssertEqual(EpisodeRowText.day("", now: now), "", "no raw stamp at the row's edge")
 
         XCTAssertEqual(Copy.SleepDetailsWords.copied("conversation"), "Conversation ID copied")
         XCTAssertEqual(Copy.SleepDetailsWords.copied("link"), "Link copied")

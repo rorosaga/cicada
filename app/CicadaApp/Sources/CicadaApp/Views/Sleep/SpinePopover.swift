@@ -40,7 +40,7 @@ struct SpinePopover: View {
                     .font(CicadaTheme.captionFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
-            ForEach(shown.rows) { EpisodeRow(item: $0) }
+            ForEach(shown.rows) { EpisodeCard(item: $0) }
             HStack {
                 if shown.more > 0 {
                     Button(Copy.moreInDetails(shown.more), action: onOpenDetails)

@@ -10,14 +10,6 @@ enum EpisodeRowText {
         return display.string(from: date)
     }
 
-    /// The day a row ends with (owner 2026-10-05): "Oct 3", with the year only when it is not this year;
-    /// empty for a stamp that does not parse, so the row never shows a raw string at its edge.
-    static func day(_ raw: String, now: Date = Date(), calendar: Calendar = .current) -> String {
-        guard let date = parse(raw) else { return "" }
-        let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: now)
-        return (sameYear ? dayFormat : dayYearFormat).string(from: date)
-    }
-
     /// What a copy from the row's context menu takes, named for the row's second line when a person can use the name:
     /// a page's site and path, "3 tab links", a file's name. A conversation's session id and the episode id are
     /// machine ids — `nil` here, so they stay off the row (owner 2026-10-19, DR-54) and live in `.help` and the menu.
@@ -38,17 +30,6 @@ enum EpisodeRowText {
         }
     }
 
-    /// The second line: the copy target a person can read, and "read" once Sleep read it — the fact the status dot
-    /// carried. `nil` (no line) when neither applies.
-    static func meta(target: String?, processed: Bool) -> String? {
-        switch (target, processed) {
-        case let (t?, true): "\(t) · read"
-        case let (t?, false): t
-        case (nil, true): "read"
-        case (nil, false): nil
-        }
-    }
-
     /// The tooltip: what a click does, when the episode arrived and, for a conversation that kept going, when it
     /// last changed — then the episode's id (DR-54: reachable in `.help`, never on the row).
     static func help(kind: String?, timestamp: String, changedAt: String?, id: String) -> String {
@@ -56,6 +37,23 @@ enum EpisodeRowText {
         if let changedAt, !changedAt.isEmpty, changedAt != timestamp { parts.append("Updated \(time(changedAt))") }
         parts.append(Copy.SleepDetailsWords.episodeIdHelp(id))
         return parts.joined(separator: " · ")
+    }
+
+    /// A card's footer after its mark: where it is (a page's site and path, "3 tab links", a file's name), how long
+    /// ago it last changed, and "read" once Sleep read it. The source's name is never repeated: the source card above
+    /// names it once (DR-38), and the mark carries it at a glance.
+    static func footer(_ item: EpisodeQueueItem, target: String?, now: Date = Date()) -> [String] {
+        var parts = target.map { [$0] } ?? []
+        if let date = parse(item.changedAt ?? item.timestamp) ?? parse(item.timestamp) {
+            parts.append(Copy.OriginCard.ago(date, now: now))
+        }
+        if item.processed { parts.append("read") }
+        return parts
+    }
+
+    /// What VoiceOver reads for a card: the title, then the footer's words.
+    static func cardLabel(_ item: EpisodeQueueItem, target: String?, now: Date = Date()) -> String {
+        ([item.title ?? Copy.SleepDetailsWords.untitled] + footer(item, target: target, now: now)).joined(separator: ", ")
     }
 
     private static func parse(_ raw: String) -> Date? {
@@ -71,16 +69,6 @@ enum EpisodeRowText {
     private static let display: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "MMM d, yyyy HH:mm"
-        return f
-    }()
-    private static let dayFormat: DateFormatter = {
-        let f = DateFormatter()
-        f.setLocalizedDateFormatFromTemplate("MMM d")
-        return f
-    }()
-    private static let dayYearFormat: DateFormatter = {
-        let f = DateFormatter()
-        f.setLocalizedDateFormatFromTemplate("MMM d yyyy")
         return f
     }()
 }
@@ -113,73 +101,77 @@ enum EpisodeRowAction: Equatable {
     }
 }
 
-/// One queued or read episode (DR-48): the source's real mark (DR-52), the title, a meta line and a
-/// two-line preview. A row carries one glyph, so the status dot left — "read" is in the meta line.
-/// The source pill left too: the origin row above it and the spine's header already name the source
-/// (DR-38), and a raw origin slug never sits at body weight (DR-54). Hover is a fill, never a lift (R-HS15).
+/// One queued or read episode, as a card of the `OriginCard` family (owner 2026-11-23: "a big card per source and
+/// inside a card for individual things" on the Sleep page): the title, two lines of what it says, and under them
+/// `[mark] where · 5d ago · read` — the glance the reason cards give. A waiting episode is `plain` (no accent: a queue
+/// is not a history, DR-5 stands); one Sleep already read is `past`, faded until the pointer is on it.
 ///
-/// Owner 2026-10-19 (supersedes the 2026-10-05 copy-on-click): the whole row is one button that opens the stored
-/// conversation — or the saved page, tab group or file text — in the Reader. Copying what Sleep would read (a
-/// conversation's id, a page's link, a tab group's links, a file's path) moved to the context menu and a named
-/// VoiceOver action, with its brief toast; the raw ids left the meta line for `.help` (DR-54). The row ends with its
-/// day (a conversation's last change, else when it was added).
+/// Owner 2026-10-19 still holds: the whole card is one button that opens the stored conversation — or the saved page,
+/// tab group or file text — in the Reader. The preview is the first 200 characters, so a card that expanded in place
+/// would show one more line; the Reader shows all of it. Copying what Sleep would read stays in the context menu and a
+/// named VoiceOver action; the raw ids stay in `.help` (DR-54). The footer's mark is a saved link's own site
+/// (owner 2026-10-20), else the source's real mark (DR-52); the source card above already names the source (DR-38),
+/// so the footer names only the page, tab group or file, when there is one.
 ///
-/// Extracted out of `SleepView.swift` (G125 Task 6, R11) — `StudyListCard`'s per-origin disclosure
-/// and the room's `SpinePopover` both render it, so the spine popover draws the same row.
-struct EpisodeRow: View {
+/// `StudyListCard`'s source cards and the room's `SpinePopover` both render it.
+struct EpisodeCard: View {
     let item: EpisodeQueueItem
     @Environment(Store.self) private var store: Store?
     @Environment(ProvenanceRouter.self) private var reader: ProvenanceRouter?
     @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var kind: String? { EpisodeRowAction.copyKind(item) }
+    private var target: String? { EpisodeRowText.target(kind: kind, value: item.copyValue) }
 
     var body: some View {
         Button(action: activate) {
-            HStack(alignment: .top, spacing: CicadaTheme.scaled(10)) {
-                mark.frame(width: CicadaTheme.scaled(16)).padding(.top, CicadaTheme.scaled(2))
-                VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                    Text(item.title ?? Copy.SleepDetailsWords.untitled)
-                        .font(CicadaTheme.bodyFont)
-                        .foregroundStyle(item.processed ? CicadaTheme.textTertiary : CicadaTheme.textSecondary)
-                        .lineLimit(1)
-                    if let meta = EpisodeRowText.meta(target: EpisodeRowText.target(kind: kind, value: item.copyValue),
-                                                      processed: item.processed) {
-                        Text(meta)
-                            .font(CicadaTheme.metaFont)
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    if !item.preview.isEmpty {
-                        Text(item.preview)
-                            .font(CicadaTheme.metaFont)
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                            .lineLimit(2)
-                    }
-                }
-                Spacer(minLength: CicadaTheme.spacingSM)
-                Text(EpisodeRowText.day(item.changedAt ?? item.timestamp))
-                    .font(CicadaTheme.metaFont)
-                    .monospacedDigit()
-                    .foregroundStyle(CicadaTheme.textTertiary)
+            VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
+                Text(item.title ?? Copy.SleepDetailsWords.untitled)
+                    .font(CicadaTheme.rowFont)
+                    .foregroundStyle(item.processed ? CicadaTheme.textSecondary : CicadaTheme.textPrimary)
                     .lineLimit(1)
-                    .fixedSize()
-                    .padding(.top, CicadaTheme.scaled(2))
+                if !item.preview.isEmpty {
+                    Text(item.preview)
+                        .font(CicadaTheme.bodyFont)
+                        .foregroundStyle(CicadaTheme.textSecondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                footer
             }
-            .padding(.horizontal, CicadaTheme.scaled(10))
-            .padding(.vertical, CicadaTheme.spacingSM)
-            .frame(minHeight: CicadaTheme.scaled(RowMetrics.twoLine), alignment: .topLeading)
-            .contentShape(Rectangle())
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .originCardChrome(tone: item.processed ? .past : .plain, hovering: hovering)
         }
         .buttonStyle(.cicadaPlain)
-        .rowHover($hovering)
+        .onHover { hovering = $0 }
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
         .help(EpisodeRowText.help(kind: kind, timestamp: item.timestamp, changedAt: item.changedAt, id: item.id))
         .contextMenu {
             Button(Copy.SleepDetailsWords.copyAction(kind), action: copy)
         }
+        .accessibilityLabel(EpisodeRowText.cardLabel(item, target: target))
         .accessibilityHint(Copy.SleepDetailsWords.openHint(kind))
         .accessibilityAction(named: Text(Copy.SleepDetailsWords.copyAction(kind)), copy)
+    }
+
+    private var footer: some View {
+        HStack(spacing: CicadaTheme.scaled(6)) {
+            mark
+            ForEach(Array(EpisodeRowText.footer(item, target: target).enumerated()), id: \.offset) { index, part in
+                if index > 0 { Text("·") }
+                Text(part).monospacedDigit()
+            }
+            Spacer(minLength: CicadaTheme.spacingSM)
+            Image(systemName: "arrow.up.right")
+                .font(CicadaTheme.font(size: 9, weight: .semibold))
+                .opacity(hovering ? 1 : 0)
+                .accessibilityHidden(true)
+        }
+        .font(CicadaTheme.metaFont)
+        .foregroundStyle(CicadaTheme.textTertiary)
+        .lineLimit(1)
+        .truncationMode(.middle)
     }
 
     /// Owner 2026-10-20 — a saved link waiting to be read wears its own site's mark (`SavedLinkMark`, asked by the
@@ -190,7 +182,7 @@ struct EpisodeRow: View {
         if let site = SavedLinkMarkModel.mark(item) {
             SavedLinkMark(mark: site, size: .inline)
         } else {
-            OriginMark(origin: item.origin, size: CicadaTheme.scaled(14))
+            OriginMark(origin: item.origin, size: CicadaTheme.scaled(16))
         }
     }
 

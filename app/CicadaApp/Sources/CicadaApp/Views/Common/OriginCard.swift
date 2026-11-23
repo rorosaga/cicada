@@ -12,7 +12,7 @@ import SwiftUI
 /// Generic on purpose: anything the person said or kept that has an origin and a time — a bookmark's reasons today —
 /// is drawn the same way. `OriginMark` draws the app (`OriginIconography.cicada` for the app itself).
 struct OriginCard<Detail: View>: View {
-    enum Tone: Equatable { case current, past }
+    typealias Tone = OriginCardTone
 
     let text: String
     /// An origin key `OriginMark` knows; nil draws no app.
@@ -29,14 +29,11 @@ struct OriginCard<Detail: View>: View {
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// The past cards' fade at rest.
-    static var pastOpacity: Double { 0.55 }
-
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             Text(text)
                 .font(CicadaTheme.detailBodyFont)
-                .foregroundStyle(tone == .current ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+                .foregroundStyle(tone == .past ? CicadaTheme.textSecondary : CicadaTheme.textPrimary)
                 .lineLimit(expanded ? nil : 2)
                 .truncationMode(.tail)
                 .fixedSize(horizontal: false, vertical: true)
@@ -47,17 +44,7 @@ struct OriginCard<Detail: View>: View {
                     .transition(.opacity)
             }
         }
-        .padding(.horizontal, CicadaTheme.spacingMD + CicadaTheme.scaled(2))
-        .padding(.vertical, CicadaTheme.spacingMD)
-        .background {
-            ZStack {
-                CicadaTheme.shape(CicadaTheme.radiusLarge).fill(CicadaTheme.bgOption)
-                if tone == .current { CicadaTheme.shape(CicadaTheme.radiusLarge).fill(CicadaTheme.accent.opacity(0.06)) }
-            }
-        }
-        .overlay(CicadaTheme.shape(CicadaTheme.radiusLarge).strokeBorder(ring, lineWidth: 1))
-        .opacity(tone == .past && !hovering && !expanded ? Self.pastOpacity : 1)
-        .contentShape(CicadaTheme.shape(CicadaTheme.radiusLarge))
+        .originCardChrome(tone: tone, hovering: hovering, held: expanded)
         .onTapGesture { toggle(animated: true) }
         .onHover { hovering = $0 }
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
@@ -99,10 +86,6 @@ struct OriginCard<Detail: View>: View {
 
     private func name(_ origin: String) -> String { originName ?? OriginIconography.label(for: origin) }
 
-    private var ring: Color {
-        tone == .current ? CicadaTheme.accent.opacity(0.55) : CicadaTheme.ring(hovering ? .strong : .resting)
-    }
-
     private var accessibilityText: String {
         ([text] + [origin.map(name)].compactMap { $0 } + trail).joined(separator: ", ")
     }
@@ -120,5 +103,48 @@ extension OriginCard where Detail == EmptyView {
     init(text: String, origin: String? = nil, originName: String? = nil, date: Date? = nil, note: String? = nil,
          tone: Tone = .current) {
         self.init(text: text, origin: origin, originName: originName, date: date, note: note, tone: tone) { EmptyView() }
+    }
+}
+
+/// How a card sits in its list. `current` is the newest of a history — the accent ring and wash (DESIGN_RULES §9
+/// 2026-11-23, the seventh accent use, this card alone); `plain` is an item of a list that is not a history (the Sleep
+/// page's waiting episodes), no accent; `past` fades — an older wording, an episode Sleep already read.
+enum OriginCardTone: Equatable { case current, plain, past }
+
+/// The card's look, shared by every card of the family (`OriginCard`, `EpisodeCard`): `bgOption` in a `radiusLarge`
+/// shape with a ring, never a shadow (DR-9, DR-12); the `current` accent; `past` at `pastOpacity` until the pointer or
+/// an expansion (`held`) brings it back.
+struct OriginCardChrome: ViewModifier {
+    let tone: OriginCardTone
+    let hovering: Bool
+    var held: Bool = false
+
+    /// The past cards' fade at rest.
+    static var pastOpacity: Double { 0.55 }
+
+    func body(content: Content) -> some View {
+        let shape = CicadaTheme.shape(CicadaTheme.radiusLarge)
+        content
+            .padding(.horizontal, CicadaTheme.spacingMD + CicadaTheme.scaled(2))
+            .padding(.vertical, CicadaTheme.spacingMD)
+            .background {
+                ZStack {
+                    shape.fill(hovering && tone != .current ? CicadaTheme.bgButton : CicadaTheme.bgOption)
+                    if tone == .current { shape.fill(CicadaTheme.accent.opacity(0.06)) }
+                }
+            }
+            .overlay(shape.strokeBorder(ring, lineWidth: 1))
+            .opacity(tone == .past && !hovering && !held ? Self.pastOpacity : 1)
+            .contentShape(shape)
+    }
+
+    private var ring: Color {
+        tone == .current ? CicadaTheme.accent.opacity(0.55) : CicadaTheme.ring(hovering ? .strong : .resting)
+    }
+}
+
+extension View {
+    func originCardChrome(tone: OriginCardTone, hovering: Bool, held: Bool = false) -> some View {
+        modifier(OriginCardChrome(tone: tone, hovering: hovering, held: held))
     }
 }
