@@ -693,8 +693,9 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   this machine's zone instead); the backend never opens it.
   It anchors no project, has no papers step and no authorship rules, and syncs as its own channel, `meetings:<id>`
   (`channel_for`, `folder_id_of`; a notes folder stays `folder:<id>`). `meeting_transcripts` is the one parser: **one
-  episode per file** through the stager (`source_id` `meetings:<folder>:<relpath>` — an edited transcript is rewritten
-  in place and re-queued, a rename keeps the episode by content hash, a deletion is tombstoned), `queue_for_sleep` like
+  episode per meeting** through the stager (`source_id` `meetings:<folder>:<relpath>` — an edited transcript is rewritten
+  in place and re-queued, a rename keeps the episode by content hash, a deletion is tombstoned; files whose names carry
+  the same `YYYY-MM-DD HHMM` are one meeting and the newest holds it, G104 slice 3 below), `queue_for_sleep` like
   any conversation — unlike a recording the person adds as a media file (`media_files`, read only for `media_read`'s prose). Dated by
   the meeting's own start (ruling 39): the file name's `YYYY-MM-DD HHMM` (Hex's), else a `Date:` line, read as wall time
   in the posted zone, else the file's time; a day with no time is the file's own time when that falls on the same day,
@@ -2049,6 +2050,46 @@ Sleep, Key Facts said Friday twice beside Thursday twice, "targets Linux only" t
   by the revision pass**, as does a fact cut off a summary a model rewrote (its words are no input's).
 - **Left:** two passages the same batch's merge wrote that say the current value in different words are not always
   folded into one.
+
+**A correction reaches everything it touched (G104 slice 3, owner 2026-11-23: "if it consolidated a mangled
+transcription, and then we update it, the info that that file affected, can be detected and patched in a way so as not
+to cascade, but being aware tho. This is smth that should extend to all sources"; TODO ruling 75; plan
+`docs/plans/2026-11-23-g104-corrections-propagate.md`).**
+- **One meeting, one episode** (`meeting_transcripts.file_key` / `winner`, `folder_source._meeting`): in a `meetings`
+  folder, files whose names carry the same date **and** time are one meeting (a date alone never joins). The episode
+  holds the greatest `(mtime, relpath)`; a newer file takes it over in place (`EpisodeDraft.replaces`, same id, a
+  `revised` record, `previous_source_ids` kept) and the file it held is recorded in `replaced_files` (capped at 20), never
+  read as its own conversation; a replaced `(relpath, sha)` never wins again while the held file stands, so a rescan
+  after a lost manifest cannot flip it back. Deleting the held file stamps `held_gone_at` and the sync answer asks the app
+  for the next newest (`FolderSyncResponse.resend`; the app drops it from its manifest and posts it, or reports it
+  deleted); until it arrives the episode keeps its words. Every file gone: tombstoned as before. Two live episodes that
+  already share a stamp are never guessed between.
+- **An edit to a file that still exists is a revision**, a split note's sections too: a renamed H2 is matched to its
+  episode by `section.index` (exactly one vanished and one appeared at that position), a removed section or a file that
+  crossed `SPLIT_CHARS` revises the lost section to an empty body (`episode_revision.attach` builds a revision for an
+  emptied episode), never a tombstone.
+- **A source deleted outright keeps what it taught, marked** (ruling 75 b): its claims stay open and counted; every door
+  that draws their evidence carries `sourceRemoved: true` beside the span's `status` (`source_spans.Source.removed`,
+  provenance, page citations, recall detail, `cicada_sources`), derived on read, nothing written.
+- **The cascade** (`revision_cascade`, Stage 5.575, once per batch after the revision claims settle and before 5.58):
+  a page whose name was in the version Sleep read and is gone from the revision, and that nothing else supports
+  (`support_of`: another conversation — waiting ones included, found by the lexical index — an open claim the revision
+  did not close, a person's or agent's commit by `Cicada-Author`, a pinned edit or alias, a project, a Contacts card, a
+  source the person added, an import), is archived (`archived_by: revision`, the episode recorded), its open questions
+  settled by `inbox_tend`'s engine-free `source_corrected` rule; `POST /entities/{id}/restore-correction` puts it back,
+  committed as the person, so it is never archived again by this rule; a later real mention revives it too. A kept page
+  is listed with the support that kept it. An alias said only in the removed text, on no owner, project or media page,
+  is dropped (never added to the person's removed aliases). A held name (`pending_store`) loses the revised conversation
+  from `heard_in` and every held claim only the removed text said (`drop_held`) before release, so a page born in the
+  revising drain never carries the old value. **Nothing cascades past independent support.**
+- **Told, not asked** (ruling 75 f): each run's detail carries a `corrections` object (null when nothing was revised):
+  conversations revised, claims withdrawn / superseded, passages rewritten, pages archived (openable, with Restore),
+  aliases dropped, held claims dropped, questions withdrawn, pages kept and why — ids, enums and counts only; every
+  touched page gains one dated History line naming the corrected conversation; the Sleep commit body lists the revised
+  and archived ids.
+- **Left:** a later conversation resolved to an archived page is independent support, so it is never second-guessed;
+  events (`happened`/`milestone`) stay `progress.py`'s; the live bank's one pre-existing duplicate meeting is not
+  repaired.
 
 **A title is never joined on the name alone when it could be two things (G227, 2026-10-29).** Stage 2's exact-title
 join used to take whichever page held the name (one per title in `existing_by_name`, last writer wins), whatever its
