@@ -666,3 +666,11 @@ def test_a_contradiction_is_dropped_only_when_the_old_value_rests_on_the_revisio
                                                         rev2: frozenset({"rome"})}))
     assert calls and all(f"Page-{i}" in "".join(calls) for i in range(4))     # every page is still checked
     assert [c["id"] for c in changes if c["action"] == "conflict_nudge"] == ["page-1", "page-2", "page-3"]
+
+
+def test_a_corrected_number_is_a_removed_word_whatever_its_length():
+    """G104 slice 3: "5 December" → "12 December" removes the "5"; a bare digit is a fact, not a short word."""
+    from api.services import revision_prose
+    assert {"5", "december"} <= revision_prose.tokens("the move is on 5 December")
+    assert "5" not in revision_prose.tokens("the move is on 12 December")
+    assert "de" not in revision_prose.tokens("el 5 de diciembre")  # short words without a digit still don't count
