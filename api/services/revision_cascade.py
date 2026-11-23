@@ -303,7 +303,7 @@ def support_of(memory_path: Path, page_id: str, fm: dict, body: str, claims: lis
 def _droppable(memory_path: Path, page_id: str, fm: dict, eps: list[str], revisions: dict[str, Revision],
                names_elsewhere: dict[str, set[str]], listed: frozenset[str]) -> list[str]:
     """The aliases of this kept page that only the removed text said. Conservative: nothing from a page with pinned
-    edits, an alias another page (or this one's name) bears, one in the page's last person- or agent-authored commit, or
+    edits, an alias another page (or this one's name) bears, one added by any person- or agent-authored commit of the page, or
     one in any of its other conversations (more than :data:`MAX_OTHER_BODIES` of them, or one unreadable: nothing)."""
     if any(fm.get(k) for k in (*PINNED_KEYS, "human_edited")) or _fixed(page_id, fm, listed):
         return []
@@ -341,11 +341,15 @@ def _droppable(memory_path: Path, page_id: str, fm: dict, eps: list[str], revisi
     person = _person_commits(memory_path, page_id)
     if person is None:
         return []
-    if person:
-        added = _added_lines(memory_path, page_id, person[0][0])
+    for sha, _kind in person:
+        # Every commit a person or an agent authored protects what it added, not only the newest: a later harness
+        # commit must not unprotect an alias the person put there before it (G104 slice 3, review B2).
+        added = _added_lines(memory_path, page_id, sha)
         if added is None:
             return []
         maybe = [a for a in maybe if not _occurs(added, a)]
+        if not maybe:
+            return []
     return maybe
 
 

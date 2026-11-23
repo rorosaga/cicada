@@ -308,6 +308,20 @@ def test_an_alias_another_page_bears_or_the_person_wrote_last_is_kept(memory):
     assert "zu" in _fm(memory, "zed-unknown")["aliases"]
 
 
+def test_an_alias_the_person_added_in_an_older_commit_is_kept_past_a_later_harness_commit(memory):
+    out = _alias_bank(memory)
+    path = memory / "entities" / "zed-unknown.md"
+    parsed = markdown_parser.parse(path)
+    markdown_parser.write(path, {**parsed.frontmatter, "aliases": ["zu", "ZU"]}, parsed.body)
+    _commit(memory, "alias by the person", author="user", touch="zed-unknown")
+    parsed = markdown_parser.parse(path)                                     # a later agent commit adds other words
+    markdown_parser.write(path, parsed.frontmatter, parsed.body + "\nAn agent's note.\n")
+    _commit(memory, "note by an agent", author="claude-code", touch="zed-unknown")
+    report = _run(memory, revised_out=out)
+    assert "zu" in _fm(memory, "zed-unknown")["aliases"]
+    assert report.aliases_dropped == []
+
+
 def test_an_alias_on_a_project_page_is_never_dropped(memory):
     out = _alias_bank(memory, type="project")
     _run(memory, revised_out=out)
