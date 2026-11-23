@@ -269,7 +269,8 @@ final class AppleBooksReaderTests: XCTestCase {
 
     func testReadingIsItsOwnSectionWithAppleBooksGoodreadsAndBookScans() {
         let entries = SourceCatalog.fixed.filter { $0.group == .reading }
-        XCTAssertEqual(entries.map(\.id), [AppleBooksReader.channel, "goodreads", "book-scan"])
+        // 2026-11-08: the person's own Google Books key sits second, an optional catalogue.
+        XCTAssertEqual(entries.map(\.id), [AppleBooksReader.channel, GoogleBooksKeyModel.id, "goodreads", "book-scan"])
         XCTAssertEqual(SourceCategory.reading.title, "Reading")
         XCTAssertNotNil(SourceCatalog.exportHow("goodreads"))
         XCTAssertEqual(SourceKind.order.firstIndex(of: .reading).map { $0 + 1 }, SourceKind.order.firstIndex(of: .import))
