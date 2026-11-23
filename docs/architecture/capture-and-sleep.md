@@ -2087,6 +2087,11 @@ to cascade, but being aware tho. This is smth that should extend to all sources"
   unchanged line, its start or end said by the changed lines — `episode_revision.says_day`, ISO or a day near its month,
   six languages, no model): the revision's re-read item is kept by `keep_changed` and supersedes the old-dated claim in
   Stage 3 (`redated`, no question); a held old-dated claim is dropped before release. A relative date moves nothing.
+  **A revision is the same conversation's people and things:** before `keep_changed`, a re-read name whose bare form
+  (`entity_resolver._bare` — a trailing note in brackets stripped — then case, accents and spacing folded) equals
+  exactly one name or alias of an entity the first read of that conversation made (a page citing it in
+  `source_episodes`, a held line heard in it) is rewritten to that entity's name (`episode_revision.canonical_names`);
+  none or several, nothing is rewritten.
   **Removed words** (`revision_prose.tokens`) count any word with a digit, but a numeral counts as removed only when a
   number replaced it ("5 December" → "12 December"), never a timestamp or list number on a removed line.
   **Nothing cascades past independent support.**
