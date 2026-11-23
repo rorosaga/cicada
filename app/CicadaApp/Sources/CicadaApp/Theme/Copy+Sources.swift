@@ -175,6 +175,18 @@ extension Copy {
             + (total == 1 ? noun.one : noun.many)
     }
     /// G161 (ROR-111) — the control that opens an item where it lives. Each names the person's own source.
+    /// Owner 2026-11-23 — the kept-for-lookup card's words (`KeptForLookupCard`).
+    enum Kept {
+        static let explanation = "Saved with no reason. Search, Ask and your agents can find these; Sleep reads one when you talk about it."
+        static let failed = "Couldn't load these."
+        static func showMore(shown: Int, of total: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
+            "Show more (\(UsageFormat.count(shown, locale: locale)) of \(UsageFormat.count(total, locale: locale)))"
+        }
+        static func sourceLabel(_ name: String, count: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
+            "\(name), \(UsageFormat.count(count, locale: locale)) kept"
+        }
+    }
+
     /// Owner 2026-11-23 — a waiting episode's marker (`EpisodeChange`): the dot's meaning in words.
     enum EpisodeChangeWords {
         static let new = "new"

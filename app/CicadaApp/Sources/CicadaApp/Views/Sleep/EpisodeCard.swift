@@ -93,20 +93,40 @@ enum EpisodeRowText {
     /// A card's footer after its mark: where it is (a page's site and path, "3 tab links", a file's name), how long
     /// ago it last changed, and "read" once Sleep read it. The source's name is never repeated: the source card above
     /// names it once (DR-38), and the mark carries it at a glance.
-    static func footer(_ item: EpisodeQueueItem, target: String?, now: Date = Date()) -> [String] {
+    static func footer(_ item: EpisodeQueueItem, target: String?, now: Date = Date(),
+                       showsState: Bool = true) -> [String] {
         var parts = target.map { [$0] } ?? []
         if let date = parse(item.changedAt ?? item.timestamp) ?? parse(item.timestamp) {
             parts.append(Copy.OriginCard.ago(date, now: now))
         }
+        // A kept save is neither waiting nor read by a model (ruling 62): it says neither.
+        guard showsState else { return parts }
         if item.processed { parts.append("read") }
         if let word = EpisodeChange.of(item)?.footerWord { parts.append(word) }
         return parts
     }
 
+    /// The card's two lines of what it says, or nil when they would only repeat the title: a saved link's record
+    /// opens with its title as a heading and then its own bookkeeping ("Source: bookmark", the link), which the
+    /// title and the footer already say (DR-38).
+    static func preview(_ item: EpisodeQueueItem) -> String? {
+        let text = item.preview.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        let title = (item.title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty, text.hasPrefix("#") {
+            let heading = text.prefix { $0 != "\n" }.drop { $0 == "#" }.trimmingCharacters(in: .whitespaces)
+            if heading == title { return nil }
+        }
+        return text
+    }
+
     /// What VoiceOver reads for a card: the title, then the footer's words.
-    static func cardLabel(_ item: EpisodeQueueItem, target: String?, now: Date = Date()) -> String {
-        let marker = EpisodeChange.of(item).flatMap { $0 == .new ? $0.spoken : nil }   // the others are footer words
-        return ([item.title ?? Copy.SleepDetailsWords.untitled] + footer(item, target: target, now: now)
+    static func cardLabel(_ item: EpisodeQueueItem, target: String?, now: Date = Date(),
+                          showsState: Bool = true) -> String {
+        // The others are footer words.
+        let marker = showsState ? EpisodeChange.of(item).flatMap { $0 == .new ? $0.spoken : nil } : nil
+        return ([item.title ?? Copy.SleepDetailsWords.untitled]
+                + footer(item, target: target, now: now, showsState: showsState)
                 + [marker].compactMap { $0 }).joined(separator: ", ")
     }
 
@@ -170,11 +190,16 @@ enum EpisodeRowAction: Equatable {
 /// `StudyListCard`'s source cards and the room's `SpinePopover` both render it.
 struct EpisodeCard: View {
     let item: EpisodeQueueItem
+    /// False in the kept-for-lookup list (owner 2026-11-23): a kept save neither waits nor was read, so the card
+    /// wears no marker, is never faded and says neither word.
+    var showsState = true
     @Environment(Store.self) private var store: Store?
     @Environment(ProvenanceRouter.self) private var reader: ProvenanceRouter?
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// One Sleep already read is faded until the pointer is on it; a kept save never is.
+    private var faded: Bool { showsState && item.processed }
     private var kind: String? { EpisodeRowAction.copyKind(item) }
     private var target: String? { EpisodeRowText.target(kind: kind, value: item.copyValue) }
 
@@ -182,18 +207,18 @@ struct EpisodeCard: View {
         Button(action: activate) {
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
                 HStack(alignment: .center, spacing: CicadaTheme.scaled(7)) {
-                    if let change = EpisodeChange.of(item) {
+                    if showsState, let change = EpisodeChange.of(item) {
                         Circle().fill(change.color)
                             .frame(width: CicadaTheme.scaled(Tag.dotSize + 1), height: CicadaTheme.scaled(Tag.dotSize + 1))
                             .accessibilityHidden(true)   // the card's label says it
                     }
                     Text(item.title ?? Copy.SleepDetailsWords.untitled)
                         .font(CicadaTheme.rowFont)
-                        .foregroundStyle(item.processed ? CicadaTheme.textSecondary : CicadaTheme.textPrimary)
+                        .foregroundStyle(faded ? CicadaTheme.textSecondary : CicadaTheme.textPrimary)
                         .lineLimit(1)
                 }
-                if !item.preview.isEmpty {
-                    Text(item.preview)
+                if let preview = EpisodeRowText.preview(item) {
+                    Text(preview)
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .lineLimit(2)
@@ -202,12 +227,13 @@ struct EpisodeCard: View {
                 footer
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .originCardChrome(tone: item.processed ? .past : .plain, hovering: hovering)
+            .originCardChrome(tone: faded ? .past : .plain, hovering: hovering)
         }
         .buttonStyle(.cicadaPlain)
         .onHover { hovering = $0 }
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
-        .help(EpisodeRowText.help(item, kind: kind))
+        .help(showsState ? EpisodeRowText.help(item, kind: kind)
+                         : EpisodeRowText.help(kind: kind, timestamp: item.timestamp, changedAt: item.changedAt, id: item.id))
         .contextMenu {
             // Owner 2026-11-23: the original, where it lives — first, then the copy.
             if let opens = EpisodeOpen.target(item),
@@ -216,7 +242,7 @@ struct EpisodeCard: View {
             }
             Button(Copy.SleepDetailsWords.copyAction(kind), action: copy)
         }
-        .accessibilityLabel(EpisodeRowText.cardLabel(item, target: target))
+        .accessibilityLabel(EpisodeRowText.cardLabel(item, target: target, showsState: showsState))
         .accessibilityHint(Copy.SleepDetailsWords.openHint(kind))
         .accessibilityAction(named: Text(Copy.SleepDetailsWords.copyAction(kind)), copy)
         .accessibilityActions {
@@ -230,7 +256,8 @@ struct EpisodeCard: View {
     private var footer: some View {
         HStack(spacing: CicadaTheme.scaled(6)) {
             mark
-            ForEach(Array(EpisodeRowText.footer(item, target: target).enumerated()), id: \.offset) { index, part in
+            ForEach(Array(EpisodeRowText.footer(item, target: target, showsState: showsState).enumerated()),
+                    id: \.offset) { index, part in
                 if index > 0 { Text("·") }
                 Text(part).monospacedDigit()
             }

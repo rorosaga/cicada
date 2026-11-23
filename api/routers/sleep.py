@@ -11,6 +11,8 @@ from api.models.schemas import (
     SleepCancelResponse,
     SleepConsolidated,
     SleepCycleDetail,
+    SleepKept,
+    SleepKeptSource,
     SleepDebtResponse,
     SleepDrain,
     SleepEndRunResponse,
@@ -472,6 +474,11 @@ async def sleep_episodes(
     headers = episode_headers(mp, processed)
     response.headers["X-Total-Count"] = str(len(headers))
     window = headers[offset:offset + limit] if limit is not None else headers[offset:]
+    return _episode_items(mp, window)
+
+
+def _episode_items(mp, window) -> list[EpisodeQueueItem]:
+    """One row per episode file in ``window`` (cached headers): the Waiting list's rows and the kept list's."""
     roots = episode_copy.folder_roots(mp)
     items: list[EpisodeQueueItem] = []
     for ep in episode_rows(window):   # a file gone since the listing is skipped, never a 500
@@ -501,6 +508,50 @@ async def sleep_episodes(
             )
         )
     return items
+
+
+#: Bumped when `GET /sleep/kept` changes shape for the same files (folded into its ETag).
+KEPT_SHAPE = "kept-1"
+
+
+@router.get("/sleep/kept", response_model=SleepKept)
+async def sleep_kept(
+    request: Request,
+    response: Response,
+    origin: str | None = Query(None, max_length=80),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(30, ge=1, le=100),
+    settings: Settings = Depends(get_settings),
+):
+    """What is kept for lookup (ruling 62), in order (owner 2026-11-23: "it would be nice to see what was kept for
+    lookup in a nice orderly manner"): every save with no reason — found by recall, Ask and the hook, read by no
+    model until the person talks about one. ``sources`` is the whole breakdown, most kept first, each with its newest
+    item's time; with ``origin``, ``items`` is that source's page, newest first (``limit`` ≤ 100) — the same rows the
+    Waiting list draws. The same predicate as ``/sleep/queue``'s ``kept`` count, so the two never disagree. Cached
+    headers; a body is read only for the rows sent. Not a Store domain: ETag over ``episodes``."""
+    mp = settings.memory_path
+    folders = sync_service.file_mtime(folder_source.registry_path(mp))
+    etag = sync_service.etag_for(mp, "episodes", extra=f"{KEPT_SHAPE}|{EPISODES_SHAPE}|{origin}|{offset}|{limit}|{folders:.6f}")
+    not_modified = sync_service.conditional(request, response, etag)
+    if not_modified is not None:
+        return not_modified
+    by_origin: dict[str, list] = {}
+    for f in bank_index.files(mp, "episodes"):
+        fm = f.frontmatter
+        if history_index.kind(fm) == "saved" and not fm.get("source_deleted_at"):
+            by_origin.setdefault(queue_origin(fm), []).append(f)
+
+    def stamp(f) -> tuple[str, str]:
+        return str(f.frontmatter.get("timestamp", "") or ""), str(f.frontmatter.get("id", f.stem))
+
+    sources = sorted((SleepKeptSource(origin=o, count=len(files), newest=max(stamp(f) for f in files)[0] or None)
+                      for o, files in by_origin.items()), key=lambda s: (-s.count, s.origin))
+    items: list[EpisodeQueueItem] = []
+    if origin:
+        files = sorted(by_origin.get(origin, []), key=stamp, reverse=True)
+        items = _episode_items(mp, files[offset:offset + limit])
+    return SleepKept(total=sum(s.count for s in sources), sources=sources, origin=origin or None, offset=offset,
+                     items=items)
 
 
 def _run_options_response(settings: Settings) -> SleepRunOptions:

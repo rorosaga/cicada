@@ -60,6 +60,40 @@ final class SleepSourceCardsSnapshotTests: XCTestCase {
         }
     }
 
+    /// The kept-for-lookup card, opened, with one source opened (owner 2026-11-23).
+    func test_writeTheKeptCard() async throws {
+        guard let dir = ProcessInfo.processInfo.environment["CICADA_SLEEP_CARDS_SNAPSHOTS"], !dir.isEmpty else {
+            throw XCTSkip("set CICADA_SLEEP_CARDS_SNAPSHOTS=<dir> to write the review renders")
+        }
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { CicadaTheme.mode = .dark; CicadaTheme.uiScale = 1 }
+        CicadaTheme.uiScale = 1
+        let store = Store(cache: SnapshotCache(root: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)), api: FakeSyncAPI())
+        let vm = SleepViewModel(store: store, putSchedule: { $0 })
+        func saved(_ id: String, _ title: String, _ link: String, daysAgo: Double) throws -> EpisodeQueueItem {
+            try JSONDecoder().decode(EpisodeQueueItem.self, from: JSONSerialization.data(withJSONObject: [
+                "id": id, "timestamp": ISO8601DateFormatter().string(from: Date().addingTimeInterval(-daysAgo * 86_400)),
+                "source": "bookmark", "origin": "chrome-bookmark", "title": title, "preview": "# " + title,
+                "processed": true, "copyKind": "link", "copyValue": link,
+            ]))
+        }
+        let items = [try saved("ep_1", "A guide to continuous corners", "https://example.com/design/corners", daysAgo: 1),
+                     try saved("ep_2", "How tide tables are computed", "https://example.org/tides", daysAgo: 4),
+                     try saved("ep_3", "CRDTs for local-first apps", "https://example.net/crdts", daysAgo: 9)]
+        let sources: [SleepKept.Source] = [.init(origin: "chrome-bookmark", count: 412), .init(origin: "safari-bookmark", count: 96),
+                                           .init(origin: "chrome-tab-group", count: 14)]
+        for mode in [AppColorScheme.light, .dark] {
+            CicadaTheme.mode = mode
+            let view = KeptForLookupCard(kept: 522, load: { origin, _ in
+                SleepKept(total: 522, sources: sources, items: origin == nil ? [] : items)
+            }, initiallyOpen: true, initiallyOpenSources: ["chrome-bookmark"])
+                .padding(CicadaTheme.spacingLG)
+            try snapshot(view, size: CGSize(width: 720, height: 640), mode: mode, store: store, vm: vm,
+                         to: URL(fileURLWithPath: dir).appendingPathComponent("kept-\(mode == .dark ? "dark" : "light").png"))
+        }
+    }
+
     /// The Reader's sentence and wash for a source that changed since Sleep read it (owner 2026-11-23).
     func test_writeTheChangedWash() async throws {
         guard let dir = ProcessInfo.processInfo.environment["CICADA_SLEEP_CARDS_SNAPSHOTS"], !dir.isEmpty else {
