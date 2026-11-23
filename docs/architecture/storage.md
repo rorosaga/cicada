@@ -292,12 +292,28 @@ decaying classes; `evergreen` pins its rate to `0.0` unconditionally.
 | `evergreen` | 0.0 | 0.0 | Never fades. Artifacts (media/bookmarks) + anything the user pins. |
 | `durable` | 0.02 | 0.5 | Stable preferences, skills, long-lived concepts. |
 | `active` | 0.05 | 1.0 | Default for a belief about the user's life. |
-| `volatile` | 0.15 | 2.0 | Expected to change within weeks (role, status, current focus). |
+| `volatile` | 0.15 | 2.0 | A thing that is itself short-lived: an event, a trip, an application, an errand, a decision still being made. Never a person, a company or a project (below). |
 
 **Anti-pollution rail** (mirrors `PRODUCIBLE_ENTITY_TYPES`): Stage-1 may propose
 `durable|active|volatile` and **never `evergreen`** (`AGENT_PRODUCIBLE_DECAY_CLASSES`, enforced at
 extraction AND again in the create branch). Evergreen is reserved for ingest writers and the user,
 so an over-eager extractor can never stop the graph from archiving.
+
+**The class belongs to the thing, never to a fact about it** (2026-11-23). Stage 1 used to read `volatile` as "a fact you
+expect to change within weeks", so a sister who is moving flats, a friend just promoted and an employer the person had
+just joined were each classed volatile for the page's whole life: on the benchmark the employer, the sister and a
+colleague of three meetings faded 3x faster than a programming language, a colleague sat below the question line 18 days
+after the last meeting, and six weeks of silence would have archived the employer and the sister. A fact in motion is a
+claim (a value, a relationship) with its own dates and its own closing (`value_alignment`, `progress`); it never changes
+how fast the page fades. The extraction prompt now defines `volatile` as a short-lived *thing* and `active` as the right
+class for the people, companies, projects and tools the person has a relation with, and one rule holds it in code:
+`decay_policy.agent_class(value, entity_type)` refuses `volatile` for `person`, `company` and `project`
+(`ENDURING_TYPES`), at extraction (`entity_extractor.sanitize_decay_class`) and again where a page is born
+(`conflict_resolver.apply_changes`; the `project` word is read before ruling 56 writes the page as a `concept`). The
+page then takes the type's default (`active`). Rates, thresholds, the floor and the cap are unchanged. **Pages already in
+a bank keep their stored class** (the person's own pick through `PUT /entities/{id}/decay` is stored the same way, so a
+read-time rule could not tell it from a model's word; nothing rewrites a bank): the rule applies to every page born
+after it, and the person can still set any class by hand.
 
 **Both engines honor it.** `conflict_resolver.resolve_and_prune` skips evergreen entities outright —
 no decay math, no nudge, never auto-archived, so a bookmark can't generate a "still interested?"
