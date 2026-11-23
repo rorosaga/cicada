@@ -277,14 +277,18 @@ def test_without_the_search_model_the_page_reads_as_before(bank):
         assert fact not in prompt, "no conversations' index here: the items sharing no word stay off the page block"
 
 
-def test_a_question_that_names_no_page_never_embeds_its_items(bank):
+def test_a_shown_pages_items_are_ranked_by_meaning_in_one_bounded_batch(bank):
+    """2026-11-09 (#772): a shown page's items are ranked by meaning for every question, not only for a list that names
+    the page (the first half of this test asserted the opposite and was left red on `dev`). What still holds: one
+    bounded batch a question, and the second question below embeds nothing, as it always did."""
     _bob_page(bank)
     indexer = _Indexer()
     _prompt(bank, "What activities do I partake in?", pages=("bob-example",), search_fn=_near(indexer))
-    assert indexer.batches == [], "the person's own words name no page; nothing is embedded"
+    assert len(indexer.batches) == 1 and len(indexer.batches[0]) <= ask_sources.SIMILAR_TEXTS
+    indexer = _Indexer()
     _prompt(bank, "What did Bob Example say about the office schedule?", pages=("bob-example",),
             search_fn=_near(indexer))
-    assert indexer.batches == [], "not a list: the page reads as before"
+    assert indexer.batches == [], "unchanged: nothing is embedded for this question"
 
 
 def test_a_failed_or_unavailable_model_leaves_the_page_as_before(bank):
