@@ -279,6 +279,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   another conversation's word stays an update or a conflict (`episode_revision`, `capture-and-sleep.md`). **Slice 2:** the
   passages that said the removed words are rewritten or removed, one call a page at most, never History (it gains the
   change, dated) and never a passage the person or an agent wrote or pinned — that is one inbox question a page (`revision_prose`).
+  **Slice 3 (ruling 75, owner 2026-11-23):** a newer file of the same meeting (same `YYYY-MM-DD HHMM`) revises its one
+  episode; a page, alias, held claim or question only the removed text supported follows (archived undoably, dropped,
+  withdrawn), nothing past independent support; a deleted source keeps what it taught, marked; the run says what changed (`revision_cascade`).
 - **What may be sensitive (G235, ruling 60):** found with no model before an engine reads it (`sensitive_text`: offsets and a
   kind, never a value nor a hash of one); a confident hit is held back as a typed mark, the stored body untouched, an unsure
   one reported; a page never repeats either. **One door:** by value, inside `providers.resolve_llm_fn`, so no engine Cicada

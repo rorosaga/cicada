@@ -815,7 +815,9 @@ small memo keyed on the file's stamp) or from a parse it already makes. First `/
 decided on read, against the source as it is now, by one judge (`Source.status`) answering in one shape (`SourceSpan`):
 `{source, status, kind, hash, at, claimId, current}`. `status` is `current`, `grown`, `derived` (each with `at`) or `stale`,
 `held`, `unlocated` (never with `at`; the citation opens the source and draws nothing). `current` is the claim's: whether
-it is still believed. `at` is `{type: "text", start, end}`, code points into `/episodes/{id}/text`; a recording's time
+it is still believed. **`sourceRemoved`** (G104 slice 3, TODO ruling 75 b) is a boolean beside `status`, never a status:
+true when the source episode carries `source_deleted_at` — the claim stays open and counted, and every door says
+"Removed from its source, kept as evidence" (`source_spans.removed_sentence`); provenance and page citations carry it too. `at` is `{type: "text", start, end}`, code points into `/episodes/{id}/text`; a recording's time
 range or a PDF's page is a later `type`, which an older client decodes, leaves undrawn and still opens. **`held`** is a
 span touching what `sensitive_text` is sure of (G235), minus what the person left: no offsets and no excerpt on `/text`'s
 focus, `/span`, `/citations` or a popover's quote, and an excerpt whose neighbourhood holds a value carries no words. The
