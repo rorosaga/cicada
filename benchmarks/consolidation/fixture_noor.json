@@ -223,6 +223,28 @@
     "Was it a quick fix?",
     "Ten minutes and a new seal."
    ]
+  },
+  {
+   "id": "nv1",
+   "phase": 2,
+   "day": -10,
+   "title": "Tirages",
+   "turns": [
+    "Cartolina vend aussi des tirages A4 de mes meilleures photos, 18 euros pièce.",
+    "Et ils se vendent aussi bien que les cartes ?",
+    "Moins vite, mais ceux qui en achètent un reviennent souvent pour les cartes."
+   ]
+  },
+  {
+   "id": "nv2",
+   "phase": 2,
+   "day": -6,
+   "title": "Japan flights",
+   "turns": [
+    "The flights to Japan are going to cost 900 euros for the two of us.",
+    "Book early, fares only go up.",
+    "I'll book them this week."
+   ]
   }
  ],
  "gold": {
@@ -649,6 +671,46 @@
     "month_of": "03"
    }
   ],
-  "secret": ""
+  "secret": "",
+  "apart_values": [
+   {
+    "id": "A1",
+    "why": "a postcard's price and an A4 print's price, the print said in French: two attributes of one shop",
+    "a": [
+     "cartolina",
+     [
+      "5 euro",
+      "5 eur",
+      "€5",
+      "5€",
+      "5 €"
+     ]
+    ],
+    "b": [
+     "cartolina",
+     [
+      "18 euro",
+      "18 eur",
+      "€18",
+      "18€",
+      "18 €"
+     ]
+    ]
+   },
+   {
+    "id": "A2",
+    "why": "a trip's budget (flights not counted) and its flights: two attributes of one trip",
+    "a": [
+     [
+      "3500",
+      "3,500",
+      "3 500"
+     ]
+    ],
+    "b": [
+     "900"
+    ]
+   }
+  ]
  }
 }

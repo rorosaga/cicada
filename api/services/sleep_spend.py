@@ -10,8 +10,8 @@ The owner, 2026-11-04: "from cicada you can put a limit on spending." It amends 
   far more than any before it, every read then out, at most 3 on a Claude key and 10 on another; plus filing what was
   read, which a batch sized to the allowance left keeps small (``batch_size``). A conversation caught part way through
   its chunks goes back to wait, and is read again next time.
-* **After the line nothing else starts** (``LINE_STAGES``): In short, the web check, link reads and the inbox's judging
-  are refused per call, even on a run with nothing left to read.
+* **After the line nothing else starts** (``LINE_STAGES``): In short, the web check, link reads, the inbox's judging and
+  the value match (`value_alignment`) are refused per call, even on a run with nothing left to read.
 * **Per run, and a Continue is a new allowance.** The figure is snapshotted when a run or a Continue starts; the
   person's click is what spends it again. A scheduled run that reaches it waits for that click. A scheduled run that
   paused on a restart, the engine or a busy bank (``sleep_paused.SCHEDULE_REPLACEABLE``) is replaced by the next one,
@@ -42,7 +42,8 @@ LIMIT = "spend"
 SENTENCE = "Spending limit reached; what was read is kept. Continue spends up to it again."
 NO_PRICE_SENTENCE = "No price known for this model, so the limit can't hold. Change either to go on."
 #: The calls refused past the line. Everything else in a batch files what was already read.
-LINE_STAGES = frozenset({"extraction", "enrichment", "in_short", "media_read", "inbox_tend", "web_check", "web_context"})
+LINE_STAGES = frozenset({"extraction", "enrichment", "in_short", "media_read", "inbox_tend", "web_check", "web_context",
+                         "value_match"})
 #: What one read may write at most (``anthropic_engine.DEFAULT_MAX_TOKENS``): the first batch's price, before any is known.
 READ_OUTPUT_TOKENS = 64_000
 POLL_S = 0.05

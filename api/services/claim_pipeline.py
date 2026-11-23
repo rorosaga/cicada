@@ -51,7 +51,8 @@ from typing import Callable
 
 from loguru import logger
 
-from api.services import episode_revision, markdown_parser, owner_identity, pending_store, phone_numbers, telemetry
+from api.services import (episode_revision, markdown_parser, owner_identity, pending_store, phone_numbers, telemetry,
+                          value_alignment)
 from api.services.claim_reconciler import reconcile_stage3
 from api.services.claims import Claim, is_event, parse_claims, route_values_to_their_thing, write_claims
 from api.services.entity_extractor import entities_to_claims
@@ -465,6 +466,7 @@ def run_claim_pipeline(
     decay: bool = True,
     decided_names: list[str] | None = None,
     revisions: dict | None = None,
+    value_judge: Callable[[str], dict] | None = None,
 ) -> dict:
     """Emit → release → reconcile → write → hold claims over the live entity pages (additive).
 
@@ -489,6 +491,9 @@ def run_claim_pipeline(
             held against a page that bears its name is released there only on these (G209).
         revisions: ``{episode id: episode_revision.Revision}`` — conversations read before and edited since (G104):
             their spans move onto the new body, and what only the removed text said is closed (`episode_revision`).
+        value_judge: Sleep's small judge as ``prompt -> dict`` (`value_alignment.judge_for`); ``None`` makes no call.
+            A new value whose attribute no value on its page is worded like is shown to it once per page, so a value
+            said again in other words (another language included) replaces the old one (G148, 2026-11-23).
 
     Returns a dict: ``{"nudges": [...], "audit": [...], "claims_written": int,
     "subjects_written": int, "subjects_skipped": int, "claims_page_less": int,
@@ -570,6 +575,10 @@ def run_claim_pipeline(
     # G148 (2026-11-23): a value that names another page's thing, and matches a value open there, is that page's.
     routed = [{"action": "value_routed", "claim": claim_id, "from": was, "to": now}
               for claim_id, was, now in route_values_to_their_thing(incoming, existing_by_subject)]
+
+    # G148 (2026-11-23): a value worded unlike every value on its page is shown to the judge, one call a page, and takes
+    # the predicate of the one it restates; Stage 3 then closes the older as it does for any same-attribute value.
+    routed.extend(value_alignment.align(incoming, existing_by_subject, value_judge))
 
     # ---- G104: an edited conversation's spans re-anchored, what only its removed text said marked ----
     revision_plan = episode_revision.reanchor(existing_by_subject, revisions or {})
