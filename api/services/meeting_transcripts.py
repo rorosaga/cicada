@@ -128,13 +128,37 @@ def _offset_text(seconds: float | None) -> str | None:
 
 def clean_label(raw) -> str:
     """A speaker's label as the recorder wrote it: one line, no email, at most 64 characters."""
-    label = " ".join(_TAG.sub("", str(raw or "")).split()).strip(" *:[]")[:64]
+    label = " ".join(_TAG.sub("", "" if raw is None else str(raw)).split()).strip(" *:[]")[:64]
     return "" if _EMAIL_RE.search(label) else label
 
 
 def is_own(label: str) -> bool:
     """Whether the recorder labelled the line as the person's own (:data:`OWN_LABELS`, ruling 52a)."""
     return bool(label) and label.strip().casefold() in OWN_LABELS
+
+
+#: A label a recorder or a diarizer gives someone it could not name (ROR-142): Hex's ``Them`` (everything the call's
+#: audio carried), ``Speaker 1``/``SPEAKER_00``/``Speaker A`` from a diarizer, Otter's ``Unknown Speaker``, ``Guest 3``,
+#: AssemblyAI's bare ``A``, a numbered JSON speaker, and the Spanish words a Spanish recorder writes (``Hablante 1``). A
+#: role word alone or followed by one number or one separated letter, matched whole, so a name that merely contains one
+#: never is.
+_PLACEHOLDER = re.compile(
+    r"(?:(?:them|others?|other (?:side|speaker)|remote|caller|(?:unknown|unidentified|unnamed) speaker|unknown"
+    r"|unidentified|unnamed|speaker|spk|guest|participant|attendee|person|voice"
+    r"|hablante|orador|oradora|desconocid[oa]|invitad[oa]|participante|interlocutora?|otra persona|otros)"
+    r"(?:[\s_-]*\d{1,3}|[\s_-]+[a-z])?|[A-Z]|\d{1,3})", re.IGNORECASE)
+#: The placeholders that may stand for several people at once — one recorder track, not one voice.
+_GROUP_PLACEHOLDERS = frozenset({"them", "others", "other", "other side", "remote", "otros"})
+
+
+def is_placeholder(label: str) -> bool:
+    """Whether ``label`` is a stand-in for an unnamed speaker rather than a name (ROR-142)."""
+    return bool(label) and not is_own(label) and _PLACEHOLDER.fullmatch(" ".join(label.split())) is not None
+
+
+def is_group_placeholder(label: str) -> bool:
+    """A placeholder that names a recording track, so its lines may be several different people (Hex's ``Them``)."""
+    return is_placeholder(label) and " ".join(label.split()).casefold() in _GROUP_PLACEHOLDERS
 
 
 def marker(label: str) -> str:

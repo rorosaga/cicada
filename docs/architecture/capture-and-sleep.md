@@ -724,7 +724,18 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   `own_labels`, `duration_s`, `summary_writer`, `attendees` — a calendar's invitees as the file lists them, never G179's
   `participants` rows) reaches Stage 1 (`sleep_cycle` passes it), whose `meeting_note` says which lines are the
   person's, that `speaker:` lines are someone else's, and that the summary is the recorder's; `consent: unknown` (G95's
-  rail). An edited transcript carries the stager's `revised` record (above), so Sleep reads it as a revision. Wispr Flow's meetings stay
+  rail). **Unnamed speakers (ROR-142):** a label the recorder gave someone it could not name — Hex's `Them`, a
+  diarizer's `Speaker 1`/`SPEAKER_00`/`Speaker A`, Otter's `Unknown Speaker`, AssemblyAI's bare `A`, a numbered JSON
+  speaker, the Spanish `Hablante 1` (`meeting_transcripts.is_placeholder`: a role word alone or with one number or
+  separated letter, matched whole, so a name never is) — is named in Stage 1's slot by one engine call
+  (`meeting_speakers.identify`, over the same masked text the chunks send, at most 60k characters). Code keeps an answer
+  only when its quote is found in the transcript (exact → whitespace → case-insensitive, never fuzzy) and says the name
+  — someone addresses them by it, or they introduce themselves — never the person (52a), never another placeholder,
+  never two names for one voice; a calendar's attendees only help spell a name the transcript says. What is kept reaches
+  the meeting note with its quote; the rest stay placeholders Stage 1 never makes a page for, never takes for the
+  person, and credits only where the transcript's words say who speaks. `Them` and other track-wide labels
+  (`is_group_placeholder`) may name several people. The stored body, labels and offsets never change, so episodes
+  already staged get it too; a failed or refused call reads the meeting as labelled. An edited transcript carries the stager's `revised` record (above), so Sleep reads it as a revision. Wispr Flow's meetings stay
   on their own reader (above), now under the same Sources section; their summary and notes blocks are quoted through the
   same `summary_text` (#579 review, 2026-11-03), so a model line reading `User: …` opens no turn there either.
 - **Messages conversations the person ticks (G179, 2026-10-15).** The app lists `chat.db`'s 200 most recent chats for
