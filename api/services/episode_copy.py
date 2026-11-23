@@ -96,6 +96,40 @@ def open_target(fm: Mapping[str, Any], body: str = "",
     return None
 
 
+#: A chat sitting's title ends with its day and starts with its service: "Messages · <group> · 2026-11-20".
+_SITTING_TITLE = re.compile(r"^[^·]+ · (?P<name>.+) · \d{4}-\d{2}-\d{2}$")
+_CONVERSATION = re.compile(r"[0-9a-f]{16,64}\Z")
+#: `agent_detectors.UNNAMED`, spelled here so this module stays a leaf (it imports no service).
+_UNNAMED = "Unnamed conversation"
+
+
+def chat_of(fm: Mapping[str, Any]) -> Optional[dict]:
+    """The chat one sitting belongs to (owner 2026-11-23: "shouldn't it be just one chat … and per chat the number of
+    new messages in total"), for a Messages, WhatsApp or Telegram sitting: ``{id, name, messages, group}`` — ``id``
+    the chat's hash (the bank never holds its address), ``name`` the correspondent's as the sitting recorded it, a
+    group's from its title, None when the chat has none; ``messages`` this sitting's count. None for anything else.
+    Pure over the frontmatter."""
+    cid = str(fm.get("conversation") or "")
+    if not _CONVERSATION.match(cid) or "message_count" not in fm:
+        return None
+    name: Optional[str] = None
+    correspondent = fm.get("correspondent")
+    if isinstance(correspondent, Mapping):
+        name = str(correspondent.get("name") or "").strip() or None
+        if name == _UNNAMED:
+            name = None   # a sender with no name on record: the app says so in its own words
+    elif not fm.get("self_chat") and (m := _SITTING_TITLE.match(str(fm.get("title") or ""))):
+        name = m.group("name").strip()
+        if name == "group":
+            name = None
+    try:
+        messages = max(int(fm.get("message_count") or 0), 0)
+    except (TypeError, ValueError):
+        messages = 0
+    return {"id": cid, "name": name, "messages": messages, "group": bool(fm.get("group")),
+            "self_chat": bool(fm.get("self_chat"))}
+
+
 def changed_at(fm: Mapping[str, Any]) -> str:
     """The day a row shows: a captured conversation's last capture (it grows in place), else when it was added."""
     if str(fm.get("session_id") or "").strip() and fm.get("captured_at"):

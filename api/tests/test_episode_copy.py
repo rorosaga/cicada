@@ -105,3 +105,35 @@ def test_a_folder_file_opens_only_with_its_full_path_and_a_chat_names_nothing():
         "web", "https://example.net/one")
     assert episode_copy.open_target({"origin": "chrome-tab-group"}, "https://a.example/ https://b.example/") is None
     assert episode_copy.open_target({"origin": "imessage", "conversation": "ab" * 16}) is None
+
+
+# --- the chat a sitting belongs to (owner 2026-11-23) ------------------------------------------------------------
+
+CHAT = "ab" * 16
+
+
+def test_a_sitting_names_its_chat_its_name_and_its_messages():
+    one = {"conversation": CHAT, "message_count": 12, "title": "Messages with bob-example · 2026-11-20",
+           "correspondent": {"name": "bob-example", "kind": "person"}}
+    assert episode_copy.chat_of(one) == {"id": CHAT, "name": "bob-example", "messages": 12, "group": False,
+                                         "self_chat": False}
+    group = {"conversation": CHAT, "message_count": 40, "group": True, "title": "WhatsApp · alpha-project · 2026-11-20"}
+    assert episode_copy.chat_of(group)["name"] == "alpha-project" and episode_copy.chat_of(group)["group"] is True
+    unnamed = {"conversation": CHAT, "message_count": 3, "group": True, "title": "Messages · group · 2026-11-20"}
+    assert episode_copy.chat_of(unnamed)["name"] is None
+    own = {"conversation": CHAT, "message_count": 2, "self_chat": True, "title": "Messages · notes to yourself · 2026-11-20"}
+    assert episode_copy.chat_of(own)["name"] is None and episode_copy.chat_of(own)["self_chat"] is True
+
+
+def test_an_unnamed_sender_is_no_name_and_the_word_matches_the_detectors():
+    from api.services import agent_detectors
+
+    assert episode_copy._UNNAMED == agent_detectors.UNNAMED
+    fm = {"conversation": CHAT, "message_count": 1, "correspondent": {"name": agent_detectors.UNNAMED}}
+    assert episode_copy.chat_of(fm)["name"] is None
+
+
+def test_only_a_chat_sitting_has_a_chat():
+    assert episode_copy.chat_of({"session_id": "s", "title": "A conversation"}) is None
+    assert episode_copy.chat_of({"conversation": "not-a-hash", "message_count": 1}) is None
+    assert episode_copy.chat_of({"conversation": CHAT}) is None, "no message count: not a sitting"

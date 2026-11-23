@@ -4022,6 +4022,16 @@ class SleepConsolidated(CamelModel):
     truncated: bool = False
 
 
+class EpisodeChat(CamelModel):
+    """The chat a waiting sitting belongs to (`episode_copy.chat_of`): its hash, its name when it has one, this
+    sitting's message count, and whether it is a group or the person's notes to themselves."""
+    id: str
+    name: Optional[str] = None
+    messages: int = 0
+    group: bool = False
+    self_chat: bool = False
+
+
 class EpisodeQueueItem(CamelModel):
     id: str
     timestamp: str
@@ -4066,6 +4076,9 @@ class EpisodeQueueItem(CamelModel):
     # (`episode_revision.waiting_state`): "new", "updated" (read before, edited since) or "removed" (deleted at its
     # source); None once read. The Reader shows what changed (`EpisodeText.changes`).
     change: Optional[str] = None
+    # Owner 2026-11-23 (episodes-8) — the chat a Messages, WhatsApp or Telegram sitting belongs to, so the Sleep page
+    # draws one card per chat with its messages counted once; None for every other episode.
+    chat: Optional[EpisodeChat] = None
 
 
 SCHEDULE_MODES = ("manual", "daily", "interval", "after_import")

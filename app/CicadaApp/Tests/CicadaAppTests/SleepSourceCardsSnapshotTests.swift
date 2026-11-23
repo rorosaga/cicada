@@ -23,10 +23,12 @@ final class SleepSourceCardsSnapshotTests: XCTestCase {
             ISO8601DateFormatter().string(from: now.addingTimeInterval(-hoursAgo * 3600))
         }
         func episode(_ id: String, origin: String, title: String, preview: String, hoursAgo: Double,
-                     processed: Bool = false, link: String? = nil, change: String? = "new") throws -> EpisodeQueueItem {
+                     processed: Bool = false, link: String? = nil, change: String? = "new",
+                     chat: [String: Any]? = nil) throws -> EpisodeQueueItem {
             var json: [String: Any] = ["id": id, "timestamp": stamp(hoursAgo), "source": origin, "origin": origin,
                                        "title": title, "preview": preview, "processed": processed]
             if let change, !processed { json["change"] = change }
+            if let chat { json["chat"] = chat }
             if let link { json["copyKind"] = "link"; json["copyValue"] = link }
             return try JSONDecoder().decode(EpisodeQueueItem.self, from: JSONSerialization.data(withJSONObject: json))
         }
@@ -43,6 +45,26 @@ final class SleepSourceCardsSnapshotTests: XCTestCase {
                         preview: "How squircles differ from rounded rectangles, with examples.", hoursAgo: 50,
                         link: "https://example.com/design/corners"),
         ]
+        let chats = [
+            try episode("ep_m1", origin: "imessage", title: "Messages with bob-example · 2026-11-23",
+                        preview: "bob-example: are we still on for Friday?", hoursAgo: 2,
+                        chat: ["id": "b0b", "name": "bob-example", "messages": 14]),
+            try episode("ep_m2", origin: "imessage", title: "Messages with bob-example · 2026-11-22",
+                        preview: "You: sending the notes tonight", hoursAgo: 26, change: "updated",
+                        chat: ["id": "b0b", "name": "bob-example", "messages": 9]),
+            try episode("ep_m3", origin: "imessage", title: "Messages · alpha-project · 2026-11-22",
+                        preview: "carol-example: the build is green", hoursAgo: 30,
+                        chat: ["id": "a1fa", "name": "alpha-project", "messages": 66, "group": true]),
+        ]
+        for mode in [AppColorScheme.light, .dark] {
+            CicadaTheme.mode = mode
+            let view = StudyListCard(rows: [StudyRow(origin: "imessage", label: "Messages", count: 3, oldestAge: "1d",
+                                                     read: nil, total: nil)],
+                                     episodes: chats, queueLoad: .loaded(count: 3), initiallyOpen: ["imessage"])
+                .padding(CicadaTheme.spacingLG)
+            try snapshot(view, size: CGSize(width: 720, height: 330), mode: mode, store: store, vm: vm,
+                         to: URL(fileURLWithPath: dir).appendingPathComponent("chat-cards-\(mode == .dark ? "dark" : "light").png"))
+        }
         let rows = [
             StudyRow(origin: "claude-code", label: "Claude Code", count: 2, oldestAge: "1d", read: nil, total: nil),
             StudyRow(origin: "chrome-bookmark", label: "Chrome bookmarks", count: 1, oldestAge: "2d", read: nil, total: nil),

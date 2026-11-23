@@ -1381,6 +1381,29 @@ struct SleepKept: Codable {
     }
 }
 
+/// The chat a waiting sitting belongs to: its hash (the bank never holds a chat's address), its name when it has one,
+/// this sitting's message count, and whether it is a group or the person's notes to themselves.
+struct EpisodeChat: Codable, Equatable {
+    var id: String
+    var name: String? = nil
+    var messages: Int = 0
+    var group: Bool = false
+    var selfChat: Bool = false
+
+    init(id: String, name: String? = nil, messages: Int = 0, group: Bool = false, selfChat: Bool = false) {
+        self.id = id; self.name = name; self.messages = messages; self.group = group; self.selfChat = selfChat
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? nil
+        messages = (try? c.decodeIfPresent(Int.self, forKey: .messages)) ?? 0
+        group = (try? c.decodeIfPresent(Bool.self, forKey: .group)) ?? false
+        selfChat = (try? c.decodeIfPresent(Bool.self, forKey: .selfChat)) ?? false
+    }
+}
+
 struct EpisodeQueueItem: Codable, Identifiable {
     let id: String
     let timestamp: String
@@ -1417,10 +1440,13 @@ struct EpisodeQueueItem: Codable, Identifiable {
     /// Owner 2026-11-23 — how a waiting episode differs from what Sleep knows: "new", "updated" (read before, edited
     /// since) or "removed" (deleted at its source). Nil once read and from an older backend.
     var change: String? = nil
+    /// Owner 2026-11-23 — the chat a Messages, WhatsApp or Telegram sitting belongs to (`episode_copy.chat_of`), so
+    /// the Sleep page draws one card per chat. Nil for every other episode and from an older backend.
+    var chat: EpisodeChat? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, timestamp, source, origin, title, preview, chars, processed, copyKind, copyValue, changedAt, site
-        case device, openKind, openValue, change
+        case device, openKind, openValue, change, chat
     }
 
     init(from decoder: Decoder) throws {
@@ -1441,6 +1467,7 @@ struct EpisodeQueueItem: Codable, Identifiable {
         openKind = try c.decodeIfPresent(String.self, forKey: .openKind)
         openValue = try c.decodeIfPresent(String.self, forKey: .openValue)
         change = try c.decodeIfPresent(String.self, forKey: .change)
+        chat = (try? c.decodeIfPresent(EpisodeChat.self, forKey: .chat)) ?? nil
     }
 }
 
