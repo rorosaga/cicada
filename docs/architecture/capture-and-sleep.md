@@ -4167,6 +4167,13 @@ is about, who did it, and never say one thing twice. Four mechanisms, each engin
   answered "yes" to everything, folds none of the 9 that a number, date, name, negation or another person tells apart.
   The ask also tells the judge to answer every NEW line first (older lines may only name a new one that says them in full):
   without it a small judge often answered about an older line and skipped the new one.
+- **Two tightenings read off real pages (2026-11-24).** The second reader's prompt named no thing, so it listed the page's
+  own name as missing when one line said it and the other left it out; it is now told what the page is about and that the
+  two read the same. And the code guard gained a floor (`MIN_SHARED` 0.6, lines of `MIN_WORDS` 4+ own words): the keeper
+  must use most of the dropped line's own words. Reading 36 folds proposed on a copy of real pages found one that lost a
+  fact (a line saying all of a set was of one kind, folded into a count of that kind; shared 0.38) and one that lost a
+  qualifier (0.50); every sound fold shared 0.67 or more. The invented pairs never showed it. A translated repeat is
+  therefore kept by the guard: a miss, never a loss.
 - **Pages written before the fold are healed once, by the person (`fact_fold_heal`, `api/scripts/fact_fold_heal.py`, G148;
   owner 2026-11-23: one-time, per-page result read before anything is written).** The live fold acts only when a write brings
   a fact, and one big ask under-proposes: the reported page replayed as ONE write of twelve new lines had the judge propose 7
