@@ -22,6 +22,14 @@ extension Copy {
                        : "\(Copy.SleepV5.count(count, locale)) conversations were edited after they were read."
         }
 
+        /// G244 (ruling 76): who edited the source of what was revised — "Edited by Claude Code" when it was every
+        /// revised conversation, else each named harness with its count ("2 edited by Claude Code, 1 edited by Codex").
+        static func editedBy(_ harnesses: [(name: String, count: Int)], of total: Int,
+                             _ locale: Locale = .autoupdatingCurrent) -> String {
+            if harnesses.count == 1, let only = harnesses.first, only.count >= total { return "Edited by \(only.name)" }
+            return harnesses.map { "\(Copy.SleepV5.count($0.count, locale)) edited by \($0.name)" }.joined(separator: ", ")
+        }
+
         static func claimsWithdrawn(_ count: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
             "\(n(count, "claim", "claims", locale)) only the removed words supported \(count == 1 ? "was" : "were") withdrawn"
         }
@@ -90,6 +98,23 @@ enum CorrectionsPresentation {
         if c.heldDropped > 0 { out.append(Copy.Corrections.heldDropped(c.heldDropped, locale)) }
         if c.questionsWithdrawn > 0 { out.append(Copy.Corrections.questionsWithdrawn(c.questionsWithdrawn, locale)) }
         return out
+    }
+
+    /// G244: who edited the revised conversations' source files, one line; `nil` when the server named nobody. Harness
+    /// names are the app's own (`ReadWords.harnessName`), in the order of their count, then of first appearance.
+    static func editedByLine(_ c: SleepRunDetail.Corrections, locale: Locale = .autoupdatingCurrent) -> String? {
+        var order: [String] = []
+        var counts: [String: Int] = [:]
+        for entry in c.revised {
+            guard let by = entry.by else { continue }
+            let name = ReadWords.harnessName(by)
+            if counts[name] == nil { order.append(name) }
+            counts[name, default: 0] += 1
+        }
+        guard !order.isEmpty else { return nil }
+        let ranked = order.enumerated().sorted { (counts[$0.element] ?? 0, -$0.offset) > (counts[$1.element] ?? 0, -$1.offset) }
+            .map { (name: $0.element, count: counts[$0.element] ?? 0) }
+        return Copy.Corrections.editedBy(ranked, of: max(c.conversationsRevised, c.revised.count), locale)
     }
 
     /// The kept pages' one line, with each distinct reason once, in the order the server listed them.

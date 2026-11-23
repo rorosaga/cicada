@@ -45,6 +45,35 @@ final class SourceSpanTests: XCTestCase {
         XCTAssertFalse(try decode(PageCitationDetail.self, #"{"n":1,"kind":"conversation"}"#).isSourceRemoved)
     }
 
+    /// G244 (ruling 76) — an agent's edit of the source is a `correctedBy` beside `sourceRemoved`, never a status; a quiet
+    /// note names the harness and, when known, the model; an older backend's silence is no note.
+    func testACorrectedByDecodesOnEveryCitationShapeAndSaysWhoInWords() throws {
+        let by = #""correctedBy":{"harness":"claude-code","model":"claude-opus-5-5","at":"2026-11-23T10:00:00+00:00"}"#
+        let span = try decode(SourceSpan.self, #"{"source":"ep_1","status":"current","at":{"type":"text","start":3,"end":9},"# + by + "}")
+        XCTAssertEqual(span.correctedBy?.harness, "claude-code")
+        XCTAssertEqual(span.status, .current, "a correction is never a status")
+        XCTAssertEqual(span.range, 3..<9)
+        XCTAssertEqual(span.correctedBy?.note, "Corrected by Claude Code · Opus 5.5")
+        XCTAssertNil(try decode(SourceSpan.self, #"{"source":"ep_1","status":"current"}"#).correctedBy)
+        XCTAssertNil(try decode(SourceSpan.self, #"{"source":"ep_1","correctedBy":null}"#).correctedBy)
+        XCTAssertEqual(try decode(ProvenanceSpan.self, #"{"episode":"ep_1","kind":"user","# + by + "}").correctedBy?.harness, "claude-code")
+        XCTAssertEqual(try decode(SectionEvidence.self, #"{"sourceTitle":"T","# + by + "}").correctedBy?.harness, "claude-code")
+        let ref = try decode(PageBlocks.Citations.Ref.self, #"{"n":1,"kind":"conversation","# + by + "}")
+        XCTAssertEqual(ref.correctedBy?.note, "Corrected by Claude Code · Opus 5.5")
+        let detail = try decode(PageCitationDetail.self, #"{"n":1,"kind":"conversation","span":{"episode":"ep_1","kind":"user","# + by + "}}")
+        XCTAssertEqual(detail.correctionNote, "Corrected by Claude Code · Opus 5.5", "the located span's record counts")
+        XCTAssertNil(try decode(PageCitationDetail.self, #"{"n":1,"kind":"conversation"}"#).correctionNote)
+    }
+
+    func testTheCorrectionNoteLeavesOutAnUnknownModelAndNeverNamesNobody() throws {
+        let codex = try decode(CorrectedBy.self, #"{"harness":"codex","model":"  ","at":"2026-11-23T10:00:00+00:00"}"#)
+        XCTAssertNil(codex.model)
+        XCTAssertEqual(codex.note, "Corrected by Codex")
+        XCTAssertEqual(try decode(CorrectedBy.self, #"{"harness":"cursor","model":"some-new-model"}"#).note,
+                       "Corrected by Cursor · some-new-model", "a model this app has no name for is shown as sent")
+        XCTAssertNil(try decode(CorrectedBy.self, #"{"model":"claude-opus-5-5"}"#).note)
+    }
+
     func testWhatMayNotBeDrawnHasNoRangeWhateverIsSent() throws {
         for status in ["stale", "held", "unlocated", "something-new"] {
             let span = try decode(SourceSpan.self, #"{"source":"ep_1","status":"\#(status)","at":{"type":"text","start":3,"end":9}}"#)

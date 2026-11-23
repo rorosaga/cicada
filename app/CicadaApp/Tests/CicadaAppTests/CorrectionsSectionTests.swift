@@ -51,6 +51,25 @@ final class CorrectionsSectionTests: XCTestCase {
                        "3 pages kept because something else supports them (another conversation, a source you added)")
     }
 
+    /// G244 (ruling 76): a revised entry may name who edited its source; the plain id list still decodes.
+    func test_aRevisedEntryNamesWhoEditedItsSourceWhenTheServerSaid() throws {
+        let en = Locale(identifier: "en_US")
+        let plain = try XCTUnwrap(try detail(withCorrections).corrections)
+        XCTAssertEqual(plain.revised.map(\.episode), ["ep_a", "ep_b"])
+        XCTAssertNil(CorrectionsPresentation.editedByLine(plain, locale: en), "an id list names nobody")
+
+        let all = try XCTUnwrap(try detail(#"""
+        {"id":"r","corrections":{"conversationsRevised":2,"revised":[{"episode":"ep_a","by":"claude-code"},{"episode":"ep_b","by":"claude-code"}]}}
+        """#).corrections)
+        XCTAssertEqual(all.revised.map(\.by), ["claude-code", "claude-code"])
+        XCTAssertEqual(CorrectionsPresentation.editedByLine(all, locale: en), "Edited by Claude Code")
+
+        let mixed = try XCTUnwrap(try detail(#"""
+        {"id":"r","corrections":{"conversationsRevised":3,"revised":["ep_a",{"episode":"ep_b","by":"codex"},{"episode":"ep_c","by":"claude-code"},{"episode":"ep_d","by":"claude-code"}]}}
+        """#).corrections)
+        XCTAssertEqual(CorrectionsPresentation.editedByLine(mixed, locale: en), "2 edited by Claude Code, 1 edited by Codex")
+    }
+
     func test_anUnknownSupportIsNeverTheRawEnum() throws {
         let c = try XCTUnwrap(try detail(#"""
         {"id":"r","corrections":{"conversationsRevised":1,"pagesKept":[{"page":"p","episode":"e","support":"made_up_kind"}]}}

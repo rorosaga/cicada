@@ -218,6 +218,12 @@ extension Copy.Provenance {
     static let notInBank = "No longer in this bank"
     /// G104 slice 3 — a quiet note beside a citation whose source was removed from where it came from.
     static let sourceRemoved = "Removed from its source, kept as evidence"
+    /// G244 (ruling 76) — a quiet note beside a citation whose words an agent edited in their source. The words stay
+    /// their speaker's; this only names the editor. The model is left out when it was not known.
+    static func correctedBy(_ harness: String, model: String? = nil) -> String {
+        guard let model, !model.isEmpty else { return "Corrected by \(harness)" }
+        return "Corrected by \(harness) · \(model)"
+    }
     static let staleCaption = "This conversation changed since, so the words may have moved"
     static let inferredByCicada = "Inferred by Cicada"
     static func showAllConversations(_ n: Int) -> String { "Show all \(UsageFormat.count(n))" }
