@@ -1158,3 +1158,38 @@ def test_a_rule_change_never_brings_a_deleted_unread_file_back(bank):
     fs.sync(bank, folder, [], [HEX_NAME])
     assert episode_staging.reattribute(_paths(bank)[sid], extra={}, queue_for_sleep=True) is False
     assert _episodes(bank)[sid].frontmatter["processed"] is True
+
+
+# --- The recorder's icon on the Sleep page and Sources ---------------------------------------------------------------------
+
+
+def test_a_recorders_meetings_group_under_the_recorder_and_other_folders_stay_folders(bank):
+    from api.services import sleep_cycle, sleep_progress
+
+    hex_folder, hex_sid = _one(bank, HEX_NAME, HEX)
+    notes = fs.register(bank, label="alpha-project", path="/a", device="mac-1")
+    fs.sync(bank, notes, [_file("notes.md", "Some notes about the alpha-project plan.")], [])
+    plain = fs.register(bank, label="Calls", path="/c", device="mac-1", kind="meetings")
+    fs.sync(bank, plain, [_file("call.srt", SRT)], [])
+    by_source = {fm.frontmatter["source_id"]: fm.frontmatter for fm in _episodes(bank).values()}
+    assert sleep_cycle.queue_origin(by_source[hex_sid]) == "hex"
+    assert sleep_cycle.queue_origin(by_source[next(s for s in by_source if "call.srt" in s)]) == "folder"
+    assert sleep_cycle.queue_origin(by_source[next(s for s in by_source if "notes.md" in s)]) == "folder"
+    bank_index.invalidate()
+    waiting = sleep_progress.unprocessed_ids(bank)
+    assert sorted(waiting.values()) == ["folder", "folder", "hex"]   # the count and the rows read the same function
+
+
+def test_a_recorders_folder_card_on_sources_carries_the_recorders_mark(bank):
+    from api.services import sync_state
+
+    hex_folder = fs.register(bank, label="Hex Meetings", path="/m", device="mac-1", kind="meetings", recorder="hex")
+    plain = fs.register(bank, label="Calls", path="/c", device="mac-1", kind="meetings")
+    for folder, name, text in ((hex_folder, HEX_NAME, HEX), (plain, "call.srt", SRT)):
+        fs.sync(bank, folder, [_file(name, text)], [], tz_name="Europe/Madrid")
+        sync_state.record_sync(bank, fs.channel_for(folder), count=1)
+    channels = channel_registry.build_channels(bank, telegram_enabled=False)
+    bank_index.invalidate()
+    cards = {o["id"]: o for o in source_overview.build_overview(bank, channels=channels)}
+    assert cards[f"meetings:{hex_folder['id']}"]["mark"] == "hex"
+    assert cards[f"meetings:{plain['id']}"]["mark"] == "folder"

@@ -173,8 +173,9 @@ INTENTS = ("saved", "captured")
 #: v11: Spotify's library and listening, G32; v12: Readwise removed by owner direction, 2026-11-03; v13: GitHub, G230;
 #: v14: Substack's saves and reading days, G89; v15: Telegram chats labelled "Telegram", the bot feed
 #: "Telegram bot", 2026-11-04; v16: Apple Books, Goodreads and book scans, the Reading kind, G39/G233; v17: `kept`,
-#: ruling 62; v18: the publications followed, on their own row out of RSS's, G89).
-SHAPE = "overview-v18"
+#: ruling 62; v18: the publications followed, on their own row out of RSS's, G89; v19: a recorder's meeting folder
+#: carries the recorder's mark, 2026-11-23).
+SHAPE = "overview-v19"
 
 #: Sources v4 (owner 2026-10-19: "I don't understand how Sleep is also a source on the page"). A check record is the
 #: episode Cicada writes as the citation for a question a check settled — `web_settle` (a web lookup Sleep or an agent

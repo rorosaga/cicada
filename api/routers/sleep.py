@@ -439,7 +439,7 @@ async def sleep_queue(
 
 
 #: Bumped when a row of `GET /sleep/episodes` gains a field or changes for the same files (folded into its ETag).
-EPISODES_SHAPE = "episodes-3"   # episodes-3: `device` (G212); episodes-2: `site` (owner 2026-10-20)
+EPISODES_SHAPE = "episodes-4"   # episodes-4: a recorder's meetings group under it (`queue_origin`); episodes-3: `device` (G212); episodes-2: `site` (owner 2026-10-20)
 
 
 @router.get("/sleep/episodes", response_model=list[EpisodeQueueItem])

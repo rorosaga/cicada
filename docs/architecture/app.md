@@ -2297,7 +2297,7 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
 - **Sleep's machines strip (G212):** under the room, `GET /devices/status` polled every `CicadaTiming.machinePoll`
   (30 s) while the page shows, held in memory: each machine by its own name (this server's Computer Name), a green dot
   while connected, how (Local · Tailscale · SSH · Local network), *N waiting*. A click opens that machine's queue in
-  Waiting (rows rebuilt from its own episodes; `GET /sleep/episodes` rows carry `device`, shape `episodes-3`). The
+  Waiting (rows rebuilt from its own episodes; `GET /sleep/episodes` rows carry `device`, shape `episodes-4`). The
   engine line is UI-A's.
 - **A recorder's meetings wear the recorder's own icon (2026-11-23, R-L1, DR-52).** An episode of a meeting folder set up
   for a known recorder (`meeting.recorder`, today `hex`) is grouped on the Sleep page under that recorder, not "Folder":

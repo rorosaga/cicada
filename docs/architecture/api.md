@@ -440,7 +440,7 @@ name a `cicada_…` tool; `llms.txt` maps each to its operation), `data`'s shape
 - The device rides three reads, ids only (the app names it from `GET /devices`): `GET /sources` rows (`device`, from
   the save's episode; `SHAPE` `device-1` moves the ETag once, and the app's `SnapshotCache.schema` is 3 in the same
   change), `GET /entities/{id}/provenance` conversations (`device`, the newest one in the group) and
-  `GET /episodes/{id}/text` (`device`). The last two are not Store domains.
+  `GET /episodes/{id}/text` (`device`). The last two are not Store domains. **Meetings (2026-11-23):** a meeting transcript's `/episodes/{id}/text` also carries `meeting` (`recorder`, `summaryTurn`, `summaryWriter`, `durationS`, `app`, `attendees` as a count, `voicesSplitBy`, `voices`) and each meeting speaker turn's `speaker` is the name to show with `speakerKind` (`named`/`numbered`/`group`/`unknown`) — derived on read, additive; `GET /sleep/episodes` shape `episodes-4` and `GET /sources/overview` shape `overview-v19` group and mark a recorder's meetings by the recorder (`app.md`).
 - `CICADA_API_BASE`, else the app's `$CICADA_HOME/api_base` (written only on the person's click in Settings → Devices,
   0600): `runtime_layout._raw_base` and its stdlib twin `hook_client.raw_base` read the file only from the real
   environment or one that names its own `CICADA_HOME`, so a test's bare dict never reaches a home.
