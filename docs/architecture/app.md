@@ -1521,10 +1521,10 @@ should grow smoothly for the first few lines and then scroll; more reasons that 
 what is being saved).** *The field grows.* `TextField(axis: .vertical)` starts at one line and grows a line at a time as
 the words wrap or break (⌥⏎, the Mac's line break in a field; Return still saves) up to **five lines**
 (`SaveWhyField.maxLines`), then scrolls inside. Five because the words cap at 500 characters and a line holds about 60,
-so five show ≈ 300 — most answers whole — while the card stays a short drop from the notch. The height is measured, not
-left to AppKit (`SaveWhyField.lineCount`: the text's own breaks plus wrapping at the field's measured width, in the
-field's font — `SaveWhyField.fontSize`, the one number the field is both drawn and measured in, since a 12-vs-13 pt drift
-clipped a wrapped second line, owner 2026-11-23), so the card and the notch's shape grow with it in one transaction: `CicadaMotion.fieldGrow` (0.12 s,
+so five show ≈ 300 — most answers whole — while the card stays a short drop from the notch. The height is the field's
+own layout (`lineLimit(1...maxLines)` with a vertical `fixedSize`), never a line count measured beside it: that
+prediction clipped what it under-counted — first at the wrong size, then a long word the field editor broke differently
+(owner 2026-11-23, twice) — so the card and the notch's shape grow with it in one transaction: `CicadaMotion.fieldGrow` (0.12 s,
 `CicadaCurve.out`), in one frame under Reduce Motion. DR-60 lists keyboard *commands*; a field growing to hold typed words
 is the content's own size, which the owner asked to be smooth — dated ruling in DESIGN_RULES (2026-10-23). The window is
 made `SaveWhyField.growthReserve` taller than the card up front (clear below it, the view top-aligned), so it never resizes
