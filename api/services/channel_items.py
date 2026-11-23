@@ -135,7 +135,8 @@ from api.services.channel_registry import CHANNEL_IDS
 #: `g161-19`: ROR-108 — a followed feed's row carries the mark it wears: `mark` (a bundled one) or `site`.
 #: `g161-20`: G89 — a followed Substack publication lists on `substack-feeds`; `rss` lists only the other feeds.
 #: `g161-21`: ROR-15 — a Notes row the person pinned in Notes carries `pinned` (pinned rows list first, as a chat's do).
-SHAPE = "g161-21"
+#: `g161-22`: a saved link's `site` key is its own host, not its registrable domain (owner 2026-11-23).
+SHAPE = "g161-22"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -508,8 +509,15 @@ def _feed_mark_fields(record: dict) -> dict:
     """What a feed's row draws before its name: its bundled mark, else the key of its own site."""
     if mark := _feed_mark(record):
         return {"mark": mark}
-    site = reading_hosts.mark_key(str(record.get("url") or ""))
+    site = reading_hosts.mark_key(_feed_home(record))
     return {"site": site} if site else {}
+
+
+def _feed_home(record: dict) -> str:
+    """A feed's site for its mark: the registrable domain of its URL. A feed is often served from a plumbing host
+    (``feeds.…``, ``rss.…``) with no face of its own, so — unlike a saved page (owner 2026-11-23) — it keeps its
+    site's icon, never its host's."""
+    return reading_hosts.site_of(str(record.get("url") or ""))
 
 
 def feed_site(memory_path: Path, feed: str) -> str | None:
@@ -521,7 +529,8 @@ def feed_site(memory_path: Path, feed: str) -> str | None:
     record = _followed(Path(memory_path)).get(feed)
     if record is None or _feed_mark(record):
         return None
-    return logo_service.own_site_domain(str(record["url"]))
+    home = _feed_home(record)
+    return logo_service.own_site_domain(f"https://{home}/") if home else None
 
 
 def _feed_filer(followed: dict[str, dict]):

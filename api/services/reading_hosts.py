@@ -343,10 +343,25 @@ def site_label(site: str) -> str:
 
 def mark_key(url_or_host: str) -> str | None:
     """The one key a saved thing's site mark is drawn under (owner 2026-10-20: every surface draws a saved link with
-    its own site's mark): ``site_of`` when it is a valid site key, else None. A name the app keys its icon cache and
-    its bundled family mark by — the icon itself is always asked by the item's id, never by this name."""
+    its own site's mark): a walled family's name, else the link's OWN HOST (``www.`` stripped) — never folded into its
+    registrable domain (owner 2026-11-23: a page on ``research-hub.<domain>`` drew the parked apex's icon; a browser
+    tab shows the host's own). None when the site is not a valid key. A name the app keys its icon cache and its
+    bundled family mark by — the icon itself is always asked by the item's id, never by this name."""
     site = site_of(url_or_host or "")
-    return site if valid_site_key(site) else None
+    if not valid_site_key(site):
+        return None
+    host = _bare_host(url_or_host or "")
+    if "." in site and host != site and host.endswith("." + site) and _SITE_KEY.match(host):
+        return host
+    return site
+
+
+def _bare_host(url_or_host: str) -> str:
+    """A URL's or bare host's host: lower-case, no port, no trailing dot, ``www.`` stripped."""
+    raw = url_or_host or ""
+    host = host_of(raw) if "://" in raw else raw.strip().lower().rstrip(".")
+    host = host.split("/")[0].split(":")[0]
+    return host[4:] if host.startswith("www.") else host
 
 
 def valid_site_key(key: str) -> bool:

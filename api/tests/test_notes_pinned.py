@@ -108,7 +108,7 @@ def test_the_row_carries_the_pin_and_pinned_rows_list_first(memory):
     page = channel_items.items(memory, "notes", limit=10)
     rows = page["items"]
     assert rows[0].get("pinned") is True and "pinned" not in rows[1]
-    assert channel_items.SHAPE == "g161-21"
+    assert int(channel_items.SHAPE.rsplit("-", 1)[1]) >= 21, "the shape that added `pinned`, or a later one"
 
 
 def test_the_pin_is_one_line_in_stage_ones_source_note():
