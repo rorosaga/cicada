@@ -583,8 +583,11 @@ enum ReaderHeader {
         return SavedLinkMarkModel.mark(site: site, host: site, title: doc.title, door: .episode(doc.episode))
     }
 
-    static func markOrigin(harness: String?, origin: String?) -> String {
+    /// The mark beside a source's title: the harness, else a meeting's recorder (a Hex meeting wears Hex's own icon, never
+    /// the folder it was read from; owner 2026-11-23), else the origin.
+    static func markOrigin(harness: String?, origin: String?, recorder: String? = nil) -> String {
         if let h = harness, !h.isEmpty { return h }
+        if let r = recorder, !r.isEmpty { return r }
         if let o = origin, !o.isEmpty { return o }
         return "unknown"
     }

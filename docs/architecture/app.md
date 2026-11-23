@@ -3832,11 +3832,13 @@ name is the server's word (`speaker`/`speakerKind` on the turn, `meeting_transcr
 name, "Others on the call" for the group track, "Someone else" for an unknown voice), so the monogram's initials match
 it. The recorder's summary is no bubble: `EpisodeText.meeting.summaryTurn` marks it and `ReaderMeetingHeaderView` draws
 it as a quiet card pinned above the chat, under the title (a chat opens at its newest message, so a row in the history
-would never be seen first) — the other side's bubble fill with the resting ring, "Summary · written by Hex", a *Hide
-summary* / *Show summary* text button (remembered per viewer in the app's defaults, never animated; a summary holding a
-cited passage stays open), the facts the episode holds ("17 min · Google Meet · 3 attendees") and, when a tool split the
-voices, "Voices split on this Mac by <tool> (N voices). Speaker numbers are its guess." The summary scrolls inside the card
-past 220 pt. The stored body is unchanged. A chat's title drops a
+would never be seen first) — the other side's bubble fill with the resting ring. Compact by default (owner 2026-11-23): one line
+"Summary · written by Hex · 17 min · Google Meet" and the summary's first two lines in the meta size; a *More* / *Less*
+text button (remembered per viewer in the app's defaults, never animated; a summary holding a cited passage opens whole)
+shows the whole summary, the recorder's note and, when a tool split the voices, "Voices split on this Mac by <tool> (N
+voices). Speaker numbers are its guess." The open summary scrolls inside the card past 220 pt. The Reader's title wears the
+recorder's mark (`ReaderHeader.markOrigin`'s `recorder`: Hex's own icon, never the folder it was read from). The stored
+body is unchanged. A chat's title drops a
 trailing " · YYYY-MM-DD" and its meta drops the day and the turn count, naming the agent only when the capture line
 does not (`ReaderHeader.title`, `chatMeta`); a document's header is unchanged. Day separators ("Today", "Yesterday", a weekday, "Thu, Sep 3") replace a date per turn,
 computed when read; a gate-B2 gap is a centred line with its stamps as clock times. No "turn N", on screen or in
