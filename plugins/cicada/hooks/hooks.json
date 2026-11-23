@@ -1,5 +1,5 @@
 {
-  "description": "Cicada: Stop saves the session (G105) and, when one changed, the agent's memory notes (ruling 43); PreCompact and SessionEnd flush the same capture (G110 gate A); SessionStart and UserPromptSubmit add what Cicada remembers (G149).",
+  "description": "Cicada: Stop saves the session (G105) and, when one changed, the agent's memory notes (ruling 43); PreCompact and SessionEnd flush the same capture (G110 gate A); SessionStart and UserPromptSubmit add what Cicada remembers (G149); after a file tool edits a watched source file, the edit is recorded with its harness and session (G244).",
   "hooks": {
     "Stop": [
       {"hooks": [{"type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/cicada-hook capture --harness claude-code", "timeout": 5}]}
@@ -9,6 +9,9 @@
     ],
     "SessionEnd": [
       {"hooks": [{"type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/cicada-hook capture --harness claude-code", "timeout": 5}]}
+    ],
+    "PostToolUse": [
+      {"matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [{"type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/cicada-hook source-edit --harness claude-code", "timeout": 5}]}
     ],
     "SessionStart": [
       {"hooks": [{"type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/cicada-hook recall --harness claude-code", "timeout": 5}]}

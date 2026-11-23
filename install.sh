@@ -20,7 +20,8 @@
 #   codex CLI is present) — merged in, never clobbering other hooks; re-run
 #   after moving the repo. --uninstall removes it.
 #   It also registers the G149 recall hooks (hooks.SessionStart + hooks.UserPromptSubmit →
-#   api/hooks/recall.py) the same way; CICADA_RECALL=off skips them.
+#   api/hooks/recall.py) the same way; CICADA_RECALL=off skips them, and the G244 source-edit hook
+#   (hooks.PostToolUse on Claude Code's file tools → api/hooks/source_edit.py).
 #   Claude Code's door is the Cicada plugin when it is enabled, installed and able to run a
 #   Cicada (owner 2026-10-19; `registry.py plugin`): it carries the MCP server, the skill and
 #   every Claude Code hook, so this script registers none of them for Claude Code and removes
@@ -72,6 +73,10 @@ hook_command() { printf '"%s" "%s" --harness %s' "$VENV_PY" "$HOOK_SCRIPT" "$1";
 RECALL_SCRIPT="$REPO/api/hooks/recall.py"
 # G149: the recall hook's command — `agent_wiring.recall_hook_command`, character for character.
 recall_command() { printf '"%s" "%s" --harness %s' "$VENV_PY" "$RECALL_SCRIPT" "$1"; }
+# G244: the PostToolUse hook that records an agent's edit of a watched source file (Claude Code's file tools).
+SOURCE_EDIT_SCRIPT="$REPO/api/hooks/source_edit.py"
+SOURCE_EDIT_MATCHER='Edit|Write|MultiEdit|NotebookEdit'
+source_edit_command() { printf '"%s" "%s" --harness %s' "$VENV_PY" "$SOURCE_EDIT_SCRIPT" "$1"; }
 # The Claude Code plugin (owner 2026-10-19): `registry.py plugin` prints "<state>: <detail>" — on (enabled, installed
 # and able to run a Cicada: Claude Code's door, and this script registers no Claude Code hook or MCP entry), off, or
 # broken (enabled but it would run nothing: this script's entries stay). Read-only (-B: not even a bytecode cache); the
@@ -183,12 +188,12 @@ if [ "$DO_UNINSTALL" -eq 1 ]; then
   fi
 
   if [ -x "$VENV_PY" ]; then
-    step "Removing the session-capture and recall hooks"
+    step "Removing the session-capture, recall and source-edit hooks"
     run "$VENV_PY" "$HOOKS_REGISTRY" uninstall --settings "$CLAUDE_SETTINGS" || true
     [ -f "$CODEX_HOOKS" ] && { run "$VENV_PY" "$HOOKS_REGISTRY" uninstall --settings "$CODEX_HOOKS" || true; }
     [ -f "$CODEX_AGENTS_MD" ] && { run "$VENV_PY" "$HOOKS_REGISTRY" agents-md-uninstall --settings "$CODEX_AGENTS_MD" || true; }
     [ -f "$CURSOR_HOOKS" ] && { run "$VENV_PY" "$CURSOR_REGISTRY" uninstall --settings "$CURSOR_HOOKS" || true; }
-    ok "Capture and recall hooks removed (if they existed)"
+    ok "Capture, recall and source-edit hooks removed (if they existed)"
   else
     warn "venv missing — remove the api/hooks/capture.py and api/hooks/recall.py entries from $CLAUDE_SETTINGS by hand"
   fi
@@ -509,6 +514,19 @@ for ev in PreCompact SessionEnd; do
     fi
   fi
 done
+
+# G244 (ruling 76): the same hook family's PostToolUse entry — after Claude Code's file tools edit a file, the edit of a
+# watched source file is recorded with its harness and session. It does nothing for a file outside a watched folder,
+# and costs no request for one (the folder list is cached). The plugin carries it when it is on; `registry.py
+# uninstall` (no --hook) removes it with the others.
+if [ "$PLUGIN_ON" -eq 1 ]; then
+  ok "Claude Code's source-edit hook comes from its plugin"
+elif run "$VENV_PY" "$HOOKS_REGISTRY" install --settings "$CLAUDE_SETTINGS" --event PostToolUse \
+    --matcher "$SOURCE_EDIT_MATCHER" --command "$(source_edit_command claude-code)"; then
+  ok "Claude Code PostToolUse source-edit hook registered in $CLAUDE_SETTINGS (idempotent)"
+else
+  warn "Could not register the PostToolUse source-edit hook in $CLAUDE_SETTINGS — fix the file and re-run ./install.sh"
+fi
 
 # --- 5c. Implicit recall hooks (G149) ---
 # SessionStart sends the primer and UserPromptSubmit a short note of what memory
