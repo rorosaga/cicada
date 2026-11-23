@@ -62,6 +62,13 @@ class _Ref:
     conversation_id: str | None = None
     first: str | None = None
     last: str | None = None
+    #: G104 slice 3: how many of ``episodes`` were removed from their source (tombstoned, kept as evidence).
+    removed: int = 0
+
+    @property
+    def source_removed(self) -> bool:
+        """Every conversation this reference holds is gone from its source: one that still stands keeps it unmarked."""
+        return bool(self.episodes) and self.removed == len(self.episodes)
 
 
 @dataclass
@@ -144,6 +151,8 @@ class _Sources:
                 conversation_id=conversation, source_kind=source_spans.kind_of(doc_id, fm)))
         if doc_id not in ref.episodes:
             ref.episodes.append(doc_id)
+            if source_spans.removed_at(fm) is not None:
+                ref.removed += 1
             if said:
                 # By instant, never by string (G114 R2): a bank holds naive, `Z` and `+00:00` stamps side by side.
                 when = episode_ids.timestamp_sort_key
@@ -258,10 +267,13 @@ def table(memory_path: Path, entity_id: str, *, fm: dict, body: str, claims) -> 
 
 
 def _ref_dict(ref: _Ref) -> dict:
-    return {"n": ref.n, "kind": ref.kind, "title": ref.title, "origin": ref.origin, "harness": ref.harness,
-            "correspondent": ref.correspondent, "first": ref.first, "last": ref.last,
-            "episodeId": ref.episodes[-1] if ref.episodes else None, "conversationId": ref.conversation_id,
-            "sourceKind": ref.source_kind}
+    out = {"n": ref.n, "kind": ref.kind, "title": ref.title, "origin": ref.origin, "harness": ref.harness,
+           "correspondent": ref.correspondent, "first": ref.first, "last": ref.last,
+           "episodeId": ref.episodes[-1] if ref.episodes else None, "conversationId": ref.conversation_id,
+           "sourceKind": ref.source_kind}
+    if ref.source_removed:
+        out["sourceRemoved"] = True   # G104 slice 3: absent means "still there", as every older client reads it
+    return out
 
 
 def block(memory_path: Path, entity_id: str, *, fm: dict, body: str, claims) -> dict | None:
@@ -353,7 +365,8 @@ def ref_words(ref: dict) -> str:
     when = " – ".join(dict.fromkeys(d[:10] for d in (ref.get("first"), ref.get("last")) if d))
     where = ", ".join(b for b in (ref.get("harness") or ref.get("origin"), when) if b)
     title = f' "{ref["title"]}"' if ref.get("title") else ""
-    return f"[{ref['n']}] {ref['kind']}{title}" + (f" ({where})" if where else "")
+    gone = " (source removed, kept as evidence)" if ref.get("sourceRemoved") else ""
+    return f"[{ref['n']}] {ref['kind']}{title}" + (f" ({where})" if where else "") + gone
 
 
 def belief_words(belief: dict) -> str:

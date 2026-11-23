@@ -727,6 +727,8 @@ class PageCitationRef(CamelModel):
     conversation_id: Optional[str] = None
     #: ROR-16: what the source is (`source_spans.kind_of`), so a citation says what it opens.
     source_kind: str = "conversation"
+    #: G104 slice 3: every conversation this reference holds was removed from its source (kept as evidence).
+    source_removed: bool = False
 
 
 class PageCitationBelief(CamelModel):
@@ -1475,6 +1477,9 @@ class SourceSpan(CamelModel):
     at: Optional[SpanAt] = None
     claim_id: Optional[str] = None
     current: bool = True
+    #: G104 slice 3: the source was removed from where it came from. Beside ``status``, never one of its values: the
+    #: stored words are kept, so the span still reads what its offsets say. Derived on read, never written.
+    source_removed: bool = False
 
 
 class SourceSpanGroup(CamelModel):
@@ -1624,6 +1629,8 @@ class ProvenanceSpan(CamelModel):
     derived: bool = False
     #: ROR-16 (G235): the words are held back; no offsets and no excerpt travel.
     held: bool = False
+    #: G104 slice 3: the conversation was removed from its source (``source_spans.removed_at``); the words are kept.
+    source_removed: bool = False
 
 
 class PageCitationDetail(PageCitationRef):
@@ -1721,6 +1728,8 @@ class SectionEvidence(CamelModel):
     source_available: bool = False
     status: str = "not_checked"
     span: Optional[ProvenanceSpan] = None
+    #: G104 slice 3: the cited conversation was removed from its source; the claim stays open.
+    source_removed: bool = False
 
 
 class SectionProvenanceItem(CamelModel):
