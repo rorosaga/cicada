@@ -33,6 +33,25 @@ final class SaveWhyTests: XCTestCase {
 
     // MARK: - The trigger rules
 
+    /// The notch shows the mark of the source the save was noticed in: a browser its installed icon, a source with a
+    /// saved list its bundled logo (so a later trigger for X or Instagram needs no new wiring), and a source with
+    /// neither nothing at all, never a stand-in glyph.
+    func testTheNotchShowsTheSourcesOwnMarkOrNothing() {
+        let yes: (String) -> Bool = { _ in true }, no: (String) -> Bool = { _ in false }
+        let chrome = SavedBookmarkLookup.origin(forChannel: "chrome-bookmarks")
+        XCTAssertEqual(SaveWhySourceMark.rung(for: chrome, appInstalled: yes, bundled: yes),
+                       .app(bundleId: "com.google.Chrome"))
+        XCTAssertEqual(SaveWhySourceMark.rung(for: chrome, appInstalled: no, bundled: yes), .bundled(name: "chrome"))
+        for (origin, logo) in [("x-bookmarks", "x"), ("instagram-saved", "instagram"), ("linkedin-saved", "linkedin"),
+                               ("pinterest", "pinterest"), ("reddit-saved", "reddit"), ("tiktok-saved", "tiktok"),
+                               ("youtube-playlist", "youtube")] {
+            XCTAssertEqual(SaveWhySourceMark.rung(for: origin, appInstalled: yes, bundled: yes), .bundled(name: logo))
+        }
+        XCTAssertNil(SaveWhySourceMark.rung(for: chrome, appInstalled: no, bundled: no))
+        XCTAssertNil(SaveWhySourceMark.rung(for: "", appInstalled: yes, bundled: yes))
+        XCTAssertNil(SaveWhySourceMark.rung(for: "no-such-source", appInstalled: yes, bundled: yes))
+    }
+
     func testOneBookmarkMadeAMomentAgoIsAsked() {
         XCTAssertEqual(SaveWhyPolicy.decide(inputs(result([fresh()]))), .ask(fresh()))
     }

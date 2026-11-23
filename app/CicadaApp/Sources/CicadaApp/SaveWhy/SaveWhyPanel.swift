@@ -247,6 +247,8 @@ struct SaveWhyPanelView: View {
     static var contentWidth: CGFloat { width - 2 * CicadaTheme.spacingMD }
     /// The bookworm's room-art size (64 × 48 at 1×, the sheet's own frame timings).
     static let mascotPoints: CGFloat = 48
+    /// The small head's size in a notch panel: the 18 × 18 sprite at 2×.
+    static let headPoints: CGFloat = 36
 
     /// Top-aligned in a window taller than the card (`SaveWhyField.growthReserve`), so the card grows downward.
     var body: some View {
@@ -383,21 +385,79 @@ struct SaveWhyPanelView: View {
     private func header(_ state: SaveWhyPanelState) -> some View {
         HStack(alignment: .center, spacing: CicadaTheme.spacingSM) {
             // The mascot, curious (its "?" beat), on the sheet's own clock; decorative, the question says it all.
-            BookwormView(state: .curious(count: 1), pointSize: Self.mascotPoints)
-                .accessibilityHidden(true)
+            // Owner 2026-11-23 (a trial, pending their look): the worm's small head, asking, in every notch panel. The
+            // room worm's "?" is drawn in dark ink for a light wall, so on the notch's black only its light pixels
+            // showed ("some weird white pixels"); the head is the menu bar's own sprite, made for a dark bar.
+            WormFace(mood: .asking, size: Self.headPoints)
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
                 Text(Copy.SaveWhy.question)
                     .font(CicadaTheme.font(size: 13, weight: .semibold))
                     .foregroundStyle(CicadaTheme.Notch.textPrimary)
-                Text(state.item.map { Copy.SaveWhy.subject(title: $0.title, host: $0.host, resave: $0.resave == true,
-                                                           saved: state.isEditing) }
-                     ?? Copy.SaveWhy.pendingSubject(browser: BrowserInventory.spec(forBookmarksChannel: state.channel)?
-                                                    .name))
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.Notch.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                HStack(alignment: .center, spacing: CicadaTheme.scaled(5)) {
+                    // Where the save was noticed (owner 2026-11-23: "a small logo of the app that is being read, so
+                    // there is some sort of confirmation"): the source's own mark (DR-52), before what was saved.
+                    SaveWhySourceMark(origin: SavedBookmarkLookup.origin(forChannel: state.channel))
+                    Text(state.item.map { Copy.SaveWhy.subject(title: $0.title, host: $0.host,
+                                                               resave: $0.resave == true, saved: state.isEditing) }
+                         ?? Copy.SaveWhy.pendingSubject(browser: BrowserInventory.spec(forBookmarksChannel: state.channel)?
+                                                        .name))
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.Notch.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
+        }
+    }
+}
+
+/// The mark of the source a save was noticed in, beside the notch's subject line: Chrome for a Chrome bookmark, and
+/// each later source (X, Instagram, …) its own, keyed by the same origin its saves are stored under. `OriginMark`'s
+/// precedence without its SF Symbol rung — the installed app's icon, else the bundled mark, else nothing: a stand-in
+/// glyph would confirm nothing. Reads no `Store` (the notch's hosting view carries none), so it loads the mark itself.
+struct SaveWhySourceMark: View {
+    let origin: String
+    /// The caption line's own height at 1×, so the header is no taller with the mark than without.
+    static let points: CGFloat = 14
+
+    /// Which mark a source draws: its installed app's icon, else its bundled logo.
+    enum Rung: Equatable {
+        case app(bundleId: String)
+        case bundled(name: String)
+    }
+
+    /// The rung for `origin`, or nil when this source has no real mark on this Mac. Pure: the two lookups are passed
+    /// in, so the precedence is tested without Launch Services or a resource bundle.
+    static func rung(for origin: String, appInstalled: (String) -> Bool, bundled: (String) -> Bool) -> Rung? {
+        guard !origin.isEmpty else { return nil }
+        if let bundleId = OriginIconography.appBundleId(for: origin), appInstalled(bundleId) {
+            return .app(bundleId: bundleId)
+        }
+        if let name = OriginIconography.logoName(for: origin), bundled(name) { return .bundled(name: name) }
+        return nil
+    }
+
+    /// The mark to draw, or nil when this source has no real one on this Mac.
+    @MainActor
+    static func image(for origin: String, size: CGFloat) -> NSImage? {
+        switch rung(for: origin, appInstalled: { InstalledAppIcon.image(bundleId: $0, size: size) != nil },
+                    bundled: LogoImage.exists(name:)) {
+        case let .app(bundleId)?: InstalledAppIcon.image(bundleId: bundleId, size: size)
+        case let .bundled(name)?: LogoImage.bundledImageNow(for: name)
+        case nil: nil
+        }
+    }
+
+    var body: some View {
+        let size = CicadaTheme.scaled(Self.points)
+        if let image = Self.image(for: origin, size: size) {
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: size, height: size)
+                .clipShape(CicadaTheme.shape(size * 0.22))
+                .accessibilityLabel(OriginIconography.label(for: origin))
         }
     }
 }

@@ -177,10 +177,27 @@ final class ConnectSuggestCenter {
         }
     }
 
-    private func show(_ target: ConnectSuggestApps.Target, name: String, bundleId: String, pid: pid_t) {
+    /// G221 — the page in the front browser is on a site whose saves Cicada can notice and the person has not
+    /// connected it: the same offer, the same rules (the switch, once a day, No is kept, Not now waits), with the
+    /// site's own mark. `connected` is the site's switch on this Mac.
+    func offer(site: SiteSaveSite, connected: Bool, pid: pid_t, bundleId: String) {
+        let target = ConnectSuggestApps.site(site.key)
+        let context = ConnectSuggestPolicy.Context(
+            now: now(), enabled: store.enabled, memoryKnown: memoryKnown(), setUp: setUp(), isDemo: isDemo(),
+            status: connected ? .connected : .off, appLaunchedAt: nil, cicadaLaunchedAt: launchedAt,
+            saveWhyOpen: saveWhyOpen(), showing: state != nil)
+        let decision = ConnectSuggestPolicy.decide(target, memory: store.memory, context: context)
+        lastDecision = decision
+        guard case .suggest = decision else { return }
+        let mark = OriginIconography.logoName(for: site.origin).flatMap(LogoImage.bundledImageNow(for:))
+        show(target, name: site.name, bundleId: bundleId, pid: pid, icon: mark)
+    }
+
+    private func show(_ target: ConnectSuggestApps.Target, name: String, bundleId: String, pid: pid_t,
+                      icon mark: NSImage? = nil) {
         let at = now()
         store.memory = ConnectSuggestPolicy.shown(target.entryId, name: name, at: at, in: store.memory)
-        icon = iconFor(pid)
+        icon = mark ?? iconFor(pid)
         state = ConnectSuggestPanelState(target: target, appName: name, bundleId: bundleId, shownAt: uptime())
         Self.logger.info("show \(target.entryId, privacy: .public)")
         presenter?.show(self)

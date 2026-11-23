@@ -20,6 +20,7 @@
 
 - **2026-11-04 — stale backlog tags corrected, checked against code and git (docs only).** 26 rows carried tags older than their work: DONE or REDIRECT where a merged PR or a later ruling settles it, VERIFY where only a live check is left. Rows the quick pass called finished but a second look could not prove stay as they were: G1 (cross-bank references unbuilt), G84, G87, G146, G161 (its open work is #602) and G204 (`_determine_action` still reports a fold as `written`). The owner also keeps a private tracker for bigger pieces as a log of where things stand; this backlog keeps the reasoning and the rulings, and decisions stay in chat. Rebased onto dev 2026-11-07: G233's tag is left as dev has it (BUILT, later work), the other 25 apply unchanged.
 - **2026-11-06 — question settling (G98, ROR-31; branch `question-settle`, PR 2 of the question audit).** The dry run's decisions 1–8 taken as recommended (ruling 73). Built, nothing applied to any bank: `same_value`, `moved_on`, `own_bookkeeping`, `already_described`, `not_fading` (all vetted); `same_conversation` dropped; rivals written closed on a pick and when a later value wins; no page line when no value changed; a new contradiction opens its own question; "Is X your partner?". Left alone: the 37 piled-up questions (splits), fading (ROR-129; 31 decay questions held), the 16 same-spelling merges. The next drain after merge applies the rules to existing questions (a bulk write): regenerate the dry-run hashes on a fresh clone and use the vetted apply first.
+- **2026-11-23 — a save inside a site asks why, and four sites are connected from the notch (G221, ruling 77; branch `feat/notch-source-mark`).** The ask-why notch now follows the person's own save on X, Instagram, GitHub and TikTok: the app reads the clicked save control through Accessibility with no word matched, stores the post under the site's own source (`POST /sources/site-save`, index-only until a reason) and asks; an unsave only marks it. A site is connected per Mac from the notch's offer (ring, then check) or the Sources page → Browsers. The notch shows the source's mark and the worm's small head (a trial). Backend also holds a save's site folders and one reason per folder (inherited, marked). Not built: Reddit, LinkedIn, YouTube (menu or dialog saves), TikTok's feed, Safari, keyboard saves, folders at the moment of saving and a screen for folder reasons. Tests: `SiteSaveTests`, `test_site_save.py`, `test_save_folders.py`.
 - **2026-11-23 — the same-name judge no longer splits one person whose life moved on (G148; #800).** #785 split a person's partner (a new job, a move) onto a hidden held line in 4 of 42 stored runs; replayed, its prompt split one person in 13% of calls. Now a split needs two facts that cannot both hold at the same time, copied word for word from the descriptions and checked in code (`_contrast_located`); dates are read; unsure means the known person. 0 false splits in 460 replays and 3 benchmark runs, the two real people apart in 3 of 3, 212 of 240 true splits kept. New: the replay battery (`same_name_battery.py`) and the benchmark's `one_person_ok`, which reads held lines too. Open for the owner: silent split or always one question; the main model for this call.
 - **2026-11-23 — a value's join is judged with the person's own words (G148; branch `fix/value-join-source-line`).** The small judge now reads the located line behind each value, so a refused true join drops from about 1 in 7 to 1 in 34 on 102 invented cases with no false join in 168; the benchmark's language update is right 3 of 3. Open: a value with no span of the person's own is judged on wording alone.
 - **2026-11-23 — on a slept memory Ask's search by meaning had no room (G148; branch `feat/ask-multi-hop`).** Its room counted the pages, which alone exceed the window, so it added nothing after Sleep. Now it counts only the lines shown and reads 8 conversations. LoCoMo slept, two runs a side: 163 and 160 → 167 and 168 of 200, multi-hop 57 and 56 → 62 and 61 of 76, +10% tokens; the control is 168. Open: half the multi-hop prompts still miss a turn.
@@ -3830,6 +3831,32 @@ A whole row moves to DONE only after its remaining implementation and required a
    Cicada's own tools carries harness, session and model, while a direct file edit carried nothing, and the corrected words
    read as the recorder's. **Trigger to revisit:** a wrong attribution measured (a hash matched to the wrong episode), or a
    harness whose hook can name the editor more cheaply.
+
+77. **A save made inside a site is noticed from the control the person clicked, through Accessibility, with no word matched (owner, 2026-11-23; G221, extends G191 and amends G231's "a website in the front tab is not a trigger").**
+   The owner, after the Chrome notch: "i want to make it for x too, so that it asks me the moment i save a post in a
+   robust way"; on the route: "if accessibility solves all this, it should be the one we implement, but also important
+   to have it work on different languages and stuff, always"; on cost: "this is an oss app i want people to have so me
+   paying for all that i dont see feasible" (a paid API is never the default way in); on connecting: "a small notch
+   notification catches when the user is on X, and says smth like connect cicada to x, with a dont ask again, or ask me
+   later … then this flow can extend to other sources"; on folders: "folder reasons yes they do make sense".
+   (a) **The trigger is the person's own click on the site's save control**, read by the app through the Accessibility
+   permission: that control and the row of controls it sits in, in the front browser, on a site the person connected
+   — never the feed, another post, a message, or a page of any other site (the read stops at the page's address).
+   (b) **No word of a site's interface is matched, in any language:** a control is recognised by position and the
+   post's own link, a save by its label changing, the direction by evidence in a fixed order (the saved list's page,
+   a count moving by one, labels learned on this Mac from a certain change, the page's other posts); with none,
+   nothing is stored and nobody is asked. A layout the table does not know reads as nothing, never a guess.
+   (c) **Nothing is watched until the person connects a site**, per Mac, in Settings or from the notch's offer; the
+   offer may be triggered by the page in front only when Accessibility is already granted and the offer switch is on,
+   and the address is kept nowhere. The app never asks for the permission by a prompt.
+   (d) **A noticed save is the row a list read writes** (same origin, canonical link, aliases), index-only until the
+   person gives a reason (ruling 62 stands); an unsave removes nothing and marks the save as off the list.
+   (e) **A folder on the site stays a filing label; its reason is the person's** and is inherited by the saves filed
+   there, marked as inherited, which makes them readable (ruling 62's "they give a reason" includes a folder's).
+   (f) **Not a way to read more:** direct messages, feeds and what the person reads stay under their own rails (G179,
+   G218); anything beyond a save control needs its own ruling. Measured facts and what is not built: `app.md`,
+   "A save inside a site". **Revisit** if a site's markup makes a rule misfire (it must fail to nothing), or when
+   Safari, keyboard saves or the menu-and-dialog sites (Reddit, LinkedIn, YouTube) are taken up.
 
 74. **Sleep joins two people pages when two independent signals agree (owner, 2026-11-07; ROR-136, amends rulings 29 and 41's "a question only").**
    The owner agreed to Sleep joining pairs he would spot at a glance, and warned: "I remember you mentioned some pairs that

@@ -184,6 +184,16 @@ enum CicadaMotion {
         reduceMotion ? fade : .spring(duration: notchGrowDuration, bounce: notchGrowBounce)
     }
 
+    /// G221 — a site connected from the notch: the ring closes around the worm, then the check appears.
+    static let connectRingDuration: TimeInterval = 0.6
+    static let connectCheckDuration: TimeInterval = 0.2
+    static func connectRing(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : CicadaCurve.out(connectRingDuration)
+    }
+    static func connectCheck(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : CicadaCurve.out(connectCheckDuration).delay(connectRingDuration)
+    }
+
     static func notchShrink(reduceMotion: Bool) -> Animation {
         reduceMotion ? fade : .spring(duration: notchShrinkDuration)
     }

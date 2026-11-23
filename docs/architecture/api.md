@@ -1100,3 +1100,32 @@ page (~2 s at 4,400 links on a 9,000-page memory) and was an `async def` doing t
 waited behind it (2.6 s measured). The build runs in `run_in_threadpool` and the built list is kept per `(bank, sort)`
 under the ETag it was built for (the one a 304 already trusts), for five minutes at most because relevance decays with
 the day. Warm `?sort=relevance` 1,938 → 128 ms; a page read during a rebuild waits ≤ 565 ms, not 2.6 s.
+
+**`POST /sources/site-save` and `POST /sources/site-unsave` (G221, ruling 77, 2026-11-23)** — a save the person made
+inside a site, noticed by the app from the control they clicked (`app.md`, "A save inside a site"). Body
+`{site, url, text?, folders?, removeFolders?}`: `site` is `x`, `instagram`, `tiktok` (and any other key of
+`saved_lists.PLATFORMS` with a list label) or `github`; `url` the post's own link in any spelling; `text` the post's
+own words as its page showed them (a preview, scrubbed, never the person's words). `site_saves.target` decides the
+row: the site's own origin and list label with `saved_lists.canonical`'s link and aliases — the row
+`cicada_record_saved_list` and the site's connector write for the same post, never a second (one Instagram post is
+one row by `/p/`, `/reel/` or `/tv/`); a starred repository is a saved link under `github-starred`, which the GitHub
+connector's next sync makes the repository's page in place. Nothing is fetched and no model runs; like every save
+from a platform's list it is index-only until the person says why (ruling 62), and `POST /sources/saved-why` against
+the returned `url` is what queues it for Sleep. Answers `{status: created|duplicate, url, title, origin, episodeId,
+mediaEntityId, addedAt, folders, reason}`. **Unsave** takes the same body and removes nothing: the save's episode
+gains `left_site_at`, served as one more `leftBrowser` entry named for the site, cleared when the post is saved
+again; `{status: marked|unchanged|unknown, url}`. Both: 422 for an unknown site or a link that is not a post of it;
+409 in a demo bank or while Sleep holds the pages; committed alone as the person (`user/site_save`,
+`user/site_unsave`). Tests: `api/tests/test_site_save.py`.
+
+**Folders of a save (G221, 2026-11-23).** `POST /sources/site-save` also takes `folders` (the site's own folder names the
+post is filed in, joined to the save's folders on that one episode) and `removeFolders`, and answers `folders` (the post's
+folders under that site now) and `reason` (`own`, `folder` or null: a client need not ask again for either); a post saved
+before is a `duplicate` that is filed, never a second row. `GET /sources/save-folders?site=x` lists a site's folders —
+`{site, origin, saves, unfiled, folders: [{name, saves, indexOnly, reason}]}`, `indexOnly` being what a reason would make
+readable. `POST` and `PUT /sources/save-folder-reason` `{site, folder, reasons, text, dryRun, confirm}` give a folder ONE
+reason or change it (the earlier words stay under `reason.before`) and answer `{origin, folder, reason, changed, applied,
+needsConfirm, counts: {saves, makesReadable, alreadyReadable, noLongerReadable}}`; `DELETE ?site=&folder=` clears it (404
+for none). 422 for an empty or unknown reason or a site with no saves, 409 in a demo bank or while Sleep holds the pages;
+committed alone as the person. `GET /sources` items gain `saveFolders` and `folderWhy` (the shape version `save-folders-1`).
+Design in `storage.md`.

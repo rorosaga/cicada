@@ -657,6 +657,35 @@ final class SaveWhyCenter {
              options: fetched, confirmed: true)
     }
 
+    /// G221 — a save the person just made inside a site (`SiteSaveWatcher`): saved under that site's own source
+    /// first, then asked about like a bookmark the browser's file confirmed. The same rules decide (the switch, a
+    /// muted site, one save one question); a save the backend cannot take now (Sleep is writing, an older backend)
+    /// is not asked about, since there would be nothing to hold the answer.
+    func siteSaved(_ item: SiteSaveItem, text: String = "") async {
+        let reply: SiteSaveReply
+        do {
+            reply = try await api.saveSiteItem(site: item.site, url: item.url, text: text)
+        } catch {
+            SaveWhyTimings.logger.info("a site save was not stored, so it is not asked about")
+            return
+        }
+        let fresh = FreshBookmark(url: reply.url, title: reply.title, origin: reply.origin, channel: reply.origin,
+                                  episodeId: reply.episodeId, addedAt: reply.addedAt,
+                                  resave: reply.status == "duplicate")
+        var result = BookmarkSyncResult(new: reply.status == "created" ? 1 : 0, skipped: 0, sources: [
+            BookmarkSyncSourceSummary(origin: reply.origin, channel: reply.origin, found: 1,
+                                      new: reply.status == "created" ? 1 : 0, skipped: 0, firstSync: false),
+        ])
+        result.fresh = [fresh]
+        result.freshTotal = 1
+        await noticed(result, live: true)
+    }
+
+    /// G221 — the person took a post off their list on the site. Never asked about; the save stays, marked.
+    func siteUnsaved(_ item: SiteSaveItem) async {
+        try? await api.unsaveSiteItem(site: item.site, url: item.url)
+    }
+
     /// The refusals that mean the unconfirmed panel's bookmark will not be asked about.
     static func withdraws(_ reason: SaveWhyPolicy.Reason) -> Bool {
         switch reason {
@@ -671,8 +700,11 @@ final class SaveWhyCenter {
     func preview(channel: String) async {
         let fetched = (try? await api.savedWhyOptions()).flatMap { $0.reasons.isEmpty ? nil : $0 }
             ?? SaveWhyPreview.sampleOptions
+        show(preview: SaveWhyPreview.sample(channel: channel), options: fetched)
+    }
+
+    private func show(preview item: FreshBookmark, options fetched: SavedWhyOptions) {
         if isShowing { send(.escape) }
-        let item = SaveWhyPreview.sample(channel: channel)
         open(SaveWhyPanelState(item: item, order: fetched.order, maxText: fetched.maxText),
              options: fetched, confirmed: true)
         previewing = true

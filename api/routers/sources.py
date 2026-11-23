@@ -21,6 +21,9 @@ from api.models.schemas import (
     BookmarkSyncRequest,
     BookmarkSyncResponse,
     BookmarkTreePreview,
+    FolderReasonRequest,
+    FolderReasonResponse,
+    FolderWhy,
     MediaSourceItem,
     NotesSyncRequest,
     NotesSyncResponse,
@@ -30,6 +33,7 @@ from api.models.schemas import (
     SafariTabsPreview,
     SafariTabsSyncRequest,
     SafariTabsSyncResponse,
+    SaveFolderRef,
     SavedWhyEditRequest,
     SavedWhyOptions,
     SavedWhyRecord,
@@ -37,6 +41,7 @@ from api.models.schemas import (
     SavedWhyResponse,
     SavedWhySuggestRequest,
     SavedWhySuggestResponse,
+    SiteFoldersResponse,
     SourceChannel,
     SourceChannelsResponse,
     SourceListResponse,
@@ -71,6 +76,7 @@ from api.services import (
     reader_catch_up,
     safari_tabs,
     saved_at as saved_at_service,
+    save_folders,
     saved_why,
     site_captures,
     source_collections,
@@ -636,6 +642,144 @@ async def sync_bookmarks_fresh(
 SAVED_WHY_BUSY = "Sleep is updating your memory — your answer wasn't saved. Try again in a moment."
 
 
+class SiteSaveRequest(BaseModel):
+    """A save the person just made inside a site, noticed by the app from the control they clicked (G221)."""
+    #: The site's key (``x``, ``instagram``, ``github``, ``tiktok``; ``site_saves.target``).
+    site: str = Field(..., min_length=1, max_length=20)
+    #: The post's own link, in any spelling of that site's.
+    url: str = Field(..., min_length=1, max_length=2000)
+    #: The post's own words as its page showed them to the person, when the app could read them: a preview of the
+    #: post, never the person's words.
+    text: str | None = Field(None, max_length=4000)
+    #: G221 (owner 2026-11-23): the site's own folders the post is filed in, as the site shows them. Joined to the
+    #: folders the save already has, on that one save, in place; filing a saved post later is never a second row.
+    folders: list[str] = Field(default_factory=list, max_length=save_folders.MAX_PER_SAVE)
+    #: Folders the person took the post out of.
+    removeFolders: list[str] = Field(default_factory=list, max_length=save_folders.MAX_PER_SAVE)
+
+
+class SiteSaveResponse(BaseModel):
+    status: str
+    #: The link as stored (the site's canonical spelling), which is what an answer is posted against.
+    url: str
+    title: str
+    origin: str
+    episodeId: str
+    mediaEntityId: str
+    #: This moment of saving, as the answer's ``added_at`` (a save made again later is a new moment).
+    addedAt: str
+    #: The post's folders under this site now.
+    folders: list[str] = []
+    #: Whether the post already has a reason: `own` (the person said why they saved it), `folder` (only a folder's
+    #: reason covers it), or null. A client has no need to ask again for either.
+    reason: str | None = None
+
+
+class SiteUnsaveResponse(BaseModel):
+    #: ``marked`` (the save now says since when it is off the list), ``unchanged`` or ``unknown`` (never saved here).
+    status: str
+    url: str
+
+
+#: A save noticed while Sleep holds the pages (the app tries again with the next save; nothing is written).
+SITE_SAVE_BUSY = "Sleep is updating your memory — this save is not in Cicada yet."
+
+
+@router.post("/sources/site-save", response_model=SiteSaveResponse, dependencies=_DEMO_GATE)
+async def save_site_item(request: SiteSaveRequest, settings: Settings = Depends(get_settings)) -> SiteSaveResponse:
+    """G221 (owner 2026-11-23) — the person saved a post inside a site (X's Bookmark, Instagram's Save, GitHub's Star,
+    TikTok's Favorite) and the app noticed their own click. The post becomes one saved item under that site's own
+    origin and list label — the row ``cicada_record_saved_list`` and the site's connector write for the same post, by
+    the same canonical link and aliases (``site_saves.target``), so a later list read is this row and never a second.
+
+    Nothing is fetched (the post is behind a login) and no model runs: the row is the link, a title, and the post's
+    own words when the app could read them off the person's page. Like every save from a platform's list it is
+    index-only until the person says why (ruling 62); the notch's answer (``POST /sources/saved-why``, by the
+    returned ``url``) is what makes Sleep read it. A post saved again after an unsave loses its ``left_site_at``
+    mark. 422 for a site with no saved list or a link that is not a post of it, 409 in a demo bank or while Sleep
+    holds the pages. Committed alone, as the person."""
+    from api.services import episode_ids, site_saves
+    from api.services.media_ingestor import MediaMeta, PreparedItem
+
+    target = site_saves.target(request.site, request.url)
+    if target is None:
+        raise HTTPException(status_code=422, detail="That is not a post of a site Cicada keeps saves for.")
+    url = target.url
+    memory_path = Path(settings.memory_path)
+    text = site_saves.clean_text(request.text)
+    title = site_saves.title_for(text, media_ingestor._fallback_title(url))
+    added_at = episode_ids.utc_now_seconds()
+    item = RawItem(url=url, title=title, folder=target.folder, origin=target.origin, aliases=list(target.aliases),
+                   preview=text or None, defer_enrich=True, added_at=added_at)
+    meta = MediaMeta(title=title, description=text, site=media_ingestor._site_of(url),
+                     media_type=media_ingestor._classify(url))
+
+    async def write() -> SiteSaveResponse:
+        def stage():
+            idx = media_ingestor.load_url_index(memory_path)
+            result = media_ingestor.write_prepared(PreparedItem(item, meta), memory_path, idx, append_list=True)
+            media_ingestor.save_url_index(memory_path, idx)
+            cleared = False
+            if result.status != "created" and result.episode_id:
+                episode = memory_path / "episodes" / f"{result.episode_id}.md"
+                cleared = episode.is_file() and site_saves.clear_left(episode)
+            # G221: the folders the site shows for it — on this one save, in place (also what makes it readable when a
+            # folder carries the person's reason).
+            filed = save_folders.file_save(memory_path, result.episode_id, target.origin,
+                                           add=request.folders, remove=request.removeFolders)
+            return result, cleared, filed
+
+        result, cleared, filed = await run_in_threadpool(stage)
+        paths = (["sources/url_index.json", f"entities/{result.media_entity_id}.md", f"episodes/{result.episode_id}.md"]
+                 if result.status == "created"
+                 else [filed["path"] or f"episodes/{result.episode_id}.md"] if (cleared or filed["path"]) else [])
+        if paths:
+            try:
+                await media_ingestor._commit_media(memory_path, 1, paths, author="user", sessions=None,
+                                                   trigger="user/site_save")
+            except Exception as e:  # noqa: BLE001 — a non-git bank (tests) keeps the save
+                logger.warning(f"Site save commit failed: {type(e).__name__}: {e}")
+        return SiteSaveResponse(status=result.status, url=url, title=result.title or title, origin=target.origin,
+                                episodeId=result.episode_id, mediaEntityId=result.media_entity_id, addedAt=added_at,
+                                folders=filed["folders"], reason=filed["reason"])
+
+    return await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(SITE_SAVE_BUSY))
+
+
+@router.post("/sources/site-unsave", response_model=SiteUnsaveResponse, dependencies=_DEMO_GATE)
+async def unsave_site_item(request: SiteSaveRequest, settings: Settings = Depends(get_settings)) -> SiteUnsaveResponse:
+    """G221 — the person took a post off their list on the site (the app noticed their own click). Nothing is removed
+    here: the save, its reasons and whatever Sleep learned from it stay, and the save's episode records since when it
+    is off the list (``left_site_at``, served as ``leftBrowser`` beside a bookmark's). A post Cicada never held is
+    ``unknown`` and nothing is written. 422 and 409 as ``POST /sources/site-save``. Committed alone, as the person."""
+    from api.services import episode_ids, site_saves
+
+    target = site_saves.target(request.site, request.url)
+    if target is None:
+        raise HTTPException(status_code=422, detail="That is not a post of a site Cicada keeps saves for.")
+    memory_path = Path(settings.memory_path)
+    try:
+        episode_id, _, path = saved_why.find_episode(memory_path, target.url)
+    except saved_why.SavedWhyError:
+        return SiteUnsaveResponse(status="unknown", url=target.url)
+
+    async def write() -> SiteUnsaveResponse:
+        changed = await run_in_threadpool(site_saves.mark_left, path, episode_ids.utc_now_seconds())
+        if changed:
+            from api.services import git_service
+
+            try:
+                await git_service.commit_paths(memory_path, git_service.build_commit_message(
+                    f"Sources: off the list on {target.name} {date.today().isoformat()}",
+                    [f"episodes/{episode_id}.md: updated (trigger: user/site_unsave)"], authors=["user"]),
+                    [f"episodes/{episode_id}.md"])
+            except Exception as e:  # noqa: BLE001 — a non-git bank (tests) keeps the mark
+                logger.warning(f"Site unsave commit failed: {type(e).__name__}: {e}")
+        return SiteUnsaveResponse(status="marked" if changed else "unchanged", url=target.url)
+
+    return await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(SITE_SAVE_BUSY))
+
+
 @router.get("/sources/saved-why/options", response_model=SavedWhyOptions)
 async def saved_why_options(settings: Settings = Depends(get_settings)) -> SavedWhyOptions:
     """G191 — the one-tap answers to "What made you save this?": the four fixed reasons (v4), the bank the panel
@@ -732,6 +876,97 @@ async def edit_saved_why(request: SavedWhyEditRequest, settings: Settings = Depe
     except saved_why.SavedWhyError as e:
         raise HTTPException(status_code=e.status, detail=str(e))
     return _saved_why_response(result)
+
+
+#: G221 — a folder's reason that finds Sleep holding the pages.
+FOLDER_REASON_BUSY = "Sleep is updating your memory — the folder's reason wasn't saved. Try again in a moment."
+
+
+@router.get("/sources/save-folders", response_model=SiteFoldersResponse)
+async def list_save_folders(site: str = Query(..., min_length=1, max_length=40),
+                            settings: Settings = Depends(get_settings)) -> SiteFoldersResponse:
+    """G221 — the folders a site's saves are filed in (X bookmark folders, Instagram collections, Pinterest boards,
+    TikTok collections, YouTube playlists): each with how many saves it holds, how many of those no model would read
+    yet (`indexOnly`: what a reason given to the folder would make readable) and its reason when it has one. A folder
+    is a filing label, never a page. 422 for a site Cicada keeps no saves for."""
+    try:
+        return SiteFoldersResponse.model_validate(
+            await run_in_threadpool(save_folders.list_folders, settings.memory_path, site))
+    except saved_why.SavedWhyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+
+async def _commit_folder_paths(memory_path: Path, paths: list[str]) -> None:
+    """The folder reason's files, committed alone as the person — in chunks, because a commit names each path three
+    times on the command line (`history_index.COMMIT_STEP`)."""
+    from api.services import git_service, history_index
+
+    step = history_index.COMMIT_STEP
+    for i in range(0, len(paths), step):
+        chunk = paths[i:i + step]
+        try:
+            await git_service.commit_paths(memory_path, save_folders.commit_message(chunk), chunk)
+        except Exception as e:  # noqa: BLE001 — a non-git bank (tests) keeps the change
+            logger.warning(f"folder reason commit failed: {type(e).__name__}: {e}")
+
+
+@router.post("/sources/save-folder-reason", response_model=FolderReasonResponse, dependencies=_DEMO_GATE)
+@router.put("/sources/save-folder-reason", response_model=FolderReasonResponse, dependencies=_DEMO_GATE)
+async def set_folder_reason(request: FolderReasonRequest,
+                            settings: Settings = Depends(get_settings)) -> FolderReasonResponse:
+    """G221 (owner 2026-11-23) — give a site's folder ONE reason, or change the one it has (POST and PUT are the same
+    upsert; the words it replaced stay under `reason.before`). Same shape as a save's own answer: reason keys and/or a
+    few words, scrubbed, the person's own words about the FOLDER. A save filed there with no answer of its own inherits
+    it, marked as the folder's (`folderWhy`, `From its folder "…"`), never as said about that save; its own answer
+    always wins.
+
+    The saves it makes readable are paid model work at the next Sleep (ruling 62: a bare save is index-only), so the
+    answer says how many (`counts.makesReadable`) and the route never does it silently: `dryRun` writes nothing and
+    only counts; more than 100 saves write nothing until the request says `confirm` (`needsConfirm: true`, 200).
+    422 for an empty or unknown reason or a site without saves, 409 in a demo bank or while Sleep holds the pages.
+    Committed alone, as the person (`Cicada-Author: user`)."""
+    memory_path = settings.memory_path
+    try:
+        answer = saved_why.validate(memory_path, reasons=request.reasons, project=None, text=request.text)
+        save_folders.resolve(request.site, request.folder)
+    except saved_why.SavedWhyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+
+    async def write() -> dict:
+        result = await run_in_threadpool(lambda: save_folders.set_reason(
+            memory_path, site=request.site, folder=request.folder, answer=answer, dry_run=request.dry_run,
+            confirm=request.confirm))
+        if result["paths"]:
+            await _commit_folder_paths(memory_path, result["paths"])
+        return result
+
+    try:
+        result = await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(FOLDER_REASON_BUSY))
+    except saved_why.SavedWhyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+    return FolderReasonResponse.model_validate({k: v for k, v in result.items() if k != "paths"})
+
+
+@router.delete("/sources/save-folder-reason", response_model=FolderReasonResponse, dependencies=_DEMO_GATE)
+async def clear_folder_reason(site: str = Query(..., min_length=1, max_length=40),
+                              folder: str = Query(..., min_length=1, max_length=200),
+                              settings: Settings = Depends(get_settings)) -> FolderReasonResponse:
+    """G221 — take a folder's reason away. The saves it made readable lose that (`counts.noLongerReadable`); one no model
+    read goes back to index-only at Sleep's next retirement, one a model read keeps what it made. 404 for a folder with
+    no reason, 409 in a demo bank or while Sleep holds the pages. Committed alone, as the person."""
+    memory_path = settings.memory_path
+
+    async def write() -> dict:
+        result = await run_in_threadpool(lambda: save_folders.clear_reason(memory_path, site=site, folder=folder))
+        if result["paths"]:
+            await _commit_folder_paths(memory_path, result["paths"])
+        return result
+
+    try:
+        result = await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(FOLDER_REASON_BUSY))
+    except saved_why.SavedWhyError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+    return FolderReasonResponse.model_validate({k: v for k, v in result.items() if k != "paths"})
 
 
 #: G191 v3 — a removal that finds Sleep holding the pages.
@@ -878,6 +1113,16 @@ def _saved_why_of(fm: dict) -> SavedWhyRecord | None:
         return None
 
 
+def _save_folders_of(memory_path: Path, fm: dict) -> tuple[list[SaveFolderRef], list[FolderWhy]]:
+    """G221: the folders the save is filed in and the reasons they carry, marked as the folders' — never raises."""
+    try:
+        folders = [SaveFolderRef(origin=o, name=n) for o, n in save_folders.folders_of(fm)]
+        why = [FolderWhy.model_validate(e) for e in save_folders.inherited(memory_path, fm)]
+        return folders, why
+    except Exception:  # noqa: BLE001
+        return [], []
+
+
 def _saved_why_history_of(fm: dict) -> list[SavedWhyRecord]:
     """G191 v3: every answer on the episode, oldest first — never raises."""
     try:
@@ -896,6 +1141,20 @@ def _left_browser(left_by_hash: dict, raw_key: str, entry: dict) -> list[Bookmar
     marks = left_by_hash.get(str(raw_key)) or left_by_hash.get(media_ingestor.url_hash(str(entry.get("url") or ""))) or []
     return [BookmarkLeft(browser=bookmark_sync.BROWSER_BY_CHANNEL.get(channel, channel), channel=channel, since=at)
             for channel, at in marks]
+
+
+def _left_site(fm: dict) -> list[BookmarkLeft]:
+    """G221 — a save the person took off their list on the site itself: the same "no longer in …" line a bookmark
+    that left its browser shows, named for the site."""
+    from api.services import saved_lists, site_saves
+
+    at = site_saves.left_at(fm)
+    if not at:
+        return []
+    origin = str(fm.get("origin") or "")
+    name = next((platform.name for platform in saved_lists.PLATFORMS.values() if platform.origin == origin),
+                "GitHub" if origin == "github-starred" else origin)
+    return [BookmarkLeft(browser=name, channel=origin, since=at)]
 
 
 def _capture_thumbs(memory_path: Path) -> dict[str, str]:
@@ -924,8 +1183,9 @@ def _capture_thumbs(memory_path: Path) -> dict[str, str]:
 #: `device-1` added `device` (G181 phase 3: which of the person's devices posted the save); `site-key-1` added
 #: `siteKey` (owner 2026-10-20: the key every surface draws the item's own site mark under); `why-before-1` added each
 #: answer's `before` (2026-11-23: the words an edit replaced, for the app's history); `site-key-2`: `siteKey` is the
-#: link's own host, not its registrable domain (owner 2026-11-23).
-SHAPE = "site-key-2"
+#: link's own host, not its registrable domain (owner 2026-11-23); `save-folders-1` added `saveFolders` and
+#: `folderWhy` (G221: the site's folders a save is filed in and the reasons they carry).
+SHAPE = "site-key-2+save-folders-1"
 
 
 def _device_of(fm: dict) -> str | None:
@@ -1099,6 +1359,7 @@ async def list_sources(
                 # unless it is a wall an agent can be asked to read, or an agent already read it —
                 # the person can find it, ask for it, or see what the agent brought back.
                 continue
+            _folders = _save_folders_of(memory_path, episode_fm.get(str(entry.get("episode_id") or "")) or {})
             items.append(
                 MediaSourceItem(
                     media_entity_id=entity_id,
@@ -1116,8 +1377,11 @@ async def list_sources(
                     saved_why_history=_saved_why_history_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
                     last_saved_at=saved_why.last_saved(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
                     capture_thumb=capture_thumbs.get(entity_id),
-                    left_browser=_left_browser(left_by_hash, raw_key, entry),
+                    left_browser=_left_browser(left_by_hash, raw_key, entry)
+                    + _left_site(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
                     device=_device_of(episode_fm.get(str(entry.get("episode_id") or "")) or {}),
+                    save_folders=_folders[0],
+                    folder_why=_folders[1],
                     tags=tags,
                     status=status,
                     related_count=related_count,

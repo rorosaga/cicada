@@ -89,9 +89,14 @@ NOTE_KEY = "has_note"
 #: Ruling 62: why a bare save gets its one real read (``{why, at}``): the person mentioned it. Stamped by :func:`wake`,
 #: it takes the episode out of :func:`kind` for good, so the read happens once and says why.
 WOKEN_KEY = "read_asked"
+#: G221 (2026-11-23): a save filed in a folder the person gave a reason to inherits it, and that makes it readable
+#: (``save_folders``): ``{at, folders}``, stamped by that module alone when the folder's reason is set or the save is
+#: filed, removed when neither holds. The reason itself is never copied here — it is read from the folder's own record.
+FOLDER_READ_KEY = "readable_by_folder"
 #: Frontmatter a list save carries once the person said why they saved it (``saved_why``'s answer, its earlier
-#: answers) or a note: any of them makes the save theirs to read, never index-only (review of #340).
-PERSON_KEYS = (NOTE_KEY, "saved_why", "saved_why_earlier")
+#: answers) or a note, or once its folder carries a reason of theirs (:data:`FOLDER_READ_KEY`, G221): any of them makes
+#: the save readable, never index-only (review of #340).
+PERSON_KEYS = (NOTE_KEY, "saved_why", "saved_why_earlier", FOLDER_READ_KEY)
 #: Body sections only the person's own words fill: ``saved_why``'s, a save's reason (Telegram, ``/save``), a note —
 #: ``evidence``'s one list, which also makes them the only ``user`` words in a save.
 PERSON_SECTIONS = _evidence.PERSON_SECTIONS

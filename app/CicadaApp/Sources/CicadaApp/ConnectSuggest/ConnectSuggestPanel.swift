@@ -117,8 +117,11 @@ struct ConnectSuggestPanelView: View {
     private func card(_ state: ConnectSuggestPanelState) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             HStack(alignment: .center, spacing: CicadaTheme.spacingSM) {
-                // The mascot, curious, on the sheet's own clock; decorative — the question says it all.
-                BookwormView(state: .curious(count: 1), pointSize: SaveWhyPanelView.mascotPoints)
+                // The mascot, curious, on the sheet's own clock; decorative — the question says it all. After a
+                // site's Yes it is pleased, inside a ring that closes into a check (owner 2026-11-23).
+                WormFace(mood: state.confirmedAt == nil ? .asking : .pleased, size: SaveWhyPanelView.headPoints)
+                    .padding(CicadaTheme.scaled(4))
+                    .overlay { if state.confirmedAt != nil { ConnectedRing() } }
                     .accessibilityHidden(true)
                 // The app's own icon, as macOS draws it (DR-52: the real mark, never a stand-in).
                 if let icon = center.icon {
@@ -129,7 +132,8 @@ struct ConnectSuggestPanelView: View {
                         .accessibilityHidden(true)
                 }
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                    Text(Copy.ConnectSuggest.title(state.appName))
+                    Text(state.confirmedAt == nil ? Copy.ConnectSuggest.title(state.appName)
+                         : Copy.ConnectSuggest.connected(state.appName))
                         .font(CicadaTheme.font(size: 13, weight: .semibold))
                         .foregroundStyle(CicadaTheme.Notch.textPrimary)
                         .lineLimit(1)
@@ -171,6 +175,8 @@ struct ConnectSuggestPanelView: View {
         .padding(.top, CicadaTheme.spacingSM)
         .padding(.bottom, CicadaTheme.spacingMD)
         .frame(width: Self.width, alignment: .leading)
+        // Once connected the buttons have nothing left to do; they keep their place so the card does not jump.
+        .allowsHitTesting(state.confirmedAt == nil)
     }
 
     private func quiet(_ title: String, tone: Color, action: @escaping () -> Void) -> some View {
@@ -180,5 +186,30 @@ struct ConnectSuggestPanelView: View {
             .foregroundStyle(tone)
             .padding(.horizontal, CicadaTheme.scaled(8))
             .padding(.vertical, CicadaTheme.scaled(6))
+    }
+}
+
+/// G221 — "connected", drawn: a ring closing around the worm's head, then a check at its corner. One beat each, on
+/// `CicadaMotion`'s clock; under Reduce Motion both are simply there.
+private struct ConnectedRing: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var closed = false
+    @State private var checked = false
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            Circle()
+                .trim(from: 0, to: closed ? 1 : 0)
+                .stroke(CicadaTheme.Notch.textPrimary, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            Image(systemName: "checkmark.circle.fill")
+                .font(CicadaTheme.font(size: 12, weight: .semibold))
+                .foregroundStyle(CicadaTheme.Notch.textPrimary)
+                .opacity(checked ? 1 : 0)
+        }
+        .onAppear {
+            withAnimation(CicadaMotion.connectRing(reduceMotion: reduceMotion)) { closed = true }
+            withAnimation(CicadaMotion.connectCheck(reduceMotion: reduceMotion)) { checked = true }
+        }
     }
 }

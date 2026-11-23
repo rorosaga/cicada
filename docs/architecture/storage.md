@@ -480,6 +480,35 @@ carries **only** in a label (`promotion.label_only`) — Stage 2 drops it as a m
 conversation for the 2+ rule (on the owner's bank copy: 4 pages existed only because folder names counted, one of them a
 `project`, and 59 episode-page pairs counted a folder as a conversation).
 
+**The folders a platform's own save is filed in, and a folder's one reason (G221, owner 2026-11-23; `save_folders`).** A
+save can sit in several folders on its site (X bookmark folders, Instagram collections, Pinterest boards, TikTok
+collections, YouTube playlists), and whichever door sees them reports them: `POST /sources/site-save`, a saved-list read
+(`cicada_record_saved_list`, a row's `folders`), later a connector. They are `save_folders: {<origin>: [<name>, ...]}` on
+the save's **episode** — keyed by the site's origin, not the episode's own, so a post a browser bookmark already saved is
+filed in place — names as the site shows them, named secrets scrubbed, one line, 80 characters, 30 a save. Filing a save
+into a folder or out of one is `save_folders.file_save`: one frontmatter edit on that one episode
+(`episode_staging.amend_frontmatter`, the episode lock), never a second episode and never a question. The fixed label of a
+platform's whole list stays `folder` (`Bookmarks`), because `history_index.LIST_FOLDERS` and `kind` key on it; a YouTube
+playlist save's own `folder` counts as its folder too. A folder is a filing label under the rail above: no page, no claim,
+no link, never a conversation for the 2+ rule. **A folder's reason** is the person's own words about the folder — one,
+the shape of a save's answer (`reasons` keys from `saved_why.LABELS` and/or a few words, `at`, `edited_at`, `before`),
+scrubbed (writer `folder-reason`) — in `sources/folder_reasons.json`
+(`{"version": 1, "folders": {<origin>: {<name>: <reason>}}}`), committed alone as the person (`user/folder_reason`, the
+file and the saves it touched). **Inheritance is read, never copied:** a save with no reason of its own reads its
+folders' reasons (`save_folders.inherited`), and every reader says so — `saved_why.reason_of` returns a `Reason` whose
+`inherited_from` names the folders and whose text begins `From its folder "<name>":` (the reading queue, link
+enrichment), the explore plan's `because` says `from: folder`, a Sources channel row's `why` carries `fromFolders`, and
+`GET /sources` serves `saveFolders` and `folderWhy` (always `inherited: true`) while `savedWhy` stays the save's own. A
+save's own answer always wins, on any of its episodes. **What a reason makes readable.** An index-only save (ruling 62)
+is read by no model; a folder's reason is the person's reason for everything filed there, so those saves become readable:
+`history_index.kind` sees the stamp `readable_by_folder` (`{at, folders}`, in `PERSON_KEYS`, written by `save_folders`
+only) and a save the index had read is queued again. That is paid work at the next Sleep, so it is counted first and never
+silent: `POST|PUT /sources/save-folder-reason` answers `counts.makesReadable`, `dryRun` writes nothing, and more than 100
+saves write nothing until `confirm` (`needsConfirm`). A save a model already read is never requeued; a save filed later
+into a folder that has a reason is stamped by the step that files it; a clear (`DELETE`) or a removal from the folder takes
+the stamp away and `history_index.retire` returns an unread save to the index at Sleep's next run. Tests:
+`api/tests/test_save_folders.py`.
+
 **Past roles (2026-10-27, G121):** a person's whole current state has a past tense, not only a job — the seed's
 endings cover `works-on` (endings only — "previously worked on", "no longer works on"…; never "worked on" as a past
 tense: "I worked on alpha-project today" reports ongoing work), `lives-in` ("lived in", "lived at"; over: "moved out

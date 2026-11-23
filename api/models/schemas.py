@@ -4984,6 +4984,11 @@ class MediaSourceItem(CamelModel):
     # the sync instant that first saw it gone (`bookmark_seen` `left`). Cicada keeps the bookmark; this is its status.
     # Empty while every browser that had it still does, and for a link no browser synced.
     left_browser: list["BookmarkLeft"] = []
+    # G221 (2026-11-23) — the site's own folders this save is filed in (`save_folders`), and the reasons those folders
+    # carry: a folder's reason is said about the FOLDER and a save inherits it only while it has none of its own, so
+    # it is never in `savedWhy`. Additive and defaulted: an older client is unaffected.
+    save_folders: list["SaveFolderRef"] = []
+    folder_why: list["FolderWhy"] = []
     # G102 cheap slice (R12): the link's own description — OpenGraph at ingest
     # or the Sleep-tail backfill's summary — cut at ~280 chars on a word
     # boundary, and the ids of the entities the page is `about` (the media
@@ -5140,6 +5145,27 @@ class BookmarkLeft(CamelModel):
     since: str
 
 
+class SaveFolderRef(CamelModel):
+    """G221 — one folder a save is filed in on its site: the site's origin key and the name as the site shows it."""
+
+    origin: str
+    name: str
+
+
+class FolderWhy(CamelModel):
+    """G221 — the reason a folder carries (said about the folder, never about the save), as a save in it inherits it:
+    always `inherited`, so no surface can show it as the person's own answer about that save."""
+
+    origin: str
+    folder: str
+    reasons: list[str] = []
+    labels: list[str] = []
+    text: Optional[str] = None
+    at: Optional[str] = None
+    edited_at: Optional[str] = None
+    inherited: bool = True
+
+
 MediaSourceItem.model_rebuild()
 
 
@@ -5157,6 +5183,56 @@ class SavedWhyRequest(CamelModel):
     added_at: Optional[str] = None
     # 2026-11-23 — where the answer was given, as an origin key ("chrome-bookmark", "cicada").
     via: Optional[str] = None
+
+
+class FolderReasonRequest(CamelModel):
+    """G221 — give a site's folder ONE reason (or change the one it has): the keys of a save's own answer and/or a few
+    words. `dry_run` writes nothing and says how many saves it would make readable; more than 100 need `confirm`."""
+
+    model_config = ConfigDict(extra="forbid")
+    site: str
+    folder: str
+    reasons: list[str] = []
+    text: Optional[str] = None
+    dry_run: bool = False
+    confirm: bool = False
+
+
+class FolderReasonCounts(CamelModel):
+    """How many saves filed in the folder: all, made readable by this change (each a model read at the next Sleep),
+    readable already, and, on a clear, no longer readable."""
+
+    saves: int = 0
+    makes_readable: int = 0
+    already_readable: int = 0
+    no_longer_readable: int = 0
+
+
+class FolderReasonResponse(CamelModel):
+    origin: str
+    folder: str
+    reason: Optional[SavedWhyRecord] = None
+    changed: bool = False
+    #: False for a dry run, and for a change held back until `confirm` (`needs_confirm`); nothing was written.
+    applied: bool = False
+    needs_confirm: bool = False
+    counts: FolderReasonCounts = FolderReasonCounts()
+
+
+class SiteFolderRow(CamelModel):
+    name: str
+    saves: int = 0
+    #: Saves filed here that no model would read yet: what a reason given to this folder would make readable.
+    index_only: int = 0
+    reason: Optional[SavedWhyRecord] = None
+
+
+class SiteFoldersResponse(CamelModel):
+    site: str
+    origin: str
+    saves: int = 0
+    unfiled: int = 0
+    folders: list[SiteFolderRow] = []
 
 
 class SavedWhyEditRequest(CamelModel):

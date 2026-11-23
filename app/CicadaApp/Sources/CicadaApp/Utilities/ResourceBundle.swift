@@ -58,13 +58,19 @@ extension Bundle {
     /// exists pass `logoName ?? ""` — which would draw an unrelated brand.
     func cicadaResource(_ name: String, ext: String, in directory: String) -> URL? {
         guard !name.isEmpty else { return nil }
+        // A third layout (2026-11-23, the Swift Build engine that became `swift test`'s default): the copied
+        // `Resources/` folder sits INSIDE `Contents/Resources`, so the bare directory matches nothing there and every
+        // asset test failed on a toolchain where the shipped app (flattened by `bundle.sh`) was fine. The bare
+        // directory is still asked first, so the two older layouts answer exactly as before.
         return url(forResource: name, withExtension: ext, subdirectory: directory)
+            ?? url(forResource: name, withExtension: ext, subdirectory: "Resources/" + directory)
     }
 
     /// Every bundled resource of one extension in one `Resources/` directory,
     /// under the same both-layouts rule as `cicadaResource`. `[]`, never nil,
     /// so a caller cannot mistake "no such directory" for "the bundle is fine".
     func cicadaResources(ext: String, in directory: String) -> [URL] {
-        urls(forResourcesWithExtension: ext, subdirectory: directory) ?? []
+let found = urls(forResourcesWithExtension: ext, subdirectory: directory) ?? []
+        return found.isEmpty ? (urls(forResourcesWithExtension: ext, subdirectory: "Resources/" + directory) ?? []) : found
     }
 }

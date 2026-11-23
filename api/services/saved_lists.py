@@ -377,8 +377,13 @@ def canonical(key: str, url) -> tuple[str, tuple[str, ...]] | None:
         found = _IG_POST.match(path_) if _host_in(host, ("instagram.com",)) else None
         if found is None:
             return None
-        tail = f"/{found.group('kind')}/{found.group('code')}/"
-        return f"https://www.instagram.com{tail}", (f"https://instagram.com{tail}",)
+        kind, code = found.group("kind"), found.group("code")
+        tail = f"/{kind}/{code}/"
+        # One post answers at ``/p/``, ``/reel/`` and ``/tv/``: a save noticed in the browser (G221) names it by the
+        # first, a list read by whichever the list shows, and they are one row.
+        others = tuple(f"https://{host}/{other}/{code}/" for other in ("p", "reel", "tv") if other != kind
+                       for host in ("www.instagram.com", "instagram.com"))
+        return f"https://www.instagram.com{tail}", (f"https://instagram.com{tail}", *others)
     if key == "linkedin":
         found = _LI_POST.match(path_) if _host_in(host, ("linkedin.com",)) else None
         if found is None:

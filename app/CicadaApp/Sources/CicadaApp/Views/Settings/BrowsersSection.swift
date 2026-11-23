@@ -169,6 +169,7 @@ struct SaveWhySwitchRow: View {
                         }
                     }
                 }
+                SiteSaveSwitches()
                 if muted > 0 {
                     HStack(spacing: CicadaTheme.spacingSM) {
                         caption(Copy.SaveWhy.mutedLine(muted))
@@ -189,4 +190,58 @@ struct SaveWhySwitchRow: View {
             .foregroundStyle(CicadaTheme.textTertiary)
             .fixedSize(horizontal: false, vertical: true)
     }
+}
+
+/// G221 — which sites' own save controls Cicada notices (X's Bookmark, Instagram's Save, GitHub's Star, TikTok's
+/// Favorite): one switch per site, per Mac, beside the bookmark question they extend. The notch offers the same
+/// connection when the person is on the site; this is where it is seen and undone. A missing Accessibility permission
+/// is named with its one click, never asked for by a prompt.
+struct SiteSaveSwitches: View {
+    @State private var connected: Set<String> = Set(SiteSavePrefs().connected.map(\.key))
+    @State private var trusted = AXIsProcessTrusted()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+            Text(Copy.SaveWhy.sitesLabel)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textSecondary)
+            HStack(spacing: CicadaTheme.spacingMD) {
+                ForEach(SiteSaveSite.all, id: \.key) { site in
+                    Toggle(isOn: Binding(get: { connected.contains(site.key) }, set: { on in
+                        SiteSavePrefs().setConnected(site.key, on)
+                        if on { connected.insert(site.key) } else { connected.remove(site.key) }
+                        trusted = AXIsProcessTrusted()
+                        NotificationCenter.default.post(name: SiteSaveSwitches.changed, object: nil)
+                    })) {
+                        HStack(spacing: CicadaTheme.scaled(4)) {
+                            OriginMark(origin: site.origin, size: 14)
+                            Text(site.name).font(CicadaTheme.captionFont)
+                        }
+                    }
+                    .toggleStyle(.checkbox)
+                }
+            }
+            Text(Copy.SaveWhy.sitesReads)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            if !connected.isEmpty, !trusted {
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    Text(Copy.SaveWhy.sitesNeedAccess)
+                        .font(CicadaTheme.captionFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                    NeutralButton(title: Copy.SaveWhy.openAccessibility, size: .compact) {
+                        NSWorkspace.shared.open(MacPermission.accessibility.settingsURL())
+                    }
+                }
+            }
+        }
+        .onAppear {
+            connected = Set(SiteSavePrefs().connected.map(\.key))
+            trusted = AXIsProcessTrusted()
+        }
+    }
+
+    /// Posted when a site's switch changes here, so the watcher looks again at once.
+    static let changed = Notification.Name("cicada.siteSaves.changed")
 }

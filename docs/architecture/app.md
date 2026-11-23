@@ -1559,6 +1559,71 @@ label). An older backend sends no `more`, and the panel then suggests nothing (i
 the budget, no download path in the panel's sources); the backend in `test_saved_why.py`. Shots (render harness — the real
 panel needs a Chrome bookmark): `~/cicada-redesign-2026-10-22/shots/save-notch/`. Detecting saves in other apps is G221.
 
+**The source's mark in the notch (2026-11-23, branch `feat/notch-source-mark`; owner: "a small logo of the app that is
+being read, so there is some sort of confirmation … chrome for chrome bookmarks, x for things saved on x, and so on").**
+The subject line starts with the mark of the source the save was noticed in (`SaveWhySourceMark`, 14 pt, DR-52): the
+installed app's icon, else the bundled logo, else nothing — never a stand-in glyph. It is keyed by the origin the save
+is stored under (`SavedBookmarkLookup.origin(forChannel:)`), so a later trigger for another source (G221: X,
+Instagram, …) draws its own mark with no new wiring. It reads no `Store` (the notch's hosting view carries none).
+Test: `SaveWhyTests.testTheNotchShowsTheSourcesOwnMarkOrNothing`.
+
+**A save inside a site, noticed from the control the person clicked (G221 option B, ruling 77, 2026-11-23; owner: "if
+accessibility solves all this, it should be the one we implement, but also important to have it work on different
+languages").** `SaveWhy/SiteSave.swift`, three parts.
+
+*The rule (`SiteSaveRule`, `SiteSaveSite`, pure).* One table row per site — X, Instagram, GitHub, TikTok — holding only
+structure and addresses, **never a word of the site's interface in any language**: the site's hosts, the link shapes
+that are one post (and the one spelling it is stored under), where the save control sits among its row's controls
+(`Slot`: X the first plain button after the post's own views link, or the last of three on a post's own page;
+Instagram the last plain button of a row with four; GitHub the plain button directly before a menu button; TikTok the
+one before the last), and which page is the person's own saved list. The post is named by the row's own link, else by
+the nearest post link *before* the row in the enclosing block (a post's time or heading precedes its controls; links
+only after the row belong to what follows, e.g. Instagram's stories tray), else by the page when it is a post's own.
+A save is the control's label differing a moment after the click. **Which way it went** is settled in this order: the
+saved list's own page (a toggle there is leaving it); one count moving by one (X's row label, GitHub's star count,
+TikTok's favourite count); the two labels this Mac already learned for that site (`SiteSaveRule.Labels`, kept per Mac
+in `SiteSavePrefs`, learned only from a certain change, never shipped or translated); the page's other posts
+(`Census`: at least two others still wear the label it left and none wears the one it took). With none of them the
+change is `changed`: nothing is stored and nobody is asked. On X the post's own words are cut from the block's label
+between the handle and time link and the row's label (`text(of:item:)`), again with no word known.
+
+*The reader (`SiteSaveReader`).* The one place that asks macOS about another app's interface for a save, off the main
+thread, 0.25 s a call. It reads the page's address first and stops there for any site not in the table. Then the
+button under the point, the row of controls around it, the row's label, and the post links of the enclosing block.
+Measured on the owner's Chrome and built in: a control can be far smaller to macOS than its click area (X: 17 × 19 pt
+in a ~35 pt circle — `nearestButton`, 14 pt halo); Chromium's first answer about a fresh point is often a neighbour
+and the second is exact (`settledRead`); on GitHub's lists the answer stays the whole page (`buttonByFrames` walks
+down by frames); Instagram and TikTok nest the button the pointer is on inside the control (the outer one is used).
+It asks a Chromium browser for its page tree (`AXManualAccessibility`) only once a site is connected — the tree
+costs the browser work — and until then reads nothing but the front tab's address from the window itself
+(`frontSite`, `AXDocument`), for the offer.
+
+*The watcher (`SiteSaveWatcher`).* One monitor (mouse moves and mouse-downs) while a supported browser is in front,
+only when Accessibility is already granted and only for sites the person connected. The state before a click is read
+when the pointer rests on a save control (70 ms), kept in memory only, and a click within 24 pt and 60 s of it is
+compared with the row at 0.6, 1.2 and 2.0 s. A save goes to `SaveWhyCenter.siteSaved`: stored first through
+`POST /sources/site-save` (`api.md`; the site's own origin, index-only until a reason — ruling 62), then asked about
+through the ordinary confirmed path, so the Ask-why switch, "Don't ask for this site" and one-save-one-question apply
+and the answer is posted with `via` the site's origin. An unsave goes to `POST /sources/site-unsave`: never asked
+about, the save stays and shows "no longer on …" (`leftBrowser`). Logs (`site-save`) hold an outcome word, what
+settled it and milliseconds, never a link or a label.
+
+*Connecting a site.* Nothing is watched until the person connects a site, per Mac (`SiteSavePrefs`): on the Sources page → Browsers, under the bookmark question ("Also ask when I save a post on", one tick per site, with the
+Accessibility permission named and one click to its pane when missing — never a prompt), or from the notch: when the
+pointer rests on a page of a site not yet connected, the connect offer (G231's panel and rules: its switch, once a
+day, No is kept and listed in Settings, Not now waits) asks "Connect X to Cicada?" with the site's mark. A site's Yes
+is the whole connection, so the panel stays 1.6 s to say so — a ring closing around the worm, then a check
+(`ConnectedRing`, `CicadaMotion.connectRing`/`connectCheck`) — and closes. **This is the one case where the page in
+the front tab triggers an offer** (owner 2026-11-23, amending the 2026-10-19 note in `ConnectSuggestApps`): only with
+Accessibility already granted and the offer switch on; the address is compared and kept nowhere.
+
+**Not built:** Reddit, LinkedIn and YouTube (their Save is a menu item or a dialog, and LinkedIn's feed exposes no link
+for the post; they stay on the saved-list read); TikTok's For You feed (no link for the video — its own page works);
+Safari and a keyboard save (unmeasured); the site's folders at the moment of saving and a screen to give a folder its
+reason (the backend holds both, `api.md`); the post's words on sites other than X. **The notch's mascot is the worm's
+small head (`WormFace`) in both notch panels — a trial on the owner's word (2026-11-23), pending their look.** Tests:
+`SiteSaveTests`, `api/tests/test_site_save.py`.
+
 **Connect from the notch (G231, 2026-11-03; owner: "when you enter an app they support a connection for, they suggest
 from the notch to connect to it … with our own aesthetic").** When the person brings to the front an app whose source
 is not set up in the active memory, the notch offers it once. *Trigger:* `NSWorkspace.didActivateApplicationNotification`

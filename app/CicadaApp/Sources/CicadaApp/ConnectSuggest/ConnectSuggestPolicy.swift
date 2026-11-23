@@ -15,6 +15,19 @@ enum ConnectSuggestApps {
     /// what is read (`Copy.ConnectSuggest`).
     enum Kind: String, Codable, CaseIterable, Sendable {
         case chats, notes, calendar, reminders, contacts, browser, meetings, dictation, notion
+        /// G221 — a site whose save control Cicada can notice (X, Instagram, GitHub, TikTok). Owner 2026-11-23 ("a
+        /// small notch notification catches when the user is on X, and says something like connect Cicada to X, with
+        /// a don't ask again, or ask me later"): the one case where the page in the front tab IS the trigger, and
+        /// only once the person has already given Cicada the Accessibility permission — the page's address is read
+        /// when the pointer rests, kept nowhere, and used for nothing but this offer.
+        case saves
+    }
+
+    /// The memory key of a site's offer (`site-save:x`): one answer per site, beside the apps' own.
+    static let sitePrefix = "site-save:"
+    static func site(_ key: String) -> Target { Target(entryId: sitePrefix + key, kind: .saves) }
+    static func siteKey(entryId: String) -> String? {
+        entryId.hasPrefix(sitePrefix) ? String(entryId.dropFirst(sitePrefix.count)) : nil
     }
 
     struct Target: Equatable, Sendable {
@@ -165,6 +178,8 @@ enum ConnectSuggestPolicy {
     static let timeout: TimeInterval = SaveWhyPolicy.askTimeout
     /// A click on the panel this soon after it shows was aimed at what was beneath it (`SaveWhyPolicy.armDelay`).
     static let armDelay: TimeInterval = SaveWhyPolicy.armDelay
+    /// G221 — how long a site's panel stays after Yes, showing that it is connected (the ring, then the check).
+    static let confirmShow: TimeInterval = 1.6
 
     struct Context: Equatable {
         var now: Date
@@ -307,6 +322,9 @@ struct ConnectSuggestPanelState: Equatable {
     private(set) var hovering = false
     /// When the untouched-panel clock started: at showing, and again whenever the pointer leaves.
     private(set) var clockFrom: TimeInterval
+    /// G221 — a site's Yes is the whole connection (there is no page to send the person to), so the panel stays a
+    /// moment to say so: a ring around the worm, then a check. When it was pressed, on the same clock; nil otherwise.
+    private(set) var confirmedAt: TimeInterval?
 
     init(target: ConnectSuggestApps.Target, appName: String, bundleId: String, shownAt: TimeInterval) {
         self.target = target
@@ -321,17 +339,22 @@ struct ConnectSuggestPanelState: Equatable {
     mutating func handle(_ input: Input, at now: TimeInterval) -> Outcome? {
         switch input {
         case .yes, .no, .notNow:
-            guard now - shownAt >= ConnectSuggestPolicy.armDelay else { return nil }
+            guard confirmedAt == nil, now - shownAt >= ConnectSuggestPolicy.armDelay else { return nil }
+            if input == .yes, target.kind == .saves {
+                confirmedAt = now
+                return nil
+            }
             return input == .yes ? .yes : input == .no ? .no : .notNow
         case .hover(let inside):
             hovering = inside
             if !inside { clockFrom = now }
             return nil
         case .appChanged:
-            return .leftApp
+            return confirmedAt == nil ? .leftApp : .yes     // the person already said yes: leaving keeps it
         case .superseded:
-            return .superseded
+            return confirmedAt == nil ? .superseded : .yes
         case .tick:
+            if let confirmedAt { return now - confirmedAt >= ConnectSuggestPolicy.confirmShow ? .yes : nil }
             guard !hovering, now - clockFrom >= ConnectSuggestPolicy.timeout else { return nil }
             return .timedOut
         }

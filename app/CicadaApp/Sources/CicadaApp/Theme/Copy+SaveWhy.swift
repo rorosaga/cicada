@@ -40,6 +40,12 @@ extension Copy {
             browser.map { "Saving in \($0)…" } ?? "Saving your bookmark…"
         }
 
+        // MARK: saves inside a site (G221)
+        static let sitesLabel = "Also ask when I save a post on"
+        static let sitesReads = "Cicada notices the save button you click on these sites, through the Accessibility permission. It reads that button and its post, nothing else on the page."
+        static let sitesNeedAccess = "Needs the Accessibility permission, which you give in System Settings."
+        static let openAccessibility = "Open Accessibility settings"
+
         // MARK: the Sources page → Browsers
         static let switchTitle = "Ask why when I bookmark something"
         static let switchDetail = "When you bookmark a page, a small question grows out of the top of the screen: what made you save it? Pick any reasons and add a few words; they are kept with the bookmark and the time you saved it. Saving a page again asks again. Never after an import or a reorganised bookmark bar."

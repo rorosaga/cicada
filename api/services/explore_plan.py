@@ -230,10 +230,12 @@ def plan_for(why: dict | None = None, *, words: list[str] | None = None, said: l
     if asked == "look":
         reasons.append("design")
         because.append({"from": "ask", "signal": "look"})
+    # G221: a reason a save inherits from its folder is the folder's, and the plan says so (`from: folder`).
+    via = "folder" if why.get("inherited_from") else None
     for r in why.get("reasons") or []:
         if r in REASONS and r not in reasons:
             reasons.append(r)
-            because.append({"from": "reason", "signal": r})
+            because.append({"from": via or "reason", "signal": r})
     if why.get("project"):
         if "product" not in reasons:
             reasons.append("product")
@@ -246,6 +248,7 @@ def plan_for(why: dict | None = None, *, words: list[str] | None = None, said: l
             sig = signals(item)
             if not (sig["reasons"] or sig["wide"] or sig["kinds"]):
                 continue
+            source = "folder" if via and source == "text" and item == why.get("text") else source
             for r in sig["reasons"]:
                 if r not in reasons:
                     reasons.append(r)

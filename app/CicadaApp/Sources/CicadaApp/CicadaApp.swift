@@ -105,6 +105,9 @@ struct CicadaApp: App {
     @State private var connectSuggestPanel = ConnectSuggestPanelController()
     /// G191 v3 — Chrome's bookmark bubble, seen from the window list (no permission), opens the question at once.
     @State private var bookmarkBubbles = BookmarkBubbleWatcher()
+    /// G221 — a save made inside a site the person connected (X, Instagram, GitHub, TikTok), noticed from the control
+    /// they clicked.
+    @State private var siteSaves = SiteSaveWatcher()
     /// G191 v3 — the menu bar's bookmark history.
     @State private var bookmarkHistory = BookmarkHistoryController()
     /// G133 / G134: watched folders and Wispr Flow, read by the app (the backend
@@ -495,7 +498,13 @@ struct CicadaApp: App {
         }
         // Yes: the source's page — or, while the Full Disk Access it needs is missing, that permission's row with its
         // drag helper (Settings → Privacy & data → Permissions, the onboarding step's own rows). A preflight only.
-        connectSuggest.onYes = { [appRouter] entryId in
+        connectSuggest.onYes = { [appRouter, siteSaves] entryId in
+            // G221 — a site's Yes is the whole connection: its switch on this Mac, nothing to open.
+            if let site = ConnectSuggestApps.siteKey(entryId: entryId) {
+                SiteSavePrefs().setConnected(site, true)
+                siteSaves.refresh()
+                return
+            }
             Task { @MainActor in
                 var granted: [MacPermission: Bool] = [:]
                 if let permission = ConnectSuggestApps.dragPermission(entryId: entryId) {
@@ -566,6 +575,32 @@ struct CicadaApp: App {
         // G191 v7 — the person's earlier answers in the active memory rank the suggested reasons (nothing new stored).
         saveWhy.pastPicks = { [store] in SaveWhySuggest.picks(from: store.sources.value ?? []) }
         bookmarkBubbles.start()
+        // G221 — only the sites the person connected are watched (Sources, or the notch's own offer).
+        siteSaves.sites = { SiteSavePrefs().connected }
+        // Watched while a site is connected, or while one may still be offered (the notch's own switch).
+        siteSaves.offers = { [connectSuggest] in connectSuggest.store.enabled }
+        siteSaves.isWanted = { [connectSuggest] in
+            !SiteSavePrefs().connected.isEmpty || connectSuggest.store.enabled
+        }
+        siteSaves.onSite = { [connectSuggest] site, pid, bundle in
+            connectSuggest.offer(site: site, connected: SiteSavePrefs().isConnected(site.key), pid: pid,
+                                 bundleId: bundle)
+        }
+        siteSaves.onOutcome = { [saveWhy] item, outcome, text in
+            Task {
+                // An unsave is never asked about: the save stays, marked as off the list. A change whose direction
+                // nothing settled is neither stored nor asked about.
+                switch outcome {
+                case .saved: await saveWhy.siteSaved(item, text: text)
+                case .unsaved: await saveWhy.siteUnsaved(item)
+                case .changed, .none: break
+                }
+            }
+        }
+        siteSaves.start()
+        NotificationCenter.default.addObserver(forName: SiteSaveSwitches.changed, object: nil, queue: .main) {
+            [siteSaves] _ in MainActor.assumeIsolated { siteSaves.refresh() }
+        }
         startConnectSuggest()
         // G191 v3 — the app's own diff needs a "before" for each watched browser: read once now, so the
         // first bookmark after launch is named from the file without waiting for the backend.
