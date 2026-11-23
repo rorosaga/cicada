@@ -30,6 +30,23 @@ Seven rails hold across all of them:
   record adds the modification date as AppleScript's locale-free `«class isot»` and the Mac's UTC offset, so
   `notes_sync` dates the episode when the note was last written (read on time); the human `modified` string stays the
   dedup key, and a 6-field record from an older app still parses and is dated now.
+  **An edited note is a revision of its one episode (G104, 2026-11-23).** `notes_sync` stages through `episode_staging`
+  like every other source-keyed writer: `source_id` `apple-notes:<note id>` (or the hash of name and creation date), so
+  an edit finds its episode and **edits it in place** — same id, same file, `processed: false`, a `revised` record — and
+  Sleep reads only the changed lines (`episode_revision`); the note is one conversation for the 2+ rule, in
+  `source_episodes` and in the References. Before, every edit minted a new episode and each re-read restated the whole
+  note (measured on a real bank: 227 Notes episodes for 201 notes, six notes holding 32 of them). **The body is the
+  title, the `**Folder:**` line and the text — never the modification date**, which changed on every edit and would have
+  been the "changed text" of every revision; it is the episode's `timestamp` (moved to the edit's date when the words
+  moved, `redate`, the id keeping its day, ruling 34) and `source_updated_at`. The index still decides what is staged:
+  a note whose `modified` is unchanged is never staged, so it is never written; one whose `modified` moved with the same
+  words (a touch) updates the index only and is not re-queued (the stager's hash match). **Upgrading** costs unchanged
+  notes nothing. The first edit of a note whose latest episode an earlier version wrote (it carries `note_id`, no
+  `source_id`; the index points at it) adopts it (`episode_staging.adopt_source`, one frontmatter key) and edits it in
+  place: its old `content_hash` hashed the key and the date, not the words, so it reads as changed once, and the version
+  Sleep read (git) still holds the old `**Modified:**` line, which the revision sees as one removed line and reads nothing
+  for. Older episodes of the same note stay as they are (not repaired). A retired locked stub drops `source_id` with the
+  rest of what named it, so a note unlocked later is new. A note deleted from Notes is not noticed (no tombstone), as before.
   **Locked notes (G234, 2026-11-04).** Every property the script reads is asked through `whose password protected is
   false`, evaluated inside Notes, so no event names a locked note's body (the view-time `body` of the note on screen too,
   ROR-15, held in memory and never posted, `app.md`); a locked note gives its id and its name, its
@@ -75,8 +92,7 @@ Seven rails hold across all of them:
   pin as a frontmatter `pinned: true` on the note's latest episode and in its index entry, written through
   `episode_staging.set_pinned` under the episode lock: **it is not in `content_hash`, never sets `processed` or `revised`,
   and changes no body**, so a pin moving re-queues nothing and a pin that changes on a note Sleep already read does nothing
-  to memory (`test_notes_pinned.py`). It is not routed through the stager's body path because a Notes episode is
-  append-only per edit and a pin is no edit. Stage 1 gets one line in that note's source note
+  to memory (`test_notes_pinned.py`). It is not routed through the stager's body path because a pin is no edit. Stage 1 gets one line in that note's source note
   (`entity_extractor.pinned_note`: the person pinned this note in their Notes app) and the model judges what it means —
   no score, no rule; a pin alone makes no page and no claim, and the note is read under its normal rules. The row carries
   `pinned` (`SHAPE` `g161-21`) and lists first. Checklist ticks are out of scope: they would mean reading `ZICNOTEDATA`.
