@@ -1501,6 +1501,24 @@ def test_two_independent_signals_settle_a_same_person_question_and_it_is_undoabl
     assert _decide(memory, "inbox-001") == (None, "undone")        # the person took it back: Sleep never settles it again
 
 
+def test_a_split_pair_of_one_title_is_never_joined_by_two_signals_and_an_undecided_one_is(memory):
+    """2026-11-23 (`same_name_people`): two pages under one title with the same account are the two-signal case unless
+    Sleep (or the person) recorded them as two people."""
+    from api.services import merge_rejections
+
+    account = [{"ref": "https://example.com/u/marc-example"}]
+    for pid, ep in (("marc", "ep_2026-01-01_001"), ("marc-person", "ep_2026-01-03_001")):
+        _entity(memory, pid, type="person", name="Marc", status="active", source_episodes=[ep], sources=account)
+    _item(memory, "inbox-001", kind="merge_suggestion", entity_id="marc-person", entity_name="Marc",
+          merge_target_hint="marc", suggested_classification="person", detected="person_duplicate")
+    _commit(memory)
+    d, _ = _decide(memory, "inbox-001")
+    assert d is not None and d.rule == "two_signals", "never split: the lead and the join still work, as on dev"
+    merge_rejections.add_split(memory, "marc", "marc-person")
+    _commit(memory)
+    assert _decide(memory, "inbox-001")[0] is None
+
+
 def test_one_signal_or_a_person_who_said_no_is_never_settled(memory):
     from api.services import merge_rejections
 
