@@ -435,8 +435,8 @@
   "when you enter an app they support a connection for, they suggest from the notch to connect to it … with our own
   aesthetic". Bringing WhatsApp, Telegram, Messages, Notes, Calendar, Reminders, Contacts, a browser Cicada reads,
   Wispr Flow, Notion or Hex (offered until its own meeting folder is connected) to the front, when its Sources entry reads Off in the active
-  memory, drops the ask-why notch's second voice: worm + the app's icon, "Connect Notes to Cicada?", what is read, two
-  or three things Cicada does with it, No · Not now · Yes. Once per source; Not now (or untouched for 12 s, or leaving
+  memory, drops the ask-why notch's second voice: worm + the app's icon, "Connect Notes to Cicada?", what is read,
+  No · Not now · Yes (the chips of what Cicada does with it removed, the answers bigger: owner 2026-11-23). Once per source; Not now (or untouched for 12 s, or leaving
   the app) once more after ≥ 14 days, then never; No never, undone in Settings → General; ≤ 1 a day; never in an app's
   or Cicada's first minute, over the ask-why panel, in a demo, or before setup ran or was skipped; on by default; never
   takes the keyboard. Websites in the front tab are deliberately not a trigger (the star-click prefill is the only
