@@ -227,6 +227,54 @@ def mark_consolidated(fm: dict) -> None:
         fm[REVISED_KEY] = {**record, CONSOLIDATED_KEY: str(fm["content_hash"])}
 
 
+# --------------------------------------------------------------------------- #
+# what a person is shown (the Sleep page's Waiting list and the Reader)
+# --------------------------------------------------------------------------- #
+
+#: A waiting episode's state for the person (owner 2026-11-23: "a small marker … to signify that it was updated … for
+#: a new note then just green, for a deleted one maybe just red").
+NEW, UPDATED, REMOVED = "new", "updated", "removed"
+#: How much of what an edit took out the Reader is handed: a glance, never the whole old version.
+MAX_REMOVED, MAX_REMOVED_CHARS = 12, 400
+
+
+def waiting_state(fm: dict | None) -> str | None:
+    """How a WAITING episode differs from what Sleep knows: ``removed`` when its source deleted it, ``updated`` when
+    a version of it was read before and it changed since (the stager's ``revised`` record names that version), else
+    ``new``. None for an episode that is not waiting. Pure over the cached header."""
+    fm = fm or {}
+    if fm.get("processed"):
+        return None
+    if fm.get("source_deleted_at"):
+        return REMOVED
+    return UPDATED if consolidated_hash(fm) else NEW
+
+
+def since_read(memory_path: Path, episode_id: str, fm: dict, text: str) -> dict | None:
+    """What changed in a waiting episode since Sleep last read it, for the Reader: ``{state, changed, removed,
+    at}`` — ``changed`` are ``(start, end)`` offsets into ``text`` (the evidence text the Reader draws), ``removed``
+    the words the edit took out (capped; never for a transcript, whose cap slides old turns out without anyone
+    removing them), ``at`` when it was last edited. None for an episode that is not waiting. An updated episode whose
+    read version git no longer holds answers its state with no ranges: the marker stays true, nothing is guessed."""
+    state = waiting_state(fm)
+    if state is None:
+        return None
+    record = fm.get(REVISED_KEY) if isinstance(fm.get(REVISED_KEY), dict) else {}
+    out = {"state": state, "changed": [], "removed": [], "at": str(record.get("at") or "") or None}
+    if state != UPDATED:
+        return out
+    prior = prior_bodies(memory_path, [{"id": episode_id, "filepath": f"{episode_id}.md",
+                                        REVISED_KEY: fm.get(REVISED_KEY)}]).get(episode_id)
+    if prior is None:
+        return out
+    changed, removed, _ = diff(prior, text)
+    out["changed"] = [[s, e] for s, e in changed]
+    if str(fm.get("capture_kind") or "") != "transcript":
+        gone = [" ".join(prior[s:e].split()) for s, e in removed]
+        out["removed"] = [g[:MAX_REMOVED_CHARS] for g in gone if g][:MAX_REMOVED]
+    return out
+
+
 def _blobs(memory_path: Path, specs: list[str]) -> list[bytes | None]:
     """One ``git cat-file --batch`` over ``<rev>:<path>`` specs; ``None`` for one git does not hold. A read."""
     if not specs:

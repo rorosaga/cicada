@@ -235,6 +235,7 @@ final class SourceSpansState {
         let unfolded: Set<Int>
         let presentation: ReaderPresentation
         let others: [Range<Int>]
+        let changed: [Range<Int>]
         let note: UUID?
     }
 
@@ -284,13 +285,16 @@ final class SourceSpansState {
 
     func layout(_ doc: EpisodeText, scalars: ScalarText, presentation: ReaderPresentation,
                 others: [Range<Int>], note: NoteDocument? = nil) -> Layout {
+        // What changed since Sleep read it (owner 2026-11-23), washed beside the cited spans.
+        let changed = ReaderChanges.ranges(doc, scalars: scalars)
         let key = MemoKey(episode: doc.episode, hash: doc.hash, length: doc.length, unfolded: unfolded,
-                          presentation: presentation, others: others, note: note?.id)
+                          presentation: presentation, others: others, changed: changed, note: note?.id)
         if memoKey == key, let memo { return memo }
         // A span the formatted page cannot show keeps the plain page: a citation's words are never lost to formatting.
-        if let note, !ReaderChat.isChat(doc), (others + [presentation.focus].compactMap { $0 }).allSatisfy(note.draws) {
+        if let note, !ReaderChat.isChat(doc),
+           (others + changed + [presentation.focus].compactMap { $0 }).allSatisfy(note.draws) {
             let rows = note.rows(doc: doc, turn: doc.turns.first?.index ?? 0, focus: presentation.focus,
-                                 focusStyle: presentation.focusStyle, others: others)
+                                 focusStyle: presentation.focusStyle, others: others, changed: changed)
             let blocks = rows.map(\.reader)
             let landing = presentation.landing.flatMap { ReaderLayout.blockID(containing: $0, in: blocks) }
             let built = Layout(blocks: blocks, chat: nil, landingBlock: landing, noteRows: rows)
@@ -300,7 +304,7 @@ final class SourceSpansState {
         }
         let blocks = ReaderLayout.blocks(doc: doc, scalars: scalars, focus: presentation.focus,
                                          focusStyle: presentation.focusStyle,
-                                         others: others.filter { $0 != presentation.focus })
+                                         others: others.filter { $0 != presentation.focus }, changed: changed)
         let landingBlock = presentation.landing.flatMap { ReaderLayout.blockID(containing: $0, in: blocks) }
         var chat: [ReaderChat.Row]?
         if ReaderChat.isChat(doc) {

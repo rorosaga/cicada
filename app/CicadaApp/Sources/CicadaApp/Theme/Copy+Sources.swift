@@ -175,6 +175,16 @@ extension Copy {
             + (total == 1 ? noun.one : noun.many)
     }
     /// G161 (ROR-111) — the control that opens an item where it lives. Each names the person's own source.
+    /// Owner 2026-11-23 — a waiting episode's marker (`EpisodeChange`): the dot's meaning in words.
+    enum EpisodeChangeWords {
+        static let new = "new"
+        static let updated = "updated"
+        static let removed = "deleted at its source"
+        static let newHelp = "New: Sleep has not read this yet"
+        static let updatedHelp = "Updated: changed since Sleep last read it. Open it to see what changed"
+        static let removedHelp = "Deleted where it came from since it was captured"
+    }
+
     /// Owner 2026-11-23 — a queued episode's right-click "Open in …" (`EpisodeOpen`).
     enum EpisodeOpen {
         static func openIn(_ app: String) -> String { "Open in \(app)" }

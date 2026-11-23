@@ -16,7 +16,8 @@ import SwiftUI
 /// `CitedPassage` only shows or hides its marks (attributes are not interpolated). A call site that passes nothing
 /// gets 1.
 enum CitedSpan {
-    enum Mark: Equatable { case plain, current, other, mention }
+    /// `.changed` (owner 2026-11-23): a stretch that changed since Sleep read the source — `washChanged`, no underline.
+    enum Mark: Equatable { case plain, current, other, mention, changed }
     struct Segment: Equatable {
         let text: String
         let mark: Mark
@@ -46,6 +47,8 @@ enum CitedSpan {
         case .mention:
             // Found, not quoted: emphasis only, no fill (R-DI11).
             marks.inlinePresentationIntent = .stronglyEmphasized
+        case .changed:
+            marks.swiftUI.backgroundColor = CicadaTheme.washChanged.opacity(reveal)
         }
         return marks
     }
@@ -71,6 +74,7 @@ enum CitedSpan {
                 case .current: text + Text(segment.text).customAttribute(CitedSpanTag(current: true))
                 case .other: text + Text(segment.text).customAttribute(CitedSpanTag(current: false))
                 case .mention: text + Text(segment.text).fontWeight(.semibold)
+                case .changed: text + Text(segment.text).customAttribute(CitedSpanTag(current: false, changed: true))
                 }
             }
         }
@@ -81,6 +85,8 @@ enum CitedSpan {
 @available(macOS 15, *)
 struct CitedSpanTag: TextAttribute {
     let current: Bool
+    /// A stretch that changed since Sleep read the source: its own wash, never the cited one.
+    var changed = false
 }
 
 @available(macOS 15, *)
@@ -88,6 +94,7 @@ struct CitedSpanRenderer: TextRenderer {
     let wash: Color
     let washSoft: Color
     let underline: Color
+    var changed: Color = CicadaTheme.washChanged
     /// DR-61 — 0 → 1 over `spanReveal`; animatable so the wash fades rather than pops.
     var reveal: Double = 1
 
@@ -109,7 +116,7 @@ struct CitedSpanRenderer: TextRenderer {
                     let bounds = run.typographicBounds.rect
                     ctx.fill(Path(roundedRect: CitedSpan.washRect(for: bounds), cornerRadius: CitedSpan.cornerRadius,
                                   style: .continuous),
-                             with: .color((tag.current ? wash : washSoft).opacity(reveal)))
+                             with: .color((tag.changed ? changed : tag.current ? wash : washSoft).opacity(reveal)))
                     if tag.current {
                         ctx.fill(Path(CitedSpan.underlineRect(for: bounds)), with: .color(underline.opacity(reveal)))
                     }

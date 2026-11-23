@@ -1,5 +1,50 @@
 import SwiftUI
 
+/// Owner 2026-11-23 — a waiting episode's marker: "a small marker of a color maybe like yellowish to signify that it
+/// was updated … for a new note then just green, for a deleted one maybe just red". A dot before the title, its
+/// meaning also in words (the footer and `.help`): colour never carries it alone. The Reader shows what changed.
+enum EpisodeChange: String, Equatable {
+    case new, updated, removed
+
+    /// Only a waiting episode wears one; an unknown word from a newer backend is no marker.
+    static func of(_ item: EpisodeQueueItem) -> EpisodeChange? {
+        item.processed ? nil : item.change.flatMap(EpisodeChange.init(rawValue:))
+    }
+
+    var color: Color {
+        switch self {
+        case .new: CicadaTheme.success
+        case .updated: CicadaTheme.warning
+        case .removed: CicadaTheme.danger
+        }
+    }
+
+    /// The footer's word; a new item says nothing more (most of a queue is new — the dot is enough).
+    var footerWord: String? {
+        switch self {
+        case .new: nil
+        case .updated: Copy.EpisodeChangeWords.updated
+        case .removed: Copy.EpisodeChangeWords.removed
+        }
+    }
+
+    var help: String {
+        switch self {
+        case .new: Copy.EpisodeChangeWords.newHelp
+        case .updated: Copy.EpisodeChangeWords.updatedHelp
+        case .removed: Copy.EpisodeChangeWords.removedHelp
+        }
+    }
+
+    var spoken: String {
+        switch self {
+        case .new: Copy.EpisodeChangeWords.new
+        case .updated: Copy.EpisodeChangeWords.updated
+        case .removed: Copy.EpisodeChangeWords.removed
+        }
+    }
+}
+
 /// A queued or read episode's words, pure (`SleepDetailsTests`).
 enum EpisodeRowText {
     /// "Nov 3, 2026 14:02" — the year kept (a queue can span years after a bulk import); "—" for an
@@ -39,6 +84,12 @@ enum EpisodeRowText {
         return parts.joined(separator: " · ")
     }
 
+    /// The same, led by what the marker means when the episode wears one.
+    static func help(_ item: EpisodeQueueItem, kind: String?) -> String {
+        let base = help(kind: kind, timestamp: item.timestamp, changedAt: item.changedAt, id: item.id)
+        return EpisodeChange.of(item).map { "\($0.help) · \(base)" } ?? base
+    }
+
     /// A card's footer after its mark: where it is (a page's site and path, "3 tab links", a file's name), how long
     /// ago it last changed, and "read" once Sleep read it. The source's name is never repeated: the source card above
     /// names it once (DR-38), and the mark carries it at a glance.
@@ -48,12 +99,15 @@ enum EpisodeRowText {
             parts.append(Copy.OriginCard.ago(date, now: now))
         }
         if item.processed { parts.append("read") }
+        if let word = EpisodeChange.of(item)?.footerWord { parts.append(word) }
         return parts
     }
 
     /// What VoiceOver reads for a card: the title, then the footer's words.
     static func cardLabel(_ item: EpisodeQueueItem, target: String?, now: Date = Date()) -> String {
-        ([item.title ?? Copy.SleepDetailsWords.untitled] + footer(item, target: target, now: now)).joined(separator: ", ")
+        let marker = EpisodeChange.of(item).flatMap { $0 == .new ? $0.spoken : nil }   // the others are footer words
+        return ([item.title ?? Copy.SleepDetailsWords.untitled] + footer(item, target: target, now: now)
+                + [marker].compactMap { $0 }).joined(separator: ", ")
     }
 
     private static func parse(_ raw: String) -> Date? {
@@ -127,10 +181,17 @@ struct EpisodeCard: View {
     var body: some View {
         Button(action: activate) {
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
-                Text(item.title ?? Copy.SleepDetailsWords.untitled)
-                    .font(CicadaTheme.rowFont)
-                    .foregroundStyle(item.processed ? CicadaTheme.textSecondary : CicadaTheme.textPrimary)
-                    .lineLimit(1)
+                HStack(alignment: .center, spacing: CicadaTheme.scaled(7)) {
+                    if let change = EpisodeChange.of(item) {
+                        Circle().fill(change.color)
+                            .frame(width: CicadaTheme.scaled(Tag.dotSize + 1), height: CicadaTheme.scaled(Tag.dotSize + 1))
+                            .accessibilityHidden(true)   // the card's label says it
+                    }
+                    Text(item.title ?? Copy.SleepDetailsWords.untitled)
+                        .font(CicadaTheme.rowFont)
+                        .foregroundStyle(item.processed ? CicadaTheme.textSecondary : CicadaTheme.textPrimary)
+                        .lineLimit(1)
+                }
                 if !item.preview.isEmpty {
                     Text(item.preview)
                         .font(CicadaTheme.bodyFont)
@@ -146,7 +207,7 @@ struct EpisodeCard: View {
         .buttonStyle(.cicadaPlain)
         .onHover { hovering = $0 }
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
-        .help(EpisodeRowText.help(kind: kind, timestamp: item.timestamp, changedAt: item.changedAt, id: item.id))
+        .help(EpisodeRowText.help(item, kind: kind))
         .contextMenu {
             // Owner 2026-11-23: the original, where it lives — first, then the copy.
             if let opens = EpisodeOpen.target(item),

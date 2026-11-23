@@ -231,6 +231,10 @@ enum CicadaTheme {
     /// no tinted word reads as a hovered or selected row (`ThemeContrastTests.testEveryCitedSpanIsFindable…`).
     static var wash: Color { mode == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.07) }
     static var washSoft: Color { wash }
+    /// Owner 2026-11-23 — the Reader's wash over what changed in a waiting source since Sleep read it ("a small marker
+    /// of a color maybe like yellowish to signify that it was updated"): the `warning` hue, thin enough that the words
+    /// keep their contrast. The same hue is the Waiting card's "updated" dot.
+    static var washChanged: Color { warning.opacity(mode == .dark ? 0.26 : 0.22) }
     /// Keyboard focus — 2 pt at 60 % (DR-5 use 1).
     static var focusRing: Color { accent.opacity(0.6) }
 
