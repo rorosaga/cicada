@@ -735,7 +735,15 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   the meeting note with its quote; the rest stay placeholders Stage 1 never makes a page for, never takes for the
   person, and credits only where the transcript's words say who speaks. `Them` and other track-wide labels
   (`is_group_placeholder`) may name several people. The stored body, labels and offsets never change, so episodes
-  already staged get it too; a failed or refused call reads the meeting as labelled. An edited transcript carries the stager's `revised` record (above), so Sleep reads it as a revision. Wispr Flow's meetings stay
+  already staged get it too; a failed or refused call reads the meeting as labelled. **Asking the person (slice 2):** a one-voice
+  placeholder (never `Them`) still unnamed after that call, with 5+ lines, gets one `clarification` question
+  (`asks: speaker`, Stage 5.4c, `meeting_speakers.ensure_question`): the meeting, who else was named, two of the
+  voice's own lines, the calendar's other attendees as options, "Someone I don't know", or a typed name. The answer is
+  stored by source in `meetings/speaker-names.yaml` (one writer, `meeting_speakers`), applied by the parser on every
+  sync (`draft_for_file(speaker_names=)`, `meeting.named_by_person`), and the stored meeting is relabelled in place
+  (`episode_staging.relabel_in_place`: turn stamps move with the text, a `revised` revision Sleep reads where it
+  changed). The person themselves is refused (52a); no tending rule, judge or other conversation settles it, and a
+  question whose meeting is gone is retired. An edited transcript carries the stager's `revised` record (above), so Sleep reads it as a revision. Wispr Flow's meetings stay
   on their own reader (above), now under the same Sources section; their summary and notes blocks are quoted through the
   same `summary_text` (#579 review, 2026-11-03), so a model line reading `User: …` opens no turn there either.
 - **Messages conversations the person ticks (G179, 2026-10-15).** The app lists `chat.db`'s 200 most recent chats for

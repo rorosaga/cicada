@@ -591,9 +591,14 @@ def _unnamed_speakers_line(episode: dict, named: list) -> str:
     from api.services import meeting_speakers
 
     placeholders = meeting_speakers.unnamed(episode)
+    meeting = episode.get("meeting") if isinstance(episode.get("meeting"), dict) else {}
+    by_person = {str(k): str(v) for k, v in (meeting.get("named_by_person") or {}).items() if v}
+    from api.services import meeting_transcripts
+
+    line = "".join(f' Lines starting "{meeting_transcripts.marker(name)}:" are {name}\'s; the person named them.'
+                   for name in dict.fromkeys(by_person.values()))
     if not placeholders:
-        return ""
-    line = ""
+        return line
     by_marker: dict[str, list] = {}
     for n in named:
         by_marker.setdefault(n.marker, []).append(n)

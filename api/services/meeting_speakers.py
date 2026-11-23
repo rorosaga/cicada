@@ -265,9 +265,9 @@ def _lines_of(body: str, marker: str) -> list[str]:
 def _clip(text: str) -> str:
     text = " ".join(text.split())
     if len(text) <= MAX_QUOTE_CHARS:
-        return text
+        return text.rstrip(".")
     cut = text[:MAX_QUOTE_CHARS].rsplit(" ", 1)[0]
-    return cut.rstrip(",;:") + "…"
+    return cut.rstrip(",;:.") + "…"
 
 
 def _open_question(memory_path: Path, episode_id: str, marker: str) -> Path | None:

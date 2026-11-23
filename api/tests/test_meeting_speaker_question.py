@@ -241,3 +241,19 @@ def test_the_question_is_served_and_an_answer_through_the_route_is_the_persons_c
     show = git("show", "--stat", "--format=%B", "HEAD~1")   # HEAD is the state snapshot after it
     assert "Cicada-Author: user" in show and ms.NAMES_FILE in show and f"episodes/{path.stem}.md" in show
     assert git("status", "--porcelain").strip() == ""
+
+
+def test_a_voice_the_person_named_is_said_by_its_full_name_in_the_note(bank):
+    from api.services import entity_extractor
+
+    ep = {"meeting": {"recorder": "hex", "own_labels": ["You"], "speakers": ["You", "Dana Example", "Speaker 2"],
+                      "named_by_person": {"Speaker 1": "Dana Example"}}}
+    note = entity_extractor.meeting_note(ep)
+    assert 'Lines starting "speaker:dana-example:" are Dana Example\'s; the person named them.' in note
+    assert '"speaker:speaker-2" is a placeholder' in note
+
+
+def test_the_question_quotes_without_a_full_stop_before_its_question_mark(bank):
+    _folder, path = _meeting(bank)
+    item = ms.ensure_question(bank, path.stem, "speaker:speaker-1")
+    assert ".”" not in _parsed(item).frontmatter["question"]
