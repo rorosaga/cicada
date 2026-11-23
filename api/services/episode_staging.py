@@ -498,7 +498,9 @@ def write_new(draft: EpisodeDraft, episodes_dir: Path, body: str, digest: str,
         fm["source_id"] = draft.source_id
         fm["source_updated_at"] = draft.source_updated_at
     if draft.edits:   # G244, before `_apply_common`: the turn sidecar stays the last key
-        with_contributions(fm, contribution_entries(draft.edits, digest, changed_ranges(None, body)))
+        from api.services import source_edits   # review B1: whole-body ranges only for a file the agent wrote whole
+        whole = source_edits.whole_body_is_theirs(e.get("tool") for e in draft.edits)
+        with_contributions(fm, contribution_entries(draft.edits, digest, changed_ranges(None, body) if whole else []))
     _apply_common(fm, draft, stamps, body)
     # Audit K01: `date_counts` was seeded at the start of the call, and a writer
     # in another process (an MCP server, the Stop hook) may have taken the id

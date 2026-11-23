@@ -72,9 +72,9 @@ def _only(bank):
     return ep
 
 
-def _edit(bank, folder, rel, text, *, harness="claude-code", session=SID, at=None, model=None, effort=None):
+def _edit(bank, folder, rel, text, *, harness="claude-code", session=SID, at=None, model=None, effort=None, tool="Edit"):
     edit = source_edits.clean(bank, folder_id=folder["id"], relpath=rel, sha256=_sha(text), harness=harness,
-                              session_id=session, tool="Edit", at=at)
+                              session_id=session, tool=tool, at=at)
     edit.model, edit.effort = model, effort
     return edit
 
@@ -84,7 +84,10 @@ V2 = "Intro line.\n\nThe plan is to ship in July.\n\nOwner: Bob Example.\n"
 V3 = "Intro line.\n\nThe plan is to ship in July.\n\nOwner: Carol Example.\n"
 
 
-def _at(day=22):
+def _at(day=None):
+    """An edit's time: now by default (a sync-first attach needs the version staged around the edit, review B1)."""
+    if day is None:
+        return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     return datetime(2026, 11, day, 9, 30, tzinfo=timezone.utc).isoformat()
 
 
@@ -197,10 +200,27 @@ def test_a_record_that_arrives_after_the_sync_attaches_to_the_episode_that_holds
 
 def test_a_new_file_an_agent_wrote_is_wholly_its_contribution(bank, folder):
     fs.sync(bank, folder, [_file("NEW.md", V1)], [])
-    out = source_edits.receive(bank, _edit(bank, folder, "NEW.md", V1))
+    out = source_edits.receive(bank, _edit(bank, folder, "NEW.md", V1, tool="Write"))
     ep = _only(bank)
     assert out.status == "attached"
     assert ep.frontmatter["contributions"][0]["ranges"] == [[0, len(ep.body)]]
+
+
+def test_an_edit_of_a_file_cicada_had_not_seen_names_the_editor_and_claims_no_span(bank, folder):
+    """Review B1: an Edit of a fresh recorder file changed some of its words, which ones unknown — none is claimed."""
+    source_edits.receive(bank, _edit(bank, folder, "FRESH.md", V1))          # held: the app has not posted it yet
+    fs.sync(bank, folder, [_file("FRESH.md", V1)], [])
+    (c,) = _only(bank).frontmatter["contributions"]
+    assert c["harness"] == "claude-code" and c["ranges"] == []
+
+
+def test_a_declared_edit_of_bytes_staged_long_ago_attaches_nothing(bank, folder):
+    """Review B1: a no-op write or a declared edit of a file the agent never changed is not the staged version's."""
+    fs.sync(bank, folder, [_file("NOTES.md", V1)], [])
+    _commit(bank)
+    out = source_edits.receive(bank, _edit(bank, folder, "NOTES.md", V1, at=_at(2)))
+    assert (out.status, out.episodes, out.reason) == ("attached", [], "no_change")
+    assert not _only(bank).frontmatter.get("contributions")
 
 
 def test_the_body_the_edit_replaced_is_not_guessed_without_git(tmp_path):
@@ -326,7 +346,7 @@ def test_contributions_outlive_a_later_unattributed_edit_and_are_newest_first(ba
     (c,) = ep.frontmatter["contributions"]
     assert c["content_hash"] != ep.frontmatter["content_hash"] and ep.frontmatter["revised"]["count"] == 2
     source_edits.receive(bank, _edit(bank, folder, "NOTES.md", V3, harness="codex", session="codex-session-0002",
-                                     at=_at(23)))
+                                     at=_at()))
     ep = _only(bank)
     assert [c["harness"] for c in ep.frontmatter["contributions"]] == ["codex", "claude-code"]
 
@@ -516,6 +536,18 @@ def test_the_corrections_record_and_commit_body_name_who_edited(bank, folder):
     merged = corrections_record.merge(entry, corrections_record.batch_entry({"revised": ["ep_2026-02-02_001"]}))
     assert merged["by"] == {ep: "claude-code"}
     assert corrections_record.batch_entry({"revised": ["ep_2026-02-02_001"]}).get("by") is None
+
+
+def test_a_later_revision_nobody_recorded_is_not_named_for_an_older_edit(bank, folder):
+    """Review B2: the run names an editor only when that edit made the body Sleep reads now."""
+    fs.sync(bank, folder, [_file("NOTES.md", V1)], [])
+    _commit(bank)
+    source_edits.receive(bank, _edit(bank, folder, "NOTES.md", V2))
+    fs.sync(bank, folder, [_file("NOTES.md", V2, mtime=T0 + 60)], [])
+    _commit(bank)
+    fs.sync(bank, folder, [_file("NOTES.md", V3, mtime=T0 + 120)], [])      # the recorder's rewrite, no record
+    ep = _only(bank).frontmatter["id"]
+    assert source_edits.editors(bank, [ep]) == {}
 
 
 # --- the CLI: for an agent's shell only -------------------------------------------------------------------------------------

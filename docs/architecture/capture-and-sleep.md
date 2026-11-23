@@ -2123,10 +2123,13 @@ read as the recorder's. Now the edit is recorded by a hook, never by the agent's
   declares it with `cicada source-edit <file>` (the CLI names the calling session). Never a heuristic over mtimes: a wrong
   attribution is worse than none.
 - **Matched by content, either order** (`source_edits`): the record waits outside every bank and git keyed by
-  `(folder_id, sha256)` for 7 days; the stager attaches it to the episode(s) it writes for a file with that hash, or, when
-  the sync landed first, it attaches at once to the episodes whose `content_sha` and folder match (one commit, the agent
-  as `Cicada-Author`, its session as `Cicada-Session`). A split note's contribution lands on each section whose body
-  changed. The episode keeps `contributions: [{harness, model, effort, session, at, content_hash, ranges}]` (`storage.md`).
+  `(folder_id, relpath, sha256)` for 7 days; the stager attaches it to the episode(s) it writes for that file's bytes, or,
+  when the sync landed first, it attaches at once to the episodes whose `content_sha` and folder match and whose version
+  was staged around the edit's time (2 minutes before to 15 after; a no-op write or a declared edit of bytes staged long
+  ago attaches nothing) — one commit, the agent as `Cicada-Author`, its session as `Cicada-Session`. A split note's
+  contribution lands on each section whose body changed. A body with no earlier version is wholly the agent's only when
+  its tool wrote the whole file (`Write`); an `Edit` of a file Cicada had not seen yet names the editor and claims no
+  span. A run names an editor only for the body it read (the contribution's `content_hash` is the episode's). The episode keeps `contributions: [{harness, model, effort, session, at, content_hash, ranges}]` (`storage.md`).
 - **Said where the words are drawn.** A span that overlaps a contribution's `ranges` while the body is still the one it
   edited is `correctedBy {harness, model?, at}`; the app notes it beside the citation, "Corrected by <harness> · <model>",
   and the Corrections section of a run says "Edited by <harness>". The line stays its speaker's words: trust, evidence

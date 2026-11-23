@@ -42,7 +42,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import agent_turns, episode_staging, markdown_parser
+from api.services import agent_turns, episode_ids, episode_staging, markdown_parser
 from api.services.auth import cicada_home
 
 DIRNAME = "source-edits"
@@ -55,6 +55,11 @@ TAIL_BYTES = 2 * 1024 * 1024
 FUTURE_SLACK = timedelta(minutes=10)
 #: How far back an episode's own git history is walked for the body an edit replaced.
 HISTORY_MAX = 20
+#: Review B1: an edit posted after the sync staged its bytes attaches only to the version staged around the edit — the app
+#: posts a changed file within seconds, so a version staged far from the edit's time was not made by it (a no-op write,
+#: a declared edit of a file the agent never changed). The slack before covers clocks a little apart.
+STAGED_BEFORE_SLACK = timedelta(minutes=2)
+STAGED_AFTER_WINDOW = timedelta(minutes=15)
 
 _SHA = re.compile(r"^[0-9a-f]{64}$")
 _HARNESS = re.compile(r"^[a-z][a-z0-9-]{1,31}$")
@@ -281,7 +286,7 @@ def pending_for(memory_path: Path, folder_id: str, relpath: str, sha: str, *,
     with _LOCK:
         rows = _live(_read(path), now)
     want = (folder_id, relpath, sha)
-    return [{k: r[k] for k in ("harness", "model", "effort", "session", "at") if r.get(k)}
+    return [{k: r[k] for k in ("harness", "model", "effort", "session", "at", "tool") if r.get(k)}
             for r in rows if _key(r) == want]
 
 
@@ -359,6 +364,34 @@ def _holders(memory_path: Path, edit: Edit) -> list[episode_staging.IndexEntry]:
                   key=lambda e: e.id)
 
 
+def whole_body_is_theirs(tools) -> bool:
+    """Review B1: a body with no earlier version is wholly the agent's only when its tool wrote the whole file (``Write``);
+    an ``Edit`` (or a declared shell edit) of a file Cicada had not seen yet changed some of a recorder's words, which
+    ones unknown — the episode names the editor, no span is claimed."""
+    return any(str(t or "") == "Write" for t in tools)
+
+
+def _staged_with(fm: dict, at: str) -> bool:
+    """Whether this episode's current version was staged around the edit's time ``at`` (``revised.at``, else
+    ``received_at``). Unknown times are not this edit's."""
+    rec = fm.get(episode_staging.REVISED_KEY) if isinstance(fm.get(episode_staging.REVISED_KEY), dict) else {}
+    staged = _parse_time(rec.get("at") or fm.get(episode_ids.RECEIVED_KEY))
+    when = _parse_time(at)
+    if staged is None or when is None:
+        return False
+    return when - STAGED_BEFORE_SLACK <= staged <= when + STAGED_AFTER_WINDOW
+
+
+def _parse_time(raw) -> datetime | None:
+    try:
+        got = datetime.fromisoformat(str(raw).replace("Z", "+00:00")) if raw else None
+    except ValueError:
+        return None
+    if got is not None and got.tzinfo is None:
+        got = got.replace(tzinfo=timezone.utc)
+    return got
+
+
 def attach(memory_path: Path, edit: Edit) -> Outcome:
     """Record ``edit`` on the episodes of its folder that hold its bytes. ``held`` when none does (the sync has not staged
     them; :func:`hold` keeps it). A split note's section the edit left alone gets nothing. Frontmatter only; the caller
@@ -372,12 +405,17 @@ def attach(memory_path: Path, edit: Edit) -> Outcome:
     for entry in holders:
         parsed = markdown_parser.parse(entry.path)
         body = parsed.body
+        if not _staged_with(parsed.frontmatter, edit.at):
+            continue            # review B1: these bytes were staged long before or after this edit — not its version
         prior, known = _prior_body(memory_path, entry.path, edit.sha)
         if known and prior is not None:
             changed, removed, _ = episode_revision.diff(prior, body)
             if not changed and not removed:
                 continue            # a section of a split note the edit did not touch
-        ranges = episode_staging.changed_ranges(prior, body) if known else []
+        if not known or (prior is None and not whole_body_is_theirs([edit.tool])):
+            ranges = []
+        else:
+            ranges = episode_staging.changed_ranges(prior, body)
         item = episode_staging.contribution_entries([edit.contribution()], str(parsed.frontmatter.get("content_hash")),
                                                     ranges)[0]
         held = [c for c in parsed.frontmatter.get(episode_staging.CONTRIBUTIONS_KEY) or [] if isinstance(c, dict)]
@@ -414,7 +452,10 @@ def editors(memory_path: Path, episode_ids_: list[str]) -> dict[str, str]:
             rows = (indexed.frontmatter or {}).get(episode_staging.CONTRIBUTIONS_KEY) if indexed is not None else None
         except Exception:  # noqa: BLE001
             continue
-        first = next((c for c in rows or [] if isinstance(c, dict) and c.get("harness")), None)
+        current = (indexed.frontmatter or {}).get("content_hash") if indexed is not None else None
+        # Review B2: only an edit that made the body Sleep read now is named — an older one is not this revision's.
+        first = next((c for c in rows or [] if isinstance(c, dict) and c.get("harness")
+                      and current and c.get("content_hash") == current), None)
         if first is not None:
             out[ep] = str(first["harness"])
     return out
