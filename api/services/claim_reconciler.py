@@ -724,7 +724,8 @@ def _says_any(text: str, labels: set[str]) -> bool:
 
 def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinality_fn: CardinalityFn,
                  nudges: list[dict], audit: list[dict], untimed=frozenset(), over: set[str] = frozenset(),
-                 canonical: str | None = None, revised: dict[str, str] | None = None) -> Claim | None:
+                 canonical: str | None = None, revised: dict[str, str] | None = None,
+                 redated: dict[str, str] | None = None) -> Claim | None:
     """One non-event incoming claim against its subject's slot (the K table).
     Returns the claim the page keeps for it — ``new``, or the existing claim a
     restatement reinforced — or ``None`` when it is not stored (a conflict to
@@ -739,7 +740,12 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
     ``revised`` (G104, owner 2026-11-03): open claims only the removed text of an edited conversation said, by id, with
     that conversation (`episode_revision`). A new value read from that same conversation's revision closes one cleanly
     — the source corrected itself, so there is nothing to ask. A value from any other conversation meets the table as
-    before: a later conversation saying something different is an update or a conflict."""
+    before: a later conversation saying something different is an update or a conflict.
+
+    ``redated`` (G104 slice 3, review): open claims whose only conversation was edited so that the SAME relationship now
+    carries another start or end (`episode_revision.redated`). The date was said on another line than the claim's span,
+    so the claim is not "removed text" and ``revised`` cannot name it; the revision's own dated claim replaces it the way
+    a same-revision new value does — closed, ``superseded_by`` the new one, no question."""
     twin = _reread_twin(new, slot)
     if twin is not None:
         _merge_episodes(twin, new)
@@ -761,6 +767,23 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
     if not same_key_open:
         slot.append(_stamp_new(new, settings, today=today))
         return new
+
+    if redated and not value:
+        old = next((c for c in same_key_open if redated.get(c.id) in (new.source_episodes or [])
+                    and same_object(c, new)), None)
+        if old is not None and old.id == new.id:
+            # Only the stated end moved (a claim's id hashes its start): the claim says it now.
+            old.expected_end = new.expected_end
+            _reinforce(old, new, today=today, untimed=untimed)
+            audit.append({"action": "revision_redated", "kept": old.id})
+            return old
+        if old is not None:
+            _close(old, by=_stamp_new(new, settings, today=today))
+            if old.valid_from and _date_key(old.valid_to) < _date_key(old.valid_from):
+                old.valid_to = old.valid_from   # a date moved earlier closes the old claim on its own first day
+            slot.append(new)
+            audit.append({"action": "revised", "closed": old.id, "by": new.id})
+            return new
 
     single = value or cardinality_fn(new.predicate)
 
@@ -1130,10 +1153,12 @@ def reconcile_stage3(
     subject_fn: SubjectFn | None = None,
     decay: bool = True,
     revised: dict[str, str] | None = None,
+    redated: dict[str, str] | None = None,
 ) -> tuple[dict[str, list[Claim]], list[dict], list[dict]]:
     """Trust-gated invalidate-and-supersede over claims. Nothing deleted.
 
-    ``revised``: :func:`_place_claim`'s — the claims an edited conversation stopped saying (G104).
+    ``revised``: :func:`_place_claim`'s — the claims an edited conversation stopped saying (G104). ``redated``: its
+    claims an edited conversation now dates differently (G104 slice 3, review).
 
     ``decay=False`` skips ``_decay_claims`` only (a drain's batches before the
     last; see ``sleep_drain``).
@@ -1246,7 +1271,7 @@ def reconcile_stage3(
         canonical = (ended_by(new.predicate) if ended_by else None) or new.predicate
         over = getattr(endings_fn, "over", {}).get(canonical, frozenset())
         kept = _place_claim(new, slot, settings, today, cardinality_fn, nudges, audit, untimed, over, canonical,
-                            revised=revised)
+                            revised=revised, redated=redated)
         if (revised and kept is not None and kept is not new and kept.id in revised
                 and revised[kept.id] in (new.source_episodes or [])):
             # G104: the revision said a marked claim again — whatever its evidence (an unlocatable quote is a

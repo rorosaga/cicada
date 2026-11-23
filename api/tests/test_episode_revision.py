@@ -301,3 +301,43 @@ def test_a_version_sleep_never_read_is_not_a_prior(tmp_path):
     _git(memory, "commit", "-qm", "import")
     ep = _episode(memory, "user: second.", processed=False)
     assert er.prior_bodies(memory, [ep]) == {}
+
+
+# --------------------------------------------------------------------------- a date said on another line (G104 slice 3)
+
+
+def test_says_day_reads_a_day_beside_its_month_in_any_of_the_languages():
+    yes = [("El 12 de diciembre, cuando termine", "2026-12-12"), ("on December 12th we leave", "2026-12-12"),
+           ("le 3 août", "2026-08-03"), ("am 3. August", "2026-08-03"), ("12/12", "2026-12-12"),
+           ("starts 2026-12-12 sharp", "2026-12-12"), ("5 Dec", "2026-12-05")]
+    no = [("El 5 de diciembre", "2026-12-12"), ("the 12th of nothing", "2026-12-12"), ("12 items in 2026", "2026-12-12"),
+          ("next Friday", "2026-12-12"), ("12 de enero", "2026-12-12"), ("", "2026-12-12"), ("12 dec", None)]
+    for text, day in yes:
+        assert er.says_day(text, day), (text, day)
+    for text, day in no:
+        assert not er.says_day(text, day), (text, day)
+
+
+def _dated_rev(prior, body):
+    ep = {"id": "ep_2026-11-01_001", "content": body}
+    return er.build(ep, prior)
+
+
+def test_keep_changed_keeps_a_dated_relationship_only_when_the_changed_lines_say_its_day():
+    prior = "user: Ana se muda a Lima.\nuser: El 5 de diciembre se va."
+    body = "user: Ana se muda a Lima.\nuser: El 12 de diciembre se va."
+    rev = _dated_rev(prior, body)
+    span = {"episode": rev.episode_id, "start": 0, "end": 22, "kind": "user", "hash": rev.hash}
+
+    def rel(**kw):
+        return {"source": "Ana", "target": "Lima", "label": "moves to", "evidence": [span], **kw}
+
+    ents = [{"name": "Ana"}, {"name": "Lima"}]
+    _e, kept, _v, left = er.keep_changed(rev, ents, [rel(starts="2026-12-12")], [])
+    assert len(kept) == 1 and left == 2          # the relationship is new; neither name is said in the changed line
+    _e, kept, _v, left = er.keep_changed(rev, ents, [rel(starts="2026-12-05")], [])   # the first read's date, gone
+    assert kept == [] and left == 3
+    _e, kept, _v, _l = er.keep_changed(rev, ents, [rel(starts="2026-12-19")], [])
+    assert kept == []
+    _e, kept, _v, _l = er.keep_changed(rev, ents, [rel()], [])
+    assert kept == []                              # no date: the first read's, as before

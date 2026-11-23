@@ -530,6 +530,7 @@ def run_claim_pipeline(
         # before any of it is released onto a page (spans only; `pending_store.reanchor_held`).
         try:
             held_gone: list[str] = []
+            offered = [c for offers in held_offers.values() for c in offers] + list(incoming)
 
             def _move_held(held: list[Claim]) -> int:
                 held_plan = episode_revision.reanchor({"": held}, revisions)
@@ -538,6 +539,9 @@ def run_claim_pipeline(
                 # (read this batch) is the one that lands. Held claims are never human, an event or another
                 # conversation's (`episode_revision._closable`, `reanchor`), so nothing independent is dropped.
                 held_gone.extend(held_plan.revised_out)
+                # A held claim the revision dates differently (the date is on another line than its span) is replaced
+                # by the revision's own, held or on a page: it must not be released carrying the old date.
+                held_gone.extend(episode_revision.redated(held, offered, revisions))
                 return held_plan.reanchored
 
             held_moved = pending_store.reanchor_held(memory_path, _move_held)
@@ -565,6 +569,11 @@ def run_claim_pipeline(
 
     # ---- G104: an edited conversation's spans re-anchored, what only its removed text said marked ----
     revision_plan = episode_revision.reanchor(existing_by_subject, revisions or {})
+    # A date the revision's changed lines moved, on a claim whose span they did not touch (page claims and the ones just
+    # released from the hold, against the revision's own new claims; `episode_revision.redated`).
+    redated = episode_revision.redated(
+        [c for claims in existing_by_subject.values() for c in claims] + released,
+        [c for c in incoming if c.id in stage1_ids], revisions or {})
 
     # ---- Stage 3: reconcile against existing in-page claims (trust-gated) ----
     reconciled, nudges, audit = reconcile_stage3(
@@ -574,6 +583,7 @@ def run_claim_pipeline(
         now_date=today,
         **({} if decay else {"decay": False}),
         **({"revised": revision_plan.revised_out} if revision_plan.revised_out else {}),
+        **({"redated": redated} if redated else {}),
     )
     audit.extend(number_audit)
     withdrawn = episode_revision.settle(reconciled, revision_plan, revisions or {}, today, audit)
@@ -597,7 +607,7 @@ def run_claim_pipeline(
     for entry in audit:
         if entry.get("action") in ("revised", "revision_withdrew"):
             closed_id = entry.get("closed")
-            ep = revision_plan.revised_out.get(closed_id)
+            ep = revision_plan.revised_out.get(closed_id) or redated.get(closed_id)
             subject = subject_by_id.get(closed_id)
             if ep and subject and ep not in revision_closed.setdefault(subject, []):
                 revision_closed[subject].append(ep)

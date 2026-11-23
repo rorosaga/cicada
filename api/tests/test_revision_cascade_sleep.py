@@ -231,3 +231,122 @@ def test_held_prose_only_the_removed_text_said_does_not_seed_the_new_page(tmp_pa
     assert "sister of Dana Example" in page.body                        # an unchanged fact survives
     assert sleep_cycle._state.revision_cascade["held"]["prose_dropped"] == 3    # summary, key fact, history entry
     assert pending_store.waiting(memory)[0] == 0
+
+
+# --------------------------------------------------------------------------- a date said on another line (benchmark U4)
+
+EP_MOVE, EP_MOVE_2 = "ep_2026-11-07_001", "ep_2026-11-08_001"
+MOVE_V1 = ("user: Mi hermana Lia Prueba se muda a Valencia para empezar un máster.\nassistant: Entiendo.\n"
+           "user: El 5 de diciembre, cuando termine su contrato, se va.")
+MOVE_V2 = MOVE_V1.replace("El 5 de diciembre", "El 12 de diciembre")
+MOVE_OTHER = "user: Hablé otra vez con Lia Prueba hoy."
+
+
+def _move_answer(chunk: str) -> dict:
+    """The model puts the relationship's evidence on line 1 and its date from line 3 (what the benchmark measured)."""
+    ents, rels = [], []
+    if "Lia Prueba" in chunk:
+        ents.append({"name": "Lia Prueba", "type": "person", "confidence": 0.6, "summary": "A person."})
+    if "se muda a Valencia" in chunk:
+        ents.append({"name": "Valencia", "type": "location", "confidence": 0.9, "summary": "A city."})
+        rel = {"source": "Lia Prueba", "target": "Valencia", "label": "is moving to",
+               "evidence_quote": "Lia Prueba se muda a Valencia"}
+        if m := re.search(r"El (\d+) de diciembre", chunk):
+            rel["starts"] = f"2026-12-{int(m[1]):02d}"
+        rels.append(rel)
+    return {"entities": ents, "relationships": rels, "values": []}
+
+
+def _moving(memory):
+    return [c for c in _claims_of(memory, "lia-prueba") if c.predicate == "is-moving-to"]
+
+
+def _assert_redated(memory):
+    claims = _moving(memory)
+    open_ = [c for c in claims if c.valid_to is None]
+    assert [c.valid_from for c in open_] == ["2026-12-12"]
+    old = [c for c in claims if c.valid_from == "2026-12-05"]
+    assert len(old) == 1 and old[0].valid_to is not None                  # closed, never deleted
+    assert old[0].superseded_by == open_[0].id
+    assert not [n for n in (memory / "inbox").glob("*.md") if "conflict" in n.read_text(encoding="utf-8")]
+
+
+def test_a_date_said_on_another_line_than_its_evidence_is_corrected(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    for page, name, kind in (("lia-prueba", "Lia Prueba", "person"), ("valencia", "Valencia", "location")):
+        markdown_parser.write(memory / "entities" / f"{page}.md",
+                              {"name": name, "type": kind, "status": "active", "confidence": 0.9},
+                              "## Summary\nSynthetic.\n")
+    _write(memory, EP_MOVE, MOVE_V1)
+    _git(memory, "init", "-q")
+    _commit(memory, "capture")
+    _run(memory, monkeypatch, _move_answer)
+    first = _moving(memory)
+    assert [c.valid_from for c in first] == ["2026-12-05"]
+    assert all(e.end <= len(MOVE_V1.split("\n", 1)[0]) for e in first[0].evidence if e.is_span())   # line 1 only
+    _commit(memory, "Sleep cycle")
+    _revise(memory, EP_MOVE, MOVE_V1, MOVE_V2)
+    _run(memory, monkeypatch, _move_answer)
+    _assert_redated(memory)
+
+
+def test_a_held_claim_with_the_old_date_is_not_released_when_the_date_moved(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    markdown_parser.write(memory / "entities" / "valencia.md",
+                          {"name": "Valencia", "type": "location", "status": "active", "confidence": 0.5},
+                          "## Summary\nSynthetic.\n")
+    _write(memory, EP_MOVE, MOVE_V1)
+    _git(memory, "init", "-q")
+    _commit(memory, "capture")
+    _run(memory, monkeypatch, _move_answer)
+    held = [c for e in pending_store.load(memory) for c in e.held_claims]
+    assert [c["valid_from"] for c in held] == ["2026-12-05"]                # held: Lia Prueba has no page yet
+    _commit(memory, "Sleep cycle")
+    _revise(memory, EP_MOVE, MOVE_V1, MOVE_V2)
+    _write(memory, EP_MOVE_2, MOVE_OTHER)                                   # a second conversation births the page
+    _run(memory, monkeypatch, _move_answer)
+    assert (memory / "entities" / "lia-prueba.md").is_file()
+    claims = _moving(memory)
+    assert [c.valid_from for c in claims if c.valid_to is None] == ["2026-12-12"]
+    assert not [c for c in claims if c.valid_from == "2026-12-05" and c.valid_to is None]
+    assert pending_store.waiting(memory)[0] == 0
+
+
+def test_a_held_claim_is_replaced_by_the_revisions_own_while_the_name_still_has_no_page(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    markdown_parser.write(memory / "entities" / "valencia.md",
+                          {"name": "Valencia", "type": "location", "status": "active", "confidence": 0.5},
+                          "## Summary\nSynthetic.\n")
+    _write(memory, EP_MOVE, MOVE_V1)
+    _git(memory, "init", "-q")
+    _commit(memory, "capture")
+    _run(memory, monkeypatch, _move_answer)
+    _commit(memory, "Sleep cycle")
+    _revise(memory, EP_MOVE, MOVE_V1, MOVE_V2)
+    _run(memory, monkeypatch, _move_answer)
+    held = [c["valid_from"] for e in pending_store.load(memory) for c in e.held_claims]
+    assert held == ["2026-12-12"]
+
+
+def test_a_date_the_changed_lines_do_not_say_moves_nothing(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    for page, name, kind in (("lia-prueba", "Lia Prueba", "person"), ("valencia", "Valencia", "location")):
+        markdown_parser.write(memory / "entities" / f"{page}.md",
+                              {"name": name, "type": kind, "status": "active", "confidence": 0.9},
+                              "## Summary\nSynthetic.\n")
+    _write(memory, EP_MOVE, MOVE_V1)
+    _git(memory, "init", "-q")
+    _commit(memory, "capture")
+    _run(memory, monkeypatch, _move_answer)
+    _commit(memory, "Sleep cycle")
+    # The edit adds a line that says no date; the model (wrongly) still answers a date nothing changed says.
+    _revise(memory, EP_MOVE, MOVE_V1, MOVE_V1 + "\nuser: Ya te cuento más.")
+
+    def answer(chunk):
+        out = _move_answer(chunk)
+        for rel in out["relationships"]:
+            rel["starts"] = "2026-12-19"
+        return out
+
+    _run(memory, monkeypatch, answer)
+    assert [c.valid_from for c in _moving(memory) if c.valid_to is None] == ["2026-12-05"]

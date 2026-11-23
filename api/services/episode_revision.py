@@ -23,6 +23,12 @@ of a conversation the record already holds:
   body the whole body is read. A pure removal reads nothing. Of what the
   model returns, a relationship or value located only in unchanged text, and a name said only there, are the first
   read's (:func:`keep_changed`): never written twice, never a second chance at promotion.
+* **A date said on another line than its evidence is a correction too** (G104 slice 3, review): a relationship's start
+  or end (``starts``, ``ends``) is often said a line or two from the words that carry its span ("She moves to X." ...
+  "On the 5th, when her contract ends"). When the model re-reads the revision and returns such a relationship with its
+  span only in unchanged text but a day the CHANGED lines say (:func:`says_day`, deterministic, no model), it is new
+  (:func:`keep_changed`); in Stage 3 it replaces the claim the first read made for the same relationship and that only
+  this conversation said, as a same-revision new value does (:func:`redated`, ``superseded_by``, no question).
 * **Spans are re-anchored, never fuzzily** (:func:`reanchor`): each span minted on the read version is located again
   in the matching lines of this one — exact, then whitespace, then case-insensitive (`evidence.locate`) — with the new
   hash. One that cannot be is the source's removal.
@@ -41,7 +47,9 @@ from __future__ import annotations
 
 import bisect
 import difflib
+import re
 import subprocess
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -330,19 +338,76 @@ def _overlaps(s: int, e: int, ranges) -> bool:
     return any(s < hi and lo < e for lo, hi in ranges)
 
 
+#: The first three letters of a month's name in the languages Cicada reads, by month number (accents folded).
+_MONTHS: dict[int, frozenset[str]] = {
+    1: frozenset({"jan", "ene", "gen"}), 2: frozenset({"feb", "fev"}), 3: frozenset({"mar"}),
+    4: frozenset({"apr", "abr", "avr"}), 5: frozenset({"may", "mai", "mag"}), 6: frozenset({"jun", "giu"}),
+    7: frozenset({"jul", "lug"}), 8: frozenset({"aug", "ago", "aou"}), 9: frozenset({"sep", "set"}),
+    10: frozenset({"oct", "okt", "ott", "out"}), 11: frozenset({"nov"}), 12: frozenset({"dec", "dic", "dez"}),
+}
+_TOKEN = re.compile(r"\d+|[^\W\d_]+", re.UNICODE)
+_ISO = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _fold(word: str) -> str:
+    return "".join(ch for ch in unicodedata.normalize("NFD", word.casefold()) if not unicodedata.combining(ch))
+
+
+def says_day(text: str, day: str | None) -> bool:
+    """Whether ``text`` states the ISO day ``day``: the ISO form itself, or its day of the month beside its month
+    (a month's name in English, Spanish, French, German, Italian or Portuguese, or its number: "12 de diciembre",
+    "December 12th", "12/12"). Words only; no model. A relative date ("next Friday") states no day here."""
+    day = str(day or "")[:10]
+    if not _ISO.fullmatch(day):
+        return False
+    if day in text:
+        return True
+    month, dom = int(day[5:7]), int(day[8:10])
+    tokens = [_fold(t) for t in _TOKEN.findall(text)]
+    for i, tok in enumerate(tokens):
+        if not (tok.isdigit() and int(tok) == dom and len(tok) <= 2):
+            continue
+        for near in tokens[max(0, i - 2):i] + tokens[i + 1:i + 3]:
+            if near.isdigit():
+                if int(near) == month and len(near) <= 2:
+                    return True
+            elif len(near) >= 3 and near[:3] in _MONTHS[month]:
+                return True
+    return False
+
+
+def _stated_days(item: dict) -> list[str]:
+    return [str(item.get(k)) for k in ("starts", "ends") if item.get(k)]
+
+
+def _changed_text(rev: Revision) -> str:
+    return "\n".join(rev.body[lo:hi] for lo, hi in rev.changed)
+
+
 def keep_changed(rev: Revision, entities: list, relationships: list, values: list) -> tuple[list, list, list, int]:
     """What the revision says that the read version did not: a relationship or value with a span only in unchanged
     text is the first read's; one with no span (an unlocatable quote) is kept — provenance never blocks memory. A
     name is kept when a changed line names it or a kept relationship or value does. Returns the kept lists and how
-    many items were left as the first read's."""
+    many items were left as the first read's.
+
+    One exception (G104 slice 3, review): a relationship with its span only in unchanged text whose stated start or
+    end (``starts``, ``ends``) is a day the changed lines say — the date was corrected on another line than the
+    words it dates. Stage 3 decides whether it replaces the first read's claim (:func:`redated`); a date the first read
+    already had meets its own claim again there, and never gives a name a second chance at a page."""
+    changed_text = _changed_text(rev)
+
     def new(item: dict) -> bool:
         spans = [Evidence.from_dict(e) for e in item.get("evidence") or [] if isinstance(e, dict)]
         spans = [s for s in spans if s.is_span()]
         return not spans or any(_overlaps(s.start, s.end, rev.changed) for s in spans)
 
+    def dated_here(item: dict) -> bool:
+        return rev.closes and any(says_day(changed_text, d) for d in _stated_days(item))
+
     rels = [r for r in relationships if new(r)]
+    dated = [r for r in relationships if not any(r is k for k in rels) and dated_here(r)]
     vals = [v for v in values if new(v)]
-    said = " ".join(rev.body[lo:hi] for lo, hi in rev.changed).casefold()
+    said = changed_text.casefold()
     ends = {str(x).strip().casefold() for r in rels for x in (r.get("source"), r.get("target")) if x}
     ends |= {str(v.get("entity") or "").strip().casefold() for v in vals}
 
@@ -352,8 +417,8 @@ def keep_changed(rev: Revision, entities: list, relationships: list, values: lis
         return any(n in ends or n in said for n in names)
 
     ents = [e for e in entities if isinstance(e, dict) and named(e)]
-    left = (len(relationships) - len(rels)) + (len(values) - len(vals)) + (len(entities) - len(ents))
-    return ents, rels, vals, left
+    left = (len(relationships) - len(rels) - len(dated)) + (len(values) - len(vals)) + (len(entities) - len(ents))
+    return ents, [r for r in relationships if any(r is k for k in rels + dated)], vals, left
 
 
 # --------------------------------------------------------------------------- #
@@ -486,6 +551,43 @@ def reanchor(claims_by_subject: dict[str, list[Claim]], revisions: dict[str, Rev
             if not others:
                 plan.revised_out[c.id] = ep
     return plan
+
+
+def redated(pool, news, revisions: dict[str, Revision]) -> dict[str, str]:
+    """``{old claim id: the revised episode}`` for each open claim in ``pool`` that a revision's re-read of the same
+    relationship dates differently (G104 slice 3, review): ``news`` are the revision's incoming claims; one meets a claim
+    of the same slot and object that only that conversation said (nothing another conversation, the person, an agent or
+    an event holds is touched), with a start or end the claim does not carry and the CHANGED lines say
+    (:func:`says_day`). The old claim's span is unchanged text, so :func:`reanchor` cannot mark it; Stage 3 replaces it
+    with the new one (``claim_reconciler``'s ``redated``). A date said nowhere in the changed text moves nothing."""
+    if not revisions:
+        return {}
+    from api.services.claim_reconciler import K, open_, same_object
+
+    out: dict[str, str] = {}
+    pool = list(pool)
+    for n in news:
+        eps = set(n.source_episodes or [])
+        if len(eps) != 1 or n.valid_to is not None or is_event(n):
+            continue
+        (ep,) = eps
+        rev = revisions.get(ep)
+        if rev is None or not rev.closes or not rev.changed:
+            continue
+        text = _changed_text(rev)
+        if not any(d and says_day(text, d) for d in (n.valid_from, n.expected_end)):
+            continue
+        for o in pool:
+            if o is n or o.id in out or not open_(o) or not _closable(o) or K(o) != K(n) or not same_object(o, n):
+                continue
+            if {e.episode for e in o.evidence} | set(o.source_episodes or []) != {ep}:
+                continue
+            if (str(o.valid_from or "")[:10], str(o.expected_end or "")[:10]) == (
+                    str(n.valid_from or "")[:10], str(n.expected_end or "")[:10]):
+                continue
+            out[o.id] = ep
+            break
+    return out
 
 
 def settle(reconciled: dict[str, list[Claim]], plan: Plan, revisions: dict[str, Revision], today: str,
