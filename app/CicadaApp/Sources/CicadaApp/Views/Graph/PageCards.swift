@@ -6,20 +6,13 @@ import SwiftUI
 // leading with its mark or picture, then its title and a quiet meta line. This page only: Key Facts stays a plain list
 // (its chips and source clusters carry it), and no other page changes.
 
-/// The one card surface of an entity page: `bgFocus` on the page's ground, a resting ring, `cornerRadius`, the padding
-/// of a row (DR-12). Hover takes the row-hover fill where the card is a control.
+/// The one card surface of an entity page: the app's one soft card (`SoftCardChrome`, `Theme/SoftCard.swift`) on the
+/// page's ground, snug for a one-line title and its meta line. Hover takes the row-hover fill where the card is a control.
 struct PageCardSurface: ViewModifier {
     var hovering = false
 
     func body(content: Content) -> some View {
-        let shape = CicadaTheme.shape(CicadaTheme.cornerRadius)
-        content
-            .padding(.horizontal, CicadaTheme.spacingMD)
-            .padding(.vertical, CicadaTheme.spacingSM)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(shape.fill(hovering ? CicadaTheme.bgHover : CicadaTheme.bgFocus))
-            .ringed(.resting, in: shape)
-            .contentShape(shape)
+        content.softCard(inset: .snug, hovering: hovering, fillsWidth: true)
     }
 }
 

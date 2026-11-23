@@ -9,13 +9,25 @@ enum ShellMetrics {
     static let railWidth: CGFloat = 56
     static let sidebarWidth: CGFloat = 208
     static let railCell: CGFloat = 36          // at a 40 pt pitch (a 4 pt gap)
-    static let sidebarRow: CGFloat = 32
+    /// Owner 2026-11-23 ("sure", the sidebar wears the soft-card look): taller rows with air between them (was 32).
+    static let sidebarRow: CGFloat = 40
+    /// The extra space between two groups of pages, never a line (DR-11): the groups sit this far apart.
+    static let groupGap: CGFloat = 12
     static let railInset: CGFloat = 10         // (56 − 36) / 2
     static let commandBarWidth: CGFloat = 520
     static let commandBarHeight: CGFloat = 32
 
     static func navWidth(labelled: Bool) -> CGFloat {
         CicadaTheme.scaled(labelled ? sidebarWidth : railWidth)
+    }
+
+    /// The pages grouped by space, in the rail's own (⌘) order: each group is a contiguous run of `AppTab.allCases`, so
+    /// grouping never moves a page or a digit (DR-22) — what you look at (Home, Graph, Clusters), what feeds and tends
+    /// memory (Skills, Sleep, Sources), what acts on it (Projects, Agents, Traces). A hidden page leaves its group
+    /// shorter; a group left empty draws no gap.
+    static func navGroups(_ shown: [AppTab]) -> [[AppTab]] {
+        let groups: [[AppTab]] = [[.home, .graph, .clusters], [.skills, .sleep, .sources], [.projects, .agents, .traces]]
+        return groups.map { group in shown.filter { group.contains($0) } }.filter { !$0.isEmpty }
     }
 }
 

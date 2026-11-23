@@ -77,8 +77,7 @@ struct ContributorsStrip: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(CicadaTheme.scaled(16))
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
-        .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+        .softCard(shape: .block, inset: .none)
     }
 
     private var content: some View {

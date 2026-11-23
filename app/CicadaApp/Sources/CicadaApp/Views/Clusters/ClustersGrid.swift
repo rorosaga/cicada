@@ -295,8 +295,7 @@ struct ClusterCard: View {
         }
         .padding(CicadaTheme.spacingLG)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
-        .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+        .softCard(shape: .block, inset: .none)
     }
 }
 
@@ -339,8 +338,7 @@ struct ClusterShortCard: View {
         }
         .padding(CicadaTheme.spacingLG)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
-        .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+        .softCard(shape: .block, inset: .none)
     }
 }
 
@@ -566,8 +564,7 @@ struct ClusterLead: View {
         .padding(CicadaTheme.spacingLG)
         .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(104), maxHeight: CicadaTheme.scaled(104),
                alignment: .topLeading)
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
-        .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+        .softCard(inset: .none, hovering: hovering)
         .rowHover($hovering, cornerRadius: CicadaTheme.cornerRadius)
     }
 }

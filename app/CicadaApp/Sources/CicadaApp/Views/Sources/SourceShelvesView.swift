@@ -155,8 +155,7 @@ struct SourceNeedsYou: View {
                         .id(SourcesSelection.entry(row.id))
                 }
             }
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
-            .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+            .softCard(shape: .block, inset: .none)
         }
     }
 }
@@ -304,9 +303,8 @@ struct SourceShelfRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
+        .softCard(inset: .none, hovering: hovering)
         .rowHover($hovering, selected: false, cornerRadius: CicadaTheme.cornerRadius)
-        .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
         .accessibilityLabel("\(row.entry.title), \(row.word)")
         .task(id: listId) { if let listId { await cache?.refresh(listId) } }
     }

@@ -40,8 +40,7 @@ struct WebReadingCard: View {
         }
         .padding(CicadaTheme.scaled(16))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
-        .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+        .softCard(shape: .block, inset: .none)
         .task(id: app?.id) { await start() }
     }
 

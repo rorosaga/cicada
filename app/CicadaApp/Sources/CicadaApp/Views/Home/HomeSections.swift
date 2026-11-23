@@ -511,12 +511,10 @@ struct LeadQuestionCard: View {
             }
         }
         .padding(CicadaTheme.scaled(HomeLayout.leadInset))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        // Round 5 — three steps, by weight: the ground, this card one step up in dark (`bgFocus`, with the resting ring)
-        // and the field above it a step more, so the layers separate and the field still leads (DR-9: a ring, no shadow).
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadius)
-            .fill(CicadaTheme.mode == .dark ? CicadaTheme.bgFocus : Color.clear))
-        .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+        // Round 5 — three steps, by weight: the ground, this card one step up (`bgFocus`, with the resting ring) and the
+        // field above it a step more, so the layers separate and the field still leads (DR-9: a ring, no shadow). Since
+        // 2026-11-23 it is the app's one soft card (`softCard`), light mode included.
+        .softCard(inset: .none, fillsWidth: true)
         .accessibilityElement(children: .contain)
     }
 }
