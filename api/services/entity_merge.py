@@ -588,6 +588,12 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
 
     if claims_ledger.remove(lp):
         paths.append(claims_ledger.rel_for(f"entities/{loser_id}.md"))
+    # 2026-11-23: a pair of people held in doubt (`same_name_doubts`) that this merge settles is gone, and the loser's other
+    # doubts are now the winner's.
+    from api.services import same_name_doubts
+
+    if same_name_doubts.fold(memory_path, loser_id, winner_id):
+        paths.append(same_name_doubts.FILE)
     return {"winner": winner_id, "merged_source_episodes": len(wfm.get("source_episodes", [])),
             "merged_claims": len(all_claims) - len(winner_claims),
             "repointed_edges": repointed or 0, "repointed_refs": len(others), "paths": paths}

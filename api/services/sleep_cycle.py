@@ -1123,6 +1123,31 @@ async def _propose_followups_safely(memory_path: Path) -> None:
         await asyncio.to_thread(followups.restore, memory_path, report)
 
 
+async def _same_name_review_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
+    """2026-11-23 (`same_name_tend`): the people who share a first name that Stage 2 flagged (a page that may hold two, two
+    held in doubt that may be one) looked at again by the engine's main model once the batches have committed; a located
+    contrast splits a page, a located link joins two, each as one undoable commit, and a doubt nothing settles is asked
+    once. Nothing flagged: no engine and no commit. A path dirty before it ran is left alone. Counts only. Never raises."""
+    from api.services import same_name_doubts, same_name_tend
+
+    try:
+        pages, pairs = await asyncio.to_thread(same_name_doubts.flagged, memory_path)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Same-name review skipped: {type(exc).__name__}")
+        return
+    if not pages and not pairs:
+        return
+    if not (memory_path / ".git").exists():
+        return
+    try:
+        report = await same_name_tend.run_tail(memory_path, settings, user_triggered=user_triggered)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Same-name review failed: {type(exc).__name__}")
+        return
+    logger.info(f"Same-name review: {report.looked} looked at, {report.split} page(s) split, {report.merged} joined, "
+                f"{report.apart} kept apart, {report.asked} asked" + (f", skipped {report.skipped}" if report.skipped else ""))
+
+
 async def _catchup_questions_safely(memory_path: Path) -> None:
     """Vision item 10 — the engine-free proposers that feed the catch-up chat: "are you still …?" about a quiet fact on
     the person's own page (`still_questions`) and "are these the same person?" for a nickname and its long form
@@ -1703,6 +1728,12 @@ async def _run_engine_independent_tail(
         await _expire_claims_safely(memory_path)
         # G141 PJ-6: after expiry (the night's ends are visible), before any poll's `git add -A`.
         await _propose_followups_safely(memory_path)
+        # 2026-11-23: the people who share a first name that tonight's batches flagged, looked at again — before the
+        # catch-up proposers (a pair joined here is never asked about there) and any poll's `git add -A`.
+        if skip_links:
+            logger.info("Same-name review skipped: the run stopped at its limit")
+        else:
+            await _same_name_review_safely(memory_path, settings, user_triggered=user_triggered)
         # Vision item 10: "still?" and same-person questions for the catch-up, one shared budget per drain.
         await _catchup_questions_safely(memory_path)
         # G61 S3-a (D8): exact-match source -> its own page links, before any poll's `git add -A`.

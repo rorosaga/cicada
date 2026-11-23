@@ -1,0 +1,1636 @@
+[
+ {
+  "id": "two-new-generation-en",
+  "shape": "two-new",
+  "name": "Ravi",
+  "lang": "en",
+  "two": true,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-10-03",
+     "who": "kid",
+     "t": "Ravi is the speaker's nephew, nine years old, who joined a swimming club this autumn and is afraid of the deep end.",
+     "f": [
+      "Ravi is nine years old",
+      "Ravi swims on Tuesdays"
+     ]
+    },
+    {
+     "d": "2026-10-05",
+     "who": "ret",
+     "t": "Ravi is a retired civil engineer in his seventies who gives the speaker advice about the allotment and drinks tea on the bench.",
+     "f": [
+      "Ravi retired in 2014",
+      "Ravi grows beans on the allotment"
+     ]
+    },
+    {
+     "d": "2026-10-19",
+     "who": "kid",
+     "t": "Ravi, the nephew, lost his first tooth and wants to go to the zoo for his tenth birthday.",
+     "f": [
+      "Ravi turns ten next month"
+     ]
+    },
+    {
+     "d": "2026-11-02",
+     "who": "ret",
+     "t": "Ravi, the retired engineer, lent the speaker a spirit level and talked about his grandchildren's university plans.",
+     "f": [
+      "Ravi has three grandchildren"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "two-new-cities-es",
+  "shape": "two-new",
+  "name": "Omar",
+  "lang": "es",
+  "two": true,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-09-10",
+     "who": "val",
+     "t": "Omar es un compañero de la oficina de Valencia, donde vive y trabaja como analista de datos desde hace tres años.",
+     "f": [
+      "Omar vive en Valencia",
+      "Omar trabaja en la oficina de Valencia"
+     ]
+    },
+    {
+     "d": "2026-09-14",
+     "who": "bil",
+     "t": "Omar es un amigo que vive en Bilbao y trabaja de cocinero en un restaurante del puerto; el hablante lo visitó el fin de semana.",
+     "f": [
+      "Omar vive en Bilbao",
+      "Omar cocina en un restaurante del puerto"
+     ]
+    },
+    {
+     "d": "2026-09-28",
+     "who": "val",
+     "t": "Omar, el compañero de Valencia, presentó el informe trimestral y pidió revisar las cifras de ventas.",
+     "f": [
+      "Omar presentó el informe trimestral"
+     ]
+    },
+    {
+     "d": "2026-10-04",
+     "who": "bil",
+     "t": "Omar, el cocinero de Bilbao, abre un menú nuevo el viernes y quiere que el hablante pruebe los postres.",
+     "f": [
+      "Omar abre un menú nuevo"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "two-new-roles-fr",
+  "shape": "two-new",
+  "name": "Jules",
+  "lang": "fr",
+  "two": true,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-10-01",
+     "who": "gp",
+     "t": "Jules est le grand-père du locuteur, un homme de quatre-vingt-deux ans qui vit dans une maison de retraite et raconte la guerre.",
+     "f": [
+      "Jules a quatre-vingt-deux ans",
+      "Jules vit en maison de retraite"
+     ]
+    },
+    {
+     "d": "2026-10-08",
+     "who": "int",
+     "t": "Jules est un stagiaire de vingt-deux ans arrivé lundi dans l'équipe du locuteur pour six mois; il apprend à utiliser le tableau de suivi.",
+     "f": [
+      "Jules a vingt-deux ans",
+      "Jules est stagiaire pour six mois"
+     ]
+    },
+    {
+     "d": "2026-10-22",
+     "who": "gp",
+     "t": "Jules, le grand-père, a fêté ses quatre-vingt-trois ans et a soufflé les bougies avec toute la famille.",
+     "f": [
+      "Jules a fêté ses quatre-vingt-trois ans"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "established-kinds-en",
+  "shape": "established-first",
+  "name": "Marc",
+  "lang": "en",
+  "two": true,
+  "q": [
+   0,
+   1
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-09-29",
+     "who": "fam",
+     "t": "Marc is the speaker's brother-in-law, a carpenter in Annecy who is helping fit a kitchen.",
+     "f": [
+      "Marc is married to the speaker's sister",
+      "Marc runs a carpentry workshop in Annecy"
+     ]
+    },
+    {
+     "d": "2026-11-03",
+     "who": "fam",
+     "t": "Marc the carpenter and the speaker's sister are expecting their second child in spring.",
+     "f": [
+      "Marc and the sister expect a second child"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-11-14",
+     "who": "work",
+     "t": "Marc is a colleague who confirmed in the weekly meeting that he is moving to the Berlin office in March.",
+     "f": [
+      "Marc will work from Berlin from March 2027"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-11-20",
+     "who": "work",
+     "t": "Marc, the colleague, handed over his projects before the Berlin move and left a note about the Q4 roadmap.",
+     "f": [
+      "Marc handed over his projects"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "established-generation-es",
+  "shape": "established-first",
+  "name": "Dario",
+  "lang": "es",
+  "two": true,
+  "q": [
+   0,
+   1
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-08-10",
+     "who": "land",
+     "t": "Dario es el casero del hablante, un hombre de unos sesenta años que vive en el bajo y cobra el alquiler el día uno de cada mes.",
+     "f": [
+      "Dario es el casero",
+      "Dario es dueño del edificio desde 1998"
+     ]
+    },
+    {
+     "d": "2026-09-12",
+     "who": "land",
+     "t": "Dario arregló la caldera del edificio y avisó de que subirá el alquiler en enero.",
+     "f": [
+      "Dario subirá el alquiler en enero"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-10-20",
+     "who": "kid",
+     "t": "Dario es el sobrino del hablante, tiene seis años, empezó primaria este otoño y perdió su primer diente la semana pasada.",
+     "f": [
+      "Dario tiene seis años",
+      "Dario va a primaria"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-11-15",
+     "who": "kid",
+     "t": "Dario, el sobrino, dibujó un dinosaurio para el hablante y quiere aprender a montar en bici.",
+     "f": [
+      "Dario quiere aprender a montar en bici"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "established-roles-fr",
+  "shape": "established-first",
+  "name": "Anouk",
+  "lang": "fr",
+  "two": true,
+  "q": [
+   0,
+   1
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-08-05",
+     "who": "boss",
+     "t": "Anouk est la responsable du locuteur dans une maison d'édition à Lisbonne; elle dirige l'équipe éditoriale et a approuvé sa promotion en mai.",
+     "f": [
+      "Anouk dirige l'équipe éditoriale",
+      "Anouk a approuvé la promotion du locuteur"
+     ]
+    },
+    {
+     "d": "2026-09-15",
+     "who": "boss",
+     "t": "Anouk a présenté le calendrier des parutions de printemps à toute l'équipe.",
+     "f": [
+      "Anouk a présenté le calendrier de printemps"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-11-10",
+     "who": "niece",
+     "t": "Anouk est la nièce du locuteur, six ans, qui a commencé l'école primaire cet automne et vient de perdre sa première dent.",
+     "f": [
+      "Anouk a six ans",
+      "Anouk est à l'école primaire"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "established-kinds-en-2",
+  "shape": "established-first",
+  "name": "Lena",
+  "lang": "en",
+  "two": true,
+  "q": [
+   0,
+   1
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-09-02",
+     "who": "teach",
+     "t": "Lena is the speaker's piano teacher, a conservatory professor in Athens who gives lessons on Thursdays.",
+     "f": [
+      "Lena teaches piano on Thursdays",
+      "Lena studied in Vienna"
+     ]
+    },
+    {
+     "d": "2026-10-07",
+     "who": "teach",
+     "t": "Lena set the speaker a Chopin nocturne and booked the studio for the recital.",
+     "f": [
+      "Lena booked the studio for the recital"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-11-09",
+     "who": "bro",
+     "t": "Lena is the speaker's younger sister, a plumber in Thessaloniki who is helping the parents fix the roof.",
+     "f": [
+      "Lena is the speaker's younger sister",
+      "Lena works as a plumber in Thessaloniki"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "joined-cities-en",
+  "shape": "joined-then-clarified",
+  "name": "Tomas",
+  "lang": "en",
+  "two": true,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-11-05",
+     "who": "glas",
+     "t": "Tomas, the speaker's cousin, lives in Glasgow where he studies for his law exams and works evenings in a pub.",
+     "f": [
+      "Tomas lives in Glasgow",
+      "Tomas studies law"
+     ]
+    }
+   ]
+  ],
+  "note": "",
+  "seed": [
+   {
+    "id": "tomas",
+    "kind": "page",
+    "convs": [
+     {
+      "d": "2026-10-04",
+      "who": "lyon",
+      "t": "Tomas is a colleague in the Lyon office where he lives and works as a logistics planner; he organised the team lunch.",
+      "f": [
+       "Tomas lives in Lyon",
+       "Tomas works in the Lyon office"
+      ]
+     },
+     {
+      "d": "2026-10-18",
+      "who": "lyon",
+      "t": "Tomas, the logistics planner in Lyon, sent the shipping calendar and asked about the new warehouse.",
+      "f": [
+       "Tomas sent the shipping calendar"
+      ]
+     },
+     {
+      "d": "2026-10-25",
+      "who": "glas",
+      "t": "Tomas is the speaker's cousin, a student who plays football on Saturdays and wants to move out of his parents' flat.",
+      "f": [
+       "Tomas is the speaker's cousin",
+       "Tomas is a student"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "joined-generation-es",
+  "shape": "joined-then-clarified",
+  "name": "Elena",
+  "lang": "es",
+  "two": true,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-11-08",
+     "who": "girl",
+     "t": "Elena, la hija de una amiga, tiene ocho años, va a clase de ballet los miércoles y quiere un perro.",
+     "f": [
+      "Elena tiene ocho años",
+      "Elena va a ballet"
+     ]
+    }
+   ]
+  ],
+  "note": "",
+  "seed": [
+   {
+    "id": "elena",
+    "kind": "page",
+    "convs": [
+     {
+      "d": "2026-09-03",
+      "who": "ret",
+      "t": "Elena es la vecina jubilada del quinto, tiene setenta y cuatro años y riega las plantas del hablante cuando viaja.",
+      "f": [
+       "Elena tiene setenta y cuatro años",
+       "Elena está jubilada"
+      ]
+     },
+     {
+      "d": "2026-10-01",
+      "who": "ret",
+      "t": "Elena, la vecina, invitó al hablante a comer y le enseñó fotos de su nieto.",
+      "f": [
+       "Elena tiene un nieto"
+      ]
+     },
+     {
+      "d": "2026-10-30",
+      "who": "girl",
+      "t": "Elena es una niña que juega en el parque con la hija del hablante y le gusta pintar.",
+      "f": [
+       "Elena juega en el parque"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "joined-explicit-fr",
+  "shape": "joined-then-clarified",
+  "name": "Chloé",
+  "lang": "fr",
+  "two": true,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-11-12",
+     "who": "sis",
+     "t": "Chloé est la sœur cadette du locuteur, et non la Chloé du bureau: elle est infirmière à Nantes et vient dîner dimanche.",
+     "f": [
+      "Chloé est la sœur cadette du locuteur",
+      "Chloé est infirmière à Nantes"
+     ]
+    }
+   ]
+  ],
+  "note": "",
+  "seed": [
+   {
+    "id": "chloe",
+    "kind": "page",
+    "convs": [
+     {
+      "d": "2026-09-09",
+      "who": "off",
+      "t": "Chloé travaille au bureau de Paris comme comptable et organise le pot de départ de la semaine prochaine.",
+      "f": [
+       "Chloé est comptable à Paris"
+      ]
+     },
+     {
+      "d": "2026-10-14",
+      "who": "off",
+      "t": "Chloé, la comptable, a relu le budget du projet et demandé les justificatifs de mission.",
+      "f": [
+       "Chloé a relu le budget"
+      ]
+     },
+     {
+      "d": "2026-10-27",
+      "who": "sis",
+      "t": "Chloé a appelé sa mère pour son anniversaire; elle est infirmière de nuit et dort le matin.",
+      "f": [
+       "Chloé est infirmière de nuit"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "never-cousin-neighbour-en",
+  "shape": "never-told-apart",
+  "name": "Paolo",
+  "lang": "en",
+  "two": true,
+  "q": [
+   1,
+   1
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-09-06",
+     "who": "cous",
+     "t": "Paolo is the speaker's cousin, who plays guitar and comes over every Christmas with a tin of biscuits.",
+     "f": [
+      "Paolo is the speaker's cousin",
+      "Paolo plays the guitar"
+     ]
+    },
+    {
+     "d": "2026-09-20",
+     "who": "neigh",
+     "t": "Paolo is a neighbour on the second floor who borrows tools and has a small brown dog called Biscotto.",
+     "f": [
+      "Paolo lives on the second floor",
+      "Paolo has a dog"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-10-12",
+     "who": "cous",
+     "t": "Paolo, the cousin, sent a photo of a new guitar and asked if the speaker will visit in the summer.",
+     "f": [
+      "Paolo bought a new guitar"
+     ]
+    },
+    {
+     "d": "2026-10-30",
+     "who": "neigh",
+     "t": "Paolo, the neighbour, left a note about the broken lift and offered to water the plants.",
+     "f": [
+      "Paolo offered to water the plants"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-11-18",
+     "who": "neigh",
+     "t": "Paolo from the second floor asked to borrow a drill again and brought back a jar of olives.",
+     "f": [
+      "Paolo borrowed a drill"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "never-aunt-colleague-es",
+  "shape": "never-told-apart",
+  "name": "Sofía",
+  "lang": "es",
+  "two": true,
+  "q": [
+   1,
+   1
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-08-15",
+     "who": "aunt",
+     "t": "Sofía es la tía del hablante, a quien le encanta cocinar paella y llama todos los domingos por la tarde.",
+     "f": [
+      "Sofía es la tía del hablante",
+      "Sofía cocina paella"
+     ]
+    },
+    {
+     "d": "2026-08-29",
+     "who": "col",
+     "t": "Sofía es una compañera del equipo de diseño que lleva el calendario de entregas y trae pastelitos los viernes.",
+     "f": [
+      "Sofía lleva el calendario de entregas"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-09-21",
+     "who": "aunt",
+     "t": "Sofía, la tía, mandó una receta de croquetas y preguntó cómo va la mudanza.",
+     "f": [
+      "Sofía mandó una receta de croquetas"
+     ]
+    },
+    {
+     "d": "2026-10-10",
+     "who": "col",
+     "t": "Sofía, la compañera de diseño, revisó los mockups y pidió mover la reunión al jueves.",
+     "f": [
+      "Sofía pidió mover la reunión al jueves"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-11-04",
+     "who": "col",
+     "t": "Sofía, de diseño, compartió el calendario de entregas de diciembre con todo el equipo.",
+     "f": [
+      "Sofía compartió el calendario de diciembre"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "never-friend-uncle-fr",
+  "shape": "never-told-apart",
+  "name": "Mathis",
+  "lang": "fr",
+  "two": true,
+  "q": [
+   1,
+   1
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-09-11",
+     "who": "unc",
+     "t": "Mathis est l'oncle du locuteur, qui collectionne les vieux disques et téléphone chaque année pour son anniversaire.",
+     "f": [
+      "Mathis est l'oncle du locuteur",
+      "Mathis collectionne les disques"
+     ]
+    },
+    {
+     "d": "2026-09-25",
+     "who": "fri",
+     "t": "Mathis est un ami de la salle d'escalade qui assure le locuteur le jeudi et prépare une compétition au printemps.",
+     "f": [
+      "Mathis grimpe le jeudi",
+      "Mathis prépare une compétition"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-10-16",
+     "who": "unc",
+     "t": "Mathis, l'oncle, a envoyé un vinyle rare de jazz et demandé des nouvelles du déménagement.",
+     "f": [
+      "Mathis a envoyé un vinyle de jazz"
+     ]
+    },
+    {
+     "d": "2026-11-06",
+     "who": "fri",
+     "t": "Mathis, le grimpeur, a réussi une voie difficile et a proposé une sortie en falaise.",
+     "f": [
+      "Mathis a proposé une sortie en falaise"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "doubt-then-linked-en",
+  "shape": "doubt-resolved",
+  "name": "Nadia",
+  "lang": "en",
+  "two": false,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-09-06",
+     "who": "p",
+     "t": "Nadia is the speaker's cousin, who plays the cello and comes over every Christmas with a tin of biscuits.",
+     "f": [
+      "Nadia is the speaker's cousin",
+      "Nadia plays the cello"
+     ]
+    },
+    {
+     "d": "2026-10-04",
+     "who": "p",
+     "t": "Nadia, the cousin, sent a photo of a new cello and asked if the speaker will visit in the summer.",
+     "f": [
+      "Nadia bought a new cello"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-10-20",
+     "who": "p",
+     "t": "Nadia is a neighbour on the second floor who borrows tools and has a small brown dog called Biscotto.",
+     "f": [
+      "Nadia lives on the second floor",
+      "Nadia has a dog"
+     ]
+    },
+    {
+     "d": "2026-10-30",
+     "who": "p",
+     "t": "Nadia, the neighbour, left a note about the broken lift and offered to water the plants.",
+     "f": [
+      "Nadia offered to water the plants"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-11-15",
+     "who": "p",
+     "t": "Nadia, the speaker's cousin who plays the cello, has moved into the second floor flat of the speaker's building and still borrows tools.",
+     "f": [
+      "Nadia moved into the second floor flat of the building",
+      "Nadia is the speaker's cousin"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "doubt-then-linked-es",
+  "shape": "doubt-resolved",
+  "name": "Mateo",
+  "lang": "es",
+  "two": false,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-08-12",
+     "who": "p",
+     "t": "Mateo es el primo del hablante, estudia ingeniería en Zaragoza y viene en Navidad con una caja de turrones.",
+     "f": [
+      "Mateo es el primo del hablante",
+      "Mateo estudia ingeniería"
+     ]
+    },
+    {
+     "d": "2026-09-09",
+     "who": "p",
+     "t": "Mateo, el primo, aprobó cálculo y quiere hacer prácticas en una empresa de energía.",
+     "f": [
+      "Mateo aprobó cálculo"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-10-03",
+     "who": "p",
+     "t": "Mateo es un compañero de baloncesto de los jueves que siempre llega tarde y presta su balón.",
+     "f": [
+      "Mateo juega al baloncesto los jueves"
+     ]
+    },
+    {
+     "d": "2026-10-17",
+     "who": "p",
+     "t": "Mateo, el del baloncesto, se lesionó el tobillo y pidió que le recogieran en coche.",
+     "f": [
+      "Mateo se lesionó el tobillo"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-11-10",
+     "who": "p",
+     "t": "Mateo, el primo que estudia ingeniería en Zaragoza, juega al baloncesto los jueves con el hablante y ha empezado las prácticas en la empresa de energía.",
+     "f": [
+      "Mateo juega al baloncesto los jueves con el hablante",
+      "Mateo es el primo del hablante"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "doubt-then-linked-fr",
+  "shape": "doubt-resolved",
+  "name": "Anaïs",
+  "lang": "fr",
+  "two": false,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-09-02",
+     "who": "p",
+     "t": "Anaïs est la belle-sœur du locuteur, institutrice à Grenoble, qui prépare la fête de l'école en juin.",
+     "f": [
+      "Anaïs est la belle-sœur du locuteur",
+      "Anaïs est institutrice à Grenoble"
+     ]
+    },
+    {
+     "d": "2026-09-30",
+     "who": "p",
+     "t": "Anaïs, l'institutrice, a envoyé les photos de la classe de neige et invité le locuteur à Noël.",
+     "f": [
+      "Anaïs a envoyé les photos de la classe de neige"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-10-14",
+     "who": "p",
+     "t": "Anaïs est une voisine du troisième étage qui prête sa perceuse et ramène toujours des confitures.",
+     "f": [
+      "Anaïs habite au troisième étage",
+      "Anaïs prête sa perceuse"
+     ]
+    },
+    {
+     "d": "2026-10-28",
+     "who": "p",
+     "t": "Anaïs, la voisine, a laissé un mot pour l'ascenseur en panne et proposé d'arroser les plantes.",
+     "f": [
+      "Anaïs a proposé d'arroser les plantes"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-11-14",
+     "who": "p",
+     "t": "Anaïs, la belle-sœur institutrice de Grenoble, a emménagé au troisième étage de l'immeuble du locuteur et prête toujours sa perceuse.",
+     "f": [
+      "Anaïs a emménagé au troisième étage de l'immeuble",
+      "Anaïs est la belle-sœur du locuteur"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "settings-en",
+  "shape": "one-many-settings",
+  "name": "Kasia",
+  "lang": "en",
+  "two": false,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-09-05",
+     "who": "p",
+     "t": "Kasia is a friend from the climbing gym who belays the speaker on Thursdays and is training for a competition in spring.",
+     "f": [
+      "Kasia belays the speaker on Thursdays",
+      "Kasia trains for a competition"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-09-27",
+     "who": "p",
+     "t": "Kasia came to the speaker's birthday dinner and brought a lemon cake she baked herself.",
+     "f": [
+      "Kasia baked a lemon cake"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-10-18",
+     "who": "p",
+     "t": "Kasia and the speaker took the train to the coast for a weekend and walked the cliff path in the rain.",
+     "f": [
+      "Kasia walked the cliff path with the speaker"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-11-07",
+     "who": "p",
+     "t": "Kasia helped the speaker move a sofa and stayed for pizza; she asked about the speaker's new job.",
+     "f": [
+      "Kasia helped move a sofa"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "settings-es",
+  "shape": "one-many-settings",
+  "name": "Inés",
+  "lang": "es",
+  "two": false,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-08-20",
+     "who": "p",
+     "t": "Inés es una amiga del club de running que corre diez kilómetros los sábados y prepara una media maratón en otoño.",
+     "f": [
+      "Inés corre los sábados",
+      "Inés prepara una media maratón"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-09-15",
+     "who": "p",
+     "t": "Inés vino a la cena de cumpleaños del hablante y trajo una tarta de limón que hizo ella.",
+     "f": [
+      "Inés trajo una tarta de limón"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-10-09",
+     "who": "p",
+     "t": "Inés y el hablante viajaron a la costa un fin de semana y caminaron por el acantilado bajo la lluvia.",
+     "f": [
+      "Inés caminó por el acantilado con el hablante"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-11-02",
+     "who": "p",
+     "t": "Inés ayudó al hablante con la mudanza, cargó cajas y se quedó a cenar pizza.",
+     "f": [
+      "Inés ayudó con la mudanza"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "settings-fr",
+  "shape": "one-many-settings",
+  "name": "Léa",
+  "lang": "fr",
+  "two": false,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-08-22",
+     "who": "p",
+     "t": "Léa est une amie du club de théâtre qui répète le mardi soir et joue un petit rôle dans la pièce de décembre.",
+     "f": [
+      "Léa répète le mardi",
+      "Léa joue dans la pièce de décembre"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-09-19",
+     "who": "p",
+     "t": "Léa est venue au dîner d'anniversaire du locuteur et a apporté un gâteau au citron qu'elle a fait elle-même.",
+     "f": [
+      "Léa a apporté un gâteau au citron"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-10-12",
+     "who": "p",
+     "t": "Léa et le locuteur ont pris le train pour la côte un week-end et ont marché sur le sentier des falaises sous la pluie.",
+     "f": [
+      "Léa a marché sur le sentier des falaises"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-11-05",
+     "who": "p",
+     "t": "Léa a aidé le locuteur à déménager, porté des cartons et mangé une pizza.",
+     "f": [
+      "Léa a aidé au déménagement"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "moves-partner-en",
+  "shape": "one-life-moves",
+  "name": "Idris",
+  "lang": "en",
+  "two": false,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-08-20",
+     "who": "p",
+     "t": "Idris is the speaker's partner, a nurse at a hospital in Lyon who works nights and loves cooking on Sundays.",
+     "f": [
+      "Idris is a nurse in Lyon",
+      "Idris works nights"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-10-02",
+     "who": "p",
+     "t": "Idris is the speaker's partner and travel companion for the planned Japan trip; he will eat anything.",
+     "f": [
+      "Idris will eat anything"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-11-03",
+     "who": "p",
+     "t": "Idris got a job at the university hospital in Grenoble and moved there with the speaker on 2026-11-02; he starts on Monday.",
+     "f": [
+      "Idris got a job in Grenoble",
+      "Idris moved from Lyon to Grenoble"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "moves-promotion-es",
+  "shape": "one-life-moves",
+  "name": "Rafa",
+  "lang": "es",
+  "two": false,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-07-14",
+     "who": "p",
+     "t": "Rafa es un compañero ingeniero de software en una empresa de logística y juega al pádel con el hablante los martes.",
+     "f": [
+      "Rafa es ingeniero de software",
+      "Rafa juega al pádel los martes"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-09-22",
+     "who": "p",
+     "t": "Rafa dirigió su primer proyecto y habló de pedir un ascenso.",
+     "f": [
+      "Rafa dirigió su primer proyecto"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-11-12",
+     "who": "p",
+     "t": "Rafa fue ascendido a director de ingeniería y ahora gestiona a cuarenta personas; celebró con una cena.",
+     "f": [
+      "Rafa fue ascendido a director en octubre de 2026"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "moves-retire-fr",
+  "shape": "one-life-moves",
+  "name": "Hugo",
+  "lang": "fr",
+  "two": false,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-08-03",
+     "who": "p",
+     "t": "Hugo est le père du locuteur, professeur de mathématiques dans un lycée de Toulouse, qui corrige des copies tous les soirs.",
+     "f": [
+      "Hugo est professeur de mathématiques",
+      "Hugo vit à Toulouse"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-10-09",
+     "who": "p",
+     "t": "Hugo, le père, a pris sa retraite en septembre et a déménagé dans un petit village près de Perpignan où il fait du jardinage.",
+     "f": [
+      "Hugo a pris sa retraite",
+      "Hugo a déménagé près de Perpignan"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-11-20",
+     "who": "p",
+     "t": "Hugo a planté des oliviers dans son nouveau jardin et invite le locuteur pour Noël.",
+     "f": [
+      "Hugo a planté des oliviers"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "thin-first-en",
+  "shape": "one-thin-first",
+  "name": "Yuki",
+  "lang": "en",
+  "two": false,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-08-30",
+     "who": "p",
+     "t": "Yuki is a friend of the speaker."
+    }
+   ],
+   [
+    {
+     "d": "2026-09-03",
+     "who": "p",
+     "t": "Yuki is a pastry chef at a hotel in Kyoto who just won a regional competition and is opening her own bakery next year.",
+     "f": [
+      "Yuki won the regional pastry competition",
+      "Yuki plans a bakery in 2027"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-10-21",
+     "who": "p",
+     "t": "Yuki sent photos of the bakery lease and asked the speaker to design the logo.",
+     "f": [
+      "Yuki signed a bakery lease"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "thin-first-es",
+  "shape": "one-thin-first",
+  "name": "Valeria",
+  "lang": "es",
+  "two": false,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-08-18",
+     "who": "p",
+     "t": "Valeria vino a la fiesta."
+    }
+   ],
+   [
+    {
+     "d": "2026-09-25",
+     "who": "p",
+     "t": "Valeria es una arquitecta que trabaja en un estudio pequeño de Sevilla y está presentando un proyecto de biblioteca al ayuntamiento la semana que viene.",
+     "f": [
+      "Valeria es arquitecta",
+      "Valeria presenta un proyecto de biblioteca"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-11-01",
+     "who": "p",
+     "t": "Valeria ganó el concurso de la biblioteca y pidió al hablante que ensayara la presentación final.",
+     "f": [
+      "Valeria ganó el concurso de la biblioteca"
+     ]
+    }
+   ]
+  ],
+  "note": ""
+ },
+ {
+  "id": "reread-friend-en",
+  "shape": "one-established-reread",
+  "name": "Mira",
+  "lang": "en",
+  "two": false,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-11-12",
+     "who": "p",
+     "t": "Mira is presenting a library design to the city council next week and asked the speaker to rehearse the pitch with her.",
+     "f": [
+      "Mira prepares a council presentation"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-11-20",
+     "who": "p",
+     "t": "Mira had dinner at the speaker's flat and talked about adopting a rescue dog from the shelter near the river.",
+     "f": [
+      "Mira wants to adopt a dog"
+     ]
+    }
+   ]
+  ],
+  "note": "",
+  "seed": [
+   {
+    "id": "mira",
+    "kind": "page",
+    "convs": [
+     {
+      "d": "2026-08-10",
+      "who": "p",
+      "t": "Mira is the speaker's partner; they cook together on Sundays and train for a ten kilometre race.",
+      "f": [
+       "Mira is the speaker's partner",
+       "Mira trains for a race"
+      ]
+     },
+     {
+      "d": "2026-09-05",
+      "who": "p",
+      "t": "Mira is an architect at a small firm and her birthday is in March.",
+      "f": [
+       "Mira is an architect",
+       "Mira's birthday is in March"
+      ]
+     },
+     {
+      "d": "2026-09-30",
+      "who": "p",
+      "t": "Mira ran the ten kilometre race in fifty-two minutes and the two of them celebrated with pancakes.",
+      "f": [
+       "Mira ran the race in 52 minutes"
+      ]
+     },
+     {
+      "d": "2026-10-22",
+      "who": "p",
+      "t": "Mira and the speaker visited her parents by the coast and she showed the speaker the house she grew up in.",
+      "f": [
+       "Mira's parents live by the coast"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "reread-moved-es",
+  "shape": "one-established-reread",
+  "name": "Lucas",
+  "lang": "es",
+  "two": false,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-11-14",
+     "who": "p",
+     "t": "Lucas organizó una cena para despedir a sus compañeros del hospital antiguo y llevó una tarta.",
+     "f": [
+      "Lucas organizó una cena de despedida"
+     ]
+    }
+   ]
+  ],
+  "note": "",
+  "seed": [
+   {
+    "id": "lucas",
+    "kind": "page",
+    "convs": [
+     {
+      "d": "2026-07-02",
+      "who": "p",
+      "t": "Lucas es un amigo del hablante, enfermero en un hospital de Valencia, que trabaja de noche y juega al tenis los domingos.",
+      "f": [
+       "Lucas es enfermero en Valencia",
+       "Lucas juega al tenis"
+      ]
+     },
+     {
+      "d": "2026-08-19",
+      "who": "p",
+      "t": "Lucas encontró un trabajo nuevo en una clínica de Madrid y se mudó allí en agosto con su pareja.",
+      "f": [
+       "Lucas se mudó a Madrid",
+       "Lucas trabaja en una clínica"
+      ]
+     },
+     {
+      "d": "2026-10-05",
+      "who": "p",
+      "t": "Lucas, que ahora vive en Madrid, visitó al hablante en un viaje corto y trajo turrón.",
+      "f": [
+       "Lucas vive en Madrid"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "reread-family-fr",
+  "shape": "one-established-reread",
+  "name": "Camille",
+  "lang": "fr",
+  "two": false,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-11-09",
+     "who": "p",
+     "t": "Camille a invité le locuteur à passer le week-end dans sa maison de campagne pour fêter l'anniversaire de leur mère.",
+     "f": [
+      "Camille a invité le locuteur à la campagne"
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-11-21",
+     "who": "p",
+     "t": "Camille a envoyé des photos de la fête et demandé si le locuteur viendra à Noël.",
+     "f": [
+      "Camille a envoyé des photos de la fête"
+     ]
+    }
+   ]
+  ],
+  "note": "",
+  "seed": [
+   {
+    "id": "camille",
+    "kind": "page",
+    "convs": [
+     {
+      "d": "2026-06-12",
+      "who": "p",
+      "t": "Camille est la sœur aînée du locuteur, avocate à Lyon, qui a deux enfants et adore la randonnée.",
+      "f": [
+       "Camille est la sœur du locuteur",
+       "Camille est avocate à Lyon"
+      ]
+     },
+     {
+      "d": "2026-08-03",
+      "who": "p",
+      "t": "Camille a emmené ses enfants en vacances en Bretagne et a appelé le locuteur depuis la plage.",
+      "f": [
+       "Camille est partie en Bretagne"
+      ]
+     },
+     {
+      "d": "2026-09-18",
+      "who": "p",
+      "t": "Camille a plaidé une affaire importante et le locuteur lui a envoyé des fleurs pour la féliciter.",
+      "f": [
+       "Camille a plaidé une affaire importante"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "reread-colleague-en",
+  "shape": "one-established-reread",
+  "name": "Dario",
+  "lang": "en",
+  "two": false,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-11-18",
+     "who": "p",
+     "t": "Dario came to the speaker's housewarming and spent the evening helping to hang shelves; he mentioned a trip to Lisbon with his team.",
+     "f": [
+      "Dario helped hang shelves"
+     ]
+    }
+   ]
+  ],
+  "note": "",
+  "seed": [
+   {
+    "id": "dario",
+    "kind": "page",
+    "convs": [
+     {
+      "d": "2026-07-08",
+      "who": "p",
+      "t": "Dario is a colleague on the speaker's team who owns the release checklist and drinks too much coffee.",
+      "f": [
+       "Dario is a colleague",
+       "Dario owns the release checklist"
+      ]
+     },
+     {
+      "d": "2026-09-02",
+      "who": "p",
+      "t": "Dario presented the roadmap in the weekly meeting and asked the speaker to review the migration plan.",
+      "f": [
+       "Dario presented the roadmap"
+      ]
+     },
+     {
+      "d": "2026-10-11",
+      "who": "p",
+      "t": "Dario has become a close friend of the speaker since the project ended; they climb on Thursdays.",
+      "f": [
+       "Dario climbs with the speaker on Thursdays"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "joined-cities-es",
+  "shape": "joined-then-clarified",
+  "name": "Pablo",
+  "lang": "es",
+  "two": true,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-11-10",
+     "who": "bcn",
+     "t": "Pablo vive en Barcelona, donde trabaja como diseñador en una agencia y comparte piso con dos amigos.",
+     "f": [
+      "Pablo vive en Barcelona",
+      "Pablo es diseñador"
+     ]
+    }
+   ]
+  ],
+  "note": "",
+  "seed": [
+   {
+    "id": "pablo",
+    "kind": "page",
+    "convs": [
+     {
+      "d": "2026-10-02",
+      "who": "sev",
+      "t": "Pablo es el casero del hablante en Sevilla, vive en el piso de arriba y arregla las goteras él mismo.",
+      "f": [
+       "Pablo vive en Sevilla",
+       "Pablo es el casero"
+      ]
+     },
+     {
+      "d": "2026-10-20",
+      "who": "sev",
+      "t": "Pablo, el casero de Sevilla, subió el alquiler y avisó de las obras en la azotea.",
+      "f": [
+       "Pablo subió el alquiler"
+      ]
+     },
+     {
+      "d": "2026-10-28",
+      "who": "bcn",
+      "t": "Pablo es un compañero de la universidad que ahora se dedica al diseño gráfico.",
+      "f": [
+       "Pablo es diseñador gráfico"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "joined-generation-en",
+  "shape": "joined-then-clarified",
+  "name": "Hana",
+  "lang": "en",
+  "two": true,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "d": "2026-11-15",
+     "who": "kid",
+     "t": "Hana, the speaker's niece, is seven and just learned to swim without armbands; she wants a medal.",
+     "f": [
+      "Hana is seven years old",
+      "Hana can swim"
+     ]
+    }
+   ]
+  ],
+  "note": "",
+  "seed": [
+   {
+    "id": "hana",
+    "kind": "page",
+    "convs": [
+     {
+      "d": "2026-09-01",
+      "who": "ret",
+      "t": "Hana is a retired headmistress in her eighties who lives next door and lends the speaker books.",
+      "f": [
+       "Hana is retired",
+       "Hana lives next door"
+      ]
+     },
+     {
+      "d": "2026-10-09",
+      "who": "ret",
+      "t": "Hana, the retired neighbour, invited the speaker for tea and talked about her years as a headmistress.",
+      "f": [
+       "Hana was a headmistress"
+      ]
+     },
+     {
+      "d": "2026-10-30",
+      "who": "kid",
+      "t": "Hana is a small girl who goes to the speaker's sister's house after school and draws horses.",
+      "f": [
+       "Hana draws horses"
+      ]
+     }
+    ]
+   }
+  ]
+ }
+]
