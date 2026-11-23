@@ -725,6 +725,14 @@ def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
     blocked = _blocked(fm, today)
     if blocked:
         return None, blocked
+    if kind == "clarification" and str(fm.get("asks") or "") == "speaker":
+        # ROR-142: who a meeting's unnamed voice was is the person's to say — no rule or judge names anyone. Only a
+        # question whose meeting is gone is retired.
+        from api.services import meeting_speakers
+
+        if meeting_speakers.gone(memory_path, fm):
+            return Decision(item_id, kind, "subject_gone", None, answer="Retired", guard=_guard(memory_path, "")), ""
+        return None, "needs_person"
     page_state = _page_state(memory_path, fm)
     if page_state == "missing" or _gone(memory_path, fm):
         return Decision(item_id, kind, "subject_gone", None, answer="Retired",
@@ -1584,7 +1592,7 @@ def touched(memory_path: Path, episodes: list[dict], items: list[tuple[Path, dic
     convos = [(eid, lines) for eid, lines in convos if eid and lines]
     for path, fm, _body in items:
         kind = str(fm.get("kind") or "")
-        if kind not in CONVERSATION_KINDS or _blocked(fm, today) or str(fm.get("asks") or "") == "sources":
+        if kind not in CONVERSATION_KINDS or _blocked(fm, today) or str(fm.get("asks") or "") in ("sources", "speaker"):
             continue   # taken back, or put off by the person (a where-to-check question: its own rule only)
         full = inbox_ask_gate.with_page_names(memory_path, fm)
         cited = None

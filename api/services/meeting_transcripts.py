@@ -600,11 +600,18 @@ def summary_text(summary: str, who: str, *, heading: str | None = None) -> str:
 
 
 def draft_for_file(folder: dict, relpath: str, text: str, *, mtime_iso: str, sha: str,
-                   tz_name: str | None = None) -> EpisodeDraft | None:
-    """One meeting file as one episode, or ``None`` when the file holds no transcript."""
+                   tz_name: str | None = None, speaker_names: dict[str, str] | None = None) -> EpisodeDraft | None:
+    """One meeting file as one episode, or ``None`` when the file holds no transcript.
+
+    ``speaker_names`` (ROR-142): the person's answers for this file, placeholder label → name
+    (``meeting_speakers.names_for``), applied before any marker is made, so a re-sync renders the body they named."""
     t = parse(text, relpath)
     if t is None:
         return None
+    named = {label: name for label, name in (speaker_names or {}).items()
+             if name and is_placeholder(label) and any(line.label == label for line in t.lines)}
+    for line in t.lines:
+        line.label = named.get(line.label, line.label)
     recorder = folder.get("recorder") if folder.get("recorder") in RECORDERS else None
     if t.format == "hex":
         recorder = "hex"
@@ -638,6 +645,9 @@ def draft_for_file(folder: dict, relpath: str, text: str, *, mtime_iso: str, sha
         meeting["app"] = t.app
     if t.summary_writer:
         meeting["summary_writer"] = t.summary_writer
+    if named:
+        # ROR-142: the placeholders the person named, so a reader can say where each name came from.
+        meeting["named_by_person"] = dict(named)
     if t.attendees:
         # A calendar's invitees as the file lists them — inside the meeting record, never ``participants`` (G179's
         # ``[{key, marker, name, kind}]`` rows for a chat's members, a shape these plain names are not).

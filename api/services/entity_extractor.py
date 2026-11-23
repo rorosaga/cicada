@@ -591,9 +591,14 @@ def _unnamed_speakers_line(episode: dict, named: list) -> str:
     from api.services import meeting_speakers
 
     placeholders = meeting_speakers.unnamed(episode)
+    meeting = episode.get("meeting") if isinstance(episode.get("meeting"), dict) else {}
+    by_person = {str(k): str(v) for k, v in (meeting.get("named_by_person") or {}).items() if v}
+    from api.services import meeting_transcripts
+
+    line = "".join(f' Lines starting "{meeting_transcripts.marker(name)}:" are {name}\'s; the person named them.'
+                   for name in dict.fromkeys(by_person.values()))
     if not placeholders:
-        return ""
-    line = ""
+        return line
     by_marker: dict[str, list] = {}
     for n in named:
         by_marker.setdefault(n.marker, []).append(n)
@@ -1175,7 +1180,9 @@ async def extract(
                 on_sensitive(episode, guard.kinds(), _engine, guard.held())   # before the send: the record outlives a crash
             # ROR-142: one call names a meeting's placeholder speakers from the transcript's own words, over the
             # same masked text the chunks send; the note then says who they are. A failure reads it as labelled.
-            if (placeholders := meeting_speakers.unnamed(episode)):
+            named: list = []
+            placeholders = meeting_speakers.unnamed(episode)
+            if placeholders:
                 meeting = episode.get("meeting") or {}
                 named = await meeting_speakers.identify(
                     ep_id, "\n\n".join(chunks), placeholders, settings, owner=owner,
@@ -1359,6 +1366,9 @@ async def extract(
                 }
                 if said_books:
                     results[i][book_said.KEY] = said_books
+                if placeholders:
+                    # ROR-142: who the identification named, and the voices it left for the person (Stage 5.4c asks).
+                    results[i][meeting_speakers.RESULT_KEY] = meeting_speakers.result_record(placeholders, named)
                 if session_id:
                     # The session it was said in, from the episode's own record: every claim read from it carries
                     # it (`entities_to_claims`), so an agent's act names the session that did it.

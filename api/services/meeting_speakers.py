@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from loguru import logger
 
@@ -154,3 +155,264 @@ async def identify(ep_id: str, text: str, placeholders: list[tuple[str, bool]], 
     if kept:
         logger.info(f"  {ep_id}: identified {len(kept)} meeting speaker(s) from the transcript's own words")
     return kept
+
+
+# --- Asking the person (ROR-142 slice 2) ---------------------------------------------------------------------------
+#
+# The owner, 2026-11-23: "the labeling can be a quick question from cicada, saying smth like (in the meeting "meeting
+# name" you were speaking with ... who was speaker 1, or the guy who said x and y". A voice the identification left
+# unnamed is asked about once, on the existing ``clarification`` kind (``asks: speaker``). The answer is stored by
+# source in ``meetings/speaker-names.yaml`` — this module its one writer — which the parser applies on every sync
+# (``meeting_transcripts.draft_for_file``), and the stored episode is relabelled in place at once, a revision Sleep
+# reads where it changed. Only the person's answer names anyone; no rule, judge or other conversation settles it.
+
+#: An extraction result's record of a meeting's placeholders: ``{"named": [names], "unnamed": [markers]}``.
+RESULT_KEY = "meeting_speakers"
+ASKS = "speaker"
+NAMES_FILE = "meetings/speaker-names.yaml"
+DECLINE_KEY = "dont_know"
+DECLINE_LABEL = "Someone I don't know"
+#: A voice with fewer lines than this is not worth a question.
+MIN_LINES = 5
+MAX_QUOTE_CHARS = 110
+MAX_OPTIONS = 4
+
+
+class NotAName(ValueError):
+    """The answer cannot name this speaker (empty, a placeholder, or the person themselves)."""
+
+
+def result_record(placeholders: list[tuple[str, bool]], named: list[Named]) -> dict:
+    """What Stage 5.4c needs from Stage 1: the names kept, and the one-voice placeholders still unnamed."""
+    done = {n.marker for n in named}
+    return {"named": sorted({n.name for n in named}),
+            "unnamed": [m for m, group in placeholders if not group and m not in done]}
+
+
+def _names_path(memory_path: Path) -> Path:
+    return Path(memory_path) / NAMES_FILE
+
+
+def _load(memory_path: Path) -> dict:
+    import yaml
+
+    path = _names_path(memory_path)
+    if not path.is_file():
+        return {}
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        logger.warning("meeting speakers: the names file is unreadable; answers wait until it is repaired")
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save(memory_path: Path, data: dict) -> None:
+    import os
+    import tempfile
+
+    import yaml
+
+    path = _names_path(memory_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".speaker-names.", suffix=".tmp")
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        yaml.safe_dump(data, fh, allow_unicode=True, sort_keys=True)
+    os.replace(tmp, path)
+
+
+def names_for(memory_path: Path | None, source_id: str) -> dict[str, str]:
+    """The person's answers for one meeting file: placeholder label → name (a declined one is no name)."""
+    if memory_path is None:
+        return {}
+    rows = _load(memory_path).get(source_id)
+    return {str(label): str(row["name"]) for label, row in (rows or {}).items()
+            if isinstance(row, dict) and row.get("name")} if isinstance(rows, dict) else {}
+
+
+def _answered(memory_path: Path, source_id: str, label: str) -> bool:
+    rows = _load(memory_path).get(source_id)
+    return isinstance(rows, dict) and label in rows
+
+
+def _record(memory_path: Path, source_id: str, label: str, row: dict) -> None:
+    data = _load(memory_path)
+    data.setdefault(source_id, {})[label] = row
+    _save(memory_path, data)
+
+
+def _episode(memory_path: Path, episode_id: str) -> tuple[Path, dict, str] | None:
+    from api.services import markdown_parser
+
+    path = Path(memory_path) / "episodes" / f"{episode_id}.md"
+    if not path.is_file():
+        return None
+    parsed = markdown_parser.parse(path)
+    return path, parsed.frontmatter, parsed.body
+
+
+def _label_of(fm: dict, marker: str) -> str | None:
+    meeting = fm.get("meeting") if isinstance(fm.get("meeting"), dict) else {}
+    return next((str(s) for s in meeting.get("speakers") or []
+                 if mt.is_placeholder(str(s)) and mt.marker(str(s)) == marker), None)
+
+
+def _lines_of(body: str, marker: str) -> list[str]:
+    prefix = f"{marker}: "
+    return [line[len(prefix):].strip() for line in body.split("\n") if line.startswith(prefix)]
+
+
+def _clip(text: str) -> str:
+    text = " ".join(text.split())
+    if len(text) <= MAX_QUOTE_CHARS:
+        return text.rstrip(".")
+    cut = text[:MAX_QUOTE_CHARS].rsplit(" ", 1)[0]
+    return cut.rstrip(",;:.") + "…"
+
+
+def _open_question(memory_path: Path, episode_id: str, marker: str) -> Path | None:
+    from api.services import markdown_parser
+
+    inbox = Path(memory_path) / "inbox"
+    for path in sorted(inbox.glob("inbox-*.md")) if inbox.is_dir() else []:
+        try:
+            fm = markdown_parser.parse(path).frontmatter
+        except Exception:  # noqa: BLE001 - an unreadable item is no question
+            continue
+        if (fm.get("asks") == ASKS and fm.get("source_episode") == episode_id
+                and fm.get("speaker_marker") == marker and str(fm.get("status") or "pending") == "pending"):
+            return path
+    return None
+
+
+def _with(names: list[str]) -> str:
+    if not names:
+        return "people the recording didn't name"
+    if len(names) == 1:
+        return f"{names[0]} and someone else"
+    return ", ".join(names[:-1]) + f" and {names[-1]}, and someone else"
+
+
+def ensure_question(memory_path: Path, episode_id: str, marker: str, *, named: list[str] | None = None,
+                    owner: str | None = None, today: str | None = None) -> Path | None:
+    """"Who was Speaker 1?" about one voice of one meeting, once. ``None`` when it is not a one-voice placeholder of
+    that meeting, has too few lines, was answered or declined, or is already asked."""
+    from datetime import date
+
+    from api.services import markdown_parser
+    from api.services.role_people import _next_item
+
+    found = _episode(memory_path, episode_id)
+    if found is None:
+        return None
+    _path, fm, body = found
+    label = _label_of(fm, marker)
+    source_id = str(fm.get("source_id") or "")
+    if not label or mt.is_group_placeholder(label) or not source_id or fm.get("source_deleted_at"):
+        return None
+    lines = _lines_of(body, marker)
+    if len(lines) < MIN_LINES or _answered(memory_path, source_id, label):
+        return None
+    if _open_question(memory_path, episode_id, marker) is not None:
+        return None
+    title = str(fm.get("title") or "a meeting")
+    day = str(fm.get("original_date") or fm.get("timestamp") or "")[:10]
+    said = [q for q in sorted({_clip(x) for x in lines if len(x.split()) >= 4}, key=len, reverse=True)][:2]
+    quotes = " and ".join(f"“{q}”" for q in said)
+    question = (f"In “{title}”{f' ({day})' if day else ''} you talked with {_with(named or [])}. "
+                f"Who was {label}{f', the one who said {quotes}' if quotes else ''}?")
+    meeting = fm.get("meeting") if isinstance(fm.get("meeting"), dict) else {}
+    taken = {n.casefold() for n in (named or [])}
+    picks = [a for a in (str(x) for x in meeting.get("attendees") or [])
+             if a.strip() and a.casefold() not in taken and not _is_owner(a, owner) and not mt.is_placeholder(a)]
+    options = [{"key": f"name:{i}", "label": a} for i, a in enumerate(picks[:MAX_OPTIONS])]
+    options.append({"key": DECLINE_KEY, "label": DECLINE_LABEL})
+    item = {
+        "kind": "clarification",
+        "asks": ASKS,
+        "required_input": "freetext",
+        "status": "pending",
+        "priority": 0.6,
+        "entity_id": episode_id,
+        "entity_name": title,
+        "title": f"Who was {label} in “{title}”?",
+        "question": question,
+        "options": options,
+        "allow_other": True,
+        "allow_defer": True,
+        "uncertainty_type": "Unnamed meeting speaker",
+        "suggested_classification": "person",
+        "suggested_confidence": 0.5,
+        "source_episode": episode_id,
+        "speaker_marker": marker,
+        "speaker_label": label,
+        "meeting_source": source_id,
+        "created_date": today or str(date.today()),
+    }
+    inbox = Path(memory_path) / "inbox"
+    inbox.mkdir(parents=True, exist_ok=True)
+    path = _next_item(inbox)
+    context = "\n".join(f"> {_clip(x)}" for x in lines[:3])
+    markdown_parser.write(path, item, f"What {label} said in this meeting:\n\n{context}")
+    return path
+
+
+def ask_after_read(memory_path: Path, extracted: list[dict], *, owner: str | None = None) -> list[Path]:
+    """Sleep, Stage 5.4c: one question per voice its meetings left unnamed (``RESULT_KEY`` on each result)."""
+    asked = []
+    for result in extracted or []:
+        record = result.get(RESULT_KEY) if isinstance(result, dict) else None
+        if not isinstance(record, dict):
+            continue
+        for marker in record.get("unnamed") or []:
+            path = ensure_question(memory_path, str(result.get("episode_id") or ""), str(marker),
+                                   named=list(record.get("named") or []), owner=owner)
+            if path is not None:
+                asked.append(path)
+    return asked
+
+
+def answer(memory_path: Path, item: dict, name: str, *, owner: str | None = None) -> list[str]:
+    """The person named the voice: stored for the file, and the stored meeting relabelled in place (a revision Sleep
+    reads where it changed). Returns the manifest lines. Raises :class:`NotAName`."""
+    from api.services import episode_ids, episode_staging
+
+    name = mt.clean_label(name)
+    if not name or mt.is_placeholder(name) or mt.is_own(name):
+        raise NotAName("that isn't a name")
+    if _is_owner(name, owner):
+        raise NotAName("your own lines are already yours (labelled You)")
+    episode_id = str(item.get("source_episode") or "")
+    label, marker = str(item.get("speaker_label") or ""), str(item.get("speaker_marker") or "")
+    source_id = str(item.get("meeting_source") or "")
+    if not (episode_id and label and marker and source_id):
+        raise NotAName("this question is missing its meeting")
+    _record(memory_path, source_id, label, {"name": name, "at": episode_ids.utc_now_iso()})
+    lines = [f"{NAMES_FILE}: updated"]
+    found = _episode(memory_path, episode_id)
+    if found is not None:
+        def named_in_record(fm: dict) -> None:
+            meeting = dict(fm.get("meeting") or {})
+            meeting["speakers"] = [name if str(s) == label else s for s in meeting.get("speakers") or []]
+            meeting["named_by_person"] = {**(meeting.get("named_by_person") or {}), label: name}
+            fm["meeting"] = meeting
+
+        if episode_staging.relabel_in_place(found[0], marker, mt.marker(name), update=named_in_record):
+            lines.append(f"episodes/{episode_id}.md: updated")
+    return lines
+
+
+def decline(memory_path: Path, item: dict) -> list[str]:
+    """"Someone I don't know": remembered, so the voice is never asked about again; nothing else changes."""
+    from api.services import episode_ids
+
+    source_id, label = str(item.get("meeting_source") or ""), str(item.get("speaker_label") or "")
+    if source_id and label:
+        _record(memory_path, source_id, label, {"declined": True, "at": episode_ids.utc_now_iso()})
+    return [f"{NAMES_FILE}: updated"]
+
+
+def gone(memory_path: Path, item: dict) -> bool:
+    """The meeting this question is about is no longer in memory (removed, or its file deleted)."""
+    found = _episode(memory_path, str(item.get("source_episode") or ""))
+    return found is None or bool(found[1].get("source_deleted_at"))

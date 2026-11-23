@@ -575,6 +575,50 @@ def update_in_place(path: Path, draft: EpisodeDraft, body: str, digest: str, sta
 
 
 @_under_episode_lock
+def relabel_in_place(path: Path, old: str, new: str, *, update: Callable[[dict], None] | None = None) -> int:
+    """ROR-142: every turn line ``<old>: …`` becomes ``<new>: …`` — a speaker's marker renamed on the person's answer.
+    The turn stamps' offsets move with the text before them; the body is a revision of itself (``revised``),
+    re-queued, so Sleep reads only the changed lines (`episode_revision`). ``update`` edits the frontmatter in the same
+    write (the meeting record). Returns how many lines changed; 0 writes nothing."""
+    parsed = markdown_parser.parse(path)
+    fm, body = dict(parsed.frontmatter), parsed.body
+    was, now = f"{old}: ", f"{new}: "
+    lines, moves, start, shift = [], [], 0, 0   # moves: (old offset of a changed line, total shift after it)
+    for line in body.split("\n"):
+        length = len(line)
+        if line.startswith(was):
+            line = now + line[len(was):]
+            shift += len(now) - len(was)
+            moves.append((start, shift))
+        lines.append(line)
+        start += length + 1
+    if not moves:
+        return 0
+
+    def moved(offset: int) -> int:
+        before = [s for at, s in moves if at < offset]
+        return offset + (before[-1] if before else 0)
+
+    stamps = []
+    for entry in fm.get("turns") or []:
+        if isinstance(entry, dict) and isinstance(entry.get("offset"), int):
+            entry = {**entry, "offset": moved(entry["offset"])}
+            if entry.get("speaker") == old:
+                entry["speaker"] = new
+        stamps.append(entry)
+    out = "\n".join(lines)
+    fm[REVISED_KEY] = revision_record(fm)
+    fm["content_hash"] = content_hash(out)
+    fm["processed"] = False
+    fm.pop("processed_by", None)
+    if update is not None:
+        update(fm)
+    set_turn_stamps(fm, stamps)
+    markdown_parser.write(path, fm, out)
+    return len(moves)
+
+
+@_under_episode_lock
 def upgrade_relay(path: Path, draft: EpisodeDraft, body: str, digest: str, stamps: list[dict], at: str) -> None:
     """Ruling 32: the export's words replace a relayed body — same file, same id and original timestamp, re-queued
     for Sleep. The relay record stays, stamped ``upgraded_at``, so the app can say where the episode began."""
