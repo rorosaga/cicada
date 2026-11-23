@@ -50,12 +50,9 @@ MAX_WORDS_CHARS = 240
 
 PROMPT = """One person's memory page for ONE thing lists values stated about it, one line each: the attribute as it was \
 worded when stated (conversations word it differently, sometimes in another language), its value, and the date it was \
-said. Lines marked NEW were just read; the others are already on the page. A line may be followed by the person's \
-own words that gave that value: they show what the value is of and whether the person was replacing an earlier value \
-(a rewrite, a rise, a move, a new job). Words that report a change do not make two lines one attribute: the person may \
-change two different things in the same way.
+said. Lines marked NEW were just read; the others are already on the page.
 
-For each NEW line, name the OTHER line, if any, that states the same attribute of this thing in other words: the \
+{note}For each NEW line, name the OTHER line, if any, that states the same attribute of this thing in other words: the \
 later value would then replace the earlier one. A second reader checks every answer you give, so name the closest \
 line whenever the NEW line could be that attribute reworded, translated or shortened; answer null only when no line \
 could be it. Attributes that differ in anything measured are not the same: what it is of (a flat or its garage), what \
@@ -69,14 +66,25 @@ LINES:
 Reply with JSON only, one answer per NEW line: {{"answers": [{{"line": <NEW line number>, "same_as": <the other \
 line's number, or null>}}]}}"""
 
+#: Added only when a line carries the person's words (the prompts are otherwise exactly what they were before).
+WORDS_NOTE = """A line may be followed by the person's own words that gave that value: they show what the value is of \
+and whether the person was replacing an earlier value (a rewrite, a rise, a move, a new job). Words that report a \
+change never make two lines one attribute: a person can change two different things in the same way.
+
+"""
+CHECK_NOTE = """The person's own words follow a value where known: they show what the value is of and whether the \
+person was replacing the earlier one. The attribute names are only wording. Words that report a change never make \
+two values one attribute: a person can change two different things in the same way.
+
+"""
+
 CHECK = """One person's memory holds two values stated about the same thing ({name}), said at different times.
 
 EARLIER: {earlier}
 LATER: {later}
 
-Is LATER a new value for the very same attribute as EARLIER (reworded or translated), so that EARLIER is now out of \
-date? The attribute names are only wording; judge what each value is of, using the person's words where they are \
-given. Or do they measure different things that can both be true at once: what it is of (a flat or its garage), what it \
+{note}Is LATER a new value for the very same attribute as EARLIER (reworded or translated), so that EARLIER is now out of \
+date? Or do they measure different things that can both be true at once: what it is of (a flat or its garage), what it \
 includes (with or without tax), its scope or period (this year or last), its role (a target or an actual, a start or an \
 end, a minimum or a maximum), or its kind (a price, a count, a date)? When unsure, they are different.
 
@@ -228,7 +236,8 @@ def _sentence(line: Line) -> str:
 
 def prompt(ask: Ask) -> str:
     rows = [f"{line.n}. {'NEW ' if line.incoming else ''}{_sentence(line)}" for line in ask.lines]
-    return PROMPT.format(name=ask.subject.replace("-", " "), lines="\n".join(rows))
+    note = WORDS_NOTE if any(line.words for line in ask.lines) else ""
+    return PROMPT.format(name=ask.subject.replace("-", " "), lines="\n".join(rows), note=note)
 
 
 def proposals(reply: dict, ask: Ask) -> list[tuple[Line, Line]]:
@@ -258,7 +267,9 @@ def confirmed(new: Line, other: Line, ask: Ask, judge: Callable[[str], dict]) ->
     join needs both to say so, so one wrong answer in a page of values never closes a true one (a study's start date was
     once joined to its readout date). Costs one call per proposal, and proposals are rare."""
     first, second = sorted((new, other), key=lambda ln: (str(ln.latest.valid_from or ""), ln.incoming))
-    reply = judge(CHECK.format(name=ask.subject.replace("-", " "), earlier=_sentence(first), later=_sentence(second)))
+    note = CHECK_NOTE if first.words or second.words else ""
+    reply = judge(CHECK.format(name=ask.subject.replace("-", " "), earlier=_sentence(first), later=_sentence(second),
+                               note=note))
     return isinstance(reply, dict) and reply.get("same_attribute") is True
 
 

@@ -277,5 +277,17 @@ def test_words_never_decide_a_join_two_changes_said_alike_stay_two(tmp_path):
     judge = _Judge(_says(1, 2), NO)
     assert value_alignment.align([new], {"shop-example": [old]}, judge, tmp_path) == []
     assert new.predicate == "value-of-deposit" and len(judge.prompts) == 2
-    assert "do not make two lines one attribute" in judge.prompts[0]
-    assert "using the person's words" in judge.prompts[1]
+    assert "never make two lines one attribute" in judge.prompts[0]
+    assert "never make two values one attribute" in judge.prompts[1]
+
+
+def test_without_words_the_prompts_are_exactly_what_they_were():
+    """A claim with no located span (an inference, an assistant's turn) gets the prompts of before: the note about the
+    person's words is added only when a line carries some, so the judge is never told to look for what is not there."""
+    old, new = _old_and_new()
+    ask = value_alignment.questions([new], {"shop-example": [old]})[0]
+    text = value_alignment.prompt(ask)
+    assert "own words" not in text and "{note}" not in text and "they said" not in text
+    judge = _Judge(_says(1, 2), YES)
+    value_alignment.align([new], {"shop-example": [old]}, judge)
+    assert "own words" not in judge.prompts[1] and "{note}" not in judge.prompts[1]
