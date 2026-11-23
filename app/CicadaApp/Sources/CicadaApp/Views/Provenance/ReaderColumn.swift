@@ -656,13 +656,36 @@ struct ReaderBannerView: View {
             Image(systemName: icon)
                 .font(CicadaTheme.icon(.inline))
                 .accessibilityHidden(true)
-            Text(text)
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
+                Text(text)
+                    .fixedSize(horizontal: false, vertical: true)
+                // Owner 2026-11-23: what an edit took out, said in its own words — struck through, never coloured.
+                ForEach(Array(removedShown.enumerated()), id: \.offset) { _, words in
+                    Text(words)
+                        .strikethrough()
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .lineLimit(2)
+                        .accessibilityLabel(Copy.Provenance.takenOut(words))
+                }
+                if removedMore > 0 {
+                    Text(Copy.Provenance.moreTakenOut(removedMore))
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                }
+            }
         }
         .font(CicadaTheme.metaFont)
         .foregroundStyle(CicadaTheme.textSecondary)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    /// At most three of the stretches an edit took out; the rest are counted.
+    static let removedShownLimit = 3
+    private var removed: [String] {
+        if case .updated(_, let removed) = banner { return removed }
+        return []
+    }
+    private var removedShown: [String] { Array(removed.prefix(Self.removedShownLimit)) }
+    private var removedMore: Int { max(removed.count - Self.removedShownLimit, 0) }
 
     private var text: String {
         switch banner {
@@ -670,6 +693,8 @@ struct ReaderBannerView: View {
         case .grown: Copy.Provenance.grown
         case .derived: Copy.Provenance.derived
         case .truncated: Copy.Provenance.truncated
+        case .updated(let parts, let removed): Copy.Provenance.updated(parts: parts, removed: removed.count)
+        case .deletedAtSource: Copy.Provenance.deletedAtSource
         }
     }
 
@@ -679,6 +704,8 @@ struct ReaderBannerView: View {
         case .grown: "arrow.down.to.line"
         case .derived: "text.magnifyingglass"
         case .truncated: "scissors"
+        case .updated: "pencil.line"
+        case .deletedAtSource: "trash"
         }
     }
 }

@@ -486,6 +486,28 @@ struct EpisodeRelay: Codable, Hashable {
 /// `session_id` or G20's `source_id`. `projectDir`/`resumable` are
 /// deliberately absent — `GET /conversations/{id}` is the one place a
 /// transcript is `isfile()`-d.
+/// Owner 2026-11-23 — what changed in a WAITING episode since Sleep last read it (`episode_revision.since_read`):
+/// `state` is "new", "updated" or "removed"; `changed` are `[start, end]` scalar offsets into the document's text;
+/// `removed` the words an edit took out; `at` when it was last edited.
+struct EpisodeChanges: Codable, Hashable {
+    var state: String
+    var changed: [[Int]] = []
+    var removed: [String] = []
+    var at: String? = nil
+
+    init(state: String, changed: [[Int]] = [], removed: [String] = [], at: String? = nil) {
+        self.state = state; self.changed = changed; self.removed = removed; self.at = at
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        state = (try? c.decodeIfPresent(String.self, forKey: .state)) ?? ""
+        changed = (try? c.decodeIfPresent([[Int]].self, forKey: .changed)) ?? []
+        removed = (try? c.decodeIfPresent([String].self, forKey: .removed)) ?? []
+        at = (try? c.decodeIfPresent(String.self, forKey: .at)) ?? nil
+    }
+}
+
 struct EpisodeText: Codable, Hashable {
     let episode: String
     let kind: String
@@ -532,6 +554,9 @@ struct EpisodeText: Codable, Hashable {
     /// A meeting transcript's header facts and where its summary is (`EpisodeMeeting`); nil for every other document
     /// and against an older backend.
     var meeting: EpisodeMeeting? = nil
+    /// Owner 2026-11-23 — a waiting episode's state and what changed since Sleep read it; nil once read, for a page
+    /// and from an older backend.
+    var changes: EpisodeChanges? = nil
 
     var isPage: Bool { kind == "page" }
     var isPageRead: Bool { source == EvidenceSpeaker.pageReadSource }
@@ -565,7 +590,7 @@ struct EpisodeText: Codable, Hashable {
     enum CodingKeys: String, CodingKey {
         case episode, kind, text, length, hash, truncated, title, timestamp, harness, origin
         case conversationId, captureKind, sourceKind, turns, focus, agent, watch, source, correspondent, device, relay, site, unsent
-        case receivedAt, meeting
+        case receivedAt, meeting, changes
     }
 
     init(from decoder: Decoder) throws {
@@ -578,6 +603,7 @@ struct EpisodeText: Codable, Hashable {
         unsent = (try? c.decodeIfPresent([EpisodeUnsent].self, forKey: .unsent)) ?? []
         receivedAt = (try? c.decodeIfPresent(String.self, forKey: .receivedAt)) ?? nil
         meeting = (try? c.decodeIfPresent(EpisodeMeeting.self, forKey: .meeting)) ?? nil
+        changes = (try? c.decodeIfPresent(EpisodeChanges.self, forKey: .changes)) ?? nil
         episode = try c.decodeIfPresent(String.self, forKey: .episode) ?? ""
         kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? "episode"
         text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""

@@ -33,6 +33,7 @@ from api.services import (
     bank_index,
     channel_items,
     episode_copy,
+    episode_revision,
     folder_source,
     git_service,
     history_index,
@@ -441,7 +442,8 @@ async def sleep_queue(
 #: Bumped when a row of `GET /sleep/episodes` gains a field or changes for the same files (folded into its ETag).
 #: episodes-5: `site` is the link's own host, not its registrable domain (owner 2026-11-23).
 #: episodes-6: `openKind` / `openValue` — where the original opens (owner 2026-11-23).
-EPISODES_SHAPE = "episodes-6"   # episodes-4: a recorder's meetings group under it (`queue_origin`); episodes-3: `device` (G212); episodes-2: `site` (owner 2026-10-20)
+#: episodes-7: `change` — new, updated or removed at its source (owner 2026-11-23).
+EPISODES_SHAPE = "episodes-7"   # episodes-4: a recorder's meetings group under it (`queue_origin`); episodes-3: `device` (G212); episodes-2: `site` (owner 2026-10-20)
 
 
 @router.get("/sleep/episodes", response_model=list[EpisodeQueueItem])
@@ -495,6 +497,7 @@ async def sleep_episodes(
                 device=str(fm.get("device") or "") or None,
                 open_kind=opens[0] if opens else None,
                 open_value=opens[1] if opens else None,
+                change=episode_revision.waiting_state(fm),
             )
         )
     return items

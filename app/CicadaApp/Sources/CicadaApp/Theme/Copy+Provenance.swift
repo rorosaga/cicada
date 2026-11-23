@@ -29,6 +29,19 @@ extension Copy {
         /// for what it is — found by searching, not quoted by a contributor.
         static let derived = "Found by searching for the name. This was noted before Cicada kept exact quotes."
         static let truncated = "This is very long, so only the first part is shown."
+        /// Owner 2026-11-23 — a waiting source Sleep read before, edited since: what the wash below means.
+        static func updated(parts: Int, removed: Int) -> String {
+            let lead = "Changed since Sleep last read it."
+            var said: [String] = []
+            if parts > 0 { said.append(parts == 1 ? "The highlighted part is new" : "The \(parts) highlighted parts are new") }
+            if removed > 0 { said.append(removed == 1 ? "one part was taken out" : "\(removed) parts were taken out") }
+            guard let first = said.first else { return lead }
+            let rest = said.dropFirst().joined(separator: ", ")
+            return "\(lead) \(first)\(rest.isEmpty ? "" : "; \(rest)")."
+        }
+        static func takenOut(_ words: String) -> String { "Taken out: \(words)" }
+        static func moreTakenOut(_ n: Int) -> String { "and \(n) more" }
+        static let deletedAtSource = "This was deleted where it came from."
         static let gone = "This isn't in this bank any more."
         static let failed = "Couldn't open this."
         static let empty = "Nothing was captured here."

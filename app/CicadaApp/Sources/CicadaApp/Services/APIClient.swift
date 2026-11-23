@@ -1388,10 +1388,13 @@ struct EpisodeQueueItem: Codable, Identifiable {
     /// and its link, session id, note id or path. Nil when nothing names it and from an older backend.
     var openKind: String? = nil
     var openValue: String? = nil
+    /// Owner 2026-11-23 — how a waiting episode differs from what Sleep knows: "new", "updated" (read before, edited
+    /// since) or "removed" (deleted at its source). Nil once read and from an older backend.
+    var change: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, timestamp, source, origin, title, preview, chars, processed, copyKind, copyValue, changedAt, site
-        case device, openKind, openValue
+        case device, openKind, openValue, change
     }
 
     init(from decoder: Decoder) throws {
@@ -1411,6 +1414,7 @@ struct EpisodeQueueItem: Codable, Identifiable {
         device = try c.decodeIfPresent(String.self, forKey: .device)
         openKind = try c.decodeIfPresent(String.self, forKey: .openKind)
         openValue = try c.decodeIfPresent(String.self, forKey: .openValue)
+        change = try c.decodeIfPresent(String.self, forKey: .change)
     }
 }
 

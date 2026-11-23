@@ -1597,6 +1597,16 @@ class EpisodeRelay(CamelModel):
     label: Optional[str] = None
 
 
+class EpisodeChanges(CamelModel):
+    """What changed in a WAITING episode since Sleep last read it (owner 2026-11-23, `episode_revision.since_read`):
+    ``state`` is ``new`` | ``updated`` | ``removed``; ``changed`` are ``[start, end]`` offsets into the document's
+    ``text``; ``removed`` the words an edit took out; ``at`` when it was last edited."""
+    state: str
+    changed: list[list[int]] = Field(default_factory=list)
+    removed: list[str] = Field(default_factory=list)
+    at: Optional[str] = None
+
+
 class EpisodeText(CamelModel):
     """``GET /episodes/{id}/text`` — a whole stored document for the Reader
     (G118 slice 2, design §4.8.1). ``text`` is capped at 400,000 characters
@@ -1651,6 +1661,8 @@ class EpisodeText(CamelModel):
     unsent: list[EpisodeUnsent] = []
     #: A meeting transcript's facts and where its summary is; null for every other episode and for a page.
     meeting: Optional[EpisodeMeeting] = None
+    #: Owner 2026-11-23 (`chg1`): a waiting episode's state and, for one read before and edited since, what changed.
+    changes: Optional[EpisodeChanges] = None
 
 
 EpisodeTurn.model_rebuild()
@@ -4050,6 +4062,10 @@ class EpisodeQueueItem(CamelModel):
     # (a chat: the app opens the chat's app). The app checks the value again before it opens anything.
     open_kind: Optional[str] = None
     open_value: Optional[str] = None
+    # Owner 2026-11-23 (episodes-7) — how a waiting episode differs from what Sleep knows
+    # (`episode_revision.waiting_state`): "new", "updated" (read before, edited since) or "removed" (deleted at its
+    # source); None once read. The Reader shows what changed (`EpisodeText.changes`).
+    change: Optional[str] = None
 
 
 SCHEDULE_MODES = ("manual", "daily", "interval", "after_import")

@@ -39,6 +39,7 @@ from api.models.schemas import (
     EpisodeCitationEntity,
     EpisodeCitations,
     EpisodeFocus,
+    EpisodeChanges,
     EpisodeMeeting,
     EpisodeText,
     EpisodeTurn,
@@ -241,7 +242,20 @@ def episode_document(
         relay=_relay(fm) if is_episode else None,
         unsent=_unsent(fm, spans) if is_episode else [],
         meeting=EpisodeMeeting(**meeting_transcripts.meeting_wire(fm, summary_turn=summary_turn)) if meeting is not None else None,
+        changes=_changes(memory_path, doc_id, fm, text) if is_episode else None,
     )
+
+
+def _changes(memory_path: Path, doc_id: str, fm: dict, text: str) -> EpisodeChanges | None:
+    """Owner 2026-11-23: what changed in a waiting episode since Sleep read it (`episode_revision.since_read`); one
+    git read, and only for an episode read before and edited since. Never fails the document."""
+    from api.services import episode_revision
+
+    try:
+        got = episode_revision.since_read(memory_path, doc_id, fm, text)
+    except Exception:  # noqa: BLE001 - the Reader's text never waits on a diff
+        return None
+    return EpisodeChanges(**got) if got else None
 
 
 def _saved_site(fm: dict) -> str | None:
