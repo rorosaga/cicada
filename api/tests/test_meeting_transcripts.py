@@ -980,7 +980,7 @@ def test_a_comment_and_a_tools_italic_note_are_never_a_turn_and_never_anyones_wo
     assert not any("split on this Mac" in t.text or "split-tool" in t.text for t in d.turns)
     meeting = d.extra["meeting"]
     assert meeting["voices_split_by"] == "Example-Diarizer 2" and meeting["voices"] == 2
-    assert meeting["notes"] == ["Remote speakers split on this Mac with Example-Diarizer 2 (2 voices). Rename with ."]
+    assert meeting["notes"] == ["Remote speakers split on this Mac with Example-Diarizer 2 (2 voices)."]
     assert "split-tool" not in " ".join(meeting["notes"])   # the command it offers is never kept
     assert meeting["speakers"] == ["Speaker 1", "You", "Speaker 2", "Them"]
     assert meeting["app"] == "Video Call" and meeting["attendees"] == ["Bob Example", "Carol Example"]

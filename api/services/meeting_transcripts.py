@@ -209,8 +209,10 @@ MAX_NOTES = 5
 
 
 def _note_text(value: str) -> str:
-    """A note as kept: one line, its code spans (a command to run, which carries ids and paths) removed, 240 characters."""
-    return " ".join(re.sub(r"`[^`]*`", "", value).split())[:240].strip(" _*")
+    """A note as kept: one line, 240 characters, and without any sentence holding a code span (a command to run, which
+    carries ids and paths: "Rename with `…`.")."""
+    kept = [s for s in re.split(r"(?<=[.!?])\s+", " ".join(value.split())) if "`" not in s]
+    return " ".join(kept)[:240].strip(" _*")
 
 
 def _voices_note(t: "Transcript", note: str) -> None:
