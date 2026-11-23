@@ -1445,7 +1445,7 @@ LoCoMo with nothing slept was not re-graded.
 
 **Ask reads a wider window, on every question (G148, 2026-11-06).** A count needs every conversation holding one, and the window
 was built for one fact: LongMemEval_S multi-session answered 5 of 20. `window_limits` gives every question 8 conversations, 12 lines
-and 6,000 characters instead of 4, 6 and 3,000 (`SEARCH_*`). **2026-11-09 (beat-control):** 12 conversations, 24 lines and 12,000 characters, and the search model ranks every retrieved page's items on every question (`Searched.similar` is no longer limited to lists, inference, advice or another language): slept LoCoMo 156 → 163 of 200 (12 gained, 5 lost, p = .14) at 11,688 tokens a question; LongMemEval_S 80 → 79; `docs/research/2026-11-09-why-full-context-wins-on-locomo.md`. No shape decides it, since the shapes are word lists. `person_first`: an
+and 6,000 characters instead of 4, 6 and 3,000 (`SEARCH_*`). **2026-11-09 (beat-control):** 12 conversations, 24 lines and 12,000 characters, and the search model ranks every retrieved page's items on every question (`Searched.similar` is no longer limited to lists, inference, advice or another language): slept LoCoMo 156 → 163 of 200 (12 gained, 5 lost, p = .14) at 11,688 tokens a question; LongMemEval_S 80 → 79; `docs/research/2026-11-09-why-full-context-wins-on-locomo.md`. 2026-11-23: the meaning leg's room is counted against the lines, not the pages, and it reads 8 conversations (see "The meaning leg fills the prompt's room"). No shape decides it, since the shapes are word lists. `person_first`: an
 agent's turn only fills what the people's turns leave, by a turn's role. Nothing slept, haiku, 100 questions, one run each:
 
 | Window | Right | Multi-session of 20 | Tokens per question | Per right answer | Prompt chars p50 |
@@ -2244,9 +2244,11 @@ off: `capture-and-sleep.md`, "The Claude desktop app, on its local connection".
 ## The meaning leg fills the prompt's room (G148, 2026-11-07)
 
 Ask searches by meaning for every question in any language (`search(any_language=True)`); only its own call does. The words still
-lead. The meaning leg's lines fill what the prompt has left: `ASK_WINDOW_CHARS` less the pages and the words already on it, at most
-3,000 characters, a line for each 500 (`_meaning_budget`). A prompt with no room adds nothing to an English question, so a memory Sleep
-has read barely changes; another language keeps its 2 lines. An English question with no word the record uses now goes by meaning too,
+lead. The meaning leg's lines fill what the window has left: `ASK_WINDOW_CHARS` less the lines already shown (`lines_chars`), at most
+4,000 characters, a line for each 500 (`_meaning_budget`), one line from each of the vector leg's best `ASK_MEANING_EPISODES` (8)
+conversations (recall keeps 4). **2026-11-23 correction:** this used to count the pages too, and a slept memory's pages alone are over
+the 12,000-character window, so the room was always negative and the leg added nothing there (the 2026-11-09 measurement "slept 159 →
+159" was that, not a verdict on the leg); a window of lines is now the lines' own. Another language keeps its 2 lines when it has none. An English question with no word the record uses now goes by meaning too,
 where it used to find nothing; the prompt says a line counts only when it means what the question asks. Recall stays on the words: in
 its small budget these lines lost 128 → 114 of 200 on slept LoCoMo and 107 → 100 unslept. It costs Ask about 100 ms for the embedding.
 
@@ -2263,6 +2265,13 @@ Ask, haiku, right answers and tokens per right answer, dev → this:
 Unslept multi-hop gained most (34 → 41 of 76). It's a reach problem: before this, 16 of 17 were right with every answer turn on the
 prompt, 4 of 22 with none. LongMemEval_S abstention held at 13 of 14. The gain is in English, since other languages already had a few
 such lines.
+
+**2026-11-23 (multi-hop reach, slept LoCoMo, `docs/research/2026-11-09-why-full-context-wins-on-locomo.md` §7).** Multi-hop prompts with
+every gold turn shown went 29 → 37 of 76 (all 200 questions: 131 → 145), at 21,379 → 24,780 prompt characters and 11,688 → 12,844
+tokens a question (+10%). Graded, haiku, two baseline runs (163, multi-hop 57; a fresh replicate 160, 56) against two runs of this (167 and 168, multi-hop
+62 and 61): every run of this beats every baseline run, +4 to +8 overall and +4 to +6 on multi-hop, no pairing significant but one (p = .04). Recall's door text is byte-identical on all 200 questions. LongMemEval_S unslept 79 → 77 (0 gained, 2 lost,
+answers reworded over the same lines), tokens 10,923 → 10,990. `python -m benchmarks.public.run run --paths reach` records Ask's prompt and
+answer-turn reach per question with no model call.
 
 ## Recording tools join the list when they're needed (G148, owner 2026-11-06)
 

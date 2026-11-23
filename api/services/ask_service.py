@@ -965,7 +965,7 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
         try:
             more = ask_sources.gather_search(memory_path, query, searched, owner_name=owner_name,
                                              taken=ask_sources.shown_turns(excerpts), deep=unread_budget,
-                                             meaning_room=ask_sources.ASK_WINDOW_CHARS - len(context),
+                                             meaning_room=ask_sources.ASK_WINDOW_CHARS - ask_sources.lines_chars(excerpts),
                                              **ask_sources.window_limits())
         except Exception as exc:  # noqa: BLE001 — the words are context; their absence never fails an answer
             logger.debug(f"ask search leg skipped ({type(exc).__name__})")

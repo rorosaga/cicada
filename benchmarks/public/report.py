@@ -77,7 +77,7 @@ def summarize(run_dir: Path) -> dict:
                       (state.get("sleep") or {}).get("seconds"), "bank": state.get("bank")})
     locomo = cfg["dataset"] == "locomo"
     paths: dict[str, dict] = {}
-    for path in [p for p in cfg["paths"] if p != "doors"]:
+    for path in [p for p in cfg["paths"] if p not in ("doors", "reach")]:
         rows = [r for r in judged if r["path"] == path]
         cats: dict[str, list] = defaultdict(list)
         for r in rows:

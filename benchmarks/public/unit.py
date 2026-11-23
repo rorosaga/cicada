@@ -400,6 +400,20 @@ async def run_unit(job: dict) -> int:
                 with Runtime(_clock(q["question_date"] or unit["clock"]), settings).frozen():
                     done.add({"key": q["qid"], "qid": q["qid"], "category": q["category"], "abstention": q["abstention"],
                               "doors": door_reach(bank, unit, q)})
+    if "reach" in paths:
+        # Only Ask's prompt per question, with no model call: its size and how many of the dataset's answer turns it
+        # carries. The free inner loop of a retrieval change; the prompt itself is kept for reading.
+        paths = [p for p in paths if p != "reach"]
+        todo = [t for t in todo if t[1] != "reach"]
+        reached = Checkpoint(out / "reach.jsonl")
+        for q in unit["questions"]:
+            if q["qid"] not in reached.rows:
+                with Runtime(_clock(q["question_date"] or unit["clock"]), settings).frozen():
+                    started = time.perf_counter()
+                    text = ask_prompt_text(bank, q["question"])
+                    reached.add({"key": q["qid"], "qid": q["qid"], "category": q["category"], "abstention": q["abstention"],
+                                 "prompt_chars": len(text), "ms": round((time.perf_counter() - started) * 1000, 1),
+                                 "prompt": text, **evidence_shown(unit, q, text)})
     transcript = full_transcript(unit) if "full-context" in paths else ""
     # A retrieval change compared with a run before it: a question whose prompt came out byte-identical keeps that
     # run's answer and verdict, no call spent and no judge noise added; only the changed prompts are read again.
@@ -539,6 +553,20 @@ AGENT_PROMPT = ("Answer the person as well as you can from general knowledge. WH
                 'one or two sentences. Reply with JSON: {"answer": "<your answer>"}')
 
 
+def ask_prompt_text(bank: Path, question: str) -> str:
+    """The prompt Ask would send for ``question`` over ``bank``, captured with no model call ("" when it sends none)."""
+    from api.services import ask_service
+
+    seen: dict = {}
+
+    def llm(prompt: str) -> str:
+        seen["prompt"] = prompt
+        return json.dumps({"answer": "", "confidence": 0, "gaps": [], "used_entities": []})
+
+    ask_service.answer_query(bank, question, top_k=6, llm_fn=llm, no_engine=False)
+    return seen.get("prompt") or ""
+
+
 def door_reach(bank: Path, unit: dict, q: dict) -> dict:
     """Per door, what one question's words get an agent with no model call: the characters handed over and how many of
     the dataset's answer turns reached them. A door that fails reads as nothing and says why (its class)."""
@@ -547,14 +575,7 @@ def door_reach(bank: Path, unit: dict, q: dict) -> dict:
     ctx = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="bench", harness="bench")
 
     def ask_prompt() -> str:
-        seen: dict = {}
-
-        def llm(prompt: str) -> str:
-            seen["prompt"] = prompt
-            return json.dumps({"answer": "", "confidence": 0, "gaps": [], "used_entities": []})
-
-        ask_service.answer_query(bank, q["question"], top_k=6, llm_fn=llm, no_engine=False)
-        return seen.get("prompt") or ""
+        return ask_prompt_text(bank, q["question"])
 
     doors = {"ask": ask_prompt,
              "recall": lambda: mcp_tools.recall(ctx, q["question"]),
