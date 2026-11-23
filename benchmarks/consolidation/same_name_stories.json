@@ -516,10 +516,7 @@
   "name": "Paolo",
   "lang": "en",
   "two": true,
-  "q": [
-   1,
-   1
-  ],
+  "q": [0, 1],
   "batches": [
    [
     {
@@ -578,10 +575,7 @@
   "name": "Sofía",
   "lang": "es",
   "two": true,
-  "q": [
-   1,
-   1
-  ],
+  "q": [0, 1],
   "batches": [
    [
     {
@@ -639,10 +633,7 @@
   "name": "Mathis",
   "lang": "fr",
   "two": true,
-  "q": [
-   1,
-   1
-  ],
+  "q": [0, 1],
   "batches": [
    [
     {

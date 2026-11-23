@@ -9,17 +9,21 @@ acts only on what it copies from those descriptions (`same_name_review`):
 * a page that holds two people, on a located contrast, is split: the conversations that leave, with their beliefs and
   facts, move to a new page through `page_join.split`, one commit the person can undo (`page_join.undo`), authored by
   Sleep; the pair is recorded as split, so nothing joins them again. **The person's word stands over it:** a page
-  something was folded into (their merge, an answered question, any join) is never split by Sleep, and a split of
-  Sleep's that the person took back is never made again (`same_name_doubts.one`, `splits`);
+  they folded another into (their merge, an answered question) is never split by Sleep, and a split of Sleep's that
+  the person took back is never made again (`same_name_doubts.one`, `splits`);
 * two people held in doubt that a located contrast shows to be two are kept apart for good (`merge_rejections`);
-* two pages held in doubt that nothing settles are asked about **once**: "Are Marc (brother-in-law) and Marc (colleague)
-  the same person?", an ordinary `merge_suggestion` between two pages (`fold_page`: yes folds one into the other, no keeps
-  them apart for good, `merge_rejections`), with what each is known for in its reason. A located link (one fact both
-  sides state) is put in that question and never acted on: ruling 74 joins two people pages on two kinds of evidence
-  code can count, and a model's reading of two quotes is not one of them, so the person joins them with one tap.
-  Never for a person held on a line (nothing rests on it yet), never a second time (`same_name_doubts.mark_asked`),
-  never when the person already said, never over a question already open about the pair, and never when the read
-  failed or its answer could not be stood on (that is not "the record does not say").
+* two people held in doubt that a later conversation links (one fact both sides state, found by two reads of the whole
+  record) are **joined by Sleep** through `page_join.merge`, one commit the person can undo (owner 2026-11-23: "cicada
+  itself should do it automatically", ruling 74a). An undo is the person saying they are two: the pair is then kept
+  apart for good and never joined or asked about again (`reconcile`). A page in two doubt pairs is never joined;
+* two pages held in doubt that read like two different people (a relative and a colleague) and that nothing settles
+  **wait apart and nobody is asked** (owner 2026-11-23: "the fewer the asks the better"). Only a pair that reads like
+  one person, or like nothing either way, is asked about, **once**: "Are Marc (brother-in-law) and Marc (colleague) the
+  same person?", an ordinary `merge_suggestion` between two pages (`fold_page`: yes folds one into the other, no keeps
+  them apart for good, `merge_rejections`), with what each is known for in its reason. Never for a person held on a line
+  (nothing rests on it yet), never a second time (`same_name_doubts.mark_asked`), never when the person already said,
+  never over a question already open about the pair, and never when the read failed or its answer could not be stood
+  on (that is not "the record does not say").
 
 The sentences and beliefs that leave are exactly those whose every source is a leaving conversation; one a staying
 conversation also supports stays, and so does the summary, which no one conversation owns. A page or passage the person
@@ -246,12 +250,93 @@ def _page_exists(memory_path: Path, ref: str) -> bool:
     return (Path(memory_path) / "entities" / f"{ref}.md").is_file()
 
 
+def _winner(memory_path: Path, a: str, b: str, name_slug: str) -> tuple[str, str]:
+    """``(loser, winner)``: the page the bare name reaches stays, else the one with more conversations."""
+    if a == name_slug:
+        return b, a
+    if b == name_slug:
+        return a, b
+    na, nb = len(page_conversations(memory_path, a)[2]), len(page_conversations(memory_path, b)[2])
+    return (b, a) if na >= nb else (a, b)
+
+
+def _undone(memory_path: Path) -> set[str]:
+    """Every join commit a later commit took back (`page_join.undo` writes ``Undoes: <sha>``), in one git call."""
+    import subprocess
+
+    from api.services import page_join
+
+    out = subprocess.run(["git", "-C", str(memory_path), "log", "--format=%b", "-F", f"--grep={page_join.UNDOES}", "HEAD"],
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        return set()
+    return {line[len(page_join.UNDOES):].strip() for line in out.stdout.splitlines() if line.startswith(page_join.UNDOES)}
+
+
+def reconcile(memory_path: Path) -> dict[str, int]:
+    """The person's word over Sleep's own joins, with no engine: a split of Sleep's they took back makes the page one
+    Sleep never splits again (`same_name_doubts.one`), and a join of Sleep's they took back makes the pair two people for
+    good (`merge_rejections.add_split`), never joined or asked about again. Writes files only (the caller commits);
+    ``{"one": n, "apart": n}``. Nothing recorded: no git call."""
+    from api.services import merge_rejections
+
+    memory_path = Path(memory_path)
+    made, joined = same_name_doubts.splits(memory_path), same_name_doubts.joins(memory_path)
+    out = {"one": 0, "apart": 0}
+    if not made and not joined:
+        return out
+    undone = _undone(memory_path)
+    if not undone:
+        return out
+    for page, commit in made.items():
+        if commit in undone:
+            same_name_doubts.mark_one(memory_path, page)
+            same_name_doubts.forget_split(memory_path, page)
+            same_name_doubts.clear_flags(memory_path, pages=[page])
+            out["one"] += 1
+    for (a, b), commit in joined.items():
+        if commit in undone:
+            merge_rejections.add_split(memory_path, a, b)
+            same_name_doubts.remove_pairs(memory_path, [(a, b)])
+            same_name_doubts.clear_flags(memory_path, pairs_=[(a, b)])
+            same_name_doubts.forget_join(memory_path, a, b)
+            out["apart"] += 1
+    return out
+
+
+async def _commit_store(memory_path: Path, rest: list[str], before0) -> None:
+    """One `cicada` commit of the store and what else this step wrote outside a join's own commit; nothing when clean."""
+    import asyncio
+
+    from api.services import git_service, merge_rejections, page_join
+
+    try:
+        dirty = bool(await asyncio.to_thread(git_service.dirty_paths_sync, memory_path, same_name_doubts.FILE,
+                                             merge_rejections.FILE))
+    except Exception:  # noqa: BLE001 - an unreadable tree: commit what this step knows it wrote
+        dirty = True
+    if not (rest or dirty):
+        return
+    paths = list(dict.fromkeys(rest + [same_name_doubts.FILE, merge_rejections.FILE]))
+    lines = [f"{p}: updated (trigger: {TRIGGER})" for p in paths]
+
+    def commit(_before):
+        return page_join._commit(memory_path, "Same-name review", lines, paths, authors=_author(), session=None,
+                                 before=before0)
+
+    try:
+        await _in_lock(memory_path, commit)
+        rest.clear()
+    except Exception as exc:  # noqa: BLE001 - the flags and the store are left for the next run
+        logger.warning(f"same-name review commit failed: {type(exc).__name__}")
+
+
 async def tend(memory_path: Path, judge, *, today: date | None = None,
                max_questions: int = MAX_QUESTIONS) -> Report:
-    """Look again at what Stage 2 flagged. ``judge(system, prompt)`` is the main model's call. A split commits alone
-    through `page_join` (undoable, and nothing but the split is in that commit); everything else this step writes (the
-    pairs kept apart, the question, the store) is one `cicada` commit at the end. Counts only. Never raises but for an
-    engine failure (G74(a)), in which case the flags stay for the next run."""
+    """Look again at what Stage 2 flagged. ``judge(system, prompt)`` is the main model's call. A split or a join commits
+    alone through `page_join` (undoable, and nothing Sleep remembers about having made it is in that commit); everything
+    else this step writes (the pairs kept apart, the question, the store) is a `cicada` commit of its own. Counts only.
+    Never raises but for an engine failure (G74(a)), in which case the flags stay for the next run."""
     import asyncio
 
     from api.services import git_service, merge_rejections, page_join
@@ -259,29 +344,25 @@ async def tend(memory_path: Path, judge, *, today: date | None = None,
     memory_path = Path(memory_path)
     today = today or date.today()
     report = Report()
-    pages, flagged_pairs = same_name_doubts.flagged(memory_path)
-    if not pages and not flagged_pairs:
-        return report
     before0 = await asyncio.to_thread(git_service.snapshot_dirty_sync, memory_path)
-    held = same_name_doubts.pairs(memory_path)
-    rest: list[str] = []   # what the final commit takes besides the store
-    looks = 0
+    rest: list[str] = []   # what the next store commit takes besides the store
     try:
+        took_back = await asyncio.to_thread(reconcile, memory_path)
+        report.apart += took_back["apart"]
+        if took_back["one"]:
+            report.skipped["split_taken_back"] = took_back["one"]
+        pages, flagged_pairs = same_name_doubts.flagged(memory_path)
+        held = same_name_doubts.pairs(memory_path)
+        looks = 0
         for ref in sorted(pages):
             if looks >= MAX_LOOKS:
                 report.skip("max_looks")
                 break
             # The person's word stands: a page they folded another into is one person on their say, and a split of
-            # Sleep's they took back is their "one person" too. Neither is split by Sleep.
+            # Sleep's they took back is their "one person" too (`reconcile`). Neither is split by Sleep.
             if ref in same_name_doubts.one(memory_path):
                 same_name_doubts.clear_flags(memory_path, pages=[ref])
                 report.skip("joined_by_the_person")
-                continue
-            made = same_name_doubts.splits(memory_path).get(ref)
-            if made and await asyncio.to_thread(page_join.undone, memory_path, made):
-                same_name_doubts.mark_one(memory_path, ref)
-                same_name_doubts.clear_flags(memory_path, pages=[ref])
-                report.skip("split_taken_back")
                 continue
             page = page_of(memory_path, ref) if _page_exists(memory_path, ref) else None
             if page is None or len(page.items) < 2:
@@ -308,7 +389,7 @@ async def tend(memory_path: Path, judge, *, today: date | None = None,
             if looks >= MAX_LOOKS:
                 report.skip("max_looks")
                 break
-            if (a, b) not in held:
+            if (a, b) not in held or (a, b) not in same_name_doubts.pairs(memory_path):
                 same_name_doubts.clear_flags(memory_path, pairs_=[(a, b)])
                 continue
             if merge_rejections.is_rejected(memory_path, a, b) or merge_rejections.is_split(memory_path, a, b):
@@ -319,28 +400,68 @@ async def tend(memory_path: Path, judge, *, today: date | None = None,
                 same_name_doubts.clear_flags(memory_path, pairs_=[(a, b)])
                 report.skip("a_line")   # a person on a line has nothing resting on it: no question yet
                 continue
-            if "asked" in held[(a, b)]:
-                same_name_doubts.clear_flags(memory_path, pairs_=[(a, b)])   # the person was asked: never twice
-                report.skip("already_asked")
-                continue
             looks += 1
             report.looked += 1
             pa, pb = page_of(memory_path, a), page_of(memory_path, b)
             name = page_conversations(memory_path, a)[0]
             verdict = await snr.settle_pair(name, pa or snr.Page(a, ()), pb or snr.Page(b, ()), judge)
+            now = same_name_doubts.pairs(memory_path)
+            busy = sum(1 for x, y in now if a in (x, y)) > 1 or sum(1 for x, y in now if b in (x, y)) > 1
+            if verdict.verdict == "same" and not busy:
+                # Owner 2026-11-23 (ruling 74a): Cicada joins them itself. A join is the costly thing to get wrong, so
+                # the record is read a second time and both reads must find a located link.
+                again = await snr.settle_pair(name, pa or snr.Page(a, ()), pb or snr.Page(b, ()), judge)
+                if again.verdict == "same":
+                    from api.services.id_utils import sanitize_id
+
+                    loser, winner = _winner(memory_path, a, b, sanitize_id(name))
+                    reason = f"The same person: “{verdict.here}” and “{verdict.there}” state one fact."
+                    # The join's commit holds the join alone, so the person's undo reverses exactly that: the doubt
+                    # leaves the store first, in the store's own commit, and what Sleep remembers of the join after.
+                    meta = now.get((a, b), {})
+                    same_name_doubts.clear_flags(memory_path, pairs_=[(a, b)])
+                    same_name_doubts.remove_pairs(memory_path, [(a, b)])
+                    await _commit_store(memory_path, rest, before0)
+                    try:
+                        out = await _in_lock(memory_path, lambda before, loser=loser, winner=winner, reason=reason: (
+                            page_join.merge(memory_path, loser, winner, author=_author(), trigger=TRIGGER, reason=reason,
+                                            before=before, by_sleep=True)))
+                    except Exception as exc:  # noqa: BLE001 - the doubt goes back where it was
+                        same_name_doubts.add_pairs(memory_path, [(a, b)], today=meta.get("since"))
+                        if meta.get("asked"):
+                            same_name_doubts.mark_asked(memory_path, a, b, today=meta["asked"])
+                        logger.info(f"same-name join not applied: {type(exc).__name__}")
+                        report.skip("join_refused")
+                        continue
+                    same_name_doubts.note_join(memory_path, a, b, out.get("commit"))
+                    report.merged += 1
+                    report.paths += out["paths"]
+                    continue
             if verdict.verdict == "apart":
                 same_name_doubts.clear_flags(memory_path, pairs_=[(a, b)])
                 merge_rejections.add_split(memory_path, a, b)
                 same_name_doubts.remove_pairs(memory_path, [(a, b)])
                 report.apart += 1
-                rest.append(merge_rejections.FILE)
-            elif not verdict.answered:
+                continue
+            if not verdict.answered:
                 # Nothing was read (a side with no conversation of its own on record), or the answer could not be stood
                 # on: that is not "the record does not say", so nothing is asked and the pair's one question is kept.
                 # The doubt stays; the next conversation that names the name flags it again.
                 same_name_doubts.clear_flags(memory_path, pairs_=[(a, b)])
                 report.skip("not_read")
-            elif report.asked < max_questions and open_questions(memory_path) < MAX_OPEN:
+                continue
+            if verdict.verdict != "same" and verdict.leaning == "two":
+                # Owner 2026-11-23: the fewer the asks the better. They read like two people and nothing says they
+                # cannot be one: they wait apart, each with their own facts, and nobody is asked. A later conversation
+                # that links them joins them; one that sets them against each other keeps them apart for good.
+                same_name_doubts.clear_flags(memory_path, pairs_=[(a, b)])
+                report.skip("reads_like_two")
+                continue
+            if "asked" in now.get((a, b), {}):
+                same_name_doubts.clear_flags(memory_path, pairs_=[(a, b)])   # the person was asked: never twice
+                report.skip("already_asked")
+                continue
+            if report.asked < max_questions and open_questions(memory_path) < MAX_OPEN:
                 same_name_doubts.clear_flags(memory_path, pairs_=[(a, b)])
                 link = (verdict.here, verdict.there) if verdict.verdict == "same" else None
                 made = ask_pair(memory_path, a, b, today=today, link=link)
@@ -354,22 +475,7 @@ async def tend(memory_path: Path, judge, *, today: date | None = None,
                 report.skip("question_budget")   # stays flagged: looked at again next drain, never lost
     finally:
         # The store changes whenever a flag is taken, looked at or not: it is never left uncommitted in the bank.
-        try:
-            dirty = bool(await asyncio.to_thread(git_service.dirty_paths_sync, memory_path, same_name_doubts.FILE))
-        except Exception:  # noqa: BLE001 - an unreadable tree: commit what this step knows it wrote
-            dirty = True
-        if rest or dirty:
-            paths = list(dict.fromkeys(rest + [same_name_doubts.FILE]))
-            lines = [f"{p}: updated (trigger: {TRIGGER})" for p in paths]
-
-            def commit(_before):
-                return page_join._commit(memory_path, "Same-name review", lines, paths, authors=_author(), session=None,
-                                         before=before0)
-
-            try:
-                await _in_lock(memory_path, commit)
-            except Exception as exc:  # noqa: BLE001 - the flags and the store are left for the next run
-                logger.warning(f"same-name review commit failed: {type(exc).__name__}")
+        await _commit_store(memory_path, rest, before0)
     report.paths = list(dict.fromkeys(report.paths + rest))
     return report
 
@@ -413,6 +519,16 @@ async def run_tail(memory_path: Path, settings, *, user_triggered: bool, judge=N
     memory_path = Path(memory_path)
     pages, pairs = same_name_doubts.flagged(memory_path)
     if not pages and not pairs:
+        if same_name_doubts.splits(memory_path) or same_name_doubts.joins(memory_path):
+            # Nothing to read, but Sleep has joins of its own on record: has the person taken one back? No engine.
+            async def unused(_system: str, _prompt: str) -> object:
+                raise RuntimeError("nothing is flagged")
+
+            try:
+                return await tend(memory_path, unused, today=today)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"same-name review stopped: {type(exc).__name__}")
+                report.skip("error")
         return report
     if judge is None:
         from api.services import engine_select, entity_resolver, web_lookup

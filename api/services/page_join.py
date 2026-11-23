@@ -132,8 +132,9 @@ def _manifest(paths: list[str], trigger: str, *, created: set[str] = frozenset()
 
 def merge(memory_path, loser_id: str, winner_id: str, *, author: str | list[str] = "user",
           trigger: str = TRIGGER_APP, reason: str | None = None, session: str | None = None, before=None,
-          extra_paths=(), extra_lines=()) -> dict:
-    """Fold ``loser_id`` into ``winner_id`` and commit it alone. ``{winner, loser, commit, paths, ...}``."""
+          extra_paths=(), extra_lines=(), by_sleep: bool = False) -> dict:
+    """Fold ``loser_id`` into ``winner_id`` and commit it alone. ``{winner, loser, commit, paths, ...}``.
+    ``by_sleep``: Sleep's own join, with no word of the person's behind it (`entity_merge.merge_entities`)."""
     from api.services import entity_merge, merge_rejections
     from api.services.claims import MalformedClaimsBlockError
     from api.services.id_utils import sanitize_id
@@ -149,7 +150,7 @@ def merge(memory_path, loser_id: str, winner_id: str, *, author: str | list[str]
         return {pid, sanitize_id(str(fm.get("name") or pid))}
 
     try:
-        result = entity_merge.merge_entities(memory_path, loser_id=lp.stem, winner_id=wp.stem)
+        result = entity_merge.merge_entities(memory_path, loser_id=lp.stem, winner_id=wp.stem, by_sleep=by_sleep)
     except MalformedClaimsBlockError as exc:
         raise JoinError("A page's beliefs could not be read; nothing was merged.", 409) from exc
     # The person said they are one: any "different" answer or split between them is cleared.
@@ -658,7 +659,7 @@ def undo(memory_path, sha: str, *, author: str | list[str] = "user", trigger: st
     a sentence and nothing written, when anything since changed the same place (409), when it is not a join (404) or
     was already taken back (409). ``{kind, commit, paths, restored, removed}`` — ``removed``: pages the undo took away
     (a split's new page), so the app leaves one it was showing."""
-    from api.services import inbox_tend
+    from api.services import inbox_tend, same_name_doubts
 
     memory_path = Path(memory_path)
     if not (memory_path / ".git").exists():
@@ -686,6 +687,13 @@ def undo(memory_path, sha: str, *, author: str | list[str] = "user", trigger: st
             continue
         if c == a:
             writes.append((rel, b))
+            continue
+        if rel == same_name_doubts.FILE:
+            # Taken back by meaning (`same_name_doubts.reverse`): Sleep rewrites this small file on most drains, and a
+            # line-based reverse would refuse the person's undo of their own merge because of it.
+            data = same_name_doubts.reverse(c, a, b)
+            if data != c:
+                writes.append((rel, data))
             continue
         if rel in inbox_tend._LIST_FILES and None not in (c, a):
             merged = inbox_tend._reverse_list(rel, c, a, b or b"")

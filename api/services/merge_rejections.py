@@ -74,7 +74,7 @@ def kept_apart(memory_path: Path) -> set[tuple[str, str]]:
     from api.services import same_name_doubts
 
     data = _read(memory_path)
-    return _pairs(data, "rejected") | _pairs(data, SPLIT_KEY) | set(same_name_doubts.pairs(memory_path))
+    return _pairs(data, "rejected") | _pairs(data, SPLIT_KEY) | same_name_doubts.kept(memory_path)
 
 
 def is_rejected(memory_path: Path, a: str, b: str) -> bool:
