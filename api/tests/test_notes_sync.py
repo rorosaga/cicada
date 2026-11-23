@@ -556,7 +556,9 @@ def test_sleep_rereads_only_what_an_edit_of_a_note_changed(tmp_path, monkeypatch
     filler = "\n".join(f"Filler line {i} about nothing in particular." for i in range(25))
     v1 = f"{filler}\nalpha-project uses tokio for async work."
     v2 = f"The alpha-project design review meeting is on Thursday.\n{v1}"
-    run(notes_sync.sync_notes(memory, dump=_record("n-alpha", "Alpha notes", v1, "c", "d1", "Work")))
+    # Dated as the app sends it (the ISO date and offset), so the edit also moves the note's date: the real path.
+    run(notes_sync.sync_notes(memory, dump=FIELD_SEP.join(
+        ["n-alpha", "Alpha notes", v1, "c", "d1", "Work", "2026-03-03T11:30:00", "0"])))
     commit = ["-c", "user.email=t@example.invalid", "-c", "user.name=t"]
     _git(memory, "init", "-q")
     _git(memory, *commit, "add", "-A")
@@ -569,8 +571,11 @@ def test_sleep_rereads_only_what_an_edit_of_a_note_changed(tmp_path, monkeypatch
     _git(memory, *commit, "commit", "-qm", "Sleep cycle")
     assert any("tokio" in p for p in first)
 
-    run(notes_sync.sync_notes(memory, dump=_record("n-alpha", "Alpha notes", v2, "c", "d2", "Work")))
+    run(notes_sync.sync_notes(memory, dump=FIELD_SEP.join(
+        ["n-alpha", "Alpha notes", v2, "c", "d2", "Work", "2026-03-05T09:00:00", "0"])))
     assert [p.name for p in (memory / "episodes").glob("ep_*.md")] == [name]   # still one conversation
+    edited = markdown_parser.parse(memory / "episodes" / name).frontmatter
+    assert edited["timestamp"] == "2026-03-05T09:00:00+00:00" and edited["processed"] is False
     second: list[str] = []
     _run(memory, monkeypatch, second)
     assert len(second) == 1 and entity_extractor.episode_revision.REVISION_NOTE in second[0]
