@@ -55,7 +55,7 @@ def _run(memory, monkeypatch, answer, prompts=None):
     _patch(monkeypatch, [])
 
     async def extract_with_fake_engine(episodes, settings, **kw):
-        return await real_extract(episodes, Settings(litellm_model="fake-engine", memory_path=memory), **kw)
+        return await real_extract(episodes, Settings(litellm_model="fake-engine", CICADA_MEMORY_PATH=memory), **kw)
 
     monkeypatch.setattr(entity_extractor.litellm, "acompletion", fake_acompletion)
     monkeypatch.setattr("api.services.entity_extractor.extract", extract_with_fake_engine)
@@ -350,3 +350,82 @@ def test_a_date_the_changed_lines_do_not_say_moves_nothing(tmp_path, monkeypatch
 
     _run(memory, monkeypatch, answer)
     assert [c.valid_from for c in _moving(memory) if c.valid_to is None] == ["2026-12-05"]
+
+
+# --------------------------------------------------------------------------- a revision names the person the first read did
+
+EP_SIS = "ep_2026-11-09_001"
+SIS_V1 = ("user: Mi hermana Lucía se muda a Valencia para empezar un máster.\nassistant: Entiendo.\n"
+          "user: El 5 de diciembre, cuando termine su contrato, se va.")
+SIS_V2 = SIS_V1.replace("El 5 de diciembre", "El 12 de diciembre")
+
+
+def _sister_answer(chunk: str, with_value: bool = True) -> dict:
+    """The first read names her "Lucía"; the revision's re-read adds the model's trailing note, "Lucía (sister)".
+    A value about the person is what the benchmark also held; one more line, it makes her page in this harness."""
+    name = "Lucía (sister)" if "[Revision:" in chunk else "Lucía"
+    ents, rels, vals = [], [], []
+    if "Lucía" in chunk:
+        ents.append({"name": name, "type": "person", "confidence": 0.6, "summary": "A person."})
+    if "se muda a Valencia" in chunk:
+        ents.append({"name": "Valencia", "type": "location", "confidence": 0.9, "summary": "A city."})
+        rel = {"source": name, "target": "Valencia", "label": "is moving to",
+               "evidence_quote": "Lucía se muda a Valencia"}
+        if m := re.search(r"El (\d+) de diciembre", chunk):
+            rel["starts"] = f"2026-12-{int(m[1]):02d}"
+        rels.append(rel)
+    if with_value and (m := re.search(r"El (\d+) de diciembre", chunk)):
+        vals.append({"entity": name, "attribute": "move date", "value": f"{m[1]} December", "evidence_quote": m[0]})
+    return {"entities": ents, "relationships": rels, "values": vals}
+
+
+def _sister_moves(memory):
+    return [c for c in _claims_of(memory, "lucía") if c.predicate == "is-moving-to"]
+
+
+def _assert_sister_redated(memory):
+    claims = _sister_moves(memory)
+    open_ = [c for c in claims if c.valid_to is None]
+    assert [c.valid_from for c in open_] == ["2026-12-12"]
+    old = [c for c in claims if c.valid_from == "2026-12-05"]
+    assert len(old) == 1 and old[0].valid_to is not None and old[0].superseded_by == open_[0].id
+    assert not [e for e in pending_store.load(memory) if "sister" in e.name.casefold()]
+    assert not [p for p in (memory / "entities").glob("*.md") if "sister" in p.stem]
+
+
+def _sister_bank(tmp_path, *, page: bool):
+    memory = _bank(tmp_path)
+    pages = [("valencia", "Valencia", "location", 0.5)] + ([("lucía", "Lucía", "person", 0.9)] if page else [])
+    for slug, name, kind, conf in pages:
+        markdown_parser.write(memory / "entities" / f"{slug}.md",
+                              {"name": name, "type": kind, "status": "active", "confidence": conf},
+                              "## Summary\nSynthetic.\n")
+    _write(memory, EP_SIS, SIS_V1)
+    _git(memory, "init", "-q")
+    _commit(memory, "capture")
+    return memory
+
+
+def test_a_revision_naming_the_person_with_a_note_lands_on_the_page_the_first_read_made(tmp_path, monkeypatch):
+    memory = _sister_bank(tmp_path, page=True)
+    _run(memory, monkeypatch, _sister_answer)
+    assert [c.valid_from for c in _sister_moves(memory)] == ["2026-12-05"]
+    _commit(memory, "Sleep cycle")
+    _revise(memory, EP_SIS, SIS_V1, SIS_V2)
+    _run(memory, monkeypatch, _sister_answer)
+    _assert_sister_redated(memory)
+
+
+def test_a_revision_naming_a_held_person_with_a_note_replaces_the_held_claim(tmp_path, monkeypatch):
+    memory = _sister_bank(tmp_path, page=False)
+    _run(memory, monkeypatch, lambda chunk: _sister_answer(chunk, with_value=False))
+    held = [(e.name, c["valid_from"]) for e in pending_store.load(memory) for c in e.held_claims
+            if c.get("predicate") == "is-moving-to"]
+    assert held == [("Lucía", "2026-12-05")]                                # held: no page yet
+    _commit(memory, "Sleep cycle")
+    _revise(memory, EP_SIS, SIS_V1, SIS_V2)
+    _run(memory, monkeypatch, lambda chunk: _sister_answer(chunk, with_value=False))
+    held = [(e.name, c["valid_from"]) for e in pending_store.load(memory) for c in e.held_claims
+            if c.get("predicate") == "is-moving-to"]
+    assert held == [("Lucía", "2026-12-12")]
+    assert not [e for e in pending_store.load(memory) if "sister" in e.name.casefold()]

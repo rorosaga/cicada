@@ -384,6 +384,75 @@ def _changed_text(rev: Revision) -> str:
     return "\n".join(rev.body[lo:hi] for lo, hi in rev.changed)
 
 
+def _bare_key(name) -> str:
+    """A name's bare form (`entity_resolver._bare`: no trailing note), case, accents and spacing folded."""
+    from api.services import entity_resolver
+
+    return " ".join(_fold(entity_resolver._bare(str(name or ""))).split())  # noqa: SLF001 - the one definition of "bare"
+
+
+def first_read_names(memory_path, episode_id: str) -> dict[str, set[str]]:
+    """Bare form -> the own names of the entities the FIRST READ of ``episode_id`` produced: a page whose
+    ``source_episodes`` has it, a pending line whose ``heard_in`` (or own episode) has it. A name or an alias of either
+    counts; the value is the entity's own name (a page's title, a line's name)."""
+    from api.services import bank_index, pending_store
+
+    own: dict[str, set[str]] = {}
+
+    def add(title, aliases) -> None:
+        title = str(title or "").strip()
+        if not title:
+            return
+        for name in (title, *(a for a in aliases or [] if isinstance(a, str))):
+            if key := _bare_key(name):
+                own.setdefault(key, set()).add(title)
+
+    for entry in bank_index.files(memory_path, "entities"):
+        fm = entry.frontmatter or {}
+        if episode_id in (fm.get("source_episodes") or []):
+            add(fm.get("name"), fm.get("aliases"))
+    for line in pending_store.load(memory_path):
+        if episode_id in line.episodes():
+            add(line.name, line.aliases)
+    return own
+
+
+def canonical_names(memory_path, rev: Revision, entities: list, relationships: list, values: list) -> int:
+    """A revision is the same conversation (G104 slice 3): a name its re-read gave with only the model's trailing note
+    changed ("Lucía (sister)" for "Lucía") is the entity the first read made. Before resolution, an entity name, and
+    every relationship endpoint and value entity naming it, whose bare form (:func:`_bare_key`) is that of exactly ONE
+    entity the first read produced is rewritten to that entity's own name; none, or several, is left alone (never a
+    guess). Deterministic, no model; touches only the lists given, in place. Returns how many names were rewritten."""
+    if not memory_path:
+        return 0
+    try:
+        own = first_read_names(Path(memory_path), rev.episode_id)
+    except Exception as exc:  # noqa: BLE001 - a miss is a re-read under its own names, as before
+        logger.info(f"revision {rev.episode_id}: first-read names unavailable ({type(exc).__name__})")
+        return 0
+    if not own:
+        return 0
+
+    def canon(name):
+        if not isinstance(name, str) or not name.strip():
+            return None
+        titles = own.get(_bare_key(name))
+        if not titles or len(titles) != 1:
+            return None
+        (title,) = titles
+        return title if title != name else None
+
+    changed = 0
+    for item, keys in [(e, ("name",)) for e in entities if isinstance(e, dict)] + \
+            [(r, ("source", "target")) for r in relationships if isinstance(r, dict)] + \
+            [(v, ("entity",)) for v in values if isinstance(v, dict)]:
+        for key in keys:
+            if (title := canon(item.get(key))) is not None:
+                item[key] = title
+                changed += 1
+    return changed
+
+
 def keep_changed(rev: Revision, entities: list, relationships: list, values: list) -> tuple[list, list, list, int]:
     """What the revision says that the read version did not: a relationship or value with a span only in unchanged
     text is the first read's; one with no span (an unlocatable quote) is kept — provenance never blocks memory. A

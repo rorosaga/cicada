@@ -341,3 +341,64 @@ def test_keep_changed_keeps_a_dated_relationship_only_when_the_changed_lines_say
     assert kept == []
     _e, kept, _v, _l = er.keep_changed(rev, ents, [rel()], [])
     assert kept == []                              # no date: the first read's, as before
+
+
+# --------------------------------------------------------------------------- a re-read's names are the first read's (G104 slice 3)
+
+
+def _first_read_bank(tmp_path, *pages, held=()):
+    from api.services import pending_store
+
+    memory = tmp_path / "memory"
+    (memory / "entities").mkdir(parents=True)
+    for slug, name, aliases, eps in pages:
+        markdown_parser.write(memory / "entities" / f"{slug}.md",
+                              {"name": name, "type": "person", "aliases": aliases, "source_episodes": eps}, "## Summary\nx\n")
+    for name in held:
+        pending_store.upsert(memory, pending_store.PendingEntity(
+            name=name, type="person", description="", source_episode=EP, confidence=0.5, tags=[], history_entries=[]))
+    return memory
+
+
+def _reread():
+    ents = [{"name": "Lucía (sister)", "aliases": []}, {"name": "Valencia"}]
+    rels = [{"source": "lucia  (sister)", "target": "Valencia", "label": "is moving to"}]
+    vals = [{"entity": "LUCÍA", "attribute": "move date", "value": "12 December"}]
+    return ents, rels, vals
+
+
+def test_a_name_with_only_a_note_added_is_the_entity_the_first_read_of_the_conversation_made(tmp_path):
+    memory = _first_read_bank(tmp_path, ("lucía", "Lucía", [], [EP]), ("valencia", "Valencia", [], [EP]))
+    ents, rels, vals = _reread()
+    rev = _rev("user: a.", "user: b.")
+    assert er.canonical_names(memory, rev, ents, rels, vals) == 3
+    assert [e["name"] for e in ents] == ["Lucía", "Valencia"]
+    assert (rels[0]["source"], vals[0]["entity"]) == ("Lucía", "Lucía")          # accents and case folded; the page's own name
+
+
+def test_a_held_name_without_a_page_counts_as_the_first_reads(tmp_path):
+    memory = _first_read_bank(tmp_path, held=["Lucía"])
+    ents, rels, vals = _reread()
+    er.canonical_names(memory, _rev("user: a.", "user: b."), ents, rels, vals)
+    assert ents[0]["name"] == "Lucía"
+
+
+def test_an_alias_of_a_first_read_page_names_it_and_the_rewrite_is_its_own_name(tmp_path):
+    memory = _first_read_bank(tmp_path, ("lucia-perez", "Lucía Pérez", ["Lucía"], [EP]))
+    ents, rels, vals = _reread()
+    er.canonical_names(memory, _rev("user: a.", "user: b."), ents, rels, vals)
+    assert ents[0]["name"] == "Lucía Pérez"
+
+
+def test_two_first_read_entities_sharing_a_bare_form_are_never_guessed_between(tmp_path):
+    memory = _first_read_bank(tmp_path, ("lucia-a", "Lucía", [], [EP]), ("lucia-b", "Lucia (cousin)", [], [EP]))
+    ents, rels, vals = _reread()
+    assert er.canonical_names(memory, _rev("user: a.", "user: b."), ents, rels, vals) == 0
+    assert ents[0]["name"] == "Lucía (sister)" and vals[0]["entity"] == "LUCÍA"
+
+
+def test_a_page_another_conversation_made_is_not_the_first_reads(tmp_path):
+    memory = _first_read_bank(tmp_path, ("lucía", "Lucía", [], ["ep_2026-11-04_001"]))
+    ents, rels, vals = _reread()
+    assert er.canonical_names(memory, _rev("user: a.", "user: b."), ents, rels, vals) == 0
+    assert ents[0]["name"] == "Lucía (sister)"

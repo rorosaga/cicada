@@ -1169,7 +1169,10 @@ async def extract(
                                 "the cited words state no such role")
                 if revision is not None:
                     # What the unchanged lines say is the first read's: never written twice, never a second
-                    # chance at a page for a name only they name.
+                    # chance at a page for a name only they name. First, a name the re-read gave with only a
+                    # note added is the entity this conversation's first read made (G104 slice 3).
+                    episode_revision.canonical_names(getattr(settings, "memory_path", None), revision,
+                                                     all_entities, all_relationships, all_values)
                     all_entities, all_relationships, all_values, left = episode_revision.keep_changed(
                         revision, all_entities, all_relationships, all_values)
                     if left:
