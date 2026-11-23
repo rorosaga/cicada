@@ -166,10 +166,14 @@ struct StudyListCard: View {
     /// lifts its spine, and a spine under the pointer tints its row. `nil`
     /// outside the Sleep page, where there is no pile to link to.
     var room: RoomModel? = nil
+    /// The sources open when the list first appears (a review render; the page opens none).
+    var initiallyOpen: Set<String> = []
 
     /// Which origins are disclosed. Local UI state, not persisted — a fresh
     /// visit to the page starts every row collapsed.
     @State private var expandedOrigins: Set<String> = []
+    /// The source card under the pointer: its ring and fill lift (hover is a fill, never a lift — R-HS15).
+    @State private var hoveredOrigin: String?
 
     /// PR #19 review (moved verbatim from `SleepQueueCard`, R11): a missing
     /// `store.status` is not one state, it's two — a fetch still in flight
@@ -192,12 +196,14 @@ struct StudyListCard: View {
     }
 
     /// The Waiting tab's rows (the Details section "What's waiting" until the Sleep redesign, 2026-10-16): the tab
-    /// names the list, so the section draws no label of its own. R-HS15: rows, no card (DR-37); the error line is a
+    /// names the list, so the section draws no label of its own. A card per source (owner 2026-11-23, DESIGN_RULES §9,
+    /// amends R-HS15's rows); the error line is a
     /// quiet meta line, not `danger` (DR-7 keeps `danger` for destructive actions). The video queue's row retired with
     /// Details: the Videos tab is that queue's one place (DR-38).
     var body: some View {
         SleepDetailsSection(title: "") {
             content
+                .onAppear { if expandedOrigins.isEmpty { expandedOrigins = initiallyOpen } }
             // G179 — the ticked Messages conversations Sleep has not read, as stacked pictures: on the Messages source
             // row when there is one (owner, 2026-10-16: one row, never a second line), else on a row of their own.
             MessagesWaitingRow(inline: rows.contains { $0.origin == MessagesWatcher.channel })
@@ -248,28 +254,39 @@ struct StudyListCard: View {
                     .padding(.horizontal, CicadaTheme.scaled(10))
                     .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
             } else {
-                LazyVStack(alignment: .leading, spacing: 0) {
+                // Owner 2026-11-23 — a big card per source, and inside it a card per episode (`EpisodeCard`).
+                LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                     columnHeads
-                    ForEach(rows) { row in
-                        rowView(row)
-                        if expandedOrigins.contains(row.origin) {
-                            LazyVStack(alignment: .leading, spacing: 0) {
-                                ForEach(episodesForOrigin(row.origin, in: episodes)) { ep in
-                                    EpisodeRow(item: ep)
-                                }
-                            }
-                            // The mock's 45 pt indent, less the row's own 10.
-                            .padding(.leading, CicadaTheme.scaled(35))
-                        }
-                    }
+                    ForEach(rows) { row in sourceCard(row) }
                 }
             }
         }
     }
 
+    /// One source as a card: its row on top, and when open its episodes as cards inside it, newest first.
+    private func sourceCard(_ row: StudyRow) -> some View {
+        let open = expandedOrigins.contains(row.origin)
+        return VStack(alignment: .leading, spacing: 0) {
+            rowView(row)
+            if open {
+                LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                    ForEach(episodesForOrigin(row.origin, in: episodes)) { ep in
+                        EpisodeCard(item: ep)
+                    }
+                }
+                .padding(.horizontal, CicadaTheme.spacingSM)
+                .padding(.bottom, CicadaTheme.spacingSM)
+                .transition(.opacity)
+            }
+        }
+        .sourceCardChrome(lit: hoveredOrigin == row.origin || room?.hoveredOrigin == row.origin)
+    }
+
     /// The two right-hand columns' widths, one place: a row, the heads and the list's last row (`SleepWaitingList`) share them.
     static let ageColumn: CGFloat = 76
     static let countColumn: CGFloat = 56
+    /// A source card's inner edge: its row, the column heads above the cards, and the list's last card share it.
+    static var cardInset: CGFloat { CicadaTheme.spacingMD }
 
     /// The right-hand block of a row: the age and the count are two fixed columns, so a name is never run into its age
     /// and the counts line up down the list (the head says "Oldest", so a row says "4d", never "just now old").
@@ -296,7 +313,7 @@ struct StudyListCard: View {
         }
         .font(CicadaTheme.metaFont)
         .foregroundStyle(CicadaTheme.textSecondary)
-        .padding(.horizontal, CicadaTheme.scaled(10))
+        .padding(.horizontal, Self.cardInset)
         .padding(.bottom, CicadaTheme.spacingXS)
         .accessibilityHidden(true)
     }
@@ -345,14 +362,15 @@ struct StudyListCard: View {
 
                 rightBlock(row)
             }
-            .padding(.horizontal, CicadaTheme.scaled(10))
-            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine + 12))
+            .padding(.horizontal, Self.cardInset)
+            .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine + 16))
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
-        // The stronger of the two fills: `bgHover` was barely visible on this ground.
-        .rowHoverFill(hovering: false, selected: room?.hoveredOrigin == row.origin)
-        .onHover { inside in room?.hover(origin: row.origin, inside: inside) }
+        .onHover { inside in
+            if inside { hoveredOrigin = row.origin } else if hoveredOrigin == row.origin { hoveredOrigin = nil }
+            room?.hover(origin: row.origin, inside: inside)
+        }
         .help(chatsLine(row) ?? "")
         .accessibilityLabel([Self.rowAccessibilityLabel(row), chatsLine(row)].compactMap { $0 }.joined(separator: ", "))
     }
@@ -432,5 +450,18 @@ struct StudyListCard: View {
         .frame(height: 3)
         .padding(.bottom, -1)
         .accessibilityHidden(true)
+    }
+}
+
+/// A source card on the Sleep page (owner 2026-11-23): `surface` in a `radiusLarge` shape with a ring (DR-9, DR-12),
+/// one step below the episode cards it holds (`bgOption`), so a card inside a card still reads as two layers. `lit`
+/// (the pointer on it, or its spine's in the room) lifts the fill and the ring — never a shadow.
+extension View {
+    func sourceCardChrome(lit: Bool) -> some View {
+        let shape = CicadaTheme.shape(CicadaTheme.radiusLarge)
+        return self
+            .background(shape.fill(lit ? CicadaTheme.bgHover : CicadaTheme.surface))
+            .overlay(shape.strokeBorder(CicadaTheme.ring(lit ? .strong : .resting), lineWidth: 1))
+            .clipShape(shape)
     }
 }

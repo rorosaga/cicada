@@ -52,7 +52,7 @@ struct SleepWaitingList: View {
                 .id(DetailsSection.waiting.anchorID)
                 .saturation(liveness.saturation)
             if let kept = queue?.kept, kept > 0 {
-                // ROR-118 round 5 - the list's own last row, in the table's columns: the chevron's slot, the mark's tile,
+                // ROR-118 round 5 - the list's own last card (owner 2026-11-23), in the table's columns: the chevron's slot, the mark's tile,
                 // the words in the name column and the number in the Items column, so it is a row, not a stranded line.
                 HStack(spacing: CicadaTheme.spacingSM) {
                     Color.clear.frame(width: CicadaTheme.iconPoints(.inline), height: 1)
@@ -68,9 +68,10 @@ struct SleepWaitingList: View {
                         .monospacedDigit()
                         .frame(minWidth: CicadaTheme.scaled(StudyListCard.countColumn), alignment: .trailing)
                 }
-                .padding(.horizontal, CicadaTheme.scaled(10))
-                .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine + 12))
-                .padding(.top, -CicadaTheme.spacingCard + CicadaTheme.spacingXS)
+                .padding(.horizontal, StudyListCard.cardInset)
+                .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine + 16))
+                .sourceCardChrome(lit: false)
+                .padding(.top, -CicadaTheme.spacingCard + CicadaTheme.spacingSM)
                 .help(Copy.keptForLookup(kept) ?? "")
                 .accessibilityElement(children: .combine)
             }

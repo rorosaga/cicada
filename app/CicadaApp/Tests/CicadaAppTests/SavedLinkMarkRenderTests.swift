@@ -52,7 +52,7 @@ final class SavedLinkMarkRenderTests: XCTestCase {
                     }
                     SectionLabel("Waiting").padding(.top, CicadaTheme.spacingLG)
                     VStack(alignment: .leading, spacing: 0) {
-                        ForEach(waiting) { EpisodeRow(item: $0) }
+                        ForEach(waiting) { EpisodeCard(item: $0) }
                     }
                 }
                 .padding(24)
