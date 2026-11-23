@@ -67,7 +67,7 @@ struct ReaderColumn: View {
                 page: loadedDoc.flatMap { $0.isPage ? $0 : nil },
                 site: loadedDoc.flatMap(ReaderHeader.siteMark),
                 markOrigin: ReaderHeader.markOrigin(harness: loadedDoc?.harness ?? router.current?.knownHarness,
-                                                    origin: loadedDoc?.origin),
+                                                    origin: loadedDoc?.origin, recorder: loadedDoc?.meeting?.recorder),
                 episode: loadedDoc?.episode ?? router.current?.episode ?? "",
                 title: title,
                 meta: meta,

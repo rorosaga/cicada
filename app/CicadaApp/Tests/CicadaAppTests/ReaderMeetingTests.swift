@@ -140,4 +140,10 @@ final class ReaderMeetingTests: XCTestCase {
         XCTAssertEqual(OriginIconography.symbol(for: "hex"), OriginIconography.symbol(for: "folder"),
                        "with Hex not installed, the folder's own glyph")
     }
+
+    func testTheReaderTitleWearsTheRecordersMarkNotTheFolders() {
+        XCTAssertEqual(ReaderHeader.markOrigin(harness: nil, origin: "folder", recorder: "hex"), "hex")
+        XCTAssertEqual(ReaderHeader.markOrigin(harness: nil, origin: "folder"), "folder")
+        XCTAssertEqual(ReaderHeader.markOrigin(harness: "claude-code", origin: "folder", recorder: "hex"), "claude-code")
+    }
 }
