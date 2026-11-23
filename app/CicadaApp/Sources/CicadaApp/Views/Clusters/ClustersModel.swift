@@ -121,12 +121,12 @@ enum ClustersModel {
 
     /// F-11 — a tile's one line in words: the page's Summary, else the graph's preview. Never tags, a percentage or a
     /// confidence (the owner: "no tags, no percentages").
-    static func line(_ e: Entity) -> String? {
+    static func line(_ e: Entity, links: PageLinkIndex = .empty) -> String? {
         guard let text = EntityHeaderWords.summary(markdown: e.markdownContent, isStub: e.isStub) else {
             return nil
         }
-        let first = ExcerptText.clean(text).split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
-        let trimmed = first.trimmingCharacters(in: .whitespaces)
+        // The page-text door (2026-11-23): a link is the page's own name and a `**` is no word, before the line is cut.
+        let trimmed = PageLine.firstLine(text, links: links) ?? ""
         return trimmed.isEmpty || repeatsName(trimmed, of: e) ? nil : trimmed
     }
 
@@ -144,16 +144,16 @@ enum ClustersModel {
 
     /// A tile's line. A media page's generated "Saved <kind> — …" lead says what its slot and its kind chip already say
     /// (the origin's mark, the chip), so only what follows the dash is shown, and nothing if that is the title again.
-    static func tileLine(_ e: Entity) -> String? {
-        guard let text = line(e) else { return nil }
+    static func tileLine(_ e: Entity, links: PageLinkIndex = .empty) -> String? {
+        guard let text = line(e, links: links) else { return nil }
         guard e.type == .media, text.hasPrefix("Saved "), let dash = text.range(of: " — ") else { return text }
         let rest = String(text[dash.upperBound...]).trimmingCharacters(in: .whitespaces)
         return rest.isEmpty ? nil : rest
     }
 
     /// A row beside a card: the type only where types mix (find's matches), then the line.
-    static func detail(_ e: Entity, showsType: Bool) -> String? {
-        let parts = [showsType ? e.type.label : nil, line(e)].compactMap { $0 }
+    static func detail(_ e: Entity, showsType: Bool, links: PageLinkIndex = .empty) -> String? {
+        let parts = [showsType ? e.type.label : nil, line(e, links: links)].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 

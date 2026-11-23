@@ -307,6 +307,6 @@ final class FindPaletteModel {
         let rows = FindSelection.flat(sections)
         guard let selection, let position = rows.firstIndex(where: { $0.key == selection }),
               let row = results.row(for: selection) else { return nil }
-        return FindRowText.announcement(row, position: position + 1, of: rows.count)
+        return FindRowText.announcement(row, position: position + 1, of: rows.count, links: store.linkIndex)
     }
 }

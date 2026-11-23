@@ -323,7 +323,7 @@ struct ClusterShortCard: View {
                             .foregroundStyle(CicadaTheme.textPrimary)
                             .lineLimit(1)
                         QualifierTag(qualifier: entity.qualifier)   // G227
-                        if let line = ClustersModel.line(entity) {
+                        if let line = ClustersModel.line(entity, links: store.links) {
                             Text(line).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
                         }
                         Spacer(minLength: 0)
@@ -351,6 +351,7 @@ struct ClusterTile: View {
     let open: () -> Void
 
     @State private var hovering = false
+    @Environment(Store.self) private var store: Store?
 
     var body: some View {
         Button(action: open) {
@@ -374,7 +375,7 @@ struct ClusterTile: View {
                             .lineLimit(1)
                         QualifierTag(qualifier: entity.qualifier)   // G227
                     }
-                    if let line = ClustersModel.tileLine(entity) {
+                    if let line = ClustersModel.tileLine(entity, links: store.links) {
                         Text(line).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
                     }
                 }
@@ -475,6 +476,7 @@ struct ClusterFace: View {
     let entity: Entity
     let open: () -> Void
     @State private var hovering = false
+    @Environment(Store.self) private var store: Store?
 
     var body: some View {
         Button(action: open) {
@@ -494,7 +496,7 @@ struct ClusterFace: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
-        .help(ClustersModel.line(entity) ?? "")
+        .help(ClustersModel.line(entity, links: store.links) ?? "")
         .accessibilityLabel(Copy.Lists.entityRow(type: entity.type.label, name: entity.shownName, open: false))
         .accessibilityValue(entity.quiet ? Copy.Lists.quiet : "")
         .padding(.vertical, CicadaTheme.spacingSM)
@@ -528,6 +530,7 @@ struct ClusterLead: View {
     let entity: Entity
     let open: () -> Void
     @State private var hovering = false
+    @Environment(Store.self) private var store: Store?
 
     var body: some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingMD) {
@@ -540,7 +543,7 @@ struct ClusterLead: View {
                             .lineLimit(1)
                         QualifierTag(qualifier: entity.qualifier)   // G227
                     }
-                    if let line = ClustersModel.line(entity) {
+                    if let line = ClustersModel.line(entity, links: store.links) {
                         Text(line)
                             .font(CicadaTheme.metaFont)
                             .foregroundStyle(CicadaTheme.textSecondary)
@@ -680,7 +683,7 @@ struct ClusterNameRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)
-        .help(ClustersModel.line(entity) ?? "")
+        .help(ClustersModel.line(entity, links: store.links) ?? "")
         .accessibilityLabel(Copy.Lists.entityRow(type: entity.type.label, name: entity.shownName, open: false))
         .accessibilityValue(entity.quiet ? Copy.Lists.quiet : "")
         .padding(.horizontal, CicadaTheme.scaled(8))

@@ -214,7 +214,7 @@ struct GraphHoverCard: View {
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(2)
                 if let line = content.line {
-                    Text(line)
+                    PageLineText(line)
                         .font(CicadaTheme.metaFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .lineLimit(2)

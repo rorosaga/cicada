@@ -111,16 +111,17 @@ enum FindRowText {
         }
     }
 
-    static func accessibilityLabel(_ row: FindRow) -> String {
-        // DR-56 — VoiceOver hears the same clean words the row shows, never `user:` or `**`.
-        let quote = row.snippet.map { ExcerptText.stripMarkup($0, keepLines: false).text }
+    static func accessibilityLabel(_ row: FindRow, links: PageLinkIndex = .empty) -> String {
+        // DR-56 — VoiceOver hears the same clean words the row shows, never `user:`, `**` or a link's brackets.
+        let quote = row.snippet.map { PageLine.plain($0, links: links, excerpt: true) }
             .map { snippet in row.speaker.map { "\($0): \(snippet)" } ?? snippet }
-        return [kindLabel(row), row.title, row.qualifier, row.detail, row.history, quote]
+        return [kindLabel(row), PageLine.plain(row.title, links: links), row.qualifier,
+                row.detail.map { PageLine.plain($0, links: links) }, row.history, quote]
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
-    static func announcement(_ row: FindRow, position: Int, of total: Int) -> String {
-        "\(kindLabel(row)), \(row.title), \(position) of \(total)"
+    static func announcement(_ row: FindRow, position: Int, of total: Int, links: PageLinkIndex = .empty) -> String {
+        "\(kindLabel(row)), \(PageLine.plain(row.title, links: links)), \(position) of \(total)"
     }
 
     /// The footer line, announced to VoiceOver as it updates. The number is

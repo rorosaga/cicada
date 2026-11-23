@@ -160,7 +160,7 @@ struct LookItUpSection: View {
     private func openQuestion(_ item: InboxItem) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
             KindGlyph(kind: item.kind)
-            Text(item.questionText)
+            PageLineText(item.questionText)
                 .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.textTertiary)
                 .lineLimit(2)

@@ -178,12 +178,13 @@ struct ReviewCardView: View {
     let onSubmitText: () -> Void
     let onOpenInInbox: () -> Void
 
+    @Environment(Store.self) private var store: Store?
     private var isEmpty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Text(ReviewContext.question(item))
+            PageLineText(ReviewContext.question(item))
                 .font(CicadaTheme.displayFont(size: 22))
                 .tracking(CicadaTheme.displayTracking(size: 22))
                 .foregroundStyle(CicadaTheme.textPrimary)
@@ -245,7 +246,7 @@ struct ReviewCardView: View {
             .padding(.top, CicadaTheme.scaled(12))
         }
         if let summary = ReviewContext.summary(item) {
-            Text(summary)
+            PageLineText(summary)
                 .font(CicadaTheme.detailBodyFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -254,7 +255,7 @@ struct ReviewCardView: View {
         if let example = item.fold?.example {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                 SectionLabel(Copy.Inbox.Review.forExample)
-                Text(example)
+                PageLineText(example)
                     .font(CicadaTheme.quoteFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -262,7 +263,7 @@ struct ReviewCardView: View {
             }
             .padding(.top, CicadaTheme.scaled(16))
         }
-        if ReviewContext.showsQuote(item), let segments = QuoteSegments.of(item) {
+        if ReviewContext.showsQuote(item), let segments = QuoteSegments.of(item, links: store.links) {
             CitedPassage(segments: segments)
                 .quoteBlock()
                 .padding(.top, CicadaTheme.scaled(16))

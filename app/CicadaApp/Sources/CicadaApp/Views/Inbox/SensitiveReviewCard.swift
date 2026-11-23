@@ -20,7 +20,7 @@ struct SensitiveReviewCard: View {
         let rows = rows
         if !rows.isEmpty {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                Text(item.questionText)
+                PageLineText(item.questionText)
                     .font(CicadaTheme.metaMediumFont).foregroundStyle(CicadaTheme.textPrimary)
                 Text(Copy.Sensitive.effect)
                     .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
@@ -40,7 +40,7 @@ struct SensitiveReviewCard: View {
             .background(CicadaTheme.bgFocus, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
             .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadius))
             .sheet(isPresented: $showAll) {
-                FullListSheet(title: item.questionText) {
+                FullListSheet(title: PageLine.plain(item.questionText, links: store.linkIndex)) {
                     ForEach(self.rows) { rowView($0) }
                 }
                 .environment(store)

@@ -8,6 +8,7 @@ struct FindRowView: View {
     let row: FindRow
     let selected: Bool
     @State private var hovered = false
+    @Environment(Store.self) private var store: Store?
 
     var body: some View {
         HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
@@ -15,7 +16,7 @@ struct FindRowView: View {
             VStack(alignment: .leading, spacing: 2) {
                 titleLine
                 if let detail = row.detail {
-                    Text(detail).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
+                    PageLineText(detail).font(CicadaTheme.captionFont).foregroundStyle(CicadaTheme.textSecondary).lineLimit(1)
                 }
                 if let snippet = row.snippet { snippetLine(snippet) }
             }
@@ -32,7 +33,7 @@ struct FindRowView: View {
         .rowHover($hovered, selected: selected)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(FindRowText.accessibilityLabel(row))
+        .accessibilityLabel(FindRowText.accessibilityLabel(row, links: store.links))
         .accessibilityHint(FindRowText.primaryVerb(row.destination))
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
@@ -42,7 +43,9 @@ struct FindRowView: View {
             if row.history != nil {
                 Text("Was").font(CicadaTheme.font(size: 10, weight: .semibold)).foregroundStyle(CicadaTheme.textTertiary)
             }
-            Text(ExcerptText.attributed(row.title, bold: row.titleRanges))
+            // A belief's row is titled with the claim's own words, a question's with the question: both can carry a
+            // link, so the title goes through the page-text door like the passage below.
+            PageLineText(row.title, bold: row.titleRanges)
                 .font(CicadaTheme.rowFont)
                 .foregroundStyle(row.history == nil ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
                 .lineLimit(1)
@@ -61,7 +64,7 @@ struct FindRowView: View {
             if let speaker = row.speaker {
                 Text(speaker).font(CicadaTheme.font(size: 10, weight: .semibold)).foregroundStyle(CicadaTheme.textSecondary)
             }
-            Text(ExcerptText.cleanAttributed(snippet, bold: row.snippetRanges))
+            PageLineText(snippet, bold: row.snippetRanges, excerpt: true)
                 .font(CicadaTheme.quoteFont(size: 12))
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .lineLimit(2)

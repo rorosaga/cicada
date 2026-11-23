@@ -218,14 +218,14 @@ struct TransclusionCard: View {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                     ImageThumbnail(path: media, width: 300, height: 170)
                     if !p.summary.isEmpty {
-                        Text(p.summary)
+                        PageLineText(p.summary)
                             .font(CicadaTheme.captionFont)
                             .foregroundStyle(CicadaTheme.textSecondary)
                     }
                 }
             } else if p.kind == "claim" || p.kind == "facet" {
                 if p.claims.isEmpty {
-                    Text(p.summary.isEmpty ? "No current claims." : p.summary)
+                    PageLineText(p.summary.isEmpty ? "No current claims." : p.summary)
                         .font(CicadaTheme.bodyFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                 } else {
@@ -237,7 +237,7 @@ struct TransclusionCard: View {
                 }
             } else {
                 // Bare entity: generated one-liner summary.
-                Text(p.summary.isEmpty ? "No summary." : p.summary)
+                PageLineText(p.summary.isEmpty ? "No summary." : p.summary)
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)

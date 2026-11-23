@@ -16,6 +16,7 @@ struct ClaimChip: View {
     var onOpenTimeline: (() -> Void)? = nil
     /// G118 slice 2 — "+N more" evidence chips expand in place (R-PU10).
     @State private var showAllEvidence = false
+    @Environment(Store.self) private var store: Store?
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
@@ -68,7 +69,7 @@ struct ClaimChip: View {
     /// The claim text with `[[wikilinks]]` highlighted in the accent color,
     /// mirroring the entity-card body rendering.
     private var claimAttributed: AttributedString {
-        renderWikilinks(claim.text)
+        renderWikilinks(claim.text, links: store.links)
     }
 }
 
@@ -236,7 +237,11 @@ struct AuthorPill: View {
 /// Compiled once: every belief row renders through `renderWikilinks`, and an owner-sized page has thousands.
 private let wikilinkPattern = try? NSRegularExpression(pattern: "\\[\\[([^\\[\\]|]+)(?:\\|([^\\[\\]]+))?\\]\\]")
 
-func renderWikilinks(_ text: String) -> AttributedString {
+func renderWikilinks(_ text: String, links: PageLinkIndex? = nil) -> AttributedString {
+    // Emphasis marks and code ticks are markup, not words (2026-11-23); a link reads as the page's own name when the
+    // caller has the graph (`PageLineText`, `Store.links`), else as the words it was written under.
+    let text = text.contains(where: { "*_`".contains($0) })
+        ? ExcerptText.stripMarkup(text, keepLines: false, lines: false, underscores: true).text : text
     var result = AttributedString()
     guard let regex = wikilinkPattern else {
         var plain = AttributedString(text)
@@ -255,7 +260,7 @@ func renderWikilinks(_ text: String) -> AttributedString {
         let alias = match.range(at: 2).location != NSNotFound
             ? nsText.substring(with: match.range(at: 2)).trimmingCharacters(in: .whitespaces)
             : nil
-        var link = AttributedString(alias ?? name)
+        var link = AttributedString(links.map { $0.resolve(name)?.name ?? alias ?? PageLine.humanised(name) } ?? alias ?? name)
         link.foregroundColor = CicadaTheme.accent
         link.font = CicadaTheme.bodyFont.weight(.medium)
         link.underlineStyle = .single

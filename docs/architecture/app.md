@@ -2405,6 +2405,19 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   chip, quiet link or cluster is cut into `PageInline` pieces and laid out by `InlineFlowLayout` (baseline-aligned, a
   touching piece never starts a line, the cluster glued to the last word only, a glued run wider than the column broken
   between its pieces), a line of only words stays one `Text`. **Related** list items are `RelatedCard`s (picture, the page's name, the words after the dash); the tab bar's
+  **A link never shows as brackets anywhere in the app (2026-11-23):** page text shown as a plain line — a search row's
+  title, detail and passage, an Ask citation and gap, a question and its options, Home's lead question, the catch-up
+  bar, a list row's one line (Clusters), the hover card, a history line, a belief, a project sentence, the Reader's title,
+  an episode card's preview — goes through **one door**, `PageLine` (`Models/PageLine.swift`; views: `PageLineText`,
+  `.pageHelp`, `PageLine.plain(_, links: store.links)`): a link reads as the page's own name (`PageLinkIndex`, the chip's
+  rule; an unknown or ambiguous one as its written words, a slug as words), a link a snippet cut in half reads as the
+  words it kept, `**`, `_`, backticks and `[text](url)` lose their markers, and `a[[0]]` / `df[["a"]]` stay code. A search
+  hit's bold offsets map through the cut (a range touching a link marks the whole name). `MarkdownBody` and `renderWikilinks`
+  take the index too, so a link they draw shows the page's name. The Reader and a quote keep exact spans: `stripMarkup`
+  deletes a link's brackets and ref half only (`MarkupScan.links`), never inserts. Fixed in the app, not the API: a snippet's
+  offsets and the page names are known only here, and the MCP tools, CLI and `/v1` return page text as stored. A lint
+  (`PageLineLintTests`) fails a view that draws a registered page-text field without the door; a new field is one line in
+  its list. `PageQuestionsStrip` (the entity page's own text path) is its one known gap. `PageLineTests`.
   scroll view fades what has scrolled under it over 16 pt (`fadedTopEdge`; nothing at rest, so a page's first line is whole). A page whose prose cites nothing yet draws its beliefs as one paragraph of sentences
   (`PageBeliefSentences`): an inference worded "It seems that …", an ended one "(until March 2025)"; past twelve, "N
   more in Perspectives". **Gone from the page:** the beliefs list, *Where this came from*, the person's *How you know*
