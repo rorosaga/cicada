@@ -1571,7 +1571,8 @@ Test: `SaveWhyTests.testTheNotchShowsTheSourcesOwnMarkOrNothing`.
 accessibility solves all this, it should be the one we implement, but also important to have it work on different
 languages").** `SaveWhy/SiteSave.swift`, three parts.
 
-*The rule (`SiteSaveRule`, `SiteSaveSite`, pure).* One table row per site — X, Instagram, GitHub, TikTok — holding only
+*The rule (`SiteSaveRule`, `SiteSaveSite`, pure).* One table row per site — X, Instagram, GitHub, TikTok, and Reddit
+and YouTube whose save is in a menu (below) — holding only
 structure and addresses, **never a word of the site's interface in any language**: the site's hosts, the link shapes
 that are one post (and the one spelling it is stored under), where the save control sits among its row's controls
 (`Slot`: X the first plain button after the post's own views link, or the last of three on a post's own page;
@@ -1608,21 +1609,47 @@ and the answer is posted with `via` the site's origin. An unsave goes to `POST /
 about, the save stays and shows "no longer on …" (`leftBrowser`). Logs (`site-save`) hold an outcome word, what
 settled it and milliseconds, never a link or a label.
 
+*A save kept in a menu (`SaveWhy/SiteMenuSave.swift`, ruling 77a, 2026-11-23).* Reddit and YouTube have no save
+button in a post's row, so their table rows carry a `Menu` rule instead of a slot, again structure only: DOM ids and
+class names (read through `AXDOMIdentifier` and `AXDOMClassList`, the same in every interface language) and the saving
+item's place. **Reddit:** the menu sits under `#hovercard` inside the post's own block, whose id is the post's
+(`t3_<id>`); the save is the third shown item from the end of a menu of four or five (measured: Follow, sometimes
+Award, Save, Hide, Report; a hidden zero-size item on a post's page is not counted); the post is the link that carries
+the block's id, or the page itself on the post's page; a comment's menu (`comment-overflow-menu`, three items) and a
+longer menu (the person's own post, a moderator's) read as nothing. **YouTube:** the sheet of lists
+(`ytListViewModelHost` inside a `ytContextualSheetLayoutHost` that has a header and ends in a button — the same list
+class without them is another menu); every item is a list, the first the site's own (Watch later), any other a
+playlist whose name is sent as the save's folder and becomes its list label; the video is where the sheet was opened
+from, kept from the click before it (`opener`: a card `ytLockupViewModelHost` by its first video link, or the page's
+own controls under `ytd-watch-metadata`; a click inside a menu changes nothing; anything else is no answer), for two
+minutes. **Which way:** a menu closes at the click, so there is no label to compare afterwards. In order: the saved
+list's page; on a sheet, the other lists (a state at least two others share and none ties is "not in the list", the
+state being the label's last comma-separated part, commas of any script); labels this Mac learned; a post seen
+wearing the learned "not saved" label that wears another now (it was saved since); and the label the item wore at the
+person's clicks on at least two posts, more than any other (`SiteMenuRule.Seen`, in `SiteSavePrefs`, posts as short
+hashes, four per label). With none of them nothing is stored or asked, so the first save from Reddit's menu on a new
+Mac passes unasked. The menu is read when the pointer rests on an item (kept five seconds, used only for a click in
+the same row) and again at the click; an answer about a neighbouring item is refused by the item's own frame. Checked
+with the app's own reader on the live pages (English); the rules are unit-tested in English, Spanish and Japanese.
+
 *Connecting a site.* Nothing is watched until the person connects a site, per Mac (`SiteSavePrefs`): on the Sources page → Browsers, under the bookmark question ("Also ask when I save a post on", one tick per site, with the
 Accessibility permission named and one click to its pane when missing — never a prompt), or from the notch: when the
-pointer rests on a page of a site not yet connected, the connect offer (G231's panel and rules: its switch, once a
-day, No is kept and listed in Settings, Not now waits) asks "Connect X to Cicada?" with the site's mark. A site's Yes
+pointer rests on a page of a site not yet connected, the connect offer (G231's panel and rules: its switch, No is kept and listed in Settings, Not now waits two hours and
+then longer; the one-a-day cap between sources does not hold a site's offer, since that site's saves do nothing until
+it is connected) asks "Connect X to Cicada?" with the site's mark. A site's Yes
 is the whole connection, so the panel stays 1.6 s to say so — a ring closing around the worm, then a check
 (`ConnectedRing`, `CicadaMotion.connectRing`/`connectCheck`) — and closes. **This is the one case where the page in
 the front tab triggers an offer** (owner 2026-11-23, amending the 2026-10-19 note in `ConnectSuggestApps`): only with
 Accessibility already granted and the offer switch on; the address is compared and kept nowhere.
 
-**Not built:** Reddit, LinkedIn and YouTube (their Save is a menu item or a dialog, and LinkedIn's feed exposes no link
-for the post; they stay on the saved-list read); TikTok's For You feed (no link for the video — its own page works);
+**Not built:** LinkedIn (its feed exposes no link or id for a post, so a save there cannot be tied to one; it stays on
+the saved-list read); YouTube's one-click "save to Watch later" item in a card's menu and Shorts; Reddit's menus on
+the person's own posts and on old Reddit; a real save through the installed app on Reddit or YouTube (the reader was
+run on the live pages, the click itself was not); TikTok's For You feed (no link for the video — its own page works);
 Safari and a keyboard save (unmeasured); the site's folders at the moment of saving and a screen to give a folder its
 reason (the backend holds both, `api.md`); the post's words on sites other than X. **The notch's mascot is the worm's
 small head (`WormFace`) in both notch panels — a trial on the owner's word (2026-11-23), pending their look.** Tests:
-`SiteSaveTests`, `api/tests/test_site_save.py`.
+`SiteSaveTests`, `SiteMenuSaveTests`, `api/tests/test_site_save.py`.
 
 **Connect from the notch (G231, 2026-11-03; owner: "when you enter an app they support a connection for, they suggest
 from the notch to connect to it … with our own aesthetic").** When the person brings to the front an app whose source

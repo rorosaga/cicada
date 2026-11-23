@@ -661,10 +661,10 @@ final class SaveWhyCenter {
     /// first, then asked about like a bookmark the browser's file confirmed. The same rules decide (the switch, a
     /// muted site, one save one question); a save the backend cannot take now (Sleep is writing, an older backend)
     /// is not asked about, since there would be nothing to hold the answer.
-    func siteSaved(_ item: SiteSaveItem, text: String = "") async {
+    func siteSaved(_ item: SiteSaveItem, text: String = "", folder: String? = nil) async {
         let reply: SiteSaveReply
         do {
-            reply = try await api.saveSiteItem(site: item.site, url: item.url, text: text)
+            reply = try await api.saveSiteItem(site: item.site, url: item.url, text: text, folder: folder)
         } catch {
             SaveWhyTimings.logger.info("a site save was not stored, so it is not asked about")
             return

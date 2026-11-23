@@ -644,7 +644,7 @@ SAVED_WHY_BUSY = "Sleep is updating your memory — your answer wasn't saved. Tr
 
 class SiteSaveRequest(BaseModel):
     """A save the person just made inside a site, noticed by the app from the control they clicked (G221)."""
-    #: The site's key (``x``, ``instagram``, ``github``, ``tiktok``; ``site_saves.target``).
+    #: The site's key (``x``, ``instagram``, ``github``, ``tiktok``, ``reddit``, ``youtube``; ``site_saves.target``).
     site: str = Field(..., min_length=1, max_length=20)
     #: The post's own link, in any spelling of that site's.
     url: str = Field(..., min_length=1, max_length=2000)
@@ -688,7 +688,7 @@ SITE_SAVE_BUSY = "Sleep is updating your memory — this save is not in Cicada y
 @router.post("/sources/site-save", response_model=SiteSaveResponse, dependencies=_DEMO_GATE)
 async def save_site_item(request: SiteSaveRequest, settings: Settings = Depends(get_settings)) -> SiteSaveResponse:
     """G221 (owner 2026-11-23) — the person saved a post inside a site (X's Bookmark, Instagram's Save, GitHub's Star,
-    TikTok's Favorite) and the app noticed their own click. The post becomes one saved item under that site's own
+    TikTok's Favorite, Reddit's Save, a list in YouTube's save sheet) and the app noticed their own click. The post becomes one saved item under that site's own
     origin and list label — the row ``cicada_record_saved_list`` and the site's connector write for the same post, by
     the same canonical link and aliases (``site_saves.target``), so a later list read is this row and never a second.
 
@@ -709,7 +709,8 @@ async def save_site_item(request: SiteSaveRequest, settings: Settings = Depends(
     text = site_saves.clean_text(request.text)
     title = site_saves.title_for(text, media_ingestor._fallback_title(url))
     added_at = episode_ids.utc_now_seconds()
-    item = RawItem(url=url, title=title, folder=target.folder, origin=target.origin, aliases=list(target.aliases),
+    item = RawItem(url=url, title=title, folder=site_saves.list_label(target, request.folders), origin=target.origin,
+                   aliases=list(target.aliases),
                    preview=text or None, defer_enrich=True, added_at=added_at)
     meta = MediaMeta(title=title, description=text, site=media_ingestor._site_of(url),
                      media_type=media_ingestor._classify(url))

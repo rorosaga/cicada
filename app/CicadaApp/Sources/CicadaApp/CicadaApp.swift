@@ -586,12 +586,12 @@ struct CicadaApp: App {
             connectSuggest.offer(site: site, connected: SiteSavePrefs().isConnected(site.key), pid: pid,
                                  bundleId: bundle)
         }
-        siteSaves.onOutcome = { [saveWhy] item, outcome, text in
+        siteSaves.onOutcome = { [saveWhy] item, outcome, text, folder in
             Task {
                 // An unsave is never asked about: the save stays, marked as off the list. A change whose direction
                 // nothing settled is neither stored nor asked about.
                 switch outcome {
-                case .saved: await saveWhy.siteSaved(item, text: text)
+                case .saved: await saveWhy.siteSaved(item, text: text, folder: folder)
                 case .unsaved: await saveWhy.siteUnsaved(item)
                 case .changed, .none: break
                 }
