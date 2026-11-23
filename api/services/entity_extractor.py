@@ -13,7 +13,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import (act_object, authorship, book_marks, contact_identity, turn_signals, correspondents, decay_policy, engine_errors, entity_types, episode_time,
+from api.services import (act_object, meeting_speakers, authorship, book_marks, contact_identity, turn_signals, correspondents, decay_policy, engine_errors, entity_types, episode_time,
                           episode_revision, evidence, fact_policy, participation, phone_numbers, project_birth, promotion, section_provenance,
                           sensitive_flags, source_dates)
 from api.services.json_parse import parse_json_object
@@ -562,10 +562,11 @@ def agent_session_note(episode: dict) -> str | None:
 MEETING_NOTE_PREFIX = "[Source: a recorded meeting's transcript"
 
 
-def meeting_note(episode: dict) -> str | None:
+def meeting_note(episode: dict, named: list | None = None) -> str | None:
     """The note for a meeting transcript (``meeting_transcripts``): ``user:`` lines are the person's own (the recorder
     labelled them ``You``/``Me``), every ``speaker:<label>:`` line is someone else in the meeting, and ``assistant:``
-    lines are the recorder's own model-written summary, never the person's words. ``None`` for every other episode."""
+    lines are the recorder's own model-written summary, never the person's words. ``named`` (ROR-142) is what
+    ``meeting_speakers.identify`` kept for its placeholders. ``None`` for every other episode."""
     meeting = episode.get("meeting")
     if not isinstance(meeting, dict):
         return None
@@ -580,31 +581,38 @@ def meeting_note(episode: dict) -> str | None:
             'meeting, labelled by the recorder: their words, never the person\'s, and "I" in such a line is that '
             'speaker. Lines starting "assistant:" are the recorder\'s own model-written summary, never the person\'s '
             "words. What someone says about the person is that speaker's statement, not something the person said."
-            f"{_unnamed_speakers_line(meeting)}]\n\n")
+            f"{_unnamed_speakers_line(episode, named or [])}]\n\n")
 
 
-def _unnamed_speakers_line(meeting: dict) -> str:
-    """ROR-142: name the labels the recorder gave people it could not name, so Stage 1 works out who they are from the
-    transcript itself — never a page for the label, never a guess. Empty when every speaker has a name."""
-    from api.services import meeting_transcripts
+def _unnamed_speakers_line(episode: dict, named: list) -> str:
+    """ROR-142: the labels the recorder gave people it could not name. Those ``meeting_speakers`` identified from the
+    transcript's own words are said with the line that names them; the rest are placeholders Stage 1 never makes a
+    page for, never takes for the person, and credits to someone only where the transcript's words say who speaks."""
+    from api.services import meeting_speakers
 
-    speakers = [str(s) for s in meeting.get("speakers") or [] if str(s).strip()]
-    unnamed = [s for s in speakers if meeting_transcripts.is_placeholder(s)]
-    if not unnamed:
+    placeholders = meeting_speakers.unnamed(episode)
+    if not placeholders:
         return ""
-    markers = ", ".join(f'"{meeting_transcripts.marker(s)}"' for s in unnamed)
-    group = [f'"{meeting_transcripts.marker(s)}"' for s in unnamed if meeting_transcripts.is_group_placeholder(s)]
-    attendees = [str(a) for a in meeting.get("attendees") or [] if str(a).strip()]
-    line = (f" {markers} {'is a placeholder' if len(unnamed) == 1 else 'are placeholders'} the recorder gave people "
-            "it could not name, not a name: never create a page for such a label or call anyone by it. Work out who "
-            "each one is from the transcript itself (someone addressing them by name, a speaker introducing "
-            "themselves, what they say about their own work")
-    line += f", the meeting's attendees: {', '.join(attendees)})" if attendees else ")"
-    line += (" and credit that person only when the transcript makes it clear; otherwise say \"someone in the "
-             "meeting\".")
-    if group:
-        line += (f" {', '.join(group)} may be several different people, everything the call's audio carried: tell "
-                 "them apart by what the lines say, never by the label.")
+    line = ""
+    by_marker: dict[str, list] = {}
+    for n in named:
+        by_marker.setdefault(n.marker, []).append(n)
+    for marker, ns in by_marker.items():
+        who = "; ".join(f'{n.name} (the transcript says: "{n.quote}")' for n in ns)
+        line += (f' Lines starting "{marker}:" are {who}' + (", so tell those people apart by what the lines say."
+                                                            if len(ns) > 1 else ": credit them to that person."))
+    left = [(m, g) for m, g in placeholders if m not in by_marker or g]
+    if left:
+        markers = ", ".join(f'"{m}"' for m, _ in left)
+        line += (f" {markers} {'is a placeholder' if len(left) == 1 else 'are placeholders'} the recorder gave "
+                 "people it could not name, not a name: never create a page for such a label, never call anyone by "
+                 "it, and never take it for the person themselves. Credit such a line to someone only where the "
+                 "transcript's own words say who is speaking (another speaker addresses them by name, or they "
+                 "introduce themselves); otherwise say \"someone in the meeting\".")
+        group = [f'"{m}"' for m, g in left if g]
+        if group:
+            line += (f" {', '.join(group)} may be several different people, everything the call's audio carried: "
+                     "tell them apart by what the lines say, never by the label.")
     return line
 
 
@@ -1165,6 +1173,15 @@ async def extract(
                 on_episode_started(episode)
             if guard.hits and on_sensitive is not None:
                 on_sensitive(episode, guard.kinds(), _engine, guard.held())   # before the send: the record outlives a crash
+            # ROR-142: one call names a meeting's placeholder speakers from the transcript's own words, over the
+            # same masked text the chunks send; the note then says who they are. A failure reads it as labelled.
+            if (placeholders := meeting_speakers.unnamed(episode)):
+                meeting = episode.get("meeting") or {}
+                named = await meeting_speakers.identify(
+                    ep_id, "\n\n".join(chunks), placeholders, settings, owner=owner,
+                    attendees=[str(a) for a in meeting.get("attendees") or [] if str(a).strip()])
+                if named and source_note:
+                    source_note = source_note.replace(meeting_note(episode), meeting_note(episode, named), 1)
             try:
                 # Extract from all chunks and merge results
                 all_entities = []
