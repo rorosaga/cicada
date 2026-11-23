@@ -58,6 +58,7 @@ class Names:
         self._pages: dict[str, dict] = {}
         self._relations: dict[str, frozenset[str]] = {}
         self.names: dict[str, str] = {}
+        self.aliases: dict[str, list[str]] = {}   # a page's other names, as the page lists them
         for page in pages or ():
             fm = page.get("frontmatter") or {}
             page_id = str(page.get("id") or "").strip()
@@ -70,6 +71,7 @@ class Names:
                 if _key(spelling):
                     self._own.setdefault(_key(spelling), set()).add(page_id)
             aliases = fm.get("aliases") if isinstance(fm.get("aliases"), list) else []
+            self.aliases[page_id] = [str(a) for a in aliases if a and _key(str(a)) != _key(name)]
             for spelling in (name, page_id, page_id.replace("-", " "), *(str(a) for a in aliases if a)):
                 if _key(spelling):
                     self._holders.setdefault(_key(spelling), set()).add(page_id)
@@ -82,6 +84,11 @@ class Names:
     def is_own(self, spelling: str, page_id: str) -> bool:
         """``spelling`` is the page's name or id (any case or spacing), not one of its aliases."""
         return page_id in (self._own.get(_key(spelling)) or ())
+
+    def own_page(self, spelling: str) -> str | None:
+        """The one page whose name or id ``spelling`` is (any case or spacing), else ``None``."""
+        held = self._own.get(_key(spelling)) or set()
+        return next(iter(held)) if len(held) == 1 else None
 
     def relations(self, page_id: str) -> frozenset[str]:
         """The ids of the pages this page already relates to: its ``related`` slugs, a link in its body written under
@@ -224,10 +231,9 @@ def batch_said(changes: list[dict]) -> dict[str, set[str]]:
     return said
 
 
-def rewrite_changes(changes: list[dict], pages: list[dict]) -> int:
+def rewrite_changes(changes: list[dict], names: Names) -> int:
     """Stage 3's step: every create and update's extraction, against the pages that exist, each scoped to the page it
     is written to (`Scope`). Returns links rewritten."""
-    names = Names(pages)
     said = batch_said(changes)
     total = 0
     for change in changes:

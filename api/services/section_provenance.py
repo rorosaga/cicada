@@ -15,6 +15,15 @@ from api.services.claims import Evidence
 
 FIELD = 'section_provenance'
 INPUTS = '_section_inputs'  # transient, never serialized into a page
+#: Transient, never serialized: ``{a Key Fact the writer did not add or dropped: the text that already says it in full}``
+#: (`fact_fold`). Its source rows move onto the holder, as an `extends` fold's do.
+FOLDS = fact_policy.FOLDS_KEY
+
+
+def _holds(text: str, holder: str) -> bool:
+    """``text`` is the fact a fold named as the holder, or says it word for word and then more (an `extends` fold took
+    the holder's place in the same write)."""
+    return text == holder or fact_policy.extends(text, holder)
 TITLES = {'summary': 'Summary', 'article': 'Article', 'key_facts': 'Key Facts', 'history': 'History',
           'links': 'Links', 'open_questions': 'Open Questions'}
 _CODES = {'user': 'u', 'assistant': 'a', 'page': 'p', 'reasoning': 'r', 'speaker': 's', 'media': 'm'}
@@ -301,6 +310,11 @@ def merge_selected(base: dict, incoming: dict, selected: dict, *, split: bool = 
                         if other != text and fact_policy.extends(text, other):
                             for key, ev in other_rows.items():
                                 rows.setdefault(key, ev)
+                    # ... and so does a fact the judge found this one already says (`fact_fold`).
+                    for other, holder in (incoming.get(FOLDS) or {}).items():
+                        if other != text and _holds(text, holder):
+                            for key, ev in (by_text.get(other) or {}).items():
+                                rows.setdefault(key, ev)
                     if not rows and split and text:
                         # A sentence cut off a summary that lost the merge carries that summary's rows.
                         part = entity_body._normalize_fact(text)
@@ -350,6 +364,7 @@ def refresh(frontmatter: dict, original_body: str, body: str, entity: dict, *, s
                 value = Evidence(**ev)
                 if value not in entry[1]:
                     entry[1].append(value)
+    judged = entity.get(FOLDS) or {}
     decoded = decoded or {}
     unavailable = unavailable_sections(original_body, decoded) | unavailable_sections(body, decoded)
     records = {section: items for section, items in decoded.items() if section in unavailable}
@@ -376,7 +391,8 @@ def refresh(frontmatter: dict, original_body: str, body: str, entity: dict, *, s
                 if value and value[0] == item.text_hash:
                     evs.extend(ev for ev in value[1] if ev not in evs)
             for key, text in folded:
-                if fact_policy.extends(item.text, text):
+                if fact_policy.extends(item.text, text) or (
+                        text in judged and _holds(item.text, judged[text])):
                     for candidates in (old, incoming):
                         value = candidates.get(section, {}).get(key)
                         if value and value[0] == evidence.body_hash(text):
