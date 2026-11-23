@@ -54,3 +54,48 @@ def test_scorer_tells_a_clean_update_from_a_stale_one_and_catches_a_declined_sug
     assert all(p["ok"] for p in s["people"])
     assert next(n for n in s["pages"]["not_expected"] if n["term"] == "pell")["ok"] is False
     assert s["integrity"]["secret_leaked_to"] == [] and s["integrity"]["span_rate"] == 1.0
+
+
+def test_a_meeting_is_staged_by_the_real_parser_and_only_you_lines_are_the_persons():
+    meeting = next(c for c in bench.load_fixture("noor")["conversations"] if c.get("kind") == "meeting")
+    (draft,) = bench._drafts([meeting], CLOCK)
+    speakers = [t.speaker for t in draft.turns]
+    assert "user" in speakers and any(s.startswith("speaker:") for s in speakers)
+    assert all(s in ("user", "assistant") or s.startswith("speaker:") for s in speakers)
+
+
+def test_a_number_matches_whole_and_dates_follow_the_conversations_language():
+    assert not bench.matches("valid from 2026-09-26", [["20"]])
+    assert bench.matches("cards sold: 20", [["20"]])
+    french = next(c for c in bench.load_fixture("noor")["conversations"] if c["id"] == "n02")
+    assert bench._lang(bench.render_turns(french, CLOCK)) == "fr"
+
+
+def test_two_people_one_page_holds_is_caught_by_what_is_said_of_each(tmp_path):
+    fx = bench.load_fixture("noor")
+    claims = [_claim("Marc moves to Berlin", page="marc"), _claim("Marc works in Annecy as a carpenter", page="marc")]
+    for c in claims:
+        c["subject"] = "marc"
+    (tmp_path / "entities").mkdir()
+    snap = {"model": "t", "clock": CLOCK.isoformat(), "claims": claims,
+            "pages": [_page("noor-haddad", "Noor Haddad", owner=True), _page("marc", "Marc")],
+            "questions": [], "phases": [], "episodes_unprocessed": 0}
+    merged = next(p for p in bench.score(snap, tmp_path, fx)["people"] if p["id"] == "M2")
+    assert merged["ok"] is False and merged["pages"] == ["marc"]
+
+
+def test_planted_errors_are_plausible_and_compare_reads_folders(tmp_path):
+    claims = [_claim("Loomwright beta users: 120", page="loomwright"),
+              _claim("Lucía move date: 2026-12-12", page="lucía"),
+              {**_claim("Ines works at Halvard", page="ines-varga"), "object": "halvard"}]
+    pages = [_page("ines-varga", "Ines Varga", owner=True), {**_page("halvard", "Halvard"), "type": "company"},
+             {**_page("kestrel", "Kestrel"), "type": "company"}, _page("tomas", "Tomas")]
+    planted = {p["kind"]: p["text"] for p in bench._plant(claims, pages, 3)}
+    assert planted == {"date": "Lucía move date: 2026-12-13", "number": "Loomwright beta users: 144",
+                       "swap": "Ines works at Kestrel"}, "a company only ever swaps for a company"
+    for name, value in (("key-sonnet-r1", 30), ("key-sonnet-r2", 31), ("key-haiku-r1", 22)):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "score.json").write_text(
+            '{"summary": {"points_claim": %d}, "people": {}}' % value)
+    out = bench.compare(tmp_path, "key-sonnet", "key-haiku")
+    assert "| points_claim | 30.5 | 22 | yes |" in out

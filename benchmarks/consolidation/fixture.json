@@ -304,35 +304,40 @@
       "pattern",
       "fabric"
      ]
-    ]
+    ],
+    "fact": "Loomwright turns sewing patterns into cutting layouts"
    },
    {
     "id": "P02",
     "says": [
      "loomwright",
      "pillow"
-    ]
+    ],
+    "fact": "Loomwright was written with Pillow"
    },
    {
     "id": "P03",
     "says": [
      "tomas",
      "partner"
-    ]
+    ],
+    "fact": "Tomas is Ines's partner"
    },
    {
     "id": "P04",
     "says": [
      "halvard",
      "data engineer"
-    ]
+    ],
+    "fact": "Ines worked as a data engineer at Halvard Analytics"
    },
    {
     "id": "P05",
     "says": [
      "douro",
      "half marathon"
-    ]
+    ],
+    "fact": "Ines signed up for the Douro Valley half marathon"
    },
    {
     "id": "P06",
@@ -342,7 +347,8 @@
       "half marathon"
      ],
      "{date:-7}"
-    ]
+    ],
+    "fact": "The half marathon is on a set date (7 days before the clock)"
    },
    {
     "id": "P07",
@@ -355,7 +361,8 @@
       "week",
       "weekly"
      ]
-    ]
+    ],
+    "fact": "Ines trains four runs a week"
    },
    {
     "id": "P08",
@@ -365,7 +372,8 @@
       "redshift"
      ],
      "migrat"
-    ]
+    ],
+    "fact": "Halvard migrated its warehouse from Redshift to Snowflake"
    },
    {
     "id": "P09",
@@ -376,7 +384,8 @@
       "lead"
      ],
      "migration"
-    ]
+    ],
+    "fact": "Ines led the warehouse migration"
    },
    {
     "id": "P10",
@@ -387,7 +396,8 @@
       "brandt"
      ],
      "kestrel"
-    ]
+    ],
+    "fact": "Teodor Brandt (Teo) works at Kestrel Robotics"
    },
    {
     "id": "P11",
@@ -401,7 +411,8 @@
       "hermana",
       "sibling"
      ]
-    ]
+    ],
+    "fact": "Lucía is Ines's sister"
    },
    {
     "id": "P12",
@@ -411,7 +422,8 @@
       "lucia"
      ],
      "valencia"
-    ]
+    ],
+    "fact": "Lucía is moving to Valencia"
    },
    {
     "id": "P13",
@@ -424,7 +436,8 @@
       "architecture",
       "arquitectura"
      ]
-    ]
+    ],
+    "fact": "Lucía is starting a master's in architecture"
    },
    {
     "id": "P14",
@@ -437,7 +450,8 @@
       "adopted",
       "pet"
      ]
-    ]
+    ],
+    "fact": "Ines and Tomas adopted a cat called Miso"
    },
    {
     "id": "P15",
@@ -450,21 +464,24 @@
       "running club",
       "long run"
      ]
-    ]
+    ],
+    "fact": "Sam Okafor paces Ines on long runs"
    },
    {
     "id": "P16",
     "says": [
      "aws",
      "certif"
-    ]
+    ],
+    "fact": "Ines passed the AWS data engineering certification"
    },
    {
     "id": "P17",
     "says": [
      "loomwright",
      "beta"
-    ]
+    ],
+    "fact": "Loomwright has beta users"
    },
    {
     "id": "P18",
@@ -476,7 +493,8 @@
       "likes",
       "enjoyed"
      ]
-    ]
+    ],
+    "fact": "Ines has read The Design of Everyday Things"
    },
    {
     "id": "P19",
@@ -486,34 +504,39 @@
       "interview",
       "cto"
      ]
-    ]
+    ],
+    "fact": "Ines interviewed with Kestrel Robotics"
    },
    {
     "id": "P20",
     "says": [
      "kestrel",
      "senior data engineer"
-    ]
+    ],
+    "fact": "Ines joined Kestrel Robotics as a senior data engineer"
    },
    {
     "id": "P21",
     "says": [
      "1:47"
-    ]
+    ],
+    "fact": "Ines ran the half marathon in 1:47:12"
    },
    {
     "id": "P22",
     "says": [
      "reyes",
      "cousin"
-    ]
+    ],
+    "fact": "Sam Reyes is Ines's cousin"
    },
    {
     "id": "P23",
     "says": [
      "reyes",
      "toronto"
-    ]
+    ],
+    "fact": "Sam Reyes is visiting from Toronto"
    },
    {
     "id": "P24",
@@ -524,7 +547,8 @@
       "brandt"
      ],
      "head of product"
-    ]
+    ],
+    "fact": "Teo was promoted to head of product"
    },
    {
     "id": "P25",
@@ -537,21 +561,24 @@
       "master",
       "máster"
      ]
-    ]
+    ],
+    "fact": "Lucía is starting her master's"
    },
    {
     "id": "P26",
     "says": [
      "loomwright",
      "typescript"
-    ]
+    ],
+    "fact": "Loomwright was rewritten in TypeScript"
    },
    {
     "id": "P27",
     "says": [
      "loomwright",
      "120"
-    ]
+    ],
+    "fact": "Loomwright has 120 beta users"
    },
    {
     "id": "P28",
@@ -565,7 +592,8 @@
       "takes over",
       "took over"
      ]
-    ]
+    ],
+    "fact": "Priya took over the Snowflake migration"
    },
    {
     "id": "P29",
@@ -575,7 +603,8 @@
       "guitar",
       "guitarra"
      ]
-    ]
+    ],
+    "fact": "Tomas is learning Portuguese guitar"
    },
    {
     "id": "P30",
@@ -590,7 +619,8 @@
       "office",
       "remain"
      ]
-    ]
+    ],
+    "fact": "Ines stays in Porto"
    },
    {
     "id": "P31",
@@ -602,7 +632,8 @@
       "ten days",
       "10 days"
      ]
-    ]
+    ],
+    "fact": "Ines chose a ten-day taper"
    },
    {
     "id": "P32",
@@ -614,7 +645,8 @@
      [
       "load"
      ]
-    ]
+    ],
+    "fact": "Ines will try carb loading before the race"
    },
    {
     "id": "P33",
@@ -624,7 +656,8 @@
       "review",
       "demo"
      ]
-    ]
+    ],
+    "fact": "Ines has a probation review at Kestrel"
    },
    {
     "id": "P34",
@@ -638,7 +671,8 @@
       "snowflake",
       "demo"
      ]
-    ]
+    ],
+    "fact": "Ines's ingestion pipeline loads telemetry into Snowflake"
    }
   ],
   "updates": [
