@@ -104,6 +104,7 @@ struct RunDetailBlock: View {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 usage(detail)
                 pages(detail)
+                CorrectionsSection(runId: detail.id, corrections: detail.corrections, onSelectEntity: onSelectEntity)
                 batches(detail)
             }
         } else {

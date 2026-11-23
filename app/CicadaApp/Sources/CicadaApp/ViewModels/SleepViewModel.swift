@@ -181,6 +181,11 @@ final class SleepViewModel {
     private let putRunOptions: (SleepRunOptionsChange) async throws -> SleepRunOptions
     private let fetchQueue: () async throws -> SleepQueueResponse
     private let fetchRun: (String) async throws -> SleepRunDetail
+    private let putCorrectionRestore: (String) async throws -> Void
+    /// G104 slice 3 (T4): pages whose Restore is in flight, and the ones whose last try failed (the Corrections section
+    /// says so in words; a page already restored elsewhere is no failure — the refetch shows it restored).
+    private(set) var restoringPages: Set<String> = []
+    private(set) var restoreFailedPages: Set<String> = []
 
     /// The run card's dropdown (owner 2026-10-26): what each consolidation read and wrote, by key, with the ETag it was
     /// read under — in memory only, revalidated on each open (a 304 keeps it), emptied on a bank switch.
@@ -235,6 +240,9 @@ final class SleepViewModel {
         fetchRun: @escaping (String) async throws -> SleepRunDetail = {
             try await APIClient.shared.fetchSleepRun($0)
         },
+        restoreCorrection: @escaping (String) async throws -> Void = {
+            try await APIClient.shared.restoreCorrectedPage($0)
+        },
         fetchEpisodes: @escaping (String?) async throws -> Conditional<[EpisodeQueueItem]> = {
             try await APIClient.shared.fetchEpisodeQueue(etag: $0)
         },
@@ -260,6 +268,7 @@ final class SleepViewModel {
         self.putRunOptions = putRunOptions
         self.fetchQueue = fetchQueue
         self.fetchRun = fetchRun
+        self.putCorrectionRestore = restoreCorrection
         self.store = store
         self.fetchSleepStatus = fetchSleepStatus
         self.requestCancel = requestCancel
@@ -600,6 +609,27 @@ final class SleepViewModel {
             runDetails[id] = detail
             runDetailKeys[id] = freshness
         }
+    }
+
+    /// Put back a page a correction archived (`POST /entities/{id}/restore-correction`), then read the run again so its
+    /// Corrections section shows the page restored. A refusal (already restored, or archived by decay) is not an error
+    /// worth a sentence: the refetch is the truth. Only a failure to reach the server is remembered.
+    func restoreCorrectedPage(_ page: String, inRun runId: String) async {
+        guard !restoringPages.contains(page) else { return }
+        restoringPages.insert(page)
+        restoreFailedPages.remove(page)
+        defer { restoringPages.remove(page) }
+        let token = loadToken
+        do {
+            try await putCorrectionRestore(page)
+        } catch APIError.httpError(let code, _) where code == 404 || code == 409 {
+            // Already put back, or never archived by a correction: nothing to do but show the truth.
+        } catch {
+            if token == loadToken { restoreFailedPages.insert(page) }
+            return
+        }
+        guard token == loadToken else { return }
+        if let detail = try? await fetchRun(runId), token == loadToken { runDetails[runId] = detail }
     }
 
     /// A card's items, revalidated with the ETag held for that key: a 304 keeps the copy, a failure keeps it too and

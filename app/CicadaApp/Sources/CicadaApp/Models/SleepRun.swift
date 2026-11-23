@@ -485,6 +485,86 @@ struct SleepRunDetail: Codable, Equatable {
         enum CodingKeys: String, CodingKey { case created, ownerTouched, first }
     }
 
+    /// G104 slice 3 (T4) — what the run's corrections reached (`GET /sleep/runs/{id}`'s `corrections`): ids, counts and
+    /// enums only. `nil` on a run that revised no conversation — never a record of zeros.
+    struct Corrections: Codable, Equatable {
+        struct ArchivedPage: Codable, Equatable, Identifiable {
+            var page: String
+            var episode: String
+            /// Still archived by a correction right now (the restore route applies); false once restored.
+            var restorable: Bool
+            var id: String { page }
+
+            init(page: String, episode: String = "", restorable: Bool = false) {
+                self.page = page; self.episode = episode; self.restorable = restorable
+            }
+
+            init(from decoder: Decoder) throws {
+                let c = try decoder.container(keyedBy: CodingKeys.self)
+                page = ((try? c.decodeIfPresent(String.self, forKey: .page)) ?? nil) ?? ""
+                episode = ((try? c.decodeIfPresent(String.self, forKey: .episode)) ?? nil) ?? ""
+                restorable = ((try? c.decodeIfPresent(Bool.self, forKey: .restorable)) ?? nil) ?? false
+            }
+            enum CodingKeys: String, CodingKey { case page, episode, restorable }
+        }
+
+        struct KeptPage: Codable, Equatable, Identifiable {
+            var page: String
+            var episode: String
+            /// Why it stayed: the server's `revision_cascade.SUPPORTS` enum.
+            var support: String
+            var id: String { "\(page)#\(episode)" }
+
+            init(page: String, episode: String = "", support: String = "") {
+                self.page = page; self.episode = episode; self.support = support
+            }
+
+            init(from decoder: Decoder) throws {
+                let c = try decoder.container(keyedBy: CodingKeys.self)
+                page = ((try? c.decodeIfPresent(String.self, forKey: .page)) ?? nil) ?? ""
+                episode = ((try? c.decodeIfPresent(String.self, forKey: .episode)) ?? nil) ?? ""
+                support = ((try? c.decodeIfPresent(String.self, forKey: .support)) ?? nil) ?? ""
+            }
+            enum CodingKeys: String, CodingKey { case page, episode, support }
+        }
+
+        var conversationsRevised: Int
+        var claimsWithdrawn: Int
+        var claimsSuperseded: Int
+        var passagesRewritten: Int
+        var pagesArchived: [ArchivedPage]
+        var pagesKept: [KeptPage]
+        var aliasesDropped: Int
+        var heldDropped: Int
+        var questionsWithdrawn: Int
+
+        init(conversationsRevised: Int = 0, claimsWithdrawn: Int = 0, claimsSuperseded: Int = 0,
+             passagesRewritten: Int = 0, pagesArchived: [ArchivedPage] = [], pagesKept: [KeptPage] = [],
+             aliasesDropped: Int = 0, heldDropped: Int = 0, questionsWithdrawn: Int = 0) {
+            self.conversationsRevised = conversationsRevised; self.claimsWithdrawn = claimsWithdrawn
+            self.claimsSuperseded = claimsSuperseded; self.passagesRewritten = passagesRewritten
+            self.pagesArchived = pagesArchived; self.pagesKept = pagesKept; self.aliasesDropped = aliasesDropped
+            self.heldDropped = heldDropped; self.questionsWithdrawn = questionsWithdrawn
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            func int(_ key: CodingKeys) -> Int { ((try? c.decodeIfPresent(Int.self, forKey: key)) ?? nil) ?? 0 }
+            conversationsRevised = int(.conversationsRevised)
+            claimsWithdrawn = int(.claimsWithdrawn); claimsSuperseded = int(.claimsSuperseded)
+            passagesRewritten = int(.passagesRewritten)
+            pagesArchived = ((try? c.decodeIfPresent([ArchivedPage].self, forKey: .pagesArchived)) ?? nil) ?? []
+            pagesKept = ((try? c.decodeIfPresent([KeptPage].self, forKey: .pagesKept)) ?? nil) ?? []
+            aliasesDropped = int(.aliasesDropped); heldDropped = int(.heldDropped)
+            questionsWithdrawn = int(.questionsWithdrawn)
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case conversationsRevised, claimsWithdrawn, claimsSuperseded, passagesRewritten, pagesArchived, pagesKept
+            case aliasesDropped, heldDropped, questionsWithdrawn
+        }
+    }
+
     var id: String
     var startedBy: String
     var startedAt: String?
@@ -506,6 +586,7 @@ struct SleepRunDetail: Codable, Equatable {
     var models: [CycleUsageModel]
     var usage: CycleUsage?
     var pages: Pages?
+    var corrections: Corrections?
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -526,10 +607,11 @@ struct SleepRunDetail: Codable, Equatable {
         models = ((try? c.decodeIfPresent([CycleUsageModel].self, forKey: .models)) ?? nil) ?? []
         usage = (try? c.decodeIfPresent(CycleUsage.self, forKey: .usage)) ?? nil
         pages = (try? c.decodeIfPresent(Pages.self, forKey: .pages)) ?? nil
+        corrections = (try? c.decodeIfPresent(Corrections.self, forKey: .corrections)) ?? nil
     }
 
     enum CodingKeys: String, CodingKey {
         case id, startedBy, startedAt, finishedAt, state, filed, frozen, parked, skipped, calls, readMs, pausedMs
-        case pauses, questionsRaised, replaced, owner, batches, models, usage, pages
+        case pauses, questionsRaised, replaced, owner, batches, models, usage, pages, corrections
     }
 }
