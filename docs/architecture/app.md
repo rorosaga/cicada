@@ -2365,7 +2365,7 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   chip, quiet link or cluster is cut into `PageInline` pieces and laid out by `InlineFlowLayout` (baseline-aligned, a
   touching piece never starts a line, the cluster glued to the last word only, a glued run wider than the column broken
   between its pieces), a line of only words stays one `Text`. **Related** list items are `RelatedCard`s (picture, the page's name, the words after the dash); the tab bar's
-  scroll view fades its first 16 pt (`fadedTopEdge`). A page whose prose cites nothing yet draws its beliefs as one paragraph of sentences
+  scroll view fades what has scrolled under it over 16 pt (`fadedTopEdge`; nothing at rest, so a page's first line is whole). A page whose prose cites nothing yet draws its beliefs as one paragraph of sentences
   (`PageBeliefSentences`): an inference worded "It seems that …", an ended one "(until March 2025)"; past twelve, "N
   more in Perspectives". **Gone from the page:** the beliefs list, *Where this came from*, the person's *How you know*
   and *What's happening*, the facts strip, *Details* and the empty *Looks* fold; *How it fades*, *Add a link* and *Add
