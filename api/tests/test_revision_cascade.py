@@ -333,7 +333,8 @@ def test_a_held_name_no_longer_in_the_text_leaves_the_conversation(memory):
     _held("Alpha Tasks", [E1])                                                # still in the text: untouched
     prior = "user: Notes.\nZed Unknown and Zed Alone were here.\nalpha tasks continue."
     report = _run(memory, revisions=_rev(prior, BODY))
-    assert report.held == {"lines_removed": 1, "episodes_left": 1, "claims_dropped": 2, "claims_withdrawn": 0}
+    assert report.held == {"lines_removed": 1, "episodes_left": 1, "claims_dropped": 2, "claims_withdrawn": 0,
+                           "prose_dropped": 0}
     lines = {e.name: e for e in pending_store.load(memory)}
     assert set(lines) == {"Zed Unknown", "Alpha Tasks"}
     zed = lines["Zed Unknown"]

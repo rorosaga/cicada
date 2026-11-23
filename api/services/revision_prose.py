@@ -87,8 +87,11 @@ own same should some such through under until very while just only now said says
 
 
 def tokens(text: str) -> set[str]:
-    """The words that can carry a fact: three letters or more, not a function word, casefolded."""
-    return {t for t in (w.casefold() for w in _TOKEN.findall(text or "")) if len(t) >= 3 and t not in _STOP}
+    """The words that can carry a fact: three letters or more, not a function word, casefolded — and any word with a
+    digit in it, whatever its length: a corrected date or count ("the 5th" → "the 12th", "5 December" → "12 December")
+    is the commonest thing a correction removes (G104 slice 3, measured on the consolidation benchmark's U4)."""
+    return {t for t in (w.casefold() for w in _TOKEN.findall(text or ""))
+            if (len(t) >= 3 and t not in _STOP) or any(c.isdigit() for c in t)}
 
 
 def _raw(text: str) -> set[str]:

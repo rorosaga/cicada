@@ -39,7 +39,7 @@ extension Copy {
         }
 
         static func heldDropped(_ count: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
-            "\(n(count, "claim", "claims", locale)) held for a name not yet on a page dropped"
+            "\(n(count, "thing", "things", locale)) held for a name not yet on a page dropped"
         }
 
         static func questionsWithdrawn(_ count: Int, _ locale: Locale = .autoupdatingCurrent) -> String {

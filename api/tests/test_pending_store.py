@@ -196,3 +196,50 @@ def test_drop_held_takes_only_the_named_claims_off_and_leaves_the_line(tmp_path)
     assert pending_store.drop_held(tmp_path, []) == 0
     (kept,) = pending_store.load(tmp_path)
     assert [d["id"] for d in kept.held_claims] == ["clm_2"] and kept.name == "Zed Unknown"
+
+
+# --- G104 slice 3 (T6): the first read's prose a correction removed ---------------------------------------------
+
+OTHER_EP = "ep_2026-09-21_001"
+HASH = "aaaaaaaaaaaa"
+
+
+def _row(field: str, text: str, episode: str = EP, hash_: str = HASH) -> dict:
+    return {"field": field, "text": text,
+            "evidence": [{"episode": episode, "start": -1, "end": -1, "kind": "reasoning", "hash": hash_}]}
+
+
+def _says(word: str):
+    return lambda text: word in text.lower()
+
+
+def test_drop_prose_takes_only_items_of_that_version_that_say_a_removed_word(tmp_path):
+    shared = _row("key_facts", "Trip starts on the 5th and is shared.")
+    shared["evidence"].append({"episode": OTHER_EP, "start": -1, "end": -1, "kind": "reasoning", "hash": "bbbbbbbbbbbb"})
+    pending_store.upsert(tmp_path, _pending(
+        "Zed Unknown", summary="The trip starts on the 5th.", description="",
+        key_facts=["Trip starts on the 5th.", "Sister of Dana Example.", "Trip starts on the 5th and is shared.",
+                   "Hand fact on the 5th."],
+        history_entries=[{"date": "2026-09-20", "event": "Trip planned for the 5th."},
+                         {"date": "2026-09-20", "event": "Moved house."}],
+        item_inputs=[_row("summary", "The trip starts on the 5th."), _row("key_facts", "Trip starts on the 5th."),
+                     _row("key_facts", "Sister of Dana Example."), shared]))
+    assert pending_store.drop_prose(tmp_path, EP, HASH, _says("5th")) == 3
+    (line,) = pending_store.load(tmp_path)
+    assert line.summary == ""
+    assert line.key_facts == ["Sister of Dana Example.", "Trip starts on the 5th and is shared.", "Hand fact on the 5th."]
+    assert line.history_entries == [{"date": "2026-09-20", "event": "Moved house."}]
+    assert [r["text"] for r in line.item_inputs] == ["Sister of Dana Example.", "Trip starts on the 5th and is shared."]
+
+
+def test_drop_prose_leaves_history_of_a_line_other_conversations_also_heard_and_other_versions(tmp_path):
+    pending_store.upsert(tmp_path, _pending(
+        "Zed Unknown", key_facts=["Trip starts on the 5th."], history_entries=[{"date": "2026-09-20", "event": "Trip on the 5th."}],
+        heard_in=[{"episode": EP}, {"episode": OTHER_EP}], item_inputs=[_row("key_facts", "Trip starts on the 5th.")]))
+    assert pending_store.drop_prose(tmp_path, EP, HASH, _says("5th")) == 1
+    (line,) = pending_store.load(tmp_path)
+    assert line.key_facts == [] and len(line.history_entries) == 1
+    # another version of the conversation: nothing rests on the version Sleep read
+    pending_store.upsert(tmp_path, _pending("Yan Example", key_facts=["On the 5th."],
+                                            item_inputs=[_row("key_facts", "On the 5th.", hash_="cccccccccccc")]))
+    assert pending_store.drop_prose(tmp_path, EP, HASH, _says("5th")) == 0

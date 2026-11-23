@@ -26,6 +26,13 @@ What it closes
   provenance, so the guard is conservative (:func:`_droppable`).
 * **A held name** (``pending_store``) whose name no longer occurs leaves the revised conversation's ``heard_in``; the
   held claims only that conversation said go with it; a line whose ONLY conversation it was is removed whole.
+* **Held prose** (T6): a pending line also carries the first read's PROSE — ``summary``, ``description``, ``key_facts``,
+  ``history_entries`` and the ``item_inputs`` rows that cite their source — which a page born from the line would be
+  written from. :func:`drop_held_prose` runs BEFORE Stage 2 in the drain that reads the revision (a page is born from a
+  line in that same drain) and drops each item whose rows are all this conversation at the version Sleep read and that
+  says a word the revision removed (`revision_prose.changes_of`, the one test; ``sleep_cycle._words_taken``). An item
+  that cites another conversation too, says no removed word, or has no row stays; a history entry (no row of its own) goes
+  only from a line this conversation alone heard. Counted in ``held.prose_dropped`` and in no other count.
 * **A question** (returned, not written): about a page this run archived; a conflict whose option claims the revision
   closed (all, or all but one); a name question raised from the revised conversation about a name no longer in it and
   with no other conversation.
@@ -38,7 +45,8 @@ fold T4 turns into the run record, page History lines and the app's Corrections 
      "pages_kept":      [{"page": id, "episode": id, "support": <enum of SUPPORTS>, "claims": [claim id, ...]}],
      "aliases_dropped": [{"page": id, "episode": id, "count": n}],
      "held":            {"lines_removed": n, "episodes_left": n, "claims_dropped": n,   # this module's
-                         "claims_withdrawn": n},                                      # the claim pipeline's, pre-release
+                         "claims_withdrawn": n,                                       # the claim pipeline's, pre-release
+                         "prose_dropped": n},                                         # held summary/fact/history items
      "questions":       [{"item": inbox id, "kind": kind, "episode": id, "why": "page_archived"|"options_closed"|"name_gone"}],
      "paths":           [memory-relative path written, ...],
      "counts":          {"revised", "pages_archived", "pages_kept", "aliases_dropped", "held_lines_removed",
@@ -88,7 +96,7 @@ class Report:
     pages_kept: list[dict] = field(default_factory=list)
     aliases_dropped: list[dict] = field(default_factory=list)
     held: dict = field(default_factory=lambda: {"lines_removed": 0, "episodes_left": 0, "claims_dropped": 0,
-                                                "claims_withdrawn": 0})
+                                                "claims_withdrawn": 0, "prose_dropped": 0})
     questions: list[dict] = field(default_factory=list)
     paths: list[str] = field(default_factory=list)
 
@@ -409,21 +417,52 @@ def question_withdrawal(memory_path: Path, fm: dict, basis: str, *, prior: str |
     return WHY_NAME if others == [] else None
 
 
+def drop_held_prose(memory_path: Path, revisions: dict[str, Revision], *, words_taken=None) -> int:
+    """T6: before Stage 2 in the drain that reads ``revisions``, take out of the pending lines the prose only the removed
+    text said (module docstring, "Held prose"), so no page is born from a line with it. ``words_taken(rev)`` is the words
+    a revision removed (default ``revision_prose.changes_of``'s ``gone``); an item says one when its tokens hold it.
+    Never raises; returns how many items left."""
+    from api.services import revision_prose
+
+    def taken(rev) -> frozenset:
+        return frozenset().union(*(c.gone for c in revision_prose.changes_of(rev)))
+
+    taken = words_taken or taken
+    total = 0
+    for eid, rev in (revisions or {}).items():
+        try:
+            if not _removes(rev):
+                continue
+            gone = taken(rev)
+            if not gone:
+                continue
+            total += pending_store.drop_prose(Path(memory_path), eid, rev.prior_hash,
+                                              lambda text, gone=gone: bool(revision_prose.tokens(text) & gone))
+        except Exception as exc:  # noqa: BLE001 - a correction is never worth the batch
+            logger.warning(f"Revision cascade held prose failed: {type(exc).__name__}")
+    return total
+
+
 # --------------------------------------------------------------------------- the run
 
 
 def run(memory_path: Path, revisions: dict[str, Revision], *, revised_out: dict[str, str] | None = None,
-        new_pages: set[str] | frozenset[str] = frozenset(), held_withdrawn: int = 0, today: str | None = None) -> Report:
+        new_pages: set[str] | frozenset[str] = frozenset(), held_withdrawn: int = 0, prose_dropped: int = 0,
+        today: str | None = None) -> Report:
     """One batch's cascade (module docstring). ``revisions``: the batch's read revisions; ``revised_out``: the claim
     pipeline's ``{claim id: revised episode}`` for the claims only the removed text said (they are closed on the pages by
     now); ``new_pages``: pages this batch created; ``held_withdrawn``: how many held claims the claim pipeline already dropped before their
-    release (counted in the report beside what this module drops). Writes pages and the pending store only. Never
+    release (counted in the report beside what this module drops); ``prose_dropped``: how many held prose items
+    :func:`drop_held_prose` dropped before Stage 2 (counted as ``held.prose_dropped``). Writes pages and the pending store only. Never
     raises."""
     memory_path = Path(memory_path)
     report = Report()
     effective = {eid: rev for eid, rev in (revisions or {}).items() if _removes(rev)}
     report.revised = sorted(effective)
     report.held["claims_withdrawn"] = int(held_withdrawn or 0)
+    report.held["prose_dropped"] = int(prose_dropped or 0)
+    if prose_dropped and pending_store.PENDING_STORE_FILE not in report.paths:
+        report.paths.append(pending_store.PENDING_STORE_FILE)
     if not effective:
         return report
     today = today or str(date.today())

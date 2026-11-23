@@ -65,6 +65,8 @@ class SleepState:
     # G104 slice 3 (T4): this batch's Corrections record (`corrections_record.batch_entry`), folded into the drain when
     # the batch commits; ``None`` when no conversation was revised.
     corrections_batch: dict | None = None
+    # T6: held prose items dropped before Stage 2 this batch (carried into the cascade report's ``held.prose_dropped``).
+    held_prose_dropped: int = 0
     # G141 PJ-0 (R-CS3): claims Stage 5.56 could neither write nor hold (PJ-0b)
     # because their subject has no page, and how many page-less subjects there
     # were. Counts only — G141's M3 measure, carried into the `sleep_run`
@@ -2159,6 +2161,7 @@ def _reset_batch_counters() -> None:
     _state.inbox_settled = 0
     _state.revision_cascade = None
     _state.corrections_batch = None
+    _state.held_prose_dropped = 0
     _state.write_started = False
 
 
@@ -3323,6 +3326,19 @@ async def _run_stages(
     # below — on the loop each step froze every request (`GET /sleep/status` measured at seconds
     # per batch on a 3,600-page bank) for as long as it ran.
     existing = await asyncio.to_thread(_load_existing_entities, memory_path)
+    # G104 slice 3 (T6): a pending line's first-read PROSE that only the removed text said never seeds a page Stage 2
+    # births from that line in this very drain — dropped here, before it, counted at Stage 5.575.
+    _state.held_prose_dropped = 0
+    if revisions and not decay_only:
+        try:
+            from api.services import revision_cascade
+
+            _read_now = {e.get("episode_id") for e in extracted}
+            _state.held_prose_dropped = await asyncio.to_thread(
+                revision_cascade.drop_held_prose, memory_path,
+                {i: r for i, r in revisions.items() if i in _read_now}, words_taken=_words_taken)
+        except Exception as e:  # noqa: BLE001 - the cascade never costs the cycle
+            logger.warning(f"Stage 2 held prose drop failed: {type(e).__name__}")
     from api.services.entity_resolver import resolve, resolve_off_loop
     if decay_only:
         resolved_result = {"changes": [], "relationships": [], "episode_cooccurrences": {}, "name_to_id": {}}
@@ -3618,6 +3634,7 @@ async def _run_stages(
                 revision_cascade.run, memory_path, revisions_read,
                 revised_out=claim_result.get("revised_out") or {},
                 held_withdrawn=len(claim_result.get("held_withdrawn") or ()),
+                prose_dropped=int(getattr(_state, "held_prose_dropped", 0) or 0),
                 new_pages={str(r.get("id")) for r in resolved_changes if r.get("action") == "create"})
             if cascade.revised:
                 _state.revision_cascade = cascade.as_dict()

@@ -51,7 +51,9 @@ def batch_entry(cascade: dict | None, *, withdrawn: int = 0, superseded: int = 0
         "pages_kept": [{"page": str(r["page"]), "episode": str(r["episode"]), "support": str(r.get("support") or "")}
                        for r in cascade.get("pages_kept") or []],
         "aliases_dropped": sum(int(r.get("count") or 0) for r in cascade.get("aliases_dropped") or []),
-        "held_dropped": int(held.get("claims_dropped") or 0) + int(held.get("claims_withdrawn") or 0),
+        # Held claims and held prose (summary, key facts, history) alike: what a name not yet on a page was holding.
+        "held_dropped": (int(held.get("claims_dropped") or 0) + int(held.get("claims_withdrawn") or 0)
+                         + int(held.get("prose_dropped") or 0)),
         "questions_withdrawn": len(cascade.get("questions") or []),
     }
 
