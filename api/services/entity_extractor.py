@@ -154,9 +154,8 @@ promotion, a status, a price) is written as a fact or a value on the page and is
 never makes the person, company, place or tool itself volatile.
 - volatile: the entity is itself short-lived and stops mattering once it is over — an event, a trip, a race,
   an application, an errand, a decision still being made, something the person is trying for a week. Never a
-  person, a company or a project, and never because a fact about it is changing: a sister who is moving
-  flats, a friend who was promoted, an employer the person has just joined, a project in its busy month are
-  not volatile.
+  person, a company or a project, and never because a fact about it is changing: a parent who is changing
+  jobs, a client in a busy quarter, a neighbour who is about to move are not volatile.
 - durable: a stable preference, a skill, a language, a city, or a long-lived concept that rarely moves.
 - active: everything else — the default, and the right class for the people in the person's life, the
   companies they work for or with, the projects they are working on and the tools they use. Omit the field
