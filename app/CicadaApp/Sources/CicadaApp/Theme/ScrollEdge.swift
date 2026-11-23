@@ -24,6 +24,32 @@ extension View {
     func softTopScrollEdge() -> some View { modifier(SoftTopScrollEdge()) }
 }
 
+/// The top edge of a scroll view that runs under a pinned bar (the entity card's tabs, owner 2026-11-23: *"the bar with
+/// the buttons for content, perspectives and such kind of cuttoff the text in a weird way"*): the text fades out over its
+/// first 16 pt instead of being sliced mid-line under the bar. A mask, not a fill, so it follows whatever ground the
+/// view sits on in either theme, and not a glass material or a shadow (DR-9, DR-10, DR-14). It starts where a page's own
+/// top inset ends (16–18 pt), so a page at rest is never touched by it.
+struct FadedTopScrollEdge: ViewModifier {
+    var height: CGFloat = CicadaTheme.scaled(16)
+
+    func body(content: Content) -> some View {
+        content.mask(alignment: .top) {
+            VStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                    .frame(height: height)
+                Rectangle().fill(.black)
+            }
+        }
+    }
+}
+
+extension View {
+    /// The one door for a scroll view's faded top edge under a pinned bar.
+    func fadedTopEdge(height: CGFloat = CicadaTheme.scaled(16)) -> some View {
+        modifier(FadedTopScrollEdge(height: height))
+    }
+}
+
 /// ROR-118 - the bottom edge of a panel whose content runs past it (Settings was cut flush at a row with no cue that
 /// more follows): the content eases into the panel's own ground over its last 36 pt, and the system's soft edge is
 /// asked for where it exists. A fill the colour of the surface, never a shadow or a glass material (DR-9, DR-14);

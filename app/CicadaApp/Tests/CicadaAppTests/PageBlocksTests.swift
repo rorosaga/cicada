@@ -53,6 +53,10 @@ final class PageBlocksTests: XCTestCase {
         XCTAssertEqual(c.refs.first?.title, "Studio plan")
         XCTAssertEqual(c.refs[1].correspondent, "Bob Example")
         XCTAssertEqual([c.total, c.conversations, c.web, c.pages], [3, 2, 1, 0])
+        // blocks-7 (owner 2026-11-23): every reference's mark rides, so a passage's cluster never needs a References line.
+        XCTAssertEqual(c.markKeys, ["claude-code", "messages", "web"])
+        XCTAssertEqual(c.refMarks, [0, 1, 2])
+        XCTAssertEqual((1...3).map { c.markKey(forRef: $0) }, ["claude-code", "messages", "web"])
         XCTAssertTrue(c.beliefs.isEmpty)
     }
 

@@ -365,46 +365,91 @@ struct RunCardView: View {
 /// The sources a consolidation read, as their real marks (DR-52), overlapping like a stack of faces, most-read first;
 /// a fourth source and beyond is a "+N" on the last place. Drawn only once the items say what it read.
 struct RunSourceMarks: View {
+    /// The Sleep card's cluster (20 pt marks on a card) or the one that ends a cited passage on an entity page (owner
+    /// 2026-11-23: the page's sources as marks, not numbers): the same marks, overlapping the same way, at the line's size.
+    enum Style: Equatable {
+        case card
+        case passage
+
+        var mark: CGFloat { CicadaTheme.scaled(self == .card ? 20 : 16) }
+        var step: CGFloat { CicadaTheme.scaled(self == .card ? 15 : 11) }
+        var knock: CGFloat { CicadaTheme.scaled(self == .card ? 2 : 1.5) }
+        var radius: CGFloat { self == .card ? CicadaTheme.cornerRadiusSmall : CicadaTheme.scaled(5) }
+    }
+
     let origins: [String]
+    var style: Style = .card
+    /// `.passage`: the sources the marks drawn do not stand for, as quiet type after them ("+2"). The card's own rule
+    /// puts "+N" on a last place instead and keeps it to three places.
+    var more = 0
+    /// What the marks overlap on, so each is knocked out of it: the card's surface, or the page's ground.
+    var ground: Color = CicadaTheme.bgFocus
 
     static let places = 3
-    static var mark: CGFloat { CicadaTheme.scaled(20) }
-    static var step: CGFloat { CicadaTheme.scaled(15) }
-    static var knock: CGFloat { CicadaTheme.scaled(2) }
+    static var mark: CGFloat { Style.card.mark }
+    static var step: CGFloat { Style.card.step }
+    static var knock: CGFloat { Style.card.knock }
 
     var body: some View {
-        let shown = origins.count > Self.places ? Array(origins.prefix(Self.places - 1)) : origins
-        let extra = origins.count - shown.count
+        let passage = style == .passage
+        let shown = passage ? origins : (origins.count > Self.places ? Array(origins.prefix(Self.places - 1)) : origins)
+        let extra = passage ? 0 : origins.count - shown.count
         let places = shown.count + (extra > 0 ? 1 : 0)
-        ZStack(alignment: .topLeading) {
-            ForEach(Array(shown.enumerated()), id: \.element) { i, origin in
-                tile { StudyListCard.mark(origin, size: Self.mark) }
-                    .offset(x: CGFloat(i) * Self.step)
-                    .zIndex(Double(Self.places - i))
-            }
-            if extra > 0 {
-                tile {
-                    Text(Copy.RunCard.moreSources(extra))
-                        .font(CicadaTheme.badgeFont)
-                        .monospacedDigit()
-                        .foregroundStyle(CicadaTheme.textSecondary)
+        HStack(spacing: CicadaTheme.scaled(3)) {
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(shown.enumerated()), id: \.element) { i, origin in
+                    tile { Self.markView(origin, size: style.mark) }
+                        .offset(x: CGFloat(i) * style.step)
+                        .zIndex(Double(Self.places - i))
                 }
-                .offset(x: CGFloat(shown.count) * Self.step)
+                if extra > 0 {
+                    tile {
+                        Text(Copy.RunCard.moreSources(extra))
+                            .font(CicadaTheme.badgeFont)
+                            .monospacedDigit()
+                            .foregroundStyle(CicadaTheme.textSecondary)
+                    }
+                    .offset(x: CGFloat(shown.count) * style.step)
+                }
+            }
+            .frame(width: style.mark + 2 * style.knock + CGFloat(max(places - 1, 0)) * style.step,
+                   height: style.mark + 2 * style.knock, alignment: .topLeading)
+            if passage, more > 0 {
+                Text(Copy.RunCard.moreSources(more))
+                    .font(CicadaTheme.metaFont)
+                    .monospacedDigit()
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .fixedSize()
             }
         }
-        .frame(width: Self.mark + 2 * Self.knock + CGFloat(max(places - 1, 0)) * Self.step,
-               height: Self.mark + 2 * Self.knock, alignment: .topLeading)
-        .help(origins.isEmpty ? "" : Copy.RunCard.readFrom(origins.map { OriginIconography.label(for: $0) }))
+        .help(passage || origins.isEmpty ? "" : Copy.RunCard.readFrom(origins.map { OriginIconography.label(for: $0) }))
         .accessibilityHidden(true)   // the card's label says what it read
     }
 
-    /// One place: the mark (or a stand-in) on a quiet tile, knocked out of the card by 2 pt so overlaps stay legible.
+    /// A source's mark by its key: a looked-up page and another page of the bank have no app, so each is a plain glyph
+    /// on the same quiet tile; every other key is an origin (`OriginMark`'s own table, its stand-in when unknown).
+    @ViewBuilder
+    static func markView(_ key: String, size: CGFloat) -> some View {
+        switch key {
+        case "web":
+            Image(systemName: "globe").font(CicadaTheme.font(size: size * 0.6, weight: .medium))
+                .foregroundStyle(CicadaTheme.textSecondary)
+        case "page":
+            Image(systemName: "doc.text").font(CicadaTheme.font(size: size * 0.6, weight: .medium))
+                .foregroundStyle(CicadaTheme.textSecondary)
+        default:
+            StudyListCard.mark(key, size: size)
+        }
+    }
+
+    /// One place: the mark (or a stand-in) on a quiet tile, knocked out of the ground by 2 pt (1.5 on a page) so
+    /// overlaps stay legible.
     private func tile<C: View>(@ViewBuilder _ content: () -> C) -> some View {
         content()
-            .frame(width: Self.mark, height: Self.mark)
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgBadge))
-            .padding(Self.knock)
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall + Self.knock).fill(CicadaTheme.bgFocus))
+            .frame(width: style.mark, height: style.mark)
+            .background(CicadaTheme.shape(style.radius).fill(CicadaTheme.bgBadge))
+            .padding(style.knock)
+            .background(CicadaTheme.shape(style.radius + style.knock).fill(ground))
     }
 }
 

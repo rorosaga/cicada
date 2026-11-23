@@ -762,6 +762,10 @@ class PageBlockCitations(CamelModel):
     markers: list[list[int]] = []
     markers_total: int = 0
     refs: list[PageCitationRef] = []
+    #: `blocks-7`: the mark every reference wears where it is cited — the distinct keys, and per reference (by number
+    #: order) its index into them. References past the first six have a mark here and no line in ``refs``.
+    mark_keys: list[str] = []
+    ref_marks: list[int] = []
     total: int = 0
     conversations: int = 0
     web: int = 0

@@ -284,18 +284,48 @@ def _ref_dict(ref: _Ref) -> dict:
     return out
 
 
+def mark_key(ref: _Ref) -> str:
+    """The key of the mark a source wears where it is cited (the owner, 2026-11-23: a passage ends in its sources' own
+    marks, never numbers): a looked-up page ``web``, another page of the bank ``page``, else the agent's product
+    (``harness``) when the conversation names one, else the channel it came in by (``origin``). The app draws the key
+    through its one origin-mark table (`OriginMark`); an unknown key draws that table's stand-in."""
+    if ref.kind in ("web", "page"):
+        return ref.kind
+    harness = (ref.harness or "").strip()
+    if harness and harness not in ("unknown", "mcp"):
+        return harness
+    return (ref.origin or "").strip() or "unknown"
+
+
+def _mark_table(refs: list[_Ref]) -> tuple[list[str], list[int]]:
+    """Every reference's mark key, once each (``markKeys``) and per reference, by number order, its index into them
+    (``refMarks``): a passage cites sources beyond the six References lines, and each still draws its own mark."""
+    keys: list[str] = []
+    index: dict[str, int] = {}
+    per_ref: list[int] = []
+    for ref in refs:
+        key = mark_key(ref)
+        if key not in index:
+            index[key] = len(keys)
+            keys.append(key)
+        per_ref.append(index[key])
+    return keys, per_ref
+
+
 def block(memory_path: Path, entity_id: str, *, fm: dict, body: str, claims) -> dict | None:
     """The ``citations`` block of ``GET /entities/{id}``: markers as ``[offset, n, …]`` (offsets into the served prose,
     Python ``str`` offsets — the app's row ranges), the first :data:`MAX_SHOWN_REFS` references for the References
-    lines, the counts behind its closing line, and the belief sentences of a page whose prose cites nothing yet.
-    ``None`` when the page cites nothing at all."""
+    lines, the mark of every reference (``markKeys`` / ``refMarks``, `blocks-7`), the counts behind its closing line,
+    and the belief sentences of a page whose prose cites nothing yet. ``None`` when the page cites nothing at all."""
     t = table(memory_path, entity_id, fm=fm, body=body, claims=claims)
     if not t.refs and not t.beliefs:
         return None
     kinds = [r.kind for r in t.refs]
+    mark_keys, ref_marks = _mark_table(t.refs)
     return {"markers": [[at, *ns] for at, ns, _ in t.markers[:MAX_MARKERS]],
             "markersTotal": len(t.markers),
             "refs": [_ref_dict(r) for r in t.refs[:MAX_SHOWN_REFS]],
+            "markKeys": mark_keys, "refMarks": ref_marks,
             "total": len(t.refs), "conversations": kinds.count("conversation"), "web": kinds.count("web"),
             "pages": kinds.count("page"), "beliefs": t.beliefs, "beliefsTotal": t.beliefs_total}
 

@@ -203,6 +203,8 @@ struct EntityDetailCard: View {
                     case .timeline: timelineTab
                     }
                 }
+                // Owner 2026-11-23: scrolled text fades out under the tabs instead of being cut mid-line.
+                .fadedTopEdge()
             }
         }
         .frame(maxHeight: .infinity)
@@ -325,7 +327,7 @@ struct EntityDetailCard: View {
             }
             if !pageBlockIsEmpty { pageBlock }
             if !isStub, !showRawMarkdown, let cites = blocks?.citations, !cites.beliefs.isEmpty {
-                PageBeliefSentences(entityId: entity.id, beliefs: cites.beliefs, total: cites.beliefsTotal,
+                PageBeliefSentences(entityId: entity.id, beliefs: cites.beliefs, citations: cites, total: cites.beliefsTotal,
                                     onMore: { selectedTab = .perspectives })
             }
             if !isStub, !showRawMarkdown, !(blocks?.looks.isEmpty ?? true), !brandLeads { looksSection }

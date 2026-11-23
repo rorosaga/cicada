@@ -2278,15 +2278,24 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   the type block (the brand block, `PageBrandBlock`, above the article when looks are what the page is about — two or
   more, or no article — then the look tiles; a folder, a repository), *Marked* (`PageMarks`, ruling 64: a book's highlights word for word, each note under its passage, the day), *Ongoing* (`PageOngoing`, open happenings and
   planned milestones on the Projects band's hollow node, at most five), the article carrying its beliefs, and
-  *References* (`PageReferences`, at most six numbered lines, then "N conversations and M web pages in all · who wrote
-  each change is in History", with a History link). **The article carries the beliefs (DR-80):** every line the
-  page's write-time provenance cites ends with a superscript per source (`CitationMarks`, `labelFont`, `textTertiary`,
-  a `cicada://cite/<n>?at=<offset>` link); a click opens a popover (`CitationPopover`: the kind — *You said*,
-  *<agent> replied*, *Looked up*, *From this conversation*, *Inferred* — when, where, the located words through
-  `QuoteBlock` (DR-18) and *Show in conversation* into the Reader, DR-31), read lazily from
-  `GET /entities/{id}/citations/{n}` and held in `CitationDetailCache`. Keys and VoiceOver: each cited line keeps its
-  sources as focusable chips in the gutter (the 🔗's place; ⏎ opens, Esc closes) and as named actions "Source N" on
-  the line. A page whose prose cites nothing yet draws its beliefs as one paragraph of sentences
+  *References* (`PageReferences`, at most six cards — `ReferenceCard`, each led by its source's mark, never a number; the
+  same line and day cited twice is one card — then "N conversations and M web pages in all · who wrote
+  each change is in History", with a History link). **The article carries the beliefs (DR-80, amended 2026-11-23):**
+  every line the page's write-time provenance cites ends with **one cluster of its sources' marks** (`SourceCluster`,
+  `RunSourceMarks` in its `.passage` style: the first of each kind of source, up to three, then a quiet "+N";
+  `SourceClusterModel`), glued to the last word; a click, a hover after `hoverPreviewDelay` or Tab then ⏎ opens
+  `CitationsPopover`, one `CitationSourceRow` per source — its mark, "You, in <app> · <title>", the day, the kind
+  (*You said*, *<agent> replied*, *Looked up*, *From this conversation*, *Inferred*) and located words through `QuoteBlock`
+  (DR-18) and *Show in conversation* into the Reader, DR-31 — each read lazily from
+  `GET /entities/{id}/citations/{n}` and held in `CitationDetailCache`. The marks come from `citations.markKeys` /
+  `refMarks` (`blocks-7`, one per reference, so a source past the six References lines still wears its own).
+  **Links are chips (2026-11-23):** a wikilink or web link in a paragraph, item or quote is a `PageLinkChip` wearing the
+  resolved page's own name and picture (`PageLinkIndex`, memoised per graph snapshot as `Store.linkIndex`: an id, else
+  exactly one page by name or alias; anything else keeps its written words) or the site's bundled mark
+  (`PageChipMark`); a line with a chip or cluster is cut into `PageInline` pieces and laid out by `InlineFlowLayout`
+  (baseline-aligned, a touching piece never starts a line, the cluster never alone), a line of only words stays one
+  `Text`. **Related** list items are `RelatedCard`s (picture, the page's name, the words after the dash); the tab bar's
+  scroll view fades its first 16 pt (`fadedTopEdge`). A page whose prose cites nothing yet draws its beliefs as one paragraph of sentences
   (`PageBeliefSentences`): an inference worded "It seems that …", an ended one "(until March 2025)"; past twelve, "N
   more in Perspectives". **Gone from the page:** the beliefs list, *Where this came from*, the person's *How you know*
   and *What's happening*, the facts strip, *Details* and the empty *Looks* fold; *How it fades*, *Add a link* and *Add
