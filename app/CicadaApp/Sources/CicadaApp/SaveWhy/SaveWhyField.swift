@@ -1,9 +1,10 @@
 import AppKit
+import SwiftUI
 
 /// G191 v7 — the panel's field grows with what is written (owner 2026-10-23: "for the first couple of newlines, have
 /// the text input vertically expand smoothly until a limit arrives where it becomes scrollable").
 ///
-/// **The cap is five lines.** The words are capped at 500 characters (`saved_why.MAX_TEXT`); at the field's 12 pt and
+/// **The cap is five lines.** The words are capped at 500 characters (`saved_why.MAX_TEXT`); at the field's 13 pt and
 /// its width (≈ 370 pt) a line holds about 60 of them, so five lines show ≈ 300 — most answers whole, never scrolling
 /// — while the card stays a short drop from the notch (≈ 75 pt of text at 1×, the panel well under a quarter of a
 /// 13-inch screen) and never covers the page the person just saved. Past five the field scrolls inside itself.
@@ -22,8 +23,16 @@ enum SaveWhyField {
     /// What AppKit's text field keeps clear at the two ends of a line (its line-fragment padding, both sides).
     static let linePadding: CGFloat = 4
 
-    /// The field's text font, as AppKit measures it: `CicadaTheme.metaFont` (12 pt, scaled).
-    static var font: NSFont { NSFont.systemFont(ofSize: CicadaTheme.scaled(12)) }
+    /// The field's text size at 1×: the ONE number the field is drawn in (`swiftUIFont`) and measured in (`font`).
+    /// Owner 2026-11-23 ("the text is cutting off"): the field drew in `metaFont`, which ROR-118 raised to 13 pt, while
+    /// the measurement stayed at 12 — a line that wrapped on screen still counted as one, and the second was clipped.
+    static let fontSize: CGFloat = 13
+
+    /// The field's text font, as SwiftUI draws it.
+    static var swiftUIFont: Font { CicadaTheme.font(size: fontSize) }
+
+    /// The field's text font, as AppKit measures it.
+    static var font: NSFont { NSFont.systemFont(ofSize: CicadaTheme.scaled(fontSize)) }
 
     /// One line's height in `font`.
     static func lineHeight(_ font: NSFont = font) -> CGFloat {

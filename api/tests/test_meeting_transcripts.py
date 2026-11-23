@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from api import config, main
 from api.services import bank_index, channel_registry, entity_extractor, evidence, folder_source as fs
-from api.services import markdown_parser, meeting_transcripts as mt, promotion, source_overview
+from api.services import markdown_parser, meeting_speakers, meeting_transcripts as mt, promotion, source_overview
 
 # Made-up meetings only (placeholders, never a real conversation).
 HEX = """# Alpha planning
@@ -322,6 +322,169 @@ def test_sleep_is_told_whose_lines_they_are():
     plain = entity_extractor.meeting_note({"meeting": {"recorder": None}})
     assert "None of its lines is marked as the person's own words" in plain and "meeting folder" in plain
     assert entity_extractor.meeting_note({"source": "claude-code"}) is None
+
+
+# --- Unnamed speakers (ROR-142) --------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("label", ["Them", "them", "Speaker 1", "SPEAKER_00", "speaker-2", "Speaker A", "Unknown",
+                                   "Unknown Speaker", "Unidentified Speaker", "Other speaker", "Unnamed", "Guest 3",
+                                   "Participant 2", "Remote", "Spk 1", "Other side", "A", "B", "1", "0",
+                                   "Hablante 1", "Desconocido", "Invitada 2"])
+def test_a_label_a_recorder_gives_someone_it_could_not_name_is_a_placeholder(label):
+    assert mt.is_placeholder(label)
+
+
+@pytest.mark.parametrize("label", ["You", "Me", "Dana Example", "Speakerman", "Guest Speaker Bob", "Theme", "Ab",
+                                   "Speaker 1 Dana", "Remote Team Lead", "Dana (Guest)", ""])
+def test_a_name_is_never_a_placeholder(label):
+    assert not mt.is_placeholder(label)
+
+
+def test_a_numbered_json_speaker_keeps_its_number_even_zero():
+    d = _draft("call.json", '{"segments": [{"speaker": 0, "text": "Hello there."}, {"speaker": 1, "text": "Hi."}]}')
+    assert _markers(d) == ["speaker:0", "speaker:1"]
+
+
+def _meeting(*speakers, attendees=None):
+    m = {"recorder": "hex", "own_labels": ["You"], "speakers": ["You", *speakers]}
+    if attendees:
+        m["attendees"] = attendees
+    return {"meeting": m}
+
+
+def test_them_is_one_placeholder_that_may_be_several_people():
+    note = entity_extractor.meeting_note(_meeting("Them"))
+    assert '"speaker:them" is a placeholder' in note and "never create a page" in note
+    assert "never take it for the person themselves" in note and "someone in the meeting" in note
+    assert "may be several different people" in note
+
+
+def test_the_note_never_offers_the_calendar_as_anyones_words():
+    note = entity_extractor.meeting_note(_meeting("Speaker 1", "Speaker 2", attendees=["Dana Example", "Bob Example"]))
+    assert '"speaker:speaker-1", "speaker:speaker-2" are placeholders' in note
+    assert "Dana Example" not in note and "own work" not in note
+    assert "may be several different people" not in note   # a numbered voice is one person
+
+
+def test_two_labels_on_one_marker_are_said_once():
+    note = entity_extractor.meeting_note(_meeting("Unknown", "Unnamed"))
+    assert note.count('"speaker:unknown"') == 1
+
+
+def test_named_speakers_leave_the_note_as_it_was():
+    named = _meeting("Dana Example")
+    assert entity_extractor.meeting_note(named) == entity_extractor.meeting_note(_meeting())
+    assert "placeholder" not in entity_extractor.meeting_note(named)
+
+
+def test_an_identified_speaker_is_said_with_the_line_that_names_them():
+    found = [meeting_speakers.Named("speaker:speaker-1", "Dana Example", "Dana Example, go ahead")]
+    note = entity_extractor.meeting_note(_meeting("Speaker 1", "Speaker 2"), found)
+    assert 'Lines starting "speaker:speaker-1:" are Dana Example (the transcript says: "Dana Example, go ahead")' in note
+    assert '"speaker:speaker-2" is a placeholder' in note and '"speaker:speaker-1" is a' not in note
+
+
+TRANSCRIPT = ("user: Hi both. Dana, go ahead with the recap.\n"
+              "speaker:speaker-1: Thanks. The pipeline is done.\n"
+              "speaker:speaker-2: I'm Bob Example, I run the lab.\n"
+              "user: Great, thanks Rodrigo here.\n")
+ASKED = [("speaker:speaker-1", False), ("speaker:speaker-2", False), ("speaker:them", True)]
+
+
+def _row(label, name, quote):
+    return {"label": label, "name": name, "quote": quote}
+
+
+def test_an_answer_is_kept_only_when_the_transcript_says_the_name():
+    answer = {"speakers": [_row("speaker:speaker-1", "Dana", "Dana, go ahead with the recap"),
+                           _row("speaker:speaker-2", "Bob Example", "I'm Bob Example, I run the lab.")]}
+    kept = meeting_speakers.keep(answer, ASKED, TRANSCRIPT, owner="Rodrigo Example")
+    assert [(k.marker, k.name) for k in kept] == [("speaker:speaker-1", "Dana"), ("speaker:speaker-2", "Bob Example")]
+
+
+@pytest.mark.parametrize("row", [
+    _row("speaker:speaker-1", "Dana", "Dana, please present"),            # the quote is not in the transcript
+    _row("speaker:speaker-1", "Carol", "Dana, go ahead with the recap"),  # the quote does not say the name
+    _row("speaker:speaker-1", "Rodrigo", "thanks Rodrigo here"),          # never the person themselves
+    _row("speaker:speaker-1", "me", "Great, thanks Rodrigo here"),        # a self-reference is the person
+    _row("speaker:speaker-1", "Speaker 2", "speaker:speaker-2: I'm Bob"),  # never another placeholder
+    _row("speaker:you", "Dana", "Dana, go ahead with the recap"),          # never a label it was not asked about
+])
+def test_an_answer_that_does_not_hold_up_is_dropped(row):
+    assert meeting_speakers.keep({"speakers": [row]}, ASKED, TRANSCRIPT, owner="Rodrigo Example") == []
+
+
+def test_one_voice_with_two_names_stays_unnamed_but_a_track_may_hold_several():
+    two = [_row("speaker:speaker-1", "Dana", "Dana, go ahead with the recap"),
+           _row("speaker:speaker-1", "Bob Example", "I'm Bob Example, I run the lab.")]
+    assert meeting_speakers.keep({"speakers": two}, ASKED, TRANSCRIPT, owner=None) == []
+    track = [{**r, "label": "speaker:them"} for r in two]
+    assert [k.name for k in meeting_speakers.keep({"speakers": track}, ASKED, TRANSCRIPT, owner=None)] == [
+        "Dana", "Bob Example"]
+
+
+def test_garbage_from_the_engine_keeps_nothing():
+    for answer in (None, [], {"speakers": "Dana"}, {"speakers": [None, 3, {"label": "speaker:speaker-1"}]}):
+        assert meeting_speakers.keep(answer, ASKED, TRANSCRIPT, owner=None) == []
+
+
+class _Reply:
+    def __init__(self, text):
+        self.choices = [type("C", (), {"message": type("M", (), {"content": text})()})()]
+
+
+def _engine(monkeypatch, reply=None, error=None):
+    calls = []
+
+    def resolve(settings, **kw):
+        async def call(**kwargs):
+            calls.append(kwargs)
+            if error:
+                raise error
+            return _Reply(reply)
+        return call
+
+    from api.services import providers
+    monkeypatch.setattr(providers, "resolve_llm_fn", resolve)
+    return calls
+
+
+def test_identify_asks_once_and_a_failure_reads_the_meeting_as_labelled(monkeypatch):
+    import asyncio, json
+    from api.config import Settings
+
+    calls = _engine(monkeypatch, json.dumps({"speakers": [_row("speaker:speaker-1", "Dana", "Dana, go ahead")]}))
+    kept = asyncio.run(meeting_speakers.identify("ep_1", TRANSCRIPT, ASKED, Settings(), owner=None,
+                                                 attendees=["Dana Example"]))
+    assert [k.name for k in kept] == ["Dana"] and len(calls) == 1
+    asked = calls[0]["messages"][1]["content"]
+    assert '"speaker:them" (several people)' in asked and "spelling help only" in asked
+    _engine(monkeypatch, error=ValueError("no JSON"))
+    assert asyncio.run(meeting_speakers.identify("ep_1", TRANSCRIPT, ASKED, Settings())) == []
+
+
+def test_stage_1_names_the_speakers_before_it_reads_and_never_asks_without_a_placeholder(monkeypatch):
+    import asyncio, json
+    from api.config import Settings
+
+    calls = _engine(monkeypatch, json.dumps({"speakers": [_row("speaker:speaker-1", "Dana", "Dana, go ahead")]}))
+    notes = []
+
+    async def chunk(ep_id, text, ci, total, settings, **kw):
+        notes.append(kw.get("source_note") or "")
+        return {"entities": [], "relationships": []}
+
+    monkeypatch.setattr(entity_extractor, "_extract_chunk", chunk)
+    ep = {"id": "ep_2026-11-23_001", "content": TRANSCRIPT, "timestamp": "2026-11-23T10:00:00", "origin": "folder",
+          **_meeting("Speaker 1", "Speaker 2")}
+    out = asyncio.run(entity_extractor.extract([ep], Settings()))
+    assert len(calls) == 1 and 'Lines starting "speaker:speaker-1:" are Dana' in notes[0]
+    # Slice 2: the voice left unnamed travels to Stage 5.4c, which asks the person.
+    assert out[0][meeting_speakers.RESULT_KEY] == {"named": ["Dana"], "unnamed": ["speaker:speaker-2"]}
+    calls.clear(); notes.clear()
+    asyncio.run(entity_extractor.extract([{**ep, **_meeting("Dana Example")}], Settings()))
+    assert calls == [] and "placeholder" not in notes[0]
 
 
 # --- The routes ------------------------------------------------------------------------------------------------------

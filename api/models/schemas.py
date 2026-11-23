@@ -3955,6 +3955,10 @@ class SleepConsolidatedPage(CamelModel):
     #: G227 (items-2): when another page shares this title, the qualifier and the name to show. Additive.
     qualifier: Optional[str] = None
     display_name: Optional[str] = None
+    #: items-3 (owner 2026-11-23, "see what page or chunk of page was modified"): the consolidation's commits that
+    #: changed this page, oldest first — the app diffs the first one's parent to the last (`?since=` on the page's
+    #: commit diff route) to show what the night did to it. Additive.
+    commits: list[str] = Field(default_factory=list)
 
 
 class SleepConsolidatedQuestion(CamelModel):

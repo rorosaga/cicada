@@ -32,10 +32,12 @@ final class FeedLayoutPinTests: XCTestCase {
         XCTAssertFalse(rows.contains("ConnectedChannelsStrip("))
     }
 
-    func testThePlusIsInTheTabRowWithItsShortcut() throws {
+    /// Owner 2026-11-23 ("I don't get why there is an add"): Sleep's tab row has no Add — it only opened Sources,
+    /// which the rail opens and which keeps its own Add.
+    func testTheTabRowHasNoAdd() throws {
         let row = try source("Views/Sleep/SleepTabRow.swift")
-        XCTAssertTrue(row.contains(#"NeutralButton(title: Copy.SleepTabs.add, systemImage: "plus""#))
-        XCTAssertTrue(row.contains(#"KeyboardShortcut("n", modifiers: .command)"#))
+        XCTAssertFalse(row.contains(#"systemImage: "plus""#))
+        XCTAssertFalse(row.contains(#"KeyboardShortcut("n", modifiers: .command)"#))
         let page = try source("Views/Sleep/SleepView.swift")
         XCTAssertFalse(page.contains(".opacity(0)"), "no hidden zero-size button")
         XCTAssertEqual(page.components(separatedBy: "AddSourceSheet(").count - 1, 1)

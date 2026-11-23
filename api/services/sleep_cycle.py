@@ -3492,6 +3492,20 @@ async def _run_stages(
     except Exception as e:
         logger.warning(f"Stage 5.4b exclusive relation questions failed: {type(e).__name__}")
 
+    # Stage 5.4c (ROR-142): a meeting voice this batch left unnamed is asked about once — "In <meeting> you talked
+    # with … Who was Speaker 1, the one who said …?" (`meeting_speakers`). Only the person's answer names anyone.
+    try:
+        from api.services import meeting_speakers, owner_identity
+
+        def _ask_speakers():
+            return meeting_speakers.ask_after_read(
+                memory_path, extracted, owner=owner_identity.owner_name(memory_path, settings))
+        asked_speakers = await asyncio.to_thread(_ask_speakers)
+        if asked_speakers:
+            logger.info(f"Stage 5.4c: asked who {len(asked_speakers)} unnamed meeting speaker(s) were")
+    except Exception as e:
+        logger.warning(f"Stage 5.4c meeting speaker questions failed: {type(e).__name__}: {e}")
+
     # Stage 5.5: Materialize entity-body wikilinks as `mentions` edges so the
     # graph stops ignoring them. Runs after relationships are written so the
     # `mentions` wave merges into the same graph_edges.yaml. Idempotent.

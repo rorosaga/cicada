@@ -736,6 +736,20 @@
      "900"
     ]
    }
+  ],
+  "roles": [
+   {
+    "id": "R1",
+    "why": "Marc is the brother-in-law; the owner is not his",
+    "holder": [
+     "marc"
+    ],
+    "role": [
+     "brother in law",
+     "beau frere",
+     "brother-in-law"
+    ]
+   }
   ]
  }
 }

@@ -192,9 +192,6 @@ enum Copy {
     static let bankListNotLoaded = "The bank list hasn't loaded yet."
     static let sourceOverviewNotLoaded = "The source overview hasn't loaded yet."
 
-    /// The Feed page's "+" / ⌘N affordance for opening the add-source sheet
-    /// (G68 §1 — Capture merged into Feed).
-    static let addASource = "Add a source"
 
     // MARK: Sleep engine (G74(a))
 

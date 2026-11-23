@@ -936,7 +936,9 @@ skill_folder`). Nothing is written into a bank: agent folders, and `$CICADA_HOME
   diffs it against the empty tree and it comes back all-adds; a MERGE commit needs `--first-parent`,
   else git emits a combined (`--cc`) `@@@` diff the parser can't read and the endpoint silently
   returns nothing. `truncated` is the UNION of three caps; `linesTruncated` specifically means "the
-  ordered list was cut" and is what a client renders its banner on.
+  ordered list was cut" and is what a client renders its banner on. `?since=<commit>` (Past reads, 2026-11-23) widens
+  it to one span — `since`'s first parent (the empty tree for a root) to `{commit}`, through `git diff` — so a page a run
+  changed in several batches reads as one change; `since` is hash-checked like `{commit}`.
 - `GET /conversations/recent` is **CAPPED** (limit ≤ 200) and is never a membership test; filters
   (`harness`, `origin`, and `q`, a title filter) apply BEFORE the cap; `harness` names an overview row, the partition
   its count uses, never the episode's field (ROR-109). Use `GET /conversations/{id}` to

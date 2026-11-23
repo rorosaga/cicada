@@ -151,6 +151,7 @@ def claim_text(c: dict) -> str:
 
 
 ENDED = re.compile(r"\b(?:dropped|left|stopped|no longer|moved off|moved from|switched from|replaced|abandoned)\b")
+HAS_ROLE = re.compile(r"^(?:has|have|had|tiene|a pour|a un|a une)\b")
 NEGATION = re.compile(r"\b(?:not|never|no longer|declined|decided against|rejected|against|won't|doesn't|didn't|"
                       r"too expensive|instead of|stayed? on|staying|hypothetical|if|ruled out|refused|skipped|dropped|skips?|"
                       r"without|sans|sin)\b")
@@ -393,6 +394,25 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
                and not NEGATION.search(norm(c.get("text") or ""))]
         forbid.append({"id": row["id"], "why": row["why"], "ok": not bad, "violations": [claim_text(c) for c in bad[:3]]})
 
+    # A role one person holds to the owner ("my brother-in-law Marc") must read true as written: never the owner as the
+    # holder ("<owner> brother-in-law of Marc"), never the holder as having it ("Marc has brother-in-law <owner>").
+    roles = []
+    for row in gold.get("roles", []):
+        role, holder = [norm(t) for t in row["role"]], [norm(t) for t in row["holder"]]
+        bad = []
+        for c in claims:
+            if not is_current(c):
+                continue
+            label = norm(str(c.get("predicate") or "").replace("-", " "))
+            if not any(t in label for t in role):
+                continue
+            has = bool(HAS_ROLE.match(label))
+            subject, obj = norm(str(c.get("subject") or "")), norm(str(c.get("object") or ""))
+            if ((c.get("subject") == owner_id and any(t in obj for t in holder) and not has)
+                    or (c.get("object") == owner_id and any(t in subject for t in holder) and has)):
+                bad.append(c)
+        roles.append({"id": row["id"], "why": row["why"], "ok": not bad, "violations": [claim_text(c) for c in bad[:3]]})
+
     people = []
     for row in gold["people"]["same"]:
         named = [p["id"] for p in pages if matches(_page_names(p), [row["names"]])]
@@ -476,6 +496,7 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
             "updates": len(updates),
             "apart_ok": total(apart), "apart": len(apart),
             "forbid_ok": total(forbid), "forbid": len(forbid),
+            "roles_ok": total(roles), "roles": len(roles),
             "people_ok": total(people), "people": len(people),
             "pages_ok": total(expected) + total(not_expected), "pages_checks": len(expected) + len(not_expected),
             "dated_ok": total(dated), "dated": len(dated),
@@ -483,7 +504,7 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
             "span_rate": integrity["span_rate"],
             "integrity_breaks": len(leaked) + len(integrity["project_pages_made"]) + len(integrity["evergreen_pages"]),
         },
-        "points": points, "updates": updates, "apart_values": apart, "forbid": forbid, "people": people,
+        "points": points, "updates": updates, "apart_values": apart, "forbid": forbid, "roles": roles, "people": people,
         "pages": {"expected": expected, "not_expected": not_expected}, "dated": dated, "integrity": integrity,
     }
 
@@ -802,6 +823,7 @@ def report(out: Path) -> str:
             ("updates_missing", "updates: new value missing"),
             ("apart_ok", f"two real values kept apart /{first.get('apart', '?')}"),
             ("forbid_ok", f"others' words kept off the person /{first.get('forbid', '?')}"),
+            ("roles_ok", f"a role reads true as written /{first.get('roles', '?')}"),
             ("people_ok", f"people joined/kept apart right /{first.get('people', '?')}"),
             ("pages_ok", f"page made / not made right /{first.get('pages_checks', '?')}"),
             ("dated_ok", f"relative dates right /{first.get('dated', '?')}"),
@@ -853,7 +875,7 @@ def compare(out: Path, a: str, b: str) -> str:
     rows = ["| measure | " + a + f" (n={len(ga)}) | " + b + f" (n={len(gb)}) | clear |", "|---|---|---|---|"]
     sa = [json.loads((x / "score.json").read_text(encoding="utf-8"))["summary"] for x in ga]
     sb = [json.loads((x / "score.json").read_text(encoding="utf-8"))["summary"] for x in gb]
-    for key in ("points_claim", "points_judged", "updates_correct", "apart_ok", "forbid_ok", "people_ok", "pages_ok", "dated_ok",
+    for key in ("points_claim", "points_judged", "updates_correct", "apart_ok", "forbid_ok", "roles_ok", "people_ok", "pages_ok", "dated_ok",
                 "claims_total", "pages_total"):
         va = [s[key] for s in sa if s.get(key) is not None]
         vb = [s[key] for s in sb if s.get(key) is not None]

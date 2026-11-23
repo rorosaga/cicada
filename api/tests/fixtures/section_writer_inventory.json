@@ -447,6 +447,12 @@
       "disposition": "uninstrumented_guarded"
     },
     {
+      "function": "relabel_in_place",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
       "function": "upgrade_relay",
       "method": "write",
       "frontmatter": "fm",
@@ -1845,6 +1851,14 @@
       "method": "write",
       "frontmatter": "fm",
       "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/meeting_speakers.py": [
+    {
+      "function": "ensure_question",
+      "method": "write",
+      "frontmatter": "item",
+      "disposition": "fresh_frontmatter_untracked"
     }
   ]
 }

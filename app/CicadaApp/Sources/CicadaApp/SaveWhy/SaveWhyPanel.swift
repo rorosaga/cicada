@@ -353,7 +353,7 @@ struct SaveWhyPanelView: View {
             TextField(Copy.SaveWhy.placeholder, text: $draft, axis: .vertical)
                 .lineLimit(1...SaveWhyField.maxLines)
                 .textFieldStyle(.plain)
-                .font(CicadaTheme.metaFont)
+                .font(SaveWhyField.swiftUIFont)
                 .foregroundStyle(CicadaTheme.Notch.textPrimary)
                 .focused($textFocused)
                 .frame(height: SaveWhyField.textHeight(lines: fieldLines, lineHeight: lineHeight), alignment: .topLeading)

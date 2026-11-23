@@ -1586,7 +1586,7 @@ def _parse_unified_diff(
 
 
 async def get_entity_commit_diff(
-    entity_id: str, commit_hash: str, memory_path: Path
+    entity_id: str, commit_hash: str, memory_path: Path, since: str | None = None
 ) -> EntityDiff:
     """Per-commit diff for one entity file (backlog A1, context lines in G69).
 
@@ -1625,6 +1625,8 @@ async def get_entity_commit_diff(
         return EntityDiff(added="", removed="", truncated=False)
 
     entity_file = f"entities/{entity_id}.md"
+    if since is not None:
+        return await _entity_span_diff(entity_file, since, commit_hash, memory_path)
     try:
         out = await _run_git(
             memory_path,
@@ -1650,6 +1652,42 @@ async def get_entity_commit_diff(
         lines=lines,
         lines_truncated=lines_truncated,
     )
+
+
+#: git's empty tree: the base of a span whose first commit is the root (no ``^`` to diff from).
+_EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+
+async def _entity_span_diff(entity_file: str, since: str, until: str, memory_path: Path) -> EntityDiff:
+    """One page's change across a span of commits (owner 2026-11-23, Past reads' "what changed"): ``since``'s first
+    parent to ``until``, so a page a run changed in several batches reads as one before → after. ``since`` is
+    validated like ``commit_hash``; a root ``since`` diffs from the empty tree. A span may include another writer's
+    commit to the same page in between — Sleep holds the write window per batch, so that is rare, and the diff is
+    still the page's real before → after. Empty (never an error) when git cannot answer."""
+    if not _COMMIT_HASH_RE.match(since):
+        return EntityDiff(added="", removed="", truncated=False)
+    try:
+        base = (await _run_git(memory_path, "rev-parse", "--verify", "--quiet", "--end-of-options",
+                               f"{since}^1")).strip()
+    except GitError:
+        base = ""
+    try:
+        out = await _run_git(
+            memory_path,
+            "diff",
+            "--no-color",
+            f"--unified={DIFF_CONTEXT_LINES}",
+            "--end-of-options",
+            base or _EMPTY_TREE,
+            until,
+            "--",
+            entity_file,
+        )
+    except GitError:
+        return EntityDiff(added="", removed="", truncated=False)
+    lines, added, removed, truncated, lines_truncated = _parse_unified_diff(out)
+    return EntityDiff(added="\n".join(added), removed="\n".join(removed), truncated=truncated, lines=lines,
+                      lines_truncated=lines_truncated)
 
 
 #: bank path -> (the HEAD folded, the per-author aggregate at it): `get_contributors` folds only new commits.

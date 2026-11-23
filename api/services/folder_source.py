@@ -368,13 +368,16 @@ def split_sections(text: str) -> list[tuple[str, str, str]]:
 
 
 def drafts_for_file(folder: dict, relpath: str, text: str, *, mtime_iso: str, sha: str,
-                    tz_name: str | None = None) -> list[episode_staging.EpisodeDraft]:
+                    tz_name: str | None = None, memory_path: Path | None = None) -> list[episode_staging.EpisodeDraft]:
     if is_meetings(folder):
         # G95 (2026-11-03): one meeting per file, its own date, its speakers' words (`meeting_transcripts`).
-        from api.services import meeting_transcripts
+        from api.services import meeting_speakers, meeting_transcripts
 
+        # ROR-142: the person's answers about this file's unnamed speakers, applied on every sync.
+        names = (meeting_speakers.names_for(memory_path, meeting_transcripts.source_id(folder["id"], relpath))
+                 if memory_path is not None else {})
         draft = meeting_transcripts.draft_for_file(folder, relpath, text, mtime_iso=mtime_iso, sha=sha,
-                                                   tz_name=tz_name)
+                                                   tz_name=tz_name, speaker_names=names)
         return [draft] if draft is not None else []
     authorship = authorship_for(relpath, folder.get("authorship") or [])
     base = f"{channel_id(folder['id'])}:{relpath}"
@@ -580,7 +583,8 @@ def _sync_locked(memory_path: Path, folder: dict, files: list[IncomingFile], del
             return None
         text = p.raw.decode("utf-8", errors="replace").lstrip("﻿")
         texts[p.rel] = text
-        new = drafts_for_file(folder, p.rel, text, mtime_iso=p.mtime, sha=p.sha, tz_name=tz_name)
+        new = drafts_for_file(folder, p.rel, text, mtime_iso=p.mtime, sha=p.sha, tz_name=tz_name,
+                              memory_path=memory_path)
         if meetings and not new:
             out["errors"].append({"relpath": p.rel, "reason": "not a meeting transcript"})
             return None

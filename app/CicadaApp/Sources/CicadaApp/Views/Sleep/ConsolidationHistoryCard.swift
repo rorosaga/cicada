@@ -174,7 +174,7 @@ struct ConsolidationHistoryCard: View {
     var onLoadItems: (SleepConsolidatedKey) -> Void = { _ in }
 
     var body: some View {
-        let cards = RunCardModel.cards(entries, details: runDetails, items: items)
+        let cards = RunCardModel.cards(entries, details: runDetails)
         // Say it once (owner 2026-10-19): what no card recorded is said on the section's label, not on every card.
         let layout = PastNightsLayout(entries)
         SleepDetailsSection(title: layout.title) {

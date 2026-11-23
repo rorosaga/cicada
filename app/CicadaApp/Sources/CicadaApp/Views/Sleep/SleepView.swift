@@ -225,7 +225,7 @@ struct SleepView: View {
     @FocusState private var focus: ListFocus?
     /// G162 — the watch run: the picker and its card take the list and the detail while it is on.
     @State private var run = VideoRunModel()
-    /// R-DL14 — the one-shot import's sheet (⌘N, the `+`, an Integrations hand-off).
+    /// R-DL14 — the one-shot import's sheet (an Integrations hand-off).
     @State private var showAddSheet = false
     @State private var sheetTile: AddSourceTile?
     /// Track Z Z5 — the room's interaction state (gaze, perk, the answer
@@ -536,7 +536,7 @@ struct SleepView: View {
     private func stickyTabRow(_ page: SleepPageModel, tab: SleepTab, gutter: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
             SleepTabRow(tabs: tabRowTabs(page), selected: tab, select: { selectTab($0) },
-                        findOpen: $findOpen, onAdd: { openSheet(nil) })
+                        findOpen: $findOpen)
             if findOpen && tab.hasFind {
                 PageFindRow(text: Binding(get: { feedVM.searchText }, set: { feedVM.searchText = $0 }),
                             isOpen: $findOpen, prompt: Copy.Lists.findFeed)
@@ -624,8 +624,7 @@ struct SleepView: View {
             }
         } else {
             EyebrowRow(eyebrow: openEyebrowText(tab), horizontalPadding: CicadaTheme.spacingXL) {
-                SleepTabRow(tabs: tabRowTabs(page), selected: tab, select: { selectTab($0) }, findOpen: $findOpen,
-                            onAdd: { openSheet(nil) })
+                SleepTabRow(tabs: tabRowTabs(page), selected: tab, select: { selectTab($0) }, findOpen: $findOpen)
             }
         }
     }
@@ -802,8 +801,8 @@ struct SleepView: View {
         }
     }
 
-    /// G217 — one catalogue: the bare `+` / ⌘N opens the Sources page (where every way in is listed); a hand-off
-    /// naming one tile still opens that tile's flow here, alone (`flowOnly`).
+    /// G217 — one catalogue: no tile opens the Sources page (where every way in is listed); a hand-off naming one tile
+    /// still opens that tile's flow here, alone (`flowOnly`).
     private func openSheet(_ tile: AddSourceTile?) {
         guard let tile else {
             appRouter.routeToSources()

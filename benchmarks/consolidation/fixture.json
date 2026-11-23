@@ -941,6 +941,20 @@
     "date": -2
    }
   ],
-  "secret": "Vela!Morro-2291"
+  "secret": "Vela!Morro-2291",
+  "roles": [
+   {
+    "id": "R2",
+    "why": "Mr Duarte is the landlord; the owner is not his",
+    "holder": [
+     "duarte"
+    ],
+    "role": [
+     "landlord",
+     "casero",
+     "proprietaire"
+    ]
+   }
+  ]
  }
 }

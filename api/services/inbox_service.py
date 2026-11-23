@@ -1632,6 +1632,8 @@ async def _route_resolution(kind: str, path, parsed, request, settings, item_id:
         )
     elif kind == "clarification" and str(parsed.frontmatter.get("asks") or "") == "name":
         entity_id, skipped, extra_lines = await _resolve_name(path, parsed, request, settings)
+    elif kind == "clarification" and str(parsed.frontmatter.get("asks") or "") == "speaker":
+        entity_id, skipped, extra_lines = await _resolve_speaker(path, parsed, request, settings)
     elif kind == "clarification" and str(parsed.frontmatter.get("asks") or "") == "sources":
         entity_id, skipped, extra_lines = await _resolve_where_to_check(path, parsed, request, settings)
     elif kind in ("clarification", "merge_suggestion"):
@@ -2992,6 +2994,42 @@ async def _resolve_name(path, parsed, request, settings) -> tuple[str, bool, lis
              for rel in outcome.paths if rel != f"entities/{outcome.page_id}.md"]
     lines += [f"{rel}: created (trigger: {trigger})" for rel in outcome.suggested]
     return outcome.page_id, False, lines
+
+
+async def _resolve_speaker(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
+    """ROR-142: "Who was Speaker 1 in <meeting>?" (``asks: speaker``, `meeting_speakers`). A typed name, or an option
+    naming one, is stored for the meeting's file and relabels the stored meeting in place (a revision Sleep reads where
+    it changed); "Someone I don't know" (or a dismiss) is remembered and never asked again. Returns
+    ``(episode id, skipped, manifest lines)``, every path the answer wrote committed as the person's."""
+    import asyncio
+
+    from api.services import meeting_speakers, owner_identity
+
+    fm = parsed.frontmatter
+    episode_id = str(fm.get("source_episode", "") or "")
+    action = (request.action or "").strip().lower()
+    key = (request.option_key or "").strip()
+    answer = (request.answer or "").strip()
+    if action == "skip":
+        return episode_id, True, []
+    if not answer and key.startswith("name:"):
+        answer = next((str(o.get("label") or "") for o in fm.get("options") or []
+                       if isinstance(o, dict) and o.get("key") == key), "")
+    if answer and action in ("answer", "resolve", ""):
+        owner = await asyncio.to_thread(owner_identity.owner_name, settings.memory_path, settings)
+        try:
+            lines = await asyncio.to_thread(meeting_speakers.answer, settings.memory_path, fm, answer, owner=owner)
+        except meeting_speakers.NotAName as exc:
+            raise HTTPException(400, f"{str(exc).capitalize()}: type their name, or choose "
+                                     f"\"{meeting_speakers.DECLINE_LABEL}\".")
+        trigger = "inbox/clarification/resolved:answer"
+    elif key == meeting_speakers.DECLINE_KEY or action == "dismiss":
+        lines = await asyncio.to_thread(meeting_speakers.decline, settings.memory_path, fm)
+        trigger = f"inbox/clarification/resolved:{meeting_speakers.DECLINE_KEY}"
+    else:
+        raise HTTPException(400, f"Type their name, or choose \"{meeting_speakers.DECLINE_LABEL}\".")
+    path.unlink()
+    return episode_id, False, [f"{line} (trigger: {trigger})" for line in lines]
 
 
 async def _resolve_where_to_check(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
