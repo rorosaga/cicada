@@ -209,10 +209,13 @@ enum SourceStreamOverlay {
         guard let entry else { return nil }
         let words = (stream.tail + " " + stream.label).lowercased()
         if source.hasPrefix(SourceCatalog.browserPrefix) {
-            let tabs = entry.channels.first { $0 == TabGroupWatcher.channel }
-            let history = entry.channels.first { $0 == WatchHistoryWatcher.channel }
-            if let history, stream.kind == .history || words.contains("history"), readerKeys.contains(history) { return history }
-            if let tabs, words.contains("tab"), readerKeys.contains(tabs) { return tabs }
+            // A browser's own three readers: a stream that is the tab groups or the history is never bound to the
+            // bookmarks' switch because its own reader has no entry in `readerKeys`.
+            func own(_ channel: String) -> String? {
+                entry.channels.contains(channel) && readerKeys.contains(channel) ? channel : nil
+            }
+            if stream.kind == .history || words.contains("history") { return own(WatchHistoryWatcher.channel) }
+            if words.contains("tab") { return own(TabGroupWatcher.channel) }
             return entry.channels.first {
                 $0 != TabGroupWatcher.channel && $0 != WatchHistoryWatcher.channel && readerKeys.contains($0)
             }
