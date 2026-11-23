@@ -152,6 +152,13 @@ def claim_text(c: dict) -> str:
 
 ENDED = re.compile(r"\b(?:dropped|left|stopped|no longer|moved off|moved from|switched from|replaced|abandoned)\b")
 HAS_ROLE = re.compile(r"^(?:has|have|had|tiene|a pour|a un|a une)\b")
+#: A claim can itself say the old value ended ("TypeScript (browser), replacing Python"): that is the change, not the
+#: old value held. The ending word and the few words after it (what it ended) are taken out before the stale test.
+ENDS_WHAT = re.compile(r"\b(?:dropped|dropping|left|leaving|stopped|stopping|no longer|moved off|moved from|switched from|"
+                       r"switching from|replaced|replacing|replaces|replacement of|rewrote|rewritten|instead of|abandoned|"
+                       r"abandoning|migrated from|migrating from|ported from)\b(?:\W+\w+){0,3}"
+                       # ... or the ending said after the old value: "the Python version was dropped"
+                       r"|(?:\w+\W+){1,3}(?:was|were|is|has been|got)\W+(?:dropped|replaced|abandoned|retired|removed|rewritten)\b")
 NEGATION = re.compile(r"\b(?:not|never|no longer|declined|decided against|rejected|against|won't|doesn't|didn't|"
                       r"too expensive|instead of|stayed? on|staying|hypothetical|if|ruled out|refused|skipped|dropped|skips?|"
                       r"without|sans|sin)\b")
@@ -370,8 +377,10 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
     for row in gold["updates"]:
         cur = [c for c in held(expand_groups(row["current"], clock)) if is_current(c)]
         # A claim that says the old value ended ("dropped Python") is the change itself, never the stale value.
-        stale = [c for c in held(expand_groups(row["stale"], clock)) if is_current(c)
-                 and not ENDED.search(norm(c.get("predicate") or ""))]
+        stale_groups = expand_groups(row["stale"], clock)
+        stale = [c for c in held(stale_groups) if is_current(c)
+                 and not ENDED.search(norm(c.get("predicate") or ""))
+                 and matches(ENDS_WHAT.sub(" ", norm(claim_text(c))), stale_groups)]
         verdict = ("correct" if cur and not stale else "both_current" if cur else "stale_only" if stale else "missing")
         updates.append({"id": row["id"], "why": row["why"], "verdict": verdict,
                         "current": [claim_text(c) for c in cur[:3]], "stale_current": [claim_text(c) for c in stale[:3]]})

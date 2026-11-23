@@ -215,3 +215,79 @@ def test_the_prompt_tells_the_judge_to_keep_unlike_things_apart():
     check = value_alignment.CHECK
     for phrase in ("When unsure, they are different", "can both be true at once", "what it includes"):
         assert phrase in check
+
+
+# ---- the person's own words behind a value (2026-11-23) ----------------------------------------------------------------
+
+def _said(tmp_path, cid, attribute, value, day, line, *, speaker="user", subject="shop-example"):
+    """A value whose span is a real one: the conversation is written into ``tmp_path`` and the quote located in it."""
+    from api.services import evidence
+
+    ep = f"ep_{day}_{cid[-1:]}01"
+    (tmp_path / "episodes").mkdir(exist_ok=True)
+    (tmp_path / "episodes" / f"{ep}.md").write_text(
+        f"---\nid: {ep}\ntimestamp: '{day}T10:00:00+00:00'\nsource: import\nprocessed: true\n---\n\n"
+        f"{speaker}: {line}\n", encoding="utf-8")
+    claim = _value(cid, attribute, value, day, ep, subject=subject)
+    claim.evidence = [evidence.verify(tmp_path, ep, line)]
+    return claim
+
+
+def test_the_prompt_and_the_check_carry_the_persons_own_words_for_each_value(tmp_path):
+    old = _said(tmp_path, "c_old", "price per card", "4 euros", "2026-09-26", "I sell my cards at 4 euros each.")
+    new = _said(tmp_path, "c_new", "prix des tirages", "5 euros", "2026-11-01", "J'ai monté le prix à 5 euros.")
+    judge = _Judge(_says(1, 2), YES)
+    value_alignment.align([new], {"shop-example": [old]}, judge, tmp_path)
+    assert 'they said: "J\'ai monté le prix à 5 euros."' in judge.prompts[0]
+    assert 'they said: "I sell my cards at 4 euros each."' in judge.prompts[0]
+    assert 'they said: "I sell my cards at 4 euros each."' in judge.prompts[1].split("LATER:")[0]
+    assert 'they said: "J\'ai monté le prix à 5 euros."' in judge.prompts[1].split("LATER:")[1]
+    assert new.predicate == old.predicate
+
+
+def test_only_the_persons_own_located_words_are_ever_shown(tmp_path):
+    assistant = _said(tmp_path, "c_a", "price per card", "4 euros", "2026-09-26", "Cards cost 4 euros.", speaker="assistant")
+    unlocated = _value("c_u", "card cost", "4 euros", "2026-09-27", "ep_2026-09-27_001")   # kind reasoning, offsets -1
+    secret = _said(tmp_path, "c_s", "price per card", "4 euros", "2026-09-28", "my password is Tr0ub4dor&3xyz and the card costs 4 euros")
+    words = value_alignment.Words(tmp_path)
+    assert words.of(assistant) == "" and words.of(unlocated) == ""
+    assert words.of(_said(tmp_path, "c_b", "x", "1", "2026-10-01", "I charge 4 euros.")) == "I charge 4 euros."
+    assert secret.evidence[0].is_span() and words.of(secret) == ""      # what the detector is sure of is never shown
+    # a span the stored text no longer holds is never read back (a changed conversation, a hash that moved)
+    changed = _said(tmp_path, "c_c", "x", "1", "2026-10-02", "I charge 4 euros.")
+    changed.evidence[0].hash = "000000000000"
+    assert words.of(changed) == ""
+
+
+def test_words_are_cut_to_the_bound_and_absent_without_a_bank(tmp_path):
+    long_line = "I raised the price of my cards " + "and then some more words " * 30 + "to 5 euros."
+    claim = _said(tmp_path, "c_l", "price per card", "5 euros", "2026-09-26", long_line)
+    shown = value_alignment.Words(tmp_path).of(claim)
+    assert shown.startswith("I raised the price") and len(shown) <= value_alignment.MAX_WORDS_CHARS + 1
+    assert value_alignment.Words(None).of(claim) == ""
+    old, new = _old_and_new()
+    judge = _Judge(_says(1, 2), YES)
+    value_alignment.align([new], {"shop-example": [old]}, judge)          # no bank: the sentences alone, as before
+    assert "they said" not in judge.prompts[0] and new.predicate == old.predicate
+
+
+def test_words_never_decide_a_join_two_changes_said_alike_stay_two(tmp_path):
+    old = _said(tmp_path, "c_old", "monthly rent", "900 euros", "2026-09-26", "I raised the rent to 900 euros.")
+    new = _said(tmp_path, "c_new", "deposit", "1900 euros", "2026-11-01", "I raised the deposit to 1900 euros.")
+    judge = _Judge(_says(1, 2), NO)
+    assert value_alignment.align([new], {"shop-example": [old]}, judge, tmp_path) == []
+    assert new.predicate == "value-of-deposit" and len(judge.prompts) == 2
+    assert "never make two lines one attribute" in judge.prompts[0]
+    assert "never make two values one attribute" in judge.prompts[1]
+
+
+def test_without_words_the_prompts_are_exactly_what_they_were():
+    """A claim with no located span (an inference, an assistant's turn) gets the prompts of before: the note about the
+    person's words is added only when a line carries some, so the judge is never told to look for what is not there."""
+    old, new = _old_and_new()
+    ask = value_alignment.questions([new], {"shop-example": [old]})[0]
+    text = value_alignment.prompt(ask)
+    assert "own words" not in text and "{note}" not in text and "they said" not in text
+    judge = _Judge(_says(1, 2), YES)
+    value_alignment.align([new], {"shop-example": [old]}, judge)
+    assert "own words" not in judge.prompts[1] and "{note}" not in judge.prompts[1]

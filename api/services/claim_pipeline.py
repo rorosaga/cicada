@@ -578,7 +578,7 @@ def run_claim_pipeline(
 
     # G148 (2026-11-23): a value worded unlike every value on its page is shown to the judge, one call a page, and takes
     # the predicate of the one it restates; Stage 3 then closes the older as it does for any same-attribute value.
-    routed.extend(value_alignment.align(incoming, existing_by_subject, value_judge))
+    routed.extend(value_alignment.align(incoming, existing_by_subject, value_judge, memory_path))
 
     # ---- G104: an edited conversation's spans re-anchored, what only its removed text said marked ----
     revision_plan = episode_revision.reanchor(existing_by_subject, revisions or {})
