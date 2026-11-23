@@ -758,7 +758,7 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             last_referenced = _latest_change_date(change) or created_date
             # The closed type set, held again where the page is born (`entity_types`): a pending line or a payload
             # read before the extraction rail existed may still carry `organization`.
-            entity_type = entity_types.in_set(entity.get("type"))
+            entity_type = declared_type = entity_types.in_set(entity.get("type"))
             if entity_type == "project":
                 # Ruling 56: Sleep never makes a project, whatever a merged payload ended up saying.
                 entity_type = project_birth.FALLBACK_TYPE
@@ -766,7 +766,7 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             # Stage-1 may PROPOSE a class; `agent_class` re-applies the rail here
             # so an `evergreen` that slipped past extraction can never be written, nor a `volatile` person or company.
             decay_class = (
-                decay_policy.agent_class(entity.get("decay_class"), entity_type)
+                decay_policy.agent_class(entity.get("decay_class"), declared_type)
                 or decay_policy.default_class_for(entity_type)
             )
             frontmatter = {

@@ -42,9 +42,9 @@ def test_stage1_sanitizer_keeps_the_three_producible_classes():
         assert entity["decay_class"] == value
 
 
-def test_stage1_sanitizer_drops_volatile_on_a_person_and_a_company_only():
+def test_stage1_sanitizer_drops_volatile_on_a_person_a_company_and_a_project_only():
     """A sister who is moving flats, an employer the person just joined: a fact in motion, not a short-lived thing."""
-    for kind in ("person", "company"):
+    for kind in ("person", "company", "project"):
         entity = {"name": "X", "type": kind, "decay_class": "volatile"}
         entity_extractor.sanitize_decay_class(entity)
         assert "decay_class" not in entity
@@ -134,7 +134,7 @@ def test_created_entity_honors_a_stage1_volatile_estimate(tmp_path):
     assert fm["decay_rate"] == 0.15
 
 
-def test_created_person_or_company_ignores_a_volatile_estimate_that_slipped_through(tmp_path):
+def test_created_person_company_or_project_ignores_a_volatile_estimate_that_slipped_through(tmp_path):
     """The rail is held where the page is born too: a pending line or a merged payload may still carry it."""
     (tmp_path / "entities").mkdir(parents=True)
     conflict_resolver.apply_changes(
@@ -142,12 +142,15 @@ def test_created_person_or_company_ignores_a_volatile_estimate_that_slipped_thro
           "entity": {"name": "Sister", "type": "person", "decay_class": "volatile"}},
          {"id": "employer", "action": "create",
           "entity": {"name": "Employer", "type": "company", "decay_class": "volatile"}},
+         {"id": "the-study", "action": "create",
+          "entity": {"name": "The study", "type": "project", "decay_class": "volatile"}},
          {"id": "the-trip", "action": "create",
           "entity": {"name": "The trip", "type": "concept", "decay_class": "volatile"}}],
         tmp_path,
     )
     assert _fm(tmp_path, "sister")["decay_class"] == "active"
     assert _fm(tmp_path, "employer")["decay_class"] == "active"
+    assert _fm(tmp_path, "the-study")["decay_class"] == "active"   # born as a concept (ruling 56), judged as a project
     assert _fm(tmp_path, "the-trip")["decay_class"] == "volatile"
 
 
