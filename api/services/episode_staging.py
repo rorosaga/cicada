@@ -1166,7 +1166,9 @@ def is_deleted_unread(fm: dict) -> bool:
     read, so there is nothing to read. An episode consolidated earlier and edited since (``revised.consolidated_hash``)
     already taught Sleep something and is left to the revision rule (ruling 75)."""
     revised = fm.get(REVISED_KEY) if isinstance(fm.get(REVISED_KEY), dict) else {}
-    return bool(fm.get("source_deleted_at")) and not fm.get("processed") and not revised.get("consolidated_hash")
+    # A read the person's own words owe (a woken save, a reason they gave; ruling 62) is never taken back by a deletion.
+    return (bool(fm.get("source_deleted_at")) and not fm.get("processed") and not revised.get("consolidated_hash")
+            and not history_index.owes_a_read(fm))
 
 
 def _settle_deleted_unread(fm: dict) -> bool:
@@ -1189,16 +1191,14 @@ def _tombstone(path: Path, at: str) -> None:
 
 
 def settle_deleted_unread(path: Path) -> bool:
-    """An episode tombstoned before this rule (still ``processed: false``) leaves the queue the same way. Re-read under
-    the lock; returns whether the file changed. Frontmatter only — the body, hash and every span stay."""
-    with STAGE_LOCK, episode_ids.episode_lock(Path(path).parent):
-        parsed = markdown_parser.parse(path)
-        fm = dict(parsed.frontmatter)
-        if not _settle_deleted_unread(fm):
+    """An episode tombstoned before this rule (still ``processed: false``) leaves the queue the same way. Checked under
+    the stage lock (a source posted again runs under it), then written by :func:`_tombstone` with its own stamp kept;
+    returns whether the file changed. Frontmatter only — the body, hash and every span stay."""
+    with STAGE_LOCK:
+        fm = markdown_parser.parse(path).frontmatter
+        if not is_deleted_unread(fm):
             return False
-        if "turns" in fm:
-            fm["turns"] = fm.pop("turns")
-        markdown_parser.write(path, fm, parsed.body)
+        _tombstone(path, str(fm["source_deleted_at"]))
         return True
 
 
