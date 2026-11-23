@@ -106,7 +106,7 @@ final class JumpToLatestScroller {
         }
         gliding = true
         animate(clip, to: Self.end(clip: clip, document: document), in: scrollView,
-                duration: CicadaMotion.jumpToLatestDuration(distance: distance)) { [weak self] in
+                over: CicadaMotion.jumpToLatestDuration(distance: distance)) { [weak self] in
             self?.gliding = false
             self?.settle(scrollView, steps: 3, animated: true)
         }
@@ -122,10 +122,10 @@ final class JumpToLatestScroller {
         scrollView.reflectScrolledClipView(clip)
     }
 
-    private func animate(_ clip: NSClipView, to y: CGFloat, in scrollView: NSScrollView, duration: TimeInterval,
+    private func animate(_ clip: NSClipView, to y: CGFloat, in scrollView: NSScrollView, over seconds: TimeInterval,
                          done: @escaping @MainActor () -> Void) {
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = duration
+            context.duration = seconds
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             context.allowsImplicitAnimation = true
             clip.animator().setBoundsOrigin(NSPoint(x: clip.bounds.origin.x, y: y))
@@ -147,7 +147,7 @@ final class JumpToLatestScroller {
             let end = Self.end(clip: clip, document: document)
             guard abs(end - clip.bounds.origin.y) > 1 else { return }
             if animated {
-                animate(clip, to: end, in: scrollView, duration: CicadaMotion.jumpToLatestSettleDuration) { [weak self] in
+                animate(clip, to: end, in: scrollView, over: CicadaMotion.jumpToLatestSettleDuration) { [weak self] in
                     self?.settle(scrollView, steps: steps - 1, animated: true)
                 }
             } else {
