@@ -2131,7 +2131,12 @@ one and a person already on record under the name (a page titled so, or a line h
 the rest left as it was) groups the conversations by person and says which known person each fits. **Positive evidence
 only:** two conversations are two people only when the descriptions give each a fact the other cannot share (a different
 trade or employer, home town, generation); a different setting, topic or time is never one, and a thin description, an
-unreadable answer, a failed call or a group that states no contrast keeps the old behaviour (one person, nothing asked).
+unreadable answer, a failed call or a group that states no contrast keeps the old behaviour (one person, nothing asked). A
+person the judge would make new also needs a description of at least 15 words on **both** sides (`MIN_WORDS`): a description
+that says one thing (a person who "put in a word") has nothing to contradict, and the model read a thin earlier line as a
+different person from a richer later one (measured, 1 run of 3 on the fixture's first person); such a person stays with the
+plain name. (A second, narrow "could both be true?" pass was tried and dropped: it read a carpenter and a research
+colleague as one person over time, so it kept the wrong join the rule exists to prevent.)
 A conversation a page or line already lists (a re-read) is that person and is not judged; a mention that describes nothing
 is not judged; the owner's page, a nickname or relation page (`role_people`), a contact-card participant and a
 correspondent never enter. What the judge says goes through the machinery G227 built: the person the plain name reaches

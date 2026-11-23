@@ -24,18 +24,11 @@ def _mentions(*pairs):
     return [snp.Mention(episode, text) for episode, text in pairs]
 
 
-def _judge(answer, check=None):
-    """A grouping answer, and the answer the narrow check on a proposed split gets (default: it holds up, quoting the
-    first line of each side)."""
+def _judge(answer):
     calls = []
 
     async def judge(system, prompt):
         calls.append(prompt)
-        if prompt.startswith("Two descriptions"):
-            if check is not None:
-                return check
-            lines = [ln for ln in prompt.splitlines() if ln and not ln.startswith(("DESCRIPTION", "Two ", "Could", "Answer", "If ", "Different"))]
-            return {"verdict": "two_people", "excluding": lines[0][-30:], "with": lines[1][-30:]}
         if isinstance(answer, Exception):
             raise answer
         return answer
@@ -48,7 +41,9 @@ TWO = {"people": [
     {"conversations": ["A"], "same_as": None, "reason": "a carpenter in a small town, not a colleague"},
     {"conversations": ["B", "C"], "same_as": None, "reason": "works at the firm and moves to another city"}]}
 ONE = {"people": [{"conversations": ["A", "B", "C"], "same_as": None, "reason": "the same person in three settings"}]}
-M = _mentions(("e1", "a carpenter in a small town"), ("e2", "a colleague moving offices"), ("e3", "a colleague"))
+CARPENTER = "(2026-09-29) the speaker's brother-in-law, a carpenter in a small mountain town who builds furniture and helps with shelves"
+COLLEAGUE = "(2026-10-02) a colleague on the research team at the firm who is moving to another office next spring and works remotely"
+M = _mentions(("e1", CARPENTER), ("e2", COLLEAGUE), ("e3", COLLEAGUE))
 
 
 # ------------------------------------------------------------------ the pure half
@@ -60,32 +55,25 @@ def test_two_groups_with_no_one_on_record_the_larger_keeps_the_plain_name():
     assert result.moves == {"e1": snp.Destination("new", "g0")}
 
 
-@pytest.mark.parametrize("check", [
-    {"verdict": "one_person"}, {}, None, "two_people",
-    {"verdict": "two_people", "excluding": "a carpenter in a small town", "with": "never said anywhere at all"},
-    {"verdict": "two_people", "excluding": "carpenter", "with": "colleague"},
-], ids=["one person", "empty", "none", "text", "a quote that is not there", "quotes too short"])
-def test_a_split_the_check_does_not_hold_up_goes_back_to_the_plain_name(check):
-    judge = _judge(TWO, check=check if check is not None else {"verdict": None})
-    result = _run(snp.plan("Marc", M, [], judge))
-    assert result.moves == {} and result.checked == 1
-    assert len(judge.calls) == 2, "one grouping call and one check for the one person it would have made new"
-
-
-def test_a_split_that_quotes_both_sides_stands():
-    check = {"verdict": "two_people", "excluding": "a colleague moving offices", "with": "a carpenter in a small town"}
-    result = _run(snp.plan("Marc", M, [], _judge(TWO, check=check)))
-    assert result.moves == {"e1": snp.Destination("new", "g0")}
-
-
-def test_a_thin_earlier_description_never_splits_a_later_richer_one():
-    """The false split the benchmark found (2026-11-23): one conversation says a person put in a word, a later one that
-    they are a head of product. Nothing excludes anything; the check says one person."""
-    known = [snp.Identity("line", "teo", True, "(2026-10-21) put in a word for the speaker")]
-    later = _mentions(("e9", "(2026-11-13) head of product at the firm after a promotion"))
+def test_a_person_with_a_thin_description_is_never_split_from_a_richer_one():
+    """The false split the benchmark found (2026-11-23): an earlier conversation says only that a person put in a word,
+    a later one that they are a head of product. A description that says one thing has nothing to contradict."""
+    known = [snp.Identity("line", "teo", True, "(2026-10-21) put in a word for the speaker at the firm")]
+    later = _mentions(("e9", "(2026-11-13) head of product at the firm after a promotion, two levels above the speaker, "
+                             "who also reviews the team's quarterly plans"))
     answer = {"people": [{"conversations": ["A"], "same_as": None, "reason": "different roles"}]}
-    result = _run(snp.plan("Teo", later, known, _judge(answer, check={"verdict": "one_person"})))
-    assert result.moves == {}
+    result = _run(snp.plan("Teo", later, known, _judge(answer)))
+    assert result.moves == {} and result.thin == 1
+
+
+def test_a_thin_new_person_is_kept_with_the_plain_name_too():
+    short = _mentions(("e1", "(2026-09-29) a carpenter"), ("e2", COLLEAGUE), ("e3", COLLEAGUE))
+    result = _run(snp.plan("Marc", short, [], _judge(TWO)))
+    assert result.moves == {} and result.thin == 1
+
+
+def test_words_are_counted_without_the_date():
+    assert snp.words("(2026-09-29) one two three") == 3 and snp.words("") == 0
 
 
 def test_a_tie_keeps_the_earlier_conversation_plain():
@@ -110,7 +98,7 @@ def test_an_answer_that_does_not_line_up_keeps_the_old_behaviour(answer):
 
 def test_a_conversation_the_answer_leaves_out_stays_with_the_name():
     partial = {"people": [{"conversations": ["B"], "same_as": None, "reason": "x"}]}
-    known = [snp.Identity("page", "marc", True, "a colleague at the research firm")]
+    known = [snp.Identity("page", "marc", True, COLLEAGUE)]
     assert _run(snp.plan("Marc", M, known, _judge(partial))).moves == {
         "e2": snp.Destination("new", "g0")}
 
@@ -122,7 +110,7 @@ def test_known_people_a_conversation_joins_the_one_it_fits():
 
 
 def test_with_a_plain_person_on_record_a_new_group_is_never_the_plain_one():
-    known = [snp.Identity("page", "marc", True, "a colleague")]
+    known = [snp.Identity("page", "marc", True, COLLEAGUE)]
     answer = {"people": [{"conversations": ["A", "B"], "same_as": None, "reason": "a carpenter"},
                          {"conversations": ["C"], "same_as": 1}]}
     assert _run(snp.plan("Marc", M, known, _judge(answer))).moves == {
@@ -145,9 +133,9 @@ def test_the_bound_one_call_a_name_and_what_is_over_the_cap_stays():
 
 
 def test_the_prompt_asks_for_positive_evidence_and_says_a_setting_is_none():
-    prompt = snp.build_prompt("Marc", M, [snp.Identity("page", "marc", True, "a colleague")])
+    prompt = snp.build_prompt("Marc", M, [snp.Identity("page", "marc", True, COLLEAGUE)])
     assert "NOT a difference" in prompt and "a different trade or employer" in prompt
-    assert "[1] a colleague" in prompt and "(A) a carpenter" in prompt
+    assert f"[1] {COLLEAGUE}" in prompt and f"(A) {CARPENTER}" in prompt
 
 
 def test_only_a_bare_name_is_for_this_rule():
@@ -209,8 +197,8 @@ def _settings(memory):
                            sleep_promotion_threshold=2)
 
 
-FAMILY = "my brother-in-law, a carpenter in a small town"
-WORK = "a colleague at the research firm who is moving offices"
+FAMILY = "my brother-in-law, a carpenter in a small mountain town who builds furniture and helps with shelves"
+WORK = "a colleague on the research team at the firm who is moving to another office next spring and works remotely"
 
 
 def _extraction(episode, text, *, label="works with", target="Nina Example"):
@@ -229,10 +217,6 @@ def judged(monkeypatch):
 
     async def ask(settings, system, prompt):
         box.calls.append(prompt)
-        if prompt.startswith("Two descriptions"):
-            one = prompt.split("DESCRIPTION 1\n")[1].split("\n\nDESCRIPTION 2")[0]
-            two = prompt.split("DESCRIPTION 2\n")[1].split("\n\nCould all")[0]
-            return {"verdict": "two_people", "excluding": one.strip()[-25:], "with": two.strip()[-25:]}
         if isinstance(box.answer, Exception):
             raise box.answer
         return box.answer
@@ -263,7 +247,7 @@ def test_in_one_batch_two_people_of_one_name_are_a_page_and_a_held_line(tmp_path
     assert extracted[0]["values"][0]["source_page"] == "marc-2"
     assert "source_page" not in extracted[1]["relationships"][0]
     assert out["name_to_id"]["marc"] == "marc"
-    assert len(judged.calls) == 2, "one grouping call and one check on the one new person"
+    assert len(judged.calls) == 1
 
 
 def test_a_later_conversation_of_the_held_person_gives_them_a_page_of_their_own(tmp_path, judged):
