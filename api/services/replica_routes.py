@@ -287,6 +287,7 @@ ROUTES: dict[str, str] = {
     "PUT /design/{ref_id}/entity": FORWARD,
     "PUT /entities/{entity_id}/coordinates": FORWARD,
     "PUT /entities/{entity_id}/decay": FORWARD,
+    "POST /entities/{entity_id}/restore-correction": FORWARD,   # G104 slice 3: the home's page put back
     "PUT /memory/decay-tuning": FORWARD,
     "PUT /settings/owner": FORWARD,
     "PUT /sources/connectors/{connector_id}/credentials": REFUSE,   # never sent across: the home's sign-ins

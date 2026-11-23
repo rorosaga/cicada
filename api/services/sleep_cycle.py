@@ -59,6 +59,9 @@ class SleepState:
     organic_resolutions: int = 0
     # Ruling 29: inbox questions Sleep settled this batch (answered in conversation, or assumed).
     inbox_settled: int = 0
+    # G104 slice 3 (T3): the latest batch's `revision_cascade.Report.as_dict()` (ids, enums and counts only), for the
+    # run record T4 folds; ``None`` when no revision removed words.
+    revision_cascade: dict | None = None
     # G141 PJ-0 (R-CS3): claims Stage 5.56 could neither write nor hold (PJ-0b)
     # because their subject has no page, and how many page-less subjects there
     # were. Counts only — G141's M3 measure, carried into the `sleep_run`
@@ -1574,14 +1577,14 @@ async def _media_read_safely(memory_path: Path, settings: Settings, *, user_trig
 
 
 async def _tend_inbox_safely(memory_path: Path, settings: Settings, episodes: list[dict], *, run_policy: bool,
-                             engine: str | None) -> None:
+                             engine: str | None, corrected: dict[str, str] | None = None) -> None:
     """Ruling 29 — Sleep tends the inbox (`inbox_tend`): what this batch's conversations answered in the person's own
     words, and (``run_policy``) the small stuff assumed. Counts only in the log. Never raises."""
     try:
         from api.services import inbox_tend
 
         report = await inbox_tend.tend(memory_path, settings, episodes=episodes, run_policy=run_policy,
-                                       engine=engine)
+                                       engine=engine, **({"corrected": corrected} if corrected else {}))
     except Exception as exc:  # noqa: BLE001 — tending never fails a batch that already committed
         logger.warning(f"Inbox tending skipped: {type(exc).__name__}: {exc}")
         return
@@ -2151,6 +2154,7 @@ def _reset_batch_counters() -> None:
     _state.decay_nudges_deferred = 0
     _state.decay_nudges_refreshed = 0
     _state.inbox_settled = 0
+    _state.revision_cascade = None
     _state.write_started = False
 
 
@@ -3593,6 +3597,30 @@ async def _run_stages(
             f"{len(decay_budget.deferred)} deferred by the cap of {decay_budget.cap}"
         )
 
+    # Stage 5.575 (G104 slice 3, T3, owner 2026-11-23): what a correction left behind beyond the claims — a page only
+    # the removed text supported (archived by rule, undoable, never past independent support), an alias it gave, a name
+    # held for a page. Engine-free, in this batch's window and commit, BEFORE 5.58 so a page archived here costs
+    # `revision_prose` no engine call. The questions it would withdraw are only returned: they are settled after the
+    # commit by `inbox_tend`'s `source_corrected` rule (the cascade never writes `inbox/`).
+    corrected_questions: dict[str, str] = {}
+    _state.revision_cascade = None
+    if revisions_read:
+        try:
+            from api.services import revision_cascade
+
+            cascade = await asyncio.to_thread(
+                revision_cascade.run, memory_path, revisions_read,
+                revised_out=claim_result.get("revised_out") or {},
+                held_withdrawn=len(claim_result.get("held_withdrawn") or ()),
+                new_pages={str(r.get("id")) for r in resolved_changes if r.get("action") == "create"})
+            if cascade.revised:
+                _state.revision_cascade = cascade.as_dict()
+                corrected_questions = cascade.corrected()
+            if cascade:
+                logger.info(f"Stage 5.575: corrections reached {cascade.counts()}")
+        except Exception as e:  # noqa: BLE001 - the cascade never costs the cycle
+            logger.warning(f"Stage 5.575 revision cascade failed: {type(e).__name__}")
+
     # Stage 5.58 (G104 slice 2, owner 2026-11-03): a page whose prose was written from a conversation that has since
     # revised itself says what the conversation says now — the passages that carried the old words, one engine call a
     # page at most, never over the person's or an agent's own words (those become one inbox question a page), History
@@ -3770,7 +3798,8 @@ async def _run_stages(
     # batch that runs decay). Each settle commits alone, as Sleep's, undoable under "Settled by Sleep".
     if not _state.cancel_requested:
         await _tend_inbox_safely(memory_path, settings, processed_episodes,
-                                 run_policy=batch is None or bool(batch.decay), engine=engine)
+                                 run_policy=batch is None or bool(batch.decay), engine=engine,
+                                 corrected=corrected_questions)
 
     # Logo warm-up and the connector poll (final-review H1: the poll must
     # run AFTER `_finalize`'s commit so its own `git add -A` finds a clean

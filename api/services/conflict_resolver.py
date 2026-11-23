@@ -885,6 +885,7 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                     status = str(fm.get("status", "active"))
                     if status in ("decaying", "archived"):
                         fm["status"] = "active"
+                        _clear_correction_archive(fm)   # a real mention reopens a page a correction archived
                     # An evergreen page never decays, so an active one stays where it is; a decaying or archived
                     # one (hand-archived, or settled before it became evergreen) is revived as before (G66 §1.6).
                     if status in ("decaying", "archived") or (status == "active" and not evergreen):
@@ -1135,6 +1136,14 @@ def _placed_on_time(fm: dict, params: dict, untimed: frozenset[str]) -> dict | N
     return out
 
 
+def _clear_correction_archive(fm: dict) -> None:
+    """G104 slice 3 (T3): a page whose conversation was corrected and was archived for it (`revision_cascade`) that a later
+    real mention brings back is no longer archived by that correction: its stamp and ``removed_at`` go."""
+    if fm.get("status") != "archived" and isinstance(fm.get("archived_by"), dict):
+        fm.pop("archived_by", None)
+        fm.pop("removed_at", None)
+
+
 def _revive_on_time(fm: dict, said: str, params: dict, untimed: frozenset[str]) -> None:
     """A conversation said before the page's watermark and read late counts as if Cicada had read it the day it was
     said (owner 2026-10-16): revived that day to ``RECOVERY_CONFIDENCE`` and charged the silence since
@@ -1165,6 +1174,7 @@ def _revive_on_time(fm: dict, said: str, params: dict, untimed: frozenset[str]) 
     landed = "active" if lifted >= params["nudge"] else "decaying" if lifted >= params["archive"] else "archived"
     if _STATUS_RANK[landed] > _STATUS_RANK[status]:
         fm["status"] = landed
+        _clear_correction_archive(fm)
     if lifted >= params["nudge"]:
         fm.pop(decay_policy.FADED_BY_AGE_KEY, None)   # back above the line on the person's words: asked like any page
     elif decay_policy.heard_late(said, params["today"]):

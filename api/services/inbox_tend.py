@@ -124,6 +124,7 @@ RULES: dict[str, str] = {
     "own_bookkeeping": "About Cicada's own counters, which Cicada already knows",
     "already_described": "Sleep already read what it is; nothing was changed",
     "not_fading": "It is not fading any more; nothing was changed",
+    "source_corrected": "The words it asked about were corrected",
 }
 #: What the settled list says each retired "same as?" question became (owner 2026-11-04, `pair_evidence`).
 RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
@@ -132,7 +133,7 @@ RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
 ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "seed_fold", "one_off", "newest_evidence",
                          "multi_valued", "in_passing", "newest_words", "own_settings", "named_account",
                          "owner_unsaid", "no_pair_evidence", "two_signals", "not_started", "same_value", "moved_on",
-                         "own_bookkeeping", "already_described", "not_fading"})
+                         "own_bookkeeping", "already_described", "not_fading", "source_corrected"})
 #: The judged kinds (owner, 2026-10-17: the inbox keeps only what genuinely needs the person).
 JUDGED_KINDS = frozenset({"merge_suggestion", "conflict", "normalization", "decay"})
 MAX_REASON_CHARS = 160
@@ -195,6 +196,8 @@ class Decision:
     guard: dict = field(default_factory=dict)
     #: The judge's one-line reason, shown in "Settled by Sleep" (the rule's own words otherwise).
     reason: str = ""
+    #: ``source_corrected`` only: the corrected conversation the question rested on (G104 slice 3).
+    basis: str = ""
 
 
 @dataclass
@@ -2063,6 +2066,10 @@ def still_holds(memory_path: Path, d: Decision) -> bool:
         fm = markdown_parser.parse(path).frontmatter
     except Exception:  # noqa: BLE001
         return False
+    if d.rule == "source_corrected":
+        from api.services import revision_cascade
+
+        return bool(d.basis) and revision_cascade.question_withdrawal(Path(memory_path), dict(fm), d.basis) is not None
     again, _why = policy(Path(memory_path), path, fm)
     return again is not None and (again.rule, again.request) == (d.rule, d.request)
 
@@ -2384,8 +2391,36 @@ async def conversation_pass(memory_path: Path, settings, episodes: list[dict], r
             await _settle_one(memory_path, settings, d, report, engine=engine, admitted=False)
 
 
+async def corrected_pass(memory_path: Path, settings, corrected: dict[str, str], report: Report, *,
+                         engine: str | None = None) -> None:
+    """G104 slice 3 (T3): the open questions a corrected conversation made moot (``revision_cascade``'s report:
+    ``{inbox item id: the corrected episode}``), withdrawn through the person's own resolver as Sleep's commit, one each,
+    undoable. Engine-free: the rule re-derives from the bank (`revision_cascade.question_withdrawal`) and a question
+    that no longer holds, changed since, or was undone stays for the person."""
+    from api.services import revision_cascade
+
+    today = date.today().isoformat()
+    for item_id, basis in sorted(corrected.items()):
+        if report.stopped:
+            break
+        path = _inbox(memory_path) / f"{item_id}.md"
+        try:
+            fingerprint = path.read_bytes()
+            fm = dict(markdown_parser.parse(path).frontmatter)
+        except Exception:  # noqa: BLE001 - gone or unreadable: nothing to settle
+            continue
+        if _blocked(fm, today) or revision_cascade.question_withdrawal(memory_path, fm, basis) is None:
+            report.count(str(fm.get("kind") or ""), "left:not_corrected")
+            continue
+        kind = str(fm.get("kind") or "")
+        d = Decision(item_id, kind, "source_corrected", None, answer="Withdrawn: the words it asked about were corrected",
+                     fingerprint=fingerprint, basis=basis, guard=_guard(memory_path, str(fm.get("entity_id") or "")))
+        if not await _settle_one(memory_path, settings, d, report, engine=engine, admitted=False):
+            break
+
+
 async def tend(memory_path: Path, settings, *, episodes: list[dict], run_policy: bool, llm_fn=None,
-               engine: str | None = None) -> Report:
+               engine: str | None = None, corrected: dict[str, str] | None = None) -> Report:
     """One Sleep batch's tending, inside Sleep's own write window, after the batch's commit: move 1 for what its
     conversations touched, and (once per drain) move 2 over the whole inbox. Each settle commits alone; the state
     projection is left to the run's tail."""
@@ -2399,6 +2434,8 @@ async def tend(memory_path: Path, settings, *, episodes: list[dict], run_policy:
         except Exception as exc:  # noqa: BLE001 — no engine: the engine-free rules still run
             logger.info(f"inbox tend: no engine ({type(exc).__name__}); engine-free rules only")
             llm_fn = None
+    if corrected:
+        await corrected_pass(memory_path, settings, corrected, report, engine=engine)
     await conversation_pass(memory_path, settings, episodes, report, llm_fn=llm_fn, engine=engine)
     if run_policy and not report.stopped:
         await policy_pass(memory_path, settings, report, llm_fn=llm_fn, engine=engine, record_cap=RECORD_CAP)

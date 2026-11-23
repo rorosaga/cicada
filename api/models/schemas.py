@@ -915,6 +915,14 @@ class PaperDetailResponse(CamelModel):
     metadata_status: Optional[str] = None
 
 
+class CorrectionRestoreResponse(CamelModel):
+    """``POST /entities/{id}/restore-correction`` (G104 slice 3): the page a correction archived, put back."""
+
+    entity_id: str
+    status: str
+    confidence: float | None = None
+
+
 class EntityDecayUpdate(CamelModel):
     """Body of ``PUT /entities/{id}/decay`` — the user's decay override (G66).
 
