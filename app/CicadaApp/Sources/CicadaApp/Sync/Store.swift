@@ -77,6 +77,8 @@ final class Store {
     /// R-DL5 — `entityNames`' memo (`Models/EntityNames.swift`). Ignored by observation: it is a cache, and the
     /// getter already reads `graph`, which is what views must track.
     @ObservationIgnored var entityNamesMemo: (stamp: Date?, count: Int, names: EntityNames)?
+    /// `linkIndex`'s memo (`Models/PageLinkIndex.swift`), keyed like `entityNamesMemo`.
+    @ObservationIgnored var linkIndexMemo: (stamp: Date?, count: Int, index: PageLinkIndex)?
 
     /// C11 (G146 plan R-PE10) — picture writes painted before the graph snapshot carries them, keyed `bank/id`, and the
     /// snapshot's pictures by id, memoised like `entityNamesMemo` (`Sync/PictureOverrides.swift`).

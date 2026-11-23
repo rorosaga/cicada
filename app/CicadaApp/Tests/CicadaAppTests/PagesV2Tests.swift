@@ -50,12 +50,10 @@ final class PagesV2Tests: XCTestCase {
         ], "every cited line carries its own markers, and no heading carries one")
     }
 
-    func testAMarkerLinkRoundTrips() throws {
-        let key = CiteKey(n: 3, at: 246)
-        XCTAssertEqual(CiteKey(url: try XCTUnwrap(key.url)), key)
-        let belief = CiteKey(n: 2, claim: "c-was", inferred: true)
-        XCTAssertEqual(CiteKey(url: try XCTUnwrap(belief.url)), belief)
-        XCTAssertNil(CiteKey(url: URL(string: "cicada://entity/alpha")!), "a wikilink is no marker")
+    func testASourceIsKeyedByItsLineAndItsBelief() {
+        XCTAssertEqual(CiteKey(n: 3, at: 246).id, "3|246|")
+        XCTAssertEqual(CiteKey(n: 2, claim: "c-was", inferred: true).id, "2|-1|c-was")
+        XCTAssertNotEqual(CiteKey(n: 2, at: 188), CiteKey(n: 2, at: 225), "one source cited by two lines is two keys")
     }
 
     @MainActor
