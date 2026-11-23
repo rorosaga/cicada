@@ -514,3 +514,245 @@ def test_a_zone_name_that_is_a_directory_is_no_failed_sync(client):
                json={"files": [{"relpath": f.relpath, "mtime": f.mtime, "sha256": f.sha256, "contentB64": f.content_b64}],
                      "deleted": [], "tzName": "America"})
     assert r.status_code == 200 and r.json()["created"] == 1, r.text
+
+
+# --- G104 slice 3 · T1: one meeting, one episode ----------------------------------------------------------------------
+# A recorder's corrected export lands as a SECOND file with the same stamp ("YYYY-MM-DD HHMM"); the newest copy is the
+# meeting, every older copy is only remembered (made-up names and words throughout).
+
+NAME_A = "2026-11-03 1601 Alpha planning.md"
+NAME_B = "2026-11-03 1601 Alpha planning (corrected).md"
+TEXT_A = HEX
+TEXT_B = HEX.replace("They agreed to ship the alpha-project beta next week.", "They agreed to ship the alpha-project beta in May.")
+T0 = 1_762_200_000.0
+
+
+def _meeting_folder(bank):
+    return fs.register(bank, label="Hex Meetings", path="/m", device="mac-1", kind="meetings", recorder="hex")
+
+
+def _sync(bank, folder, files=(), deleted=()):
+    return fs.sync(bank, folder, list(files), list(deleted), tz_name="Europe/Madrid")
+
+
+def _live(bank):
+    """Every meeting episode in the bank: ``[parsed episode]``, by id."""
+    bank_index.invalidate()
+    return sorted((markdown_parser.parse(p) for p in (bank / "episodes").glob("ep_*.md")),
+                  key=lambda e: e.frontmatter["id"])
+
+
+def _held(ep):
+    return ep.frontmatter["relpath"]
+
+
+def _replaced(ep):
+    return [(r["relpath"], r["content_sha"]) for r in ep.frontmatter.get("replaced_files") or []]
+
+
+def _sha(text):
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def test_a_newer_copy_of_the_same_stamp_revises_the_episode_in_place(bank):
+    folder = _meeting_folder(bank)
+    _sync(bank, folder, [_file(NAME_A, TEXT_A, mtime=T0)])
+    (first,) = _live(bank)
+    out = _sync(bank, folder, [_file(NAME_B, TEXT_B, mtime=T0 + 60)])
+    assert (out["created"], out["updated"], out["tombstoned"]) == (0, 1, 0)
+    (ep,) = _live(bank)
+    fm = ep.frontmatter
+    assert fm["id"] == first.frontmatter["id"] and fm["processed"] is False
+    assert "beta in May." in ep.body and "beta next week." not in ep.body
+    assert fm["source_id"] == mt.source_id(folder["id"], NAME_B) and _held(ep) == NAME_B
+    assert fm["content_sha"] == _sha(TEXT_B) and fm["revised"]["count"] == 1
+    assert fm["previous_source_ids"] == [mt.source_id(folder["id"], NAME_A)]
+    assert _replaced(ep) == [(NAME_A, _sha(TEXT_A))] and "source_deleted_at" not in fm
+    assert fs.live_file_count(bank, folder["id"]) == 1
+
+
+def test_an_older_copy_changes_no_word_and_is_only_remembered(bank):
+    folder = _meeting_folder(bank)
+    _sync(bank, folder, [_file(NAME_B, TEXT_B, mtime=T0 + 60)])
+    before = _live(bank)[0]
+    out = _sync(bank, folder, [_file(NAME_A, TEXT_A, mtime=T0)])
+    assert (out["created"], out["updated"], out["files_unchanged"]) == (0, 0, 1)
+    (ep,) = _live(bank)
+    assert ep.body == before.body and "revised" not in ep.frontmatter and _held(ep) == NAME_B
+    assert _replaced(ep) == [(NAME_A, _sha(TEXT_A))]
+    # Posted again: nothing moves, nothing is drafted.
+    again = _sync(bank, folder, [_file(NAME_A, TEXT_A, mtime=T0)])
+    assert again["files_unchanged"] == 1 and again["updated"] == again["created"] == 0
+
+
+@pytest.mark.parametrize("order", ["together", "old-first", "new-first", "reversed-together"])
+def test_a_rescan_after_manifest_loss_leaves_one_episode_with_the_newer_copy(bank, order):
+    folder = _meeting_folder(bank)
+    a, b = _file(NAME_A, TEXT_A, mtime=T0), _file(NAME_B, TEXT_B, mtime=T0 + 60)
+    batches = {"together": [[a, b]], "reversed-together": [[b, a]], "old-first": [[a], [b]], "new-first": [[b], [a]]}
+    for batch in batches[order]:
+        _sync(bank, folder, batch)
+    (ep,) = _live(bank)
+    assert _held(ep) == NAME_B and "in May." in ep.body and _replaced(ep) == [(NAME_A, _sha(TEXT_A))]
+    # Whichever order it arrived in, the same files again change nothing.
+    for batch in batches[order]:
+        out = _sync(bank, folder, batch)
+        assert out["created"] == out["updated"] == 0
+    assert len(_live(bank)) == 1
+    if order in ("together", "reversed-together", "new-first"):
+        assert "revised" not in _live(bank)[0].frontmatter, "the correction was never read as a second revision"
+
+
+def test_the_old_copy_posted_later_never_turns_the_correction_back_unless_its_bytes_changed(bank):
+    folder = _meeting_folder(bank)
+    _sync(bank, folder, [_file(NAME_A, TEXT_A, mtime=T0), _file(NAME_B, TEXT_B, mtime=T0 + 60)])
+    # A sync tool touched the old file: same bytes, a newer time. It does not win.
+    out = _sync(bank, folder, [_file(NAME_A, TEXT_A, mtime=T0 + 600)])
+    assert out["updated"] == 0
+    (ep,) = _live(bank)
+    assert _held(ep) == NAME_B and "in May." in ep.body
+    # The person edited the old file: its bytes changed and it is the newest, so it wins by the same rule.
+    edited = TEXT_A.replace("beta is ready.", "beta is ready today.")
+    assert _sync(bank, folder, [_file(NAME_A, edited, mtime=T0 + 700)])["updated"] == 1
+    (ep,) = _live(bank)
+    assert _held(ep) == NAME_A and "ready today." in ep.body
+    assert _replaced(ep) == [(NAME_B, _sha(TEXT_B))] and ep.frontmatter["revised"]["count"] == 1
+
+
+@pytest.mark.parametrize("first, second", [(NAME_A, NAME_B), (NAME_B, NAME_A)])
+def test_equal_times_are_decided_by_the_greater_path_in_either_order(bank, first, second):
+    folder = _meeting_folder(bank)
+    text = {NAME_A: TEXT_A, NAME_B: TEXT_B}
+    for name in (first, second):
+        _sync(bank, folder, [_file(name, text[name], mtime=T0)])
+    (ep,) = _live(bank)
+    winner = max(NAME_A, NAME_B)
+    assert _held(ep) == winner and _replaced(ep) == [(loser, _sha(text[loser]))
+                                                     for loser in (NAME_A, NAME_B) if loser != winner]
+
+
+def test_a_stamp_with_no_time_never_joins_and_a_notes_folder_is_unchanged(bank):
+    folder = _meeting_folder(bank)
+    plain_a, plain_b = "Alice: we should pick a date.\nBob: Friday works.\nAlice: Friday then.\n", PLAIN.replace("Friday then", "Monday then")
+    _sync(bank, folder, [_file("2026-11-03 notes.md", plain_a), _file("2026-11-03 other.md", plain_b, mtime=T0 + 60)])
+    assert len(_live(bank)) == 2
+    notes = fs.register(bank, label="alpha-project", path="/n", device="mac-1")
+    out = fs.sync(bank, notes, [_file("2026-11-03 1601 a.md", "first words"),
+                                _file("2026-11-03 1601 b.md", "second words", mtime=T0 + 60)], [])
+    assert out["created"] == 2 and all("replaced_files" not in e.frontmatter for e in _live(bank))
+
+
+def test_a_file_that_is_no_transcript_never_replaces_a_meeting(bank):
+    folder = _meeting_folder(bank)
+    _sync(bank, folder, [_file(NAME_A, TEXT_A, mtime=T0)])
+    out = _sync(bank, folder, [_file("2026-11-03 1601 manifest.json", '{"a": 1}', mtime=T0 + 60)])
+    assert out["errors"] == [{"relpath": "2026-11-03 1601 manifest.json", "reason": "not a meeting transcript"}]
+    (ep,) = _live(bank)
+    assert _held(ep) == NAME_A and "replaced_files" not in ep.frontmatter
+
+
+def test_deleting_the_held_copy_keeps_the_words_and_asks_for_the_next_newest_once(bank):
+    folder = _meeting_folder(bank)
+    _sync(bank, folder, [_file(NAME_A, TEXT_A, mtime=T0), _file(NAME_B, TEXT_B, mtime=T0 + 60)])
+    out = _sync(bank, folder, [], [NAME_B])
+    assert out["tombstoned"] == 0 and out["resend"] == [NAME_A] and out["files_deleted"] == 1
+    (ep,) = _live(bank)
+    assert "in May." in ep.body and "source_deleted_at" not in ep.frontmatter and ep.frontmatter["held_gone_at"]
+    # Until it is posted every real sync keeps asking, so a lost answer is still answered later.
+    assert _sync(bank, folder, [])["resend"] == [NAME_A]
+    # The post of that path wins whatever its mtime and clears the marker: a revision back to its words.
+    out = _sync(bank, folder, [_file(NAME_A, TEXT_A, mtime=T0)])
+    assert out["resend"] == [] and out["updated"] == 1 and out["tombstoned"] == 0
+    (ep,) = _live(bank)
+    assert _held(ep) == NAME_A and "beta next week." in ep.body and "held_gone_at" not in ep.frontmatter
+    assert ep.frontmatter["revised"]["count"] == 1 and "replaced_files" not in ep.frontmatter
+
+
+def test_resend_names_one_path_per_meeting_the_newest_remaining(bank):
+    folder = _meeting_folder(bank)
+    name_c = "2026-11-03 1601 Alpha planning (draft).md"
+    text_c = TEXT_A.replace("next week.", "in June.")
+    _sync(bank, folder, [_file(NAME_A, TEXT_A, mtime=T0), _file(name_c, text_c, mtime=T0 + 30),
+                         _file(NAME_B, TEXT_B, mtime=T0 + 60)])
+    assert len(_live(bank)) == 1 and len(_replaced(_live(bank)[0])) == 2
+    assert _sync(bank, folder, [], [NAME_B])["resend"] == [name_c]
+
+
+def test_deleting_every_copy_tombstones_as_before_and_a_replaced_copy_alone_only_drops(bank):
+    folder = _meeting_folder(bank)
+    _sync(bank, folder, [_file(NAME_A, TEXT_A, mtime=T0), _file(NAME_B, TEXT_B, mtime=T0 + 60)])
+    # A copy it replaced is deleted: dropped from the record, nothing else moves.
+    before = _live(bank)[0]
+    out = _sync(bank, folder, [], [NAME_A])
+    assert (out["tombstoned"], out["updated"], out["resend"]) == (0, 0, [])
+    (ep,) = _live(bank)
+    assert "replaced_files" not in ep.frontmatter and ep.body == before.body and _held(ep) == NAME_B
+    assert "held_gone_at" not in ep.frontmatter and "source_deleted_at" not in ep.frontmatter
+    # Every copy gone, one pass at a time...
+    _sync(bank, folder, [_file(NAME_A, TEXT_A, mtime=T0)], [])
+    _sync(bank, folder, [], [NAME_B])
+    assert _live(bank)[0].frontmatter["held_gone_at"]
+    out = _sync(bank, folder, [], [NAME_A])
+    assert out["tombstoned"] == 1 and out["resend"] == []
+    assert _live(bank)[0].frontmatter["source_deleted_at"] and "in May." in _live(bank)[0].body
+    # ... or in one.
+    other = _meeting_folder(bank)
+    two = "2026-11-04 0900 Beta sync.md"
+    _sync(bank, other, [_file(two, TEXT_A.replace("2026-11-03", "2026-11-04"), mtime=T0)])
+    assert _sync(bank, other, [], [two])["tombstoned"] == 1
+
+
+def test_both_copies_deleted_in_one_pass_tombstone(bank):
+    folder = _meeting_folder(bank)
+    _sync(bank, folder, [_file(NAME_A, TEXT_A, mtime=T0), _file(NAME_B, TEXT_B, mtime=T0 + 60)])
+    out = _sync(bank, folder, [], [NAME_A, NAME_B])
+    assert out["tombstoned"] == 1 and out["resend"] == []
+
+
+def test_the_rename_path_stays_first_and_a_replacement_takes_a_deleted_copys_episode(bank):
+    folder = _meeting_folder(bank)
+    _sync(bank, folder, [_file(NAME_A, TEXT_A, mtime=T0)])
+    (first,) = _live(bank)
+    # Deleted and posted again under a new name with the same bytes: a rename, no replaced copy.
+    out = _sync(bank, folder, [_file(NAME_B, TEXT_A, mtime=T0 + 60)], [NAME_A])
+    assert (out["renamed"], out["created"], out["tombstoned"]) == (1, 0, 0)
+    (ep,) = _live(bank)
+    assert ep.frontmatter["id"] == first.frontmatter["id"] and _held(ep) == NAME_B
+    assert "replaced_files" not in ep.frontmatter and "revised" not in ep.frontmatter
+    # A deleted and C (the same stamp, other bytes) posted in one pass: C takes A's episode, A is not tombstoned
+    # and is not recorded as a copy to ask for (it is gone).
+    name_c = "2026-11-03 1601 Alpha planning (final).md"
+    out = _sync(bank, folder, [_file(name_c, TEXT_B, mtime=T0 + 120)], [NAME_B])
+    assert (out["created"], out["updated"], out["tombstoned"], out["resend"]) == (0, 1, 0, [])
+    (ep,) = _live(bank)
+    assert ep.frontmatter["id"] == first.frontmatter["id"] and _held(ep) == name_c
+    assert "source_deleted_at" not in ep.frontmatter and "replaced_files" not in ep.frontmatter
+    assert mt.source_id(folder["id"], NAME_B) in ep.frontmatter["previous_source_ids"]
+
+
+def test_two_episodes_made_before_the_rule_keep_their_own_files(bank):
+    folder = _meeting_folder(bank)
+    other = "2026-11-03 1602 Alpha planning.md"
+    _sync(bank, folder, [_file(NAME_A, TEXT_A, mtime=T0), _file(other, TEXT_B, mtime=T0 + 5)])
+    a, b = _live(bank)
+    # The bug's leftover: a second live episode that carries the first one's stamp.
+    twin = b.frontmatter | {"relpath": NAME_B, "source_id": mt.source_id(folder["id"], NAME_B)}
+    markdown_parser.write(bank / "episodes" / f"{b.frontmatter['id']}.md", twin, b.body)
+    assert len(_live(bank)) == 2
+    out = _sync(bank, folder, [_file(NAME_A, TEXT_A.replace("beta is ready.", "beta is late."), mtime=T0 + 600)])
+    assert out["updated"] == 1 and out["created"] == 0 and len(_live(bank)) == 2   # no guess which copy it belongs to
+
+
+def test_the_route_carries_resend(client):
+    c, bank = client
+    fid = c.post("/sources/folders", json={"label": "Hex Meetings", "path": "/Users/example/Documents/Hex Meetings",
+                                           "kind": "meetings", "recorder": "hex"}).json()["id"]
+
+    def post(files, deleted=()):
+        body = {"files": [{"relpath": f.relpath, "mtime": f.mtime, "sha256": f.sha256, "contentB64": f.content_b64}
+                          for f in files], "deleted": list(deleted), "tzName": "Europe/Madrid"}
+        return c.post(f"/sources/folders/{fid}/sync", json=body).json()
+
+    post([_file(NAME_A, TEXT_A, mtime=T0), _file(NAME_B, TEXT_B, mtime=T0 + 60)])
+    assert post([], [NAME_B])["resend"] == [NAME_A]
+    assert post([_file(NAME_A, TEXT_A, mtime=T0)])["resend"] == []

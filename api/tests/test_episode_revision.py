@@ -245,6 +245,25 @@ def test_the_version_sleep_read_comes_from_git(tmp_path):
     assert ep[er.KEY] is revisions[EP] and revisions[EP].prior == "user: first."
 
 
+def test_an_episode_edited_down_to_nothing_is_still_a_revision(tmp_path):
+    """G104 slice 3: a section a note lost is revised to an empty body. ``attach`` used to skip an episode with no
+    content, so the words it held were never settled as removed; its ``revised`` record now makes it a revision."""
+    memory = tmp_path / "memory"
+    (memory / "episodes").mkdir(parents=True)
+    _episode(memory, "user: the review is on Friday.\nuser: we use tokio.", processed=True, processed_by="sleep",
+             content_hash="h1")
+    _git(memory, "init", "-q")
+    _git(memory, "add", "-A")
+    _git(memory, "commit", "-qm", "Sleep")
+    revised = {"count": 1, "consolidated_hash": "h1"}
+    ep = {**_episode(memory, "", processed=False, content_hash="h2", revised=revised), "revised": revised}
+    (rev,) = er.attach(memory, [ep]).values()
+    assert rev.body == "" and rev.prior.startswith("user: the review") and rev.windows == () and not rev.noop
+    assert rev.removed and rev.closes and ep[er.KEY] is rev
+    # An episode that was always empty, or never edited, is no revision.
+    assert er.attach(memory, [{"id": EP, "content": "", "filepath": ep["filepath"]}]) == {}
+
+
 def test_the_stagers_record_names_the_version_to_diff_against(tmp_path):
     """G95's ``revised.consolidated_hash`` picks the version, even one an agent consolidated, and even past a newer
     commit of a version nobody consolidated."""

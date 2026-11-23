@@ -298,7 +298,10 @@ def prior_bodies(memory_path: Path, episodes: list[dict]) -> dict[str, str]:
 def attach(memory_path: Path, episodes: list[dict]) -> dict[str, Revision]:
     """Mark each waiting episode Sleep read before as a :class:`Revision` (``episode[KEY]``). Never raises."""
     try:
-        priors = prior_bodies(memory_path, [ep for ep in episodes if ep.get("content")])
+        # An episode emptied by an edit (a section the note lost, G104 slice 3) has no content but IS a revision: its
+        # ``revised`` record says it was edited, and every claim only the removed words said settles as withdrawn.
+        priors = prior_bodies(memory_path, [ep for ep in episodes
+                                            if ep.get("content") or isinstance(ep.get(REVISED_KEY), dict)])
         revisions: dict[str, Revision] = {}
         for ep in episodes:
             prior = priors.get(str(ep["id"]))

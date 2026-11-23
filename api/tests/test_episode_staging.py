@@ -258,3 +258,45 @@ def test_a_redate_and_a_restamp_each_write_under_the_episodes_own_lock(tmp_path,
     assert st._when(st.normalise_timestamp(fm["timestamp"])) == datetime(2026, 9, 5, 10, tzinfo=timezone.utc)
     assert st._when(st.normalise_timestamp(fm["redated_from"])) == datetime(2026, 9, 1, 10, tzinfo=timezone.utc)
     assert taken and set(taken) == {ep_dir.resolve()}
+
+
+def test_a_draft_that_replaces_takes_the_episode_over_in_place(tmp_path):
+    ep_dir = tmp_path / "episodes"
+    st.stage([_draft("meetings:f:a.md", "first words", sha="aa")], ep_dir)
+    path, first = _only(ep_dir)
+    # Same id and file, the source identity moves, the old one is remembered, the body is a revision of itself.
+    taken = _draft("meetings:f:b.md", "second words", sha="bb")
+    taken.replaces = ["meetings:f:a.md"]
+    result = st.stage([taken], ep_dir, deleted_source_ids=["meetings:f:a.md"])
+    assert (result.created, result.updated, result.tombstoned) == (0, 1, 0)
+    assert result.replaced_sources == [("meetings:f:a.md", "meetings:f:b.md")]
+    path2, ep = _only(ep_dir)
+    fm = ep.frontmatter
+    assert path2 == path and fm["id"] == first.frontmatter["id"] and ep.body == "second words"
+    assert (fm["source_id"], fm["content_sha"], fm["previous_source_ids"]) == ("meetings:f:b.md", "bb", ["meetings:f:a.md"])
+    assert fm["processed"] is False and fm["revised"]["count"] == 1
+    # The same words under another name move the identity and queue no read of what did not change.
+    same = _draft("meetings:f:c.md", "second words", sha="cc")
+    same.replaces = ["meetings:f:b.md"]
+    st.stage([same], ep_dir)
+    fm = _only(ep_dir)[1].frontmatter
+    assert fm["source_id"] == "meetings:f:c.md" and fm["content_sha"] == "cc" and fm["revised"]["count"] == 1
+    assert fm["previous_source_ids"] == ["meetings:f:a.md", "meetings:f:b.md"]
+    # Nothing to take over (the named episode is not in the bank): an ordinary new episode.
+    lone = _draft("meetings:f:z.md", "elsewhere", sha="zz")
+    lone.replaces = ["meetings:f:missing.md"]
+    assert st.stage([lone], ep_dir).created == 1
+
+
+def test_the_file_record_is_frontmatter_only_and_idempotent(tmp_path):
+    ep_dir = tmp_path / "episodes"
+    st.stage([_draft("meetings:f:a.md", "words", sha="aa")], ep_dir)
+    path, before = _only(ep_dir)
+    record = [{"relpath": "b.md", "content_sha": "bb", "mtime": "2026-09-01T10:00:00+00:00"}]
+    assert st.set_file_record(path, replaced=record, held_gone_at="2026-09-02T00:00:00+00:00") is True
+    assert st.set_file_record(path, replaced=record, held_gone_at="2026-09-02T00:00:00+00:00") is False
+    fm = markdown_parser.parse(path).frontmatter
+    assert fm["replaced_files"] == record and fm["held_gone_at"] == "2026-09-02T00:00:00+00:00"
+    assert markdown_parser.parse(path).body == before.body and fm["processed"] is False
+    assert st.set_file_record(path, replaced=[], held_gone_at=None) is True
+    assert "replaced_files" not in markdown_parser.parse(path).frontmatter

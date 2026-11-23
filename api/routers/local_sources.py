@@ -265,7 +265,8 @@ async def sync_folder(
         else:
             report = await run_in_threadpool(
                 papers.reconcile, memory_path, folder, touched=staged.touched,
-                tombstoned=staged.tombstoned_sources, renamed=staged.renamed_sources)
+                tombstoned=staged.tombstoned_sources,
+                renamed=[*staged.renamed_sources, *staged.replaced_sources])   # a renamed section keeps its citations
         out.update(papers_found=report["papers_found"], papers_created=report["papers_created"],
                    removals_proposed=report["removals_proposed"])
         paths += report["paths"]
