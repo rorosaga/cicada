@@ -257,8 +257,7 @@ struct CatchupView: View {
         }
         .padding(.horizontal, CicadaTheme.spacingMD)
         .padding(.vertical, CicadaTheme.scaled(10))
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
-        .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+        .softCard(shape: .block, inset: .none)
         .frame(maxWidth: CicadaTheme.scaled(HomeLayout.columnWidth))
         .padding(.horizontal, CicadaTheme.spacingGutter)
         .padding(.bottom, CicadaTheme.spacingLG)

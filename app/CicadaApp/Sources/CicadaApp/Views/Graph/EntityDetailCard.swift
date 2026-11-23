@@ -720,8 +720,7 @@ struct EntityDetailCard: View {
         }
         .padding(CicadaTheme.spacingMD)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
-        .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+        .softCard(shape: .block, inset: .none)
     }
 
     private func copyPath(_ p: String) {
@@ -832,8 +831,7 @@ struct EntityDetailCard: View {
                 }
             }
             .padding(CicadaTheme.spacingMD)
-            .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
-            .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+            .softCard(shape: .block, inset: .none)
         }
     }
 
@@ -942,8 +940,7 @@ struct EntityDetailCard: View {
         }
         .padding(CicadaTheme.spacingMD)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
-        .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+        .softCard(shape: .block, inset: .none)
     }
 
     // MARK: - Timeline Tab (§4)

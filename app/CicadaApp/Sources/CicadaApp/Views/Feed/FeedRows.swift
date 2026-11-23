@@ -107,8 +107,13 @@ struct FeedRowsContent: View {
     }
 }
 
-/// One saved item (§10: "Rows are 56 pt: mark, title and source line, with a thumbnail only for media"). The origin's
-/// real mark where one exists (DR-52), else the kind's glyph — never both (DR-48). Relevance only when the scores differ.
+/// One saved item, as the app's soft card (owner 2026-11-23, DESIGN_RULES §9: "sure" — the lists wear the Superwhisper
+/// look): its title (two lines at most) and under it one quiet line, `[site mark] Article · site · Saved 21 Nov`, with the
+/// relevance and the age at its trailing edge. The mark is the item's own site (DR-52) or the origin's real mark — never
+/// a kind glyph standing in for one (DR-48: a real mark or nothing; the kind is the line's first word). A video keeps its
+/// frame at the card's leading edge. No chevron: the whole card is the button, and the open item is `bgSelected`. Only the
+/// narrowest column (titles, beside the open item and the Reader) stays a dense one-line row. Relevance only when the
+/// scores differ.
 struct FeedListRow: View {
     let item: MediaFeedItem
     let style: ColumnPlan.ListStyle
@@ -125,35 +130,47 @@ struct FeedListRow: View {
     private var title: String { item.title.isEmpty ? item.url : item.title }
     private var isVideo: Bool { FeedKind.of(item) == .video }
     private var videoState: VideoStateItem? { isVideo ? videoCache?.item(feedId: item.id) : nil }
+    private var isCard: Bool { style == .wide || style == .triage }
 
     var body: some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
+        if isCard {
+            Button(action: open) { card.softCardRow(selected: selected) }
+                .buttonStyle(.cicadaPlain)
+                // The list's gutter was set for rows that pad themselves 10 pt: the card's edge lines up with the tab
+                // row's and the page's text edge (the narrow column's own inset already is the card's).
+                .padding(.horizontal, style == .wide ? CicadaTheme.scaled(10) : 0)
+                .accessibilityLabel(Copy.Lists.feedRow(title: title, open: selected))
+                .accessibilityAddTraits(selected ? .isSelected : [])
+                // The card's gap (12) less the 2 pt the lazy stack already puts between its children.
+                .padding(.bottom, CicadaTheme.cardGap - CicadaTheme.scaled(RowMetrics.twoLineGap))
+        } else {
             Button(action: open) {
-                content
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                HStack(spacing: CicadaTheme.spacingSM) {
+                    mark.frame(width: CicadaTheme.scaled(16))
+                    titleText(lines: 1)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .help(title)
             }
             .buttonStyle(.cicadaPlain)
             .accessibilityLabel(Copy.Lists.feedRow(title: title, open: selected))
             .accessibilityAddTraits(selected ? .isSelected : [])
-            if style == .wide {
-                IconButton(systemName: "chevron.right", help: Copy.Lists.openItem, action: open)
-                    .accessibilityHidden(true)
-            }
+            .listRowSurface(height: ListRowSurface.height(style, twoLineAtRest: true), selected: selected)
         }
-        .listRowSurface(height: ListRowSurface.height(style, twoLineAtRest: true), selected: selected)
     }
 
     /// Owner 2026-10-20 — the item's own site (`SavedLinkMark`: its icon, a family's bundled mark, else the site's
     /// monogram); where it was saved from is the detail's "Saved from" line, never this mark. A row the backend named
-    /// no site for (an older backend) keeps the origin's mark, else the kind's glyph — never both (DR-48).
+    /// no site for (an older backend) keeps the origin's mark. The dense row alone falls back to the kind's glyph (it has
+    /// no words line to name the kind); a card draws a real mark or nothing.
     @ViewBuilder
     private var mark: some View {
         if let site = SavedLinkMarkModel.mark(item) {
             SavedLinkMark(mark: site, size: .inline)
         } else if let origin = FeedSourceLine.markOrigin(item) {
-            OriginMark(origin: origin, size: CicadaTheme.scaled(12))
-        } else {
+            OriginMark(origin: origin, size: CicadaTheme.scaled(16))
+        } else if !isCard {
             Image(systemName: FeedKind.of(item).glyph)
                 .font(CicadaTheme.icon(.inline))
                 .foregroundStyle(CicadaTheme.textTertiary)
@@ -161,66 +178,53 @@ struct FeedListRow: View {
         }
     }
 
-    private var titleText: some View {
+    private func titleText(lines: Int) -> some View {
         Text(title)
-            .font(CicadaTheme.rowFont)
+            .font(isCard ? CicadaTheme.detailBodyFont : CicadaTheme.rowFont)
             .foregroundStyle(CicadaTheme.textPrimary)
-            .lineLimit(1)
+            .lineLimit(lines)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
-    private var content: some View {
-        switch style {
-        case .wide, .triage:
-            HStack(alignment: isVideo ? .center : .top, spacing: CicadaTheme.scaled(10)) {
-                mark.frame(width: CicadaTheme.scaled(16)).padding(.top, isVideo ? 0 : CicadaTheme.scaled(2))
-                if isVideo {
-                    // G162 (§9 2026-09-30) — a 64 × 36 frame with its length at full width, 48 × 27 beside a detail.
-                    VideoThumb(preview: item.preview, durationS: item.durationS,
-                               width: style == .wide ? 64 : 48, height: style == .wide ? 36 : 27,
-                               showsLength: style == .wide)
-                }
-                VStack(alignment: .leading, spacing: CicadaTheme.scaled(3)) {
-                    HStack(spacing: CicadaTheme.spacingMD) {
-                        titleText
-                        Spacer(minLength: 0)
-                        if style == .wide && showsRelevance {
-                            Text(Copy.Lists.relevanceShort(UsageFormat.percent(item.relevance * 100)))
-                                .font(CicadaTheme.metaFont)
-                                .monospacedDigit()
-                                .foregroundStyle(metaColor)
-                                .help(Copy.Lists.relevanceHelp)
-                        }
-                        if !(isVideo && style == .wide), let age = FeedDates.age(item, now: now) {
-                            Text(age)
-                                .font(CicadaTheme.metaFont)
-                                .monospacedDigit()
-                                .foregroundStyle(metaColor)
-                                .help(FeedDates.day(item, withYear: true) ?? "")
-                        }
-                    }
+    private var card: some View {
+        HStack(alignment: .center, spacing: CicadaTheme.scaled(12)) {
+            if isVideo {
+                // G162 (§9 2026-09-30) — a 64 × 36 frame with its length at full width, 48 × 27 beside a detail.
+                VideoThumb(preview: item.preview, durationS: item.durationS,
+                           width: style == .wide ? 64 : 48, height: style == .wide ? 36 : 27,
+                           showsLength: style == .wide)
+            }
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                titleText(lines: 2)
+                HStack(spacing: CicadaTheme.scaled(6)) {
+                    mark
                     Text(isVideo && style == .triage ? VideoWords.triageLine(item, state: videoState) : FeedRowText.detail(item))
-                        .font(CicadaTheme.metaFont)
-                        .foregroundStyle(metaColor)
                         .lineLimit(1)
+                    Spacer(minLength: CicadaTheme.spacingSM)
+                    if style == .wide && showsRelevance {
+                        Text(Copy.Lists.relevanceShort(UsageFormat.percent(item.relevance * 100)))
+                            .monospacedDigit()
+                            .help(Copy.Lists.relevanceHelp)
+                    }
+                    if isVideo && style == .wide {
+                        // The state word and the age, one tabular group at the trailing edge ("Transcript · 3h").
+                        Text(VideoWords.trailing(state: videoState, age: FeedDates.age(item, now: now)))
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .fixedSize()
+                            .help(FeedDates.day(item, withYear: true) ?? "")
+                    } else if let age = FeedDates.age(item, now: now) {
+                        Text(age)
+                            .monospacedDigit()
+                            .help(FeedDates.day(item, withYear: true) ?? "")
+                    }
                 }
-                if isVideo && style == .wide {
-                    // The state word and the age, one tabular group at the trailing edge ("Transcript · 3h").
-                    Text(VideoWords.trailing(state: videoState, age: FeedDates.age(item, now: now)))
-                        .font(CicadaTheme.metaFont)
-                        .monospacedDigit()
-                        .foregroundStyle(metaColor)
-                        .lineLimit(1)
-                        .fixedSize()
-                        .help(FeedDates.day(item, withYear: true) ?? "")
-                }
+                .font(CicadaTheme.metaFont)
+                .foregroundStyle(metaColor)
             }
-        case .titles, .hidden:
-            HStack(spacing: CicadaTheme.spacingSM) {
-                mark.frame(width: CicadaTheme.scaled(16))
-                titleText
-            }
-            .help(title)
         }
+        .contentShape(Rectangle())
     }
 }

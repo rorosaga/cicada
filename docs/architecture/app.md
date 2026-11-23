@@ -311,8 +311,21 @@ popover, References and "Where this came from" (`sourceRemoved`). The folder wat
 `resend` on the same pass (`FolderScanner.answerResends`): each path is dropped from the manifest and posted again, or
 sent as deleted when it cannot be read, at most once per pass.
 
+**The soft card (owner 2026-11-23, DESIGN_RULES §9: "i would copy more the ui of superwhisper look" / "sure").** One chrome
+for every card of the app, `softCard` / `SoftCardChrome` in `Theme/SoftCard.swift`: `radiusLarge` (a grouped block of rows or
+facts passes `shape: .block` for `cornerRadius`), `bgFocus` on the page or `bgOption` nested in another card
+(`ground: .nested`), the resting ring going strong under the pointer, `bgSelected` for the open item, never a shadow;
+`tone` is `OriginCard`'s plain / current (accent) / past (faded). `softCardRow` is the same with its own eased hover.
+`PageCardSurface`, `originCardChrome` (`OriginCard`, `EpisodeCard`, `ChatCard`) and every former `bgFocus` + ring spelling in
+`Views/` forward to it, and `SoftCardTests` fails a view that spells the pair again. `FeedListRow` (Sleep › Saved and
+Videos, a source's items) is a card at the wide and triage widths — two lines of the title, then `[site mark] Article · site ·
+Saved 21 Nov` with relevance and age at the trailing edge, no chevron, a real mark or nothing — and a dense row only in the
+titles column. Left as rows (DR-37 as amended): the Inbox's grouped question table, the find palette, Clusters' lists of
+names, Settings and the permission and run tables. `SourceCardChrome` (the Sleep page's source card, ring-only hover) is the one
+near-copy left, to be pointed at `softCard` when its hover fill may change.
+
 **Navigation (Direction D, DS-1).** A 56 pt icon rail (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Skills,
-Sleep, Sources, Projects, Agents at ⌘1–5 and ⌘7–9 in `AppTab.allCases` order (`RailItem`; a page switch is instant).
+Sleep, Sources, Projects, Agents at ⌘1–5 and ⌘7–9 in `AppTab.allCases` order (`RailItem`; a page switch is instant). The pages sit in three groups told apart by a 12 pt gap, never a line — Home, Graph, Clusters · Skills, Sleep, Sources · Projects, Agents, Traces (`ShellMetrics.navGroups`, contiguous runs of the ⌘ order, so no digit moves); the labelled sidebar's rows are 40 pt with a soft `cornerRadius` selected fill, the icon rail's cells stay 36 pt (2026-11-23).
 **The Inbox left the rail (ruling 48 (2), owner 2026-10-28):** its questions live on Home and on each page, and the
 full grouped list is Home's sub-view — `AppTab.inbox` stays a destination (⌘K, the menu bar, a notification, Home's
 *All N questions*) but draws no cell (`AppTab.onRail`), Home's cell reads as selected while it shows (`railCell`), its

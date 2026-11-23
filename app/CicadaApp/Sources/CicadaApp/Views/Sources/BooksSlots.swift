@@ -314,8 +314,7 @@ struct BookDescriptionBox: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(CicadaTheme.spacingMD)
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadius).fill(CicadaTheme.bgFocus))
-        .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+        .softCard(shape: .block, inset: .none)
     }
 }
 

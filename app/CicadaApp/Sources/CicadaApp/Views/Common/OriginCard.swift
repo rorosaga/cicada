@@ -106,45 +106,10 @@ extension OriginCard where Detail == EmptyView {
     }
 }
 
-/// How a card sits in its list. `current` is the newest of a history — the accent ring and wash (DESIGN_RULES §9
-/// 2026-11-23, the seventh accent use, this card alone); `plain` is an item of a list that is not a history (the Sleep
-/// page's waiting episodes), no accent; `past` fades — an older wording, an episode Sleep already read.
-enum OriginCardTone: Equatable { case current, plain, past }
-
-/// The card's look, shared by every card of the family (`OriginCard`, `EpisodeCard`): `bgOption` in a `radiusLarge`
-/// shape with a ring, never a shadow (DR-9, DR-12); the `current` accent; `past` at `pastOpacity` until the pointer or
-/// an expansion (`held`) brings it back.
-struct OriginCardChrome: ViewModifier {
-    let tone: OriginCardTone
-    let hovering: Bool
-    var held: Bool = false
-
-    /// The past cards' fade at rest.
-    static var pastOpacity: Double { 0.55 }
-
-    func body(content: Content) -> some View {
-        let shape = CicadaTheme.shape(CicadaTheme.radiusLarge)
-        content
-            .padding(.horizontal, CicadaTheme.spacingMD + CicadaTheme.scaled(2))
-            .padding(.vertical, CicadaTheme.spacingMD)
-            .background {
-                ZStack {
-                    shape.fill(hovering && tone != .current ? CicadaTheme.bgButton : CicadaTheme.bgOption)
-                    if tone == .current { shape.fill(CicadaTheme.accent.opacity(0.06)) }
-                }
-            }
-            .overlay(shape.strokeBorder(ring, lineWidth: 1))
-            .opacity(tone == .past && !hovering && !held ? Self.pastOpacity : 1)
-            .contentShape(shape)
-    }
-
-    private var ring: Color {
-        tone == .current ? CicadaTheme.accent.opacity(0.55) : CicadaTheme.ring(hovering ? .strong : .resting)
-    }
-}
-
+/// The card's look is `SoftCardChrome` (`Theme/SoftCard.swift`), the one chrome every card of the app wears; the family
+/// of cards that sit inside another card (`OriginCard`, `EpisodeCard`, `ChatCard`) takes its `nested` ground.
 extension View {
     func originCardChrome(tone: OriginCardTone, hovering: Bool, held: Bool = false) -> some View {
-        modifier(OriginCardChrome(tone: tone, hovering: hovering, held: held))
+        softCard(ground: .nested, tone: tone, hovering: hovering, held: held)
     }
 }

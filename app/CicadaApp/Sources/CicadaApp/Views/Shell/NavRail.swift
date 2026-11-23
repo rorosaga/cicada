@@ -38,10 +38,15 @@ struct NavRail: View {
 
     var body: some View {
         VStack(alignment: labelled ? .leading : .center, spacing: 0) {
-            VStack(spacing: CicadaTheme.spacingXS) {
-                // Owner 2026-10-26 — a hidden page (Projects behind `PageSwitches`, Traces until it was ever on)
-                // draws no cell; every other cell keeps its ⌘ digit (DR-22).
-                ForEach(AppTab.shown(tracesPage: tracesPage), id: \.self) { tab in cell(tab) }
+            // Owner 2026-10-26 — a hidden page (Projects behind `PageSwitches`, Traces until it was ever on)
+            // draws no cell; every other cell keeps its ⌘ digit (DR-22). Owner 2026-11-23: the groups are told apart by
+            // space, never a line (DR-11, `ShellMetrics.navGroups`).
+            VStack(spacing: CicadaTheme.scaled(ShellMetrics.groupGap)) {
+                ForEach(Array(ShellMetrics.navGroups(AppTab.shown(tracesPage: tracesPage)).enumerated()), id: \.offset) { _, group in
+                    VStack(spacing: CicadaTheme.spacingXS) {
+                        ForEach(group, id: \.self) { tab in cell(tab) }
+                    }
+                }
             }
             Spacer(minLength: CicadaTheme.spacingLG)
             foot
@@ -123,7 +128,7 @@ struct NavRailCell: View {
     private var fill: Color { selected ? CicadaTheme.bgSelected : (hovering ? CicadaTheme.bgRailHover : Color.clear) }
 
     var body: some View {
-        HStack(spacing: CicadaTheme.scaled(10)) {
+        HStack(spacing: CicadaTheme.scaled(labelled ? 12 : 10)) {
             glyph
             if labelled {
                 Text(tab.title)
@@ -134,11 +139,12 @@ struct NavRailCell: View {
                 if badge > 0 { RailBadge(count: badge, style: .inline) }
             }
         }
-        .padding(.horizontal, labelled ? CicadaTheme.scaled(10) : 0)
+        .padding(.horizontal, labelled ? CicadaTheme.scaled(12) : 0)
         .frame(width: labelled ? nil : CicadaTheme.scaled(ShellMetrics.railCell),
                height: CicadaTheme.scaled(labelled ? ShellMetrics.sidebarRow : ShellMetrics.railCell))
         .frame(maxWidth: labelled ? .infinity : nil, alignment: .leading)
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(fill))
+        // The labelled row's soft fill takes the card's radius family (`cornerRadius`, 10); the rail's cell stays 8.
+        .background(CicadaTheme.shape(labelled ? CicadaTheme.cornerRadius : CicadaTheme.cornerRadiusSmall).fill(fill))
         .overlay(alignment: .topTrailing) {
             if !labelled, badge > 0 {
                 // Owner 2026-11-06: a three-digit count sat on the icon. The capsule hangs off the cell's corner
