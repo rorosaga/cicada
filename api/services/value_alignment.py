@@ -14,6 +14,10 @@ once joined its readout date on one wrong answer, and the newer closed the older
 predicate, and Stage 3 does the rest as it always has: the newer value closes the older (`valid_to`, `superseded_by`),
 nothing is deleted, and the trust rules still decide who may close whom. The judge never edits a claim.
 
+Each line carries the person's own words (`Words`): the claim's sentence names the attribute but not what the person did
+("I rewrote it in Go and dropped the old version"), which is what shows a replacement. A span that does not locate is
+absent — never searched for.
+
 Two rails the model cannot talk its way past: values one conversation stated together are never one attribute, and only a
 newly read value is ever renamed.
 
@@ -25,6 +29,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 from loguru import logger
@@ -40,10 +45,15 @@ MAX_LINES = 40
 MAX_LINE_CHARS = 160
 #: Proposed joins checked per batch (each is one more call); a batch past it keeps what Stage 3 would have done.
 MAX_CHECKS = 40
+#: The person's own words shown beside a value: one located span, cut to this many characters.
+MAX_WORDS_CHARS = 240
 
 PROMPT = """One person's memory page for ONE thing lists values stated about it, one line each: the attribute as it was \
 worded when stated (conversations word it differently, sometimes in another language), its value, and the date it was \
-said. Lines marked NEW were just read; the others are already on the page.
+said. Lines marked NEW were just read; the others are already on the page. A line may be followed by the person's \
+own words that gave that value: they show what the value is of and whether the person was replacing an earlier value \
+(a rewrite, a rise, a move, a new job). Words that report a change do not make two lines one attribute: the person may \
+change two different things in the same way.
 
 For each NEW line, name the OTHER line, if any, that states the same attribute of this thing in other words: the \
 later value would then replace the earlier one. A second reader checks every answer you give, so name the closest \
@@ -65,7 +75,8 @@ EARLIER: {earlier}
 LATER: {later}
 
 Is LATER a new value for the very same attribute as EARLIER (reworded or translated), so that EARLIER is now out of \
-date? Or do they measure different things that can both be true at once: what it is of (a flat or its garage), what it \
+date? The attribute names are only wording; judge what each value is of, using the person's words where they are \
+given. Or do they measure different things that can both be true at once: what it is of (a flat or its garage), what it \
 includes (with or without tax), its scope or period (this year or last), its role (a target or an actual, a start or an \
 end, a minimum or a maximum), or its kind (a price, a count, a date)? When unsure, they are different.
 
@@ -81,6 +92,7 @@ class Line:
     key: tuple[str, str]                  # (context, slot observer): only values of one slot can replace each other
     claims: list = field(default_factory=list)
     incoming: bool = False                # true when every claim is one this batch brings
+    words: str = ""                       # the person's own words behind its latest claim (`Words.of`), "" when none locate
 
     @property
     def latest(self):
@@ -95,6 +107,42 @@ class Line:
 class Ask:
     subject: str
     lines: list[Line]
+
+
+class Words:
+    """The person's own words behind a value, read back from the span the claim carries (G118): what the judge needs
+    to tell a replacement ("I rewrote it in Go", "j'ai monté le prix à 5 euros") from two things said alike.
+
+    Only a span of the person's own turn that locates now (`source_spans.Source.status`: the offsets hold under the
+    stored hash, no gap line, nothing `sensitive_text` is sure of) is ever shown, cut to ``MAX_WORDS_CHARS``; an
+    inference, an assistant's or another speaker's words, a stale span or one that does not locate is simply absent —
+    never searched for, never fuzzy. One read of each conversation per call, whatever the number of values."""
+
+    def __init__(self, memory_path):
+        self.memory_path = Path(memory_path) if memory_path else None
+        self._sources: dict = {}
+
+    def of(self, claim) -> str:
+        if self.memory_path is None:
+            return ""
+        try:
+            return next(filter(None, (self._one(ev) for ev in claim.evidence or [])), "")
+        except Exception as exc:  # noqa: BLE001 - words are an aid; without them the judge sees what it always saw
+            logger.info(f"value alignment: a span was not read ({type(exc).__name__})")
+            return ""
+
+    def _one(self, ev) -> str:
+        from api.services import source_spans
+
+        if getattr(ev, "kind", "") != "user" or not ev.is_span():
+            return ""
+        if ev.episode not in self._sources:
+            self._sources[ev.episode] = source_spans.Source.open(self.memory_path, ev.episode)
+        source = self._sources[ev.episode]
+        if source is None or source.status(ev.start, ev.end, ev.hash) not in (source_spans.CURRENT, source_spans.GROWN):
+            return ""
+        said = " ".join(source.text[ev.start:ev.end].split())
+        return said if len(said) <= MAX_WORDS_CHARS else said[:MAX_WORDS_CHARS].rstrip() + "…"
 
 
 def _label(predicate: str) -> str:
@@ -143,8 +191,9 @@ def orphans(lines: list[Line]) -> list[Line]:
             and any(_joinable(ln, o) and not _worded_alike(ln, o) for o in lines)]
 
 
-def questions(incoming: list, existing_by_subject: dict) -> list[Ask]:
-    """The pages this batch needs one call for, the most new attributes first, at most ``MAX_ASKS``."""
+def questions(incoming: list, existing_by_subject: dict, words: Words | None = None) -> list[Ask]:
+    """The pages this batch needs one call for, the most new attributes first, at most ``MAX_ASKS``. ``words`` reads the
+    person's own words behind each listed line (none when ``None``)."""
     by_subject: dict[str, list] = {}
     for c in incoming:
         if _open_value(c):
@@ -160,7 +209,8 @@ def questions(incoming: list, existing_by_subject: dict) -> list[Ask]:
         for o in sorted(lines, key=lambda ln: str(ln.latest.valid_from or ""), reverse=True):
             if o not in listed and any(_joinable(w, o) for w in wanted):
                 listed.append(o)
-        listed = [Line(i, ln.predicate, ln.key, ln.claims, ln.incoming) for i, ln in enumerate(listed[:MAX_LINES], 1)]
+        listed = [Line(i, ln.predicate, ln.key, ln.claims, ln.incoming, words.of(ln.latest) if words else "")
+                  for i, ln in enumerate(listed[:MAX_LINES], 1)]
         asks.append((-len(wanted), subject, Ask(subject, listed)))
     asks.sort(key=lambda t: (t[0], t[1]))
     return [a for _, _, a in asks[:MAX_ASKS]]
@@ -172,7 +222,8 @@ def _sentence(line: Line) -> str:
     c = line.latest
     said = str(c.valid_from or "")[:10]
     text = " ".join((c.text or "").split()) or f"{_label(line.predicate)}: {' '.join(str(c.object).split())}"
-    return text[:MAX_LINE_CHARS] + (f" ({said})" if said else "")
+    out = text[:MAX_LINE_CHARS] + (f" ({said})" if said else "")
+    return out + (f'\n   they said: "{line.words}"' if line.words else "")
 
 
 def prompt(ask: Ask) -> str:
@@ -253,17 +304,19 @@ def rename(group: list[Line]) -> list[tuple[str, str, str]]:
     return moved
 
 
-def align(incoming: list, existing_by_subject: dict, judge: Callable[[str], dict] | None) -> list[dict]:
+def align(incoming: list, existing_by_subject: dict, judge: Callable[[str], dict] | None,
+          memory_path=None) -> list[dict]:
     """Rename the batch's new values onto the attribute they restate: one judge call per page that needs it, then one
     check per join it proposes. ``judge`` takes a prompt and returns the parsed JSON object (``{}`` for none). Mutates
-    ``incoming``; returns audit entries. A failed call costs the batch its joins from then on, never a claim (Stage 3
+    ``incoming``; returns audit entries. ``memory_path`` lets each listed value carry the person's own words from its
+    span (`Words`); without it the judge reads the claims' sentences alone. A failed call costs the batch its joins from then on, never a claim (Stage 3
     then runs as it did before this step)."""
     if judge is None:
         return []
     audit: list[dict] = []
     asked = checked = 0
     try:
-        for ask in questions(incoming, existing_by_subject):
+        for ask in questions(incoming, existing_by_subject, Words(memory_path) if memory_path else None):
             asked += 1
             kept = []
             for new, other in proposals(judge(prompt(ask)), ask):

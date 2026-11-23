@@ -523,7 +523,21 @@ Stage 3 (`claim_pipeline`, after `route_values_to_their_thing`) Sleep's small ju
 gains an attribute no open value on it is worded like, and that has another value it could be (same context and
 observer, no conversation in common — two values one conversation stated together are two things, in code, not by the
 judge's word), **one call** lists that page's values — the claim's own sentence and date, the new ones marked, the new
-attributes first, at most 40 lines — and asks, for each new line, which other line states the same attribute. **Each
+attributes first, at most 40 lines — and asks, for each new line, which other line states the same attribute.
+**Each line carries the person's own words (2026-11-23):** the attribute's wording alone ("core language" beside
+"implementation language") left about one true join in six refused, and a refusal was never revisited, because the
+sentence says nothing of what the person did; their line does ("I rewrote it in Go and dropped the old version", "j'ai
+monté le prix à 5 euros"). Under each line the prompt, and the check, show the located span of its latest claim read back
+from the conversation (`value_alignment.Words`, through `source_spans.Source`): only a span of the person's own turn
+(`user`) that locates now — offsets inside the text, hash unchanged, no gap line, nothing `sensitive_text` is sure of —
+cut to 240 characters; an inference, an assistant's or another speaker's words, a stale span or one with no offsets is
+absent, never searched for, never fuzzy, and the line is then what it was. One read per conversation per batch, never
+more than the 40 listed lines. The words are shown to help read what a value is of, and the prompts say they never make
+two lines one attribute (two things raised the same way — the rent and the deposit — stay two; the check still decides).
+Nothing added per batch: same one call per page, same one check per proposal, same bounds, same door
+(`providers.resolve_llm_fn`, where the sensitive hold lives). A later re-ask of a refused pair was weighed and not built:
+every pair of unlike values on every page is a candidate, nearly all of them truly different, so it would multiply calls
+for a rare gain once the first read carries the evidence. **Each
 join it proposes is then checked once more, alone** ("is the later a correction of the earlier, or can both be true?"):
 a join needs both answers, since a study's start date was once joined to its readout date on one wrong answer and the
 newer value closed the older. A new value in a confirmed group takes the predicate of the group's existing line (the

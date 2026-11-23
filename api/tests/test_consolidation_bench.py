@@ -180,3 +180,22 @@ def test_silence_probe_ages_a_copy_and_a_volatile_person_is_asked_before_an_acti
     six_weeks = out["42"]
     assert "sister" in six_weeks["below_line"] and "employer" not in six_weeks["below_line"]
     assert "sister" in set(six_weeks["asked"]) | set(six_weeks["archived"])
+
+
+def test_a_current_claim_that_says_the_old_value_was_replaced_is_not_holding_it(tmp_path):
+    """U3 in a key run: the join closed the old value, and the new claim's own words ("..., replacing Python") made the
+    stale test see the old value as current. A claim that says the old value ended is the change itself."""
+    fx = bench.load_fixture()
+    pages = [_page("ines-varga", "Ines Varga", owner=True)]
+    (tmp_path / "entities").mkdir(exist_ok=True)
+
+    def verdict(*texts):
+        snap = {"model": "t", "clock": CLOCK.isoformat(), "claims": [_claim(t) for t in texts], "pages": pages,
+                "questions": [], "phases": [], "episodes_unprocessed": 0}
+        return next(u["verdict"] for u in bench.score(snap, tmp_path, fx)["updates"] if u["id"] == "U3")
+
+    assert verdict("Loomwright core language: TypeScript (browser), replacing Python") == "correct"
+    assert verdict("Loomwright now runs in TypeScript, and the Python version was dropped entirely") == "correct"
+    assert verdict("Loomwright core language: TypeScript", "Loomwright implementation language: Python") == "both_current"
+    # a claim that merely holds the old value beside something it replaced is still the old value
+    assert verdict("Loomwright core language: TypeScript", "Loomwright uses Python, replacing Perl") == "both_current"
