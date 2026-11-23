@@ -9,6 +9,7 @@ Status, in order: `proposed` → `building` (a branch exists) → `PR #n` (open 
 
 | ID | Feature | Status | PR | Updated |
 |---|---|---|---|---|
+| [G245](memory-evolution.md#g245) | Sources redesigned, track A1a (ruling 78, owner 2026-11-24): `GET /sources/streams` and `POST /sources/streams/check`: a source's streams (name, state, how read, last read, count, depth), and the items route's `stream`/`folder` filters with `lists`, `folders`, `depth` and `posted` | PR open (`feat/source-streams`) | PR: — | 2026-11-24 |
 | [G244](memory-evolution.md#g244) | An agent's edit of a source is a contribution (ruling 76, owner 2026-11-23): Claude Code's file-tool hook posts the edited watched file's hash (no word, no path read by the backend), the episode records harness, model and the changed ranges, the app notes "Corrected by <harness> · <model>" beside the citation and the run's Corrections says who edited; `cicada source-edit <file>` for a shell edit. Cursor, Codex and Gemini hooks follow | building | #797 | 2026-11-23 |
 | [G125](memory-evolution.md#g125) | Sleep page: the Waiting list is a card per source, and inside it a card per episode (title, preview, where · how long ago · read; read ones faded), the reason cards' look shared | Merged | #781 | 2026-11-23 |
 | [G125](memory-evolution.md#g125) | Sleep page: one card per chat — its waiting sittings together, the face wearing the message count (`ChatCard`, `episode_copy.chat_of`) | Merged | #803 | 2026-11-23 |
