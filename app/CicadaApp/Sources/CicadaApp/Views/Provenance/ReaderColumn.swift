@@ -61,29 +61,12 @@ struct ReaderColumn: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ReaderColumnHeader(
-                canGoBack: router.canGoBack,
-                onBack: { router.back() },
-                page: loadedDoc.flatMap { $0.isPage ? $0 : nil },
-                site: loadedDoc.flatMap(ReaderHeader.siteMark),
-                markOrigin: ReaderHeader.markOrigin(harness: loadedDoc?.harness ?? router.current?.knownHarness,
-                                                    origin: loadedDoc?.origin, recorder: loadedDoc?.meeting?.recorder),
-                episode: loadedDoc?.episode ?? router.current?.episode ?? "",
-                title: title,
-                meta: meta,
-                canResume: conversationId.map { conversations.canResume($0) } ?? false,
-                agent: loadedDoc.flatMap { EvidenceSpeaker.agentName(harness: $0.harness, origin: $0.origin) },
-                onResume: {
-                    // `POST /conversations/{id}/resume` only ever checks `isfile()`.
-                    guard let id = conversationId else { return }
-                    Task { await act(await conversations.resume(id)) }
-                },
-                // A pointer path: the host's drawer animation plays (DR-61).
-                onClose: { router.close() },
-                untie: router.current?.fromProject.map { project in
-                    { untieFromProject(project) }
-                })
-            content
+            if let target = router.current, let thread = target.thread {
+                // A chat's waiting messages, one conversation over its sittings.
+                ChatThreadColumn(thread: thread, title: target.knownTitle ?? "")
+            } else {
+                document
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(CicadaTheme.bgPane)
@@ -96,12 +79,40 @@ struct ReaderColumn: View {
         .onExitCommand { Instant.run { router.close() } }
         // DR-68 — in a chat: ↑ / ↓ a message, the page keys five, ⌘↑ / Home to the start, ⌘↓ / End to the newest.
         .onKeyPress(keys: [.upArrow, .downArrow, .pageUp, .pageDown, .home, .end]) { press in
-            spansState.key(press)
+            router.current?.thread == nil ? spansState.key(press) : .ignored
         }
         .environment(\.revealedNumbers, revealed)
         .task(id: router.current) { await load() }
         .task(id: loadedDoc?.noteId) { await loadNote() }
         .onAppear { DeviceDirectory.shared.ensureLoaded() }
+    }
+
+    /// One document: its header, then its words.
+    @ViewBuilder
+    private var document: some View {
+        ReaderColumnHeader(
+            canGoBack: router.canGoBack,
+            onBack: { router.back() },
+            page: loadedDoc.flatMap { $0.isPage ? $0 : nil },
+            site: loadedDoc.flatMap(ReaderHeader.siteMark),
+            markOrigin: ReaderHeader.markOrigin(harness: loadedDoc?.harness ?? router.current?.knownHarness,
+                                                origin: loadedDoc?.origin, recorder: loadedDoc?.meeting?.recorder),
+            episode: loadedDoc?.episode ?? router.current?.episode ?? "",
+            title: title,
+            meta: meta,
+            canResume: conversationId.map { conversations.canResume($0) } ?? false,
+            agent: loadedDoc.flatMap { EvidenceSpeaker.agentName(harness: $0.harness, origin: $0.origin) },
+            onResume: {
+                // `POST /conversations/{id}/resume` only ever checks `isfile()`.
+                guard let id = conversationId else { return }
+                Task { await act(await conversations.resume(id)) }
+            },
+            // A pointer path: the host's drawer animation plays (DR-61).
+            onClose: { router.close() },
+            untie: router.current?.fromProject.map { project in
+                { untieFromProject(project) }
+            })
+        content
     }
 
     // MARK: Loading
@@ -118,6 +129,8 @@ struct ReaderColumn: View {
 
     private func load() async {
         guard let target = router.current else { return }
+        // A chat thread reads its own sittings (`ChatThreadColumn`).
+        guard target.thread == nil else { return }
         phase = .loading
         note = nil
         spansState.reset()

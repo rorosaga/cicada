@@ -180,7 +180,13 @@ extension Copy {
         static let unnamed = "Unnamed chat"
         static let unnamedGroup = "Unnamed group"
         static let notesToYourself = "Notes to yourself"
-        static let sittingsHelp = "Show this chat's sittings"
+        static let openHelp = "Read what waits of this chat as one conversation"
+        /// VoiceOver's name for the faded snippet above the line.
+        static let alreadyRead = "Already read by Sleep"
+        /// The thread's line under the chat's name.
+        static func waiting(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
+            "\(Copy.chatMessages(n, locale: locale)) not read by Sleep yet"
+        }
     }
 
     /// Owner 2026-11-23 — the kept-for-lookup card's words (`KeptForLookupCard`).

@@ -40,18 +40,38 @@ struct ReaderTarget: Hashable, Identifiable {
     /// Ruling 45 — the project whose knowledge panel opened this conversation: the Reader's header then offers "Not
     /// about this project", the same untie as the row's context menu.
     let fromProject: String?
+    /// Owner 2026-11-23 — a chat's messages as one conversation (`ChatThreadColumn`): the Sleep page's chat card opens
+    /// what waits of a chat as a single thread, never a sitting at a time. `episode` is then its newest sitting.
+    let thread: Thread?
+
+    struct Thread: Hashable {
+        /// The chat's id (`EpisodeChat.id`).
+        let chat: String
+        /// The sittings to read, oldest first.
+        let sittings: [String]
+        /// How many messages wait in them, as the card counted.
+        let messages: Int
+        let group: Bool
+        /// True when `sittings` are what Sleep has not read; false for a chat with nothing waiting.
+        var waiting = true
+        /// The sitting Sleep read just before the first of them, for the faded snippet above the line; nil when
+        /// there is none.
+        var before: String? = nil
+    }
 
     init(episode: String, focus: Focus = .none, subjectId: String? = nil,
-         knownTitle: String? = nil, knownHarness: String? = nil, fromProject: String? = nil) {
+         knownTitle: String? = nil, knownHarness: String? = nil, fromProject: String? = nil,
+         thread: Thread? = nil) {
         self.episode = episode
         self.focus = focus
         self.subjectId = subjectId
         self.knownTitle = knownTitle
         self.knownHarness = knownHarness
         self.fromProject = fromProject
+        self.thread = thread
     }
 
-    var id: String { "\(episode)|\(focus)|\(subjectId ?? "")" }
+    var id: String { "\(episode)|\(focus)|\(subjectId ?? "")|\(thread?.chat ?? "")" }
 
     /// What `/episodes/{id}/text` is asked for. `.stale` asks for
     /// nothing: there is no offset to judge.

@@ -41,7 +41,7 @@ extension NoteDocument {
 enum NoteText {
     /// A stretch of a line as one string: the note's own styles, then the span's marks over them.
     static func attributed(_ block: NoteDocument.Block, range: Range<Int>, washes: [ReaderWash],
-                           reveal: Double) -> AttributedString {
+                           reveal: Double, plain: Color? = nil) -> AttributedString {
         var out = AttributedString()
         func rank(_ s: ReaderWash.Style) -> Int { s.rank }
         let ordered = washes.sorted { ($0.range.lowerBound, rank($0.style)) < ($1.range.lowerBound, rank($1.style)) }
@@ -56,6 +56,7 @@ enum NoteText {
                 var words = AttributedString(String(view))
                 words.mergeAttributes(attributes(run))
                 words.mergeAttributes(CitedSpan.marks(mark, reveal: reveal))
+                if mark == .plain, let plain { words.swiftUI.foregroundColor = plain }
                 out.append(words)
                 cursor = end
             }
@@ -141,6 +142,7 @@ struct NotePageRows: View {
 private struct NoteLine: View {
     let row: NotePageRow
     let reveal: Double
+    @Environment(\.readTextFaded) private var readFaded
 
     private var block: NoteDocument.Block { row.block }
     private var washes: [ReaderWash] { row.reader.washes }
@@ -178,7 +180,8 @@ private struct NoteLine: View {
     private static let gutter: CGFloat = 20
 
     private func line(font: Font = CicadaTheme.quoteFont, spacing: CGFloat = CicadaTheme.quoteLineSpacing) -> some View {
-        Text(NoteText.attributed(block, range: 0..<block.scalars.count, washes: washes, reveal: reveal))
+        Text(NoteText.attributed(block, range: 0..<block.scalars.count, washes: washes, reveal: reveal,
+                                 plain: readFaded ? CitedSpan.readInk : nil))
             .font(font)
             .lineSpacing(spacing)
             .foregroundStyle(CicadaTheme.textPrimary)
@@ -208,6 +211,7 @@ private struct NoteTable: View {
     let grid: [[Range<Int>]]
     let washes: [ReaderWash]
     let reveal: Double
+    @Environment(\.readTextFaded) private var readFaded
 
     var body: some View {
         let columns = grid.map(\.count).max() ?? 0
@@ -224,7 +228,8 @@ private struct NoteTable: View {
     }
 
     private func cell(_ range: Range<Int>) -> some View {
-        Text(NoteText.attributed(block, range: range, washes: washes, reveal: reveal))
+        Text(NoteText.attributed(block, range: range, washes: washes, reveal: reveal,
+                                 plain: readFaded ? CitedSpan.readInk : nil))
             .font(CicadaTheme.quoteFont(size: 14))
             .foregroundStyle(CicadaTheme.textPrimary)
             .fixedSize(horizontal: false, vertical: true)

@@ -146,6 +146,67 @@ final class SleepSourceCardsSnapshotTests: XCTestCase {
         }
     }
 
+    /// A chat's waiting messages as one conversation under the faded snippet of what Sleep read (owner 2026-11-23),
+    /// and an updated note with what was already read faded.
+    func test_writeTheChatThread() async throws {
+        guard let dir = ProcessInfo.processInfo.environment["CICADA_SLEEP_CARDS_SNAPSHOTS"], !dir.isEmpty else {
+            throw XCTSkip("set CICADA_SLEEP_CARDS_SNAPSHOTS=<dir> to write the review renders")
+        }
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { CicadaTheme.mode = .dark; CicadaTheme.uiScale = 1 }
+        CicadaTheme.uiScale = 1
+        let store = Store(cache: SnapshotCache(root: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)), api: FakeSyncAPI())
+        let vm = SleepViewModel(store: store, putSchedule: { $0 })
+        typealias Line = ReaderChatTests.Line
+        func sitting(_ id: String, _ lines: [Line]) -> EpisodeText {
+            ReaderChatTests.conversation(lines, episode: id, title: "Messages with bob-example",
+                                         timestamp: lines.first?.ts, origin: "imessage",
+                                         conversationId: "imessage:0123456789abcdef:k1", correspondent: "bob-example")
+        }
+        let read = sitting("s0", [
+            Line(marker: "user", text: "did the parcel for alpha-project ship?", ts: "2026-11-20T10:00:00+00:00"),
+            Line(marker: "speaker:bob", text: "Yes, it left the depot this morning.", ts: "2026-11-20T10:02:00+00:00"),
+            Line(marker: "user", text: "great, thanks", ts: "2026-11-20T10:03:00+00:00"),
+            Line(marker: "speaker:bob", text: "I'll tell you when it lands.", ts: "2026-11-20T10:04:00+00:00"),
+        ])
+        let first = sitting("s1", [
+            Line(marker: "user", text: "can you check when it arrives?", ts: "2026-11-22T09:00:00+00:00"),
+            Line(marker: "speaker:bob", text: "Thursday, between 11 and 3. It was scanned this morning.",
+                 ts: "2026-11-22T09:01:00+00:00"),
+        ])
+        let second = sitting("s2", [
+            Line(marker: "user", text: "and the second one?", ts: "2026-11-22T19:30:00+00:00"),
+            Line(marker: "speaker:bob", text: "Still waiting for a date. I'll check again tomorrow.",
+                 ts: "2026-11-22T19:31:00+00:00"),
+            Line(marker: "user", text: "ok", ts: "2026-11-23T08:10:00+00:00"),
+        ])
+        let layout = ChatThread.layout([first, second], before: read)
+        let note: [CitedSpan.Segment] = [
+            .init(text: "Trip to the coast\n\nLeave on Friday after lunch.\nBook the cabin by the lighthouse.\n", mark: .plain),
+            .init(text: "Take the ferry, not the bridge: the bridge is closed for repairs.", mark: .changed),
+            .init(text: "\nPack the stove and the map.", mark: .plain),
+        ]
+        for mode in [AppColorScheme.light, .dark] {
+            CicadaTheme.mode = mode
+            let view = VStack(alignment: .leading, spacing: 0) {
+                ChatThreadRows(layout: layout)
+            }
+            .padding(CicadaTheme.scaled(ReaderColumn.inset))
+            .background(CicadaTheme.bgPane)
+            try snapshot(view, size: CGSize(width: 520, height: 620), mode: mode, store: store, vm: vm,
+                         to: URL(fileURLWithPath: dir).appendingPathComponent("chat-thread-\(mode == .dark ? "dark" : "light").png"))
+            let updated = VStack(alignment: .leading, spacing: CicadaTheme.spacingLG) {
+                ReaderBannerView(banner: .updated(parts: 1, removed: []))
+                CitedPassage(segments: note).environment(\.readTextFaded, true)
+            }
+            .padding(CicadaTheme.spacingXL)
+            .background(CicadaTheme.bgPane)
+            try snapshot(updated, size: CGSize(width: 520, height: 260), mode: mode, store: store, vm: vm,
+                         to: URL(fileURLWithPath: dir).appendingPathComponent("reader-faded-\(mode == .dark ? "dark" : "light").png"))
+        }
+    }
+
     /// Past reads as cards with the sources' marks (owner 2026-11-23), one open with a page's change shown.
     func test_writeThePastReadsCards() async throws {
         guard let dir = ProcessInfo.processInfo.environment["CICADA_SLEEP_CARDS_SNAPSHOTS"], !dir.isEmpty else {

@@ -212,6 +212,8 @@ enum ReaderChat {
             case toggle(Int)
             /// An unsent message: before the turn with this index, the n-th there.
             case unsent(Int, Int)
+            /// The line between what Sleep read and what is new.
+            case boundary
         }
         enum Kind: Hashable {
             /// "Today", "Yesterday", "Monday", "Sep 3" — computed when read (DR-58).
@@ -223,6 +225,9 @@ enum ReaderChat {
             case toggle(turn: Int, side: Side, expanded: Bool)
             /// "You unsent a message" — where it was, never its words (2026-10-20).
             case unsent(String)
+            /// Owner 2026-11-23 — where what Sleep already read ends and what waits begins: a dotted line with these
+            /// words in it, in a conversation that went on after it was read.
+            case boundary(String)
         }
         let id: ID
         let kind: Kind
@@ -247,7 +252,11 @@ enum ReaderChat {
     /// The chat rows for `blocks` (all of the document's, in order). `expanded` holds the turns the person unfolded;
     /// `keepOpen` the turns that must never fold (the landing turn, a turn holding a cited span), so a wash is always
     /// on screen. `now` is when the Reader reads it (DR-58).
+    ///
+    /// `newFrom` is the first turn Sleep has not read (`ReaderChanges.firstTurn`): the boundary line sits above it,
+    /// whenever a turn comes before it.
     static func rows(blocks: [ReaderBlock], doc: EpisodeText, expanded: Set<Int> = [], keepOpen: Set<Int> = [],
+                     newFrom: Int? = nil,
                      now: Date = Date(), locale: Locale = .autoupdatingCurrent,
                      timeZone: TimeZone = .autoupdatingCurrent) -> [Row] {
         let turnsByIndex = Dictionary(doc.turns.map { ($0.index, $0) }, uniquingKeysWith: { a, _ in a })
@@ -302,6 +311,11 @@ enum ReaderChat {
             }
             let date = turn?.ts.flatMap { ReaderTime.instant($0, timeZone: timeZone) }
                 ?? (index == firstIndex ? docDate : nil)
+
+            if index == newFrom, !out.isEmpty {
+                out.append(Row(id: .boundary, kind: .boundary(Copy.Provenance.newSinceRead), gap: .section))
+                last = nil
+            }
 
             // Day separators: the day of the first turn, then wherever it changes.
             if let date {

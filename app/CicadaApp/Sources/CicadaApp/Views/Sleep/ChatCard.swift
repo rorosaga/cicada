@@ -70,11 +70,11 @@ enum ChatGroups {
         return group.group ? Copy.Chat.unnamedGroup : Copy.Chat.unnamed
     }
 
-    /// The card's second line: how many messages wait, in how many sittings when more than one, and how long ago.
+    /// The card's second line: how many messages wait and how long ago. Never how many sittings: that is how the chat
+    /// is stored, not something the person reads (owner 2026-11-23).
     static func meta(_ group: ChatGroup, now: Date = Date(), locale: Locale = .autoupdatingCurrent) -> [String] {
         var parts: [String] = []
         if group.messages > 0 { parts.append(Copy.chatMessages(group.messages, locale: locale)) }
-        if group.waiting.count > 1 { parts.append(Copy.chatSittings(group.waiting.count, locale: locale)) }
         if let latest = group.latest, let date = parseEpisodeTimestamp(latest) {
             parts.append(Copy.OriginCard.ago(date, now: now))
         }
@@ -84,13 +84,12 @@ enum ChatGroups {
 }
 
 /// One chat in a source card: its face wearing how many messages wait (the source mark's badge grammar), its name
-/// behind the "new" dot — a chat with waiting messages is always new messages — and one line of how many, in how many
-/// sittings, how long ago. A click opens its one sitting in the Reader; with several it opens in place to them, each
-/// its own episode card (which keeps its own marker: a sitting that grew since Sleep read it is "updated", and the
-/// Reader highlights the new messages).
+/// behind the "new" dot — a chat with waiting messages is always new messages — and one line of how many and how long
+/// ago. A click opens what waits of it in the Reader as ONE conversation (`ChatThread`, owner 2026-11-23: "why are
+/// there episodes and not a single string of the new un-consolidated conversation?"); the sittings it is stored as are
+/// never listed.
 struct ChatCard: View {
     let group: ChatGroup
-    @State private var open = false
     @State private var hovering = false
     @Environment(MessagesWatcher.self) private var watcher: MessagesWatcher?
     @Environment(Store.self) private var store: Store?
@@ -105,63 +104,57 @@ struct ChatCard: View {
         return ChatGroups.title(group)
     }
 
-    var body: some View {
-        let waiting = !group.waiting.isEmpty
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Button(action: press) {
-                HStack(alignment: .center, spacing: CicadaTheme.spacingLG) {
-                    MessageBubbleFace(name: title, photo: watcher?.cards[group.id]?.thumbnail, size: Self.face,
-                                      shared: watcher?.sharedPhotos[group.id])
-                        .overlay(alignment: .topTrailing) {
-                            StudyListCard.badge(group.messages > 0 ? group.messages : nil, knockout: CicadaTheme.bgOption)
-                        }
-                    VStack(alignment: .leading, spacing: CicadaTheme.scaled(4)) {
-                        HStack(alignment: .center, spacing: CicadaTheme.scaled(7)) {
-                            if waiting {
-                                Circle().fill(EpisodeChange.new.color)
-                                    .frame(width: CicadaTheme.scaled(Tag.dotSize + 1),
-                                           height: CicadaTheme.scaled(Tag.dotSize + 1))
-                                    .accessibilityHidden(true)
-                            }
-                            Text(title)
-                                .font(CicadaTheme.rowFont)
-                                .foregroundStyle(waiting ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
-                                .lineLimit(1)
-                        }
-                        Text(ChatGroups.meta(group).joined(separator: " · "))
-                            .font(CicadaTheme.metaFont)
-                            .monospacedDigit()
-                            .foregroundStyle(CicadaTheme.textTertiary)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: CicadaTheme.spacingSM)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .originCardChrome(tone: waiting ? .plain : .past, hovering: hovering, held: open)
-            }
-            .buttonStyle(.cicadaPlain)
-            .onHover { hovering = $0 }
-            .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
-            .help(group.sittings.count > 1 ? Copy.Chat.sittingsHelp : Copy.SleepDetailsWords.openHint(nil))
-            .accessibilityLabel(([title] + ChatGroups.meta(group) + (waiting ? [EpisodeChange.new.spoken] : []))
-                .joined(separator: ", "))
-            .accessibilityValue(group.sittings.count > 1 ? (open ? Copy.Lists.expanded : Copy.Lists.collapsed) : "")
-            if open {
-                LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    ForEach(group.sittings) { EpisodeCard(item: $0) }
-                }
-                .padding(.leading, CicadaTheme.spacingLG)
-                .transition(.opacity)
-            }
-        }
+    /// Held while the Reader shows this chat's thread.
+    private var held: Bool {
+        guard let reader, reader.isPresented else { return false }
+        return reader.current?.thread?.chat == group.id
     }
 
-    /// One sitting opens in the Reader; several open in place.
-    private func press() {
-        if group.sittings.count == 1, let only = group.sittings.first, let reader {
-            reader.open(EpisodeRowAction.reader(only))
-        } else {
-            withAnimation(SleepMotion.disclosure(reduceMotion: reduceMotion)) { open.toggle() }
+    var body: some View {
+        let waiting = !group.waiting.isEmpty
+        Button(action: press) {
+            HStack(alignment: .center, spacing: CicadaTheme.spacingLG) {
+                MessageBubbleFace(name: title, photo: watcher?.cards[group.id]?.thumbnail, size: Self.face,
+                                  shared: watcher?.sharedPhotos[group.id])
+                    .overlay(alignment: .topTrailing) {
+                        StudyListCard.badge(group.messages > 0 ? group.messages : nil, knockout: CicadaTheme.bgOption)
+                    }
+                VStack(alignment: .leading, spacing: CicadaTheme.scaled(4)) {
+                    HStack(alignment: .center, spacing: CicadaTheme.scaled(7)) {
+                        if waiting {
+                            Circle().fill(EpisodeChange.new.color)
+                                .frame(width: CicadaTheme.scaled(Tag.dotSize + 1),
+                                       height: CicadaTheme.scaled(Tag.dotSize + 1))
+                                .accessibilityHidden(true)
+                        }
+                        Text(title)
+                            .font(CicadaTheme.rowFont)
+                            .foregroundStyle(waiting ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
+                            .lineLimit(1)
+                    }
+                    Text(ChatGroups.meta(group).joined(separator: " · "))
+                        .font(CicadaTheme.metaFont)
+                        .monospacedDigit()
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: CicadaTheme.spacingSM)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .originCardChrome(tone: waiting ? .plain : .past, hovering: hovering, held: held)
         }
+        .buttonStyle(.cicadaPlain)
+        .disabled(reader == nil)
+        .onHover { hovering = $0 }
+        .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
+        .help(Copy.Chat.openHelp)
+        .accessibilityLabel(([title] + ChatGroups.meta(group) + (waiting ? [EpisodeChange.new.spoken] : []))
+            .joined(separator: ", "))
+    }
+
+    /// The chat's waiting messages, one conversation, in the Reader.
+    private func press() {
+        guard let reader, let target = ChatThread.target(group, title: title) else { return }
+        reader.open(target)
     }
 }
