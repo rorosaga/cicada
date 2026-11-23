@@ -851,7 +851,11 @@ decided on read, against the source as it is now, by one judge (`Source.status`)
 `held`, `unlocated` (never with `at`; the citation opens the source and draws nothing). `current` is the claim's: whether
 it is still believed. **`sourceRemoved`** (G104 slice 3, TODO ruling 75 b) is a boolean beside `status`, never a status:
 true when the source episode carries `source_deleted_at` — the claim stays open and counted, and every door says
-"Removed from its source, kept as evidence" (`source_spans.removed_sentence`); provenance and page citations carry it too. `at` is `{type: "text", start, end}`, code points into `/episodes/{id}/text`; a recording's time
+"Removed from its source, kept as evidence" (`source_spans.removed_sentence`); provenance and page citations carry it too. **`correctedBy`** (G244, TODO ruling 76) sits beside it, `{harness, model?, at} | null`
+(`model` omitted when unknown, never guessed): an agent edited the words this span points into, derived on read from the
+episode's `contributions` frontmatter — a span of an episode whose current `content_hash` equals a contribution's and that
+overlaps its `ranges` carries it; once the body moved on the episode-level "edited by" stays and no span is marked. It
+never changes `status`, `kind` or the speaker. `at` is `{type: "text", start, end}`, code points into `/episodes/{id}/text`; a recording's time
 range or a PDF's page is a later `type`, which an older client decodes, leaves undrawn and still opens. **`held`** is a
 span touching what `sensitive_text` is sure of (G235), minus what the person left: no offsets and no excerpt on `/text`'s
 focus, `/span`, `/citations` or a popover's quote, and an excerpt whose neighbourhood holds a value carries no words. The
@@ -1551,6 +1555,15 @@ Round 4 (C2–C4):
 - On an episode (G133/G134): `turns` (the G118 per-turn sidecar), `evidence_kind`,
   `source_deleted_at`, and a section's `content_sha` — see the Awake rails; on a conversation, `turn_extras` and
   `unsent_turns` (2026-10-20, above).
+- On an episode a folder source made (G244, TODO ruling 76): **`contributions`**, newest first, at most 20, each
+  `{harness, model, effort, session, at, content_hash, ranges}` — an agent edited the source file directly. `model` and
+  `effort` are the last agent turn of the hook's `transcript_path` when `transcript_capture.validate_transcript_path`
+  accepts it, else of the session's captured episode, else omitted — never guessed. `content_hash` is the episode's body
+  hash after the edit; `ranges` are the changed character ranges of that body against the body it replaced
+  (`episode_revision.diff`; from git via the revision's `previous_hash` when the sync landed first). Kept through later
+  edits and no part of `content_hash`. The record that has not met its episode yet waits keyed by `(folder_id, sha256)` for
+  7 days, outside every bank and git (`$CICADA_HOME`, like `page_reads`). `source_spans` derives `correctedBy` from it on
+  read.
 
 #### Book pages (G39, G233, 2026-11-04)
 

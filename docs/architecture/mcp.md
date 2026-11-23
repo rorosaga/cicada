@@ -946,6 +946,13 @@ wiring stay `install.sh`'s and the app's).
   the same capture script also starts the memory-notes sweep (ruling 43, `api/hooks/memory_notes.py`, detached, only
   when a note changed), so the plugin carries it with no new hook. The plugin's `recall` setting
   (*Remember automatically*, on by default) silences only the recall hooks.
+  **The source-edit hook (G244, ruling 76):** `PostToolUse` on `Edit|Write|MultiEdit|NotebookEdit` runs
+  `cicada-hook source-edit --harness claude-code` (`api/hooks/source_edit.py`; the shim and the release launcher map the
+  dashed name to the underscored script; timeout 5 s; `install.sh` registers it with a matcher when the plugin is off and
+  `registry.py uninstall` removes it with the others). It posts the hash of an edited watched source file, never its
+  words (`capture-and-sleep.md`, "An agent's edit of a source is a contribution"); the *Remember automatically* setting
+  does not silence it. For a shell command's edit the agent runs **`cicada source-edit <file>`** itself (a CLI command on
+  the same body as the route; it names the calling session).
 - **The skill the handshake names.** The Claude Code prelude names the `cicada` skill that is there
   (`handshake.claude_skill`, part of the primer's cache key): `cicada:cicada` when the plugin is on (the same
   `registry.plugin_state` test), else `~/.claude/skills/cicada` when `install.sh --skill` or the Skills page put a copy
