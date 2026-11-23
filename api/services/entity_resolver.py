@@ -198,6 +198,13 @@ async def resolve(
         if str(e["frontmatter"].get("status") or "") != "dropped":
             # G227: every page by its title — two pages may share one, and `existing_by_name` keeps only the last.
             same_title.setdefault(str(name).lower(), []).append(e)
+    # 2026-11-23 (`same_name_people`): the second person of a first name (`sara-2`, the same clean title) never answers
+    # to the bare name. Sleep decided, or holds in doubt, that it is not the person the name reaches, and that person
+    # may still be a line held below the promotion bar: keyed by title, the line's mentions and held claims would land
+    # on the other person's page. Only a page recorded apart from the name's own slug loses the key; any other page
+    # that carries a title its id does not spell keeps it, as before.
+    for key in _second_person_titles(existing_by_name, getattr(settings, "memory_path", None)):
+        del existing_by_name[key]
     aliases = _alias_index(existing_by_name)
     # The pairs the person said are different (`merge_rejections`): a shared alias or a close spelling never brings
     # one of them back to the judge.
@@ -1207,6 +1214,27 @@ def _record_split_pairs(memory_path, pairs: list[tuple[str, str]]) -> None:
     for pair in pairs:
         if not merge_rejections.is_split(memory_path, *pair):
             merge_rejections.add_split(memory_path, *pair)
+
+
+def _second_person_titles(existing_by_name: dict[str, dict], memory_path) -> list[str]:
+    """The names whose key a second person's page holds: a person page whose id is not the title's slug and that is
+    recorded apart from that slug (a split, a "different" answer, or a doubt: `merge_rejections.kept_apart`)."""
+    if memory_path is None:
+        return []
+    try:
+        from api.services import merge_rejections
+
+        apart = merge_rejections.kept_apart(memory_path)
+    except Exception:  # noqa: BLE001 - an unreadable list changes nothing here
+        return []
+    if not apart:
+        return []
+    out = []
+    for key, page in existing_by_name.items():
+        page_id, slug = str(page.get("id") or ""), sanitize_id(key)
+        if page_id and page_id != slug and tuple(sorted((slug, page_id))) in apart:
+            out.append(key)
+    return out
 
 
 def _page_items(memory_path, page_id: str) -> tuple:

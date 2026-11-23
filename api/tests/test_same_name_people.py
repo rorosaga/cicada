@@ -442,6 +442,43 @@ def test_a_second_person_below_the_bar_waits_and_never_joins_the_plain_line(tmp_
     assert merge_rejections.load_split(memory) == {("marc", "marc-2")}, "kept apart before the line is ever a page"
 
 
+@pytest.mark.parametrize("held_as", ["split", "doubt"])
+def test_the_second_persons_page_never_answers_to_the_bare_name(tmp_path, judged, held_as):
+    """The first person of a name is still a line below the promotion bar; the second already has a page (`marc-2`, the
+    same clean title). A new conversation about the first must not land on the second's page because it carries the
+    title, and the first's held line must not be released onto it: the name has no page of its own until the first
+    person gets one."""
+    from api.services import merge_rejections, same_name_doubts
+
+    memory = _bank(tmp_path)
+    pending_store.save(memory, [pending_store.PendingEntity(
+        name="Marc", type="person", description="", source_episode="ep1", confidence=0.8, tags=[],
+        history_entries=[], summary=FAMILY, heard_in=[{"episode": "ep1"}])])
+    if held_as == "split":
+        merge_rejections.add_split(memory, "marc", "marc-2")
+    else:
+        same_name_doubts.add_pairs(memory, [("marc", "marc-2")])
+    second = _page("marc-2", WORK, ["ep2", "ep3"])
+    # A = the new conversation; B = the held line (the plain person); C = the second person's page
+    judged.answer = ans("AB", "C", pairs=[(1, 2, "different", FAM_Q, "a colleague on the research team")])
+    out = _run(er.resolve([_extraction("ep4", FAMILY, target="Alpine Town")], [second], _settings(memory)))
+    assert ("marc-2", "update") not in [(c["id"], c["action"]) for c in out["changes"]], "never the other person's page"
+    assert out["name_to_id"].get("marc") != "marc-2", "and the held line's claims are never released onto it"
+    # it goes where the name's own person is: the plain line (this harness's index holds no earlier line, so it waits)
+    assert out["changes"] == [] and set(judged.spy.parked) == {"marc"}
+    assert judged.spy.parked["marc"].episodes() == ["ep4"] and not judged.spy.parked["marc"].title
+
+
+def test_a_page_whose_id_its_title_does_not_spell_still_answers_to_the_name(tmp_path, judged):
+    """Only a page recorded apart from the name's own slug loses the name: any other page with such a title (a chat
+    participant's page, a renamed one) is the name's page, as before."""
+    memory = _bank(tmp_path)
+    only = _page("marc-person", WORK, ["ep2", "ep3"])
+    judged.answer = ans("AB")
+    out = _run(er.resolve([_extraction("ep4", WORK)], [only], _settings(memory)))
+    assert [(c["id"], c["action"]) for c in out["changes"]] == [("marc-person", "update")]
+
+
 def test_a_cancelled_batch_records_no_pair(tmp_path, judged):
     from api.services import merge_rejections
 
