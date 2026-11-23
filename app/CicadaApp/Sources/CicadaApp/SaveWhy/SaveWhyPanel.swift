@@ -238,14 +238,6 @@ struct SaveWhyPanelView: View {
     var onCardHeight: (CGFloat) -> Void = { _ in }
     @FocusState private var textFocused: Bool
     @State private var draft = ""
-    /// The text area's width, measured once laid out: what the field's line count is measured against.
-    @State private var fieldWidth: CGFloat = 0
-
-    /// The lines the field shows for what is written now (one to `SaveWhyField.maxLines`). The text system keeps a
-    /// little padding at each side of a line, so the words wrap a few points before the field's own width.
-    private var fieldLines: Int {
-        SaveWhyField.visibleLines(SaveWhyField.lineCount(draft, width: fieldWidth - SaveWhyField.linePadding))
-    }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Wide enough for the four reasons on one line at 1× (owner 2026-10-19: "The four options could all fit on a
@@ -285,7 +277,9 @@ struct SaveWhyPanelView: View {
                                        : CicadaMotion.notchShrink(reduceMotion: reduceMotion), value: notch.grown)
                 // G191 v7: the card — and the notch's shape with it — grows with the field and makes room for the
                 // suggestions; both in one frame under Reduce Motion (height is movement, DR-66).
-                .animation(CicadaMotion.fieldGrow(reduceMotion: reduceMotion), value: fieldLines)
+                // The field sizes itself to its own laid-out words (owner 2026-11-23: "still has some weird cutoff");
+                // what changes its height is what is written, so the growth eases on that.
+                .animation(CicadaMotion.fieldGrow(reduceMotion: reduceMotion), value: draft)
                 .animation(CicadaMotion.suggestGrow(reduceMotion: reduceMotion), value: center.suggestions)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onCardHeight($0) }
                 .onChange(of: focus.ticket) { _, _ in textFocused = true }
@@ -344,7 +338,9 @@ struct SaveWhyPanelView: View {
     /// The field and Save, always there: a few words of the person's own, Return or Save to confirm. G191 v7: the field
     /// grows a line at a time as the words wrap or break (⌥⏎, the Mac's line break in a field) up to
     /// `SaveWhyField.maxLines`, then scrolls inside; it eases (`CicadaMotion.fieldGrow`), in one frame under Reduce
-    /// Motion. The words are stored as they always were — whitespace folded to single spaces.
+    /// Motion. Its height is the field's own (`lineLimit` + `fixedSize`), never predicted beside it: a prediction
+    /// measured the words apart from AppKit's own layout and clipped what it under-counted (2026-11-23, twice). The
+    /// words are stored as they always were — whitespace folded to single spaces.
     private func words(_ state: SaveWhyPanelState) -> some View {
         let lineHeight = SaveWhyField.lineHeight()
         let corner = (lineHeight + 2 * CicadaTheme.scaled(SaveWhyField.verticalInset)) / 2
@@ -356,8 +352,8 @@ struct SaveWhyPanelView: View {
                 .font(SaveWhyField.swiftUIFont)
                 .foregroundStyle(CicadaTheme.Notch.textPrimary)
                 .focused($textFocused)
-                .frame(height: SaveWhyField.textHeight(lines: fieldLines, lineHeight: lineHeight), alignment: .topLeading)
-                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { fieldWidth = $0 }
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
                 .padding(.horizontal, CicadaTheme.scaled(SaveWhyField.horizontalInset))
                 .padding(.vertical, CicadaTheme.scaled(SaveWhyField.verticalInset))
                 .background(outline.strokeBorder(textFocused ? CicadaTheme.Notch.chipSelectedRing
