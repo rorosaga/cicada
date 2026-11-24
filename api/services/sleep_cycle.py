@@ -823,6 +823,8 @@ class _StageOutcome:
     breaker_resets_at: int | None = None
     breaker_kind: str | None = None
     skip_links: bool = False
+    # Ruling 80: the released saves a night that ended at a line the person set had not reached (back to the pile in the tail).
+    unread_saves: list = field(default_factory=list)
     # Sleep page v5 — what happened to each conversation of a drain's batch.
     # ``filed_ids``: marked processed by this batch's commit. ``unread``: failed for
     # their own reasons (id -> reason enum) — they get one more try, then park.
@@ -860,6 +862,9 @@ class BatchPlan:
     decay_only: bool = False
     #: The drain this batch belongs to (its live counters, attempts and reserve guard).
     ds: "sleep_drain.DrainState | None" = None
+    #: Ruling 80 (G246): this batch is old bulk material read on the engine's lighter model (``resolved`` is its copy). A batch
+    #: is read by one model, so it is all of one kind (``sleep_drain.next_batch_retrying``).
+    lighter: bool = False
 
 
 def _words_taken(rev) -> frozenset[str]:
@@ -1939,6 +1944,8 @@ async def _run_engine_independent_tail(
     """
     no_model = skip_links or engine_free
     why = "the run stopped at its limit" if skip_links else "nothing was read, so no engine started"
+    # Ruling 80 (G246): first, so what it writes is committed before anything below sweeps the tree.
+    await _return_unread_saves_safely(memory_path, outcome.unread_saves)
     await _refresh_state_safely(memory_path, settings)
     if outcome.committed or not _state.write_started or await _tree_is_clean(memory_path):
         # Final-review H1 is preserved: on the happy path this still runs
@@ -2042,7 +2049,7 @@ async def _run_engine_independent_tail(
     await _commit_graph_safely(memory_path)
 
 
-async def _index_without_model_safely(memory_path: Path) -> None:
+async def _index_without_model_safely(memory_path: Path, *, tail_only: bool = False) -> None:
     """Watch history and list saves are indexed, not consolidated (owner ruling 2026-10-18; ``history_index``).
 
     At the start of every run that holds the bank — a drain, a one-batch cycle, the scheduler's tail-only run — and
@@ -2066,7 +2073,7 @@ async def _index_without_model_safely(memory_path: Path) -> None:
             return
     # G245: a connector post written as the person's own words (`connector_text`) put right, in a commit of its own
     # BEFORE anything else this run writes, so HEAD holds the healed body and no later wake reads it as a revision.
-    # Report-only while `connector_text.REPAIR` is off: it counts, logs and changes nothing.
+    # Off (`connector_text.REPAIR`): it counts, logs and changes nothing.
     await _heal_connector_text_safely(memory_path, skip, has_git)
     try:
         retired = await asyncio.to_thread(history_index.retire, memory_path, skip=skip)
@@ -2083,7 +2090,19 @@ async def _index_without_model_safely(memory_path: Path) -> None:
         woken = await asyncio.to_thread(saved_mentions.wake_lit, memory_path, at=episode_ids.utc_now_iso(), skip=skip)
     except Exception as exc:  # noqa: BLE001 - a later run wakes it
         logger.warning(f"Saved pages not checked for mentions: {type(exc).__name__}")
-    paths = sorted(set(retired.paths) | {p for p in [*months.paths, *woken] if p not in skip})
+    # Ruling 80 (G246): once a local day a fixed number of the pile (older saves, a bulk, a save received long after it was
+    # saved) is released for this run to read, newest first, after his conversations. Never on a run that reads nothing.
+    turns = history_index.Turns()
+    if not tail_only:
+        try:
+            turns = await asyncio.to_thread(history_index.take_turns, memory_path, skip=skip)
+        except Exception as exc:  # noqa: BLE001 - the pile waits one more night
+            logger.warning(f"Saves not released from the pile: {type(exc).__name__}")
+        if turns.released or turns.emptied:
+            logger.info(f"Saves released from the pile: {len(turns.released)} to read tonight "
+                        f"({turns.pile - len(turns.released) - len(turns.emptied)} still waiting their turn), "
+                        f"{len(turns.emptied)} with nothing to read")
+    paths = sorted(set(retired.paths) | {p for p in [*months.paths, *woken, *turns.paths] if p not in skip})
     if retired.paths or months.created or months.updated:
         logger.info(f"Indexed without a model: {len(retired.paths)} queued episode(s) marked read "
                     f"({dict(sorted(retired.by_kind.items()))}), {months.created} month summary(ies) written, "
@@ -2093,7 +2112,7 @@ async def _index_without_model_safely(memory_path: Path) -> None:
     step = max(1, history_index.COMMIT_STEP)
     chunks = [paths[i:i + step] for i in range(0, len(paths), step)]
     today = date.today().isoformat()
-    queued = frozenset({*retired.queued, *woken})
+    queued = frozenset({*retired.queued, *woken, *turns.released})
     for n, chunk in enumerate(chunks, start=1):
         try:
             async with _lock:
@@ -2103,6 +2122,42 @@ async def _index_without_model_safely(memory_path: Path) -> None:
         except Exception as exc:
             rest = [p for c in chunks[n - 1:] for p in c]
             logger.warning(f"Indexing commit failed — restoring {len(rest)} file(s): {type(exc).__name__}: {exc}")
+            await asyncio.to_thread(history_index.restore, memory_path, rest)
+            return
+
+
+async def _return_unread_saves_safely(memory_path: Path, ids: list[str]) -> None:
+    """Ruling 80 (G246): a night that ended at a line the person set, with only the day's released saves left, puts those
+    back in the pile — ``processed: true, processed_by: index``, the day's stamp kept so the number is not spent twice
+    — in ``cicada`` commits of their own. The run is finished and no pause is left, so tomorrow's schedule is free. A
+    failed commit restores what it wrote. Never raises."""
+    if not ids:
+        return
+    from api.services import history_index
+
+    try:
+        skip: frozenset[str] = frozenset()
+        has_git = (memory_path / ".git").exists()
+        if has_git:
+            skip = await _dirty_paths(memory_path)
+        paths = await asyncio.to_thread(history_index.return_to_pile, memory_path, ids, skip=skip)
+    except Exception as exc:  # noqa: BLE001 - they stay waiting; a later night reads or returns them
+        logger.warning(f"Saves not put back in the pile: {type(exc).__name__}")
+        return
+    logger.info(f"The night ended at its line with only saves left: {len(paths)} put back in the pile")
+    if not paths or not has_git:
+        return
+    today = date.today().isoformat()
+    step = max(1, history_index.COMMIT_STEP)
+    chunks = [paths[i:i + step] for i in range(0, len(paths), step)]
+    for n, chunk in enumerate(chunks, start=1):
+        try:
+            async with _lock:
+                await git_service.commit_paths(
+                    memory_path, history_index.commit_message(chunk, today, part=n, parts=len(chunks)), chunk)
+        except Exception as exc:  # noqa: BLE001
+            rest = [p for c in chunks[n - 1:] for p in c]
+            logger.warning(f"Returning saves to the pile failed to commit — restoring {len(rest)} file(s): {type(exc).__name__}")
             await asyncio.to_thread(history_index.restore, memory_path, rest)
             return
 
@@ -2157,7 +2212,7 @@ async def _embed_indexed_episodes_safely(memory_path: Path) -> None:
     since = max(stamps) if stamps else 0
 
     def sync() -> None:
-        episodes = any(f.mtime_ns > since and history_index.is_index_only(f.frontmatter)
+        episodes = any(f.mtime_ns > since and (history_index.is_index_only(f.frontmatter) or history_index.not_read(f.frontmatter))
                        for f in bank_index.files(memory_path, "episodes"))
         pages = any(f.mtime_ns > since and (f.frontmatter or {}).get("type") == "media"
                     for f in bank_index.files(memory_path, "entities"))
@@ -2356,7 +2411,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
         else:
             await _flush_pending_commits_safely(memory_path)
             # Owner ruling 2026-10-18: before anything is frozen, what is only ever looked up is marked read.
-            await _index_without_model_safely(memory_path)
+            await _index_without_model_safely(memory_path, tail_only=tail_only)
         if window_refused:
             pass
         elif tail_only:
@@ -2634,7 +2689,7 @@ async def _drain(
     (``committed`` / ``write_started`` / ``questions_refreshed``) reads what the
     tree is really like now and never an earlier batch's clean commit.
     """
-    from api.services import agent_engine, engine_select, sleep_debt, sleep_paused, sleep_parked
+    from api.services import agent_engine, engine_select, saved_order, sleep_debt, sleep_paused, sleep_parked
     from api.services import sleep_progress, sleep_run_prefs
 
     try:
@@ -2645,21 +2700,28 @@ async def _drain(
         registry = None
     opts = sleep_run_prefs.load(registry) if registry is not None else sleep_run_prefs.RunOptions()
     size = sleep_run_prefs.effective_batch_size(opts, settings)
+    old_last = bool(opts.light_old_saves)   # ruling 80: old bulk material after every other save, read by its own model
 
     # Every read of the run's start walks the bank (9,500 headers on the owner's): off the event loop.
     parked_map = await asyncio.to_thread(sleep_parked.valid, memory_path)
     parked_now = set(parked_map)
     waiting_map = await asyncio.to_thread(sleep_progress.unprocessed_ids, memory_path)
     queue = [e["id"] for e in await asyncio.to_thread(_get_unprocessed_episodes, memory_path, with_body=False)]
+    background: frozenset[str] = frozenset()
     if continue_from:
         ids = [str(i) for i in continue_from.get("frozen_ids") or []]
         remaining = [i for i in ids if i in waiting_map and i not in parked_now]
+        background = await asyncio.to_thread(saved_order.background_ids, memory_path, ids)
     elif only_ids is not None:
         want = set(only_ids)
-        ids = [i for i in queue if i in want]
+        ids, background = await asyncio.to_thread(
+            saved_order.order, memory_path, [i for i in queue if i in want], old_bulk_last=old_last)
         remaining = ids
     else:
-        ids = [i for i in queue if i not in parked_now]
+        # Ruling 80 (G246): his conversations first, then the saves he talked about, then the rest of the saves, grouped by
+        # origin, newest first. Nothing is cut: the run still reads everything waiting at this moment (ruling 13).
+        ids, background = await asyncio.to_thread(
+            saved_order.order, memory_path, [i for i in queue if i not in parked_now], old_bulk_last=old_last)
         remaining = ids
     if user_triggered and not continue_from:
         # A fresh run replaces any paused one (no-body trigger); the replaced run is ended in
@@ -2680,6 +2742,8 @@ async def _drain(
         reserve_pct=opts.reserve_pct,
     )
     ds.catch_up_for = catch_up_for if not user_triggered else None
+    ds.background_ids = background
+    ds.light_reads_on = old_last
     ds.memory_path = memory_path
     ds.origin_of = await asyncio.to_thread(sleep_progress.origin_of_ids, memory_path, ids)
     ds.parked = {i: str((parked_map.get(i) or {}).get("reason") or "other") for i in ids if i in parked_now}
@@ -2767,8 +2831,14 @@ async def _drain(
                 pass
     else:
         ds.reserve_pct = None
+    # Ruling 80 (G246): old bulk material is read on the lightest model of this very engine, in batches of its own. Settled
+    # once, from the engine the run is pinned to (after the reserve line's copy above), so a Continue and a run agree.
+    await asyncio.to_thread(_settle_lighter, ds, memory_path, resolved)
+    if ds.light_ids:
+        ds.batches = ds.batch + sleep_drain.batches_left(remaining, size, sizes, light=ds.light_ids)
     if engine_lbl == "litellm":   # ROR-102: a key's run stops at the person's figure
-        ds.spend = sleep_spend.guard_for(resolved[0], opts.spend_limit_usd)
+        ds.spend = sleep_spend.guard_for(
+            resolved[0], opts.spend_limit_usd, also=(ds.light_model,) if ds.light_model else ())
     _write_run_record(ds, memory_path, phase="running", engine_label=engine_lbl)
     _record_leg(ds, memory_path, "running")
     try:
@@ -2841,7 +2911,8 @@ async def _drain(
         ds.skipped_ids |= gone
         ds.settled |= gone
         batch_ids, more = sleep_drain.next_batch_retrying(
-            ids, waiting, ds.settled, ds.spend.batch_size(size) if ds.spend else size, ds.attempts, sizes=sizes)
+            ids, waiting, ds.settled, ds.spend.batch_size(size) if ds.spend else size, ds.attempts, sizes=sizes,
+            light=ds.light_ids)
         if not batch_ids:
             ds.finished = True   # a cancel that came too late has nothing left to stop
             break
@@ -2851,23 +2922,37 @@ async def _drain(
         line = ds.guard or ds.spend
         if line is not None and line.is_reached():
             stop = _line_stop(line)
+            if _only_background_left(ds, ids, waiting):
+                # Ruling 80 (G246): the line was reached with only background saves left — every conversation and every
+                # save he talked about is filed. That is a finished night, not a pause: nothing for the person to
+                # continue, the saves not read go back to the pile, and the schedule is free tomorrow.
+                stop = None
+                ds.returned_saves = _left_ids(ds, ids, waiting, set())
             break
 
         ds.batch += 1
         taken = set(batch_ids)
         ds.batches = ds.batch + sleep_drain.batches_left(
-            [i for i in ids if i not in ds.settled and i in waiting and i not in taken], size, sizes)
+            [i for i in ids if i not in ds.settled and i in waiting and i not in taken], size, sizes, light=ds.light_ids)
         is_last = more == 0
+        # Decay and the page reads (once per run) come with the batch that leaves only background saves behind it: a night
+        # that stops anywhere in the saves has already decayed (ruling 80, saves part last).
+        foreground_done = is_last or not any(
+            i not in ds.settled and i in waiting and i not in taken and i not in ds.background_ids for i in ids)
         before_read, before_total = dict(_state.read_by_origin), _state.episodes_total
         _reset_batch_counters()
         ds.batch_counted = False
         ds.live = sleep_drain.BatchLive(index=ds.batch, total=len(batch_ids), ids=list(batch_ids))
         _state.episodes_total = min(ds.frozen, ds.filed + ds.requeued + ds.skipped + len(batch_ids))
+        # Ruling 80: a batch is one model's. Old bulk material is read on the engine's lighter model (the same engine, sign-in
+        # and key), everything else on the person's own.
+        on_lighter = bool(ds.lighter is not None and batch_ids[0] in ds.light_ids)
         plan = BatchPlan(
             # The once-per-drain work runs in the batch that empties the queue — and only once,
-            # even when a retry batch follows a last batch that had failures.
-            only_ids=batch_ids, resolved=resolved, decay=is_last and not ds.decay_ran,
-            links=is_last and not ds.links_ran,
+            # even when a retry batch follows a last batch that had failed.
+            only_ids=batch_ids, resolved=(ds.lighter.settings, resolved[1]) if on_lighter else resolved,
+            lighter=on_lighter, decay=foreground_done and not ds.decay_ran,
+            links=foreground_done and not ds.links_ran,
             keep_cancel=not is_last,
             label=f"Batch {ds.batch} of {ds.batches} · " if ds.batches > 1 else "",
             index=ds.batch, of=ds.batches, drain_id=ds.drain_id, ds=ds,
@@ -2879,6 +2964,8 @@ async def _drain(
         _fold(last, batch_ids, decays=plan.decay, links=plan.links)
         if ds.spend is not None and last.committed:
             ds.spend.note_filed(len(last.filed_ids))
+        if last.committed and ds.background_ids:
+            await asyncio.to_thread(_promote_talked_saves, ds, memory_path, ids)
         if last.committed and ds.owner_beliefs is not None and ds.owner_beliefs.get("after_first_batch") is None:
             await asyncio.to_thread(_sample_owner, ds, memory_path, "after_first_batch")
         if last.committed:
@@ -2898,9 +2985,15 @@ async def _drain(
             last.stop = waited
         if last.stop is not None:
             stop = last.stop
-            if stop.reason == "reserve" and not any(
-                    i not in ds.settled and i in waiting for i in ids if i not in last.filed_ids):
+            left = _left_ids(ds, ids, waiting, last.filed_ids)
+            if stop.reason == "reserve" and not left:
                 stop = None      # the line was reached with nothing left to read: a finished run
+            elif left and stop.reason in ("reserve", "plan_limit") and all(i in ds.background_ids for i in left):
+                # Ruling 80 (G246): a line the person set, or the plan's window or limit, reached while only background
+                # saves remain: every conversation is filed. A finished night (no pause record, so tomorrow's run is not
+                # blocked); the saves not read go back to the pile.
+                stop = None
+                ds.returned_saves = left
             else:
                 break
         if last.committed and (last.breaker or last.pause_class):
@@ -2986,7 +3079,8 @@ async def _drain(
         committed=last.committed, questions_refreshed=last.questions_refreshed,
         # A run past the spending limit with nothing left to read ends as a finished run; its tail still stops.
         skip_links=bool((stop is not None and stop.reason in ("plan_limit", "reserve"))
-                        or (ds.spend is not None and ds.spend.is_reached())),
+                        or (ds.spend is not None and ds.spend.is_reached()) or bool(ds.returned_saves)),
+        unread_saves=list(ds.returned_saves),
     )
 
 
@@ -3181,6 +3275,64 @@ async def _wait_for_network(ds: "sleep_drain.DrainState", cause: str,
         return None
     finally:
         ds.waiting = None
+
+
+def _left_ids(ds: "sleep_drain.DrainState", ids: list[str], waiting: set[str], filed: set[str]) -> list[str]:
+    """The frozen ids this run has not settled that still wait (``filed``: ones a batch just filed)."""
+    return [i for i in ids if i not in ds.settled and i in waiting and i not in filed]
+
+
+def _only_background_left(ds: "sleep_drain.DrainState", ids: list[str], waiting: set[str]) -> bool:
+    """Is everything still unread a background save (ruling 80)? True with nothing left at all."""
+    left = _left_ids(ds, ids, waiting, set())
+    return bool(left) and all(i in ds.background_ids for i in left)
+
+
+def _settle_lighter(ds: "sleep_drain.DrainState", memory_path: Path, resolved: tuple) -> None:
+    """Which of the run's background saves are read on the engine's lighter model, and that engine copy (ruling 80,
+    ``light_reads``). Nothing when the person's option is off, the engine has no lighter model Cicada knows, or none of the
+    background saves is old bulk material. Never raises: the person's own model reads whatever this cannot settle."""
+    from api.services import light_reads
+
+    ds.light_ids, ds.light_model, ds.lighter = frozenset(), None, None
+    if not ds.light_reads_on or not ds.background_ids:
+        return
+    try:
+        old = light_reads.old_bulk_ids(memory_path, ds.background_ids)
+        found = light_reads.lighter(resolved[0]) if old else None
+    except Exception as e:  # noqa: BLE001 - a lighter model is a saving, never a reason a run cannot start
+        logger.warning(f"lighter model not settled: {type(e).__name__}: {e}")
+        return
+    if found is None:
+        return
+    ds.light_ids, ds.light_model, ds.lighter = old, found.model, found
+    logger.info(f"Drain {ds.drain_id}: {len(old)} old saves read on {found.model}, the rest on the chosen model")
+
+
+def _promote_talked_saves(ds: "sleep_drain.DrainState", memory_path: Path, ids: list[str]) -> None:
+    """A conversation this run just read named a save that is still waiting its turn in the frozen list: it moves ahead
+    of the other saves (ruling 80, "a save he talked about is read first") and leaves the background class. Reorders the
+    unread part of the frozen list in place; filed ids keep their places."""
+    from api.services import saved_order
+
+    still = {i for i in ds.background_ids if i not in ds.settled}
+    if not still:
+        return
+    moved = False
+    for i in still:
+        entry = bank_index.file(memory_path, "episodes", f"{i}.md")
+        if entry is None or saved_order.classify(entry.frontmatter) != saved_order.BACKGROUND:
+            moved = True
+            break
+    if not moved:
+        return
+    done = [i for i in ids if i in ds.settled]
+    todo, background = saved_order.order(memory_path, [i for i in ids if i not in ds.settled],
+                                         old_bulk_last=ds.light_reads_on)
+    ids[:] = done + todo
+    ds.background_ids = background | (ds.background_ids & ds.settled)
+    if ds.light_ids:   # a save he has since talked about is read on his model, whatever it was
+        ds.light_ids = frozenset(i for i in ds.light_ids if i in ds.background_ids)
 
 
 def _line_stop(line) -> "sleep_drain.DrainStop":
@@ -4183,6 +4335,7 @@ async def _run_stages(
         sessions=_collect_session_ids(processed_episodes),
         episode_sessions=_episode_session_map(processed_episodes),
         corrections=_state.corrections_batch,
+        lighter=bool(batch is not None and batch.lighter),
         **({} if batch is None else {
             "drain": (batch.drain_id, batch.index, batch.of),
             "subject_suffix": (" (finishing)" if decay_only else
@@ -4606,8 +4759,13 @@ async def _finalize(
     drain: tuple[str, int, int] | None = None,
     subject_suffix: str = "",
     corrections: dict | None = None,
+    lighter: bool = False,
 ) -> None:
     """Commit all changes from the sleep cycle with a structured message.
+
+    ``lighter`` (ruling 80): this batch was old bulk material read on the engine's lighter model. The commit's trailers name
+    the models that wrote it (``authors``), so they already say which; the ``sleep_run`` row carries the flag beside its model
+    so the run's detail can say what the lighter model read.
 
     ``drain`` / ``subject_suffix`` (a drain's batch, ``sleep_drain``): ``(drain
     id, batch, batches)`` becomes three ids-only refs on the ``sleep_run`` row so
@@ -4901,6 +5059,7 @@ async def _finalize(
             cycle_usage.TAGGED_REF: True,
             **({"plan": plan_block} if plan_block else {}),
             **({"drain_id": drain[0], "batch": drain[1], "batches": drain[2]} if drain else {}),
+            **({"lighter": True} if lighter else {}),
             "episodes_processed": _state.episodes_processed,
             "episodes_requeued": _state.episodes_requeued,
             "entities_created": _state.entities_created,

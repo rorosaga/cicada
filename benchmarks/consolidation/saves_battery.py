@@ -8,15 +8,14 @@ fact in the present tense, a connector tweet read as his own words, a 200-row li
 
 Legs (one scratch bank each, one process each, ``--leg``):
 
-* ``baseline``: dev as it is. Saves are captured by the production writers; the index reads what it reads today
-  (bookmarks, list saves, tab groups, open tabs), Sleep reads what dev reads (a save with a reason or a note, a feed item).
-* ``single``: the same bank, then every save the index read is **woken** with ``history_index.wake`` (the function a
-  mention calls), except the 200 undated list rows, which stay in the pile (``--wake-bulk`` wakes them too). Sleep then
-  reads each woken save once, alone, with today's reading. It proves what a model call per save costs and what today's
-  Stage 1 writes from a save; it does NOT prove the reading ruling 80 will build (the saved-item note, ``external:``
-  observers, the owner guard, the caps), because none of that exists yet, so its gate failures are the work of Tracks 2a to 2c.
-  ``read_asked`` is the stamp a mention leaves; nothing in Stage 1 reads it, so a woken save is read exactly as a waiting
-  one will be (``history_index.waits_for_model`` is the only thing it changes).
+* ``baseline``: dev as it was before ruling 80's switch, which is ``history_index.SAVES_READ = False``: saves are captured by
+  the production writers and indexed (bookmarks, list saves, tab groups, open tabs), Sleep reads what it read then (a save with
+  a reason or a note, a feed item).
+* ``single``: **the real path** (G246, Track 1; it was a ``wake`` shortcut before). Capture writes each save as it does now: a
+  save made singly waits for tonight, the 200 list rows are a bulk door (``bulk=True``, the pile), a 40-day-old bookmark
+  arrives late (the pile), a video's title and link has nothing to read. Sleep's own first step releases the day's number
+  from the pile (``history_index.take_turns``) and reads the whole queue in its order, with the saved-item reading of Tracks
+  2a to 2c. ``--wake-bulk`` is retired (the bulk waits its turn; nothing is woken by hand).
 * ``grouped``: the Track 3 leg. Not built: it needs ``feat/grouped-save-read``.
 
     api/.venv/bin/python -m benchmarks.consolidation.saves_battery run --leg baseline --out OUT/baseline
@@ -49,8 +48,8 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 SHIM = REPO / ".claude" / "skills" / "verify-cicada" / "bin" / "plan-claude"
-#: One day's allowance of saves entering the queue (plan 3.2: ``SAVES_PER_DAY`` when it ships). A gate, not a setting.
-DAY_ALLOWANCE = 25
+#: One day's allowance of saves entering the queue (``history_index.SAVES_PER_DAY``, read when the gate is judged).
+DAY_ALLOWANCE = 100
 #: At most this many open save-derived claims on one page (plan invariant 12).
 PAGE_CLAIM_CAP = 12
 #: Ruling 62's retrieval cases, words and the hook's note: all of them (12/12).
@@ -375,7 +374,7 @@ def gates(m: dict, ret: dict, ret_before: dict, waiting_if_all_woken: int) -> li
          "note": f"{m['old_post_fact']['claims_citing_the_post']} claims and {m['old_post_fact']['held_lines_citing_it']} held lines cite the 2021 post"
                  + ("; VACUOUS: Sleep wrote nothing from it, so this gate cannot fail here" if not (m['old_post_fact']['claims_citing_the_post'] or m['old_post_fact']['held_lines_citing_it']) else "")},
         {"gate": f"waiting saves after the bulk list at most one day's allowance ({DAY_ALLOWANCE})", "value": waiting_if_all_woken, "pass": waiting_if_all_woken <= DAY_ALLOWANCE,
-         "note": "counted on a copy with every save made waiting, bulk included; the pace is what Track 1 builds"},
+         "note": "the 200 list rows right after the list was read (ruling 80: a bulk waits its turn in the pile; a day's number is released at Sleep's start, `history_index.take_turns`)"},
         {"gate": "retrieval cases unchanged (words and the hook's note: no fewer found after Sleep than when capture left them, which is dev today)",
          "value": f"at capture {ret_before['words']}/{ret_before['cases']} words, {ret_before['hook_note']}/{ret_before['cases']} hook; after {ret['words']}/{ret['cases']}, {ret['hook_note']}/{ret['cases']}",
          "pass": ret["words"] >= ret_before["words"] and ret["hook_note"] >= ret_before["hook_note"],
@@ -388,11 +387,15 @@ def gates(m: dict, ret: dict, ret_before: dict, waiting_if_all_woken: int) -> li
 
 # ---- one leg ------------------------------------------------------------------------------------------------------------------
 
-def prepare(out: Path, leg: str, clock: date, *, wake_bulk: bool) -> dict:
+def prepare(out: Path, leg: str, clock: date) -> dict:
     """Seed, capture and (single leg) wake: everything before Sleep, no model. Returns what the leg needs afterwards."""
     from benchmarks.consolidation import saves_fixture as fx
 
     bank = out / "bank"
+    if leg == "baseline":
+        from api.services import history_index
+
+        history_index.SAVES_READ = False   # ruling 62's pass whole: what dev did before ruling 80 switched reading on
     built = fx.build_bank(bank, clock)
     rows = fx.all_saves()
     rows_by_key = {r["key"]: r for r in rows}
@@ -400,17 +403,11 @@ def prepare(out: Path, leg: str, clock: date, *, wake_bulk: bool) -> dict:
     fx.write_manifest(out / "manifest.json", manifest)
     at_capture = fx.capture_state(bank, manifest)
     waiting_at_capture = fx.waiting_for_model(bank)
-    # How many saves would wait if every one were made waiting, bulk included: counted on a copy, never run.
-    probe = out / "probe-bank"
-    shutil.copytree(bank, probe, symlinks=True, ignore=shutil.ignore_patterns(".git"))
-    fx.wake_saves(probe, manifest, include_bulk=True, commit=False)
-    waiting_if_all_woken = fx.waiting_for_model(probe)
-    shutil.rmtree(probe, ignore_errors=True)
+    # Ruling 80: how many of the bulk list's saves wait for Sleep right after the list was read (the gate: at most the day's number).
+    waiting_if_all_woken = {"waiting_saves": fx.waiting_group(bank, manifest, "bulk-list")}
     ret_at_capture = retrieval(bank, manifest, rows_by_key)    # dev's own state: the index has read the bookmarks
-    woke = None
-    if leg == "single":
-        woke = fx.wake_saves(bank, manifest, include_bulk=wake_bulk)
-    ret_before = retrieval(bank, manifest, rows_by_key) if woke else ret_at_capture
+    woke = None   # nothing is woken by hand any more: the real path is what is measured (ruling 80)
+    ret_before = ret_at_capture
     return {"built": built, "saves": len(rows), "at_capture": at_capture, "waiting_at_capture": waiting_at_capture,
             "waiting_if_all_woken": waiting_if_all_woken, "woke": woke, "retrieval_at_capture": ret_at_capture, "retrieval_before_sleep": ret_before,
             "waiting_before_sleep": fx.waiting_for_model(bank), "manifest": manifest, "rows_by_key": rows_by_key}
@@ -454,16 +451,20 @@ def run_leg(args) -> int:
     isolate(out, stand_in=args.stand_in)
     out.mkdir(parents=True, exist_ok=True)
     clock = date.today()
-    prep = prepare(out, args.leg, clock, wake_bulk=args.wake_bulk)
+    prep = prepare(out, args.leg, clock)
     sleep = run_sleep(out, stand_in=args.stand_in)
     return finish(out, args.leg, prep, sleep, clock, stand_in=args.stand_in)
 
 
 def finish(out: Path, leg: str, prep: dict, sleep: dict, clock: date, *, stand_in: bool) -> int:
+    from api.services import markdown_parser
+
     manifest, rows_by_key = prep["manifest"], prep["rows_by_key"]
     m = measure(out / "bank", manifest, rows_by_key, clock)
     ret_after = retrieval(out / "bank", manifest, rows_by_key)
     spent = usage(out / "home")
+    m["released_from_the_pile"] = sum(1 for p in (out / "bank" / "episodes").glob("*.md")
+                                      if (markdown_parser.parse(p).frontmatter or {}).get("turn_released_on"))
     result = {
         "leg": leg, "model": MODEL, "stand_in": stand_in, "clock": clock.isoformat(),
         "prepare": {k: v for k, v in prep.items() if k not in ("manifest", "rows_by_key")},
@@ -479,7 +480,7 @@ def render_leg(r: dict) -> str:
     m, u, p = r["measure"], r["usage"], r["prepare"]
     lines = [f"== leg {r['leg']} (model {r['model']}{', STAND-IN: no model was called, numbers are not a measurement' if r['stand_in'] else ''})",
              f"saves captured {p['saves']} (two of them tab groups): left by capture as {p['at_capture']}",
-             f"waiting for a model before Sleep: {p['waiting_before_sleep']}; if every save were made waiting (bulk included): {p['waiting_if_all_woken']}",
+             f"waiting for a model before Sleep: {p['waiting_before_sleep']}; bulk-list saves waiting after the list was read: {p['waiting_if_all_woken']['waiting_saves']}",
              f"Sleep: {r['sleep']['seconds']} s, error={r['sleep']['error']}, stop={r['sleep']['stop']}, parked={r['sleep']['parked']}",
              f"saves read by a model: {m['saves_read_by_a_model']} (indexed only: {m['saves_left_indexed']}); by group {m['saves_read_by_group']}",
              "", u["table"], ""]
@@ -555,16 +556,14 @@ def selfcheck(out: Path) -> int:
     expect(sum(r["group"] == "page-50" for r in rows) == 50, "50 posts about the one existing page")
     expect(sum(r["group"] == "bulk-list" for r in rows) == 200, "a bulk list of 200 rows")
     expect(len(rows) - 200 - 50 + 50 in range(70, 100), f"about 80 non-bulk saves ({len(rows) - 200})")
-    prep = prepare(out, "single", clock, wake_bulk=False)
+    prep = prepare(out, "single", clock)
     s, st = prep["at_capture"], prep["waiting_at_capture"]
     expect(len(prep["manifest"]) >= len(rows) - 1, f"every save written ({len(prep['manifest'])} episodes)")
-    expect(s.get("saved/read-by-index", 0) + s.get("list/read-by-index", 0) > 200, f"capture reads bookmarks and lists by the index: {s}")
+    expect(s.get("model/waiting-for-model", 0) > 60, f"capture leaves the saves made singly waiting for Sleep (ruling 80): {s}")
     waiting_groups = Counter(prep["manifest"][ep]["group"] for ep in prep["manifest"]
                              if (out / "bank" / "episodes" / f"{ep}.md").exists())
-    expect(st["waiting_saves"] >= 4, f"a reason, a feed item and a connector note wait for a model on dev today: {st}")
-    expect(prep["waiting_if_all_woken"]["waiting_saves"] > 250, f"all woken: {prep['waiting_if_all_woken']['waiting_saves']} saves would wait")
-    expect(prep["woke"]["woken"] > 60 and prep["woke"]["bulk_left_in_pile"] == 200, f"the single leg wakes the saves and leaves the bulk list: {prep['woke']}")
-    expect(prep["waiting_before_sleep"]["waiting_saves"] < prep["waiting_if_all_woken"]["waiting_saves"], "the bulk list stays in the pile")
+    expect(st["waiting_saves"] > 60, f"the saves made singly wait for a model: {st}")
+    expect(prep["waiting_if_all_woken"]["waiting_saves"] == 0, f"the bulk list waits its turn, none of it waits tonight: {prep['waiting_if_all_woken']}")
     r = prep["retrieval_at_capture"]
     expect(r["words"] == r["cases"] and r["hook_note"] >= r["cases"] - 2, f"retrieval cases on the pile (the hook never brings up a list row, so 10 of 12 is dev today): {r['words']}/{r['cases']} words, {r['hook_note']}/{r['cases']} hook, missed {r['missed']}")
     sleep = run_sleep(out, stand_in=True)
@@ -572,7 +571,7 @@ def selfcheck(out: Path) -> int:
     code = finish(out, "single", prep, sleep, clock, stand_in=True)
     result = json.loads((out / "battery.json").read_text(encoding="utf-8"))
     expect(code == 0 and len(result["gates"]) == 12, "the gates are computed")
-    expect(result["measure"]["saves_read_by_a_model"] >= prep["woke"]["woken"], f"every woken save was read: {result['measure']['saves_read_by_a_model']}")
+    expect(result["measure"]["saves_read_by_a_model"] > 60, f"the saves that waited were read: {result['measure']['saves_read_by_a_model']}")
     print("\nselfcheck:", "FAILED " + str(fails) if fails else "passed")
     return 1 if fails else 0
 
@@ -583,7 +582,6 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("run", help="one leg on a fresh scratch bank")
     r.add_argument("--leg", choices=["baseline", "single", "grouped"], required=True)
     r.add_argument("--out", type=Path, required=True, help="a new folder: the scratch HOME, ledger and bank are made in it")
-    r.add_argument("--wake-bulk", action="store_true", help="single leg: wake the 200 list rows too (about 200 more reads)")
     r.add_argument("--stand-in", action="store_true", help="a stand-in engine instead of the plan: no spend, not a measurement")
     rs = sub.add_parser("rescore", help="measure a finished leg's bank again with no model")
     rs.add_argument("out", type=Path)

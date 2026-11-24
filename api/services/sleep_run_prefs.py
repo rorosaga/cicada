@@ -21,6 +21,11 @@ id ``sleep-run``:
   the plan's limits, said where it can be turned off. Stored only as an explicit ``false`` (off); a
   machine that never set it — a new install, a bank that never chose — reads as on.
 
+* ``light_old_saves`` — ruling 80 (owner 2026-11-24): ON unless the person turned it off. Old bulk material released from the
+  pile (old bookmarks, saves out of an export or archive file; ``light_reads``) is read on the lightest model of the engine
+  the person chose, in batches of its own after every other save; off reads everything on the model they chose. Stored only
+  as an explicit ``false``, like ``scheduled_use_plan``.
+
 * ``keep_awake`` — G243: off by default. While a run reads, the Mac does not sleep on power (``keep_awake``).
 
 A run snapshots all three when it starts, so a change applies to the next start or
@@ -45,6 +50,7 @@ class RunOptions:
     scheduled_use_plan: bool = True
     spend_limit_usd: float | None = sleep_spend.DEFAULT_USD
     keep_awake: bool = False
+    light_old_saves: bool = True
 
 
 def _entry(registry) -> dict:
@@ -70,6 +76,7 @@ def load(registry) -> RunOptions:
         scheduled_use_plan=_switch(e, "scheduled_use_plan", default=True),
         spend_limit_usd=_spend_limit(e),
         keep_awake=e.get("keep_awake") is True,
+        light_old_saves=_switch(e, "light_old_saves", default=True),
     )
 
 
@@ -97,7 +104,7 @@ def effective_batch_size(opts: RunOptions, settings) -> int:
 
 
 def write(registry, *, batch_size=..., continue_after_reset=..., reserve_pct=..., scheduled_use_plan=...,
-          spend_limit_usd=..., keep_awake=...) -> None:
+          spend_limit_usd=..., keep_awake=..., light_old_saves=...) -> None:
     """Persist the fields that were passed (``...`` leaves one alone; ``None``
     clears ``batch_size`` / ``reserve_pct`` and turns the spending limit off). Callers validate first."""
     if spend_limit_usd is not ...:
@@ -113,3 +120,6 @@ def write(registry, *, batch_size=..., continue_after_reset=..., reserve_pct=...
         registry.set_pref(PREF_KEY, "scheduled_use_plan", bool(scheduled_use_plan))
     if keep_awake is not ...:
         registry.set_pref(PREF_KEY, "keep_awake", True if keep_awake else None)
+    if light_old_saves is not ...:
+        # Stored both ways: an explicit off must outlive the default.
+        registry.set_pref(PREF_KEY, "light_old_saves", bool(light_old_saves))

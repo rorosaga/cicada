@@ -3933,6 +3933,10 @@ class SleepRunBatch(CamelModel):
     took_ms: Optional[int] = None
     calls: int = 0
     windows: list["CycleUsagePlanWindow"] = Field(default_factory=list)
+    # Ruling 80 (G246): the model that wrote this batch (the ledger row's own), and whether it read old bulk saves on the
+    # engine's lighter model instead of the one the person chose. ``null`` model: not recorded.
+    model: Optional[str] = None
+    lighter: bool = False
 
 
 class SleepRunPages(CamelModel):
@@ -4407,6 +4411,9 @@ class SleepRunOptions(CamelModel):
     spend_limit_choices: list[int] = Field(default_factory=list)
     # G243: the Mac does not sleep on power while a run reads. Off by default; never wakes a sleeping Mac or holds a lid.
     keep_awake: bool = False
+    # Ruling 80 (owner 2026-11-24): old bulk saves (old bookmarks, saves out of an export or archive file) are read on the
+    # lightest model of the engine you chose, after every other save. On by default; off reads everything on your model.
+    light_old_saves: bool = True
 
 
 class SleepRunOptionsUpdate(CamelModel):
@@ -4417,6 +4424,7 @@ class SleepRunOptionsUpdate(CamelModel):
     scheduled_use_plan: Optional[bool] = None
     spend_limit_usd: Optional[float] = None
     keep_awake: Optional[bool] = None
+    light_old_saves: Optional[bool] = None
 
 
 class SleepTriggerBody(BaseModel):

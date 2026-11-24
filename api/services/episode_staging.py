@@ -120,6 +120,11 @@ class EpisodeDraft:
     body: str | None = None
     extra: dict = field(default_factory=dict)
     queue_for_sleep: bool = True
+    #: Ruling 80 (G246): this draft is a save (a tab group). When it is created, a ``"waiting"`` one is queued for Sleep
+    #: tonight and a ``"pile"`` one waits its turn (``history_index``); once it exists a later sync or edit of the record
+    #: changes neither ``processed`` nor ``processed_by`` — a group changed after its read is not read again — and never
+    #: takes back a read the person's own mention owes. ``None`` (every other writer) is as before.
+    save_entry: str | None = None
     content_sha: str | None = None
     writer: str = "import"
     #: Who consolidated an episode that lands already processed (G114 R6). A
@@ -445,12 +450,22 @@ def _title(draft: EpisodeDraft) -> str:
     return stored_title(draft.title)
 
 
-def _apply_common(fm: dict, draft: EpisodeDraft, stamps: list[dict], body: str | None = None) -> None:
+def _apply_common(fm: dict, draft: EpisodeDraft, stamps: list[dict], body: str | None = None,
+                  *, creating: bool = False) -> None:
     fm.update(_extra(draft))
     _apply_extras(fm, _extras_matching(draft, body) if body is not None else {})
     if draft.content_sha:
         fm["content_sha"] = draft.content_sha
-    if draft.queue_for_sleep or _read_owed(fm, draft):
+    if draft.save_entry is not None and history_index.SAVES_READ:
+        if creating:
+            if draft.save_entry == "waiting":
+                fm["processed"] = False
+                fm.pop("processed_by", None)
+            else:
+                fm["processed"] = True
+                fm["processed_by"] = history_index.INDEXED_BY
+        # an existing save keeps its state: it is read once, whatever its record says later (ruling 80)
+    elif draft.queue_for_sleep or _read_owed(fm, draft):
         fm["processed"] = False
         # G114 R6: `processed_by` is written only beside `processed: true`.
         fm.pop("processed_by", None)
@@ -506,7 +521,7 @@ def write_new(draft: EpisodeDraft, episodes_dir: Path, body: str, digest: str,
         from api.services import source_edits   # review B1: whole-body ranges only for a file the agent wrote whole
         whole = source_edits.whole_body_is_theirs(e.get("tool") for e in draft.edits)
         with_contributions(fm, contribution_entries(draft.edits, digest, changed_ranges(None, body) if whole else []))
-    _apply_common(fm, draft, stamps, body)
+    _apply_common(fm, draft, stamps, body, creating=True)
     # Audit K01: `date_counts` was seeded at the start of the call, and a writer
     # in another process (an MCP server, the Stop hook) may have taken the id
     # since; the create re-mints rather than replace that episode.
@@ -549,7 +564,7 @@ MAX_REPLACED = 20
 #: nothing, so it leaves every waiting queue and Sleep never consolidates it — the file stays, still marked
 #: ``source_deleted_at``. The source posted again re-queues it (`_requeue_for_authorship`).
 DELETED_UNREAD = "source-deleted"
-_NOT_CONSOLIDATED_BY = frozenset({PARSED_ONLY, history_index.INDEXED_BY, DELETED_UNREAD})
+_NOT_CONSOLIDATED_BY = frozenset({PARSED_ONLY, history_index.INDEXED_BY, history_index.NO_WORDS_BY, DELETED_UNREAD})
 
 
 #: G244 (ruling 76): an agent edited the source file this episode holds — ``[{harness, model?, effort?, session?, at,
@@ -837,6 +852,8 @@ def _requeue_for_authorship(fm: dict, draft: EpisodeDraft) -> None:
     Sleep consolidated agent prose — or never saw the person's words — and the
     folder's idempotence check (``content_sha`` + ``evidence_kind``) then read
     the file as unchanged forever (Track L Task 2 review, round 1)."""
+    if draft.save_entry is not None and history_index.SAVES_READ and fm.get("processed_by") != DELETED_UNREAD:
+        return   # ruling 80: a save is read once, however its record changes (`EpisodeDraft.save_entry`)
     if fm.get("processed_by") == DELETED_UNREAD and fm.get("source_deleted_at"):
         return   # still deleted: a glob flip or a rule change never brings an unread, deleted file back to the queue
     if fm.get("processed_by") == DELETED_UNREAD and not draft.queue_for_sleep:

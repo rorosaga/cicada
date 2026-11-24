@@ -32,15 +32,22 @@ from pathlib import Path
 from typing import Iterable
 
 from api.services import bank_index, saved_reading
+from api.services.text_fold import fold
 
 #: Open claims on one page that rest on saves alone (invariant 12 of the saves plan).
 MAX_OPEN_CLAIMS = 12
 #: Held claims on a pending line whose every source is a save with no words of the person's (invariant 3).
 MAX_HELD_CLAIMS = 3
 
+def _squash(text: str) -> str:
+    """Folded, every run of punctuation one space: "alpha-tool", "Alpha Tool" and "alpha_tool" are one name."""
+    return " ".join(re.sub(r"[\W_]+", " ", fold(text or "")).split())
+
+
 _EPISODE = re.compile(r"^ep_[A-Za-z0-9._-]{1,200}$")
-#: ``(bank, file name, mtime_ns, size) -> (is a saved item, holds words of his, its day)``: a body is read once per change.
-_READ: dict[tuple[str, str, int, int], tuple[bool, bool, str]] = {}
+#: ``(bank, file name, mtime_ns, size) -> (is a saved item, holds words of his, its day, his folded words)``: a body is
+#: read once per change. His words are ``None`` when the body could not be read (it could hold anything of his).
+_READ: dict[tuple[str, str, int, int], tuple[bool, bool, str, str | None]] = {}
 _READ_LIMIT = 50_000
 
 
@@ -51,28 +58,30 @@ class Saves:
     def __init__(self, memory_path: Path | str | None):
         self.memory_path = Path(memory_path) if memory_path else None
 
-    def _read(self, episode_id: str) -> tuple[bool, bool, str]:
+    def _read(self, episode_id: str) -> tuple[bool, bool, str, str | None]:
         episode_id = str(episode_id or "")
         if self.memory_path is None or not _EPISODE.match(episode_id):
-            return False, False, ""
+            return False, False, "", ""
         try:
             entry = bank_index.file(self.memory_path, "episodes", f"{episode_id}.md")
         except Exception:  # noqa: BLE001 - an unreadable episode is no save
-            return False, False, ""
+            return False, False, "", ""
         if entry is None:
-            return False, False, ""
+            return False, False, "", ""
         key = (str(self.memory_path), f"{episode_id}.md", entry.mtime_ns, entry.size)
         hit = _READ.get(key)
         if hit is not None:
             return hit
         fm = dict(entry.frontmatter or {})
-        result = (False, False, "")
+        result = (False, False, "", "")
         if saved_reading.applies(fm):
             try:
-                words = bool(saved_reading.person_ranges(entry.body()))
+                body = entry.body()
+                words = bool(saved_reading.person_ranges(body))
+                said: str | None = _squash(saved_reading.person_text(body))
             except Exception:  # noqa: BLE001 - a body that cannot be read could hold his words
-                words = True
-            result = (True, words, self._day(fm))
+                words, said = True, None
+            result = (True, words, self._day(fm), said)
         if len(_READ) >= _READ_LIMIT:
             _READ.clear()
         _READ[key] = result
@@ -90,16 +99,26 @@ class Saves:
         """Is this episode a saved item (a bookmark, a saved post, a feed entry), whether or not he wrote about it?"""
         return self._read(episode_id)[0]
 
-    def of(self, episode_id: str) -> bool:
-        """Is this episode a saved item holding no words of the person's?"""
-        is_save, words, _day = self._read(episode_id)
-        return is_save and not words
+    def of(self, episode_id: str, names: Iterable[str] | None = None) -> bool:
+        """Is this episode a saved item holding no words of the person's — **about these names**? His reason on a save is
+        about that save: it makes the save his own source only for a thing his own words name. With ``names`` (a page's
+        name and aliases), a save whose reason names none of them still counts as a save with none of his words; without
+        ``names``, any words of his make it his."""
+        is_save, words, _day, said = self._read(episode_id)
+        if not is_save:
+            return False
+        if not words:
+            return True
+        labels = [n for n in (names or ()) if str(n or "").strip()]
+        return bool(labels) and said is not None and not any(saved_reading.holds(said, _squash(n)) for n in labels)
 
-    def all_of(self, episode_ids: Iterable[str]) -> bool:
-        """Is every one of these episodes a save with no words of the person's (and is there at least one)? What decides
-        whether a NAME is only a save's: one conversation of his makes it his."""
+    def all_of(self, episode_ids: Iterable[str], names: Iterable[str] | None = None) -> bool:
+        """Is every one of these episodes a save with no words of the person's about ``names`` (and is there at least one)?
+        What decides whether a NAME is only a save's: one conversation of his, or a reason of his that names it, makes it
+        his."""
         ids = [str(e) for e in episode_ids or () if str(e or "").strip()]
-        return bool(ids) and all(self.of(e) for e in ids)
+        labels = [n for n in (names or ()) if str(n or "").strip()]
+        return bool(ids) and all(self.of(e, labels) for e in ids)
 
     def all_saves(self, episode_ids: Iterable[str]) -> bool:
         """Is every one of these episodes a saved item (and is there at least one)? What decides whether a CLAIM rests on
@@ -109,6 +128,16 @@ class Saves:
 
     def day(self, episode_id: str) -> str:
         return self._read(episode_id)[2]
+
+    def author_observer(self, episode_id: str) -> str | None:
+        """``external:<author>`` of a saved item (`saved_reading.author_observer`), or ``None`` when it is no save or cannot be read."""
+        if not self.is_save(episode_id):
+            return None
+        try:
+            entry = bank_index.file(self.memory_path, "episodes", f"{episode_id}.md")
+            return saved_reading.author_observer(dict(entry.frontmatter or {}), entry.body())
+        except Exception:  # noqa: BLE001 - an unreadable save names no author
+            return None
 
 
 def for_bank(memory_path: Path | str | None) -> Saves:
@@ -141,6 +170,29 @@ def is_save_only(claim, saves: Saves) -> bool:
     if is_event(claim) or is_record(claim) or getattr(claim, "source_trust", "") == "user_stated":
         return False
     return saves.all_saves(refs(claim))
+
+
+def attribute_to_authors(claims: Iterable, saves: Saves) -> int:
+    """A claim Sleep wrote (observer ``agent``, ``agent_extracted``) that every cited conversation of is a saved item with none
+    of the person's words is the first such save's author's (``external:<author>``), whatever wrote it: a relation Stage 2's
+    judge drew from two posts' descriptions, an unlocated quote, a fold — in a save that holds none of his words every fact
+    is the author's (ruling 80, G246), so the per-page cap and the fold count it. Mutates in place; returns how many."""
+    from api.services.claims import is_event, is_record
+
+    done = 0
+    for claim in claims:
+        if str(getattr(claim, "observer", "") or "") != "agent" or getattr(claim, "source_trust", "") != "agent_extracted":
+            continue
+        if is_event(claim) or is_record(claim):
+            continue
+        cited = refs(claim)
+        if not cited or not saves.all_of(cited):
+            continue
+        observer = next((o for o in (saves.author_observer(e) for e in cited) if o), None)
+        if observer:
+            claim.observer = observer
+            done += 1
+    return done
 
 
 def claim_day(claim, saves: Saves) -> str:

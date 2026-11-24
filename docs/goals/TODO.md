@@ -6,7 +6,7 @@
 
 [Feature status: one line per feature](feature-status.md) · [Implementation review: every G ID](BACKLOG_IMPLEMENTATION_REVIEW.md) · [Active reasoning by priority](memory-evolution.md) · [Completed work](DONE.md) · [Reference context / original prompts](BACKLOG_CONTEXT.md) · [Working method](working-method.md) · [Cognition comparison](../research/2026-10-06-agent-memory-repo.md) · [Source/video gaps](../research/2026-10-06-source-refresh-and-video-gaps.md) · [Provider/source modularity](../specs/2026-10-06-provider-and-ingestion-modularity.md) · [Benchmark rebuild](../specs/2026-10-06-system-benchmark-rebuild.md)
 
-**Sources and saves (2026-11-24, rulings 79 and 80, G245, G246):** read rulings 79 and 80 before touching a source's lists, the join of a first name, or what Sleep reads of a save. The owner answered ruling 78's six questions (79: reposts and one full-name mention are built; follows and the arrival join are decided, the join being built report-only; pictures of a walled post are the coordinator's recommendation, not built; the daily run starts no agent, and the owner is asked to choose) and withdrew the index-only rule for saves (80: every save is to be read, as its author's words, never his). **Reading is not on yet:** it waits for his answer on pace and cost and ships with a daily allowance for the older pile, which amends rulings 13 and 16 and is **pending his confirmation**. Order of work: the bounds (no page or mention from saves alone, per-page and per-name caps) before reading is switched on; [`2026-11-24-saves-are-read.md`](../plans/2026-11-24-saves-are-read.md) and [`2026-11-24-sources-answers.md`](../plans/2026-11-24-sources-answers.md) carry the tracks.
+**Sources and saves (2026-11-24, rulings 79 and 80, G245, G246):** read rulings 79 and 80 before touching a source's lists, the join of a first name, or what Sleep reads of a save. The owner answered ruling 78's six questions (79: reposts and one full-name mention are built; follows and the arrival join are decided, the join being built report-only; pictures of a walled post are the coordinator's recommendation, not built; the daily run starts no agent, and the owner is asked to choose) and withdrew the index-only rule for saves (80: every save is to be read, as its author's words, never his). **Reading is built (G246, Track 1) and held unmerged:** it waits for his answer on pace and cost and ships with a daily number for the older pile (100, `history_index.SAVES_PER_DAY`), which amends rulings 13 and 16 and is **pending his confirmation**. Order of work: the bounds (no page or mention from saves alone, per-page and per-name caps) before reading is switched on; [`2026-11-24-saves-are-read.md`](../plans/2026-11-24-saves-are-read.md) and [`2026-11-24-sources-answers.md`](../plans/2026-11-24-sources-answers.md) carry the tracks.
 
 **Pick up here (2026-10-22, redesign):** read ruling 36 (the owner's answers D1–D6 to the redesign proposal), then [`feature-status.md`](feature-status.md) for what is building. Branches in flight: `feat/awake-read` (G207), `fix/people-dedup` (G209), `feat/update-sources` (G61); queued: connection model and providers (G217, G50), agent API (G213), app (G217's pages, needs a Mac). **Decided after review (2026-10-22, in ruling 36):** a new install's Auto uses a signed-in plan, a key offered as an equal option; ruling 4c stays and the quick read follows it; G213's API rides the G135 listener; "Where to check" as one grouped inbox review; `rich` + `questionary` approved. Nothing waits on the owner from this ruling. **Ruling 38 (2026-10-23)** decides the follow-ups: `/v1` from the tool table (G213), a capture-only phone (G91), one-way syncs (G219), traces with screenshots (G218).
 
@@ -4123,8 +4123,9 @@ A whole row moves to DONE only after its remaining implementation and required a
    a page, the same fact from several authors folded into one with all its sources; at most 3 held lines per name from saves, and a
    name in a post joins an existing person page only on an exact full name or alias ("Sam" in a stranger's post never joins his
    friend Sam); a media page's `about` edge only to a page its save names in full, at most 5 (the one narrowing of ruling 56).
-   **(d) NOT yet on: saves do not wait for Sleep yet.** That switch waits for the owner's answer on pace and cost; he was given
-   the measured numbers (about 2 model calls, 13k input and 1.8k output tokens a save, on the plan at the small model), and no save
+   **(d) BUILT, NOT MERGED: saves wait for Sleep in the PR that is held for his answer** (G246, Track 1: `history_index.take_turns`,
+   `saved_order`, `SAVES_READ` the kill switch). That switch waits for the owner's answer on pace and cost; he was given
+   the measured numbers (about 2 model calls, 13k input and 1.8k output tokens a save, on the plan at the small model), and until it merges no save
    waits for Sleep that did not wait before. It ships with **a daily allowance for the older pile** (everything already kept, a
    bulk list or import, a save received long after the day it was saved): a fixed number a day enter the queue, newest first, after
    all his conversations, and nothing that is waiting is ever cut; a save he makes one at a time is read that night with no
@@ -4134,6 +4135,18 @@ A whole row moves to DONE only after its remaining implementation and required a
    save at a time. Designed with it: every non-save is read before any save; his talked-about saves are first among saves; a spending
    or plan line reached while only background saves remain finishes the run and does not pause it (so tomorrow's run is not
    blocked), and decay runs after his conversations. Revert: one constant restores today's behaviour.
+   **(d2) The cost answer, BUILT in the same held PR (2026-11-24).** His Sleep runs on a metered key with a mid-size model. Shown
+   the measured cost and three options, with one recommended (his model for new saves and the saves from his lists, the smallest
+   model for old bookmarks, with a separate model setting for the pile), he answered "ok go ahead with your recommendations". So:
+   **old bulk material released from the pile is read on the lightest model of the engine he chose**, in batches of its own after
+   every other save (`light_reads`; the table of which saves, the model per engine, the option and the record are in
+   `capture-and-sleep.md`). Old bulk is a browser's bookmarks taken in by a sync or an import and a save out of an export or archive
+   file; a list his agent read in his browser, a connector's saves, a save made singly and a save he talked about read on his own
+   model as before. It never crosses to another provider, sign-in, key or billing path; where Cicada knows no lighter model (the
+   ChatGPT plan, Cursor, OpenCode and Grok, a local model, a router, most other providers' keys) his model reads and nothing fails.
+   One option, on, `lightOldSaves` (route and `cicada sleep options`), no app control. **Still held:** the merge waits for his
+   confirmation of the allowance (d) above, and the first nights say whether the lighter model's facts are good enough (the
+   saves benchmark, `benchmarks/consolidation/saves_battery.py`, run on a lighter model), which is the revisit trigger for this paragraph.
    **(e) The coordinator's readings, built as stated, one line to undo each, not the owner's words:** (i) watch history and
    records he did not save (his own repositories, joined communities, open tabs on other devices) stay indexed and unread, and a
    feed item stays as the code reads it today (the publisher's words, no mention); follows are a directory no model reads. (ii) A
