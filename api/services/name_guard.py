@@ -78,6 +78,9 @@ CONTACTS_BOOK_DIR = people_directory.CONTACTS_BOOK_DIR
 BOOK_FILE = "book.json"
 WAITING_FILE = "contacts.json"
 LINKEDIN_FILE = "linkedin-connections.json"
+#: The followed accounts' directories, one per site (``follows_people``): ``follows-x.json``. A name or handle known only
+#: from a follow list is the person's record, blocked from a query like a connection's (ruling 79 (b); rulings 44, 54).
+FOLLOWS_PREFIX = "follows-"
 #: Past this much text a scan is refused rather than kept in memory: the guard fails closed.
 MAX_CORPUS_CHARS = 400_000_000
 MAX_QUERY_CHARS = 160
@@ -479,9 +482,19 @@ def _rows(data: dict | None, key: str) -> list[dict]:
     return rows
 
 
-def store_names(bank: str) -> list[str]:
+def _follows_files(bank: str) -> list[Path]:
+    folder = people_directory.folder(bank)
+    try:
+        return sorted(folder.glob(f"{FOLLOWS_PREFIX}*.json")) if folder.is_dir() else []
+    except OSError as exc:
+        raise GuardUnreadable(type(exc).__name__) from exc
+
+
+def store_names(bank: str, *, include_follows: bool = True) -> list[str]:
     """Every name the people directory holds outside the bank: the waiting cards, the contacts book (one-part names
-    included) and the LinkedIn connections with the handle in each profile link."""
+    included), the LinkedIn connections with the handle in each profile link and, ``include_follows``, the accounts the
+    person follows, each with its handle. A caller that only SHOWS names to a model (``settling_agent``) leaves the
+    follows out: no model reads that directory (ruling 79 (b)); the guard keeps them in, so they never leave in a query."""
     names: list[str] = []
     for card in _rows(_strict_json(people_directory.path(bank, WAITING_FILE)), "cards"):
         names.append(" ".join(str(card.get(k) or "") for k in ("given_name", "family_name")))
@@ -499,7 +512,21 @@ def store_names(bank: str) -> list[str]:
         found = person_leads.profile_handle(str(row.get("url") or ""))
         if found is not None:
             names.append(found[1])
-    return names
+    return names + (follow_names(bank) if include_follows else [])
+
+
+def follow_pairs(bank: str) -> list[tuple[str, str]]:
+    """``(display name, handle)`` of every account the person's kept following lists hold (``follows_people``). Fails closed
+    like every store here: a file that is there and cannot be read raises :class:`GuardUnreadable`."""
+    pairs: list[tuple[str, str]] = []
+    for path in _follows_files(bank):
+        for row in _rows(_strict_json(path), "rows"):
+            pairs.append((str(row.get("name") or ""), str(row.get("handle") or "")))
+    return pairs
+
+
+def follow_names(bank: str) -> list[str]:
+    return [part for pair in follow_pairs(bank) for part in pair]
 
 
 def _episode_labels(fm: dict, body: str) -> list[str]:
@@ -621,7 +648,7 @@ def build(memory_path: Path, facts) -> NameGuard:
     from api.services import web_context
 
     memory_path = Path(memory_path)
-    names = store_names(memory_path.name)
+    names = store_names(memory_path.name, include_follows=False)
     try:
         db, labels, name_like = _scan(memory_path, facts)
     except sqlite3.Error as exc:
@@ -642,6 +669,16 @@ def build(memory_path: Path, facts) -> NameGuard:
             page = web_context.load_page(memory_path, page_id)
             if page is None or web_context.known_personally(memory_path, page, facts):
                 names += page_labels
+    # Ruling 79 (b): a followed account's name and handle are the person's record, blocked like a connection's — unless the
+    # bank already has a page by that name or alias. Then the name is not known only from the follow list: the page's own
+    # rule above governs it (a company, a tool or a public figure stays searchable, since "following is not acquaintance",
+    # ruling 44), and a follow never makes it more private than the page already says.
+    paged = {_indexed(label) for fm in facts.pages.values() if isinstance(fm, dict)
+             for label in [str(fm.get("name") or ""), *[str(a) for a in fm.get("aliases") or [] if isinstance(a, str)]]}
+    for name, handle in follow_pairs(memory_path.name):
+        if _indexed(name) in paged or _indexed(handle) in paged:
+            continue   # the page's own rule governs the account, name and handle alike
+        names += [part for part in (name, handle) if part.strip()]
     names += [str(n) for n in facts.pending_person_names]
     url_ties = {frozenset(_ties_of(n)) for n in names} - {frozenset()}
     guard.url_ties = sorted(url_ties, key=sorted)

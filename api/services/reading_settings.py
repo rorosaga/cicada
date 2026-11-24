@@ -185,9 +185,9 @@ def youtube_list_allowed(name: str) -> bool:
 
 
 #: The saved lists on walled sites an agent may be asked to read (G206; ``saved_lists.PLATFORMS``' keys).
-#: G245: ``x-likes``, ``x-reposts``, ``instagram-likes``, ``linkedin-connections`` and ``reddit-upvoted`` are second lists of a site (``Platform.base``); the order is
+#: G245: ``x-likes``, ``x-reposts``, ``x-following``, ``instagram-likes``, ``linkedin-connections`` and ``reddit-upvoted`` are second lists of a site (``Platform.base``); the order is
 #: ``saved_lists.PLATFORMS``' (a test holds the two together). None of them is ever on by default.
-SAVED_LISTS = ("x", "x-likes", "x-reposts", "instagram", "instagram-likes", "linkedin", "linkedin-connections", "reddit",
+SAVED_LISTS = ("x", "x-likes", "x-reposts", "x-following", "instagram", "instagram-likes", "linkedin", "linkedin-connections", "reddit",
                "reddit-upvoted", "pinterest", "tiktok", "spotify", "goodreads")
 #: The saved lists :func:`apply_list_defaults` may turn on (owner 2026-10-26: onboarding pre-ticks them and an off is
 #: remembered). G232's Reddit, Pinterest and TikTok lists are off until the person turns one on: the app has no switch

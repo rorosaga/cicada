@@ -601,6 +601,18 @@ Contacts page's book (`contacts_book`) whose scoping it follows; the home's dire
 `replica: home` row (`mcp.md`). Not a Store domain: the ETag is a digest of the body and a client caches it in memory, so no
 `VersionVector` mapping is needed. `POST /sources/linkedin-connections/import`'s reply gains `doubted` (a name-only match refused
 for a same-name doubt, a count).
+**`GET /sources/follows/list` and `DELETE /sources/follows/{site}` (G245, ruling 79 (b), owner 2026-11-24).** The accounts the
+person follows on X, from `follows-x.json` outside every bank — `site` (default `x`; another is 404), `query` (words of a
+name or handle), `gone` (the accounts no longer followed instead), `offset`, `limit` (≤ 200) → `{rows: [{id, name, handle, url,
+day, page, proposed, goneOn}], total, offset, next, kept, gone, readOn, wholeOn, site, siteName, bank}`; `day` is the day the
+current stretch of following began, `page` the one page of a person, organisation or tool the account is when there is exactly
+one (the tail's rules), `proposed` that only the name says so. **The one route that names a followed account**, like the
+connections' list: the local API only (never `/mcp`, `/v1` or any remote door), 409 on a demo bank, nothing written, wiped by the
+delete and by trashing the bank, not in `replica_routes.GET_FROM_HOME` (a copy answers from its own directory); the ETag is a
+digest of the body and a client caches it in memory only. The DELETE is the person's "Forget": it removes every account, handle
+and link the site's file holds (pages keep what they gained), answers `{forgotten: <accounts kept>, bank}`, is `FORWARD` on a
+copy and admitted (409 while Sleep may be reading it). The stream `x.following` (kind `following`) counts the accounts
+followed now (not the gone), and its kind is in `source_streams.KINDS`.
 `POST /sources/streams/check` (body `{sources?: [ids]}`, none or empty = every source; demo bank 409, `FORWARD` on a
 replica) is the backend's half of a check: a browser list that is on and not paused is stamped `check_requested_at` (the
 lists' `due` serves it first, inside the daily bound, never lifting a pause — `mcp.md`), an app's stream is only reported

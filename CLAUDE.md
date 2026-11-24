@@ -459,7 +459,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   save (G206, 2026-10-22, `mcp.md`; X reposts too, from the person's own profile, ruling 79 (a)) — and on Reddit, Pinterest or TikTok the same way, off by default until the
   person turns it on (G232, 2026-11-04; Spotify and Goodreads too, ruling 72: a site's terms don't decide this, 2026-11-06); one person's
   LinkedIn profile only through the link their page lists, on the person's ask, stdio only (2026-10-16,
-  `mcp.md`). A LinkedIn connection alone makes no page; the person's own full-name mention of one does, its link proposed (ruling 79 (e); also read by the person's agent and listed to the app on the local API, ruling 78 (c)). The backend never fetches a
+  `mcp.md`). A LinkedIn connection, or an X account they follow (ruling 79 (b)), alone makes no page; the person's own full-name mention of a connection does, its link proposed (ruling 79 (e); also read by their agent, listed to the app on the local API, ruling 78 (c)). The backend never fetches a
   login-walled page. **Exploring saved sites (ruling 25):** only the person's click or a trusted local agent they asked
   starts a run; the agent uses their signed-in session unless they turn it off, every capture says which (`mcp.md`).
 - **Skills (2026-10-15):** Cicada installs third-party skills only on the person's consent, pinned to what they saw

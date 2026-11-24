@@ -815,8 +815,34 @@ else, below).
   (`LATER_READ_SCREENS`). A pass of a bounded list is never given the 500 calls of a list with an end. One line to undo:
   delete the `x-reposts` row from `PLATFORMS` (and its key in `SAVED_LISTS` and the tool's `platform` enum); what was kept
   stays kept. Other sites' reposts, quote posts and the person's own posts are not read.
+* **The accounts the person follows on X are a list of kind `accounts`, kept outside every bank (ruling 79 (b); owner
+  2026-11-24, "Should the accounts you follow be read?" "2. yes"; G245).** `x-following` (base `x`, no origin, no folder,
+  cadence 7 days): the person's own agent opens their own Following list (`<profile>/following`, from the profile link the
+  site's other lists recorded) in their own signed-in browser and records `items=[{name, url}]` per account through
+  `cicada_record_saved_list`; the profile link must be one account's own (`x.com/<handle>`, never a post, a search or a
+  reserved path: `follows_people.profile_of`), a bare `@handle` is read as one, and any other field a row carries (a bio, a
+  count, a picture) is never read. **It is a list of people the person follows, not posts:** nothing is saved, no episode,
+  no media page, nothing in git, no model; the rows merge into `$CICADA_HOME/people/<bank>/follows-x.json`
+  (`follows_people`; name, handle, link, first seen, last seen, `gone_on`), off until turned on (never in
+  `DEFAULT_ON_SAVED_LISTS`), read by no door but the local API (`GET /sources/follows/list`, `api.md`). **Always a whole
+  read, bounded, never unattended:** the queue words (`saved_lists._accounts_lines`) ask for all of it every time (a week
+  after the last), at most `follows_people.SITES["x"].max_rows` (2,000) accounts and `max_screens` screens, and say to
+  leave out `reached_end` when the read stopped early; a pass of this kind takes up to the 500 calls of a list with no end
+  yet (`saved_lists._few_calls`); `due(unattended=True)` never offers it, whole or not. **When an account is gone:** only a
+  call that says `reached_end` ends a pass, and the pass can then judge a "gone" only if it began in the directory (a
+  call that `continues` a read the file never saw start is `partial`), never reached the row cap (a longer list says "more
+  than N", keeps the first N and marks nothing), and returned at least 90% of the last trusted whole read; then each
+  live account it did not show gains a miss, and the second miss in a row marks it `gone_on` that day (seen again, even in
+  a read that stopped early, ends the streak; a gone account seen again starts a new stretch; one gone for half a year is
+  dropped). The first whole read judges nobody; a much smaller one marks nothing and does not become the reference.
+  **Every site-specific number is in `follows_people.SITES`, and the live look at X's Following page has not been made**
+  (how many rows a screen holds, whether the list ends, what the reserved paths are, whether "Who to follow" or a
+  "Verified Followers" tab sits on the page): the PR that opened it says what that look must confirm. One line to undo:
+  delete the `x-following` row from `PLATFORMS` (and its key in `SAVED_LISTS` and the tool's `platform` enum) and
+  `follows-x.json`; a "followed-on" claim already on a page stays until closed by hand (`observer external:x`).
+  **What it does to a page** (`capture-and-sleep.md`, "The accounts the person follows"): only attaches to a page that exists.
 * **Every list has a kind, its own cadence and a back-off (`saved_lists`).** `Platform.kind` is `posts`, `people`
-  (LinkedIn connections: a directory outside every bank), `accounts` (none yet) or `books` (Goodreads); the record tool, the
+  (LinkedIn connections: a directory outside every bank), `accounts` (the accounts the person follows, below) or `books` (Goodreads); the record tool, the
   queue and the stream's count branch on the kind, never on a key. `Platform.cadence` overrides the 20 h default (reposts:
   3 days). **`due()`**: a list is offered again after `cadence_of` — its cadence, pushed to 3 days after two reads of the
   whole list in a row that found nothing new and to a week after four (`note(new=)`, counted per pass; the person's own

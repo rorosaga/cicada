@@ -47,6 +47,7 @@ from api.models.schemas import (
     FolderSyncResponse,
     FolderUpdateRequest,
     LinkedInConnectionsImportResponse,
+    FollowedAccountsList,
     LinkedInConnectionsList,
     LinkedInConnectionsPreview,
     LinkedInConnectionsStatus,
@@ -79,6 +80,7 @@ from api.services import (
     demo_guard,
     device_context,
     folder_source,
+    follows_people,
     linkedin_people,
     local_refs,
     messages_photos,
@@ -624,6 +626,49 @@ async def forget_linkedin_connections(settings: Settings = Depends(get_settings)
     enriched from the export after it said "forgotten". 409 while Sleep holds the pages."""
     bank = settings.memory_path.name
     return {"forgotten": await run_in_threadpool(linkedin_people.forget_directory, bank), "bank": bank}
+
+
+# --- The accounts the person follows (G245, ruling 79 (b)) -----------------------------------------------------------
+
+
+def _follows_site(site: str) -> str:
+    if site not in follows_people.SITES:
+        raise HTTPException(404, f"No following list is kept for {site!r}.")
+    return site
+
+
+@router.get("/sources/follows/list", response_model=FollowedAccountsList)
+async def followed_accounts_list(request: Request, response: Response, site: str = Query("x", max_length=20),
+                                 query: str = Query("", max_length=120), offset: int = Query(0, ge=0),
+                                 limit: int = Query(50, ge=1, le=follows_people.MAX_ROWS), gone: bool = Query(False),
+                                 settings: Settings = Depends(get_settings)):
+    """G245 (ruling 79 (b)): the accounts the person follows — name, handle, link and the one page each is when there is
+    exactly one (``proposed`` when only the name says so). The one route that names them, so: the local API only (not on
+    ``/mcp``, ``/v1`` or any remote door), 409 on a demo bank, read from the directory outside every bank at this moment
+    and written nowhere, wiped by the forget route and by trashing the bank. On a copy it answers from this computer's own
+    directory (``GET_FROM_HOME`` does not carry it). Not a Store domain: the ETag is a digest of the body and the app holds
+    the rows in memory only."""
+    memory_path = settings.memory_path
+    if demo_guard.is_demo(memory_path):
+        raise HTTPException(409, "A demo bank holds no one's real following list.")
+    body = await run_in_threadpool(follows_people.list_rows, memory_path, memory_path.name, _follows_site(site),
+                                   query=query, offset=offset, limit=limit, gone=gone)
+    body["bank"] = memory_path.name
+    etag = '"' + sync_service._digest(body) + '"'
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    return FollowedAccountsList(**body)
+
+
+@router.delete("/sources/follows/{site}")
+@write_admission.route(refuse=lambda: SleepWriting(follows_people.FORGET_SLEEP_REFUSAL))
+async def forget_followed_accounts(site: str, settings: Settings = Depends(get_settings)):
+    """Forget this bank's kept following list for one site — Sleep's rematch never reads it again, and every account,
+    handle and link it held is gone. Pages that already gained a link or a dated fact keep them. Counts only. Writes nothing
+    in a bank, but admitted (G183): Sleep's tail reads the list inside its window (``follows_people.rematch``), so a forget
+    answered mid-run could still see pages enriched from it after it said "forgotten". 409 while Sleep holds the pages."""
+    bank = settings.memory_path.name
+    return {"forgotten": await run_in_threadpool(follows_people.forget, bank, _follows_site(site)), "bank": bank}
 
 
 @router.post("/sources/linkedin-connections/preview", response_model=LinkedInConnectionsPreview,

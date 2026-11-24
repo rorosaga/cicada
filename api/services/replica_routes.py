@@ -202,6 +202,7 @@ ROUTES: dict[str, str] = {
     "DELETE /sources/feeds": FORWARD,
     "DELETE /sources/folders/{folder_id}": FORWARD,
     "DELETE /sources/linkedin-connections": FORWARD,
+    "DELETE /sources/follows/{site}": FORWARD,
     "DELETE /videos/queue/{key}": FORWARD,
     "PATCH /backlog/{project_id}/{item_id}": FORWARD,
     "PATCH /design/{ref_id}": FORWARD,

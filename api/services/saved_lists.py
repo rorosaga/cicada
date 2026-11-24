@@ -139,6 +139,17 @@ PLATFORMS: dict[str, Platform] = {
         "Reposts", "x.com", "to read your reposts", ("x.com", "twitter.com"), base="x",
         reads="the original post's author as the page shows it, and the words the post shows",
         cadence=timedelta(days=3), max_screens=folder_pass.FIRST_READ_SCREENS),
+    # G245 (ruling 79 (b), owner 2026-11-24, "Should the accounts you follow be read?": "2. yes"): the accounts the person
+    # follows on X, from their own Following page. ACCOUNTS, not posts: they are kept in a directory outside every bank
+    # (``follows_people``), the way LinkedIn's connections are, attached to a page that already exists and never the reason
+    # a page is made; no origin, no folder, no save, no model. Always a whole read (a row is gone only when two whole
+    # reads in a row agree), with a row cap (``follows_people.SITES``), weekly, never offered to an unattended run
+    # (``due``). Off until turned on. One line to undo: delete this row (and its key in ``reading_settings.SAVED_LISTS`` and
+    # the tool's enum) and the site's ``follows-x.json``.
+    "x-following": Platform(
+        "x-following", "X", "Following", "https://x.com/",
+        " (the person's own profile, then its Following list)", "", "", "x.com", "to read who you follow",
+        ("x.com", "twitter.com"), base="x", kind="accounts", cadence=timedelta(days=7)),
     "instagram": Platform("instagram", "Instagram", "Saved", "https://www.instagram.com/",
                           " — open the person's profile, then Saved, then All posts", "instagram-saved", "Saved",
                           "instagram.com", "to read your saved posts", ("instagram.com",), folders=True,
@@ -493,14 +504,22 @@ def whole(memory_path: Path, key: str) -> bool:
 def pass_calls(memory_path: Path, key: str) -> int:
     """The calls one pass of ``key``'s list may take: far more while the list has not been read to its end — never for a
     list with a screens bound, whose read cannot grow past it."""
-    return PASS_CALLS if whole(memory_path, key) or PLATFORMS[key].bounded else WHOLE_PASS_CALLS
+    return PASS_CALLS if _few_calls(key, last(memory_path, key)) else WHOLE_PASS_CALLS
+
+
+def _few_calls(key: str, entry: dict) -> bool:
+    """Does a pass of ``key``'s list take :data:`PASS_CALLS` calls at most, rather than :data:`WHOLE_PASS_CALLS`? A list read to
+    its end, or a timeline with a bound, can only grow by a little. An ``accounts`` list never does: it is read whole every
+    time (a row is gone only when two whole reads agree), and its own row cap (``follows_people``) is the bound."""
+    p = PLATFORMS[key]
+    return p.kind != "accounts" and (entry.get("whole") is True or p.bounded)
 
 
 def pass_open(memory_path: Path, key: str, now: datetime | None = None) -> bool:
     """Is a pass of ``key``'s list open — a read whose first call was counted, whose last was within
     :data:`PASS_WINDOW`, with calls to spare? Only such a pass can be continued (G245)."""
     entry = last(memory_path, key)
-    return _pass_open(entry.get("pass"), _now(now), entry.get("whole") is True or PLATFORMS[key].bounded)
+    return _pass_open(entry.get("pass"), _now(now), _few_calls(key, entry))
 
 
 def _pass_open(held, moment: datetime, is_whole: bool = True) -> bool:
@@ -549,7 +568,7 @@ def note(memory_path: Path, key: str, outcome: str, *, items: int = 0, handle: s
         failures = data.setdefault("failed_streak", {})
         if outcome == "read":
             held_pass = entry.get("pass")
-            roomy = entry.get("whole") is True or PLATFORMS[key].bounded
+            roomy = _few_calls(key, entry)
             if continues and _pass_open(held_pass, moment, roomy):
                 entry["pass"] = {**held_pass, "at": moment.isoformat(), "calls": int(held_pass.get("calls") or 0) + 1}
                 items = int(entry.get("items") or 0) + int(items)
@@ -808,6 +827,8 @@ def queue_lines(memory_path: Path, *, can_record: bool, now: datetime | None = N
         return _goodreads_lines(p, can_record)
     if p.kind == "people":
         return _connections_lines(memory_path, p, can_record)
+    if p.kind == "accounts":
+        return _accounts_lines(memory_path, p, can_record)
     if p.bounded:
         return _timeline_lines(memory_path, p, can_record)
     lines = [f"- The person's {p.name} {p.label}: {p.url}{p.how} — read each post's link, {p.reads}."]
@@ -877,6 +898,35 @@ def _connections_lines(memory_path: Path, p: Platform, can_record: bool) -> list
             f"- The person's LinkedIn connections: {p.url}{p.how} — per row: the person's name, their profile link, the "
             "headline under the name, and when you connected as the page shows it.",
             screens_words(memory_path, p.key) + " Rows already kept are no reason to stop on a first read.", tail]
+
+
+def _accounts_lines(memory_path: Path, p: Platform, can_record: bool) -> list[str]:
+    """The accounts the person follows (G245, ruling 79 (b)): who, not what they posted. Kept outside every bank in a
+    directory (``follows_people``), never a page, never read by a model. Every site-specific number comes from
+    ``follows_people.SITES``; none is written here. UNMEASURED on the live page (see that table)."""
+    from api.services import follows_people
+
+    site = follows_people.site_of_platform(p.key)
+    entry = last(memory_path, p.key)
+    profile = entry.get("profile_url")
+    where = (f"{site.following_url(profile)}" if profile else f"{p.url}{p.how}")
+    tail = (f"Record it with `cicada_record_saved_list(platform=\"{p.key}\", outcome, items=[{{name, url}}], via)`: `name` is "
+            f"the display name as shown, `url` the account's own profile link (https://{site.host}/<handle>, never a post). "
+            "Send at most 200 accounts a call; on every call after the first set `continues=true`. If "
+            f"{p.name} asks you to sign in, do not sign in or type credentials: record `needs_login` and stop."
+            if can_record else
+            f"If {p.name} asks you to sign in, do not sign in or type credentials: stop and tell the person.")
+    return [f"The person asked their agent to keep the accounts they follow on {p.name} current in Cicada. Open this list in "
+            "their own signed-in browser session: read only the accounts listed, never an account's profile, bio, "
+            "numbers or picture, their feed or messages, and never click anything that changes anything (no follow, "
+            "unfollow, mute, block, remove, notifications or message; leave suggestions such as \"Who to follow\" alone).",
+            f"- The accounts the person follows on {p.name}: {where} — per row: its display name and its profile link. "
+            "Nothing else is kept: no bio, no counts, no picture.",
+            f"Read ALL of it, every time (a week has passed): keep scrolling until the list stops growing — a few more "
+            f"tries bring no new account — at most {site.max_screens} screens and {site.max_rows:,} accounts; if the list is "
+            f"longer, stop at {site.max_rows:,} and say so. On the last call set `reached_end=true` only if the list really "
+            "stopped growing; if you had to stop before that, leave it out: nothing is marked as no longer followed from "
+            "a read that stopped early.", tail]
 
 
 def _goodreads_lines(p: Platform, can_record: bool) -> list[str]:

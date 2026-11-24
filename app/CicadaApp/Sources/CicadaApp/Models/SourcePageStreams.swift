@@ -124,6 +124,7 @@ enum SourceStreamRow {
             parts.append(word)
         }
         if stream.kind == .connections { parts.append(Copy.Streams.connectionsFor) }
+        if stream.kind == .following { parts.append(Copy.Streams.followingFor) }
         if let depth = depthWord(stream, among: streams) { parts.append(depth) }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
@@ -202,10 +203,11 @@ enum SourceStreamItems {
         }
     }
 
-    /// The stream of the people the person has met (LinkedIn's connections): drawn as its own tab beside the saved list,
-    /// by date, never as cards of posts (`LinkedInConnectionsView`).
+    /// The stream of the people the person has met (LinkedIn's connections) or follows (X's Following, ruling 79 (b)): drawn
+    /// as its own tab beside the saved list, never as cards of posts (`LinkedInConnectionsView`, `FollowedAccountsView`). A
+    /// source has one or the other, never both.
     static func connections(_ streams: [ResolvedStream]) -> ResolvedStream? {
-        streams.first { $0.stream.kind == .connections && $0.stream.state != .unavailable }
+        streams.first { ($0.stream.kind == .connections || $0.stream.kind == .following) && $0.stream.state != .unavailable }
     }
 
     /// The tabs of a page that has a connections stream: the saved lists under their own stream's name (one list) or

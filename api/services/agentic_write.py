@@ -230,6 +230,14 @@ def _ensure_subject_page(
             frontmatter, body = linkedin_people.Attacher(memory_path).attach(frontmatter, body, entity_id)
         except Exception as exc:  # noqa: BLE001 — the page is still born; Sleep's tail retries
             logger.warning(f"agentic write: a LinkedIn connection was not attached ({type(exc).__name__})")
+    if entity_type in ("person", "company", "tool") and attach_connection:
+        # Ruling 79 (b): an account the person follows attaches to a page being born, never the reason one is made.
+        try:
+            from api.services import follows_people
+
+            frontmatter, body = follows_people.Attacher(memory_path).attach(frontmatter, body, entity_id)
+        except Exception as exc:  # noqa: BLE001 — the page is still born; Sleep's tail retries
+            logger.warning(f"agentic write: a followed account was not attached ({type(exc).__name__})")
     markdown_parser.write(filepath, frontmatter, body)
     return filepath, entity_id
 

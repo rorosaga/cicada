@@ -1443,6 +1443,14 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/follows_people.py": [
+    {
+      "function": "_apply_page",
+      "method": "write",
+      "frontmatter": "new_fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
   "services/history_index.py": [
     {
       "function": "wake",

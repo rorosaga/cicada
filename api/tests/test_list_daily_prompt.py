@@ -185,16 +185,12 @@ def test_an_unattended_offer_never_offers_a_list_not_yet_read_to_its_end(reading
     assert "x.com" in _queue(server, unattended=True)
 
 
-def test_an_unattended_offer_never_offers_an_accounts_list(reading, monkeypatch):  # noqa: F811
-    """No row of the table is the ``accounts`` kind yet (a later track adds the follows): one is made here."""
+def test_an_unattended_offer_never_offers_an_accounts_list(reading):  # noqa: F811
+    """The accounts the person follows (ruling 79 (b)) are the one `accounts` list: the person's own read is offered it, a read
+    nobody watches never is, not even once it has been read to its end."""
     server, memory = reading
-    table = dict(saved_lists.PLATFORMS)
-    table["x-following"] = dataclasses.replace(table["x-likes"], key="x-following", label="Following",
-                                               origin="x-following", folder="Following", kind="accounts")
-    monkeypatch.setattr(saved_lists, "PLATFORMS", table)
-    monkeypatch.setattr(reading_settings, "SAVED_LISTS", (*reading_settings.SAVED_LISTS, "x-following"))
     _only("x-following")
-    _read_whole(memory, "x-following")
+    _read_whole(memory, "x-following", NOW - timedelta(days=9))   # weekly: a read a week ago is due
     assert "Following" in _queue(server), "the person's own read is offered it"
     assert _queue(server, unattended=True) == mcp_tools.NOTHING_DUE
 

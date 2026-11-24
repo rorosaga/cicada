@@ -794,6 +794,7 @@ def apply_changes(changes: list[dict], memory_path) -> None:
     edges_by_entity: dict[str, list[dict]] | None = None
     untimed_ids: frozenset[str] | None = None   # the bank's memory-export ids, read on the first settle
     linkedin = None   # the kept LinkedIn connections, read on the first person born (`linkedin_people.Attacher`)
+    follows = None    # the kept followed accounts, read on the first page of a type they attach to (`follows_people.Attacher`)
     for change in changes:
         write_progress.update(1)
         entity_id = change["id"]
@@ -912,6 +913,16 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                         how=linkedin_people.MATCH_ALIAS if change.get("linkedin_mention") else None)
                 except Exception as exc:  # noqa: BLE001 — the page is still born; the tail's rematch retries
                     logger.warning(f"Stage 5: a LinkedIn connection was not attached ({type(exc).__name__})")
+            from api.services import follows_people
+
+            if entity_type in follows_people.ATTACH_TYPES:
+                # Ruling 79 (b): a followed account attaches to a page being born (a person, organisation or tool), never
+                # the reason one is made; a name alone is only a proposed link. The tail's rematch retries.
+                try:
+                    follows = follows or follows_people.Attacher(memory_path)
+                    frontmatter, body = follows.attach(frontmatter, body, entity_id)
+                except Exception as exc:  # noqa: BLE001 — the page is still born
+                    logger.warning(f"Stage 5: a followed account was not attached ({type(exc).__name__})")
             markdown_parser.write(filepath, frontmatter, body)
 
         elif action == "update" and filepath.exists():
