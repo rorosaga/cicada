@@ -335,3 +335,141 @@ def test_a_change_between_the_reads_and_the_settle_leaves_things_as_they_were(me
 
     report = _tend(memory, judge)
     assert report.joined == 0 and pending_store.held_line(memory, "Marizol Quinn") is not None and _open(memory) == []
+
+
+# --------------------------------------------------------------------------- review 2026-11-24: the code lets a pair through only for the model to stand against
+
+
+@pytest.mark.parametrize("a,b", [
+    ("Maria", "Mario"), ("Laura", "Lauro"), ("Sofia", "Sofie"), ("Dana", "Dane"), ("Anne", "Anna"), ("Andrea", "Andres"),
+    ("Daniel", "Danilo"), ("Mariana", "Marina"), ("Carlos", "Carlota"),   # differ only in how the name ends, or drop a syllable
+    ("John", "Joan"), ("Mike", "Mika"), ("Lena", "Lina"),        # too short to tell a typo from another name
+    ("Elena", "Elina"), ("Alena", "Alina"), ("Nilufar", "Nilufer"),   # one vowel for another: two names look like this
+    ("Dmitry", "Dmitri"),                                        # a real typo of the last letter is a cost, never a join
+    ("Мария", "Марио"), ("Светлана", "Светлано"), ("Анна", "Анн"),    # the same, in a script with no vowel table
+    ("Maria Quinn", "Mario Quinn"), ("Marisol Quinn", "Marisol Quinr"),
+])
+def test_a_pair_that_differs_only_in_how_a_name_ends_or_is_short_is_never_one_name(a, b):
+    assert not typo_join.variant(a, b) and not typo_join.variant(b, a)
+
+
+@pytest.mark.parametrize("a,b", [
+    ("Kesler", "Kessler"), ("Marizol", "Marisol"), ("Dmitri", "Dimitri"), ("Aleksandra", "Alexandra"), ("Bianca", "Bianka"),
+    ("Mathias", "Matias"), ("Katia", "Kattia"), ("Marcela", "Marcella"), ("Brinhild", "Brynhild"), ("Sarah", "Sara"), ("Hannah", "Hanna"), ("Кристина", "Кристинна"),
+])
+def test_dictation_and_typing_misspellings_are_still_candidates(a, b):
+    assert typo_join.variant(a, b) and typo_join.variant(b, a)
+
+
+@pytest.mark.parametrize("held,page", [("Mario Quinn", "Maria Quinn"), ("Lena Quinn", "Lina Quinn"), ("Mike Quinn", "Mika Quinn")])
+def test_a_name_pair_the_rule_refuses_is_never_a_candidate_so_the_model_is_never_asked(memory, held, page):
+    _episode(memory, "ep_2026-10-22_001", "user: Maria Quinn is travelling to Lisbon with me in June.\nassistant: Lovely.\n")
+    _page(memory, held_id := page.lower().replace(" ", "-"), page,
+          claims=[_claim("clm_2026-10-22_bbbb2222", held_id, PAGE_LINE, "ep_2026-10-22_001")], episodes=["ep_2026-10-22_001"])
+    _hold(memory, held, "ep_2026-11-14_001", HELD_LINE)
+    _commit(memory)
+    judge = _judge(_one())
+    assert typo_join.all_candidates(memory) == []
+    assert _tend(memory, judge).joined == 0 and judge.calls == []
+
+
+def test_a_spelling_a_third_page_has_as_an_ending_variant_still_stops_the_join(memory):
+    # "Marizol" / "Marisol" are one name, but "Marizola" is a name near both: never joined, never asked.
+    _world(memory)
+    _page(memory, "marizola-quinn", "Marizola Quinn")
+    _commit(memory)
+    judge = _judge(_one())
+    assert _tend(memory, judge).joined == 0 and judge.calls == []
+
+
+def test_a_spelling_near_two_pages_is_held_quietly_and_asked_by_nobody(memory):
+    """Ruling 74c (b), (c): near a third page it is neither joined nor asked (`person_duplicates.propose` skips it)."""
+    _world(memory, page_a=True, asked=False)
+    (memory / "inbox" / "x.tmp").unlink()
+    _page(memory, "marisola-quinn", "Marisola Quinn")
+    _commit(memory)
+    assert typo_join.guards(memory, None, typo_join.page_pair_candidates(memory)[0][1])[1] == "near_two_pages"
+    judge = _judge(_one())
+    assert _tend(memory, judge).joined == 0 and judge.calls == [] and _open(memory) == []
+
+
+def test_a_spelling_the_person_removed_from_the_page_is_never_filed_back_on_it_by_a_join(memory):
+    _world(memory)
+    _page(memory, "marisol-quinn", "Marisol Quinn", episodes=["ep_2026-10-22_001"],
+          claims=[_claim("clm_2026-10-22_bbbb2222", "marisol-quinn", PAGE_LINE, "ep_2026-10-22_001")],
+          aliases_removed=[{"alias": "Marizol Quinn", "by": "person"}])
+    _commit(memory)
+    judge = _judge(_one())
+    assert _tend(memory, judge).joined == 0 and judge.calls == []
+    assert pending_store.held_line(memory, "Marizol Quinn") is not None
+    assert "Marizol Quinn" not in (markdown_parser.parse(memory / "entities" / "marisol-quinn.md").frontmatter.get("aliases") or [])
+
+
+@pytest.mark.parametrize("on_a", [False, True])
+def test_a_removed_alias_holds_between_two_pages_from_either_side(memory, on_a):
+    _world(memory, page_a=True, asked=False)
+    (memory / "inbox" / "x.tmp").unlink()
+    page, name, other = ("marizol-quinn", "Marizol Quinn", "Marisol Quinn") if on_a else ("marisol-quinn", "Marisol Quinn", "Marizol Quinn")
+    fm = dict(markdown_parser.parse(memory / "entities" / f"{page}.md").frontmatter)
+    body = markdown_parser.parse(memory / "entities" / f"{page}.md").body
+    fm["aliases_removed"] = [other]                       # the plain string form too
+    markdown_parser.write(memory / "entities" / f"{page}.md", fm, body)
+    _commit(memory)
+    judge = _judge(_one())
+    assert _tend(memory, judge).joined == 0 and judge.calls == []
+    assert (memory / "entities" / "marizol-quinn.md").exists()
+
+
+def _generic_world(memory: Path, held_line: str, page_line: str) -> None:
+    _episode(memory, "ep_2026-10-22_001", f"user: {page_line}.\nassistant: Ok.\n")
+    _episode(memory, "ep_2026-11-14_001", f"user: {held_line}.\nassistant: Ok.\n")
+    _page(memory, "marisol-quinn", "Marisol Quinn", episodes=["ep_2026-10-22_001"],
+          claims=[_claim("clm_2026-10-22_bbbb2222", "marisol-quinn", page_line, "ep_2026-10-22_001")])
+    _hold(memory, "Marizol Quinn", "ep_2026-11-14_001", held_line)
+    _commit(memory)
+
+
+def test_two_generic_lines_are_not_the_same_fact_whatever_the_model_read(memory):
+    held, page = "Marizol Quinn is a colleague", "Marisol Quinn is a colleague"
+    _generic_world(memory, held, page)
+    judge = _judge(_one(held, page))
+    report = _tend(memory, judge)
+    assert report.joined == 0 and len(judge.calls) == 1            # the code stopped it: no second read
+    assert (memory / "entities" / "marisol-quinn.md").exists() and pending_store.held_line(memory, "Marizol Quinn") is not None
+
+
+def test_a_shared_named_thing_is_a_real_shared_fact(memory):
+    held, page = "Marizol Quinn is a colleague at Kestrel Robotics", "Marisol Quinn is a colleague at Kestrel Robotics"
+    _generic_world(memory, held, page)
+    assert _tend(memory, _judge(_one(held, page))).joined == 1
+
+
+def _side(name: str) -> typo_join.Side:
+    return typo_join.Side(name.lower().replace(" ", "-"), name, [name], [], [], False)
+
+
+def _floor(memory, here: str, there: str, speaker: str | None = "Ines Varga") -> bool:
+    case = typo_join.Case("inbox-001", _side("Marizol Quinn"), _side("Marisol Quinn"), [])
+    return typo_join.anchored(memory, case, typo_join.Read("one", here, there), speaker)
+
+
+def _filler(memory: Path, count: int, text: str) -> None:
+    for i in range(count):
+        _page(memory, f"filler-{i:02d}", f"Filler Person{chr(97 + i % 26)}{i}")
+        page = markdown_parser.parse(memory / "entities" / f"filler-{i:02d}.md")
+        markdown_parser.write(memory / "entities" / f"filler-{i:02d}.md", dict(page.frontmatter), page.body + f"\n{text}\n")
+    _commit(memory, "filler")
+
+
+def test_the_floor_needs_a_word_that_is_neither_a_name_nor_the_speaker_nor_common(memory):
+    assert not _floor(memory, "Marizol Quinn is a colleague", "Marisol Quinn is a colleague")      # nothing specific, small bank
+    assert not _floor(memory, "Marizol Quinn texted Ines about it", "Marisol Quinn called Ines about it")   # the speaker is in every line
+    assert _floor(memory, "Marizol Quinn is on the Lisbon trip", "Marisol Quinn travels to Lisbon in June")   # a named thing
+    assert not _floor(memory, "marizol quinn is on the lisbon trip", "marisol quinn travels to lisbon")   # a small bank cannot tell: only a named thing counts
+
+
+def test_in_a_bank_big_enough_to_say_a_common_word_is_never_an_anchor_and_a_rare_one_is(memory):
+    _filler(memory, 25, "A colleague at Kestrel who works with the office team.")
+    assert not _floor(memory, "Marizol Quinn is a colleague", "Marisol Quinn is a colleague")
+    assert not _floor(memory, "Marizol Quinn is at Kestrel", "Marisol Quinn is at Kestrel")          # named, but on every page: common
+    assert _floor(memory, "marizol quinn redoes the harbour museum website", "marisol quinn works on the harbour museum redesign")

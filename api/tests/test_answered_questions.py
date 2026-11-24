@@ -269,3 +269,79 @@ def test_the_dry_run_lists_ids_and_rules_only_and_writes_nothing(memory):
     assert "inbox-004" in out and "names_one_page" in out
     assert "inbox-003" not in out and "Marisol" not in out and "Quinn" not in out      # ids and rules, never a name
     assert _git(memory, "status", "--porcelain") == before and (memory / "inbox" / "inbox-001.md").exists()
+
+
+# --------------------------------------------------------------------------- review 2026-11-24: a "No" kept on the held line
+
+
+def _hold_line(memory: Path, name: str, **kw) -> None:
+    pending_store.upsert(memory, pending_store.PendingEntity(
+        name=name, type="person", description="", source_episode="ep_2026-11-01_001", confidence=0.9, tags=[],
+        history_entries=[{"date": "2026-11-01", "event": "Mentioned."}], held_claims=[], aliases=[], **kw))
+
+
+def test_a_no_kept_on_the_held_line_is_never_read_as_answered_and_nothing_lands(memory):
+    _page(memory, "marisol-quinn", "Marisol Quinn", aliases=["Marizol Quinn"])
+    _hold(memory, "Marizol Quinn")
+    assert pending_store.mark_apart(memory, "Marizol Quinn", ["marisol-quinn"])    # the person said: not that page
+    q = _question(memory, 1, "marizol-quinn", "Marizol Quinn", "marisol-quinn")
+    _commit(memory)
+    assert not merge_rejections.is_rejected(memory, "marizol-quinn", "marisol-quinn")   # it is NOT stored as a rejection
+    assert answered_questions.pair_answer(memory, _fm(q)) is None
+    d, _ = inbox_tend.policy(memory, q, _fm(q))
+    assert d is None or not (d.request or {}).get("merge_target")
+    assert pending_store.held_line(memory, "Marizol Quinn") is not None
+
+
+def test_a_line_held_against_the_page_is_stage_2s_undecided_and_never_landed_by_its_name(memory):
+    _page(memory, "marisol-quinn", "Marisol Quinn", aliases=["Marizol Quinn"])
+    _hold_line(memory, "Marizol Quinn", held_against="marisol-quinn")
+    q = _question(memory, 1, "marizol-quinn", "Marizol Quinn", "marisol-quinn")
+    _commit(memory)
+    assert answered_questions.pair_answer(memory, _fm(q)) is None
+
+
+def test_a_pair_sleep_split_is_never_read_as_answered(memory):
+    _page(memory, "marisol-quinn", "Marisol Quinn", aliases=["Marizol Quinn"])
+    merge_rejections.add_split(memory, "marizol-quinn", "marisol-quinn")
+    q = _question(memory, 1, "marizol-quinn", "Marizol Quinn", "marisol-quinn")
+    _commit(memory)
+    assert answered_questions.pair_answer(memory, _fm(q)) is None
+
+
+# --------------------------------------------------------------------------- review 2026-11-24: an id with a page of its own
+
+
+def test_a_stale_redirect_for_an_id_that_is_a_live_page_again_names_that_page_not_this_one(memory):
+    for eid, name in (("marisol-q", "Marisol Q"), ("marisol-quinn", "Marisol Quinn"), ("marizol-quinn", "Marizol Quinn")):
+        _page(memory, eid, name)
+    _commit(memory)
+    page_redirects.add(memory, "marisol-q", "marisol-quinn")           # stale: "marisol-q" has a page of its own again
+    q = _question(memory, 1, "marisol-q", "Marisol Q", "marizol-quinn")
+    _commit(memory)
+    assert "marisol-q" not in merge_closes._ends(memory, "marisol-quinn")
+    page_join.merge(memory, "marisol-quinn", "marizol-quinn", author="user")   # W into P
+    assert _open(memory) == ["inbox-001"] and q.exists()                      # the live page's own question stays
+
+
+# --------------------------------------------------------------------------- the dry run lists every join and fold, writing nothing
+
+
+def test_the_dry_run_lists_every_engine_free_join_with_its_rule_and_writes_nothing(memory, capsys):
+    import importlib.util
+
+    _page(memory, "marisol-quinn", "Marisol Quinn", aliases=["Marizol Quinn"])
+    _hold(memory, "Marizol Quinn")
+    _question(memory, 1, "marizol-quinn", "Marizol Quinn", "marisol-quinn")         # a name already the page's, a line held: lands
+    _page(memory, "kattia-moreau", "Kattia Moreau", source_episodes=["ep_2026-10-22_001"])
+    _hold(memory, "Katia Moreau")                                                    # a plain misspelling the typo join would read
+    _commit(memory)
+    before = _git(memory, "status", "--porcelain")
+    spec = importlib.util.spec_from_file_location("aq_dry_run", Path(__file__).resolve().parents[2] / "scripts" / "answered_questions_dry_run.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.main(["--memory", str(memory)]) == 0
+    out = capsys.readouterr().out
+    assert "inbox-001" in out and "JOIN  already_a_name" in out and "would JOIN or FOLD pages: already_a_name (ordinary) 1" in out
+    assert "would be READ by the typo join" in out
+    assert _git(memory, "status", "--porcelain") == before                          # nothing written

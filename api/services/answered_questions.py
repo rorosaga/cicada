@@ -69,6 +69,21 @@ def _pages_answering(memory_path: Path, key: str) -> list[str]:
             if key in {_key(n) for n in names_of(f.frontmatter or {})}]
 
 
+def _called_two(memory_path: Path, name: str, own_id: str, target_id: str, line) -> bool:
+    """Did the person say the asked name is not this page, wherever the "No" is kept? A pair of pages: the name→page
+    rejection and the split (`merge_rejections`). A held mention: the "apart" on its own line (`pending_store.mark_apart`,
+    G227, read by `apart_of`), never a rejection. A line held AGAINST this page (G209) is Stage 2's undecided: what it
+    holds lands on a page only on Stage 2's verdict, never because the page bears the name."""
+    from api.services import inbox_tend, merge_rejections, pending_store
+
+    if (merge_rejections.is_rejected(memory_path, own_id, target_id) or merge_rejections.is_split(memory_path, own_id, target_id)
+            or inbox_tend._split_apart(memory_path, own_id, target_id)):
+        return True
+    if target_id in pending_store.apart_of(memory_path, name):
+        return True
+    return line is not None and (target_id in line.apart_pages() or line.held_against == target_id)
+
+
 def pair_answer(memory_path: Path, fm: dict) -> Answer | None:
     """The record's answer to one open "same as?" question, or ``None`` (it still needs the person, a conversation or a
     judge). Reads only."""
@@ -94,16 +109,16 @@ def pair_answer(memory_path: Path, fm: dict) -> Answer | None:
     if not name:
         return None
     own_id = sanitize_id(name)
+    line = pending_store.held_line(memory_path, name)
+    if _called_two(memory_path, name, own_id, target[0].stem, line):
+        return None   # the person's "No" holds wherever it is stored, and nothing lands over it
     if page_redirects.resolve(memory_path, own_id) == target[0].stem:
         return Answer(ONE_PAGE, own_id, target[0].stem)
-    if merge_rejections.is_rejected(memory_path, own_id, target[0].stem) \
-            or merge_rejections.is_split(memory_path, own_id, target[0].stem):
-        return None
     if _key(name) not in {_key(n) for n in names_of(target[1])}:
         return None
     if _pages_answering(memory_path, _key(name)) != [target[0].stem]:
         return None   # a name two pages answer to says nothing about which one it means
-    return Answer(A_NAME, own_id, target[0].stem, held=pending_store.held_line(memory_path, name) is not None)
+    return Answer(A_NAME, own_id, target[0].stem, held=line is not None)
 
 
 def labels_one_page(memory_path: Path, fm: dict) -> tuple[str, list[dict]] | None:

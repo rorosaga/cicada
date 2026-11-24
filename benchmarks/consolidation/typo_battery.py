@@ -28,6 +28,9 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
 CASES = Path(__file__).with_name("typo_cases.json")
+FILLER = ["Orla Hale", "Pavel Ruiz", "Greta Lindqvist", "Tomas Okafor", "Hana Weber", "Ruben Castillo", "Ilse Brandt", "Omar Haddad",
+          "Petra Novotny", "Luis Ferreira", "Anya Volkov", "Jonas Berg", "Selin Kaya", "Felix Morgan", "Ada Lovell", "Viktor Hahn",
+          "Nadia Rossi", "Emil Strand", "Zoe Whitaker", "Karim Nasser", "Lotte Jansen", "Mateo Ibarra", "Freya Nilsson", "Cyrus Bell"]
 
 
 def load_cases(path: Path = CASES) -> list[dict]:
@@ -66,11 +69,15 @@ def build_bank(root: Path, case: dict) -> Path:
     a, b, owner = case["a"], case["b"], case["owner"]
     a_id, b_id = a.lower().replace(" ", "-"), b.lower().replace(" ", "-")
     page("owner", owner, f"## Summary\n{owner}, synthetic.\n", owner=True)
+    # A bank of a real size (the shared-fact floor tells a common word from a rare one by how many pages say it): the
+    # people around the person, each said to be a colleague at the office, so "is a colleague" is common ground here.
+    for i, who in enumerate(FILLER):
+        page(f"filler-{i:02d}", who, f"## Summary\n{who} is a colleague at the office and joins the weekly team call.\n")
     e_b, e_a = "ep_2026-10-22_001", "ep_2026-11-14_001"
     episode(e_b, f"user: {case['b_turn']}\nassistant: Noted.\n")
     episode(e_a, f"user: {case['a_turn']}\nassistant: Great.\n")
     page(b_id, b, write_claims(f"## Summary\n{b}, synthetic.\n", [claim("clm_2026-10-22_aaaa0001", b_id, case["b_fact"], e_b, "note-b")]),
-         source_episodes=[e_b])
+         source_episodes=[e_b], **({"aliases_removed": case["b_removed"]} if case.get("b_removed") else {}))
     for other in case.get("other_pages") or []:
         page(other["id"], other["name"], f"## Summary\n{other['name']}, synthetic.\n")
     heard = []
@@ -89,6 +96,8 @@ def build_bank(root: Path, case: dict) -> Path:
             name=a, type="person", description="", source_episode=e_a, confidence=0.9, tags=[],
             history_entries=[{"date": "2026-11-14", "event": f"{owner} mentioned {a}."}],
             held_claims=[claim("clm_2026-11-14_bbbb0002", a_id, case["a_fact"], e_a, "note-a").to_dict()], aliases=[], heard_in=heard))
+        if case.get("apart"):
+            pending_store.mark_apart(bank, a, [b_id])   # the person said "No, different" to this held mention
     _git(bank, "add", "-A")
     _git(bank, "commit", "-qm", "case")
     bank_index.invalidate(bank)

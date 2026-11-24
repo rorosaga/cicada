@@ -21,14 +21,21 @@ lines. A name alone, or an answer whose quotes are not there, joins nothing.
 1. An open "Is A the same as B?" between two people (A a page, or a name with no page held on a line in the pending
    store; B a person page) that only the person settles (`inbox_tend.policy`), not a same-name doubt, a question about
    a page's fold, or a first name heard in two places.
-2. The names are one name written two ways: the same number of words, every differing word a *sound* or a *one-edit
-   spelling* match (`person_duplicates.word_match`, never a short name in a full one, a nickname or a bare ending such
-   as "-a"/"-o"); never a name that is a relation to the owner, never the owner's page.
-3. Nothing else is near: no third person page or held person has a name that is a spelling of A's name. A spelling near
-   two pages is a question, whichever the model would pick.
+2. The names are one name written two ways: the same number of words, every differing word a misspelling of the other
+   (`variant`, any script): never a short name in a full one, a nickname, a bare ending, a name that differs only in how
+   it ends (Maria / Mario, Анна / Анн), a name of four letters or fewer (Mike / Mika, with the silent-"h" Sara / Sarah the
+   one exception) or one vowel for another (Elena / Elina). Those are not candidates here; they are asked as before
+   when nothing else says they are two. Never a name that is a relation to the owner, never the owner's page.
+3. Nothing else is near: no third person page or held person has a name that is a spelling of A's name (`near`, the
+   loose reading, endings and short names included). A spelling near two pages is neither joined nor asked (ruling 74c
+   (b), (c): "hold a doubt rather than ask"): it waits apart, quietly, and is read again when the record changes.
 4. No conversation either side was heard in names both spellings (naming two together is evidence they are two, ruling
-   65c), and the person never called them two, nor Sleep split them, nor either side is held in a same-name doubt.
+   65c), and the person never called them two, nor Sleep split them, nor either side is held in a same-name doubt, and
+   no spelling of one side is an alias the person removed from the other (`aliases_removed`).
 5. There is something to read on each side (A's record or the person's own messages naming A; B's sourced record).
+6. After a first read says "one", the two copied lines must share something specific (`anchored`): a named thing or a
+   rare word that neither is the speaker's name, nor common ground in the bank. Two lines that both say "is a colleague"
+   do not; the second read is not made.
 
 **How it joins.** The same writer the person's own "yes" uses (`inbox_tend.apply`, `inbox_service`'s merge resolver) as
 Sleep's commit, rule ``typo_one``, listed under "Settled by Sleep": A's page is folded into B (or the held name becomes
@@ -45,6 +52,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -156,14 +164,91 @@ def _words(text) -> list[str]:
     return pair_evidence._fold(text)
 
 
+#: A word shorter than this is too short to tell a typo from another name (Mike / Mika, Lena / Lina, John / Joan).
+MIN_WORD = 5
+#: Letters that spell one sound (the classes `person_duplicates.sound_key` folds together): a single one swapped for
+#: another in place is a plausible typo; any other single swap may be a different name.
+_SAME_SOUND = ({"c", "k", "q"}, {"s", "z"}, {"i", "y", "j"}, {"v", "w"})
+
+
+def _common_prefix(x: str, y: str) -> int:
+    n = 0
+    while n < min(len(x), len(y)) and x[n] == y[n]:
+        n += 1
+    return n
+
+
+def _doubled(x: str, y: str) -> bool:
+    """One word is the other with one letter repeated (a doubled consonant typed or dropped)."""
+    short, long_ = sorted((x, y), key=len)
+    if len(long_) != len(short) + 1:
+        return False
+    return any(long_[:i] + long_[i + 1:] == short and ((i > 0 and long_[i] == long_[i - 1])
+                                                      or (i + 1 < len(long_) and long_[i] == long_[i + 1]))
+               for i in range(len(long_)))
+
+
+def _typo_word(x: str, y: str) -> bool:
+    """Two folded words that are one name misspelt: the same, or a sound / one-edit spelling of the other, and never a
+    pair that only another name could explain (ruling 74c, review 2026-11-24). Letters and positions only, so it reads
+    any script alike:
+
+    * **How a name ends says which name it is.** After the shared start the two must still share an end: Maria / Mario,
+      Laura / Lauro, Sofia / Sofie, Anne / Anna, Andrea / Andres, Daniel / Danilo, Анна / Анн are refused, whatever the
+      letters. One exception, the silent trailing "h" (Sara / Sarah, Hanna / Hannah).
+    * **Short names are not told apart by one letter.** Both words need :data:`MIN_WORD` letters (John / Joan, Lena /
+      Lina, Mike / Mika are refused); the silent "h" pair needs four.
+    * **One letter changed in place is a typo only where the two letters sound alike** (c / k / q, s / z, i / y / j,
+      v / w): Marizol / Marisol, Brinhild / Brynhild. A vowel for another vowel (Elena / Elina, Alena / Alina, Nilufar /
+      Nilufer) is what two different names look like, so it is never a candidate; so is any in-place swap in a script
+      with no such table.
+
+    What it lets through: a doubled or dropped letter inside the name (Kesler / Kessler), the sound-alike swaps above, a
+    transposition or inserted letter (Dmitri / Dimitri), a respelling of one sound (Aleksandra / Alexandra). What it
+    refuses and costs: a real typo of a name's last letters (Dmitry / Dmitri) or of one vowel, which stay as they were
+    before this rule (a question when the two names are not near others), never a join."""
+    if x == y:
+        return True
+    kind = person_duplicates.word_match(x, y)
+    if kind == "ending":
+        # `word_match` flags a short vowel ending as two names (Mariana / Marina, Daniel / Daniela); one repeated letter
+        # (Katia / Kattia, Marcela / Marcella) is the typo it is not.
+        if not _doubled(x, y):
+            return False
+    elif kind not in ("sound", "spelling"):
+        return False
+    n = _common_prefix(x, y)
+    tx, ty = x[n:], y[n:]
+    if {tx, ty} == {"h", ""}:   # Sara / Sarah: a silent letter
+        return min(len(x), len(y)) >= MIN_WORD - 1
+    if min(len(x), len(y)) < MIN_WORD:
+        return False
+    if not (tx and ty and tx[-1] == ty[-1]):
+        return False
+    if len(x) == len(y) and sum(1 for p, q in zip(x, y) if p != q) == 1:
+        a, b = next((p, q) for p, q in zip(x, y) if p != q)
+        return any(a in group and b in group for group in _SAME_SOUND)
+    return True
+
+
 def variant(a: str, b: str) -> bool:
-    """One name written two ways: the same number of words, every word the same or a sound / one-edit spelling of the
-    other, at least one differing. Never a short name in a full one, a nickname or a bare ending."""
+    """One name written two ways: the same number of words, every differing word a misspelling of the other
+    (:func:`_typo_word`), at least one differing. Never a short name in a full one, a nickname, a bare ending, a name that
+    differs only in how it ends, or a short name."""
     wa, wb = _words(a), _words(b)
     if not wa or len(wa) != len(wb) or wa == wb:
         return False
-    kinds = [person_duplicates.word_match(x, y) for x, y in zip(wa, wb)]
-    return all(k in ("same", "sound", "spelling") for k in kinds) and any(k != "same" for k in kinds)
+    return all(_typo_word(x, y) for x, y in zip(wa, wb))
+
+
+def near(a: str, b: str) -> bool:
+    """Is ``b`` a spelling of ``a`` that any rule of this family would look at: the looser reading, endings and short
+    names included (:func:`person_duplicates.word_match`). Used where a near name must STOP a join ("nothing else is
+    near"), never to start one."""
+    wa, wb = _words(a), _words(b)
+    if not wa or len(wa) != len(wb) or wa == wb:
+        return False
+    return all(x == y or person_duplicates.word_match(x, y) is not None for x, y in zip(wa, wb))
 
 
 def _held_texts(line) -> list[str]:
@@ -210,6 +295,17 @@ def _named_together(memory_path: Path, a: Side, b: Side) -> bool:
     return False
 
 
+def _removed_from(fm: dict | None, names: list[str]) -> bool:
+    """Is any of ``names`` an alias the person removed from the page whose frontmatter this is."""
+    from api.services import page_edits
+
+    removed = page_edits.removed_aliases(fm or {})
+    if not removed:
+        return False
+    folded = {pair_evidence.spelling(r) for r in removed} - {""}
+    return any(" ".join(str(n).split()).casefold() in removed or pair_evidence.spelling(n) in folded for n in names)
+
+
 def guards(memory_path: Path, path: Path | None, fm: dict, *, today: str | None = None) -> tuple[Case | None, str]:
     """``(case, "")`` when every engine-free condition holds for this open question, else ``(None, why it stays)``.
     ``path`` is ``None`` for a held name no question was ever raised about (``fm`` is then the question's shape, never
@@ -238,6 +334,7 @@ def guards(memory_path: Path, path: Path | None, fm: dict, *, today: str | None 
     asked_id = str(fm.get("entity_id") or "").strip()
     asked_name = " ".join(str(fm.get("entity_name") or "").split())
     asked_path = resolve_entity_file(memory_path, asked_id) if asked_id else None
+    afm: dict | None = None
     if asked_path is not None:
         asked_id = asked_path.stem
         afm = people.get(asked_id)
@@ -271,19 +368,23 @@ def guards(memory_path: Path, path: Path | None, fm: dict, *, today: str | None 
     b_names = full_name_join._names_of(tfm)
     if not variant(a_name, b_name):
         return None, "not_one_name"
-    # Nothing else is near: a spelling of A's name that belongs to a third person is a question, whichever the model would pick.
+    # Nothing else is near: a spelling of A's name that belongs to a third person is neither joined nor asked (ruling 74c).
     for pid, pfm in people.items():
         if pid in (asked_id, target_id):
             continue
-        if any(variant(a_name, n) or pair_evidence.spelling(n) == pair_evidence.spelling(a_name)
+        if any(near(a_name, n) or pair_evidence.spelling(n) == pair_evidence.spelling(a_name)
                for n in full_name_join._names_of(pfm)):
             return None, "near_two_pages"
     for other in pending_store.load(memory_path):
         if other.name.strip().lower() == a_name.lower() or str(other.type or "").lower() != "person":
             continue
-        if any(variant(a_name, n) or pair_evidence.spelling(n) == pair_evidence.spelling(a_name)
+        if any(near(a_name, n) or pair_evidence.spelling(n) == pair_evidence.spelling(a_name)
                for n in (other.name, *other.aliases)):
             return None, "near_two_pages"
+    # A removal holds against every writer (`aliases_removed`): a spelling the person took off one page is never filed back
+    # on it by a join, whichever side it comes from, and its held lines never land there.
+    if (_removed_from(afm, b_names) or _removed_from(tfm, a_names)):
+        return None, "alias_removed"
     if (merge_rejections.is_rejected(memory_path, *pair_ids) or merge_rejections.is_split(memory_path, *pair_ids)
             or inbox_tend._split_apart(memory_path, *pair_ids)):
         return None, "kept_apart"
@@ -341,6 +442,67 @@ def located(case: Case, parsed: dict) -> Read:
     return Read("one", " ".join(here.split()), " ".join(there.split()), reason, model)
 
 
+#: What two copied lines must share for the code to stand behind "the same fact" (`anchored`). Letters and counts only.
+MIN_KEY = 4          # a word shorter than this anchors nothing
+STEM = 6             # words compared by their first letters, so "mentor" and "mentors" are one
+RARE_PAGES = 3       # on at most this many pages of the bank: rare (`person_duplicates.COMMON_FACT`'s reading)
+COMMON_PAGES = 6     # on more pages than this: common ground, never an anchor, however it is written
+MIN_BANK_PAGES = 20  # below this a bank cannot tell a rare word from a common one: only a named thing anchors
+
+
+def _content(line: str, skip: set[str]) -> dict[str, bool]:
+    """``{stem: named}`` for the words of a line that say something: not a name of either side or of the speaker, at
+    least :data:`MIN_KEY` letters. ``named``: written with a capital inside the line, or carrying a digit (a place, an
+    employer, a project, a date) — case and digits, never a word list."""
+    out: dict[str, bool] = {}
+    for i, token in enumerate(re.findall(r"\w+", str(line or ""), re.UNICODE)):
+        word = text_fold.fold(token)
+        if len(word) < MIN_KEY or word in skip:
+            continue
+        key = word[:STEM]
+        out[key] = out.get(key, False) or (i > 0 and token[:1].isupper()) or any(c.isdigit() for c in token)
+    return out
+
+
+def _page_counts(memory_path: Path, keys: set[str]) -> dict[str, int] | None:
+    """On how many pages of the bank each stem occurs, or ``None`` when the bank is too small to say."""
+    from api.services import bank_index
+
+    entries = bank_index.files(Path(memory_path), "entities")
+    if len(entries) < MIN_BANK_PAGES:
+        return None
+    counts = dict.fromkeys(keys, 0)
+    for entry in entries:
+        try:
+            stems = {w[:STEM] for w in text_fold.words(entry.body())}
+        except OSError:
+            continue
+        for key in keys & stems:
+            counts[key] += 1
+    return counts
+
+
+def anchored(memory_path: Path, case: Case, read: Read, speaker: str | None = None) -> bool:
+    """The code-side floor under "the same fact" (review 2026-11-24): the located lines share at least one word that is
+    specific. Shared words leave out both sides' names and the speaker's; of what is left, a word on more than
+    :data:`COMMON_PAGES` pages of the bank is common ground ("colleague") and never anchors; a word written with a capital
+    or a digit in both lines (a place, an employer, a project) anchors; so does one on at most :data:`RARE_PAGES` pages.
+    In a bank under :data:`MIN_BANK_PAGES` pages only the named kind anchors. Two lines that both say "is a colleague" share
+    nothing specific, so they are not the same fact however a model reads them. Reads only."""
+    skip = {w for n in (*case.a.names, *case.b.names, case.a.name, case.b.name, speaker or "") for w in _words(n)}
+    here, there = _content(read.here, skip), _content(read.there, skip)
+    shared = set(here) & set(there)
+    if not shared:
+        return False
+    counts = _page_counts(memory_path, shared)
+    for key in shared:
+        if counts is not None and counts[key] > COMMON_PAGES:
+            continue
+        if (here[key] and there[key]) or (counts is not None and counts[key] <= RARE_PAGES):
+            return True
+    return False
+
+
 async def _read(case: Case, judge, speaker, *, skeptic: bool) -> Read:
     try:
         parsed = await judge(SYSTEM, build_prompt(case, speaker, skeptic=skeptic))
@@ -395,6 +557,9 @@ async def assess(memory_path: Path, path: Path | None, fm: dict, judge, *, speak
     result = Assessment("unread", reads=1, case=case)
     if first.verdict != "one":
         result.outcome = "two" if first.verdict == "two" else "unsure" if first.verdict == "cannot_tell" else "unread"
+        return result
+    if not await asyncio.to_thread(anchored, memory_path, case, first, speaker):
+        result.outcome = "unsure"   # the lines share nothing specific: not the same fact, whatever the model read (no second read)
         return result
     second = await _read(case, judge, speaker, skeptic=True)
     result.reads = 2

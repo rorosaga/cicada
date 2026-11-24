@@ -4043,12 +4043,15 @@ A whole row moves to DONE only after its remaining implementation and required a
    <misspelling> is the same as <name>. I think it can clearly be seen it was a typo, at least it can be assumed." And:
    "maybe this is something that needs to be worked at consolidation time or something". (a) **One name written two ways**
    (`typo_join.variant`: the same number of words, each differing word a sound or one-edit spelling of the other, never a
-   short name in a full one, a nickname or a bare ending such as "-a") between a person page and a held name, or two person
+   short name in a full one, a nickname, a bare ending, a name that differs only in how it ends in any script, a word under five
+   letters or one vowel for another: Maria/Mario, Mike/Mika and Elena/Elina stay questions as before; review 2026-11-24) between a person page and a held name, or two person
    pages, is joined by Sleep when the main model copies one line about each side that state the SAME fact (the same relation
    to the speaker, event, place, employer, project, plan), the code finds both lines word for word in the text shown for their
-   side and each says more than the name, and a second read that looks for a reason they are two agrees (74a's mechanism).
+   side, each says more than the name and they share a specific word (a capitalised or numbered one, or one rare in the bank, never
+   the speaker's name or a word on more than six pages: "is a colleague" twice is not a fact), and a second read that looks for a reason they are two agrees (74a's mechanism).
    Spelling alone is never the proof: a one-letter difference can be two siblings or two colleagues. (b) **Never** when the
-   spelling is near a third page or held person, when a conversation names both spellings (ruling 65c), for the owner's page,
+   spelling is near a third page or held person (neither joined nor asked: it waits apart, quietly), when a spelling of one side is
+   an alias the person removed from the other, when a conversation names both spellings (ruling 65c), for the owner's page,
    a relation-titled page, a pair the person called two or Sleep split, or a page in a same-name doubt. (c) **It never asks.**
    `person_duplicates.propose` no longer raises a question for a pair of this shape that no conversation names together;
    one the model cannot read as one waits apart, as 74a's pairs do, and is read again when the record under either side
@@ -4058,7 +4061,7 @@ A whole row moves to DONE only after its remaining implementation and required a
    the reason quoting both lines); **an undo is the person saying they are two**, as in 74a and 74b. (e) **A question the
    record already answers is closed** (`answered_questions`, rules `already_one_page`, `already_a_name`, `names_one_page`):
    both ends one page through redirects, or the asked name already a name of that page (what a line still holds lands
-   through the question's own resolver); a conflict whose every value is a name of one page is not a conflict. Engine-free,
+   through the question's own resolver, never over a "No" kept on that line or a line held against the page); a conflict whose every value is a name of one page is not a conflict. Engine-free,
    Sleep's settle, listed and undoable, never over a pair the person called two, never for the owner's page. A merge closes
    every question that named either page under any id that became it (`merge_closes`, via `page_redirects.former_ids`): "A or
    P?" outlived A into W and W into P. (f) `person_duplicate` questions are page questions (`fold_page`'s meaning): until now a
