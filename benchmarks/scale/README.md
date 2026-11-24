@@ -91,3 +91,16 @@ cp -R $S/bank $S/before && api/.venv/bin/python -m benchmarks.scale.sleep_calls 
 cp -R $S/bank $S/after && api/.venv/bin/python -m benchmarks.scale.sleep_calls run --bank $S/after --replay $S/before.jsonl --record $S/after.jsonl --live
 api/.venv/bin/python -m benchmarks.scale.sleep_calls diff $S/before $S/after
 ```
+
+## The graph's change check with posts drawn as rows (2026-11-24, G246, ruling 81)
+
+`saved_posts_cold` builds a synthetic bank of the measured shape (9,500 pages, 5,000 of them saves, 450 posts, 9,500 save and
+conversation records, an inbox of 700, six list pages) and times, each in a FRESH process (a cold start is a process's first
+call), the route's change check and the graph build with `saved_posts.HIDE_POSTS` off and on, cold and warm, and warm while the
+app's stream holds the last walk's listings (`warm_stream`). `--after-restart` adds a cold start that finds the records a
+previous process stored (`derived_store`):
+
+```sh
+api/.venv/bin/python -m benchmarks.scale.saved_posts_cold build --bank $S/bank
+api/.venv/bin/python -m benchmarks.scale.saved_posts_cold measure --bank $S/bank --reps 7 --after-restart
+```

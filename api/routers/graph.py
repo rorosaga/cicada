@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, Request, Response
 from starlette.concurrency import run_in_threadpool
 
@@ -52,14 +54,26 @@ def _split(value: str | None) -> set[str] | None:
 # G246 (ruling 81): a saved post nobody gave a reason to is a row under its list, not a node (`saved_posts`). No node gained
 # a field and the node shape is unchanged; what moves the answer is the flip and the set of earned posts, and a reason
 # stamped on a save moves no folder the ETag stats — so `saved_posts.stamp` rides `extra`, empty (the key unchanged)
-# until `HIDE_POSTS` is on, and `include_posts` names the answer that draws every post.
+# until `HIDE_POSTS` is on, and `include_posts` names the answer that draws every post. A folder's list (a node with a
+# member count) is made of the saves filed in it, which the pages folder does not hold either: `saved_posts.lists_stamp`
+# rides `extra` too, only for a bank that files saves in a folder.
 NODE_SHAPE = "aliases+f1-facets+pictures+previews+quiet+same-name+byline+source-links"
 
 
-def _posts_stamp(memory_path) -> str:
-    """:func:`saved_posts.stamp` over the SSE tick's listings when its gate allows, else one listing of each folder."""
+def _etag_with_posts(memory_path, extra: str, include_posts: bool) -> str:
+    """The change check with the flip on: the earned-posts stamp and the ETag over ONE listing of each folder (the pages
+    folder was listed twice, once for each), the SSE tick's when its gate allows. Same components, same digest."""
     with sync_ticker.request_scans(memory_path):
-        return saved_posts.stamp(memory_path)
+        extra += f"|posts:{include_posts}:{saved_posts.stamp(memory_path)}"
+        if filed := saved_posts.lists_stamp(memory_path):
+            extra += f"|filed:{filed}"
+        return sync_service.etag_for(memory_path, *_ETAG_KEYS, extra=extra)
+
+
+# "logos": `has_logo` rides every node's content_hash but lives in the machine-global logo cache, not in the bank — see
+# sync_service. "photos" (G159, review B1): a person's public-profile photo lives outside the bank too; a fetch or a miss
+# aging out changes the node's `picture` and nothing else.
+_ETAG_KEYS = ("entities", "edges", "hubs", "inbox", "logos", "photos")
 
 
 @router.get("/graph", response_model=GraphResponse)
@@ -77,14 +91,9 @@ async def get_graph(
 ):
     extra = f"{types}|{statuses}|{min_confidence}|{tags}|{include_hubs}|{hubs_only}|{NODE_SHAPE}"
     if saved_posts.HIDE_POSTS:
-        extra += f"|posts:{include_posts}:{await run_in_threadpool(_posts_stamp, settings.memory_path)}"
-    etag = await sync_service.etag_for_async(
-        # "logos": `has_logo` rides every node's content_hash but lives in the
-        # machine-global logo cache, not in the bank — see sync_service.
-        # "photos" (G159, review B1): a person's public-profile photo lives outside the bank too; a fetch or a miss
-        # aging out changes the node's `picture` and nothing else.
-        settings.memory_path, "entities", "edges", "hubs", "inbox", "logos", "photos", extra=extra
-    )
+        etag = await asyncio.to_thread(_etag_with_posts, settings.memory_path, extra, include_posts)
+    else:
+        etag = await sync_service.etag_for_async(settings.memory_path, *_ETAG_KEYS, extra=extra)
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     return await run_in_threadpool(

@@ -195,6 +195,7 @@ async def rename_bank(
         _refuse_switch_during_drain()   # renaming the bank a run is reading moves its directory
     legacy = bool(((bank_registry.load_registry(settings.memory_root).get("banks") or {}).get(name) or {})
                   .get("legacy"))
+    old_dir = bank_registry.bank_dir(settings.memory_root, name)
     try:
         slug = bank_registry.rename_bank(settings.memory_root, name, req.new_name)
     except ValueError as e:
@@ -210,9 +211,10 @@ async def rename_bank(
     if not legacy and slug != name:
         # The people directory (kept LinkedIn connections, Contacts' waiting cards) is keyed by the bank's folder, which a
         # non-legacy rename moves.
-        from api.services import people_directory
+        from api.services import people_directory, saved_posts
 
         people_directory.rename(name, slug)
+        saved_posts.forget(old_dir)   # G246: records derived from its files are keyed by where it lived
     logger.info(f"Renamed bank '{name}' -> '{slug}'")
     data = bank_registry.list_banks(settings.memory_root)
     return BankListResponse(
@@ -239,6 +241,7 @@ async def delete_bank(name: str, settings: Settings = Depends(get_settings)) -> 
     # The bank's id, read first: the trash drops its registry record, and its read counter (`page_reads`, outside every
     # bank, ruling 70) is named by it.
     counter_id = await run_in_threadpool(bank_registry.bank_id, root, name)
+    held_path = bank_registry.bank_dir(root, name)
     try:
         dst = await run_in_threadpool(bank_registry.trash_bank, root, name)
     except bank_registry.UnknownBank as exc:
@@ -264,6 +267,9 @@ async def delete_bank(name: str, settings: Settings = Depends(get_settings)) -> 
     from api.services import source_edits
 
     source_edits.forget_bank(counter_id)   # G244: an agent's edit waiting for a sync goes with its bank
+    from api.services import saved_posts
+
+    saved_posts.forget(held_path)   # G246: the records derived from its files (outside every bank) go with it
     logger.info(f"Moved bank '{name}' to the trash")
     data = bank_registry.list_banks(root)
     return BankTrashResponse(

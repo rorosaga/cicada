@@ -21,8 +21,8 @@ The coordinator reads it on the real memory before the flip and reports it to th
 * ``related_lines``: ``## Related`` entries that would be filtered, and the pages that carry them;
 * ``old_shape_episodes``: connector saves whose text sits under the person's note, which earn nothing;
 * ``timing_ms``: the graph build and its ETag, cold and warm, before (the flag off: what the route does today) and
-  after. Cold is a fresh process's cost (the cached headers dropped); the logo and photo caches outside the bank are read
-  as they are on this Mac.
+  after. Cold is a fresh process's cost (the cached headers and every record derived from them dropped, nothing stored
+  read); the logo and photo caches outside the bank are read as they are on this Mac. It stores nothing either.
 """
 from __future__ import annotations
 
@@ -77,12 +77,13 @@ def measure(bank: Path) -> dict:
     from api.services.media_kinds import kind_of
 
     bank_index.invalidate()
-    held = saved_posts.HIDE_POSTS
+    held, held_store = saved_posts.HIDE_POSTS, saved_posts.STORE_DIGEST
     saved_posts.HIDE_POSTS = True   # the answer the flip would give; restored below, nothing is ever written
+    saved_posts.STORE_DIGEST = False   # and no record of it is stored or read: every "cold" below is a bank read from scratch
     try:
         out = _measure(bank, bank_index, graph_builder, quiet_pages, saved_lists, saved_posts, sync_service, kind_of)
     finally:
-        saved_posts.HIDE_POSTS = held
+        saved_posts.HIDE_POSTS, saved_posts.STORE_DIGEST = held, held_store
     return out
 
 
@@ -134,19 +135,21 @@ def _measure(bank, bank_index, graph_builder, quiet_pages, saved_lists, saved_po
     def build(on: bool):
         saved_posts.HIDE_POSTS = on
         bank_index.invalidate()
+        saved_posts.forget(bank, stored=False)
         graph_builder.reset_cache()
         cold, g = _ms(lambda: graph_builder.build_graph(bank))
         warm, _ = _ms(lambda: graph_builder.build_graph(bank))
         return cold, warm, g
 
     def etag(on: bool):
+        from api.routers.graph import _ETAG_KEYS, _etag_with_posts
+
         saved_posts.HIDE_POSTS = on
         bank_index.invalidate()
+        saved_posts.forget(bank, stored=False)
 
-        def one():
-            with bank_index.shared_scans():   # the route's one listing of each folder, shared by the stamp and the ETag
-                extra = f"|posts:False:{saved_posts.stamp(bank)}" if on else ""
-                return sync_service.etag_for(bank, "entities", "edges", "hubs", "inbox", "logos", "photos", extra=extra)
+        def one():   # the route's own change check, one listing of each folder shared by the stamp and the ETag
+            return _etag_with_posts(bank, "", False) if on else sync_service.etag_for(bank, *_ETAG_KEYS, extra="")
 
         cold, _ = _ms(one)
         warm, _ = _ms(one)
