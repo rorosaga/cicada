@@ -1355,6 +1355,9 @@ async def _plan_same_name_people(
     if not work:
         return moves, compared, (set(), set())
     gate = asyncio.Semaphore(max(1, int(getattr(settings, "sleep_resolve_concurrency", 1) or 1)))
+    # The owner's name as the descriptions write it: the judge is told whose conversations these are (2026-11-24).
+    speaker = next((str((e.get("frontmatter") or {}).get("name") or "").strip() for e in existing
+                    if owner_page_id and str(e.get("id")) == owner_page_id), "") or None
 
     async def one(name_lower: str, to_judge: list, identities: list) -> tuple[str, same_name_people.Plan]:
         name = next(iter(mentions[name_lower].values()))["name"]
@@ -1370,7 +1373,7 @@ async def _plan_same_name_people(
         async with gate:
             if cancel_check is not None and cancel_check():
                 return name_lower, same_name_people.Plan()
-            return name_lower, await same_name_people.plan(name, to_judge, identities, judge, strong)
+            return name_lower, await same_name_people.plan(name, to_judge, identities, judge, strong, speaker=speaker)
 
     results = await asyncio.gather(*(one(*item) for item in work))
     split = 0
