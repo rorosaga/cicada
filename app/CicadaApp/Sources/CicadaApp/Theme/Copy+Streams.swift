@@ -79,13 +79,15 @@ extension Copy {
         static let lineClickAsks = "Asks why when you save, on this Mac"
         /// A connections stream's purpose, when its name does not say: they are kept outside memory, matched by name.
         static let connectionsFor = "Matched to people you already have pages for"
-        static let depthIndex = "kept and findable"
+        /// A stream Cicada keeps and never reads, because you did not save it (watch history, who you follow, who you are
+        /// connected with, the repositories you own).
+        static let depthIndex = "kept, never read: you did not save it"
         static let depthRead = "read by Sleep"
 
         /// The browser-reading facts: the head line's hover and the first-use sheet's, never a standing paragraph.
         static let whoseSession = "It uses your own sign-in, in your browser on this Mac. Cicada never sees your password and never opens the browser itself."
         static func whoSees(app: String?) -> String {
-            "\(app ?? "Your AI app")'s company sees what it reads. No AI reads a saved item unless you mention it."
+            "\(app ?? "Your AI app")'s company sees what it reads. Sleep then reads each saved item, a few a night."
         }
         static let neverPosts = "Nothing is posted or changed on the site."
         static let howToStop = "To stop, turn the stream off here. What was kept stays until you remove it."
@@ -95,10 +97,16 @@ extension Copy {
         // Items (plan 3.2 item 3).
         static let allFolders = "All folders"
         static let folders = "Folders"
-        // How deep Cicada went on a kept item (G245 B3): nothing for `kept`, one quiet word or phrase for the rest.
+        // Where a saved item stands (G245 B3; ruling 80 gave every state a word): one quiet word or phrase, never a badge.
         static let itemRead = "read"
+        /// Waiting for tonight's reading, or for its turn in the older pile; the Sleep page's line says how fast.
+        static let itemNotRead = "not read yet"
+        /// A title and a link hold nothing for Sleep to read; talking about it, or your AI app opening it, reads it.
+        static let itemNothing = "nothing to read yet"
+        /// A record another service keeps (a repository you own, a community you joined): kept, never read.
+        static let itemRecord = "kept, never read"
         /// The person talked about it and an ask waits for their own AI app to read or watch it.
-        static let itemAsked = "your AI app reads it next"
+        static let itemAsked = "waiting for your AI app"
         static let itemWatched = "watched"
         static func posted(_ day: String) -> String { "posted \(day)" }
         static func kept(_ age: String) -> String { "kept \(age)" }

@@ -33,6 +33,9 @@ words are already the question's cause or one option's evidence).
   knows them and Settings shows them, so they are never asked;
 * ``followup`` — one on a page not in the person's list, never started or taken out (ruling 56, ``not_started``):
   retired with nothing written;
+* ``clarification`` asking a person known only by a description for their name, on a page that rests on one conversation
+  (owner 2026-11-24, ``name_once``): retired with nothing written; asked again, new, when they come up in a second
+  conversation (`role_people.ensure_question`); undone, it is theirs and Sleep never retires it again;
 * everything else — a clarification, a follow-up on a project they started, a proposed edit — stays for the person (move
   1 aside).
 
@@ -124,6 +127,7 @@ RULES: dict[str, str] = {
     "already_a_name": "The record already answers it: that name is one of this page's names",
     "names_one_page": "Both values name one person, spelled two ways",
     "not_started": "It is not one of your projects",
+    "name_once": "They have come up once; their name is asked if they come up again",
     "same_value": "The same value, said two ways",
     "moved_on": "It moved: the latest is current, the earlier ones are kept as past",
     "own_bookkeeping": "About Cicada's own counters, which Cicada already knows",
@@ -145,7 +149,7 @@ JOINS = frozenset({"full_name_one", "typo_one"})
 ALIAS_RULES = frozenset({"alias_apart"})
 ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "seed_fold", "one_off", "newest_evidence",
                          "multi_valued", "in_passing", "newest_words", "own_settings", "named_account",
-                         "owner_unsaid", "no_pair_evidence", "two_signals", "not_started", "same_value", "moved_on",
+                         "owner_unsaid", "no_pair_evidence", "two_signals", "not_started", "name_once", "same_value", "moved_on",
                          "own_bookkeeping", "already_described", "not_fading", "source_corrected",
                          "already_one_page", "already_a_name", "names_one_page"})
 #: The judged kinds (owner, 2026-10-17: the inbox keeps only what genuinely needs the person).
@@ -359,6 +363,21 @@ def _guard(memory_path: Path, *entity_ids: str) -> dict:
 
 def guard_holds(memory_path: Path, d: "Decision") -> bool:
     return all(_hash(Path(memory_path) / rel) == digest for rel, digest in (d.guard or {}).items())
+
+
+def _first_mention_name(memory_path: Path, fm: dict) -> bool | None:
+    """``True`` when this name question is about an unnamed person page that rests on fewer than two conversations
+    (`role_people.heard_again`), else ``None``. A page that cannot be read, a person who declined and a page the question
+    does not name are never this rule's."""
+    from api.services import role_people
+
+    page = _page(memory_path, str(fm.get("entity_id") or ""))
+    if page is None:
+        return None
+    pfm = page[1]
+    if not pfm.get(role_people.UNNAMED_KEY) or pfm.get(role_people.DECLINED_KEY) or pfm.get("owner"):
+        return None
+    return None if role_people.heard_again(memory_path, pfm) else True
 
 
 def _is_owner_page(fm: dict | None) -> bool:
@@ -784,6 +803,14 @@ def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
         if meeting_speakers.gone(memory_path, fm):
             return Decision(item_id, kind, "subject_gone", None, answer="Retired", guard=_guard(memory_path, "")), ""
         return None, "needs_person"
+    if kind == "clarification" and str(fm.get("asks") or "") == "name":
+        # Owner 2026-11-24: someone known only by a description is not asked about on a first mention. One asked before
+        # that rule, whose page still rests on one conversation, is retired with nothing written (the page, its
+        # claims and its title stay); `role_people.ensure_question` raises it again, new, once they come up again.
+        held = _first_mention_name(memory_path, fm)
+        if held is not None:
+            return Decision(item_id, kind, "name_once", None, answer="Not asked yet: they have come up once",
+                            guard=_guard(memory_path, str(fm.get("entity_id") or ""))), ""
     page_state = _page_state(memory_path, fm)
     if page_state == "missing" or _gone(memory_path, fm):
         return Decision(item_id, kind, "subject_gone", None, answer="Retired",
@@ -2710,6 +2737,7 @@ VETTED_RULES: dict[str, tuple[frozenset[str] | None, frozenset]] = {
     "no_pair_evidence": (frozenset({"merge_suggestion"}), frozenset({None})),
     "two_signals": (frozenset({"merge_suggestion"}), frozenset({"merge"})),
     "not_started": (frozenset({"followup"}), frozenset({None})),
+    "name_once": (frozenset({"clarification"}), frozenset({None})),
     "same_value": (frozenset({"conflict"}), frozenset({"resolve"})),
     "moved_on": (frozenset({"conflict"}), frozenset({"resolve"})),
     "own_bookkeeping": (frozenset({"conflict"}), frozenset({None})),

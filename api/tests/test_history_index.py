@@ -24,6 +24,15 @@ from api.services.media_ingestor import MediaMeta, PreparedItem, RawItem
 VID = ["aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc", "ddddddddddd"]
 
 
+@pytest.fixture
+def legacy(monkeypatch):
+    """The kill switch (ruling 80): ruling 62's pass whole — every save index-only, a queued one retired."""
+    monkeypatch.setattr(history_index, "SAVES_READ", False)
+
+
+_PILE = {"processed": True, "processed_by": "index"}
+
+
 @pytest.fixture(autouse=True)
 def utc(monkeypatch):
     monkeypatch.setenv("TZ", "UTC")
@@ -62,27 +71,39 @@ def _by_source(memory, prefix: str) -> dict[str, markdown_parser.ParsedFile]:
 @pytest.mark.parametrize("fm, kind", [
     ({"source": "watch-history", "source_id": "watch-history:youtube:2026-09-01"}, "history"),
     ({"source": "watch-history-month", "source_id": "watch-history-month:youtube:2026-09"}, "month"),
-    ({"source": "youtube", "origin": "youtube-playlist", "folder": "Watch later"}, "list"),
-    ({"source": "youtube", "origin": "youtube-playlist", "folder": "Talks to keep"}, "list"),
-    ({"source": "instagram", "origin": "instagram-saved"}, "list"),
-    ({"source": "web", "origin": "tiktok-saved"}, "list"),
-    ({"source": "web", "origin": "x-likes", "folder": "Likes"}, "list"),
-    ({"source": "web", "origin": "linkedin-saved"}, "list"),
-    ({"source": "web", "origin": "reddit-saved", "folder": "Saved posts"}, "list"),
-    ({"source": "web", "origin": "x-bookmarks", "folder": "Bookmarks"}, "list"),
+    # Ruling 80: a save from a platform's list is index-only only while it waits its turn in the pile.
+    ({"source": "youtube", "origin": "youtube-playlist", "folder": "Watch later", **_PILE}, "list"),
+    ({"source": "youtube", "origin": "youtube-playlist", "folder": "Talks to keep", **_PILE}, "list"),
+    ({"source": "instagram", "origin": "instagram-saved", **_PILE}, "list"),
+    ({"source": "web", "origin": "tiktok-saved", **_PILE}, "list"),
+    ({"source": "web", "origin": "x-likes", "folder": "Likes", **_PILE}, "list"),
+    ({"source": "web", "origin": "linkedin-saved", **_PILE}, "list"),
+    ({"source": "web", "origin": "reddit-saved", "folder": "Saved posts", **_PILE}, "list"),
+    ({"source": "web", "origin": "x-bookmarks", "folder": "Bookmarks", **_PILE}, "list"),
+    # The same saves written waiting for tonight (one he made singly) or read by a model are ordinary episodes.
+    ({"source": "youtube", "origin": "youtube-playlist", "folder": "Watch later"}, None),
+    ({"source": "web", "origin": "x-likes", "folder": "Likes", "processed": True, "processed_by": "sleep"}, None),
     # A connector poll shares the origin, never the export reader's folder: read as today.
     ({"source": "web", "origin": "reddit-saved", "folder": "r/example"}, None),
     ({"source": "web", "origin": "x-bookmarks"}, None),
-    # Ruling 62: a bare save is lean (`test_lean_pass.py`). A save with no link on its record, a conversation: read.
-    ({"source": "web", "origin": "chrome-bookmark"}, "saved"),
+    # Ruling 62: a bare save in the pile. A save with no link on its record, a conversation: read.
+    ({"source": "web", "origin": "chrome-bookmark", **_PILE}, "saved"),
     ({"source": "web", "origin": "saved-link"}, None),
     ({"source": "mcp", "session_id": "ses_x"}, None),
     # A list save carrying the person's own words is read.
     ({"source": "youtube", "origin": "youtube-playlist", "has_note": True}, None),
+    # Records another service keeps stay index-only whatever their state (ruling 80 (e)).
+    ({"source": "web", "origin": "github-owned", "processed": False}, "list"),
+    ({"source": "web", "origin": "reddit-saved", "folder": "Joined communities", "processed": False}, "list"),
+    ({"source": "web", "origin": "safari-tab", "url": "u", "media_entity_id": "m", "processed": False}, "saved"),
 ])
 def test_what_is_index_only(fm, kind):
     assert history_index.kind(fm) == kind
-    assert history_index.waits_for_model({**fm, "processed": False}) is (kind is None)
+    if kind is None:
+        assert history_index.waits_for_model({**fm, "processed": False}) is True
+    else:
+        assert history_index.waits_for_model({**fm, "processed": False}) is (kind in ("saved", "list")
+                                                                              and not history_index.is_record(fm))
     assert history_index.waits_for_model({**fm, "processed": True}) is False
 
 
@@ -96,7 +117,7 @@ def test_no_list_door_carries_the_persons_words():
     items += saved_exports.parse_x_archive_js(
         b'window.YTD.like.part0 = [{"like": {"tweetId": "123", "fullText": "words"}}]', "like")
     assert items and all(not i.note and not i.reason for i in items)
-    assert all(history_index.kind({"origin": i.origin, "folder": i.folder}) == "list" for i in items)
+    assert all(history_index.kind({"origin": i.origin, "folder": i.folder, **_PILE}) == "list" for i in items)
 
 
 # --- capture: written already read ------------------------------------------------------------------------------------
@@ -149,20 +170,21 @@ def test_the_month_summary_is_the_same_whichever_order_the_days_arrive(tmp_path)
     assert _by_source(a, key)[key].body == _by_source(b, key)[key].body
 
 
-def test_a_list_save_or_a_single_save_lands_read_and_a_noted_one_waits(tmp_path):
+def test_a_bulk_save_lands_in_the_pile_a_single_one_waits_and_a_noted_one_waits(tmp_path):
     memory = _bank(tmp_path)
     idx: dict = {}
 
-    def save(url, origin, **kw):
+    def save(url, origin, *, bulk=False, **kw):
         item = RawItem(url=url, title="A video", folder=kw.pop("folder", None), origin=origin, **kw)
-        meta = MediaMeta(title="A video", description="", site="youtube.com", media_type="youtube")
-        res = media_ingestor.write_prepared(PreparedItem(item, meta), memory, idx)
+        meta = MediaMeta(title="A video", description="A talk about knots", site="youtube.com", media_type="youtube")
+        res = media_ingestor.write_prepared(PreparedItem(item, meta), memory, idx, bulk=bulk)
         return markdown_parser.parse(memory / "episodes" / f"{res.episode_id}.md").frontmatter
 
-    listed = save(f"https://www.youtube.com/watch?v={VID[0]}", "youtube-playlist", folder="Watch later")
+    listed = save(f"https://www.youtube.com/watch?v={VID[0]}", "youtube-playlist", folder="Watch later", bulk=True)
     assert (listed["processed"], listed["processed_by"]) == (True, "index")
+    # Ruling 80: a save he makes singly is read tonight.
     single = save(f"https://www.youtube.com/watch?v={VID[1]}", "saved-link")
-    assert (single["processed"], single["processed_by"]) == (True, "index")   # ruling 62
+    assert single["processed"] is False and "processed_by" not in single
     noted = save(f"https://www.youtube.com/watch?v={VID[2]}", "youtube-playlist", note="watch for the ending")
     assert noted["processed"] is False and noted["has_note"] is True
     assert history_index.waits_for_model(noted) is True
@@ -190,7 +212,7 @@ def _legacy(memory):
     ep("ep_2026-08-04_003", {"source": "web", "origin": "reddit-saved", "folder": "r/example"})
 
 
-def test_the_dry_run_counts_and_writes_nothing(tmp_path, capsys):
+def test_the_dry_run_counts_and_writes_nothing(tmp_path, capsys, legacy):
     from api.scripts import history_index_dry_run
 
     memory = _bank(tmp_path)
@@ -208,7 +230,7 @@ def test_the_dry_run_counts_and_writes_nothing(tmp_path, capsys):
     assert history_index_dry_run.main(["--bank", str(tmp_path / "nowhere")]) == 2
 
 
-def test_waiting_counts_never_include_index_only_episodes(tmp_path):
+def test_waiting_counts_never_include_index_only_episodes(tmp_path, legacy):
     memory = _bank(tmp_path)
     _legacy(memory)
     want = {"ep_2026-09-01_001", "ep_2026-08-04_003"}
@@ -223,7 +245,7 @@ def test_waiting_counts_never_include_index_only_episodes(tmp_path):
         "ep_2026-08-04_003"]
 
 
-def test_retire_marks_read_under_the_lock_and_skips_a_dirty_file(tmp_path):
+def test_retire_marks_read_under_the_lock_and_skips_a_dirty_file(tmp_path, legacy):
     memory = _bank(tmp_path)
     _legacy(memory)
     out = history_index.retire(memory, skip=frozenset({"episodes/ep_2026-08-04_002.md"}))
@@ -236,7 +258,7 @@ def test_retire_marks_read_under_the_lock_and_skips_a_dirty_file(tmp_path):
     assert eps["ep_2026-08-03_001"].body == "- 09:00 · A talk — alice-example"
 
 
-def test_a_drain_never_hands_an_index_only_episode_to_the_model(tmp_path, monkeypatch):
+def test_a_drain_never_hands_an_index_only_episode_to_the_model(tmp_path, monkeypatch, legacy):
     rig = install(monkeypatch)
     memory = seed_bank(tmp_path, ["ep_2026-09-01_000", "ep_2026-09-01_001"], extra=_legacy)
     asyncio.run(sleep_cycle.run(settings(memory, sleep_max_episodes_per_cycle=25), "sleep_hist",
@@ -372,8 +394,8 @@ def _listed_save(memory, vid=VID[0]):
     idx = media_ingestor.load_url_index(memory)
     url = f"https://www.youtube.com/watch?v={vid}"
     item = RawItem(url=url, title="A video", folder="Watch later", origin="youtube-playlist")
-    meta = MediaMeta(title="A video", description="", site="youtube.com", media_type="youtube")
-    res = media_ingestor.write_prepared(PreparedItem(item, meta), memory, idx)
+    meta = MediaMeta(title="A video", description="A talk about knots", site="youtube.com", media_type="youtube")
+    res = media_ingestor.write_prepared(PreparedItem(item, meta), memory, idx, bulk=True)   # one of an import: the pile
     media_ingestor.save_url_index(memory, idx)
     return url, memory / "episodes" / f"{res.episode_id}.md"
 
@@ -411,7 +433,7 @@ def test_a_telegram_reason_on_a_repeat_save_sends_an_indexed_list_save_back_to_t
     assert path.stem in {e["id"] for e in sleep_cycle._get_unprocessed_episodes(memory)}
 
 
-def test_retire_returns_a_queued_list_save_whose_body_holds_the_persons_words(tmp_path):
+def test_retire_returns_a_queued_list_save_whose_body_holds_the_persons_words(tmp_path, legacy):
     """An older writer put the person's section on a queued list save without stamping it: retire never flips it to
     the index — it stamps it theirs, and it waits for the model."""
     memory = _bank(tmp_path)

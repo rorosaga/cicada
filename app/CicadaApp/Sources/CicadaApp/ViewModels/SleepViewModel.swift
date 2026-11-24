@@ -192,6 +192,11 @@ final class SleepViewModel {
     private(set) var consolidated: [SleepConsolidatedKey: SleepConsolidated] = [:]
     private(set) var consolidatedFailed: Set<SleepConsolidatedKey> = []
     private var consolidatedETags: [SleepConsolidatedKey: String] = [:]
+    /// What each opened page chip loaded (`pageChange`), with the items tag the card held then: a finished run's
+    /// commits never change, but a live or paused run's do, and so does its tag.
+    private struct PageChangeKey: Hashable { let key: SleepConsolidatedKey; let page: String }
+    private var pageChanges: [PageChangeKey: (etag: String?, change: SleepPageChange)] = [:]
+    private let fetchPageChange: (SleepConsolidatedKey, String) async throws -> SleepPageChange
     private let fetchConsolidated: (SleepConsolidatedKey, String?) async throws -> Conditional<SleepConsolidated>
 
     /// G212 — the machines under the room (`GET /devices/status`), polled while the Sleep page shows. Machine-global
@@ -255,10 +260,14 @@ final class SleepViewModel {
         fetchConsolidated: @escaping (SleepConsolidatedKey, String?) async throws -> Conditional<SleepConsolidated> = {
             try await APIClient.shared.fetchSleepConsolidated($0, etag: $1)
         },
+        fetchPageChange: @escaping (SleepConsolidatedKey, String) async throws -> SleepPageChange = {
+            try await APIClient.shared.fetchSleepPageChange($0, page: $1)
+        },
         homeStrip: HomeStripModel? = nil
     ) {
         self.homeStrip = homeStrip ?? HomeStripModel()
         self.fetchConsolidated = fetchConsolidated
+        self.fetchPageChange = fetchPageChange
         self.fetchMachines = fetchMachines
         self.fetchEpisodes = fetchEpisodes
         self.fetchSchedule = fetchSchedule
@@ -648,11 +657,19 @@ final class SleepViewModel {
         }
     }
 
-    /// What a consolidation changed on one page (a click on its chip on a Past sleeps card): one diff from before the
-    /// consolidation's first commit that touched the page (`since`) to after its last (`until`).
-    func pageDiff(id: String, until: String, since: String?) async throws -> EntityDiff {
-        if let since { try await APIClient.shared.fetchEntityCommitDiff(id: id, commitHash: until, since: since) }
-        else { try await APIClient.shared.fetchEntityCommitDiff(id: id, commitHash: until) }
+    /// What a consolidation changed on one page (a click on its chip on a Past sleeps card), ready to draw: why, its
+    /// facts, its text in blocks. A commit is immutable, so a finished run's answer is kept for the session and a
+    /// reopened chip never asks again — but a run still reading or paused gains commits, and its items tag moves with
+    /// each one: an answer is kept only while the card's own tag is the one it was read under, so a chip never shows
+    /// a batch the card above has moved past. A bank switch drops them with the rest.
+    func pageChange(_ key: SleepConsolidatedKey, page: String) async throws -> SleepPageChange {
+        let held = PageChangeKey(key: key, page: page)
+        let tag = consolidatedETags[key]
+        if let kept = pageChanges[held], kept.etag == tag { return kept.change }
+        let token = loadToken
+        let change = try await fetchPageChange(key, page)
+        if token == loadToken { pageChanges[held] = (tag, change) }
+        return change
     }
 
     /// The freshness key a live or paused run's detail is fetched under (`loadRunDetail`): whatever moves when the
@@ -676,6 +693,7 @@ final class SleepViewModel {
         consolidated = [:]
         consolidatedETags = [:]
         consolidatedFailed = []
+        pageChanges = [:]
         queue = nil
         expandedRun = nil
         details = [:]

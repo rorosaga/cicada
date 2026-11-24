@@ -131,6 +131,12 @@ fact; posts saying "I", "my" and "the user"; three title-only bookmarks; the sam
 items; two open Safari tabs; two saves with his own reason; two 40-day-old bookmarks; four connector tweets (two in today's shape,
 the text in `note`, two in the shape the plan gives them, the text as the description); and a bulk list of 200 undated rows.
 
+**Since ruling 80's switch (G246, Track 1) the `single` leg runs the real path**, not a `wake` shortcut: capture writes the saves as
+it now does (a save made singly waits for tonight; the 200 list rows are a bulk door, `bulk=True`, and wait their turn in the
+pile; a 40-day-old bookmark arrives late; a video's title and link has nothing to read) and Sleep's own first step releases the day's
+number (`history_index.take_turns`). The `baseline` leg sets `history_index.SAVES_READ = False`, which is dev before the switch.
+The waiting gate now reads the bulk list's saves waiting right after the list was read, against `history_index.SAVES_PER_DAY`.
+
     api/.venv/bin/python -m benchmarks.consolidation.saves_battery selfcheck           # no model: fixture, capture, a stand-in Sleep
     api/.venv/bin/python -m benchmarks.consolidation.saves_battery run --leg baseline --out OUT/baseline
     api/.venv/bin/python -m benchmarks.consolidation.saves_battery run --leg single   --out OUT/single1

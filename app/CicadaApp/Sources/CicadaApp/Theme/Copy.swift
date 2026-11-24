@@ -156,9 +156,15 @@ enum Copy {
 
     static let consolidateNow = "Consolidate now"
     static let consolidating = "Consolidating…"
-    /// Ruling 62: what a lean read did, the same words on the Sleep and Sources pages. Nil when nothing is kept.
-    static func keptForLookup(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String? {
-        n > 0 ? "\(UsageFormat.count(n, locale: locale)) saved, kept for lookup. One is read when you talk about it." : nil
+    /// Ruling 80 (owner 2026-11-24: saving is already a reason): the older saves Sleep has not read yet, the same words
+    /// on the Sleep and Sources pages, with the pace the backend sends (`keptPerNight`, never a number written here).
+    /// Nil when none wait.
+    static func savesNotReadYet(_ n: Int, perNight: Int? = nil, _ locale: Locale = .autoupdatingCurrent) -> String? {
+        guard n > 0 else { return nil }
+        let pace = perNight.map { "Sleep reads about \(UsageFormat.count($0, locale: locale)) a night" }
+            ?? "Sleep reads some every night"
+        return "\(UsageFormat.count(n, locale: locale)) \(n == 1 ? "save" : "saves") not read yet. \(pace), newest first. "
+            + "Talk about one and it is read first."
     }
 
     // MARK: The Sleep hero (G125 v3, R-A4…R-A7)

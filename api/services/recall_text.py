@@ -27,10 +27,11 @@ TOPIC_HEADER = (INJECTION_PREFIX + " by Cicada's hook, not typed by them) — no
 TOPIC_FOOTER = ("More on this topic: `cicada_recall(query)`; a page whole: `cicada_recall_detail(entity_id)`.")
 
 
-#: Ruling 62: saved links the message's words find. Nobody has read them; a line is the page's words, not the person's.
+#: Ruling 62, 80: saved links the message's words find. A line is the page's words, never the person's; one marked "not
+#: read yet" has not been read by Sleep. The footer, with the night's number, is ``saved_words.note_footer`` (this module
+#: imports no service).
 SAVED_HEADER = (INJECTION_PREFIX + " by Cicada's hook, not typed by them) — links the person saved that share this "
-                "message's words; no reason given and nobody has read them:")
-SAVED_FOOTER = "Each is the page's words, not the person's. Following a link is how to look further."
+                "message's words; a link marked not read yet has not been read by Sleep:")
 
 
 #: G207 (2026-11-06): lines from conversations Sleep has not read. Words as said, nothing confirmed yet.

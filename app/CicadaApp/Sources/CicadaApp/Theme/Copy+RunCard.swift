@@ -20,7 +20,7 @@ extension Copy {
         /// and the rest are short. A run that read and wrote nothing still says what it read. Unknown (`nil`) is never
         /// a zero. Questions are the opened card's own line, never this one.
         static func summary(conversations: Int?, created: Int?, updated: Int?, archived: Int? = nil, removed: Int? = nil,
-                            locale: Locale = .autoupdatingCurrent) -> String {
+                            faded: Int? = nil, locale: Locale = .autoupdatingCurrent) -> String {
             var wrote: [String] = []
             func part(_ n: Int?, first: (Int) -> String, later: (Int) -> String) {
                 guard let n, n > 0 else { return }
@@ -34,12 +34,15 @@ extension Copy {
                  later: { "\(count($0, locale)) archived" })
             part(removed, first: { noun($0, "page removed", "pages removed", locale) },
                  later: { "\(count($0, locale)) removed" })
+            // Owner 2026-11-24: fading is its own quiet thing — last, never counted among the changes.
+            part(faded, first: { noun($0, "page faded", "pages faded", locale) },
+                 later: { "\(count($0, locale)) faded" })
             guard let conversations else { return wrote.isEmpty ? nothingRecorded : wrote.joined(separator: " · ") }
             // A read of no conversations (a plain cycle's decay and upkeep) names only what it did to the pages.
             if conversations == 0 { return wrote.isEmpty ? nothingNewSentence : wrote.joined(separator: " · ") }
             let read = noun(conversations, "conversation", "conversations", locale)
             if !wrote.isEmpty { return ([read] + wrote).joined(separator: " · ") }
-            let known = [created, updated, archived, removed].compactMap { $0 }
+            let known = [created, updated, archived, removed, faded].compactMap { $0 }
             return !known.isEmpty && known.allSatisfy({ $0 == 0 }) ? "\(read) · \(nothingNew)" : read
         }
         static let nothingNew = "nothing new"
@@ -76,6 +79,8 @@ extension Copy {
         static let filterUpdated = "Updated"
         static let filterArchived = "Archived"
         static let filterRemoved = "Removed"
+        /// Owner 2026-11-24: a page whose facts only lost confidence to silence — a trailing tab, never in All.
+        static let filterFaded = "Faded"
         static let filterLabel = "Show pages by what the read did to them"
         static func filterWord(_ change: SleepConsolidated.Change) -> String {
             switch change {
@@ -83,6 +88,7 @@ extension Copy {
             case .updated: filterUpdated
             case .archived: filterArchived
             case .removed: filterRemoved
+            case .faded: filterFaded
             }
         }
         static let today = "Today"
@@ -90,15 +96,6 @@ extension Copy {
         static let nothingYet = "Nothing consolidated yet."
         static let nothingListed = "Nothing listed for this read."
         static let changeHint = "Shows what this read changed on the page"
-        /// The line over an opened chip's diff: what the read did to the page, said once.
-        static func changeOn(_ name: String, _ change: SleepConsolidated.Change) -> String {
-            switch change {
-            case .created: "This read made \(name)"
-            case .updated: "What this read changed on \(name)"
-            case .archived: "This read archived \(name)"
-            case .removed: "This read removed \(name)"
-            }
-        }
         /// A page chip's change in words (its dot's twin, for `.help` and VoiceOver).
         static func changeWord(_ change: SleepConsolidated.Change) -> String {
             switch change {
@@ -106,17 +103,16 @@ extension Copy {
             case .updated: "Updated"
             case .archived: "Archived"
             case .removed: "Removed"
+            case .faded: "Faded"
             }
         }
-        /// The pages no conversation of this run stands behind: decay's archives and Sleep's own upkeep.
-        static let upkeepTitle = "Memory upkeep"
-        static let upkeepHelp = "Pages Sleep changed on its own, with no conversation of this read behind them"
         /// Pages a conversation past the server's list fed: not upkeep, and no row to sit under.
         static let unlistedTitle = "From conversations not listed"
         static let unlistedHelp = "Pages made or changed by conversations of this read that are not listed here"
         /// With one machine selected on a run the server listed in part: the numbers cover what is listed.
         static let countsPartial = "Counts cover only the conversations listed here."
-        /// An older backend does not say which conversation fed which page: one group names them all.
+        /// An older backend does not say which conversation or step changed a page: one group names them all. A current
+        /// backend always says (owner 2026-11-24: no card of pages with no reason), so this is that fallback alone.
         static let pagesTitle = "Pages changed"
         static func conversationsIn(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
             noun(n, "conversation", "conversations", locale)
@@ -147,7 +143,7 @@ extension Copy {
 
         // Owner 2026-11-23 ("see what page or chunk of page/pages was modified"): a click on a page's chip shows what
         // changed on it.
-        static let noChange = "No line changed on this page."
+        static let noChange = "Nothing changed on this page in the end."
         static func took(_ length: String) -> String { "Read for \(length)" }
         static let loading = "Loading…"
         static let unavailable = "Not recorded"
@@ -162,7 +158,7 @@ extension Copy {
         static func openQuestion(_ title: String) -> String { "Open \(title) in your questions" }
 
         /// Short labels the copy lints read.
-        static let labels = [filterAll, filterCreated, filterUpdated, filterArchived, filterRemoved, upkeepTitle,
+        static let labels = [filterAll, filterCreated, filterUpdated, filterArchived, filterRemoved, filterFaded,
                              unlistedTitle, countsPartial, pagesTitle, openPageAction, startedByYou, startedBySchedule, finished, reading, pausedPlanLimit, pausedReserve, paused,
                              stopped, failed, detailsTitle]
     }

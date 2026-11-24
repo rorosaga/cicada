@@ -67,7 +67,7 @@ struct SleepWaitingList: View {
             // What is kept for lookup is the whole memory's count, not a machine's: it waits out a machine filter.
             if emptyMachine == nil, !narrowedToMachine, let kept = queue?.kept, kept > 0 {
                 // The list's own last card (owner 2026-11-23): what is kept for lookup, opened in order by source.
-                KeptForLookupCard(kept: kept)
+                KeptForLookupCard(kept: kept, perNight: queue?.keptPerNight)
                     .padding(.top, -CicadaTheme.spacingCard + CicadaTheme.spacingSM)
             }
         }

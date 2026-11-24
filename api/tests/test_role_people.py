@@ -168,14 +168,17 @@ def test_a_sleep_cycle_writes_the_relation_title_and_asks_the_name_once(tmp_path
     assert pages == {OWNER_ID, "partner"}
     page = markdown_parser.parse(memory / "entities" / "partner.md").frontmatter
     assert page["name"] == "Partner" and page["unnamed"] is True and page["owner_roles"] == ["partner"]
-    (question,) = _name_questions(memory)
+    assert _name_questions(memory) == []   # owner 2026-11-24: a first mention asks nothing; the page and its title stay
+
+    asyncio.run(sleep_cycle.run(_settings(memory), cycle_id="roles_2"))
+    (question,) = _name_questions(memory)   # the second conversation: asked
     assert question["question"] == "What's the name of your partner?" and question["entity_id"] == "partner"
     assert question["options"] == [{"key": "rather_not_say", "label": "I'd rather not say"}]
     assert not [q for q in _all_items(memory) if q.get("title", "").startswith("Who or what is")]
 
-    asyncio.run(sleep_cycle.run(_settings(memory), cycle_id="roles_2"))
     assert {p.stem for p in (memory / "entities").glob("*.md")} == {OWNER_ID, "partner"}
     assert markdown_parser.parse(memory / "entities" / "partner.md").frontmatter["source_episodes"] == [EP_A, EP_B]
+    asyncio.run(sleep_cycle.run(_settings(memory), cycle_id="roles_3"))
     assert len(_name_questions(memory)) == 1   # one question per page
 
 
@@ -195,10 +198,14 @@ def _claim(cid: str, subject: str, predicate: str, obj: str, **extra) -> Claim:
                  valid_from="2026-01-01", **extra)
 
 
+#: Owner 2026-11-24: an unnamed person is asked their name only once they come up in a second conversation.
+TWO_CONVERSATIONS = {"source_episodes": ["ep_2026-01-01_001", "ep_2026-01-02_001"]}
+
+
 def _page(memory: Path, eid: str, fm: dict, prose: str, claims: list[Claim] | None = None) -> None:
     body = write_claims(prose, claims) if claims else prose
     markdown_parser.write(memory / "entities" / f"{eid}.md", {"type": "person", "status": "active",
-                                                               "confidence": 0.8, **fm}, body)
+                                                               "confidence": 0.8, **TWO_CONVERSATIONS, **fm}, body)
 
 
 def _git_bank(tmp_path: Path) -> Path:
@@ -224,7 +231,7 @@ def _split_bank(tmp_path: Path) -> Path:
           [_claim("c-friend-1", "alpha-owner's-friend", "studies", "Design", object_kind="literal"),
            _claim("c-friend-2", "alpha-owner's-friend", "works-at", "gamma-studio")])
     _page(memory, "alpha-owner's-partner", {"name": "Alpha Owner's partner", "status": "archived",
-                                             "confidence": 0.0, "source_episodes": [EP_A]},
+                                             "confidence": 0.0, "source_episodes": [EP_A, EP_B]},
           "## Summary\nMoved in last spring.",
           [_claim("c-partner-1", "alpha-owner's-partner", "moved-to", "Lisbon", object_kind="literal")])
     _page(memory, "alpha-owner's-father", {"name": "Alpha Owner's father", "source_episodes": [EP_B]},
@@ -287,7 +294,8 @@ def test_the_repair_merges_on_evidence_retitles_and_asks_the_rest_in_one_commit(
     assert gamma.frontmatter["related"] == ["Partner"] and "[[Partner]]" in gamma.body
     edges = yaml.safe_load((memory / "graph_edges.yaml").read_text())["edges"]
     assert edges[0]["source"] == "friend"
-    # One question per unnamed page, the archived partner included; the friend (plural) never merged into Bob.
+    # One question per unnamed page (each rests on two conversations here, owner 2026-11-24), the archived partner
+    # included; the friend (plural) never merged into Bob.
     questions = {q["entity_id"]: q["question"] for q in _name_questions(memory)}
     assert questions == {"partner": "What's the name of your partner?", "friend": "What's the name of your friend?"}
     served = {i.entity_id for i in inbox_service.load_inbox(memory) if i.asks == "name"}

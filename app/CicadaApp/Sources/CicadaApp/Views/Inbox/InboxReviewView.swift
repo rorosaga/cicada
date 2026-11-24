@@ -218,8 +218,10 @@ struct ReviewCardView: View {
                     .font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .lineLimit(1)
+                    .layoutPriority(-1)   // yields to "Asked …" below
             }
-            Spacer(minLength: CicadaTheme.spacingSM)
+            Spacer(minLength: 0)   // the HStack's own spacing is the gap; a minimum here made the row wider than a narrow card
+            AskedByLine(item: item)
             TextButton(title: Copy.Inbox.Review.openInInbox, help: Copy.Inbox.Review.openInInboxHelp,
                        action: onOpenInInbox)
                 .padding(.trailing, -CicadaTheme.scaled(10))

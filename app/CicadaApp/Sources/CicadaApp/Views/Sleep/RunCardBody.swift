@@ -9,19 +9,19 @@ import SwiftUI
 // holds the conversations it fed, a conversation holds the pages it fed as chips, each chip's dot saying what the read
 // did to the page. Nothing here repeats the head's totals.
 
-/// What a click on a page chip loads: the read's change on one page, as one diff (`GET /entities/{id}/history/{commit}/
-/// diff?since=`). Injected by the page from its view model, so no view under `Views/Sleep` calls the API itself;
-/// renders hand in a fixed diff.
-typealias RunPageDiffLoader = (_ id: String, _ until: String, _ since: String?) async throws -> EntityDiff
+/// What a click on a page chip loads: the read's change on one page, ready to draw — why, its facts, its text in
+/// blocks (`GET /sleep/runs/{id}/pages/{page}/change`, items-6). Injected by the page from its view model, so no view
+/// under `Views/Sleep` calls the API itself; renders hand in a fixed change.
+typealias RunPageChangeLoader = (_ key: SleepConsolidatedKey, _ page: String) async throws -> SleepPageChange
 
-private struct RunPageDiffLoaderKey: EnvironmentKey {
-    static let defaultValue: RunPageDiffLoader = { _, _, _ in throw CancellationError() }
+private struct RunPageChangeLoaderKey: EnvironmentKey {
+    static let defaultValue: RunPageChangeLoader = { _, _ in throw CancellationError() }
 }
 
 extension EnvironmentValues {
-    var runPageDiffLoader: RunPageDiffLoader {
-        get { self[RunPageDiffLoaderKey.self] }
-        set { self[RunPageDiffLoaderKey.self] = newValue }
+    var runPageChangeLoader: RunPageChangeLoader {
+        get { self[RunPageChangeLoaderKey.self] }
+        set { self[RunPageChangeLoaderKey.self] = newValue }
     }
 }
 
@@ -47,8 +47,8 @@ enum RunBodyLimits {
 
 /// A page as its chip face: its picture where it has one (a person's photo or initials, a company's logo, a media
 /// thumbnail — never initials for anything else, DR-48), its name, and a small dot saying what the read did to it: green
-/// for new, none for updated, grey for archived, red for removed (DR-7: one meaning each, and never alone — the words are
-/// in `.help` and VoiceOver). Drawn alone in a closed card's preview; `RunPageChip` is the same face as a button.
+/// for new, none for updated or faded, grey for archived, red for removed (DR-7: one meaning each, and never alone — the
+/// words are in `.help` and VoiceOver). Drawn alone in a closed card's preview; `RunPageChip` is the same face as a button.
 struct RunPageChipFace: View {
     let page: SleepConsolidated.Page
     let label: String
@@ -68,7 +68,7 @@ struct RunPageChipFace: View {
         case .created: CicadaTheme.success
         case .archived: CicadaTheme.textTertiary
         case .removed: CicadaTheme.danger
-        case .updated, nil: nil
+        case .updated, .faded, nil: nil
         }
     }
 
@@ -256,7 +256,7 @@ struct RunItemsView: View {
         let counts = RunItemsModel.counts(items, machineId: machineId)
         let kinds = RunItemsModel.filterKinds(counts)
         // A machine change can leave the picked kind with no page, or hide the tabs: draw by what can be seen.
-        let shownFilter = RunItemsModel.effectiveFilter(filter, kinds: kinds)
+        let shownFilter = RunItemsModel.effectiveFilter(filter, kinds: kinds, counts: counts)
         let partial = RunItemsModel.countsArePartial(items, machineId: machineId)
         if partial { note(Copy.RunCard.countsPartial) }
         if !kinds.isEmpty { filterTabs(kinds, counts: counts, selected: shownFilter) }
@@ -264,12 +264,16 @@ struct RunItemsView: View {
         ForEach(layout.sources) { source in
             RunSourceCard(source: source, context: context, openPage: $openPage, showingAll: $showingAll)
         }
+        ForEach(layout.steps) { group in
+            RunLeftoverCard(pages: group.pages, kind: .step(group.step), context: context,
+                            openPage: $openPage, showingAll: $showingAll)
+        }
         if !layout.leftover.isEmpty {
-            RunLeftoverCard(pages: layout.leftover, attributed: layout.attributed, context: context,
+            RunLeftoverCard(pages: layout.leftover, kind: .undated, context: context,
                             openPage: $openPage, showingAll: $showingAll)
         }
         if !layout.unlisted.isEmpty {
-            RunLeftoverCard(pages: layout.unlisted, attributed: true, kind: .unlisted, context: context,
+            RunLeftoverCard(pages: layout.unlisted, kind: .unlisted, context: context,
                             openPage: $openPage, showingAll: $showingAll)
         }
         if layout.isEmpty { note(Copy.RunCard.nothingListed) }
@@ -277,12 +281,13 @@ struct RunItemsView: View {
         if items.truncated && !partial { note(Copy.RunCard.moreNotListed) }
     }
 
-    /// All · New · Updated · Archived · Removed, with counts, only the kinds that happened (and none when one kind is
-    /// all there is). Single-select; a second tap returns to All (DR-45). Never the accent.
+    /// All · New · Updated · Archived · Removed · Faded, with counts, only the kinds that happened (and none when one kind
+    /// is all there is). All counts the pages that really changed; Faded is the trailing, quiet one — pages whose facts
+    /// only lost confidence to silence, never in All. Single-select; a second tap returns to All (DR-45). Never the accent.
     private func filterTabs(_ kinds: [SleepConsolidated.Change], counts: [SleepConsolidated.Change: Int],
                             selected: SleepConsolidated.Change?) -> some View {
         var tabs: [TextTab<SleepConsolidated.Change>] = [
-            TextTab(id: nil, label: Copy.RunCard.filterAll, count: counts.values.reduce(0, +))
+            TextTab(id: nil, label: Copy.RunCard.filterAll, count: RunItemsModel.changed(counts))
         ]
         for kind in kinds {
             tabs.append(TextTab(id: kind, label: Copy.RunCard.filterWord(kind), count: counts[kind]))
@@ -514,8 +519,8 @@ struct RunConversationRow: View {
             .accessibilityLabel(Copy.RunCard.openConversation(label))
             .task(id: "\(store?.bank ?? "")|\(c.id)") { await loadSiteIcon() }
             if !row.pages.isEmpty {
-                RunPageChips(pages: row.pages, groupId: c.id, context: context, openPage: $openPage,
-                             showingAll: $showingAll)
+                RunPageChips(pages: row.pages, groupId: c.id, parent: .init(conversation: c.id), context: context,
+                             openPage: $openPage, showingAll: $showingAll)
                     .padding(.leading, CicadaTheme.scaled(6) + (hasMarkSlot ? markSide + CicadaTheme.scaled(8) : 0))
             }
         }
@@ -548,28 +553,61 @@ struct RunConversationRow: View {
     }
 }
 
-/// The pages no conversation of the read stands behind — decay's archives, Sleep's own upkeep — in a card of their own,
-/// named in plain words and wearing Cicada's own mark. From an older backend (which cannot say who fed what) the same
-/// card holds every page, and says "Pages changed".
+/// The pages no conversation of the read stands behind, under the step that changed them (owner 2026-11-24: "what
+/// influenced this change?"): one card a step, named in plain words and wearing Cicada's own mark. Two more groups the
+/// backend makes when it cannot say a step or a conversation: the pages a conversation past its list fed, and — only from
+/// an older backend, which says neither — one card of every page.
 struct RunLeftoverCard: View {
-    enum Kind { case upkeep, unlisted }
+    enum Kind: Equatable {
+        case step(SleepConsolidated.Step)
+        case unlisted
+        /// An older backend: neither a conversation nor a step is said for any page.
+        case undated
+    }
 
     let pages: [SleepConsolidated.Page]
-    let attributed: Bool
-    var kind: Kind = .upkeep
+    let kind: Kind
     let context: RunBodyContext
     @Binding var openPage: String?
     @Binding var showingAll: Set<String>
 
-    static let groupId = "upkeep"
     static let unlistedGroupId = "unlisted"
+    static let undatedGroupId = "undated"
+
+    private var title: String {
+        switch kind {
+        case .step(let step): Copy.RunChange.stepTitle(step)
+        case .unlisted: Copy.RunCard.unlistedTitle
+        case .undated: Copy.RunCard.pagesTitle
+        }
+    }
+
+    private var groupId: String {
+        switch kind {
+        case .step(let step): "step.\(step.rawValue)"
+        case .unlisted: Self.unlistedGroupId
+        case .undated: Self.undatedGroupId
+        }
+    }
+
+    private var help: String {
+        switch kind {
+        case .step: Copy.RunChange.stepHelp
+        case .unlisted: Copy.RunCard.unlistedHelp
+        case .undated: ""
+        }
+    }
+
+    private var parent: RunPageChangeModel.Parent {
+        if case .step(let step) = kind { return .init(step: step) }
+        return .none
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             HStack(spacing: RunSourceCard.gap) {
-                if kind == .upkeep { OriginMark(origin: "cicada", size: RunSourceCard.markSize) }
-                Text(kind == .unlisted ? Copy.RunCard.unlistedTitle
-                        : attributed ? Copy.RunCard.upkeepTitle : Copy.RunCard.pagesTitle)
+                if case .step = kind { OriginMark(origin: "cicada", size: RunSourceCard.markSize) }
+                Text(title)
                     .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(1)
@@ -579,20 +617,22 @@ struct RunLeftoverCard: View {
                     .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
-            .help(kind == .unlisted ? Copy.RunCard.unlistedHelp : attributed ? Copy.RunCard.upkeepHelp : "")
+            .help(help)
             .accessibilityElement(children: .combine)
-            RunPageChips(pages: pages, groupId: kind == .unlisted ? Self.unlistedGroupId : Self.groupId, context: context, openPage: $openPage,
+            RunPageChips(pages: pages, groupId: groupId, parent: parent, context: context, openPage: $openPage,
                          showingAll: $showingAll)
         }
         .softCard(ground: .nested, inset: .roomy, fillsWidth: true)
     }
 }
 
-/// A conversation's (or the upkeep group's) pages as a flowing set of chips, eight before "+N more"; the chip a click
-/// opened shows what the read changed on it, in place, under the chips.
+/// A conversation's (or a step group's) pages as a flowing set of chips, eight before "+N more"; the chip a click opened
+/// shows what the read changed on it, in place, under the chips. `parent` is the card the chips sit under, so the opened
+/// change never says again what that card already said.
 struct RunPageChips: View {
     let pages: [SleepConsolidated.Page]
     let groupId: String
+    var parent: RunPageChangeModel.Parent = .none
     let context: RunBodyContext
     @Binding var openPage: String?
     @Binding var showingAll: Set<String>
@@ -629,9 +669,9 @@ struct RunPageChips: View {
                 }
             }
             if let open, !open.gone {
-                RunPageChange(page: open, label: RunItemGroups.pageLabel(open, names: names), commits: commits(open),
-                              onOpen: { context.onSelectEntity?(open.id) })
-                    .id(key(open))
+                RunPageChange(page: open, label: RunItemGroups.pageLabel(open, names: names), key: context.card.key,
+                              parent: parent, onOpen: { context.onSelectEntity?(open.id) })
+                    .id("\(context.card.id)|\(key(open))")
                     .transition(.opacity)
             }
         }
@@ -647,72 +687,7 @@ struct RunPageChips: View {
 
 // MARK: - What the read changed on a page
 
-/// What changed on one page: what the read did to it in words, the way to open the page, and one diff from before the
-/// read's first commit that touched it to after its last (`?since=`), in the History tab's `DiffView`, in a short window
-/// that scrolls so one long page never pushes the rest of the card away.
-struct RunPageChange: View {
-    let page: SleepConsolidated.Page
-    let label: String
-    /// The read's commits that changed the page, oldest first.
-    let commits: [String]
-    let onOpen: () -> Void
-
-    @State private var diff: EntityDiff?
-    @State private var failed = false
-    @Environment(\.runPageDiffLoader) private var loadDiff
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.scaled(6)) {
-            HStack(spacing: CicadaTheme.spacingSM) {
-                Text(Copy.RunCard.changeOn(label, page.change ?? .updated))
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .lineLimit(1)
-                Spacer(minLength: CicadaTheme.spacingSM)
-                InlineLink(title: Copy.RunCard.openPageAction, help: Copy.RunCard.openPage(label), action: onOpen)
-            }
-            change
-        }
-        .padding(.top, CicadaTheme.spacingXS)
-        .task(id: commits) { if diff == nil { await fetch() } }
-    }
-
-    @ViewBuilder
-    private var change: some View {
-        if let diff {
-            if DiffModel(diff).isEmpty {
-                Text(Copy.RunCard.noChange)
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-            } else {
-                ScrollView(.vertical) { DiffView(diff: diff) }
-                    .frame(height: Self.height(lines: DiffModel(diff).lines.count))
-                    .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgBase))
-                    .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
-                    .ringed(.resting, in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
-            }
-        } else if failed {
-            DiffView.error { Task { await fetch() } }
-        } else {
-            DiffView.loading
-        }
-    }
-
-    /// The diff's window: its rows' height up to twelve rows, then it scrolls.
-    static func height(lines: Int) -> CGFloat {
-        CicadaTheme.scaled(CGFloat(min(max(lines, 1), 12)) * 18 + 8)
-    }
-
-    private func fetch() async {
-        guard let until = commits.last else { return }
-        failed = false
-        do {
-            diff = try await loadDiff(page.id, until, commits.count > 1 ? commits.first : nil)
-        } catch {
-            failed = true
-        }
-    }
-}
+// `RunPageChange` and its parts: `RunPageChangeView.swift`.
 
 /// One question the read raised or settled; a click opens it in the Inbox.
 private struct ConsolidatedQuestionRow: View {

@@ -34,7 +34,7 @@ from typing import Callable
 from loguru import logger
 
 from api.config import Settings
-from api.services import ask_failure, ask_sources, json_parse, markdown_parser, section_provenance, text_fold
+from api.services import ask_failure, ask_sources, json_parse, markdown_parser, saved_words, section_provenance, text_fold
 from api.services.claims import current_day, is_current, is_event, is_record, parse_claims, stated_end, strip_claims_block
 
 RetrieveFn = Callable[[str, int], list[dict]]
@@ -1647,10 +1647,7 @@ def answer_query(
         return _gap_response(query)
     # A line only the vectors found never earns a model call by itself (the honest gap above), and is judged by it here.
     if saved or saved_near:
-        prompt += ("\n\nSAVED LINKS (links the person saved, found by the question's words or meaning: a line is about "
-                   "the question only when it means what the question asks. Each is a title and a link with no reason "
-                   "given; nobody has read them, so they say what exists, never what the person thinks or did. Name "
-                   "the link when it answers the question):\n" + "\n".join([*saved, *saved_near]))
+        prompt += "\n\n" + saved_words.ask_heading() + "\n" + "\n".join([*saved, *saved_near])
     if watched:
         from datetime import datetime
 

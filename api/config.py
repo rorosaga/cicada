@@ -183,6 +183,11 @@ class Settings(BaseSettings):
     cli_engine_model: str = ""                      # CICADA_CLI_ENGINE_MODEL
     cli_engine_disambiguation_model: str = ""       # CICADA_CLI_ENGINE_DISAMBIGUATION_MODEL
 
+    # Ruling 80 (G246, ``light_reads``): set only on the copy a batch of old bulk saves runs on, never by the environment —
+    # the person's own main model per field (``agent_model`` / ``litellm_model``), which the same-name second look
+    # (``same_name_tend.main_tier``) still reads with: accuracy on people over price on a bookmark.
+    kept_main_models: dict[str, str] = {}
+
     # Server
     host: str = "127.0.0.1"
     port: int = 8000

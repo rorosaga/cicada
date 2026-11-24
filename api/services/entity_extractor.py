@@ -1,6 +1,7 @@
 """Stage 1: Entity & Relationship Extraction via litellm."""
 
 import asyncio
+import contextlib
 import hashlib
 import re
 import sys
@@ -14,7 +15,7 @@ from tqdm import tqdm
 
 from api.config import Settings
 from api.services import (act_object, meeting_speakers, authorship, book_marks, contact_identity, turn_signals, correspondents, decay_policy, engine_errors, entity_types, episode_time,
-                          episode_revision, evidence, fact_policy, participation, phone_numbers, project_birth, promotion, saved_reading, section_provenance,
+                          episode_revision, evidence, fact_policy, grouped_save_read, participation, phone_numbers, project_birth, promotion, saved_reading, section_provenance,
                           sensitive_flags, source_dates)
 from api.services.json_parse import parse_json_object
 
@@ -820,6 +821,9 @@ def _member_of(content: str, start: int) -> str | None:
 #: names joined: a joined name would mint a new observer for every combination and split one belief across them,
 #: while the evidence spans already say exactly who said what. It is never the person's.
 GROUP_OBSERVER = "external:group"
+#: The key of an extraction result that came from a saved item (`saved_reading.applies`): `entities_to_claims` folds one fact
+#: two authors state into the first author's claim, never into Cicada's own reading.
+SAVED_KEY = "saved_item"
 
 
 def _observer_for(item: dict, their_observer: str | None, members: list[dict], content: str, *,
@@ -932,6 +936,49 @@ async def _extract_chunk(
             owner=owner, source_note=source_note, stage=stage,
             _attempt=_attempt + 1,
         )
+
+
+async def _extract_group(
+    texts: list[str],
+    settings: Settings,
+    *,
+    owner: str | None = None,
+    stage: str = "extraction",
+    _attempt: int = 0,
+) -> list[dict] | None:
+    """One call for several short saves of one origin (G246, Track 3; ``grouped_save_read``): the same Stage 1 prompt
+    and the same model, one result per save, or ``None`` when the answer does not line up exactly (or the model declined
+    the text, or the answer was malformed or timed out twice) — the caller then reads each save alone, so a bad grouped
+    answer costs money, never facts. An engine's own trouble (a limit, a sign-out, the network) is raised as it is for a
+    single read. Metered and limited under the same stage as a single read: no new stage."""
+    try:
+        from api.services.providers import resolve_llm_fn
+
+        llm_fn = resolve_llm_fn(settings, model=settings.litellm_model, completion=litellm.acompletion, stage=stage)
+        response = await llm_fn(
+            messages=[
+                {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT + grouped_save_read.GROUP_PROMPT + owner_block(owner)},
+                {"role": "user", "content": grouped_save_read.render(texts)},
+            ],
+            response_format={"type": "json_object"},
+            extra_body=EXTRACTION_EXTRA_BODY,
+            timeout=grouped_save_read.TIMEOUT_S,
+        )
+        aligned = grouped_save_read.align(_parse_json_lenient(response.choices[0].message.content), len(texts))
+    except ValueError:   # malformed (``EngineRefused`` is one too: the model declined this text, a read alone may not)
+        return None
+    except (litellm.exceptions.RateLimitError, litellm.exceptions.Timeout, *engine_errors.RETRYABLE) as e:
+        if _attempt < 1:
+            slow = isinstance(e, (litellm.exceptions.RateLimitError, engine_errors.EngineTimeout))
+            await asyncio.sleep(10 if slow else 2)
+            return await _extract_group(texts, settings, owner=owner, stage=stage, _attempt=_attempt + 1)
+        if isinstance(e, (engine_errors.EngineTimeout, engine_errors.EngineProtocolError, litellm.exceptions.Timeout)):
+            return None   # too much for one answer: each save may still read alone
+        raise
+    if aligned is not None:
+        logger.info(f"  grouped read: {len(texts)} saves in one call, {grouped_save_read.lifted(aligned, texts)} quote(s) "
+                    "taken from a neighbouring save")
+    return aligned
 
 
 async def extract(
@@ -1066,6 +1113,29 @@ async def extract(
 
     plan_ids = await engine_identity.aidentities(settings)
 
+    # G246 Track 3 (off until measured, `grouped_save_read.ON`): short saves of one origin read in one call. Each save is
+    # still prepared and finished alone below; only the model call is shared, and a group that does not answer exactly
+    # falls back to one call per save.
+    async def _read_group(members: list[tuple[int, str]]) -> grouped_save_read.Outcome:
+        if len(members) < 2:
+            return grouped_save_read.Outcome()
+        async with semaphore:
+            if cancel_check is not None and cancel_check():
+                return grouped_save_read.Outcome(skipped="cancel")
+            if stop_check is not None and stop_check():
+                return grouped_save_read.Outcome(skipped="stop")
+            aligned = await _extract_group([text for _i, text in members], settings, owner=owner, stage=stage)
+        if aligned is None:
+            logger.info(f"  grouped read of {len(members)} saves did not line up: reading each alone")
+            return grouped_save_read.Outcome()
+        return grouped_save_read.Outcome(parsed={i: result for (i, _t), result in zip(members, aligned)})
+
+    group_of: dict[int, grouped_save_read.Group] = {}
+    if stage == "extraction":
+        for indexes in grouped_save_read.plan(episodes):
+            meeting = grouped_save_read.Group(indexes, _read_group)
+            group_of.update({i: meeting for i in indexes})
+
     def _note_failed(episode: dict, exc: BaseException) -> None:
         if on_episode_failed is not None:
             try:
@@ -1100,6 +1170,21 @@ async def extract(
             # No LLM call needed, but record a zero-entity result so the Sleep
             # cycle marks this episode processed (done — nothing to extract)
             # instead of leaving it queued and re-scanning it every run.
+            results[i] = {
+                "episode_id": ep_id,
+                "episode_timestamp": episode.get("timestamp"),
+                "origin": episode.get("origin", "unknown"),
+                "entities": [],
+                "relationships": [],
+            }
+            success += 1
+            return
+
+        # Ruling 80 (G246): a saved link that holds nothing but a title, a link, a site and a day has nothing for a model
+        # to read — a call could only restate its title (ruling 62 measured 25 bookmarks costing 56 calls for that).
+        # It is filed with no entities and no call; what a public page says of itself is read by the page read
+        # (`link_enrichment`), and what the person says of it by the conversation that names it.
+        if saved_reading.nothing_to_read(episode):
             results[i] = {
                 "episode_id": ep_id,
                 "episode_timestamp": episode.get("timestamp"),
@@ -1193,7 +1278,16 @@ async def extract(
         # The owner, 2026-10-28: replies, reactions, forwards and unsends, told to each chunk they fall in.
         signals = list(episode.get("signals") or [])
 
-        async with semaphore:
+        # A group's member whose own preparation says it needs a read of its own (more than one chunk, an edit since it
+        # was read, a book's marks) reads alone, and the others no longer wait for it.
+        shared = group_of.get(i)
+        if shared is not None and (len(chunks) != 1 or revision is not None or book or gaps or signals):
+            shared.leave(i)
+            shared = None
+        # A member waits for its group's one call without holding a slot (the call holds one); a read of its own does.
+        slot = contextlib.nullcontext() if shared is not None else semaphore
+
+        async with slot:
             # Sleep-control checkpoint 2: this task may have waited a while
             # for a slot to free up — re-check right after acquiring one, so
             # a cancel that arrived during that wait still stops it before
@@ -1224,20 +1318,35 @@ async def extract(
                 all_relationships = []
                 all_values = []
                 held_participation = 0
+                together: dict | None = None
+                if shared is not None:
+                    # One call for the group, its answer split per save: this save's own result, or none when the group's
+                    # answer did not line up (then it is read alone below, exactly as ever).
+                    outcome = await shared.join(i, (date_note or "") + (source_note or "") + chunks[0])
+                    if outcome.skipped == "cancel":
+                        return
+                    if outcome.skipped == "stop":
+                        _note_skipped(episode)
+                        return
+                    together = (outcome.parsed or {}).get(i)
                 for ci, chunk in enumerate(chunks):
                     note = _gap_note(gaps, *spans[ci])
                     signal_note = turn_signals.chunk_note(signals, *spans[ci]) if signals else None
                     chunk_note = (source_note or "") + (signal_note or "")
-                    parsed = await _extract_chunk(
-                        ep_id, chunk, ci, len(chunks), settings,
-                        # Only a memory episode carries a note; every other call keeps its shape.
-                        **({"source": "claude_memory"} if episode.get("source") in MEMORY_SOURCES else {}),
-                        **({"gap_note": note} if note else {}),
-                        **({"date_note": date_note} if date_note else {}),
-                        **({"owner": owner} if owner else {}),
-                        **({"source_note": chunk_note} if chunk_note else {}),
-                        **({"stage": stage} if stage != "extraction" else {}),
-                    )
+                    if together is not None:
+                        parsed = together
+                    else:
+                        async with (semaphore if shared is not None else contextlib.nullcontext()):
+                            parsed = await _extract_chunk(
+                                ep_id, chunk, ci, len(chunks), settings,
+                                # Only a memory episode carries a note; every other call keeps its shape.
+                                **({"source": "claude_memory"} if episode.get("source") in MEMORY_SOURCES else {}),
+                                **({"gap_note": note} if note else {}),
+                                **({"date_note": date_note} if date_note else {}),
+                                **({"owner": owner} if owner else {}),
+                                **({"source_note": chunk_note} if chunk_note else {}),
+                                **({"stage": stage} if stage != "extraction" else {}),
+                            )
                     all_entities.extend(parsed.get("entities", []))
                     chunk_rels = [r for r in (parsed.get("relationships", []) or []) if isinstance(r, dict)]
                     # G118: verify the cited passage against the body this
@@ -1403,6 +1512,8 @@ async def extract(
                     "relationships": all_relationships,
                     "values": all_values,
                 }
+                if saved:
+                    results[i][SAVED_KEY] = True   # a saved item's claims fold across authors (`entities_to_claims`)
                 if said_books:
                     results[i][book_said.KEY] = said_books
                 if placeholders:
@@ -1482,6 +1593,8 @@ async def extract(
             else:
                 await _do_process(i, episode)
         finally:
+            if (shared_group := group_of.get(i)) is not None:
+                shared_group.leave(i)   # a member that never reached its group's call must not hold the others up
             progress.update(1)
             if progress_callback is not None:
                 progress_callback()
@@ -1580,6 +1693,7 @@ def entities_to_claims(
 
     claims: list = []
     by_id: dict[str, Claim] = {}
+    from_saves: set[str] = set()   # ids of claims a saved item's author made (an `external:` observer from a save)
     for extraction in extracted:
         episode_id = str(extraction.get("episode_id", "") or "")
         origin = str(extraction.get("origin") or "unknown")
@@ -1633,8 +1747,15 @@ def entities_to_claims(
                         first.evidence.append(ev)
                 first.reactions = clean_reactions(first.reactions + list(rel.get("reactions") or []))
                 if first.observer != observer:
-                    # G179: the person's own words (or Cicada's reading) back it too — no longer only theirs.
-                    first.observer = "agent"
+                    if cid in from_saves and extraction.get(SAVED_KEY) and observer.startswith("external:"):
+                        # Two authors state one fact (two saved posts, G246): it stays the first author's with both
+                        # sources, as Stage 3 folds it (`saves_bounded.fold_target`) — never Cicada's own reading, which
+                        # would take it out of the saves' bound.
+                        if ep and ep not in first.source_episodes:
+                            first.source_episodes.append(ep)
+                    else:
+                        # G179: the person's own words (or Cicada's reading) back it too — no longer only theirs.
+                        first.observer = "agent"
                 first.expected_end = first.expected_end or expected_end
                 continue
             claim = Claim(
@@ -1667,6 +1788,8 @@ def entities_to_claims(
                 setattr(claim, "premise_at", to_id(at))
             by_id[cid] = claim
             claims.append(claim)
+            if extraction.get(SAVED_KEY) and observer.startswith("external:"):
+                from_saves.add(cid)
         for value in extraction.get("values", []) or []:
             claim = _value_claim(value, episode_id, origin, to_id)
             if claim is None:

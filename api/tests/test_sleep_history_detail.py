@@ -95,7 +95,9 @@ def test_get_sleep_history_returns_counts_kind_and_respects_limit(bank):
     rows = asyncio.run(git_service.get_sleep_history(bank, limit=10))
     assert [r.kind for r in rows] == ["decay", "sleep"]      # newest first; the State snapshot is not a cycle
     cycle = rows[1]
-    assert (cycle.entities_created, cycle.entities_updated, cycle.episodes, cycle.sessions) == (1, 2, 2, 2)
+    # Owner 2026-11-24: the counts are pages really changed (git's own patch), not the manifest's lines — this commit's
+    # body names three pages but its tree adds one.
+    assert (cycle.entities_created, cycle.entities_updated, cycle.episodes, cycle.sessions) == (1, 0, 2, 2)
     assert cycle.authors == ["gpt-5.4-mini"] and cycle.engine == "litellm"
     assert cycle.files_changed[0] == "entities/alpha-project.md"
     assert cycle.duration_ms is None                          # telemetry is off in the suite
@@ -124,7 +126,8 @@ def test_get_sleep_history_is_cached_per_head(bank, monkeypatch):
     orig = git_service._run_git
 
     async def counting(memory_path, *args):
-        calls.append(args[0])
+        if args[0] == "log" and "--grep=^Sleep cycle" in args:   # the history list's own read
+            calls.append(args[0])
         return await orig(memory_path, *args)
 
     monkeypatch.setattr(git_service, "_run_git", counting)

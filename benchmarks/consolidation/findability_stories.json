@@ -1,0 +1,430 @@
+{
+ "about": "Invented. People and things said once, in the states they can be in after Sleep. Conversations in `conversations` are read by Sleep, `unread` are staged after it, `quiet` are saved links with no conversation. `stories` are the questions (own words, rewording, partial) and the words any answer must hold.",
+ "owner": "Elena Marsh",
+ "conversations": [
+  {
+   "id": "f1",
+   "phase": 1,
+   "day": -30,
+   "title": "Hiking plan",
+   "turns": [
+    "I want to plan a two-day hike in the Dolomites in June, maybe around the Tre Cime. Any advice on huts?",
+    "Book huts early; Rifugio Locatelli fills up months ahead. Two days works well with one night at a hut.",
+    "Good. Tomas will come too, he has done a lot of hiking, and we have two weeks of leave then.",
+    "Then book the hut as soon as dates are fixed."
+   ],
+   "lang": "en"
+  },
+  {
+   "id": "f2",
+   "phase": 1,
+   "day": -27,
+   "title": "Sourdough",
+   "turns": [
+    "My sourdough starter is sluggish since I moved it to the cold kitchen. What can I do?",
+    "Feed it twice a day with warm water and keep it near the oven light overnight.",
+    "I'll try the oven light trick tonight."
+   ],
+   "lang": "en"
+  },
+  {
+   "id": "f3",
+   "phase": 1,
+   "day": -12,
+   "title": "Quarterly report",
+   "turns": [
+    "I need to finish the quarterly report for the logistics team at Hartwell by Friday and the numbers on returns look odd.",
+    "Check whether returns are counted by order date or by receipt date; mixed dates are the usual cause.",
+    "They are mixed. I'll fix the query and rerun it.",
+    "Good, then compare to the previous quarter after the fix."
+   ],
+   "lang": "en"
+  },
+  {
+   "id": "p1",
+   "phase": 1,
+   "day": -20,
+   "title": "Guitar lessons",
+   "turns": [
+    "Tomas started lessons with a Portuguese guitar teacher on Thursday evenings, and the guitar teacher plays fado in a bar on weekends.",
+    "That sounds like a lovely way to learn. What does Tomas want to play?",
+    "The Portuguese guitar teacher told Tomas to start with simple fado chords. The guitar teacher says it takes a year to get the feel for the ornamentation.",
+    "Is Tomas practicing at home?",
+    "Yes, every evening for twenty minutes, and the Portuguese guitar teacher gave him a worksheet of chord changes to work through.",
+    "That is a good routine. Does the guitar teacher teach in person?",
+    "In person, in a studio above a bakery. The Portuguese guitar teacher charges forty euros an hour."
+   ],
+   "lang": "en"
+  },
+  {
+   "id": "p2",
+   "phase": 1,
+   "day": -18,
+   "title": "Bike",
+   "turns": [
+    "My bike chain keeps slipping. The neighbour with the green van repairs bicycles on Sundays, I might ask him.",
+    "That is a sensible idea, a worn chain or cassette is the usual cause."
+   ],
+   "lang": "en"
+  },
+  {
+   "id": "p3",
+   "phase": 1,
+   "day": -16,
+   "title": "Natación",
+   "turns": [
+    "Mi hija empezó clases de natación en septiembre con la profesora de natación de la piscina municipal.",
+    "¡Qué bien! ¿Cómo le va?",
+    "La profesora de natación dice que mi hija ya flota de espalda. La profesora de natación es muy paciente con los niños.",
+    "¿Cuántas veces por semana van?",
+    "Los martes y los sábados. La profesora de natación quiere que practique las patadas en casa, en la bañera.",
+    "Es un buen consejo.",
+    "Sí, y la profesora de natación nos recomendó unas gafas pequeñas con goma suave."
+   ],
+   "lang": "es"
+  },
+  {
+   "id": "p4",
+   "phase": 1,
+   "day": -15,
+   "title": "Regal",
+   "turns": [
+    "Der Tischler aus dem Nachbarort baut mir ein Regal aus Eiche für das Arbeitszimmer.",
+    "Eiche ist robust und sieht schön aus. Wann soll es fertig sein?"
+   ],
+   "lang": "de"
+  },
+  {
+   "id": "p6",
+   "phase": 1,
+   "day": -14,
+   "title": "Fuite",
+   "turns": [
+    "Le plombier de ma tante viendra mardi pour réparer la fuite sous l'évier.",
+    "Bonne idée, une fuite sous l'évier peut abîmer le meuble si on attend."
+   ],
+   "lang": "fr"
+  },
+  {
+   "id": "t1",
+   "phase": 1,
+   "day": -13,
+   "title": "Label printer",
+   "turns": [
+    "I bought a Brother QL-800 label printer for the garage shelves, it prints on rolls of 62 mm tape.",
+    "Nice choice. Are you using it with the desktop app?",
+    "Yes, the Brother QL-800 label printer works over USB. I labelled all the garage boxes with it on Saturday.",
+    "Does it cut the labels automatically?",
+    "The Brother QL-800 label printer cuts each label automatically. I like that the Brother QL-800 label printer needs no ink, only thermal tape.",
+    "Thermal tape fades in sunlight though, keep that in mind.",
+    "Right, so the Brother QL-800 label printer stays for indoor shelves only."
+   ],
+   "lang": "en"
+  },
+  {
+   "id": "t2",
+   "phase": 1,
+   "day": -11,
+   "title": "Dinner",
+   "turns": [
+    "There is a tiny ramen place near Linden station that closes at nine, we might go there tomorrow.",
+    "Arrive early then, small places often stop taking orders before closing."
+   ],
+   "lang": "en"
+  },
+  {
+   "id": "t5",
+   "phase": 1,
+   "day": -10,
+   "title": "Lectura",
+   "turns": [
+    "Estoy leyendo un libro sobre mareas que habla de la luna llena y las mareas vivas.",
+    "Las mareas vivas ocurren con luna nueva y luna llena, cuando el sol y la luna se alinean."
+   ],
+   "lang": "es"
+  }
+ ],
+ "unread": [
+  {
+   "id": "p5",
+   "day": -4,
+   "title": "Shoulder",
+   "turns": [
+    "The physiotherapist who treated my shoulder said I should swim twice a week to keep it loose.",
+    "Swimming is gentle on the shoulder, freestyle and backstroke especially."
+   ],
+   "lang": "en"
+  },
+  {
+   "id": "t4",
+   "day": -3,
+   "title": "Café",
+   "turns": [
+    "Das kleine Café am Hafen hat sonntags Streuselkuchen, den will ich unbedingt probieren.",
+    "Streuselkuchen ist ein Klassiker, am besten noch warm."
+   ],
+   "lang": "de"
+  }
+ ],
+ "quiet": [
+  {
+   "url": "https://example.com/tide-pool-handbook",
+   "title": "The Tide Pool Handbook"
+  }
+ ],
+ "stories": [
+  {
+   "id": "p1",
+   "kind": "person",
+   "lang": "en",
+   "want": "page",
+   "queries": [
+    "the Portuguese guitar teacher",
+    "who teaches Tomas guitar?",
+    "guitar teacher"
+   ],
+   "expect": [
+    [
+     "thursday",
+     "fado",
+     "bakery"
+    ]
+   ],
+   "marks": [
+    "guitar teacher"
+   ]
+  },
+  {
+   "id": "p2",
+   "kind": "person",
+   "lang": "en",
+   "want": "held",
+   "queries": [
+    "the neighbour with the green van",
+    "who could repair my bike chain?",
+    "green van"
+   ],
+   "expect": [
+    [
+     "bicycle",
+     "bike"
+    ]
+   ],
+   "marks": [
+    "green van"
+   ]
+  },
+  {
+   "id": "p3",
+   "kind": "person",
+   "lang": "es",
+   "want": "page",
+   "queries": [
+    "la profesora de natación de mi hija",
+    "¿quién le enseña a nadar a mi hija?",
+    "profesora de natación"
+   ],
+   "expect": [
+    [
+     "piscina municipal",
+     "patadas",
+     "municipal pool",
+     "kicks"
+    ]
+   ],
+   "marks": [
+    "swimming teacher",
+    "profesora de natación"
+   ]
+  },
+  {
+   "id": "p4",
+   "kind": "person",
+   "lang": "de",
+   "want": "held",
+   "queries": [
+    "der Tischler aus dem Nachbarort",
+    "wer baut mir das Regal?",
+    "Tischler"
+   ],
+   "expect": [
+    [
+     "eiche",
+     "oak"
+    ]
+   ],
+   "marks": [
+    "carpenter",
+    "tischler"
+   ]
+  },
+  {
+   "id": "p5",
+   "kind": "person",
+   "lang": "en",
+   "want": "unread",
+   "queries": [
+    "the physiotherapist who treated my shoulder",
+    "who helped with my shoulder injury?",
+    "physiotherapist"
+   ],
+   "expect": [
+    [
+     "twice a week"
+    ]
+   ],
+   "marks": [
+    "physiotherapist"
+   ]
+  },
+  {
+   "id": "p6",
+   "kind": "person",
+   "lang": "fr",
+   "want": "held",
+   "queries": [
+    "le plombier de ma tante",
+    "qui répare la fuite sous l'évier ?",
+    "plombier"
+   ],
+   "expect": [
+    [
+     "mardi",
+     "leak",
+     "fuite"
+    ]
+   ],
+   "marks": [
+    "plumber",
+    "plombier"
+   ]
+  },
+  {
+   "id": "t1",
+   "kind": "thing",
+   "lang": "en",
+   "want": "page",
+   "queries": [
+    "the Brother label printer in the garage",
+    "what do I use to print labels for the garage boxes?",
+    "label printer"
+   ],
+   "expect": [
+    [
+     "ql-800",
+     "thermal",
+     "62 mm"
+    ]
+   ],
+   "marks": [
+    "ql-800"
+   ]
+  },
+  {
+   "id": "t2",
+   "kind": "thing",
+   "lang": "en",
+   "want": "held",
+   "queries": [
+    "the tiny ramen place near Linden station",
+    "where can I eat noodles near the station?",
+    "ramen place"
+   ],
+   "expect": [
+    [
+     "nine",
+     "9"
+    ]
+   ],
+   "marks": [
+    "ramen",
+    "linden station"
+   ]
+  },
+  {
+   "id": "t3",
+   "kind": "thing",
+   "lang": "en",
+   "want": "quiet",
+   "queries": [
+    "the Tide Pool Handbook",
+    "that guide I saved about the seashore",
+    "tide pool"
+   ],
+   "expect": [
+    [
+     "tide pool handbook",
+     "tide-pool"
+    ]
+   ],
+   "marks": [
+    "tide pool"
+   ]
+  },
+  {
+   "id": "t4",
+   "kind": "thing",
+   "lang": "de",
+   "want": "unread",
+   "queries": [
+    "das kleine Café am Hafen",
+    "wo gibt es sonntags Kuchen?",
+    "Café am Hafen"
+   ],
+   "expect": [
+    [
+     "streuselkuchen",
+     "crumb cake",
+     "streusel"
+    ]
+   ],
+   "marks": [
+    "streuselkuchen",
+    "café am hafen"
+   ]
+  },
+  {
+   "id": "t5",
+   "kind": "thing",
+   "lang": "es",
+   "want": "held",
+   "queries": [
+    "el libro sobre mareas",
+    "¿qué estoy leyendo sobre el mar?",
+    "libro mareas"
+   ],
+   "expect": [
+    [
+     "mareas vivas",
+     "luna llena",
+     "full moon",
+     "spring tides"
+    ]
+   ],
+   "marks": [
+    "spring tides",
+    "mareas"
+   ]
+  }
+ ],
+ "gold": {
+  "points": [],
+  "updates": [],
+  "forbid": [],
+  "people": {
+   "same": [],
+   "apart": [],
+   "apart_facts": [],
+   "one": []
+  },
+  "pages": {
+   "expected": [],
+   "not_expected": []
+  },
+  "dated": [],
+  "secret": "",
+  "apart_values": [],
+  "roles": [],
+  "fading": []
+ }
+}

@@ -88,10 +88,12 @@ def test_x_reposts_is_a_list_like_x_likes_off_until_turned_on():
     assert saved_lists.base_of("x-reposts") == saved_lists.pause_key("x-reposts") == "x"
 
 
-def test_a_repost_save_is_index_only_by_its_own_origin_and_never_read_by_a_model():
-    """The gate: with the origin missing from `history_index.LIST_ORIGINS` Sleep would read every repost with a model."""
+def test_a_repost_is_a_list_save_by_its_own_origin():
+    """The gate (ruling 80): the origin is in `history_index.LIST_ORIGINS`, so a repost is a save by its record — the person's
+    act, found, asked about when he talks about it — and waits its turn in the pile when it arrives in bulk."""
     assert "x-reposts" in history_index.LIST_ORIGINS
-    assert history_index.kind({"origin": "x-reposts", "folder": "Reposts"}) == "list"
+    assert history_index.save_shaped({"origin": "x-reposts", "folder": "Reposts"}) == "list"
+    assert history_index.kind({"origin": "x-reposts", "folder": "Reposts", "processed": True, "processed_by": "index"}) == "list"
 
 
 def test_every_list_has_a_kind_and_only_the_special_lists_are_not_posts():
@@ -139,7 +141,7 @@ def test_a_row_the_person_wrote_is_dropped_and_counted_never_filed_as_a_repost(r
     assert id_utils.page_lists(page.frontmatter) == ["Reposts"]
     ep = markdown_parser.parse(memory / "episodes" / f"{entry['episode_id']}.md").frontmatter
     assert (ep["origin"], ep["folder"]) == ("x-reposts", "Reposts")
-    assert ep["processed"] is True and ep["processed_by"] == history_index.INDEXED_BY and history_index.kind(ep) == "list"
+    assert ep["processed"] is False and history_index.save_state(ep) == "waiting"   # ruling 80: one repost is read tonight
 
 
 def test_a_read_that_showed_only_the_persons_own_posts_is_a_read_with_nothing_new_not_a_failure(reading):
@@ -417,7 +419,7 @@ def test_reposts_is_a_stream_of_its_own_kind_on_xs_page_with_a_switch_that_start
     reposts = streams()["x.reposts"]
     assert (reposts["label"], reposts["kind"], reposts["how"], reposts["state"]) == ("Reposts", "reposted", "browser", "off")
     assert reposts["kind"] in source_streams.KINDS and reposts["switch"] == {"setting": "savedLists", "key": "x-reposts"}
-    assert reposts["depth"] == "index", "a repost is kept and found, read by no model until the person talks about it"
+    assert reposts["depth"] == "read", "a repost is the person's own act and is read by Sleep like any save (ruling 80)"
     assert client.put("/reading/settings", json={"savedLists": {"x-reposts": True}}).status_code == 200
     assert streams()["x.reposts"]["state"] == "on" and streams()["x.bookmarks"]["state"] == "off"
 

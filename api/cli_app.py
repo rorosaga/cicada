@@ -748,6 +748,8 @@ def cmd_sleep_options(boot, args) -> Result:
         changes["reservePct"] = None if args.reserve.strip().lower() == "off" else _int(args.reserve, "--reserve")
     if args.spend_limit is not None:
         changes["spendLimitUsd"] = None if args.spend_limit.strip().lower() == "off" else _usd(args.spend_limit, "--spend-limit")
+    if args.light_old_saves is not None:
+        changes["lightOldSaves"] = _on_off(args.light_old_saves)
     if changes:
         require_person("Changing how Sleep reads")
         opts = call(boot, "PUT", "/sleep/run-options", body=changes)
@@ -759,6 +761,8 @@ def cmd_sleep_options(boot, args) -> Result:
             f"{'on' if opts.get('continueAfterReset') else 'off'}; reserve: "
             f"{'off' if reserve is None else str(reserve) + '%'}; a key's spending limit: "
             f"{'off' if spend is None else f'${spend:g} a run'}")
+    if "lightOldSaves" in opts:
+        text += f"; old saves on the lightest model: {'on' if opts.get('lightOldSaves') else 'off'}"
     return Result(text=text, data=opts, warnings=_warn(boot))
 
 

@@ -89,7 +89,7 @@ extension Copy {
         static let instagramHonest = "Your own agent on this Mac can read your Saved posts in your signed-in browser — "
             + "turn on the list below. Or import a data export."
         static let savedListOff = "Your own agent reads this list in your signed-in browser, at most 10 times a day. "
-            + "Saved posts are kept for lookup, never read."
+            + "Sleep then reads the posts it brings in, a few a night, newest first."
         static func readSavedList(_ site: String) -> String {
             switch site {
             case "x": "Read my Bookmarks in my browser"

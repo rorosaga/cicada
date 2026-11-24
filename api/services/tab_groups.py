@@ -125,7 +125,10 @@ def sync(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict:
             title=heading, source_id=sid, source="tab-group", origin=origin_for(browser),
             body=body_for(title, color, browser, tabs[:MAX_TABS], total=len(tabs)),
             extra={"browser": browser, "profile": profile, "tab_group_color": color},
-            # Ruling 62: a group's title and links are a save with no reason: indexed, read by no model.
+            # Ruling 80: a group is a save, its title and tabs its own words: read once, by Sleep, tonight when it is one
+            # of a few, in the pile when a browser's whole set arrives at once. A later change to the group is an update
+            # in place, never a second read (`EpisodeDraft.save_entry`). `queue_for_sleep=False` is ruling 62's
+            # (kill switch `history_index.SAVES_READ`): indexed, read by no model.
             queue_for_sleep=False, processed_by=history_index.INDEXED_BY,
             writer=SCRUB_WRITER))
         posted.add(sid)
@@ -134,8 +137,12 @@ def sync(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict:
     episodes_dir.mkdir(parents=True, exist_ok=True)
     with episode_staging.STAGE_LOCK:
         index, _ = episode_staging.scan(episodes_dir)
-        gone = sorted(sid for sid, entry in index.items()
-                      if sid.startswith(prefix) and sid not in posted and not entry.fm.get("source_deleted_at"))
+        # Ruling 80: a group new to the bank is read tonight, unless a browser's whole set of them arrives at once.
+        entry = "pile" if sum(1 for d in drafts if d.source_id not in index) > history_index.BULK_ITEMS else "waiting"
+        for d in drafts:
+            d.save_entry = entry
+        gone = sorted(sid for sid, held in index.items()
+                      if sid.startswith(prefix) and sid not in posted and not held.fm.get("source_deleted_at"))
         result = episode_staging.stage(drafts, episodes_dir, deleted_source_ids=gone, bank=bank)
     episode_scrub.record(SCRUB_WRITER, scrubbed, bank=bank)
     return {"created": result.created, "updated": result.updated, "unchanged": result.skipped,

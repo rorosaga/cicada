@@ -135,10 +135,10 @@ def test_the_remote_door_without_the_sources_scope_gets_nothing_new(bank):
 
 
 def test_an_index_only_save_is_found_but_never_read_by_the_model(bank):
-    """Ruling 62: a save with no reason is indexed; its body reaches no model for a retrieval hit."""
+    """Ruling 62, 80: a save waiting its turn in the pile is indexed; its body reaches no model for a retrieval hit."""
     body = ("A saved link about the garden project ideas.\n" + "Distinctive-body-sentence-zebra " * 40)
-    _episode(bank, "ep_2026-11-02_001", [body], title="Garden saved link", source="chrome",
-             origin="chrome-bookmark", url="https://example.com/garden")
+    _episode(bank, "ep_2026-11-02_001", [body], title="Garden saved link", source="chrome", processed=True,
+             processed_by="index", origin="chrome-bookmark", url="https://example.com/garden")
     assert history_index.is_index_only(markdown_parser.parse(bank / "episodes" / "ep_2026-11-02_001.md").frontmatter)
     _reindex(bank)
     found = ask_sources.search(bank, QUESTION)
@@ -359,7 +359,8 @@ def test_recall_quotes_no_index_only_save_and_no_locked_note_as_a_conversation(b
 
     _episode(bank, "ep_2026-11-02_001", ["A saved link about the garden project ideas.\n"
                                          + "Distinctive-body-sentence-zebra " * 40],
-             title="Garden saved link", source="chrome", origin="chrome-bookmark", url="https://example.com/garden")
+             title="Garden saved link", source="chrome", processed=True, processed_by="index",
+             origin="chrome-bookmark", url="https://example.com/garden")
     _episode(bank, "ep_2026-11-03_001", [NOTE])
     _reindex(bank)
     ctx = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="s", harness="test")

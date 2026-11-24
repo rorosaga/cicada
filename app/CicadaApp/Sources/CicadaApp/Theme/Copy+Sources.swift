@@ -189,9 +189,15 @@ extension Copy {
         }
     }
 
-    /// Owner 2026-11-23 — the kept-for-lookup card's words (`KeptForLookupCard`).
+    /// Owner 2026-11-23 — the last Waiting card's words (`KeptForLookupCard`); ruling 80 (2026-11-24) changed what it holds:
+    /// the older saves Sleep has not read yet.
     enum Kept {
-        static let explanation = "Saved with no reason. Search, Ask and your agents can find these; Sleep reads one when you talk about it."
+        static func explanation(perNight: Int?, _ locale: Locale = .autoupdatingCurrent) -> String {
+            let pace = perNight.map { "Sleep reads about \(UsageFormat.count($0, locale: locale)) a night" }
+                ?? "Sleep reads some every night"
+            return "Older saves, not read yet. \(pace), newest first, and one first when you talk about it. "
+                + "Search, Ask and your agents can find them meanwhile."
+        }
         static let failed = "Couldn't load these."
         static func showMore(shown: Int, of total: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
             "Show more (\(UsageFormat.count(shown, locale: locale)) of \(UsageFormat.count(total, locale: locale)))"

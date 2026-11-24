@@ -68,6 +68,7 @@
     }
   ],
   "kept": 0,
+  "keptPerNight": 100,
   "offset": 0,
   "total": 6
 }

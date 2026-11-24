@@ -179,7 +179,7 @@ def test_a_read_keeps_a_name_a_handle_a_link_and_a_day_and_nothing_else_outside_
         {"name": "Reserved", "url": f"{X}/settings"},
     ], handle="alex_example", profile_url=f"{X}/alex_example", reached_end=True)
     assert "3 new" in out and "4 row(s) were not an account's own profile link" in out, out
-    assert "never read by a model" in out and "never makes a page" in out
+    assert "never read" in out and "did not save them" in out and "never makes a page" in out
     rows = _rows(memory)
     assert set(rows) == {"erin_example", "acme_labs", "bare_handle"}
     assert set(rows["erin_example"]) == {"handle", "name", "url", "first_seen", "since", "last_seen"}, "no bio, count or picture"

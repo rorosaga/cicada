@@ -261,14 +261,17 @@ final class SleepSourceCardsSnapshotTests: XCTestCase {
         let machines = [MachineStatus(deviceId: nil, name: "saga-01", role: "server", connected: true, how: "local",
                                       queue: 0, current: true, home: true),
                         MachineStatus(deviceId: "device-a", name: "device-a", connected: true, how: "tailscale", queue: 0)]
-        let diff = EntityDiff(added: "", removed: "", lines: [
-            .init(kind: "hunk", text: "@@ -12,4 +12,5 @@"),
-            .init(kind: "context", oldLine: 12, newLine: 12, text: "## Where it stands"),
-            .init(kind: "remove", oldLine: 13, text: "The release waits on the installer."),
-            .init(kind: "add", newLine: 13, text: "The installer is done; the release waits on the signing key."),
-            .init(kind: "add", newLine: 14, text: "Testers get the notes the same day."),
-            .init(kind: "context", oldLine: 14, newLine: 15, text: ""),
-        ])
+        // The page changes the shared fixtures hold (fed, step, faded) and one richer synthetic page (`rich`).
+        let changes = try fixture([String: SleepPageChange].self, "sleep-page-change.json")
+        let rich = try JSONDecoder().decode(SleepPageChange.self, from: Data(Self.richChange.utf8))
+        let loader: RunPageChangeLoader = { _, page in
+            switch page {
+            case "upd-one": return try XCTUnwrap(changes["fed"])
+            case "solo-two": return try XCTUnwrap(changes["step"])
+            case "faded-one": return try XCTUnwrap(changes["faded"])
+            default: return rich
+            }
+        }
 
         for mode in [AppColorScheme.light, .dark] {
             CicadaTheme.mode = mode
@@ -276,7 +279,7 @@ final class SleepSourceCardsSnapshotTests: XCTestCase {
             func write<V: View>(_ view: V, _ height: CGFloat, _ file: String) throws {
                 let framed = view
                     .padding(.horizontal, CicadaTheme.spacingXL)
-                    .environment(\.runPageDiffLoader, { _, _, _ in diff })
+                    .environment(\.runPageChangeLoader, loader)
                 try snapshot(framed, size: CGSize(width: 1_040 + 2 * 24, height: height), mode: mode, store: store, vm: vm,
                              to: URL(fileURLWithPath: dir).appendingPathComponent("\(file)-\(name).png"))
             }
@@ -291,12 +294,77 @@ final class SleepSourceCardsSnapshotTests: XCTestCase {
             try write(history(), 430, "past-sleeps")
             try write(history(expandedRun: "sleep_leg1", only: 1), 1_560, "past-sleeps-open")
             try write(history(expandedRun: "sleep_leg1", filter: .archived, only: 1), 760, "past-sleeps-open-archived")
-            try write(history(expandedRun: "sleep_leg1", page: "ep_2026-10-01_001|upd-one", only: 1), 1_560,
+            try write(history(expandedRun: "sleep_leg1", page: "ep_2026-10-01_001|upd-one", only: 1), 2_000,
                       "past-sleeps-open-change")
+            try write(history(expandedRun: "sleep_leg1", page: "ep_2026-10-01_000|new-one", only: 1), 2_300,
+                      "past-sleeps-open-change-rich")
+            try write(history(expandedRun: "sleep_leg1", filter: .updated, page: "step.conflict|solo-two", only: 1), 1_000,
+                      "past-sleeps-open-change-step")
+            try write(history(expandedRun: "sleep_leg1", filter: .faded, page: "step.decay|faded-one", only: 1), 620,
+                      "past-sleeps-open-faded")
             try write(history(expandedRun: "sleep_leg1", machineId: "device-a", only: 1), 620, "past-sleeps-machine")
             try write(history(expanded: "bbb2222", only: 2), 900, "past-sleeps-older-backend")
         }
     }
+
+    /// A page a conversation fed, richer than the shared fixture: two new facts (one from a conversation the card is not
+    /// under), a fact that changed in three ways, a fact withdrawn, a heading with a list, an edited paragraph with a link
+    /// and an added alias. Synthetic names only.
+    static let richChange = """
+    {"change": "updated", "empty": false, "truncated": false, "otherDetails": 2,
+     "page": {"id": "new-one", "name": "New One", "type": "concept", "gone": false, "change": "updated",
+              "commits": ["0000000000000000000000000000000000000000"], "episodes": ["ep_2026-10-01_000", "ep_2026-10-01_003"],
+              "steps": ["reading"]},
+     "conversations": [
+       {"id": "ep_2026-10-01_000", "title": "Conversation 1", "origin": "claude-code", "timestamp": "2026-10-01T10:00:00", "inRun": true},
+       {"id": "ep_2026-10-01_003", "title": "Conversation 4", "origin": "hex", "timestamp": "2026-10-01T10:30:00", "inRun": true,
+        "meeting": {"app": "call-app", "attendees": 2, "durationS": 1800}}],
+     "facts": {"counts": {"added": 2, "changed": 1, "withdrawn": 1}, "faded": 3, "truncated": false,
+       "added": [
+         {"conversation": "ep_2026-10-01_000", "inRun": true, "changes": [],
+          "claim": {"id": "c1", "text": "New One ships a first release at the end of the month.", "subject": "new-one",
+                    "predicate": "ships", "object": "first release", "confidence": 0.9, "validFrom": "2026-10-01",
+                    "authoredBy": "model-a", "sourceTrust": "agent_extracted", "observer": "agent",
+                    "sourceEpisodes": ["ep_2026-10-01_000"],
+                    "evidence": [{"episode": "ep_2026-10-01_000", "start": 0, "end": 10, "kind": "user", "hash": "abc"}]}},
+         {"conversation": "ep_2026-10-01_003", "inRun": true, "changes": [],
+          "claim": {"id": "c2", "text": "The team reviews New One on Thursdays.", "subject": "new-one",
+                    "predicate": "reviews", "object": "Thursdays", "confidence": 0.8, "validFrom": "2026-10-01",
+                    "authoredBy": "model-a", "sourceTrust": "agent_extracted", "observer": "agent",
+                    "sourceEpisodes": ["ep_2026-10-01_003"],
+                    "evidence": [{"episode": "ep_2026-10-01_003", "start": 0, "end": 10, "kind": "assistant", "hash": "abd"}]}}],
+       "changed": [
+         {"conversation": null, "inRun": false,
+          "changes": [{"field": "valid_to", "before": null, "after": "2026-09-30"},
+                      {"field": "confidence", "before": "0.8", "after": "0.6"},
+                      {"field": "superseded_by", "before": null, "after": "c1"}],
+          "claim": {"id": "c3", "text": "New One targets a release in September.", "subject": "new-one",
+                    "predicate": "targets", "object": "September", "confidence": 0.6, "validFrom": "2026-08-01",
+                    "validTo": "2026-09-30", "supersededBy": "c1", "authoredBy": "model-a",
+                    "sourceTrust": "agent_extracted", "observer": "agent", "sourceEpisodes": ["ep_2026-08-01_000"]}}],
+       "withdrawn": [
+         {"conversation": null, "inRun": false, "changes": [],
+          "claim": {"id": "c4", "text": "New One is owned by the platform team.", "subject": "new-one",
+                    "predicate": "owned-by", "object": "platform team", "confidence": 0.7, "validFrom": "2026-08-01",
+                    "authoredBy": "model-a", "sourceTrust": "agent_extracted", "observer": "agent",
+                    "sourceEpisodes": ["ep_2026-08-01_000"]}}]},
+     "prose": {"counts": {"added": 1, "edited": 1, "removed": 1}, "truncated": false, "blocks": [
+       {"op": "context", "markdown": "# New One", "heading": null, "level": 1},
+       {"op": "edited", "heading": "New One", "level": 0,
+        "markdown": "New One is the first release of [[alpha-project]], now shipping every Friday.",
+        "before": "New One is the first release of [[alpha-project]], shipping monthly.",
+        "after": "New One is the first release of [[alpha-project]], now shipping every Friday.",
+        "segments": [{"op": "equal", "text": "New One is the first release of [[alpha-project]], "},
+                     {"op": "removed", "text": "shipping monthly"}, {"op": "added", "text": "now shipping every Friday"},
+                     {"op": "equal", "text": "."}]},
+       {"op": "context", "markdown": "## Release notes", "heading": null, "level": 2},
+       {"op": "added", "heading": "Release notes", "level": 0,
+        "markdown": "The installer is done; the release waits on the signing key."},
+       {"op": "context", "markdown": "- Testers get the notes the same day.", "heading": "Release notes", "level": 0},
+       {"op": "removed", "heading": "Release notes", "level": 0, "markdown": "- The release waits on the installer."}]},
+     "other": [{"field": "aliases", "added": ["First release"], "removed": []},
+               {"field": "status", "before": "decaying", "after": "active", "added": [], "removed": []}]}
+    """
 
     private func snapshot<V: View>(_ view: V, size: CGSize, mode: AppColorScheme, store: Store, vm: SleepViewModel,
                                    to url: URL) throws {

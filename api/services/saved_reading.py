@@ -9,9 +9,10 @@ decision is a line to undo:
 * **The source note** (:func:`note`): Stage 1 is told it is reading a saved item, whose "I" and "my" are the author's
   and whose "the user" is not the person, that nothing is known of why it was saved beyond the person's own sections,
   and to take at most :data:`MAX_ENTITIES` things from it.
-* **The observer** (:func:`observer_for`): a claim whose located evidence is only the item's own words is the
-  author's — ``external:<the save's channel, else its site>`` — never Cicada's own reading (``agent``) and never the
-  person's. A claim with any span in a section of the person's own is theirs, as everywhere.
+* **The observer** (:func:`observer_for`): a claim whose located evidence is only the item's own words — or whose
+  quote could not be located at all — is the author's, ``external:<the save's channel, else its site>``, never Cicada's
+  own reading (``agent``) and never the person's. A claim with any span in a section of the person's own is theirs, as
+  everywhere.
 * **The owner guard** (:func:`clean`): nothing a post says lands on the owner's page, nor as an alias on a person page,
   unless one of the person's own sections says it.
 * **A bound** (:func:`clean`): at most :data:`MAX_ENTITIES` entities are taken from one save, and a save raises no
@@ -68,6 +69,30 @@ def no_words_of_his(episode: dict | None) -> bool:
     if not applies(episode) or episode_time.is_feed_item(episode):
         return False
     return not any((episode or {}).get(key) for key in history_index.PERSON_KEYS)
+
+
+def holds_no_words(body: str | None) -> bool:
+    """Does a saved link's body hold nothing but its record fields — a title, a link, a site, a day? Any section (the
+    page's ``## Description``, a reason, a note) is words; a saved link with none has nothing for a model to read."""
+    return _HEADING.search(body or "") is None
+
+
+def nothing_to_read(episode: dict | None) -> bool:
+    """A saved link Sleep has nothing to read in (ruling 80, G246): it applies, holds no section at all, carries no mark of
+    the person's own words (a folder's reason is theirs, kept in the folder's own record) and is no tab group (whose body
+    is its tabs). Stage 1 sends such an episode to no model: it is filed with no entities — a restated title would be
+    all a call could write (ruling 62 measured it) — and what a public page says is read by the page read
+    (``link_enrichment``), not here."""
+    from api.services import episode_time, history_index
+
+    if not applies(episode) or episode_time.is_feed_item(episode):
+        return False
+    ep = episode or {}
+    if ep.get("source") in history_index.SAVE_SOURCES or not ep.get("url"):
+        return False
+    if any(ep.get(key) for key in history_index.PERSON_KEYS):
+        return False
+    return holds_no_words(str(ep.get("content") or ""))
 
 
 def person_ranges(content: str) -> list[tuple[int, int]]:
@@ -144,17 +169,20 @@ def note(episode: dict, content: str) -> str | None:
 
 
 def observer_for(item: dict, episode: dict, content: str, ranges: list[tuple[int, int]] | None = None) -> str | None:
-    """The observer of a claim from a saved item, or ``None`` for the default reading: the item's author when every
-    located span is the item's own text (or the claim has no located span and the person said nothing in it); nothing
-    special when any span sits in a section of the person's own words, or in an agent's note."""
+    """The observer of a claim from a saved item, or ``None`` for the default reading: the item's author, unless a
+    located span sits in a section of the person's own words (theirs, as everywhere) or in an agent's note (not the
+    author alone). **A quote that cannot be located is the author's too** (ruling 80, G246): in a save that holds none
+    of the person's words every fact is the post's, located or not; in one that holds a reason, a fact whose words the
+    model could not point at is still far more likely the post's (the post is the bulk of the text), and the two ways to
+    be wrong are not alike — labelled the author's, a belief of the person's is under-credited (and what they said in
+    their own section lands as theirs whenever its quote is exact); labelled Cicada's or the person's, a stranger's
+    words become a belief held in the person's memory. The safe side is the author's."""
     ranges = person_ranges(content) if ranges is None else ranges
     spans = [e for e in item.get("evidence") or [] if isinstance(e, dict) and e.get("kind") != "reasoning"]
     if any(_in_person(e.get("start"), ranges) for e in spans):
         return None
     if spans and any(e.get("kind") != "page" and e.get("kind") != "user" for e in spans):
         return None   # an agent's note backs it: not the item's author alone
-    if not spans and ranges:
-        return None   # unlocated, and the person did say something in it: Cicada's own reading, as before
     return author_observer(episode, content)
 
 
@@ -178,7 +206,7 @@ def _is_owner_name(name, owner: str | None) -> bool:
 _OWNER_FREE_TEXT = ("summary", "description", "history_entries", "links", "open_questions", "tags", "application")
 
 
-def _holds(said: str, text) -> bool:
+def holds(said: str, text) -> bool:
     """Does the person's folded text contain ``text`` as whole words (an alias "al" is not in "alpha")?"""
     from api.services.text_fold import fold
 
@@ -193,7 +221,7 @@ def _bind_owner(entity: dict, said: str) -> None:
     locates (summary, history, links, open questions, tags, application) goes. What the person's words say still
     lands, as claims, through relationships and values whose located evidence sits in their section."""
     def held(text) -> bool:
-        return _holds(said, text)
+        return holds(said, text)
 
     for field in _OWNER_FREE_TEXT:
         entity.pop(field, None)
@@ -237,7 +265,7 @@ def clean(entities: list, relationships: list, values: list, content: str, *, ow
                 continue
             _bind_owner(entity, said)
         elif str(entity.get("type") or "") == "person" and isinstance(entity.get("aliases"), list):
-            entity["aliases"] = [a for a in entity["aliases"] if _holds(said, a)]
+            entity["aliases"] = [a for a in entity["aliases"] if holds(said, a)]
         kept.append(entity)
 
     def endpoint_ok(name, item: dict) -> bool:
@@ -331,4 +359,4 @@ def post_day(episode: dict):
 
 
 __all__ = ["CONNECTOR_TEXT_ORIGINS", "MAX_ENTITIES", "MAX_LINKS", "applies", "author", "author_observer", "clean",
-           "named_in_full", "no_words_of_his", "note", "observer_for", "person_ranges", "person_text", "post_day"]
+           "holds_no_words", "named_in_full", "no_words_of_his", "nothing_to_read", "note", "observer_for", "person_ranges", "person_text", "post_day", "holds"]
