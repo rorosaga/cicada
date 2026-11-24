@@ -140,13 +140,16 @@ RULES: dict[str, str] = {
     "alias_doubt": "Sleep could not tell whether they are one thing; nothing was changed",
     # 2026-11-24 (`question_revisit`, ruling 82): an open question read again, by the main model, against the whole record.
     "revisit_one": "Read again against everything on record: it says they are one person",
+    # `name_revisit` (ruling 82): a name with no page, read again against the page it was asked about.
+    "revisit_same": "Read again against everything on record: your own words say it is the same thing",
+    "revisit_apart": "Read again against everything on record: it is a different thing; nothing was joined",
 }
 #: What the settled list says each retired "same as?" question became (owner 2026-11-04, `pair_evidence`).
 RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
            "no_pair_evidence": "Not asked: no conversation names them together"}
 #: The rules that read only the bank: re-run inside each settle, which goes ahead only when they still agree.
 #: The rules whose settle is a join Sleep read twice: taking one back is the person saying they are two (74b, 74c).
-JOINS = frozenset({"full_name_one", "typo_one", "revisit_one"})
+JOINS = frozenset({"full_name_one", "typo_one", "revisit_one", "revisit_same"})
 #: The settle that took a name off a page (`alias_collisions`): taking it back is the person keeping the name.
 ALIAS_RULES = frozenset({"alias_apart"})
 ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "seed_fold", "one_off", "newest_evidence",
@@ -2202,6 +2205,11 @@ def still_holds(memory_path: Path, d: Decision) -> bool:
         from api.services import question_revisit
 
         return question_revisit.still_holds(memory_path, d)
+    if d.rule in ("revisit_same", "revisit_apart"):
+        # Ruling 82 (2026-11-24): the same, for a name with no page read against the page it was asked about.
+        from api.services import name_revisit
+
+        return name_revisit.still_holds(memory_path, d)
     if d.rule not in ENGINE_FREE:
         return True
     path = _inbox(Path(memory_path)) / f"{d.item_id}.md"

@@ -22,8 +22,8 @@ or to ask is not read here), and never a parallel lane: it settles through `inbo
   the other.
 * ``decay``: a later mention is itself the answer, and `inbox_tend` already closes that engine-free (``not_fading``);
   nothing else about a fading page is Sleep's. ``page_edit`` / ``sensitive`` are the person's or a trusted agent's.
-* a ``merge_suggestion`` about a name with no page, and a same-name doubt: their own lanes (`full_name_join`,
-  `same_name_tend`); not read here.
+* a ``merge_suggestion`` about a name with no page (a held line beside a page): `name_revisit` — the same step, after the
+  join lanes (`full_name_join`, `typo_join`) left it; a same-name doubt is `same_name_tend`'s and is not read here.
 
 **Two people, one person** (`pair_case`, `assess`). The code finds and checks; the model only reads and copies.
 
@@ -440,6 +440,53 @@ def _distinguishing(a_names: list[str], b_names: list[str], a_title: str, b_titl
     return [n for n in a_names if _key(n) not in drop_a], [n for n in b_names if _key(n) not in drop_b]
 
 
+def person_guards(memory_path: Path, a_id: str, afm: dict, target_id: str, tfm: dict,
+                  people: dict[str, dict], *, held_skip: frozenset[str] = frozenset()) -> tuple[list[str], list[str]] | str:
+    """The engine-free guards on two people, one reading for a pair of pages (`pair_case`) and for a name held with no page
+    (`name_revisit`, whose ``afm`` is the held line's name and aliases): ``(the names that name each, "")`` or ``why the
+    pair is not read``. The owner's page, an archived page, a relation's page, an alias the person removed, a pair they
+    called two or split, a same-name doubt, a short name another person could be (`full_name_join.short_name_is_alone`), a
+    page that already carries another full name, two full names sharing no spelling. ``held_skip``: the held line (its
+    lower-cased name) that is the name being read, which is never "another person"."""
+    from api.services import merge_rejections, role_people, same_name_doubts
+
+    for pid, pfm in ((a_id, afm), (target_id, tfm)):
+        if pfm.get("owner") is True or str(pfm.get("status") or "").lower() in ("archived", "dropped"):
+            return "owner_or_gone"
+        if role_people.parse(str(pfm.get("name") or pid)) is not None or pfm.get("unnamed"):
+            return "role_page"
+    a_names, b_names = full_name_join._names_of(afm), full_name_join._names_of(tfm)
+    named = _distinguishing(a_names, b_names, str(afm.get("name") or a_id), str(tfm.get("name") or target_id))
+    if isinstance(named, str):
+        return named
+    a_only, b_only = named
+    if _removed_from(afm, b_names) or _removed_from(tfm, a_names):
+        return "alias_removed"
+    if (merge_rejections.is_rejected(memory_path, a_id, target_id) or merge_rejections.is_split(memory_path, a_id, target_id)
+            or inbox_tend._split_apart(memory_path, a_id, target_id)):
+        return "kept_apart"
+    flagged_pages, flagged_pairs = same_name_doubts.flagged(memory_path)
+    for pid in (a_id, target_id):
+        if (same_name_doubts.doubts_of(memory_path, pid) or pid in flagged_pages
+                or any(pid in pair for pair in flagged_pairs) or pid in same_name_doubts.one(memory_path)):
+            return "in_a_doubt"
+    # A page that already carries another full name is someone in full, and two full names that share no spelling are two
+    # people for the person to say (`full_name_join.guards`).
+    for own_fm, own, other in ((afm, a_names, b_names), (tfm, b_names, a_names)):
+        if len(_key(str(own_fm.get("name") or "")).split()) == 1 and _carries_another_full_name(own, other):
+            return "page_is_someone_in_full"
+    multi_a, multi_b = {_key(n) for n in a_names if len(_key(n).split()) >= 2}, {_key(n) for n in b_names if len(_key(n).split()) >= 2}
+    if multi_a and multi_b and not multi_a & multi_b:
+        return "two_full_names"
+    # A short name that could be someone else is no join for Sleep: any other page (of any type) it names, any person it
+    # begins, a person held with no page yet — one reading with `full_name_join.guards`.
+    short_keys = {_key(n) for n in (*a_names, *b_names) if len(_key(n).split()) == 1}
+    if not full_name_join.short_name_is_alone(memory_path, short_keys, {a_id, target_id}, people=list(people.items()),
+                                              held_skip=held_skip):
+        return "short_name_not_alone"
+    return a_only, b_only
+
+
 def pair_case(memory_path: Path, path: Path, fm: dict, pairs: dict[tuple[str, str], list[str]] | None = None,
               *, today: str | None = None) -> tuple[Case | None, str]:
     """``(case, "")`` when every engine-free condition holds for this open question (the module's list, 1), else
@@ -467,39 +514,10 @@ def pair_case(memory_path: Path, path: Path, fm: dict, pairs: dict[tuple[str, st
     decided, why = inbox_tend.policy(memory_path, path, fm, today=today)
     if decided is not None or why != "person":
         return None, f"policy:{why or 'decided'}"
-    for pid, pfm in ((a_id, afm), (target_id, tfm)):
-        if pfm.get("owner") is True or str(pfm.get("status") or "").lower() in ("archived", "dropped"):
-            return None, "owner_or_gone"
-        if role_people.parse(str(pfm.get("name") or pid)) is not None or pfm.get("unnamed"):
-            return None, "role_page"
-    a_names, b_names = full_name_join._names_of(afm), full_name_join._names_of(tfm)
-    named = _distinguishing(a_names, b_names, str(afm.get("name") or a_id), str(tfm.get("name") or target_id))
-    if isinstance(named, str):
-        return None, named
-    a_only, b_only = named
-    if _removed_from(afm, b_names) or _removed_from(tfm, a_names):
-        return None, "alias_removed"
-    if (merge_rejections.is_rejected(memory_path, a_id, target_id) or merge_rejections.is_split(memory_path, a_id, target_id)
-            or inbox_tend._split_apart(memory_path, a_id, target_id)):
-        return None, "kept_apart"
-    flagged_pages, flagged_pairs = same_name_doubts.flagged(memory_path)
-    for pid in (a_id, target_id):
-        if (same_name_doubts.doubts_of(memory_path, pid) or pid in flagged_pages
-                or any(pid in pair for pair in flagged_pairs) or pid in same_name_doubts.one(memory_path)):
-            return None, "in_a_doubt"
-    # A page that already carries another full name is someone in full, and two full names that share no spelling are two
-    # people for the person to say (`full_name_join.guards`).
-    for own_fm, own, other in ((afm, a_names, b_names), (tfm, b_names, a_names)):
-        if len(_key(str(own_fm.get("name") or "")).split()) == 1 and _carries_another_full_name(own, other):
-            return None, "page_is_someone_in_full"
-    multi_a, multi_b = {_key(n) for n in a_names if len(_key(n).split()) >= 2}, {_key(n) for n in b_names if len(_key(n).split()) >= 2}
-    if multi_a and multi_b and not multi_a & multi_b:
-        return None, "two_full_names"
-    # A short name that could be someone else is no join for Sleep: any other page (of any type) it names, any person it
-    # begins, a person held with no page yet — one reading with `full_name_join.guards`.
-    short_keys = {_key(n) for n in (*a_names, *b_names) if len(_key(n).split()) == 1}
-    if not full_name_join.short_name_is_alone(memory_path, short_keys, {a_id, target_id}, people=list(people.items())):
-        return None, "short_name_not_alone"
+    guarded = person_guards(memory_path, a_id, afm, target_id, tfm, people)
+    if isinstance(guarded, str):
+        return None, guarded
+    a_only, b_only = guarded
     a, b = _side(memory_path, a_id, afm, a_only), _side(memory_path, target_id, tfm, b_only)
     pairs = pairs if pairs is not None else _page_pairs(memory_path)
     kinds = list(pairs.get(tuple(sorted((a_id, target_id))), []))
@@ -919,7 +937,11 @@ async def tend(memory_path: Path, settings, llm_fn, *, today: date | None = None
             seen[item_id] = {"d": mark, "m": model, "o": outcome, "at": today.isoformat(), "t": tries}
 
     try:
-        for path, fm in await asyncio.to_thread(candidates, memory_path, today=today):
+        rows = await asyncio.to_thread(candidates, memory_path, today=today)
+        done: set[str] = set()
+        for at, (path, fm) in enumerate(rows):
+            if path.stem in done:
+                continue
             if report.read >= max_reads:
                 report.skip("max_reads")
                 break
@@ -933,6 +955,22 @@ async def tend(memory_path: Path, settings, llm_fn, *, today: date | None = None
                 if pairs is None:
                     pairs = await asyncio.to_thread(_page_pairs, memory_path)
                 case, why = await asyncio.to_thread(pair_case, memory_path, path, fm, pairs, today=today.isoformat())
+                if case is None and why == "not_two_pages":
+                    # A name with no page (a held line) beside a page: `name_revisit`, with the others about the same page.
+                    from api.services import name_revisit
+
+                    async def _speaker() -> str:
+                        nonlocal speaker
+                        if speaker is None:
+                            from api.services import same_name_tend
+
+                            speaker = await asyncio.to_thread(same_name_tend._speaker, memory_path) or ""
+                        return speaker
+
+                    await name_revisit.look(
+                        name_revisit.Context(memory_path, settings, today, dry_run, judge, report, seen, model, note, remember,
+                                             _speaker, room=max_reads - report.read), path, fm, rows[at + 1:], done)
+                    continue
                 if case is None:
                     report.skip(why)
                     note(item_id, kind, f"left:{why}")

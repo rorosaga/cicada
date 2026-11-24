@@ -8,6 +8,16 @@ One stable line per open question the step would look at, in the order it looks 
   inbox-126  conflict          left:not_on_record -
   inbox-127  merge_suggestion  left:short_name_not_alone -
   inbox-128  merge_suggestion  would_read     revisit_one      -          (without --read: a model decides)
+  inbox-129  name_no_page      would_join     revisit_same     ep_2026-10-03_001:12-61(user)
+  inbox-130  name_no_page      would_apart    revisit_apart    -
+  inbox-131  name_no_page      read:unsure    -
+  inbox-132  name_no_page      left:said_apart -
+
+  ``name_no_page`` is "Is <name> the same as <page>?" about a name with NO page (`name_revisit`): ``would_join`` files the
+  name as an alias of the page and lands what is held (``revisit_same``, only on the person's own located line saying they
+  are one thing); ``would_apart`` closes it as the person's "No, different" does (``revisit_apart``: the held lines stay
+  held under their own name, nothing lands, no relation is written). Questions about one page are read together, so the
+  summary prints the model calls per question read.
 
   the id, the kind, what it would do, the rule, and the ids of the evidence (a conversation and the offsets of the located
   words, and whose words they are: only the person's own turn or a named speaker's can be one). Never a name, a title or a
@@ -19,7 +29,10 @@ person held with no page could be whom a short name means), ``page_is_someone_in
 another full name), ``two_full_names`` (two full names sharing no spelling), ``kept_apart``, ``in_a_doubt``,
 ``alias_removed``, ``too_many_conversations`` (more conversations hold both names than can be shown: never cut),
 ``index_not_ready``, ``too_many_turns``, ``turn_too_long``, ``nothing_ties_them``, ``read_already`` (answered, nothing
-changed; a read that produced nothing usable is read again up to twice).
+changed; a read that produced nothing usable is read again up to twice). For a name with no page also: ``held_against_a_page``,
+``said_apart``, ``kept_apart``, ``person_and_a_thing``, ``not_a_name`` (a reference or a pronoun), ``name_of_a_page`` (a page
+already answers to it), ``title_of_another_page``, ``alias_removed``, ``not_this_name`` (a correspondent or a same-name
+person), ``policy:<why>`` (the engine-free rules decide it or only the person does) and the person guards of a pair.
 
 Without ``--read`` nothing is sent to a model: a question that passes its engine-free guards is listed ``would_read``. With
 ``--read`` the engine's main model reads at most ``--max-reads`` of them, twice each for a pair, exactly as Sleep would
@@ -94,7 +107,8 @@ async def _run(memory: Path, args) -> int:
             left[f"{kind}: taken back, put off or the person's"] += 1
         elif kind not in ("merge_suggestion", *inbox_tend.RECORD_KINDS):
             left[f"{kind}: not read by this step"] += 1
-    print(f"\nlooked at {report.looked}, read {report.read} ({report.calls} model calls), would settle {report.settled}")
+    per = f", {report.calls / report.read:.2f} per question read" if report.read else ""
+    print(f"\nlooked at {report.looked}, read {report.read} ({report.calls} model calls{per}), would settle {report.settled}")
     print("by kind and outcome: " + (", ".join(f"{k[0]} {k[1]} {n}" for k, n in sorted(counts.items())) or "none"))
     print("not looked at: " + (", ".join(f"{k} {n}" for k, n in sorted(left.items())) or "none"))
     if report.skipped:
