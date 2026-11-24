@@ -98,6 +98,9 @@ class NoteRecord:
     modified_at: str = ""
     #: The Notes account the folder belongs to; '' from an older app.
     account: str = ""
+    #: A.4 (G245, 2026-11-24): the folder's whole path in the account, outermost first, ending in ``folder``; empty from
+    #: an older app (which sends the leaf only) and for a note whose path the app could not name.
+    folder_path: list[str] = field(default_factory=list)
 
 
 def parse_notes_dump(raw: str) -> list[NoteRecord]:
@@ -149,6 +152,67 @@ def _aware(local_iso: str, offset_seconds: str) -> str:
     return moment.isoformat() if moment <= datetime.now(timezone.utc) else ""
 
 
+#: A folder's path is at most this deep and each name at most this long: Notes allows no more than a person draws.
+MAX_PATH_DEPTH = 10
+NAME_CAP = 120
+#: A stored folder list (the empty folders and Notes' own order) is at most this long.
+MAX_FOLDERS = 500
+FOLDERS_KEY = "folders"
+PINS_READ_KEY = "pins_read"
+
+
+def _name(raw) -> str:
+    text = " ".join(str(raw or "").split())
+    return text if len(text) <= NAME_CAP else text[: NAME_CAP - 1].rstrip() + "…"
+
+
+def clean_path(raw, leaf: str = "") -> list[str]:
+    """A posted folder path as names, outermost first: whitespace folded, clipped, empties dropped. ``leaf`` (the dump's
+    own folder field) must end it — the two come from separate Apple events, so a path that does not end in the note's
+    folder is stale and names nothing."""
+    if not isinstance(raw, (list, tuple)):
+        return []
+    names = [n for n in (_name(x) for x in raw[:MAX_PATH_DEPTH]) if n]
+    if not names:
+        return []
+    return names if not leaf or _name(leaf).casefold() == names[-1].casefold() else []
+
+
+def clean_folders(raw) -> list[dict]:
+    """The folders the app listed, in Notes' own order: ``[{account, path}]``, each clipped, no repeats, at most
+    ``MAX_FOLDERS``. A folder is a filing label: names only, never a note's anything."""
+    out: list[dict] = []
+    seen: set[tuple] = set()
+    for entry in raw if isinstance(raw, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        path = clean_path(entry.get("path"))
+        account = _name(entry.get("account"))
+        key = (account, tuple(path))
+        if not path or key in seen:
+            continue
+        seen.add(key)
+        out.append({"account": account, "path": path})
+        if len(out) >= MAX_FOLDERS:
+            break
+    return out
+
+
+def stored_folders(memory_path: Path) -> list[dict]:
+    """The folder list the last read kept beside the channel's sync (``[{account, path}]``, Notes' own order); empty from
+    an older app."""
+    entry = sync_state.read_sync_state(Path(memory_path)).get("notes")
+    return clean_folders((entry or {}).get(FOLDERS_KEY) if isinstance(entry, dict) else None)
+
+
+def pins_read(memory_path: Path) -> bool | None:
+    """Whether the last read could tell which notes are pinned (the app reads pins only with Full Disk Access it already
+    holds): True, False, or None before any read said (an older app)."""
+    entry = sync_state.read_sync_state(Path(memory_path)).get("notes")
+    value = (entry or {}).get(PINS_READ_KEY) if isinstance(entry, dict) else None
+    return value if isinstance(value, bool) else None
+
+
 def _note_key(note: NoteRecord) -> str:
     """Dedup key: the note's own id, falling back to a hash of
     name+creation-date for the rare note that comes back with no id."""
@@ -198,6 +262,9 @@ def _save_notes_index(memory_path: Path, idx: dict) -> None:
 #: One Notes note is one episode for good (G104): the stager's identity for it. The note's own key (its id, or the hash of
 #: its name and creation date when a record has none), so an edit finds the episode it made before.
 SOURCE_PREFIX = "apple-notes:"
+#: A.4: the frontmatter key and index field holding a note's folder path (a list of names, outermost first). Never part
+#: of the body (the body names the leaf only, so no edit and no existing note changes its hash), never evidence.
+FOLDER_PATH_KEY = "folder_path"
 
 
 def source_id(note: NoteRecord) -> str:
@@ -228,6 +295,8 @@ def _draft(note: NoteRecord, pinned: bool = False) -> episode_staging.EpisodeDra
         extra["folder"] = note.folder
     if note.account:
         extra["account"] = note.account
+    if note.folder_path:
+        extra[FOLDER_PATH_KEY] = list(note.folder_path)
     if pinned:
         extra[episode_staging.PINNED_KEY] = True   # ROR-15: outside the content hash; see `_apply_pin`
     return episode_staging.EpisodeDraft(
@@ -454,16 +523,21 @@ async def retire_stubs_safely(memory_path: Path) -> None:
 # --- Sync (diff + emit only what's new/changed) -----------------------------
 
 
-def _placement(note: NoteRecord, known: dict | None = None) -> tuple[str | None, str | None]:
-    """The note's account and folder as the index keeps them. A record that names no account (an older app) keeps
-    the one already known."""
-    return note.account or (known or {}).get("account") or None, note.folder or None
+def _placement(note: NoteRecord, known: dict | None = None) -> tuple[str | None, str | None, list[str] | None]:
+    """The note's account, folder and folder path as the index keeps them. A record that names no account or path (an
+    older app) keeps the one already known."""
+    known = known or {}
+    kept = known.get(FOLDER_PATH_KEY)
+    path = list(note.folder_path) or (list(kept) if isinstance(kept, list) and kept else None)
+    return note.account or known.get("account") or None, note.folder or None, path
 
 
 def _index_entry(episode_id: str, note: NoteRecord, known: dict | None = None, pinned: bool = False) -> dict:
-    account, folder = _placement(note, known)
+    account, folder, path = _placement(note, known)
     entry = {"episode_id": episode_id, "modified": note.modified, "note_id": note.note_id,
              "account": account, "folder": folder}
+    if path:
+        entry[FOLDER_PATH_KEY] = path   # only ever present once the app has sent one: an older library's index is what it was
     if pinned:
         entry["pinned"] = True   # only ever present when true: an unpinned library's index is byte-for-byte what it was
     return entry
@@ -487,6 +561,25 @@ def _apply_pin(memory_path: Path, existing: dict, pinned: bool) -> bool:
         except Exception as exc:  # noqa: BLE001 — a pin is metadata: it never fails a sync
             logger.warning(f"Notes: could not record a pin: {type(exc).__name__}")
     return True
+
+
+def _apply_path(memory_path: Path, existing: dict, path: list[str] | None) -> None:
+    """A.4: where a note lives moved (or the app now says its whole path) while its words did not. The note's latest
+    episode takes the path in its frontmatter alone (`episode_staging.amend_frontmatter`): the body, hash and queue are
+    untouched, so nothing is re-read. Metadata, like a pin: it never fails a sync."""
+    ep = _episode_path(memory_path, str(existing.get("episode_id") or ""))
+    if ep is None or not path:
+        return
+    def edit(fm: dict) -> bool:
+        if fm.get(FOLDER_PATH_KEY) == path:
+            return False
+        fm[FOLDER_PATH_KEY] = list(path)
+        return True
+
+    try:
+        episode_staging.amend_frontmatter(ep, edit)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Notes: could not record a folder path: {type(exc).__name__}")
 
 
 def _episode_path(memory_path: Path, episode_id: str) -> Path | None:
@@ -534,7 +627,8 @@ def _stage(memory_path: Path, pending: list[tuple[NoteRecord, dict | None, bool]
 
 async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] | None = None,
                      locked_ids: list[str] | None = None, locked_keys: list[str] | None = None,
-                     pinned_ids: list[str] | None = None) -> dict[str, Any]:
+                     pinned_ids: list[str] | None = None, folder_paths: dict[str, list[str]] | None = None,
+                     folders: list[dict] | None = None) -> dict[str, Any]:
     """Parse ``dump`` and stage one episode per note, through the stager (`episode_staging`, G104).
 
     A brand-new note id -> a new episode. A previously-seen note whose ``modified`` changed -> **its one episode is
@@ -555,6 +649,12 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
     Disk Access it already holds). ``None`` means the app could not tell, and leaves every pin as it was; a list, empty
     included, is the whole truth. A pin is frontmatter metadata that never reaches the content hash or the queue
     (:func:`_apply_pin`); an id that names no readable note in this post is ignored.
+
+    A.4 (G245): ``folder_paths`` (note id -> the folder's names, outermost first) and ``folders`` (every folder the app
+    listed, in Notes' own order) travel beside the dump like ``accounts``, so an older backend ignores them. A path is
+    metadata beside the leaf the body already names: it enters the index and the episode's frontmatter, never the body or
+    the hash, so no existing note is re-staged or doubled — an unchanged note is only *placed* (:func:`_apply_path`). A
+    note of a locked id gets none. A folder is a filing label, never evidence.
 
     Folder exclusion: ``CICADA_NOTES_EXCLUDE_FOLDERS`` (comma-separated,
     case-insensitive folder names, default empty) drops matching notes
@@ -593,16 +693,16 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
     for note in notes:
         if not note.account and accounts and (named := accounts.get(note.note_id)):
             note.account = " ".join(str(named).split())[:120]
-    excluded_folders = {
-        f.strip().casefold()
-        for f in os.environ.get("CICADA_NOTES_EXCLUDE_FOLDERS", "").split(",")
-        if f.strip()
-    }
+        if folder_paths and note.note_id not in flagged and not note.folder_path:
+            note.folder_path = clean_path(folder_paths.get(note.note_id), note.folder)
+    excluded_folders = excluded_folder_names()
     excluded_count = 0
     if excluded_folders:
         kept = []
         for note in notes:
-            if note.folder.casefold() in excluded_folders:
+            # A folder below an excluded one is excluded with it: the path names every ancestor.
+            if note.folder.casefold() in excluded_folders or any(n.casefold() in excluded_folders
+                                                                  for n in note.folder_path):
                 excluded_count += 1
             else:
                 kept.append(note)
@@ -634,8 +734,13 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
                 # to another folder, or kept by a sync from before accounts were sent, is placed without a new episode
                 # (nothing Sleep reads changed).
                 now_placed = _placement(note, existing)
-                if now_placed != (existing.get("account"), existing.get("folder")):
-                    existing["account"], existing["folder"] = now_placed
+                if now_placed != (existing.get("account"), existing.get("folder"), existing.get(FOLDER_PATH_KEY)):
+                    moved_path = now_placed[2] != existing.get(FOLDER_PATH_KEY)
+                    existing["account"], existing["folder"] = now_placed[0], now_placed[1]
+                    if now_placed[2]:
+                        existing[FOLDER_PATH_KEY] = now_placed[2]
+                    if moved_path:
+                        _apply_path(memory_path, existing, now_placed[2])
                     placed += 1
         # New and edited notes: one stage call (one scan of the bank), the edited ones in place (G104).
         staged = _stage(memory_path, pending) if pending else []
@@ -648,6 +753,10 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
             else:
                 skipped_count += 1
                 skipped_touched += 1   # Notes touched it, its words did not move: the index takes the new date only
+                # ...and the folder path, if it moved: the stager's unchanged branch writes no filing key of its own, so the
+                # episode's frontmatter takes it here (frontmatter alone, nothing re-read), as the unmoved-date branch does.
+                if existing is not None:
+                    _apply_path(memory_path, idx[_note_key(note)], idx[_note_key(note)].get(FOLDER_PATH_KEY))
             if existing is not None and (path := _episode_path(memory_path, episode_id)) is not None:
                 try:
                     episode_staging.set_pinned(path, pinned)   # an edit and a pin moved together: the pin follows the note
@@ -673,6 +782,23 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
         "locked": locked_found,
         "retired": retired.stubs + retired.with_text,
     }
+
+
+def excluded_folder_names() -> set[str]:
+    """``CICADA_NOTES_EXCLUDE_FOLDERS`` as the names a sync drops (case-insensitive)."""
+    return {f.strip().casefold() for f in os.environ.get("CICADA_NOTES_EXCLUDE_FOLDERS", "").split(",") if f.strip()}
+
+
+def state_extra(locked: int, pins_were_read: bool, folders: list[dict] | None) -> dict:
+    """What the channel's last sync keeps (`sync_state`): the locked count (G234), whether pins could be read (A.4), and
+    the folder list in Notes' own order with an excluded folder, and everything below it, left out. A post with no folder
+    list (an older app) keeps none, and the page builds its tree from the notes alone."""
+    out: dict[str, Any] = {LOCKED_COUNT_KEY: int(locked), PINS_READ_KEY: bool(pins_were_read)}
+    excluded = excluded_folder_names()
+    listed = [f for f in clean_folders(folders) if not any(n.casefold() in excluded for n in f["path"])]
+    if listed:
+        out[FOLDERS_KEY] = listed
+    return out
 
 
 async def _commit_notes_sync(memory_path: Path, new_count: int, updated_count: int) -> None:

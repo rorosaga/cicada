@@ -1667,8 +1667,12 @@ def _question_prompt(memory_path: Path, fm: dict, lines: list[str], *,
         how = ("Give only the person's name, exactly as they wrote it, in \"answer\". If their words call the person "
                "only by a nickname or pet name, give that in \"answer\" and add \"nickname\": true.")
     else:
-        how = (f"Give the answer as a short phrase (at most {MAX_ANSWER_CHARS} characters) in their words, "
-               "in \"answer\".")
+        # The answer is checked against the quote by the person's own words (`answer_supported`): so it is the quote's
+        # own words, in the person's language, never a rewording of them (audit 2026-11-24: "Their sister, who is moving
+        # to Valencia" from "Mi hermana Lucía se muda …" was refused, the question stayed for the person).
+        how = (f"Give the answer in \"answer\": the words of that same line that say it, copied character for "
+               f"character, in the person's own language and not reworded or translated (at most "
+               f"{MAX_ANSWER_CHARS} characters).")
     numbered = "\n".join(lines if tagged else [f"{i + 1}. {ln}" for i, ln in enumerate(lines)])
     where = ("one line per turn, each tagged with its conversation and the day it was said"
              if tagged else "one line per turn")
@@ -1848,7 +1852,32 @@ async def read_answer(memory_path: Path, path: Path, fm: dict, episode_id: str, 
     """Ask the engine whether the person's lines answer the question; a decision only on their located words."""
     prompt, choices = _question_prompt(memory_path, fm, lines)
     reply, model = await _ask(llm_fn, prompt)
-    return _answer_decision(memory_path, path, fm, reply, choices, episode_id, model, "said_in_conversation")
+    d, why = _answer_decision(memory_path, path, fm, reply, choices, episode_id, model, "said_in_conversation")
+    return await _confirmed(llm_fn, fm, d, why)
+
+
+async def _confirmed(llm_fn, fm: dict, d: Decision | None, why: str) -> tuple[Decision | None, str]:
+    """A free-text answer taken from the person's words is read twice (ruling 74a: a read is added where it buys
+    accuracy). The first read copies the words and the code finds them; this one sees only the line, the question and the
+    answer and says whether the line itself states it. The check that the answer's words are in the quote cannot tell a
+    line that defines the subject from one that merely names it, and it refused a right answer in another language
+    (audit 2026-11-24: "Mi hermana Lucía …" and an answer in English); with the answer now the line's own words, this
+    read is what keeps a passing mention from settling "who is it?". A decision that is not a free-text answer passes."""
+    if d is None or d.kind != "clarification" or str((d.request or {}).get("action") or "") != "answer" or d.quote is None:
+        return d, why
+    line = d.quote.get("quote") or ""
+    prompt = (
+        "A person wrote this line in one of their own conversations:\n\n"
+        f"\"{line}\"\n\nOpen question about their memory: {fm.get('question') or fm.get('title') or ''}\n"
+        f"Proposed answer: {d.answer}\n\n"
+        "Does that line, by itself, plainly state the answer to the question: what or who it is, in the line's own "
+        "terms? A line that only mentions the subject, or from which the answer would have to be guessed, does not. "
+        "Reply JSON {\"states\": true|false}."
+    )
+    reply, _model = await _ask(llm_fn, prompt)
+    if reply.get("states") is True:
+        return d, why
+    return None, "answer_not_stated"
 
 
 # --------------------------------------------------------------------------- move 3: answered anywhere in the record
@@ -2002,7 +2031,8 @@ def record_lines(memory_path: Path, fm: dict) -> list[tuple[str, str, str]]:
 #: engine twice, so a drain's few reads move on to questions with something new on the record. In this process only
 #: (ids and a hash; a restart reads each once more).
 _RECORD_READ: dict[tuple[str, str], str] = {}
-_NOT_ANSWERED = frozenset({"not_answered", "quote_not_found", "no_option", "no_answer", "quote_says_otherwise"})
+_NOT_ANSWERED = frozenset({"not_answered", "quote_not_found", "no_option", "no_answer", "quote_says_otherwise",
+                           "answer_not_stated"})
 
 
 def _record_key(memory_path: Path, path: Path) -> tuple[str, str]:
@@ -2035,6 +2065,7 @@ async def read_record_answer(memory_path: Path, path: Path, fm: dict, llm_fn) ->
         episode_id = episodes.get(str(reply.get("conversation") or "").strip().strip("[]").split(",")[0].strip(), "")
         d, why = ((None, "quote_not_found") if not episode_id else
                   _answer_decision(memory_path, path, fm, reply, choices, episode_id, model, "said_on_record"))
+        d, why = await _confirmed(llm_fn, fm, d, why)
     if d is not None:
         d.guard = guard
         _RECORD_READ.pop(key, None)

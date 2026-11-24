@@ -152,6 +152,15 @@ def from_iso8601(raw: object) -> str | None:
     return _sane_iso_date(dt)
 
 
+def posted_day(raw: object) -> str | None:
+    """A post's own day as a list showed it (G245), ``YYYY-MM-DD``: a bare day inside the sane range, else ``None``.
+    Never a relative phrase turned into a day here — the reader names the day or sends none."""
+    if not isinstance(raw, str):
+        return None
+    day = validate(raw.strip())
+    return from_iso8601(day) if day else None
+
+
 def from_plist_date(raw: object) -> str | None:
     """Safari ``Bookmarks.plist`` ``ReadingList.DateAdded`` -> ``YYYY-MM-DD`` (round 4, R-SR13).
 

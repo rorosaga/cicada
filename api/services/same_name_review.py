@@ -38,7 +38,7 @@ MAX_PER_SIDE = 10
 PAIR_SYSTEM = ("You decide, from the descriptions you are given, whether two people who share a single name are one "
                "real person, two people, or whether the record cannot tell, and you answer in JSON.")
 
-PAIR_PROMPT = """In one person's private conversations, two people are called "{name}" with no surname. The record has kept them apart so far because it could not tell whether they are one person. Everything it holds about each, conversation by conversation, headed by that conversation's date:
+PAIR_PROMPT = """In one person's private conversations, two people are called "{name}" with no surname.{speaker} The record has kept them apart so far because it could not tell whether they are one person. Everything it holds about each, conversation by conversation, headed by that conversation's date:
 
 PERSON 1
 {one}
@@ -84,14 +84,14 @@ def _side(page: Page) -> str:
     return "\n".join(f"- {item.text}" for item in items) or "- (nothing recorded)"
 
 
-async def settle_pair(name: str, one: Page, two: Page, judge: Judge) -> Pair:
+async def settle_pair(name: str, one: Page, two: Page, judge: Judge, speaker: str | None = None) -> Pair:
     """Two people held in doubt, read again with everything the record has on each. A pair with nothing on either side
     is not asked. Never raises but for an engine failure (G74(a))."""
     result = Pair()
     if not one.items or not two.items:
         return result
     result.called = True
-    prompt = PAIR_PROMPT.format(name=name, one=_side(one), two=_side(two))
+    prompt = PAIR_PROMPT.format(name=name, one=_side(one), two=_side(two), speaker=snp.speaker_line(speaker))
     try:
         parsed = await judge(PAIR_SYSTEM, prompt)
     except asyncio.CancelledError:
@@ -141,7 +141,7 @@ class Split:
     called: bool = False
 
 
-async def holds_two(name: str, page: Page, judge: Judge) -> Split:
+async def holds_two(name: str, page: Page, judge: Judge, speaker: str | None = None) -> Split:
     """One page's conversations read together, the same prompt a batch is judged with and nothing new in it: two groups
     that are different people (a located contrast, `same_name_people.read`) mean the conversations of the smaller group
     leave (the group with more of the page's conversations stays; a tie keeps the one with the earliest). A doubt is no
@@ -155,7 +155,7 @@ async def holds_two(name: str, page: Page, judge: Judge) -> Split:
         return result
     result.called = True
     try:
-        parsed = await judge(snp.SYSTEM, snp.build_prompt(name, entries, [identity]))
+        parsed = await judge(snp.SYSTEM, snp.build_prompt(name, entries, [identity], speaker))
     except asyncio.CancelledError:
         raise
     except engine_errors.EngineError:

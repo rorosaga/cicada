@@ -77,8 +77,8 @@ def target(site: str, url: str) -> Target | None:
             return None
         return Target("youtube", "YouTube", YOUTUBE_ORIGIN, YOUTUBE_LIST, watched[1], ())
     platform = saved_lists.PLATFORMS.get(site)
-    if platform is None or not platform.folder:
-        return None
+    if platform is None or not platform.folder or platform.base:
+        return None   # a second list of a site (X likes, G245) is read by the person's agent, never noticed as a click
     found = saved_lists.canonical(site, url)
     if found is None:
         return None

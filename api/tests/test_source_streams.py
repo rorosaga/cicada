@@ -85,27 +85,21 @@ def more_lists(monkeypatch):
     """The keys another track adds to the tables: X likes, Instagram likes, Reddit upvoted, LinkedIn connections, and
     YouTube's playlists and liked videos — appearing here with no edit to ``source_streams``."""
     table = dict(saved_lists.PLATFORMS)
-    table["x-likes"] = _Based("x-likes", "X", "Likes", "https://x.com/alice_example/likes", "", "x-likes", "Likes",
-                              "x.com", "to read your likes", ("x.com",), base="x")
-    table["instagram-likes"] = _Based("instagram-likes", "Instagram", "Liked posts", "https://www.instagram.com/",
-                                      "", "instagram-saved", "Liked posts", "instagram.com", "to read your likes",
-                                      ("instagram.com",), base="instagram")
-    table["reddit-upvoted"] = _Based("reddit-upvoted", "Reddit", "Upvoted", "https://www.reddit.com/user/me/upvoted/",
-                                     "", "reddit-saved", "Upvoted", "reddit.com", "to read your upvotes",
-                                     ("reddit.com",), base="reddit")
-    table["linkedin-connections"] = _Based("linkedin-connections", "LinkedIn", "Connections",
-                                           "https://www.linkedin.com/mynetwork/invite-connect/connections/", "", "",
-                                           "", "linkedin.com", "to read who you connected with",
-                                           ("linkedin.com",), base="linkedin")
+    # X likes, Instagram likes and Reddit upvoted are real keys now (`saved_lists.PLATFORMS`); only what no track has
+    # built yet is added here, and only when it is missing.
+    table.setdefault("linkedin-connections", _Based(
+        "linkedin-connections", "LinkedIn", "Connections", "https://www.linkedin.com/mynetwork/invite-connect/connections/",
+        "", "", "", "linkedin.com", "to read who you connected with", ("linkedin.com",), base="linkedin"))
     monkeypatch.setattr(saved_lists, "PLATFORMS", table)
     lists = dict(youtube_lists.LISTS)
-    lists["playlists"] = {"url": "https://www.youtube.com/feed/playlists", "label": "Playlists"}
-    lists["liked"] = {"url": "https://www.youtube.com/playlist?list=LL", "label": "Liked videos"}
+    lists.setdefault("playlists", {"url": "https://www.youtube.com/feed/playlists", "label": "Playlists"})
+    lists.setdefault("liked", {"url": "https://www.youtube.com/playlist?list=LL", "label": "Liked videos"})
     monkeypatch.setattr(youtube_lists, "LISTS", lists)
     # The person's switches validate against the tuples the same track extends.
-    monkeypatch.setattr(reading_settings, "SAVED_LISTS", (*reading_settings.SAVED_LISTS, "x-likes", "instagram-likes",
-                                                          "reddit-upvoted", "linkedin-connections"))
-    monkeypatch.setattr(reading_settings, "YOUTUBE_LISTS", (*reading_settings.YOUTUBE_LISTS, "playlists", "liked"))
+    monkeypatch.setattr(reading_settings, "SAVED_LISTS", tuple(dict.fromkeys(
+        (*reading_settings.SAVED_LISTS, "linkedin-connections"))))
+    monkeypatch.setattr(reading_settings, "YOUTUBE_LISTS", tuple(dict.fromkeys(
+        (*reading_settings.YOUTUBE_LISTS, "playlists", "liked"))))
     return table
 
 
@@ -183,11 +177,12 @@ def test_a_key_the_annotations_do_not_know_still_gets_a_stream(bank, monkeypatch
     assert (stream["label"], stream["kind"], stream["how"]) == ("Reposts", "saved", "browser")
 
 
-def test_a_table_entry_with_no_base_attribute_is_its_own_source(bank):
-    assert not hasattr(saved_lists.PLATFORMS["x"], "base")          # the table as it stands today
+def test_a_table_entry_with_no_base_is_its_own_source(bank):
+    assert not saved_lists.PLATFORMS["x"].base and saved_lists.PLATFORMS["x-likes"].base == "x"
     out = _sources(bank)
-    assert set(saved_lists.PLATFORMS) <= set(out) and _streams(bank, "reddit")["reddit.saved"]["label"] == "Saved"
-    assert saved_lists.pause_key("x") == "x"
+    assert set(saved_lists.PLATFORMS) - {"x-likes", "instagram-likes", "reddit-upvoted"} <= set(out)
+    assert _streams(bank, "reddit")["reddit.saved"]["label"] == "Saved"
+    assert saved_lists.pause_key("x") == "x" and saved_lists.pause_key("x-likes") == "x"
 
 
 # --- state, health and the pause ------------------------------------------------------------------------------------------
@@ -556,4 +551,4 @@ def test_the_folder_parameter_is_never_logged():
 
 
 def test_the_items_shape_was_bumped():
-    assert channel_items.SHAPE == "g161-23"
+    assert channel_items.SHAPE == "g161-24"

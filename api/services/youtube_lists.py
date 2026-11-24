@@ -11,6 +11,13 @@ person's own agent, in their own signed-in browser, can read both pages. This is
   episode per day; the page shows days, not times, so a row carries the day and merges into the row Chrome's history
   or Takeout wrote for the same video that day.
 
+* **Playlists** (``https://www.youtube.com/feed/playlists``, then each playlist's own page, G245) and **Liked videos**
+  (``https://www.youtube.com/playlist?list=LL``) — saves like Watch later; a playlist is the save's folder (the label a
+  Takeout's playlist file gives), so a video in two playlists is one page on both lists. Off until the person turns each on.
+  Playlists are a pass: the index names the playlists, then at most :data:`FOLDERS_PER_PASS` of them are opened, the ones
+  read longest ago first (``folder_pass``). Like Watch later and history they are outside the saved lists' daily bound,
+  on their own cadence: one page-and-its-playlists a day, each playlist capped, and a pause stops them all.
+
 **The rails are G166's (``mcp.md``, "Reading with the person's own agent").** Cicada never spawns a browser, never
 signs in and never fetches either page: it only *offers* the task — one line in ``cicada_reading_queue`` and one in
 the recall hook's count — and only while agent reading is on (its first-use sheet acknowledged) **and** the person
@@ -35,7 +42,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 
-from api.services import reading_settings
+from api.services import folder_pass, reading_settings
 from api.services.auth import cicada_home
 
 FILENAME = "youtube_lists.json"
@@ -43,7 +50,18 @@ FILENAME = "youtube_lists.json"
 LISTS: dict[str, dict[str, str]] = {
     "watch_later": {"url": "https://www.youtube.com/playlist?list=WL", "label": "Watch later"},
     "history": {"url": "https://www.youtube.com/feed/history", "label": "watch history"},
+    # G245 (ruling 78b): the playlists index (each playlist is its own page and the saved video's folder) and the liked
+    # videos (``list=LL``, a playlist of its own). Both are saves under the Takeout playlists' origin, index-only.
+    "playlists": {"url": "https://www.youtube.com/feed/playlists", "label": "Playlists"},
+    "liked": {"url": "https://www.youtube.com/playlist?list=LL", "label": "Liked videos"},
 }
+#: The folder a list's saves are filed under (a playlist's own name for ``playlists``, named per row).
+FOLDERS: dict[str, str] = {"watch_later": "Watch later", "liked": "Liked videos"}
+#: The lists whose rows are saves (history is watched days, never saves).
+SAVE_LISTS = ("watch_later", "playlists", "liked")
+FOLDERS_PER_PASS = folder_pass.FOLDERS_PER_PASS
+#: A read of ``playlists`` spans calls (the index, then each playlist): its videos add up within this long.
+PASS_WINDOW = timedelta(hours=3)
 #: A list is offered again this long after its last read (Watch later changes when the person adds a video; history
 #: every day they watch one).
 CADENCE = timedelta(hours=20)
@@ -189,18 +207,47 @@ def status(memory_path: Path, now: datetime | None = None) -> dict:
 
 
 def note(memory_path: Path, name: str, outcome: str, *, videos: int = 0, now: datetime | None = None) -> None:
-    """Record an outcome. A read clears a pause (the agent was signed in); ``needs_login``/``blocked`` start one."""
+    """Record an outcome. A read clears a pause (the agent was signed in); ``needs_login``/``blocked`` start one. A
+    ``playlists`` read is several calls (the index, then each playlist): its videos add up within :data:`PASS_WINDOW`."""
     moment = _now(now)
     with _locked() as data:
         banks = data.setdefault("banks", {})
         entry = banks.setdefault(_bank_key(memory_path), {}).setdefault(name, {})
+        before = _parse(entry.get("read_at"))
         entry.update(at=moment.isoformat(), outcome=outcome)
         entry.pop("check_requested_at", None)   # an attempt, whatever its outcome, answers a requested check
         if outcome == "read":
+            if name == "playlists" and before is not None and moment - before < PASS_WINDOW:
+                videos = int(entry.get("videos") or 0) + int(videos)
             entry.update(read_at=moment.isoformat(), videos=int(videos))
             data.pop("paused_until", None)
         elif outcome in PAUSING:
             data["paused_until"] = (moment + PAUSE).isoformat()
+
+
+def note_folders(memory_path: Path, name: str, names: list[str]) -> None:
+    """The playlists the index listed (``names``, cleaned; empty for an account with none): how many, kept as a count.
+    Nothing else of them is kept here."""
+    with _locked() as data:
+        entry = data.setdefault("banks", {}).setdefault(_bank_key(memory_path), {}).setdefault(name, {})
+        entry["folder_count"] = len(names)
+
+
+def folder_count(memory_path: Path, name: str) -> int:
+    """How many playlists the index last listed; 0 when it showed none or was never read."""
+    return int(last(memory_path, name).get("folder_count") or 0)
+
+
+def next_folders(memory_path: Path, names: list[str], name: str) -> list[str]:
+    """The playlists to open next: at most :data:`FOLDERS_PER_PASS`, the never-read first, then the least recently read."""
+    return folder_pass.order(names, last(memory_path, name).get("folder_reads"))
+
+
+def stamp_folder(memory_path: Path, name: str, folder: str, now: datetime | None = None) -> None:
+    """One playlist's own page was read now. Only a hash of its name is kept (``folder_pass``)."""
+    with _locked() as data:
+        entry = data.setdefault("banks", {}).setdefault(_bank_key(memory_path), {}).setdefault(name, {})
+        entry["folder_reads"] = folder_pass.stamped(entry.get("folder_reads"), folder, _now(now).isoformat())
 
 
 def resume() -> None:
@@ -214,6 +261,17 @@ def resume() -> None:
 # --- the offer ------------------------------------------------------------------------------------
 
 
+def screens_words(memory_path: Path, name: str) -> str:
+    """How far this read goes (G245): the first read of a list catches up; a later one stops where the list reaches
+    videos already in memory, and the record's reply says when it has."""
+    if not last(memory_path, name).get("read_at"):
+        return (f"This is the first read of this list, so go deeper than usual to catch up: scroll up to "
+                f"{folder_pass.FIRST_READ_SCREENS} screens. Older videos than that come only with a Takeout the person "
+                "can drop on the Cicada window.")
+    return (f"Scroll only until you reach videos already in memory, and at most {folder_pass.LATER_READ_SCREENS} "
+            "screens: the reply says when you have reached them.")
+
+
 def queue_lines(memory_path: Path, *, can_record: bool, now: datetime | None = None) -> list[str]:
     """The reading queue's lines for the lists that are due — empty when none is (or agent reading is off)."""
     names = due(memory_path, now)
@@ -222,14 +280,27 @@ def queue_lines(memory_path: Path, *, can_record: bool, now: datetime | None = N
     lines = []
     for name in names:
         spec = LISTS[name]
-        what = ("each video's link, title and channel" if name == "watch_later"
-                else "each video's link, title and channel, and the day the page files it under")
-        lines.append(f"- The person's YouTube {spec['label']}: {spec['url']} — read {what}.")
+        what = ("each video's link, title and channel, and the day the page files it under" if name == "history"
+                else "each video's link, title and channel")
+        if name == "playlists":
+            lines.append(
+                f"- The person's YouTube {spec['label']}: {spec['url']} — first send the playlists' names as "
+                f"`playlist_names` (an empty list when there are none); the reply names the {FOLDERS_PER_PASS} at most to "
+                f"open next. Open each playlist's own page and read {what}, scrolling at most "
+                f"{folder_pass.FOLDER_SCREENS} screens of it, and set `playlist` to its name on every row. "
+                f"{screens_words(memory_path, name)}")
+        elif name == "history":
+            lines.append(f"- The person's YouTube {spec['label']}: {spec['url']} — read {what} (scroll at most a few "
+                         "screens).")
+        else:
+            lines.append(f"- The person's YouTube {spec['label']}: {spec['url']} — read {what}. "
+                         f"{screens_words(memory_path, name)}")
     tail = ("Record each list with `cicada_record_youtube_list(list, outcome, videos=[{url, title, channel, "
-            "watched_on}], via)` (list `watch_later` or `history`; `watched_on` is YYYY-MM-DD, for history). "
+            "watched_on, playlist}], via)` (list `watch_later`, `history`, `playlists` or `liked`; `watched_on` is "
+            "YYYY-MM-DD, for history; `playlist` is for playlists). "
             "If YouTube asks you to sign in, do not sign in or type credentials: record `needs_login` and stop."
             if can_record else
             "If YouTube asks you to sign in, do not sign in or type credentials: stop and tell the person.")
     return ["The person asked their agent to keep these YouTube lists current in Cicada. Open each in their own "
-            "signed-in browser session; read only what the page shows (scroll at most a few screens), never click "
+            "signed-in browser session; read only what the page shows, never click "
             "anything that changes the list."] + lines + [tail]

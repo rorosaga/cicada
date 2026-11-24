@@ -568,7 +568,7 @@ def test_a_clarification_answered_in_conversation_is_sleeps_reading_not_the_pers
           title="Who or what is Example Gadget?", source_episode="ep_2026-09-01_001")
     ep = _episode(memory, "ep_2026-10-03_001", "user: Example Gadget is the soldering station on my desk.")
     _commit(memory)
-    fn = _fake({"answered": True, "answer": "a soldering station",
+    fn = _fake({"answered": True, "answer": "a soldering station", "states": True,   # states: the second read
                 "quote": "Example Gadget is the soldering station on my desk"})
     report = run(inbox_tend.tend(memory, _Settings(memory), episodes=[ep], run_policy=False, llm_fn=fn))
     assert report.settled == 1
@@ -589,7 +589,7 @@ def test_a_question_asked_on_purpose_is_still_settled_by_the_persons_own_words(m
           why_asked="the repair depends on it")
     ep = _episode(memory, "ep_2026-10-03_001", "user: Example Gadget is the soldering station on my desk.")
     _commit(memory)
-    fn = _fake({"answered": True, "answer": "a soldering station",
+    fn = _fake({"answered": True, "answer": "a soldering station", "states": True,   # states: the second read
                 "quote": "Example Gadget is the soldering station on my desk"})
     report = run(inbox_tend.tend(memory, _Settings(memory), episodes=[ep], run_policy=False, llm_fn=fn))
     assert report.settled == 1
@@ -1004,7 +1004,7 @@ def test_a_clarification_answered_by_an_old_conversation_settles_from_the_whole_
     _episode(memory, "ep_2026-04-02_001", "user: Nothing about it here, only a different topic.")
     _commit(memory)
     calls: list = []
-    fn = _fake({"answered": True, "answer": "a soldering station", "conversation": "C1",
+    fn = _fake({"answered": True, "answer": "a soldering station", "conversation": "C1", "states": True,
                 "quote": "Example Gadget is the soldering station on my desk"}, calls)
     out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=False, judge=True, llm_fn=fn))
     assert out["by_kind"]["clarification"] == {"said_on_record": 1} and out["read"] == 1
@@ -1020,6 +1020,56 @@ def test_a_clarification_answered_by_an_old_conversation_settles_from_the_whole_
     row = web_settle.list_settled(memory)[0]
     assert row["rule"] == "said_on_record" and row["episode"] == "ep_2026-03-02_001"
     assert row["reason"] == inbox_tend.RULES["said_on_record"]
+
+
+def _sister_clarification(memory: Path) -> None:
+    _entity(memory, "lucia-example", type="person", name="Lucia Example", status="active",
+            source_episodes=["ep_2026-09-01_001"])
+    _item(memory, "inbox-001", kind="clarification", entity_id="lucia-example", entity_name="Lucia Example",
+          title="Who or what is Lucia Example?", question="Who or what is Lucia Example?",
+          source_episode="ep_2026-09-01_001")
+    _episode(memory, "ep_2026-09-01_001", "user: Lucia Example found a flat today.")
+
+
+def test_an_answer_in_the_persons_language_settles_when_a_second_read_agrees(memory):
+    """Audit 2026-11-24: "Mi hermana Lucia …" was read right and the settle refused, the answer ("Their sister …") being
+    in another language than its quote. The answer is now the line's own words, and a second read of the line alone
+    decides that it states it."""
+    _sister_clarification(memory)
+    _episode(memory, "ep_2026-03-02_001", "user: Mi hermana Lucia Example se muda a Valencia.\n\n"
+                                          "assistant: Que bien.")
+    _commit(memory)
+    seen: list[str] = []
+    fn = _judge_fn({"answered": True, "answer": "Mi hermana Lucia Example", "conversation": "C1",
+                    "quote": "Mi hermana Lucia Example se muda a Valencia."}, {"states": True}, before=seen.append)
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=False, judge=True, llm_fn=fn))
+    assert out["by_kind"]["clarification"] == {"said_on_record": 1}
+    assert "copied character for character, in the person's own language" in seen[0]
+    assert "Proposed answer: Mi hermana Lucia Example" in seen[1] and "Que bien" not in seen[1]
+    row = web_settle.list_settled(memory)[0]
+    assert row["rule"] == "said_on_record" and row["answer"] == "Mi hermana Lucia Example"
+
+
+def test_a_line_that_only_names_the_subject_never_settles_who_it_is(memory):
+    _sister_clarification(memory)
+    _episode(memory, "ep_2026-03-02_001", "user: Lucia Example found a flat today and sent me a photo.")
+    _commit(memory)
+    fn = _judge_fn({"answered": True, "answer": "Lucia Example found a flat today", "conversation": "C1",
+                    "quote": "Lucia Example found a flat today"}, {"states": False})
+    out = run(inbox_tend.tidy(memory, _Settings(memory), dry_run=False, judge=True, llm_fn=fn))
+    assert out["by_kind"]["clarification"] == {"ask:needs_person+record:answer_not_stated": 1}
+    assert (memory / "inbox" / "inbox-001.md").exists()
+
+
+def test_only_a_free_text_answer_is_read_a_second_time(memory):
+    _tool_conflict(memory)
+    _episode(memory, "ep_2026-10-01_001", "user: For the record, Tool A is an agent harness, not an agent itself.")
+    _commit(memory)
+    calls: list = []
+    fn = _fake({"answered": True, "option": "a", "conversation": "C1",
+                "quote": "Tool A is an agent harness, not an agent itself"}, calls)
+    run(inbox_tend.tidy(memory, _Settings(memory), dry_run=False, judge=True, llm_fn=fn))
+    assert not any("Proposed answer" in c for c in calls)        # a picked option is never read a second time
 
 
 def test_the_record_never_settles_on_an_agents_words_and_calls_no_engine_with_nothing_to_read(memory):

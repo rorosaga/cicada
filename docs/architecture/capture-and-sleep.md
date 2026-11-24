@@ -133,6 +133,32 @@ Seven rails hold across all of them:
   `icloud`, `google`, `exchange`, `local`, `subscribed`, `other`; optional), and each sync keeps the calendars or ticked
   lists holding an item — `{id, title, account, provider}`, titles the bodies already hold — beside the channel's last
   sync (`sync_state.json`, `source_collections.after_sync`). An empty calendar's title stays out of the bank, and the
+  **Notes keeps its shape (A.4, G245, ruling 78, 2026-11-24; owner: "respect the folder structure, pins, recently modified").**
+  *Spike (macOS 27, one real library, depth histogram only):* Notes' scripting returns **nested folders** — `folders of acc`
+  is flat and lists every folder at any depth once, each with a `container` that is its parent folder (or the account);
+  the order is not alphabetical, and a child can be listed **before** its parent, so no reader may assume parent-first;
+  `Recently Deleted` is one of the folders (a localised name; its notes are read today as any folder's). The script adds,
+  beside the notes, `cicada-folder` rows (account, folder id, parent id, name), `cicada-folder-held` (a folder whose every
+  note is locked: its name stays out of the tree, because it would say locked notes live there) and, only after the
+  unlocked lists lined up, one `cicada-at` row per **unlocked** note (note id, folder id); a locked note is never named by
+  any of them and no property is asked outside the unlocked filter (G234 untouched). `AppleNotesReader.split` takes them
+  out of the dump (a 9-field record is unchanged) and builds each note's **path** (names outermost first, walked up the
+  parent ids, a loop or a missing parent names none) and the folder list in Notes' own order; they post as
+  `noteFolderPaths` (by note id) and `noteFolders` (`[{account, path}]`) beside the dump, so an older backend ignores
+  them. `notes_sync` keeps the path as `folder_path` in the index entry and the episode's frontmatter — **never in the body,
+  which names the leaf only, so no hash moves**: an existing note is *placed* (index + one frontmatter key through
+  `episode_staging.amend_frontmatter`, `processed` and the queue untouched, no second episode), a pin or a move never
+  re-queues Sleep. A path must end in the dump's own folder or it is ignored; a folder below `CICADA_NOTES_EXCLUDE_FOLDERS`
+  is excluded with it. The folder list and `pins_read` (whether the app could read pins at all, which needs the Full Disk
+  Access it already holds, never prompted for) sit beside the channel's last sync (`sync_state.json`). A folder is a
+  filing label: no page, claim or link, never evidence, never a conversation for the 2+ rule.
+  **The collection id** of a top-level folder is what it always was (`nf-` + hash of account and name); a nested one hashes
+  its whole path, so two folders of one name in different places are two collections and nothing already filed moves.
+  `collections` returns each account's folders as a tree walked top-down in Notes' own order (a folder the list does not
+  name — an older app's — follows by name), an empty folder included, each with `path`, `parent`, `children`, `depth`,
+  `count` (its own notes) and `total`; items list by the modified **instant** (pinned first), carry `modifiedAt` and a
+  one-line `snippet` (the first line of the text after the title, scrubbed, none for a one-line note, a locked stub or a line
+  the sensitive finder is sure of), and both answers carry `pinsRead` so the page can say pins could not be read.
   pickers read EventKit, not this. `GET /sources/channels/{id}/collections` answers accounts → collections
   (count, newest day) for `notes`, `calendar-local` and `reminders-local` (iCloud first, then this Mac, then the rest
   by name; a collection by name; one a later sync no longer names — a list unticked — keeps its name and lists while it
@@ -562,6 +588,14 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   (`assistant` or an export's `*_by_other`) is never moved back to `user` by any later tier-2 read. The first sync
   walks the whole history (Notion's own cursor, 150 pages a sync, "Reading your shared pages: N so far"); the
   high-water mark moves only when nothing older is left.
+  **Notion keeps its place (A.4, G245).** A page keeps `notion_database` (its database's title), and `notion_path` +
+  `notion_path_ids` (the parents it sits under, outermost first, the database last), read from the page's own
+  `<ancestor-path>` block — nothing is fetched to name a parent, and on a **chosen** scope only parents inside what the
+  person picked are kept (a teamspace page above the chosen root is dropped). The REST path files a row by its database
+  alone. `FORMAT` 3 re-reads each page once to learn them: a page whose words did not move gets the three keys in frontmatter alone (`episode_staging.FILING_KEYS`, like `provider_project`), never re-queued. `notion-api` has a collections tree (`channel_items._notion_tree`:
+  one unnamed account, folders by parent chain, `unfiled` counting pages read before their parents were kept) and lists by
+  `notion_last_edited`, not the created day. Favourites and the Private/Shared split are not read. *The `<ancestor-path>`
+  tag shape is the one the stripper already names; it is covered by a fixture, not yet seen against live Notion.*
   **GitHub (G230, `connectors/github.py` + `github_repos`).** Every sync reads both lists whole (no cursor; GitHub's
   numeric repository id is the key, so a rename or a transfer keeps its page). *A repository the person owns* is
   `github:owned:<id>` (origin `github-owned`): its name, description, language, topics and visibility, staged and
@@ -1112,7 +1146,10 @@ API gives no one Watch later or watch history, so there are three doors, and the
   reads on turning on, launch, a bank switch, Sync now and every 10 minutes when the file's size or time moved (a stat).
 - **Door 3, the person's own agent (`mcp.md`, "YouTube lists").** It reads Watch later and the history page in the
   person's signed-in browser and records through `cicada_record_youtube_list`: Watch later rows as saves (a video
-  already saved is a duplicate), history rows as days (the page's day).
+  already saved is a duplicate), history rows as days (the page's day). Since G245 (ruling 78b) it may also read, once the
+  person turns each on, the playlists index and each playlist's page (a playlist's name is the save's folder; at most 12 a
+  read, least recently read first) and the Liked videos list (`list=LL`, folder `Liked videos`): saves under the same
+  `youtube-playlist` origin, index-only, one page on every list a video is on.
 - **Door 4, activity traces (G218, below).** A YouTube page an allowed Chromium browser showed in front for at least 20 s
   is a watch with `via: traces` and `dwell_s` (the day's seconds in front for that video, counted from the traces
   store; the larger figure wins, so any arrival order gives the same day; the body says "N min on screen"). It covers
@@ -1246,8 +1283,11 @@ So watch history and list saves are a record to look up, never a conversation to
   summary (`source: watch-history-month`), and a save from a platform's saved list: origin `youtube-playlist` (a
   Takeout playlist, Watch later included, or the agent's read of Watch later), `instagram-saved`, `tiktok-saved`,
   `x-likes`, `linkedin-saved`, and `reddit-saved` / `x-bookmarks` only under the folder the export reader names
-  (`Saved posts`/`Saved comments`, `Bookmarks`) — the Reddit and X connectors share those origins under other
-  folders. A save carrying the person's own note is read (no list door carries a note; one that did is stamped
+  (`Saved posts`/`Saved comments`/`Upvoted`, `Bookmarks`) — the Reddit and X connectors share those origins under other
+  folders. G245's browser lists write under the same labels (`x-likes`/`Likes`, `instagram-saved`/`Liked posts`,
+  `reddit-saved`/`Upvoted`, `youtube-playlist`/`Liked videos` or the playlist's name), so an export's row and the browser's
+  are one row, and a gate test walks every list through this predicate; a post on two lists is one page whose
+  `collections:` names both (`mcp.md`, "More lists, folders, catching up and a post's own day"). A save carrying the person's own note is read (no list door carries a note; one that did is stamped
   `has_note` and queued). Every other bare save is lean, the same way (*The lean pass*, ruling 62, below). **The
   person's words always win:** a list save whose frontmatter carries `saved_why`, `saved_why_earlier` or `has_note`
   is never index-only, so when they later say why they saved it (`saved_why.attach`/`edit` — e.g. a bookmark of a
@@ -2313,6 +2353,19 @@ and per flagged doubt pair, at most 8 a drain (`MAX_LOOKS`), and none when nothi
 **Measured (2026-11-23).** *The replay battery* (`same_name_battery.py`, 71 labelled single judge inputs, the small judge on a key
 at about $0.0003 a call, the second reading on): the code before (`origin/dev`, 10 replays a case) kept 216 of 240 two-person
 replays apart (90%) and cut no one of 460 one-person replays; an established page against a different person's mention was kept
+**The judge is told who the speaker is (2026-11-24).** Stage 1's descriptions name the bank's owner ("<owner>'s
+brother-in-law", "took part in a meeting with <owner>"), and the prompt's rule that the speaker appearing in two
+descriptions connects nothing spoke of "the speaker" without saying which name that is. Both models then joined two
+colleagues of one first name "through <owner>": 2 of 17 benchmark runs, and **11 of 80** replays of four such inputs taken
+from those runs. The three prompts (`same_name_people.PROMPT`, the pair and the page review of `same_name_review`) now say
+which name is the speaker's when the bank has an owner page, that a tie to the speaker (a partner, a relative, the one
+they live or move with) is a fact about that person like any other, and that every description is about someone of
+that name whether or not it repeats it. The last two matter: told only the name, the judge cut one real person in two in
+8 of 30 replays of a thin description whose one link is having moved with the owner, giving "it names no <name>" as
+its reason. As landed: those four inputs **80 of 80** apart, the whole battery (75 cases, 10 replays) **0 of 460** one
+person cut and **290 of 290** two kept apart (`same_name_cases.json` carries a `speaker` on the 23 cases whose
+descriptions name the owner; `--no-speaker` replays the prompt before).
+
 apart in 69 of 90 (77%; an established family page against a colleague's mention in 0 of 10). As landed: **248 of 250** two-person
 replays kept apart (99%) and **0 false splits of one person in 460 replays** (one earlier wording of the prompt cut one person
 once in 920; that input was not reproduced in 60 more). *The stories* (`same_name_stories.py`, 30 stories in English, Spanish and

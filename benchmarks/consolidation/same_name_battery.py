@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import inspect
 import json
 import os
 import re
@@ -86,7 +87,7 @@ def key_from(path: Path) -> str:
     raise SystemExit("no ANTHROPIC_API_KEY")
 
 
-async def run(cases: list[dict], repeats: int, ask, concurrency: int = 24, strong_ask=None) -> list[dict]:
+async def run(cases: list[dict], repeats: int, ask, concurrency: int = 24, strong_ask=None, speaker: bool = True) -> list[dict]:
     """Replay every case ``repeats`` times through the real ``same_name_people.plan`` with ``ask(system, prompt)``."""
     gate = asyncio.Semaphore(concurrency)
 
@@ -101,7 +102,9 @@ async def run(cases: list[dict], repeats: int, ask, concurrency: int = 24, stron
     async def one(case: dict) -> dict:
         mentions, identities = build(case)
         extra = (strong,) if strong_ask is not None else ()
-        runs = await asyncio.gather(*(snp.plan(case["name"], mentions, identities, judge, *extra) for _ in range(repeats)))
+        # A case may name the bank's owner (``speaker``): the judge is told whose conversations these are, as in a run.
+        named = {"speaker": case["speaker"]} if speaker and case.get("speaker") and "speaker" in inspect.signature(snp.plan).parameters else {}
+        runs = await asyncio.gather(*(snp.plan(case["name"], mentions, identities, judge, *extra, **named) for _ in range(repeats)))
         flags = [score_case(case, p) for p in runs]
         return {"id": case["id"], "kind": case["kind"], "runs": len(runs), "false": sum(f for f, _ in flags),
                 "missed": sum(m for _, m in flags), "thin": sum(p.thin for p in runs),
@@ -193,6 +196,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--strong", default="", help="the tier of the main model that reads a one-person answer again (the product's second reading; default none)")
     p.add_argument("--module", type=Path, help="another copy of same_name_people.py to replay (default: this checkout's)")
     p.add_argument("--from-calls", type=Path, help="print cases built from a leg's same_name_calls.jsonl and exit")
+    p.add_argument("--no-speaker", action="store_true", help="do not tell the judge the owner's name (the code before 2026-11-24)")
     a = p.parse_args(argv)
     if a.from_calls:
         print(json.dumps(from_calls(a.from_calls), indent=1, ensure_ascii=False))
@@ -209,7 +213,8 @@ def main(argv: list[str] | None = None) -> int:
     bank.mkdir(parents=True, exist_ok=True)
     with _leg_environment(home, bank):
         strong = product_ask(a.strong, a.strong, home, bank) if a.strong else None
-        rows = asyncio.run(run(cases, a.repeats, product_ask(a.judge, a.main, home, bank), strong_ask=strong))
+        rows = asyncio.run(run(cases, a.repeats, product_ask(a.judge, a.main, home, bank), strong_ask=strong,
+                               speaker=not a.no_speaker))
         print(report(rows, spend(home)))
     return 0
 

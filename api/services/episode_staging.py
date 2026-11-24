@@ -248,6 +248,11 @@ def draft_from_export(episode: dict) -> EpisodeDraft:
 #: and its hash; an unchanged conversation that gains it is updated in its frontmatter only, never re-queued.
 PROVIDER_PROJECT_KEY = "provider_project"
 
+#: Where a source filed an item (G245): a Notion page's parents and its database. Filing labels, never words — a draft
+#: that carries one and an episode that lacks or differs gets it in frontmatter alone, so a page already in the bank
+#: learns its place with no word moved and nothing re-queued.
+FILING_KEYS = ("notion_database", "notion_path", "notion_path_ids")
+
 
 def content_hash(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:12]
@@ -1405,6 +1410,14 @@ def _stage_locked(drafts: list[EpisodeDraft], episodes_dir: Path, *,
                     if write:
                         _set_meta(entry.path, {PROVIDER_PROJECT_KEY: grouping})
                     entry.fm[PROVIDER_PROJECT_KEY] = grouping
+                    if (rel := _rel(entry.path, episodes_dir)) not in result.paths:
+                        result.paths.append(rel)
+                filing = stored_meta({k: draft.extra[k] for k in FILING_KEYS if draft.extra.get(k)})
+                if filing := {k: v for k, v in filing.items() if entry.fm.get(k) != v}:
+                    # G245: the source's filing (a Notion page's parents or database) arrived or moved and no word did.
+                    if write:
+                        _set_meta(entry.path, filing)
+                    entry.fm.update(filing)
                     if (rel := _rel(entry.path, episodes_dir)) not in result.paths:
                         result.paths.append(rel)
                 extras = render_extras(draft, raw=not tail and entry.fm.get("content_hash") != digest)
