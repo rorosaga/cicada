@@ -5,10 +5,10 @@ extension Copy {
     /// nothing here names who reads.
     enum SleepTabs {
         static let page = "Sleep"
-        static let waiting = "Waiting"
+        static let waiting = "Queue"
         static let saved = "Saved"
         static let videos = "Videos"
-        static let pastReads = "Past reads"
+        static let pastReads = "Past sleeps"
         static let tabsLabel = "Sleep's lists"
         /// The Saved tab's View menu: the Feed's sort and kind filter in one place (DR-38 — never a second tab row).
         static let view = "View"

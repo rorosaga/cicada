@@ -430,6 +430,9 @@ struct SleepControlRow: View {
     /// a state with more to say never makes the block taller than the room.
     enum Part { case all, buttons, captions }
     var part: Part = .all
+    /// The room's interaction state: the run bar's schedule opens the lamp's popover through it. Only the page's
+    /// leading layout (the bar) needs it.
+    var room: RoomModel? = nil
 
     @State private var optionsOpen = false
 
@@ -444,7 +447,11 @@ struct SleepControlRow: View {
 
     var body: some View {
         VStack(alignment: leading ? .leading : .center, spacing: CicadaTheme.spacingSM) {
-            if part != .captions { buttonRow }
+            if part != .captions {
+                // Beside the room (the page's layout) the row is the run bar; the centred group below is the
+                // offscreen layout the at-rest and run-strip tests lay out.
+                if leading, let room, let page { runBar(page: page, room: room) } else { buttonRow }
+            }
             if part != .buttons { captions }
         }
         .padding(.top, part == .captions && hasCaptions ? CicadaTheme.spacingSM : 0)
@@ -462,24 +469,61 @@ struct SleepControlRow: View {
         }
     }
 
+    /// The page's one run bar (`SleepRunBar.swift` holds its quiet parts): what will run, when, and the go button in
+    /// one soft block. A narrow column drops words in order — the engine to its model, then the schedule to its
+    /// moon and switch — and never the primary.
+    private func runBar(page: SleepPageModel, room: RoomModel) -> some View {
+        ViewThatFits(in: .horizontal) {
+            ForEach(RunBarLevel.allCases, id: \.self) { level in barContent(page: page, room: room, level: level) }
+        }
+        .softCard(shape: .block, inset: .snug, fillsWidth: true)
+    }
+
+    private func barContent(page: SleepPageModel, room: RoomModel, level: RunBarLevel) -> some View {
+        HStack(spacing: CicadaTheme.spacingXS) {
+            // The owner's quick switch (R-HS8, R-HS9). It stays while a cycle runs: a change applies to the next one
+            // (G80). It names the person's own engine and model — never another.
+            RunBarEngine(short: level != .full)
+            RunBarSchedule(page: page, room: room, glyphOnly: level == .scheduleGlyph)
+            if showsOptionsLink { optionsButton }
+            Spacer(minLength: CicadaTheme.spacingSM)
+            if paused != nil, !sleepVM.isRunning {
+                TextButton(title: Copy.SleepV5.endRun, help: Copy.SleepV5.endRunHelp) {
+                    Task { await sleepVM.endRun() }
+                }
+            }
+            primaryButton
+        }
+    }
+
+    /// Options opens the reading options (how often a run saves, what it runs on): a slider mark, said in `.help`.
+    private var optionsButton: some View {
+        IconButton(systemName: "slider.horizontal.3", help: Copy.SleepV5.optionsHelp,
+                   accessibilityLabel: Copy.SleepV5.optionsShort) { optionsOpen = true }
+    }
+
+    /// The row's one primary: Pause or Cancel while a cycle runs, Continue while one waits paused, else Consolidate.
+    @ViewBuilder
+    private var primaryButton: some View {
+        if sleepVM.isRunning {
+            if draining { pauseButton } else { cancelButton }
+        } else if let paused {
+            continueButton(paused)
+        } else {
+            consolidateButton
+        }
+    }
+
     private var buttonRow: some View {
             HStack(spacing: CicadaTheme.spacingSM) {
-                if sleepVM.isRunning {
-                    if draining { pauseButton } else { cancelButton }
-                } else if let paused {
-                    continueButton(paused)
-                } else {
-                    consolidateButton
-                }
+                primaryButton
                 // The owner's quick switch (R-HS8, R-HS9). It stays while a cycle runs: a change
                 // applies to the next one (G80). It names the person's own engine and model — never another.
                 EngineLabelButton(size: .compact)   // D6: a label that opens Settings → Intelligence (UI-A)
                 // The owner's at-rest row (2026-10-16): Consolidate · engine · Options, one height. Options opens the
                 // same reading options the floating "Reading options…" link did, on this row instead of its own line.
                 if showsOptionsLink {
-                    // ROR-118 round 4 - "Options…" was vague: a slider mark says it adjusts (a longer label truncated the engine's).
-                    NeutralButton(title: leading ? Copy.SleepV5.optionsShort : Copy.SleepV5.options,
-                                  systemImage: leading ? "slider.horizontal.3" : nil, size: .compact,
+                    NeutralButton(title: Copy.SleepV5.options, size: .compact,
                                   help: Copy.SleepV5.optionsHelp) { optionsOpen = true }
                 }
                 if paused != nil, !sleepVM.isRunning {
@@ -640,7 +684,8 @@ struct SleepControlRow: View {
 
 /// The engine a line names, with its real mark (round-3 brief: "use logos
 /// whenever possible"; Z-P26; DR-52). `claude-cli` IS Claude Code, so it borrows that
-/// origin's mark; an API key has no vendor to show.
+/// origin's mark; a key wears its provider's (owner 2026-11-24: "with the logos of providers"), read from the model
+/// it runs (`ContributorIdentity.modelMark`) — the key glyph only when the provider is truly unknown.
 struct EngineMark: View {
     let engine: String
     var size: CGFloat = 14
@@ -649,8 +694,8 @@ struct EngineMark: View {
     var model: String? = nil
 
     /// Which mark an engine wears (R-HS13): the Claude plan runs Claude Code's own binary, the ChatGPT
-    /// plan wears its card's mark (`EngineOption.previewMark`), Ollama its own, and an API key — which
-    /// has no vendor — a key. `codex-cli` drew the key before DS-3b (DR-52).
+    /// plan wears its card's mark (`EngineOption.previewMark`), Ollama its own, and an API key the mark of the
+    /// provider whose model it runs, a key only when that is unknown. `codex-cli` drew the key before DS-3b (DR-52).
     enum Source: Equatable {
         case origin(String)
         case logo(String)
@@ -668,7 +713,7 @@ struct EngineMark: View {
         // from the shared set; only a key run has no vendor to show.
         case _ where engine.hasSuffix("-cli") && LogoSet.umbrellaMarks.contains(String(engine.dropLast(4))):
             .logo(String(engine.dropLast(4)))
-        default: .symbol("key")
+        default: model.flatMap { ContributorIdentity.modelMark(author: $0) }.map(Source.logo) ?? .symbol("key")
         }
     }
 

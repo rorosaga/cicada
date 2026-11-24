@@ -211,7 +211,7 @@ final class SleepDrainStopTests: XCTestCase {
         c.drain = drain
         let line = roomSentence(c)
         XCTAssertFalse(try XCTUnwrap(line.tail).contains("…"))
-        XCTAssertTrue(try XCTUnwrap(line.tail).contains("Past reads"))
+        XCTAssertTrue(try XCTUnwrap(line.tail).contains("Past sleeps"))
         XCTAssertEqual(line.action, .openDetails(.lastCycle))
     }
 

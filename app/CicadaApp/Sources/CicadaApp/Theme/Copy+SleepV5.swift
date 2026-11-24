@@ -16,9 +16,6 @@ import Foundation
 /// Short labels join `sleepV5Labels`, which `HomeSleepCopyTests`' rules read too.
 extension Copy {
     enum SleepV5 {
-        /// ROR-118 (the owner asked for it, 2026-11-06) - the lamp-off wording the page had before round 3, without its
-        /// full stop so "last read ..." can follow it (`Copy.lampOffSentence` is the same words, ended).
-        static let lampOffShort = "The lamp is off — I read when you ask"
         /// The Waiting list's two right-hand columns, named once.
         static let columnOldest = "Oldest"
         /// ROR-118 round 5 - the list's last row: the saves nothing reads, with their count in the Items column (the tooltip says the rest).
@@ -106,7 +103,7 @@ extension Copy {
             }
         }
         static let readingStoppedLead = "Reading stopped."
-        static let readingStoppedTail = "See what needs a fix in Past reads, then try again."
+        static let readingStoppedTail = "See what needs a fix in Past sleeps, then try again."
         static func continueToTryAgain(filed: Int, frozen: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
             "Continue to try again. \(filedOf(filed, frozen, locale))."
         }
@@ -269,7 +266,7 @@ extension Copy {
             usd == usd.rounded() ? "$\(Int(usd))" : "$" + String(format: "%.2f", usd)
         }
         static let spendHelp = "Sleep runs only. A run stops here and files what it read, about one read over at most."
-        static let keyLimitTail = "Stopped at your API key's limit — details in Past reads."
+        static let keyLimitTail = "Stopped at your API key's limit — details in Past sleeps."
         static func reserveChoice(_ pct: Int) -> String { "\(pct)% of the window" }
         static func reserveValue(_ pct: Int, windows: [String]) -> String {
             guard !windows.isEmpty else { return "\(pct)% of each window it reports" }

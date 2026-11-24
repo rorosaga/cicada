@@ -338,7 +338,7 @@ enum Copy {
     static let sleepSubtitle = "Fold what's waiting into the graph."
     /// The Sleep page's list of what it read (the Details disclosure until the Sleep redesign, 2026-10-16, which also
     /// retired the "Sleep Cycle" title: the page opens on its eyebrow). Home's links to a read name it.
-    static let sleepDetails = "Past reads"
+    static let sleepDetails = "Past sleeps"
     static let inboxSubtitle = "Questions waiting on you."
     static let agentsSubtitle = "Wire any MCP agent into this Mac's memory."
     static let plansAndKeysSubtitle = "What Cicada bills against, and how it signs in."

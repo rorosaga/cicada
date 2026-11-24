@@ -3,10 +3,10 @@ import Foundation
 /// The Sleep redesign (owner approval 2026-10-16, DESIGN_RULES §9) — the page's four lists under the room, one list
 /// grammar (DR-45). Details retired: its four sections and the Feed became these tabs.
 ///
-/// - **Waiting** — what Sleep has not read yet (Details › What's waiting).
+/// - **Waiting** — what Sleep has not read yet (Details › What's waiting); the tab reads "Queue" (2026-11-24).
 /// - **Saved** — everything that came in (the Feed's list, its sort and kind filter, its detail column).
 /// - **Videos** — the Feed's Videos list and its watch run; drawn only while a video is saved (one queue, one place).
-/// - **Past reads** — Last cycle, the Readout and Past nights (ruling 12's one home for prices on this page).
+/// - **Past reads** — "Past sleeps" on the page (2026-11-24): Last cycle, the Readout and Past nights (ruling 12's one home for prices on this page).
 enum SleepTab: String, CaseIterable, Hashable {
     case waiting, saved, videos, pastReads
 
@@ -54,6 +54,10 @@ enum SleepTab: String, CaseIterable, Hashable {
         section == .waiting ? .waiting : .pastReads
     }
 
+    /// The lists that are about Sleep itself — the queue and what it did. Saved and Videos are the Sources redesign's
+    /// (owner 2026-11-24): they fold into the tab row's `⋯` menu.
+    var isSleepList: Bool { self == .waiting || self == .pastReads }
+
     /// Find (⌘F) searches a list of saved items; Waiting and Past reads have none to search.
     var hasFind: Bool { self == .saved || self == .videos }
 }
@@ -66,11 +70,6 @@ enum SleepEyebrow {
     static func text(waiting: Int, lastSleepAt: String?, now: Date) -> String {
         let last = lastSleepAt.flatMap { InboxAge.date($0) }.map { Copy.SleepTabs.lastRead(ago($0, now: now)) } ?? ""
         return Eyebrow.text(Copy.SleepTabs.page, last)
-    }
-
-    /// "last read 2 h ago" for the lamp's line beside the room - nil until a read happened.
-    static func lastRead(lastSleepAt: String?, now: Date) -> String? {
-        lastSleepAt.flatMap { InboxAge.date($0) }.map { Copy.SleepTabs.lastRead(ago($0, now: now)) }
     }
 
     /// "just now", "12 min ago", "2 h ago", then the Inbox's day words ("yesterday", "3 days ago").

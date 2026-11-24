@@ -23,6 +23,10 @@ struct SleepWaitingList: View {
     let episodes: [EpisodeQueueItem]
     /// G212 — one machine's queue open: its rows, built from its own episodes (nil: the page's rows, every machine's).
     var machineRows: [StudyRow]? = nil
+    /// The machine the queue is narrowed to, when it has nothing waiting: one line says so instead of an empty card.
+    var emptyMachine: String? = nil
+    /// A machine is the page's filter (its rows are shown, whatever they number).
+    var narrowedToMachine = false
     var onSelectEntity: ((String) -> Void)?
     /// Track Z Z6 (I5, I7) — hands the room to the rows, so a row and its spine answer each other's hover.
     var room: RoomModel? = nil
@@ -47,11 +51,21 @@ struct SleepWaitingList: View {
                                 onRetry: canRetry ? onRetryParked : nil, onSeeOwnerPage: onSeeOwnerPage)
                     .saturation(liveness.saturation)
             }
-            StudyListCard(rows: machineRows ?? page.rows, episodes: episodes, queueLoad: page.queueLoad,
-                          onSelectEntity: onSelectEntity, room: room)
-                .id(DetailsSection.waiting.anchorID)
-                .saturation(liveness.saturation)
-            if let kept = queue?.kept, kept > 0 {
+            if let emptyMachine, episodes.isEmpty {
+                Text(Copy.Machines.nothingFrom(emptyMachine))
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, CicadaTheme.spacingSM)
+                    .id(DetailsSection.waiting.anchorID)
+            } else {
+                StudyListCard(rows: machineRows ?? page.rows, episodes: episodes, queueLoad: page.queueLoad,
+                              onSelectEntity: onSelectEntity, room: room)
+                    .id(DetailsSection.waiting.anchorID)
+                    .saturation(liveness.saturation)
+            }
+            // What is kept for lookup is the whole memory's count, not a machine's: it waits out a machine filter.
+            if emptyMachine == nil, !narrowedToMachine, let kept = queue?.kept, kept > 0 {
                 // The list's own last card (owner 2026-11-23): what is kept for lookup, opened in order by source.
                 KeptForLookupCard(kept: kept)
                     .padding(.top, -CicadaTheme.spacingCard + CicadaTheme.spacingSM)
@@ -85,6 +99,9 @@ struct SleepPastReads: View {
     var items: [SleepConsolidatedKey: SleepConsolidated] = [:]
     var itemsFailed: Set<SleepConsolidatedKey> = []
     var onLoadItems: (SleepConsolidatedKey) -> Void = { _ in }
+    /// The machine the page is narrowed to (a device id, or `"server"` for this server's own), nil for every machine.
+    /// Not read here yet: Past sleeps narrows its conversations and pages by it (spec D).
+    var machineId: String? = nil
 
     /// Retry on a parked conversation only when the server would take it: no run reading, none waiting paused.
     private var canRetry: Bool {

@@ -229,8 +229,9 @@ struct SleepView: View {
     /// ladder). Page-local `@State`: a tab switch tears it down, so an answer
     /// never outlives the visit it was asked in.
     @State private var room = RoomModel()
-    /// G212 — the machine whose queue Waiting shows (nil: every machine's); the machines themselves are
-    /// `sleepVM.machines`, polled while the page shows.
+    /// G212 — the machine the page is narrowed to (nil: every machine's); the machines themselves are
+    /// `sleepVM.machines`, polled while the page shows. 2026-11-24: the chips in the title row set it, and it narrows
+    /// the Queue and Past sleeps alike.
     @State private var openMachine: String?
 
     private static let tabsAnchor = "sleep.tabs"
@@ -516,11 +517,19 @@ struct SleepView: View {
     /// The page's eyebrow (DR-25, DR-26 — the first item, where the title used to be), with the staleness chip at its
     /// right while the backend is not answering (R-A12). The subtitle the title carried lives on as its hint.
     private func eyebrowRow(_ page: SleepPageModel, gutter: CGFloat, bare: Bool = false) -> some View {
-        EyebrowRow(eyebrow: SleepEyebrow.text(waiting: waitingCount, lastSleepAt: nil, now: .now),
-                   horizontalPadding: gutter, bare: bare) {
-            // R-A12: the chip explains the dimming below it, so it stays at full contrast and sits outside every
-            // desaturated group.
-            if let asOf = liveness.asOf { stalenessChip(asOf) }
+        // "Sleep · last read 3 min ago" (2026-11-24): the one place "last read" is said; the machines, when there are
+        // two or more, sit at the row's trailing edge.
+        EyebrowRow(eyebrow: SleepEyebrow.text(waiting: waitingCount, lastSleepAt: store.status.value?.lastSleepAt,
+                                              now: .now),
+                   horizontalPadding: gutter, adaptiveTrailing: true, bare: bare) {
+            HStack(spacing: CicadaTheme.spacingSM) {
+                // R-A12: the chip explains the dimming below it, so it stays at full contrast and sits outside every
+                // desaturated group.
+                if let asOf = liveness.asOf { stalenessChip(asOf) }
+                MachineChipsView(machines: sleepVM.machines, selected: selectedMachine?.id) { machine in
+                    Instant.run { openMachine = machine?.id }
+                }
+            }
         }
         .accessibilityHint(Copy.sleepSubtitle)
     }
@@ -548,16 +557,22 @@ struct SleepView: View {
         let rowInset = ListInsets.of(.wide).leading
         switch tab {
         case .waiting:
-            let machine = sleepVM.machines.first { $0.id == openMachine }
+            let machine = selectedMachine
             let machineEpisodes = MachinesStrip.episodes(sleepVM.queuedEpisodes, machine: machine)
             SleepWaitingList(page: page, liveness: liveness, episodes: machineEpisodes,
                              machineRows: machine == nil ? nil
                                  : studyRows(queued: machineEpisodes, queueByOrigin: [:], readByOrigin: [:],
                                              running: false),
+                             emptyMachine: machine.map(MachinesStrip.displayName),
+                             narrowedToMachine: machine != nil,
                              onSelectEntity: onSelectEntity, room: room, queue: sleepVM.queue,
                              showsRun: showsRunBlock(page), runPaused: sleepVM.isPaused,
                              ownerReady: ownerReady(page), onRetryParked: retryParked,
                              onSeeOwnerPage: ownerEntityId.map { id in { onSelectEntity?(id) } })
+                // A card says the machine it came from while every machine shows and there are two or more.
+                .environment(\.episodeMachineName, { [machines = sleepVM.machines, filtered = machine != nil] in
+                    filtered ? nil : MachinesStrip.originName(of: $0, in: machines)
+                })
                 .padding(.horizontal, plan.gutter)
                 .padding(.top, CicadaTheme.spacingSM)
         case .saved:
@@ -591,7 +606,8 @@ struct SleepView: View {
                            runDetails: sleepVM.runDetails, expandedRun: sleepVM.expandedRun,
                            onToggleRun: toggleRun,
                            items: sleepVM.consolidated, itemsFailed: sleepVM.consolidatedFailed,
-                           onLoadItems: { key in Task { @MainActor in await sleepVM.loadConsolidated(key) } })
+                           onLoadItems: { key in Task { @MainActor in await sleepVM.loadConsolidated(key) } },
+                           machineId: selectedMachine?.id)
                 // DR-36 — key–value rows and prose keep the 760 pt text column.
                 .frame(maxWidth: SleepLayout.contentWidth, alignment: .leading)
                 .padding(.horizontal, plan.gutter)
@@ -677,6 +693,18 @@ struct SleepView: View {
         }
     }
 
+    /// The machine the page is narrowed to — only while there are two or more machines and the chosen one is still
+    /// listed (one machine has nothing to choose between; a machine that dropped off the list narrows nothing).
+    private var selectedMachine: MachineStatus? {
+        guard sleepVM.machines.count > 1 else { return nil }
+        return sleepVM.machines.first { $0.id == openMachine }
+    }
+
+    /// What the Queue tab counts: the whole memory's waiting number (the live count, H1), or the chosen machine's rows.
+    private var queueTabCount: Int {
+        selectedMachine.map { MachinesStrip.episodes(sleepVM.queuedEpisodes, machine: $0).count } ?? waitingCount
+    }
+
     /// The live waiting count (H1): SSE-live when a snapshot has arrived, the loaded rows before.
     private var waitingCount: Int {
         Self.queueCount(status: store.status.value, fallback: sleepVM.queuedEpisodes.count)
@@ -702,7 +730,7 @@ struct SleepView: View {
     private func tabRowTabs(_ page: SleepPageModel) -> [TextTab<SleepTab>] {
         SleepTabRow.tabs(SleepTab.visible(waitingHasRows: waitingHasRows(page), saved: feedVM.items.count,
                                           exportWaiting: exportWaiting, videos: videoItems.count),
-                         waiting: waitingCount, saved: feedVM.items.count, videos: videoItems.count)
+                         waiting: queueTabCount, saved: feedVM.items.count, videos: videoItems.count)
     }
 
     /// The detail column is open while the watch run is on, or while a saved item is open on a tab of saved items —
@@ -1138,7 +1166,6 @@ struct SleepView: View {
                             },
                             ownerEntityId: ownerEntityId, onSelectEntity: onSelectEntity,
                             openDetails: openDetails, leading: true,
-                            lastRead: SleepEyebrow.lastRead(lastSleepAt: store.status.value?.lastSleepAt, now: .now),
                             title: beside ? AnyView(eyebrowRow(page, gutter: 0, bare: true)) : nil,
                             fillHeight: beside ? CGFloat(RoomLattice.rows) * cell : nil,
                             notesOnly: notesOnly)
@@ -1165,25 +1192,13 @@ struct SleepView: View {
                 words
             }
 
-            // G212 — each machine by its own name, how it connects and what waits; a click opens its queue below.
-            // One machine has nothing to choose between (its count is the headline's and the Waiting tab's), so the
-            // strip appears with a second.
-            if sleepVM.machines.count > 1 {
-                MachinesStripView(machines: sleepVM.machines, selected: openMachine) { machine in
-                    Instant.run {
-                        openMachine = machine?.id
-                        if machine != nil { selectTab(.waiting) }
-                    }
-                }
-            }
-
-            // G229 — right under the strip that says what waits: what each machine is still syncing after it was closed.
+            // G229 — what each machine is still syncing after it was closed.
             // Production blocker (2026-11-06) — "Synced" is the backend's last answer; with no backend answering it is
             // not news, so the lines wait for it (the shell's banner says why).
             AwaySyncLines(entries: store.reach == .up ? AwaySyncWords.machines(own: awaySync?.view, rows: sleepVM.machines) : [],
                           openSources: { selectedTab = .sources })
 
-            // G132 phase 2 — the device that runs consolidation, every other device's lag, and moving it (shared only).
+            // G132 phase 2 — moving the home and taking over: only what a machine's chip cannot say, only when there is some.
             HomeStripView(model: sleepVM.homeStrip)
         }
         .accessibilityElement(children: .contain)

@@ -93,14 +93,17 @@ enum EpisodeRowText {
     /// A card's footer after its mark: where it is (a page's site and path, "3 tab links", a file's name), how long
     /// ago it last changed, and "read" once Sleep read it. The source's name is never repeated: the source card above
     /// names it once (DR-38), and the mark carries it at a glance.
+    /// `machine` (2026-11-24): the name of the machine it came from, said only when it is another one (two machines or
+    /// more, no machine chosen as the filter) — after its age, so the line still reads where, when, who.
     static func footer(_ item: EpisodeQueueItem, target: String?, now: Date = Date(),
-                       showsState: Bool = true) -> [String] {
+                       showsState: Bool = true, machine: String? = nil) -> [String] {
         // A meeting says its length where a file would say its name (its call app's mark leads the footer).
         var parts = item.meeting != nil ? (MeetingApp.length(seconds: item.meeting?.durationS).map { [$0] } ?? [])
                                         : (target.map { [$0] } ?? [])
         if let date = parse(item.changedAt ?? item.timestamp) ?? parse(item.timestamp) {
             parts.append(Copy.OriginCard.ago(date, now: now))
         }
+        if let machine, !machine.isEmpty { parts.append(machine) }
         // A kept save is neither waiting nor read by a model (ruling 62): it says neither.
         guard showsState else { return parts }
         if item.processed { parts.append("read") }
@@ -124,11 +127,11 @@ enum EpisodeRowText {
 
     /// What VoiceOver reads for a card: the title, then the footer's words.
     static func cardLabel(_ item: EpisodeQueueItem, target: String?, now: Date = Date(),
-                          showsState: Bool = true) -> String {
+                          showsState: Bool = true, machine: String? = nil) -> String {
         // The others are footer words.
         let marker = showsState ? EpisodeChange.of(item).flatMap { $0 == .new ? $0.spoken : nil } : nil
         return ([item.title ?? Copy.SleepDetailsWords.untitled]
-                + footer(item, target: target, now: now, showsState: showsState)
+                + footer(item, target: target, now: now, showsState: showsState, machine: machine)
                 + [marker].compactMap { $0 }).joined(separator: ", ")
     }
 
@@ -197,6 +200,7 @@ struct EpisodeCard: View {
     var showsState = true
     @Environment(Store.self) private var store: Store?
     @Environment(ProvenanceRouter.self) private var reader: ProvenanceRouter?
+    @Environment(\.episodeMachineName) private var machineName
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -244,7 +248,8 @@ struct EpisodeCard: View {
             }
             Button(Copy.SleepDetailsWords.copyAction(kind), action: copy)
         }
-        .accessibilityLabel(EpisodeRowText.cardLabel(item, target: target, showsState: showsState))
+        .accessibilityLabel(EpisodeRowText.cardLabel(item, target: target, showsState: showsState,
+                                                     machine: machineName(item)))
         .accessibilityHint(Copy.SleepDetailsWords.openHint(kind))
         .accessibilityAction(named: Text(Copy.SleepDetailsWords.copyAction(kind)), copy)
         .accessibilityActions {
@@ -258,7 +263,8 @@ struct EpisodeCard: View {
     private var footer: some View {
         HStack(spacing: CicadaTheme.scaled(6)) {
             mark
-            ForEach(Array(EpisodeRowText.footer(item, target: target, showsState: showsState).enumerated()),
+            ForEach(Array(EpisodeRowText.footer(item, target: target, showsState: showsState,
+                                                  machine: machineName(item)).enumerated()),
                     id: \.offset) { index, part in
                 if index > 0 { Text("·") }
                 Text(part).monospacedDigit()

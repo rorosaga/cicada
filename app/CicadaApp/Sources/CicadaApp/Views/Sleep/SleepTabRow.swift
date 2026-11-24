@@ -14,13 +14,15 @@ struct SleepTabRow: View {
     var showsTools = true
 
     var body: some View {
+        let split = Self.fold(tabs, selected: selected)
         HStack(spacing: CicadaTheme.spacingXS) {
             // One tab is always on: tapping the active one keeps it, and changes nothing (a list is not a filter with an
             // "All", and re-selecting it must not close find or the open item).
-            TextTabs(tabs: tabs, selection: Binding(get: { selected }, set: { tab in
+            TextTabs(tabs: split.inline, selection: Binding(get: { selected }, set: { tab in
                 if let tab, tab != selected { select(tab) }
             }), large: true)
                 .accessibilityLabel(Copy.SleepTabs.tabsLabel)
+            SleepMoreMenu(tabs: split.folded) { select($0) }
             if showsTools {
                 Spacer(minLength: CicadaTheme.spacingSM)
                 tools
@@ -38,7 +40,17 @@ struct SleepTabRow: View {
         }
     }
 
-    /// The tabs on screen with their counts; Past reads carries none (it is not a pile).
+    /// The two Sleep lists stay on the row; Saved and Videos fold into the `⋯` menu, and one of them is on the row for
+    /// as long as it is the selected list. Pure (`SleepTabRowTests`): the row's order is kept.
+    static func fold(_ tabs: [TextTab<SleepTab>], selected: SleepTab) -> (inline: [TextTab<SleepTab>], folded: [TextTab<SleepTab>]) {
+        func stays(_ tab: TextTab<SleepTab>) -> Bool {
+            guard let id = tab.id else { return true }
+            return id.isSleepList || id == selected
+        }
+        return (tabs.filter(stays), tabs.filter { !stays($0) })
+    }
+
+    /// The tabs on screen with their counts; Past sleeps carries none (it is not a pile).
     static func tabs(_ shown: [SleepTab], waiting: Int, saved: Int, videos: Int) -> [TextTab<SleepTab>] {
         shown.map { tab in
             switch tab {
@@ -83,5 +95,40 @@ struct SavedViewMenu: View {
     /// "View", or "View · Papers" while a kind narrows the list — the filter is never invisible.
     static func label(kind: FeedKind?) -> String {
         Eyebrow.text(Copy.SleepTabs.view, kind?.label ?? "")
+    }
+}
+
+/// "⋯" — Saved and Videos, with their counts. Drawn as an inactive text tab (the row's 26 pt, `textTertiary`), so the
+/// row reads as one row; icon-only, so it says what it holds in `.help` and to VoiceOver. Nothing when nothing folds.
+private struct SleepMoreMenu: View {
+    let tabs: [TextTab<SleepTab>]
+    let select: (SleepTab) -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        if !tabs.isEmpty {
+            Menu {
+                ForEach(Array(tabs.enumerated()), id: \.offset) { _, tab in
+                    if let id = tab.id {
+                        Button(TextTabSelection.menuLabel(label: tab.label, count: tab.count)) { select(id) }
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(CicadaTheme.font(size: 14, weight: .semibold))
+                    .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textTertiary)
+                    // The page's own (large) tabs: 12 pt of padding in a 30 pt pill, so the menu stands in the row.
+                    .padding(.horizontal, CicadaTheme.scaled(12))
+                    .frame(height: CicadaTheme.scaled(30))
+                    .rowHoverFill(hovering: hovering)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .onHover { hovering = $0 }
+            .help(tabs.map { TextTabSelection.menuLabel(label: $0.label, count: $0.count) }.joined(separator: ", "))
+            .accessibilityLabel(Copy.SleepPage.moreAccessibility)
+        }
     }
 }
