@@ -524,6 +524,27 @@ def test_a_read_after_an_export_row_with_no_link_joins_them_under_the_same_rule(
     assert len(held) == 1 and held[0]["url"] == f"{LI}/jun-sample" and held[0]["position"] == "Designer"
 
 
+def test_a_reimport_moves_imported_at_and_a_read_does_not(stage2, monkeypatch):
+    from datetime import datetime as real_datetime
+
+    stamps = iter(["2026-11-10T09:00:00+00:00", "2026-11-11T09:00:00+00:00", "2026-11-12T09:00:00+00:00"])
+
+    class Clock(real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return real_datetime.fromisoformat(next(stamps))
+
+    monkeypatch.setattr(linkedin_people, "datetime", Clock)
+    csv = _csv(("Kit", "Sample", f"{LI}/kit-sample", "", "", "", "03 Nov 2026"))
+    linkedin_people.save_directory(stage2.name, linkedin_people.parse(csv).connections, "2026-11-10")
+    first = linkedin_people.status(stage2.name)["imported_at"]
+    linkedin_people.save_directory(stage2.name, linkedin_people.parse(csv).connections, "2026-11-11")
+    second = linkedin_people.status(stage2.name)["imported_at"]
+    assert first and second and second > first, "a re-import is a newer import"
+    linkedin_people.record_read(stage2.name, [_row("Lee Sample", "lee-sample", "2026-11-03")], TODAY)
+    assert linkedin_people.status(stage2.name)["imported_at"] == second, "a read is not an import"
+
+
 # --- never the wrong person ----------------------------------------------------------------------------------------
 
 

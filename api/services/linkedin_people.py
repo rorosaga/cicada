@@ -839,9 +839,11 @@ def _absorb_linkless(rows: list[Connection]) -> list[Connection]:
 
 
 def _write_rows(bank: str, held: dict, rows: list[Connection], *, exported_on: str | None,
-                read_on: str | None) -> None:
+                read_on: str | None, imported: bool = False) -> None:
+    """``imported``: this write is an export's import, so ``imported_at`` is now; a read keeps the day it was set."""
     _number(rows)
-    payload = {"v": 1, "imported_at": held.get("imported_at") or datetime.now().astimezone().isoformat(timespec="seconds"),
+    now = datetime.now().astimezone().isoformat(timespec="seconds")
+    payload = {"v": 1, "imported_at": now if imported else (held.get("imported_at") or now),
                "connections": [c.to_dict() for c in rows]}
     if exported_on:
         payload["exported_on"] = exported_on
@@ -888,7 +890,7 @@ def save_directory(bank: str, connections: list[Connection], day: str) -> bool:
             elif old.src == "read":
                 kept.append(old)
         merged = kept + [c for c in connections if not c.url or (_slug(c.url) or c.id) in exported]
-        _write_rows(bank, held, _absorb_linkless(merged), exported_on=day, read_on=held.get("read_on"))
+        _write_rows(bank, held, _absorb_linkless(merged), exported_on=day, read_on=held.get("read_on"), imported=True)
     return True
 
 
