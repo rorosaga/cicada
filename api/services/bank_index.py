@@ -333,6 +333,13 @@ def stamps(memory_path: Path, subdir: str, *, fresh: bool = False) -> dict[str, 
     return dict(_scan_uncached(directory) if fresh else _scan(directory))
 
 
+def listing(memory_path: Path, subdir: str) -> dict[str, tuple[int, int]]:
+    """:func:`stamps` without the copy: the listing itself (the one a :func:`shared_scans` block memoises, the SSE tick's
+    when seeded). A listing is never mutated once made, so a caller may keep it and compare it by identity; it must never
+    change it."""
+    return _scan(Path(memory_path) / subdir)
+
+
 def file(memory_path: Path, subdir: str, name: str) -> IndexedFile | None:
     """One file's cached entry, parsing only that file when its ``(mtime, size)`` moved or it was never
     read. ``name`` is the on-disk filename (``<stem>.md``); a missing or malformed file is ``None``.
