@@ -142,7 +142,7 @@ def test_the_page_holds_what_the_list_is_and_nothing_that_goes_stale(bank, on):
     assert fm["tags"] == [] and fm["related"] == [] and fm["source_episodes"] == [] and fm["decay_class"] == "evergreen"
     assert fm["list"] == {"site": "x", "stream": "x.bookmarks", "folder": None, "source": "x-bookmarks",
                           "label": "Bookmarks", "named": "X: Bookmarks", "said": "Posts you bookmarked on X."}
-    assert parsed.body.strip() == "Posts you bookmarked on X."
+    assert parsed.body.strip() == "## Summary\nPosts you bookmarked on X."   # the heading the app lifts as the row's line
     text = (bank / "entities" / "list-x-bookmarks.md").read_text()
     assert not any(word in text for word in ("A post 1", "A post 2", "2026-11-12", "status/1000001")), \
         "no row, no count and no newest day on the page"
@@ -538,7 +538,7 @@ def test_the_card_of_a_list_page_carries_its_media_block_and_its_list_block(bank
     assert block["channel"] == "x" and block["source"] == "x-bookmarks" and block["folder"] is None
     assert [r["title"] for r in block["recent"]] == ["A post 3", "A post 2", "A post 1"]
     assert "list" in body["blocks"]["order"]
-    assert body["markdownContent"].strip() == "Posts you bookmarked on X."
+    assert body["markdownContent"].strip() == "## Summary\nPosts you bookmarked on X."
 
 
 def test_the_card_moves_with_a_new_save_and_no_file_changes(bank, on, client):
@@ -615,4 +615,18 @@ def test_a_rename_never_replaces_words_the_person_wrote(bank, on, monkeypatch):
     assert list_pages.sync(bank)["updated"] == 2
     assert page_of(bank, "list-x-likes").body.strip() == "What I like to keep."
     assert page_of(bank, "list-x-likes").frontmatter["name"] == "X — Likes"
-    assert page_of(bank, "list-x-bookmarks").body.strip() == "Posts you bookmarked on X."
+    assert page_of(bank, "list-x-bookmarks").body.strip() == "## Summary\nPosts you bookmarked on X."
+
+
+def test_a_pages_body_is_its_sentence_under_summary_so_its_row_keeps_its_line(bank, on):
+    """Seen on the scratch app: a bare sentence was no `## Summary`, so a row lost its line once its page was opened.
+    A page an earlier build wrote bare is still renamed in place (the sentence this writer wrote is replaced)."""
+    save(bank, 1)
+    list_pages.sync(bank)
+    assert page_of(bank, "list-x-bookmarks").body.startswith("## Summary\n")
+    path = bank / "entities" / "list-x-bookmarks.md"
+    old = page_of(bank, "list-x-bookmarks")
+    markdown_parser.write(path, old.frontmatter, "Posts you bookmarked on X.\n")       # the shape before this change
+    bank_index.invalidate()
+    list_pages.sync(bank)
+    assert page_of(bank, "list-x-bookmarks").body.strip() == "Posts you bookmarked on X."   # unchanged: no rename, no rewrite

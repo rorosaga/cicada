@@ -10,18 +10,23 @@ import SwiftUI
 /// count is formatted by `UsageFormat`), DR-2 (no colour beyond the text ladder).
 struct HiddenPostsStrip: View {
     @Environment(Store.self) private var store
-    /// This Mac's record for this memory, read when the number changes (never from `body`: reading it may stamp the day).
-    @State private var record: HiddenPostsNote.Record?
+    /// This Mac's record for this memory, read by the owner of this strip when the number changes (never from `body`:
+    /// reading it may stamp the day). The owner holds it, not this view: a modifier on a `Group` whose `if` is false is
+    /// attached to nothing and an `onChange(initial: true)` on it never ran, so the line did not draw whenever the number
+    /// was already there as Home opened (a relaunch, a page change back to Home; seen on the scratch app, G246).
+    let record: HiddenPostsNote.Record?
+    let onDismiss: () -> Void
+
+    /// nil until the backend has confirmed a graph: an empty snapshot (a memory switch, a cold launch) or one read from
+    /// disk says nothing, and reading it as 0 would forget "Got it" and re-date the line (`HiddenPostsNote.observe`).
+    static func hidden(in store: Store) -> Int? {
+        store.graph.refreshedAt != nil ? store.graph.value?.hiddenPosts : nil
+    }
 
     var body: some View {
-        // nil until the backend has confirmed a graph: an empty snapshot (a memory switch, a cold launch) or one read from
-        // disk says nothing, and reading it as 0 would forget "Got it" and re-date the line (`HiddenPostsNote.observe`).
-        let hidden: Int? = store.graph.refreshedAt != nil ? store.graph.value?.hiddenPosts : nil
         Group {
-            if let line = HiddenPostsNote.line(hidden: hidden ?? 0, record: record) { row(line) }
+            if let line = HiddenPostsNote.line(hidden: Self.hidden(in: store) ?? 0, record: record) { row(line) }
         }
-        .onChange(of: hidden, initial: true) { _, now in record = HiddenPostsNote.observe(hidden: now, bank: store.bank) }
-        .onChange(of: store.bank) { _, _ in record = HiddenPostsNote.observe(hidden: hidden, bank: store.bank) }
     }
 
     private func row(_ line: String) -> some View {
@@ -32,10 +37,7 @@ struct HiddenPostsStrip: View {
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: CicadaTheme.spacingSM)
-            NeutralButton(title: Copy.Keep.gotIt, size: .compact) {
-                HiddenPostsNote.dismiss(bank: store.bank)
-                record = HiddenPostsNote.load(bank: store.bank)
-            }
+            NeutralButton(title: Copy.Keep.gotIt, size: .compact, action: onDismiss)
         }
         .padding(.horizontal, CicadaTheme.scaled(10))
         .frame(maxWidth: .infinity, minHeight: CicadaTheme.scaled(RowMetrics.oneLine), alignment: .leading)

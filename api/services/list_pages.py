@@ -449,8 +449,14 @@ def _list_block(w: Want) -> dict:
             "named": w.name, "said": w.sentence}
 
 
+_SUMMARY = "## Summary\n"
+
+
 def _body(w: Want) -> str:
-    return w.sentence + "\n"
+    # Under the heading every page's one line lives under: the app lifts a page's `## Summary` as its row's line, and a
+    # full page with no Summary has none, so a bare sentence drew the row's line until the page was first opened (seen on
+    # the scratch app with the switch on).
+    return _SUMMARY + w.sentence + "\n"
 
 
 def _pages(memory_path: Path) -> dict[str, dict]:
@@ -559,7 +565,8 @@ def _write_chunk(memory_path: Path, chunk, lists: dict[str, Want], today: str, o
             fm["name"] = w.name
             held = fm.get("list") if isinstance(fm.get("list"), dict) else {}
             # The words stay the person's when they edited them: only the sentence this writer wrote is replaced.
-            body = _body(w) if parsed.body.strip() == str(held.get("said") or "").strip() else parsed.body
+            said = str(held.get("said") or "").strip()
+            body = _body(w) if parsed.body.strip() in (said, (_SUMMARY + said).strip()) else parsed.body
             fm["list"] = {**held, **_list_block(w)}
             markdown_parser.write(path, fm, body)
             rows.append((f"entities/{item}.md", "updated"))
