@@ -1,0 +1,302 @@
+{
+ "en-cousin-colleague": {
+  "A": [
+   {
+    "d": "2026-09-20",
+    "t": "Tomas is a colleague on the finance team at Brightwell who prepares the quarterly budget review and has two young kids.",
+    "f": [
+     "Tomas works in finance at Brightwell",
+     "Tomas has two kids"
+    ]
+   },
+   {
+    "d": "2026-10-08",
+    "t": "Tomas from finance asked Mira to send her expense reports before the budget review and mentioned his kids' school trip.",
+    "f": [
+     "Tomas runs the budget review"
+    ]
+   },
+   {
+    "d": "2026-11-20",
+    "t": "Tomas, the finance lead at Brightwell, approved the travel budget for the Lisbon offsite and wants receipts by month end.",
+    "f": [
+     "Tomas approved the travel budget"
+    ]
+   }
+  ],
+  "B": [
+   {
+    "d": "2026-09-25",
+    "t": "Tomas is Mira's cousin, a nineteen-year-old who studies veterinary medicine in Lyon and has anatomy exams coming up.",
+    "f": [
+     "Tomas studies veterinary medicine",
+     "Tomas lives in Lyon"
+    ]
+   },
+   {
+    "d": "2026-10-12",
+    "t": "Mira's cousin Tomas is taking the train down from Lyon for grandma's birthday and will bring his anatomy flashcards.",
+    "f": [
+     "Tomas is coming for grandma's birthday"
+    ]
+   },
+   {
+    "d": "2026-11-21",
+    "t": "Tomas, Mira's young cousin the veterinary student, passed his anatomy exam and called her from Lyon to celebrate.",
+    "f": [
+     "Tomas passed his anatomy exam"
+    ]
+   }
+  ]
+ },
+ "en-two-colleagues": {
+  "A": [
+   {
+    "d": "2026-09-18",
+    "t": "Priya is a designer in the design team at the office, she owns the brand guidelines and the logo files for every campaign.",
+    "f": [
+     "Priya works in design",
+     "Priya owns the logo files"
+    ]
+   },
+   {
+    "d": "2026-10-10",
+    "t": "Priya from design shared the new campaign mockups and said she is thinking about leaving for a startup after the spring launch.",
+    "f": [
+     "Priya is thinking of leaving"
+    ]
+   },
+   {
+    "d": "2026-11-19",
+    "t": "Priya in design finished the packaging mockups and asked for feedback on the new colour palette by Friday.",
+    "f": [
+     "Priya shared packaging mockups"
+    ]
+   }
+  ],
+  "B": [
+   {
+    "d": "2026-09-22",
+    "t": "Priya is a lawyer in the legal department who reviews supplier agreements and keeps the signed contracts archive.",
+    "f": [
+     "Priya works in legal",
+     "Priya reviews supplier agreements"
+    ]
+   },
+   {
+    "d": "2026-10-14",
+    "t": "Priya from legal flagged a liability clause in the vendor contract and asked Mira to get the supplier to change it.",
+    "f": [
+     "Priya flagged a liability clause"
+    ]
+   },
+   {
+    "d": "2026-11-18",
+    "t": "Priya in legal approved the final wording of the data processing addendum and archived the signed copy.",
+    "f": [
+     "Priya approved the addendum"
+    ]
+   }
+  ]
+ },
+ "en-aunt-friend": {
+  "A": [
+   {
+    "d": "2026-09-14",
+    "t": "Aunt Sara is Mira's retired aunt who keeps a big vegetable garden in Graz and bakes lemon cake for every family birthday.",
+    "f": [
+     "Sara is Mira's aunt",
+     "Sara lives in Graz"
+    ]
+   },
+   {
+    "d": "2026-10-05",
+    "t": "Mira's aunt Sara gave her two bags of tomatoes from her garden in Graz when she visited last weekend.",
+    "f": [
+     "Sara has a tomato garden"
+    ]
+   },
+   {
+    "d": "2026-11-16",
+    "t": "Sara, Mira's aunt, called from Graz to say the garden is finished for the year and she is making tomato sauce.",
+    "f": [
+     "Sara makes tomato sauce"
+    ]
+   }
+  ],
+  "B": [
+   {
+    "d": "2026-09-30",
+    "t": "Sara is Mira's climbing partner from the gym, a physiotherapist who trains four times a week for bouldering competitions.",
+    "f": [
+     "Sara is a physiotherapist",
+     "Sara boulders"
+    ]
+   },
+   {
+    "d": "2026-10-19",
+    "t": "Mira climbed with Sara at the gym on Saturday, she lent Mira her rope and fixed her sore shoulder afterwards.",
+    "f": [
+     "Sara lent Mira a rope"
+    ]
+   },
+   {
+    "d": "2026-11-17",
+    "t": "Sara from the climbing gym is training for the March bouldering competition and asked Mira to join her for the overhang route.",
+    "f": [
+     "Sara trains for a competition"
+    ]
+   }
+  ]
+ },
+ "es-prima-colega": {
+  "A": [
+   {
+    "d": "2026-09-16",
+    "t": "Carla es la prima de Mira, tiene diecisiete años, vive en Sevilla y está terminando el bachillerato.",
+    "f": [
+     "Carla vive en Sevilla",
+     "Carla estudia bachillerato"
+    ]
+   },
+   {
+    "d": "2026-10-09",
+    "t": "La prima Carla le contó a Mira que quiere estudiar veterinaria en la universidad de Sevilla el año que viene.",
+    "f": [
+     "Carla quiere estudiar veterinaria"
+    ]
+   },
+   {
+    "d": "2026-11-18",
+    "t": "Carla, la prima de Mira en Sevilla, sacó buenas notas en los exámenes de bachillerato y celebró con su familia.",
+    "f": [
+     "Carla sacó buenas notas"
+    ]
+   }
+  ],
+  "B": [
+   {
+    "d": "2026-09-19",
+    "t": "Carla es compañera de oficina de Mira, trabaja en contabilidad, tiene tres hijos y siempre lleva la agenda del equipo.",
+    "f": [
+     "Carla trabaja en contabilidad",
+     "Carla tiene tres hijos"
+    ]
+   },
+   {
+    "d": "2026-10-11",
+    "t": "Carla de contabilidad pidió a Mira las facturas del trimestre antes del viernes para cerrar el balance mensual.",
+    "f": [
+     "Carla cierra el balance mensual"
+    ]
+   },
+   {
+    "d": "2026-11-17",
+    "t": "Carla, la compañera de contabilidad de la oficina, avisó de que el cierre del año será el quince de diciembre.",
+    "f": [
+     "Carla avisó del cierre del año"
+    ]
+   }
+  ]
+ },
+ "es-two-colleagues": {
+  "A": [
+   {
+    "d": "2026-09-17",
+    "t": "Luis es un compañero del equipo de ventas que visita clientes en varias ciudades y lleva la cuenta de los distribuidores.",
+    "f": [
+     "Luis trabaja en ventas",
+     "Luis visita clientes"
+    ]
+   },
+   {
+    "d": "2026-10-13",
+    "t": "Luis de ventas cerró un contrato grande con un distribuidor de Medellín y celebró con el equipo comercial.",
+    "f": [
+     "Luis cerró un contrato en Medellín"
+    ]
+   },
+   {
+    "d": "2026-11-19",
+    "t": "Luis, del equipo de ventas, presentó las cifras del trimestre y pidió más presupuesto para viajes comerciales.",
+    "f": [
+     "Luis presentó las cifras del trimestre"
+    ]
+   }
+  ],
+  "B": [
+   {
+    "d": "2026-09-21",
+    "t": "Luis es el compañero de sistemas que administra los servidores de la oficina y gestiona las copias de seguridad.",
+    "f": [
+     "Luis trabaja en sistemas",
+     "Luis administra los servidores"
+    ]
+   },
+   {
+    "d": "2026-10-15",
+    "t": "Luis de sistemas renovó la licencia del antivirus y avisó de que habrá mantenimiento de la red el sábado.",
+    "f": [
+     "Luis renovó la licencia del antivirus"
+    ]
+   },
+   {
+    "d": "2026-11-20",
+    "t": "Luis, de sistemas, restauró una copia de seguridad que alguien borró por error y pidió no tocar el servidor.",
+    "f": [
+     "Luis restauró una copia de seguridad"
+    ]
+   }
+  ]
+ },
+ "fr-voisin-collegue": {
+  "A": [
+   {
+    "d": "2026-09-15",
+    "t": "Julien est le voisin de Mira, un retraité qui s'occupe de son potager et prête volontiers ses outils de jardinage.",
+    "f": [
+     "Julien est retraité",
+     "Julien fait du jardinage"
+    ]
+   },
+   {
+    "d": "2026-10-07",
+    "t": "Le voisin Julien a donné des plants de tomates à Mira et lui a montré comment tailler les rosiers du balcon.",
+    "f": [
+     "Julien a donné des plants de tomates"
+    ]
+   },
+   {
+    "d": "2026-11-16",
+    "t": "Julien, le voisin retraité de Mira, a ramassé les dernières courges de son potager et en a laissé devant sa porte.",
+    "f": [
+     "Julien a ramassé des courges"
+    ]
+   }
+  ],
+  "B": [
+   {
+    "d": "2026-09-24",
+    "t": "Julien est un collègue de Mira, il dirige l'équipe de recherche à Grenoble et supervise trois doctorants.",
+    "f": [
+     "Julien dirige l'équipe de recherche",
+     "Julien travaille à Grenoble"
+    ]
+   },
+   {
+    "d": "2026-10-16",
+    "t": "Le collègue Julien a demandé à Mira un rapport sur les résultats de l'expérience avant la réunion du laboratoire de jeudi.",
+    "f": [
+     "Julien a demandé un rapport"
+    ]
+   },
+   {
+    "d": "2026-11-18",
+    "t": "Julien, le collègue de l'équipe de recherche de Grenoble, a présenté les résultats au comité et obtenu un financement.",
+    "f": [
+     "Julien a obtenu un financement"
+    ]
+   }
+  ]
+ }
+}

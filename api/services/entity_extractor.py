@@ -265,7 +265,10 @@ EXTRACTION GUIDELINES:
 - Extract entities that are meaningful to the user's life, work, or goals. Skip trivial mentions.
 - An entity's name is a name: what the thing is called, something a person could say again in another conversation. What
   someone does, knows or is good at, said as a phrase ("maintains <x> checklists for <y>"), is a key_fact on whoever does
-  it or on the thing it is for, never an entity of its own. Write a name as it was said, with nothing added to it.
+  it or on the thing it is for, never an entity of its own. Write a name as it was said, with nothing added to it. The one
+  exception: two different people of one conversation who share a name are each written "<name> (what tells them apart)",
+  in the conversation's own words ("<name> (cousin)", "<name> (finance lead)"), never with it in front of the name or after it, and the
+  same way every time they are named.
 - A detail of the assistant's answer is not an entity: a function or variable in a code example, a
   command, a library, tool or place the assistant only suggested or listed. Extract it only when the
   user engaged with it — used it, asked about it by name, chose it, built it, went there.

@@ -43,9 +43,10 @@ def load_stories(path: Path = STORIES) -> list[dict]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def text_of(conv: dict) -> str:
-    """The description `same_name_people.describe` makes of an extraction with this summary and these facts."""
-    return snp.describe({"summary": conv["t"], "key_facts": conv.get("f", []), "source_episode_timestamp": conv["d"]})
+def text_of(conv: dict, name: str = "") -> str:
+    """The description `same_name_people.describe` makes of an extraction with this summary and these facts (and, when
+    it is written with a qualifier, this name)."""
+    return snp.describe({"name": name, "summary": conv["t"], "key_facts": conv.get("f", []), "source_episode_timestamp": conv["d"]})
 
 
 @dataclass
@@ -54,6 +55,12 @@ class Conv:
     who: str
     text: str
     sub: bool = False
+    #: A person the conversation wrote with a qualifier ("Nico (finance lead)", 2026-11-24): the real conversation id, the
+    #: name as written (``""``: the bare name), and whether its conversation also names the bare name.
+    conversation: str = ""
+    written: str = ""
+    no_rename: bool = False
+    judged: bool = True    # False: a name that is neither bare nor "bare (qualifier)" ("Aunt Sara"): not a mention of the name
 
 
 @dataclass
@@ -79,6 +86,7 @@ class World:
     review_pairs: set[tuple[str, str]] = field(default_factory=set)
     calls: int = 0
     review_calls: int = 0
+    legacy: bool = False   # the code before 2026-11-24: a name with a qualifier is not a mention of the bare name
 
     @property
     def slug(self) -> str:
@@ -87,6 +95,8 @@ class World:
     def identities(self) -> list:
         out = []
         for p in self.persons.values():
+            if "~" in p.id:
+                continue   # a name with a qualifier, held under itself: never an identity of the bare name
             blended = " ".join(c.text for c in p.convs)
             eps = frozenset(c.ep for c in p.convs)
             if not hasattr(snp, "Item"):   # the code before the doubt state (`--module`): one blended text a person
@@ -106,7 +116,8 @@ def pair(a: str, b: str) -> tuple[str, str]:
 
 async def step(world: World, batch: list[Conv], judge, ep_n: list[int], strong=None) -> None:
     """One batch of one name, as `entity_resolver._plan_same_name_people` and `_resolve_same_name_people` carry it out."""
-    mentions = [snp.Mention(c.ep, c.text) for c in batch]
+    mentions = [snp.Mention(c.ep, c.text, c.conversation or c.ep, bool(c.written), c.no_rename) for c in batch
+                if c.judged and not (world.legacy and c.written)]
     by_ep = {c.ep: c for c in batch}
     identities = world.identities()
     moves: dict[str, snp.Destination] = {}
@@ -121,7 +132,9 @@ async def step(world: World, batch: list[Conv], judge, ep_n: list[int], strong=N
     news: dict[str, str] = {}
     for c in batch:
         dest = moves.get(c.ep)
-        if dest is None:
+        if dest is None and c.written:
+            target = f"{world.slug}~{c.written}"   # the code before: a name with a qualifier is a name of its own, never matched
+        elif dest is None or dest.kind == "plain":
             target = world.slug
         elif dest.kind == "new":
             if dest.ref not in news:
@@ -137,6 +150,24 @@ async def step(world: World, batch: list[Conv], judge, ep_n: list[int], strong=N
         else:
             target = dest.ref
         world.persons.setdefault(target, Person(target)).convs.append(c)
+    # The people one conversation named together know of each other (`Destination.siblings`, 2026-11-24): apart for good when it
+    # wrote both with a qualifier, else a doubt, whatever was recorded of either against the rest (`_resolve_same_name_people`).
+    for c in batch:
+        dest = moves.get(c.ep)
+        if dest is None or dest.kind != "new" or not getattr(dest, "siblings", ()):
+            continue
+        for kind, ref, apart in dest.siblings:
+            there = world.slug if kind == "plain" else (news.get(ref) if kind == "new" else ref)
+            if there is None or there == news[dest.ref]:
+                continue
+            p = pair(news[dest.ref], there)
+            world.doubts.discard(p)
+            world.apart.discard(p)
+            if apart:
+                world.apart.add(p)
+            else:
+                world.doubts.add(p)
+                world.review_pairs.add(p)
     # a new person's pairs with others that do not exist (an unseen plain) are dropped
     world.doubts = {p for p in world.doubts if p[0] in world.persons and p[1] in world.persons}
     world.apart = {p for p in world.apart if p[0] in world.persons and p[1] in world.persons}
@@ -226,18 +257,38 @@ def score(world: World, story: dict) -> dict:
             "calls": world.calls, "review_calls": world.review_calls}
 
 
-async def replay(story: dict, judge, review_judge, n: int = 0) -> dict:
-    world = World(story["name"])
+async def replay(story: dict, judge, review_judge, n: int = 0, legacy: bool = False) -> dict:
+    world = World(story["name"], legacy=legacy)
     ep = [0]
 
     def conv(c: dict) -> Conv:
         ep[0] += 1
         return Conv(f"ep_{story['id']}_{ep[0]}", c["who"], text_of(c), bool(c.get("sub")))
 
+    def convs(c: dict) -> list[Conv]:
+        """A batch item is one conversation naming one person, or (``pair``) one conversation naming several of the name,
+        each written bare or with a qualifier (``q``: "Tomas (finance)"; 2026-11-24)."""
+        if "pair" not in c:
+            return [conv(c)]
+        ep[0] += 1
+        episode = f"ep_{story['id']}_{ep[0]}"
+        out = []
+        for m in c["pair"]:
+            written = f"{story['name']} ({m['q']})".lower() if m.get("q") else ""
+            key = snp.mention_key(episode, f"{story['name']} ({m['q']})" if m.get("q") else story["name"])
+            out.append(Conv(key, m["who"], text_of(m, f"{story['name']} ({m['q']})" if m.get("q") else ""),
+                            conversation=episode, written=written))
+        bare = {x.conversation for x in out if not x.written}
+        for x in out:
+            x.no_rename = bool(x.written) and x.conversation in bare
+        return out
+
     for seeded in story.get("seed", []):
         world.persons[seeded["id"]] = Person(seeded["id"], [conv(c) for c in seeded["convs"]])
+    world.apart |= {pair(a, b) for a, b in story.get("seed_apart", [])}
+    world.doubts |= {pair(a, b) for a, b in story.get("seed_doubt", [])}
     for batch in story["batches"]:   # each batch is a night: the tail review runs after it, on what it flagged
-        await step(world, [conv(c) for c in batch], judge, ep, review_judge)
+        await step(world, [x for c in batch for x in convs(c)], judge, ep, review_judge)
         await tend(world, review_judge)
     return score(world, story)
 

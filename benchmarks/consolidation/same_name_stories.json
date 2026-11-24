@@ -516,7 +516,10 @@
   "name": "Paolo",
   "lang": "en",
   "two": true,
-  "q": [0, 1],
+  "q": [
+   0,
+   1
+  ],
   "batches": [
    [
     {
@@ -575,7 +578,10 @@
   "name": "Sofía",
   "lang": "es",
   "two": true,
-  "q": [0, 1],
+  "q": [
+   0,
+   1
+  ],
   "batches": [
    [
     {
@@ -633,7 +639,10 @@
   "name": "Mathis",
   "lang": "fr",
   "two": true,
-  "q": [0, 1],
+  "q": [
+   0,
+   1
+  ],
   "batches": [
    [
     {
@@ -682,7 +691,10 @@
   "name": "Nadia",
   "lang": "en",
   "two": false,
-  "q": [0, 1],
+  "q": [
+   0,
+   1
+  ],
   "batches": [
    [
     {
@@ -742,7 +754,10 @@
   "name": "Mateo",
   "lang": "es",
   "two": false,
-  "q": [0, 1],
+  "q": [
+   0,
+   1
+  ],
   "batches": [
    [
     {
@@ -801,7 +816,10 @@
   "name": "Anaïs",
   "lang": "fr",
   "two": false,
-  "q": [0, 1],
+  "q": [
+   0,
+   1
+  ],
   "batches": [
    [
     {
@@ -1613,6 +1631,597 @@
      }
     ]
    }
+  ]
+ },
+ {
+  "id": "both-empty-en",
+  "shape": "both-named",
+  "name": "Tomas",
+  "lang": "en",
+  "two": true,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "pair": [
+      {
+       "d": "2026-11-17",
+       "who": "A",
+       "t": "Tomas from the finance team at Brightwell, who runs the budget review. He met Mira Kolar's cousin Tomas at a party.",
+       "f": [
+        "Tomas is forty-two years old",
+        "Tomas has two kids",
+        "Tomas runs the budget review at Brightwell"
+       ],
+       "q": "finance"
+      },
+      {
+       "d": "2026-11-17",
+       "who": "B",
+       "t": "Mira Kolar's cousin, nineteen, who studies veterinary medicine in Lyon. He met Tomas from finance at a party.",
+       "f": [
+        "Tomas is nineteen years old",
+        "Tomas studies veterinary medicine in Lyon"
+       ],
+       "q": "cousin"
+      }
+     ]
+    }
+   ],
+   [
+    {
+     "d": "2026-11-20",
+     "t": "Tomas, the finance lead at Brightwell, approved the travel budget for the Lisbon offsite and wants receipts by month end.",
+     "f": [
+      "Tomas approved the travel budget"
+     ],
+     "who": "A"
+    },
+    {
+     "d": "2026-11-21",
+     "t": "Tomas, Mira's young cousin the veterinary student, passed his anatomy exam and called her from Lyon to celebrate.",
+     "f": [
+      "Tomas passed his anatomy exam"
+     ],
+     "who": "B"
+    }
+   ]
+  ],
+  "note": "Nobody of the name on record: two people, the first the bare name's. Each later conversation goes to its own."
+ },
+ {
+  "id": "both-first-known-es",
+  "shape": "both-named",
+  "name": "Carla",
+  "lang": "es",
+  "two": true,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "pair": [
+      {
+       "d": "2026-11-17",
+       "who": "B",
+       "t": "Carla es compañera de oficina de Mira, trabaja en contabilidad y tiene tres hijos. Conoció a la prima de Mira, también llamada Carla, en la boda del hermano de Mira.",
+       "f": [
+        "Trabaja en contabilidad",
+        "Tiene tres hijos"
+       ],
+       "q": "compañera de oficina"
+      },
+      {
+       "d": "2026-11-17",
+       "who": "A",
+       "t": "Carla es prima de Mira Kolar, tiene diecisiete años y vive en Sevilla. Conoció en la boda a la compañera de oficina de Mira, también llamada Carla.",
+       "f": [
+        "Tiene diecisiete años",
+        "Vive en Sevilla"
+       ],
+       "q": "prima"
+      }
+     ]
+    }
+   ]
+  ],
+  "note": "Carla the colleague is on record; the conversation that names her and Carla the cousin puts each where she is.",
+  "seed": [
+   {
+    "id": "carla",
+    "kind": "page",
+    "convs": [
+     {
+      "d": "2026-09-19",
+      "t": "Carla es compañera de oficina de Mira, trabaja en contabilidad, tiene tres hijos y siempre lleva la agenda del equipo.",
+      "f": [
+       "Carla trabaja en contabilidad",
+       "Carla tiene tres hijos"
+      ],
+      "who": "B"
+     },
+     {
+      "d": "2026-10-11",
+      "t": "Carla de contabilidad pidió a Mira las facturas del trimestre antes del viernes para cerrar el balance mensual.",
+      "f": [
+       "Carla cierra el balance mensual"
+      ],
+      "who": "B"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "both-second-known-fr",
+  "shape": "both-named",
+  "name": "Julien",
+  "lang": "fr",
+  "two": true,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "pair": [
+      {
+       "d": "2026-11-17",
+       "who": "A",
+       "t": "Le voisin de Mira, retraité et jardinier. Il a rencontré Julien, le collègue de Mira, à la fête de samedi et lui a promis des plants de tomates.",
+       "f": [
+        "Julien est retraité",
+        "Julien fait du jardinage"
+       ],
+       "q": "voisin"
+      },
+      {
+       "d": "2026-11-17",
+       "who": "B",
+       "t": "Collègue de Mira qui dirige l'équipe de recherche à Grenoble. Il a rencontré le voisin de Mira, aussi appelé Julien, à la fête de samedi.",
+       "f": [
+        "Julien dirige l'équipe de recherche",
+        "Julien travaille à Grenoble"
+       ],
+       "q": "collègue"
+      }
+     ]
+    }
+   ]
+  ],
+  "note": "The colleague is the plain page; the neighbour is a person of his own.",
+  "seed": [
+   {
+    "id": "julien",
+    "kind": "page",
+    "convs": [
+     {
+      "d": "2026-09-24",
+      "t": "Julien est un collègue de Mira, il dirige l'équipe de recherche à Grenoble et supervise trois doctorants.",
+      "f": [
+       "Julien dirige l'équipe de recherche",
+       "Julien travaille à Grenoble"
+      ],
+      "who": "B"
+     },
+     {
+      "d": "2026-10-16",
+      "t": "Le collègue Julien a demandé à Mira un rapport sur les résultats de l'expérience avant la réunion du laboratoire de jeudi.",
+      "f": [
+       "Julien a demandé un rapport"
+      ],
+      "who": "B"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "both-both-known-en",
+  "shape": "both-named",
+  "name": "Priya",
+  "lang": "en",
+  "two": true,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "pair": [
+      {
+       "d": "2026-11-17",
+       "who": "A",
+       "t": "Priya in design, who is leaving for a startup in March. She sat next to Priya in legal on today's call.",
+       "f": [
+        "Priya works in design",
+        "Priya is leaving for a startup in March"
+       ],
+       "q": "design"
+      },
+      {
+       "d": "2026-11-17",
+       "who": "B",
+       "t": "Priya in legal, who is reviewing the vendor contract. She sat next to Priya in design on today's call.",
+       "f": [
+        "Priya works in legal",
+        "Priya reviews the vendor contract"
+       ],
+       "q": "legal"
+      }
+     ]
+    }
+   ]
+  ],
+  "note": "Both are pages, kept apart: each goes to its own, whichever order Stage 1 wrote them in.",
+  "seed": [
+   {
+    "id": "priya",
+    "kind": "page",
+    "convs": [
+     {
+      "d": "2026-09-18",
+      "t": "Priya is a designer in the design team at the office, she owns the brand guidelines and the logo files for every campaign.",
+      "f": [
+       "Priya works in design",
+       "Priya owns the logo files"
+      ],
+      "who": "A"
+     },
+     {
+      "d": "2026-10-10",
+      "t": "Priya from design shared the new campaign mockups and said she is thinking about leaving for a startup after the spring launch.",
+      "f": [
+       "Priya is thinking of leaving"
+      ],
+      "who": "A"
+     }
+    ]
+   },
+   {
+    "id": "priya-2",
+    "kind": "page",
+    "convs": [
+     {
+      "d": "2026-09-22",
+      "t": "Priya is a lawyer in the legal department who reviews supplier agreements and keeps the signed contracts archive.",
+      "f": [
+       "Priya works in legal",
+       "Priya reviews supplier agreements"
+      ],
+      "who": "B"
+     },
+     {
+      "d": "2026-10-14",
+      "t": "Priya from legal flagged a liability clause in the vendor contract and asked Mira to get the supplier to change it.",
+      "f": [
+       "Priya flagged a liability clause"
+      ],
+      "who": "B"
+     }
+    ]
+   }
+  ],
+  "seed_apart": [
+   [
+    "priya",
+    "priya-2"
+   ]
+  ]
+ },
+ {
+  "id": "both-page-and-doubt-en",
+  "shape": "both-named",
+  "name": "Sara",
+  "lang": "en",
+  "two": true,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "pair": [
+      {
+       "d": "2026-11-17",
+       "who": "A",
+       "t": "Sara, Mira's aunt, retired in Graz where she keeps a garden. She met Mira's climbing partner Sara at the birthday dinner.",
+       "f": [
+        "Sara is Mira's aunt",
+        "Sara lives in Graz"
+       ],
+       "q": "aunt"
+      },
+      {
+       "d": "2026-11-17",
+       "who": "B",
+       "t": "Sara, Mira's climbing partner and a physiotherapist training for a bouldering competition. She met Mira's aunt Sara at the birthday dinner.",
+       "f": [
+        "Sara is a physiotherapist",
+        "Sara trains for a competition"
+       ],
+       "q": "climbing partner"
+      }
+     ]
+    }
+   ]
+  ],
+  "note": "One person is a page, the other a held line in doubt against it: the conversation tells them apart.",
+  "seed": [
+   {
+    "id": "sara",
+    "kind": "page",
+    "convs": [
+     {
+      "d": "2026-09-14",
+      "t": "Aunt Sara is Mira's retired aunt who keeps a big vegetable garden in Graz and bakes lemon cake for every family birthday.",
+      "f": [
+       "Sara is Mira's aunt",
+       "Sara lives in Graz"
+      ],
+      "who": "A"
+     },
+     {
+      "d": "2026-10-05",
+      "t": "Mira's aunt Sara gave her two bags of tomatoes from her garden in Graz when she visited last weekend.",
+      "f": [
+       "Sara has a tomato garden"
+      ],
+      "who": "A"
+     }
+    ]
+   },
+   {
+    "id": "sara-2",
+    "kind": "line",
+    "convs": [
+     {
+      "d": "2026-09-30",
+      "t": "Sara is Mira's climbing partner from the gym, a physiotherapist who trains four times a week for bouldering competitions.",
+      "f": [
+       "Sara is a physiotherapist",
+       "Sara boulders"
+      ],
+      "who": "B"
+     }
+    ]
+   }
+  ],
+  "seed_doubt": [
+   [
+    "sara",
+    "sara-2"
+   ]
+  ]
+ },
+ {
+  "id": "both-bare-and-qualified-en",
+  "shape": "both-named",
+  "name": "Paul",
+  "lang": "en",
+  "two": true,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "pair": [
+      {
+       "d": "2026-11-17",
+       "who": "A",
+       "t": "Paul, Mira's boss, who wants the Lisbon trip budget by Friday.",
+       "f": [
+        "Paul wants the budget by Friday",
+        "Paul is Mira's boss"
+       ]
+      },
+      {
+       "d": "2026-11-17",
+       "who": "B",
+       "t": "Mira's brother, who asked to sleep on her sofa during the Lisbon trip.",
+       "f": [
+        "Paul wants to sleep on Mira's sofa",
+        "Paul is Mira's brother"
+       ],
+       "q": "brother"
+      }
+     ]
+    }
+   ]
+  ],
+  "note": "One of the two is written with the bare name and the other with a qualifier: the bare name is never a qualified person's.",
+  "seed": [
+   {
+    "id": "paul",
+    "kind": "page",
+    "convs": [
+     {
+      "d": "2026-10-04",
+      "who": "A",
+      "t": "Paul is Mira's boss who sets the quarterly targets and asked for a status report on the Lisbon trip.",
+      "f": [
+       "Paul is Mira's boss"
+      ]
+     },
+     {
+      "d": "2026-10-20",
+      "who": "A",
+      "t": "Paul, the boss, approved the team's travel plan and reminded Mira about the budget deadline.",
+      "f": [
+       "Paul approved the travel plan"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "both-first-known-rev-es",
+  "shape": "both-named",
+  "name": "Carla",
+  "lang": "es",
+  "two": true,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "pair": [
+      {
+       "d": "2026-11-17",
+       "who": "A",
+       "t": "Carla es prima de Mira Kolar, tiene diecisiete años y vive en Sevilla. Conoció en la boda a la compañera de oficina de Mira, también llamada Carla.",
+       "f": [
+        "Tiene diecisiete años",
+        "Vive en Sevilla"
+       ],
+       "q": "prima"
+      },
+      {
+       "d": "2026-11-17",
+       "who": "B",
+       "t": "Carla es compañera de oficina de Mira, trabaja en contabilidad y tiene tres hijos. Conoció a la prima de Mira, también llamada Carla, en la boda del hermano de Mira.",
+       "f": [
+        "Trabaja en contabilidad",
+        "Tiene tres hijos"
+       ],
+       "q": "compañera de oficina"
+      }
+     ]
+    }
+   ]
+  ],
+  "note": "The same as both-first-known-es with the conversation listing the person NOT on record first (2026-11-24: which of the two the page kept was mention order).",
+  "seed": [
+   {
+    "id": "carla",
+    "kind": "page",
+    "convs": [
+     {
+      "d": "2026-09-19",
+      "t": "Carla es compañera de oficina de Mira, trabaja en contabilidad, tiene tres hijos y siempre lleva la agenda del equipo.",
+      "f": [
+       "Carla trabaja en contabilidad",
+       "Carla tiene tres hijos"
+      ],
+      "who": "B"
+     },
+     {
+      "d": "2026-10-11",
+      "t": "Carla de contabilidad pidió a Mira las facturas del trimestre antes del viernes para cerrar el balance mensual.",
+      "f": [
+       "Carla cierra el balance mensual"
+      ],
+      "who": "B"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "id": "both-both-known-rev-en",
+  "shape": "both-named",
+  "name": "Priya",
+  "lang": "en",
+  "two": true,
+  "q": [
+   0,
+   0
+  ],
+  "batches": [
+   [
+    {
+     "pair": [
+      {
+       "d": "2026-11-17",
+       "who": "B",
+       "t": "Priya in legal, who is reviewing the vendor contract. She sat next to Priya in design on today's call.",
+       "f": [
+        "Priya works in legal",
+        "Priya reviews the vendor contract"
+       ],
+       "q": "legal"
+      },
+      {
+       "d": "2026-11-17",
+       "who": "A",
+       "t": "Priya in design, who is leaving for a startup in March. She sat next to Priya in legal on today's call.",
+       "f": [
+        "Priya works in design",
+        "Priya is leaving for a startup in March"
+       ],
+       "q": "design"
+      }
+     ]
+    }
+   ]
+  ],
+  "note": "The same as both-both-known-en with the two listed in the other order.",
+  "seed": [
+   {
+    "id": "priya",
+    "kind": "page",
+    "convs": [
+     {
+      "d": "2026-09-18",
+      "t": "Priya is a designer in the design team at the office, she owns the brand guidelines and the logo files for every campaign.",
+      "f": [
+       "Priya works in design",
+       "Priya owns the logo files"
+      ],
+      "who": "A"
+     },
+     {
+      "d": "2026-10-10",
+      "t": "Priya from design shared the new campaign mockups and said she is thinking about leaving for a startup after the spring launch.",
+      "f": [
+       "Priya is thinking of leaving"
+      ],
+      "who": "A"
+     }
+    ]
+   },
+   {
+    "id": "priya-2",
+    "kind": "page",
+    "convs": [
+     {
+      "d": "2026-09-22",
+      "t": "Priya is a lawyer in the legal department who reviews supplier agreements and keeps the signed contracts archive.",
+      "f": [
+       "Priya works in legal",
+       "Priya reviews supplier agreements"
+      ],
+      "who": "B"
+     },
+     {
+      "d": "2026-10-14",
+      "t": "Priya from legal flagged a liability clause in the vendor contract and asked Mira to get the supplier to change it.",
+      "f": [
+       "Priya flagged a liability clause"
+      ],
+      "who": "B"
+     }
+    ]
+   }
+  ],
+  "seed_apart": [
+   [
+    "priya",
+    "priya-2"
+   ]
   ]
  }
 ]

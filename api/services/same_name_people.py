@@ -31,7 +31,10 @@ already holds two people, or that two people in doubt are one, it only *flags th
 which acts once the batch has committed, on located facts, as one undoable commit.
 
 Anything else (a thin description, a judge that fails or answers unreadably, a pair with no located quote) is the old
-behaviour: the name stays one person, and nothing is asked.
+behaviour: the name stays one person, and nothing is asked. Two exceptions, both about one conversation that names the name
+twice (2026-11-24): its two people are never one person, and when nothing can say which of them a person on record is,
+neither is it (each waits in doubt); and a person written with a qualifier is never left under the name it was written with
+(a thin description of one the judge called different is a doubt, not the plain name's).
 
 Bound: one judge call per bare name that has something to compare, at most :data:`MAX_NAMES` names a batch, and
 :data:`MAX_ENTRIES` descriptions in a call; what is over is left as it was.
@@ -40,7 +43,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Awaitable, Callable, Iterable
 
 from loguru import logger
@@ -101,10 +104,18 @@ Answer in JSON only:
 
 @dataclass(frozen=True)
 class Mention:
-    """One conversation's own account of the person it calls by the name."""
+    """One conversation's own account of the person it calls by the name. ``episode`` is the mention's key: the
+    conversation's id, or, for a person the conversation wrote with a qualifier ("Nico (finance lead)", 2026-11-24),
+    ``<id>`` + a separator + the name as written (lower case). ``conversation`` is the real id (``""``: ``episode`` is it) and
+    ``qualified`` says the name carried a qualifier; two mentions of one conversation are two people, as the conversation
+    itself said. ``no_rename``: a qualified mention whose conversation also names the bare name, which may never take the
+    bare name (the two would be told apart by nothing)."""
 
     episode: str
     text: str
+    conversation: str = ""
+    qualified: bool = False
+    no_rename: bool = False
 
 
 @dataclass(frozen=True)
@@ -130,6 +141,7 @@ class Identity:
     episodes: frozenset[str] = frozenset()
     items: tuple[Item, ...] = ()
     doubt_with: frozenset[str] = frozenset()
+    aliases: frozenset[str] = frozenset()   # lower case: a re-read matches a mention by the name it was written with
 
     def shown(self) -> tuple[Item, ...]:
         return self.items or ((Item(self.text[:IDENTITY_CHARS] or "(nothing recorded)", tuple(sorted(self.episodes))),))
@@ -144,6 +156,10 @@ class Destination:
     kind: str
     ref: str
     doubt: bool = False
+    #: The other people the same conversation named with this name, as ``(kind, ref, apart)``: ``apart`` says the
+    #: conversation told the two apart for good (both written with a qualifier), else the pair is only a doubt. Only
+    #: a ``new`` person carries it; the resolver records the pair by it (2026-11-24, not part of equality).
+    siblings: tuple[tuple[str, str, bool], ...] = field(default=(), compare=False)
 
 
 @dataclass
@@ -172,6 +188,9 @@ class Entry:
     text: str
     identity: int | None
     episodes: tuple[str, ...]
+    conversation: str = ""
+    qualified: bool = False
+    no_rename: bool = False
 
 
 def is_bare(name: str) -> bool:
@@ -181,13 +200,43 @@ def is_bare(name: str) -> bool:
     return len(words) == 1 and len(words[0]) >= 2 and not re.search(r"[\d@/:()]", words[0])
 
 
+def stem_of(name: str) -> tuple[str, str] | None:
+    """``("Nico", "finance lead")`` for a person written ``Nico (finance lead)``: a bare name and what tells it apart from
+    another person of that name. ``None`` for anything else: a real two-word name, a bare name, a parenthesis that does
+    not close at the end or holds another. Structure only, never a word list: Stage 1 writes the qualifier in the
+    conversation's own words, in any language (2026-11-24)."""
+    m = re.fullmatch(r"\s*(\S+)\s*\(([^()]+)\)\s*", str(name or ""))
+    if m is None or not is_bare(m.group(1)):
+        return None
+    qualifier = " ".join(m.group(2).split())
+    return (m.group(1), qualifier) if qualifier else None
+
+
+def mention_key(episode: str, name: str) -> str:
+    """The key of a mention of ``name`` in a conversation: the conversation's id for the bare name, the id and the name
+    as written for a qualified one."""
+    return episode if is_bare(name) else f"{episode}\x1f{str(name).strip().lower()}"
+
+
+def split_key(key: str) -> tuple[str, str]:
+    """``(conversation id, name as written lower case or "")`` of a mention key."""
+    episode, _, name = str(key).partition("\x1f")
+    return episode, name
+
+
 def describe(entity: dict) -> str:
-    """What one extraction says about its person: its summary and its first facts, cut, dated when the conversation is."""
+    """What one extraction says about its person: its summary and its first facts, cut, dated when the conversation is.
+    A person written with a qualifier (``Nico (finance lead)``) leads with it in brackets: it is what the conversation says
+    tells the person from the other of the name, so the judge reads it and the thin-description count includes it
+    (2026-11-24)."""
     summary = str(entity.get("summary") or entity.get("description") or "").strip()
     facts = [str(f).strip() for f in (entity.get("key_facts") or [])[:4] if str(f).strip()]
     text = " ".join(summary.split())
     if facts:
         text = (text + " Facts: " + "; ".join(" ".join(f.split()) for f in facts)).strip()
+    stem = stem_of(str(entity.get("name") or ""))
+    if stem is not None:
+        text = f"[{stem[1]}] {text}".strip()
     day = str(entity.get("source_episode_timestamp") or "")[:10]
     return (f"({day}) {text}" if day and text else text)[:TEXT_CHARS]
 
@@ -206,7 +255,7 @@ def entries_for(mentions: list[Mention], identities: list[Identity]) -> list[Ent
     nothing but a blended text is one description."""
     out: list[Entry] = []
     for m in mentions[:MAX_MENTIONS]:
-        out.append(Entry(_LETTERS[len(out)], m.text, None, (m.episode,)))
+        out.append(Entry(_LETTERS[len(out)], m.text, None, (m.episode,), m.conversation or m.episode, m.qualified, m.no_rename))
     pools = [list(reversed(identity.shown())) for identity in identities]
     turn = 0
     while len(out) < MAX_ENTRIES and any(pools):
@@ -236,7 +285,22 @@ def build_prompt(name: str, entries: list[Entry], identities: list[Identity], sp
     new = ""
     if fresh:
         new = "\nNEW CONVERSATIONS (not filed under anyone yet)\n" + "\n".join(f"({e.letter}) {e.text}" for e in fresh) + "\n"
+    together = _same_conversation(fresh)
+    if together:
+        new += ("\nDescriptions that come from ONE conversation: " + "; ".join(" and ".join(f"({x})" for x in group) for group in together)
+                + ". That conversation names two different people \"" + name + "\" together, so the descriptions of one conversation "
+                "are always different people: put each in a group of its own, never with another one of its conversation. They need no "
+                "quotes against each other; fit each to the other conversations and the people on record as usual.\n")
     return PROMPT.format(name=name, filed=filed, new=new, speaker=speaker_line(speaker))
+
+
+def _same_conversation(entries: list[Entry]) -> list[list[str]]:
+    """The letters of the new descriptions that come from one conversation (two or more of them), conversation by conversation."""
+    by: dict[str, list[str]] = {}
+    for e in entries:
+        if e.identity is None and e.conversation:
+            by.setdefault(e.conversation, []).append(e.letter)
+    return [letters for letters in by.values() if len(letters) > 1]
 
 
 # ---------------------------------------------------------------- reading the answer
@@ -323,6 +387,34 @@ def read(parsed: object, entries: list[Entry], name: str = "") -> Reading | None
         members.append(own)
     if not group_of:
         return None
+    # Two descriptions of one conversation are two people (the conversation itself names both). The answer cannot say which
+    # of them a group it put both of them in belongs to: neither is known to be it. Every sibling the answer put with another
+    # of its conversation, or left out, is a person of its own that waits in doubt against whatever else was in its group
+    # (2026-11-24: the first of them used to keep the group by mention order, and so the person on record).
+    together = _same_conversation(entries)
+    forced: dict[tuple[int, int], str] = {}
+    unplaced: list[int] = []
+    for letters in together:
+        sharing: dict[int, list[str]] = {}
+        for x in letters:
+            if x in group_of:
+                sharing.setdefault(group_of[x], []).append(x)
+        for g, xs in sharing.items():
+            if len(xs) > 1:
+                for x in xs:
+                    members[g].remove(x)
+                    members.append([x])
+                    group_of[x] = len(members) - 1
+                    unplaced.append(group_of[x])
+        for x in letters:
+            if x not in group_of:   # a sibling the answer left out
+                members.append([x])
+                group_of[x] = len(members) - 1
+                unplaced.append(group_of[x])
+        for i, a in enumerate(letters):
+            for b in letters[i + 1:]:
+                forced[(min(group_of[a], group_of[b]), max(group_of[a], group_of[b]))] = \
+                    sibling_relation(by_letter[a].qualified, by_letter[b].qualified)
     pairs = parsed.get("pairs")
     texts = {g: [by_letter[x].text for x in letters] for g, letters in enumerate(members)}
     verdicts: dict[tuple[int, int], tuple[str, str, str]] = {}
@@ -342,13 +434,22 @@ def read(parsed: object, entries: list[Entry], name: str = "") -> Reading | None
         if not members[a] or not members[b]:
             continue
         here, there = row.get("here"), row.get("there")
+        key = (min(a, b), max(a, b))
+        if forced.get(key) == "apart":
+            continue   # one conversation wrote both with a qualifier: apart, below
         if not quotes_located(here, there, texts[a], texts[b], name):
             continue
-        key = (min(a, b), max(a, b))
         if key in verdicts and verdicts[key][0] == "doubt":
             continue   # the milder reading stands
         verdicts[key] = (verdict, str(here or ""), str(there or ""))
+    for key, kind in forced.items():
+        if kind == "apart" or verdicts.get(key, ("",))[0] != "apart":   # a located contrast outranks a structural doubt
+            verdicts[key] = (kind, "", "")
     live = [g for g, letters in enumerate(members) if letters]
+    for u in unplaced:   # nothing says who an unplaced sibling is: in doubt with every other group, never one person with it
+        for h in live:
+            if h != u and (min(u, h), max(u, h)) not in verdicts:
+                verdicts[(min(u, h), max(u, h))] = ("doubt", "", "")
     parent = {g: g for g in live}
 
     def find(x: int) -> int:
@@ -374,6 +475,85 @@ def read(parsed: object, entries: list[Entry], name: str = "") -> Reading | None
     return Reading({x: number[find(g)] for x, g in group_of.items()}, relation)
 
 
+def sibling_relation(first_qualified: bool, second_qualified: bool) -> str:
+    """How two descriptions of ONE conversation stand: ``"apart"`` when both were written with a qualifier, ``"doubt"``
+    otherwise (2026-11-24). Stage 1 writes a qualifier for each of the two people a conversation names (all of 66 replayed
+    two-person conversations), and writes one person it describes twice as one entity (12 of 12): two spellings, a bare name
+    beside a qualified one, is a shape it did not produce in either, so nothing says it is two people. A doubt is held, and
+    a later conversation settles it (`same_name_tend`)."""
+    return "apart" if first_qualified and second_qualified else "doubt"
+
+
+def _sibling_clusters(entries: list[Entry], base: bool) -> Reading:
+    """Every description of a conversation that holds two or more is a person of its own, the sibling relation between
+    them, in doubt against everything else (cluster 0, when ``base``); one of a conversation of its own is in cluster 0."""
+    fresh = [e for e in entries if e.identity is None]
+    siblings = {x for letters in _same_conversation(fresh) for x in letters}
+    cluster_of: dict[str, int] = {e.letter: 0 for e in entries if e.letter not in siblings}
+    start = 1 if (base and cluster_of) else 0
+    by_letter = {e.letter: e for e in entries}
+    order = [e.letter for e in entries if e.letter in siblings]
+    for i, letter in enumerate(order):
+        cluster_of[letter] = start + i
+    relation: dict[tuple[int, int], tuple[str, str, str]] = {}
+    for i, a in enumerate(order):
+        for b in order[i + 1:]:
+            kind = sibling_relation(by_letter[a].qualified, by_letter[b].qualified) \
+                if by_letter[a].conversation == by_letter[b].conversation else "doubt"
+            relation[(cluster_of[a], cluster_of[b])] = (kind, "", "")
+        if start:
+            relation[(0, cluster_of[a])] = ("doubt", "", "")
+    return Reading(cluster_of, relation)
+
+
+def sibling_reading(entries: list[Entry]) -> Reading | None:
+    """What stands with no judge, or an answer that cannot be used (2026-11-24): the descriptions of one conversation are
+    different people, the conversation itself said so, and nothing says which of them a person on record is: none is.
+    Everything else is one person as it always was (cluster 0); each sibling is a person of its own, in doubt against it
+    and against the siblings of other conversations, and apart from the siblings of its own conversation that were
+    written with a qualifier. ``None`` when no conversation holds two descriptions."""
+    if not _same_conversation([e for e in entries if e.identity is None]):
+        return None
+    return _sibling_clusters(entries, base=True)
+
+
+def apart_reading(entries: list[Entry]) -> Reading:
+    """Every description is a person of its own: the descriptions all come from one conversation and nothing else is on
+    record (2026-11-24); apart when the conversation wrote both with a qualifier, else in doubt."""
+    return _sibling_clusters(entries, base=False)
+
+
+def known_for(keys: dict[str, str], conversation: str, identities: list[Identity]) -> dict[str, Identity]:
+    """Which person on record each mention of a conversation already read is, with no judge (2026-11-24). ``keys`` maps a
+    mention's key to the name it was written with, lower case, ``""`` for the bare name. One mention and one person who lists
+    the conversation: that person. Several: a mention written with a qualifier is the person whose aliases carry that name
+    (the first read wrote it there), and a bare name is the one person left when every other mention was matched. A person
+    two mentions would both take, or a name that matches no one, is left to the judge."""
+    holders = [i for i in identities if conversation in i.episodes]
+    if len(keys) == 1 and len(holders) == 1:
+        return {next(iter(keys)): holders[0]}
+    found: dict[str, Identity] = {}
+    for key, written in keys.items():
+        hit = [h for h in holders if written and written in h.aliases]
+        if len(hit) == 1:
+            found[key] = hit[0]
+    claimed = [i.ref for i in found.values()]
+    found = {k: i for k, i in found.items() if claimed.count(i.ref) == 1}
+    left = [h for h in holders if h.ref not in {i.ref for i in found.values()}]
+    bare = [k for k, written in keys.items() if not written]
+    if len(bare) == 1 and bare[0] not in found and len(left) == 1 and len(found) == len(keys) - 1:
+        found[bare[0]] = left[0]
+    return found
+
+
+def fallback(mention: Mention) -> Destination:
+    """Where a person written with a qualifier goes when nothing placed it (a judge that failed, a batch over the cap, a
+    cancelled run): never left under the name it was written with. The bare name's person, as a bare mention nothing
+    placed always was, unless its own conversation also names the bare name, which it is then another person than: held
+    in doubt, a person of its own."""
+    return Destination("new", f"u:{mention.episode}", True) if mention.no_rename else Destination("plain", "")
+
+
 # ---------------------------------------------------------------- placing the batch
 
 
@@ -393,6 +573,11 @@ def doubted_together(reading: Reading, entries: list[Entry], identities: list[Id
                 if kx < ky and identities[ky].ref in identities[kx].doubt_with:
                     found.add(tuple(sorted((identities[kx].ref, identities[ky].ref))))   # type: ignore[arg-type]
     return found
+
+
+def _structural(relation: tuple[str, str, str] | None) -> bool:
+    """A relation the conversation itself set (its two people, or one that could not be placed): no quotes, no judge."""
+    return relation is not None and relation[1] == "" and relation[2] == ""
 
 
 def decide(reading: Reading, entries: list[Entry], identities: list[Identity],
@@ -440,27 +625,56 @@ def decide(reading: Reading, entries: list[Entry], identities: list[Identity],
         flags.review_reasons.extend("doubt-may-be-one" for _ in together)
         flags.review_pairs |= together
     plain = any(identity.plain for identity in identities)
+    # Two groups the conversation itself told apart (one conversation names both, so they are two people) that both hold a
+    # known person's filed conversations: the page holds both (flagged above). The group with fewer of its conversations
+    # there keeps the page no longer; its new mentions are a person of their own, apart (2026-11-24).
+    home_of = {c: max(held, key=lambda k: (identities[k].plain, held[k], -k)) for c, held in filed_of.items() if held}
+    demoted: set[int] = set()
+    for a in clusters:
+        for b in clusters:
+            if a < b and a in home_of and b in home_of and home_of[a] == home_of[b] \
+                    and _structural(reading.relation.get((a, b))):
+                demoted.add(b if filed_of[a][home_of[a]] >= filed_of[b][home_of[b]] else a)
     fresh_clusters: dict[int, list[str]] = {}
     for e in entries:
         if e.identity is not None or e.letter not in reading.cluster_of:
             continue
         episode = e.episodes[0]
         c = reading.cluster_of[e.letter]
-        held = filed_of[c]
+        held = filed_of[c] if c not in demoted else {}
         if held:
             home = max(held, key=lambda k: (identities[k].plain, held[k], -k))
             identity = identities[home]
-            if not identity.plain:
+            if not identity.plain or e.qualified:
+                # A person written with a qualifier ("Nico (finance lead)") is never left to the bare name's default: it
+                # is named where it goes, the plain person's page or line included.
                 moves[episode] = Destination(identity.kind, identity.ref)
         else:
             fresh_clusters.setdefault(c, []).append(episode)
     if fresh_clusters:
-        ranked = sorted(fresh_clusters.items(), key=lambda item: (-len(item[1]), min(first_seen.get(e, 0) for e in item[1])))
+        bare = {e.episodes[0] for e in entries if e.identity is None and not e.qualified}
+        no_rename = {e.episodes[0] for e in entries if e.identity is None and e.no_rename}
+        # The plain person is the biggest new group; one that holds a mention of the bare name goes first (a name written
+        # with a qualifier is not the plain name's own).
+        ranked = sorted(fresh_clusters.items(), key=lambda item: (not any(e in bare for e in item[1]), -len(item[1]),
+                                                                  min(first_seen.get(e, 0) for e in item[1])))
         for position, (c, episodes) in enumerate(ranked):
             if position == 0 and not plain:
-                continue   # the plain person, with nothing on record to say otherwise
-            kinds = {reading.relation[key][0] for key in reading.relation if c in key}
-            doubt = "apart" not in kinds
+                # The plain person, with nothing on record to say otherwise: the bare name's default. A mention written with
+                # a qualifier takes the bare name (`Destination("plain")`) unless its own conversation also names the bare name.
+                for episode in episodes:
+                    if episode not in bare and episode not in no_rename:
+                        moves[episode] = Destination("plain", "")
+                    elif episode not in bare:
+                        # its own conversation names the bare name too: a doubt against it (`sibling_relation`), a person of its own
+                        moves[episode] = Destination("new", f"g{c}", True)
+                        flags.review = True
+                        flags.review_reasons.append("doubt-held")
+                continue
+            # What decides it is what the judge said or the record says, not what the conversation said of its own two:
+            # a sibling told apart from this one for good (``("apart", "", "")``) says nothing against the people on record.
+            kinds = {reading.relation[key][0] for key in reading.relation if c in key and reading.relation[key] != ("apart", "", "")}
+            doubt = bool(kinds) and "apart" not in kinds
             for episode in episodes:
                 moves[episode] = Destination("new", f"g{c}", doubt)
             if doubt:
@@ -477,6 +691,37 @@ CONFIRM_ITEMS = 3
 async def plan(name: str, mentions: list[Mention], identities: list[Identity],
                judge: Callable[[str, str], Awaitable[object]],
                strong: Callable[[str, str], Awaitable[object]] | None = None, *, speaker: str | None = None) -> Plan:
+    """Decide one name (`_plan`), then close what no path of it left unplaced (2026-11-24): a person written with a qualifier
+    is never left under the name it was written with, whichever way the decision ended (`fallback`), and the people one
+    conversation named together know of each other (`Destination.siblings`)."""
+    result = await _plan(name, mentions, identities, judge, strong, speaker)
+    for m in mentions:
+        if m.qualified and m.episode not in result.moves:
+            result.moves[m.episode] = placed = fallback(m)
+            if placed.kind == "new":
+                result.review = True
+                result.review_reasons.append("doubt-held")
+    by_conversation: dict[str, list[Mention]] = {}
+    for m in mentions[:MAX_MENTIONS]:
+        by_conversation.setdefault(m.conversation or m.episode, []).append(m)
+    for group in by_conversation.values():
+        for m in group:
+            destination = result.moves.get(m.episode)
+            if len(group) > 1 and destination is not None and destination.kind == "new":
+                siblings = []
+                for other in group:
+                    if other is m:
+                        continue
+                    there = result.moves.get(other.episode)
+                    siblings.append((there.kind, there.ref, sibling_relation(m.qualified, other.qualified) == "apart")
+                                    if there is not None else ("plain", "", sibling_relation(m.qualified, other.qualified) == "apart"))
+                result.moves[m.episode] = replace(destination, siblings=tuple(siblings))
+    return result
+
+
+async def _plan(name: str, mentions: list[Mention], identities: list[Identity],
+                judge: Callable[[str, str], Awaitable[object]],
+                strong: Callable[[str, str], Awaitable[object]] | None = None, speaker: str | None = None) -> Plan:
     """Decide one name. ``judge(system, prompt)`` answers the parsed JSON (an injected, engine-free seam); a failure or
     an answer that does not line up is the old behaviour: one person.
 
@@ -491,6 +736,12 @@ async def plan(name: str, mentions: list[Mention], identities: list[Identity],
         return result
     result.called = True
     entries = entries_for(judged, shown)
+    fresh = [e for e in entries if e.identity is None]
+    sibling_fallback = sibling_reading(entries)
+    if not shown and len({e.conversation for e in fresh}) == 1:
+        # One conversation names them all and nobody is on record: they are different people, and there is nothing to ask.
+        result.called = False   # no judge was asked
+        return _place(result, apart_reading(fresh), entries, shown, judged)
     prompt = build_prompt(name, entries, shown, speaker)
     try:
         parsed = await judge(SYSTEM, prompt)
@@ -500,10 +751,12 @@ async def plan(name: str, mentions: list[Mention], identities: list[Identity],
         raise   # G74(a): an engine failure is never a model's answer
     except Exception as e:  # noqa: BLE001 - anything else is "one person"
         logger.debug(f"Same-name judge failed: {type(e).__name__}")
-        return result
-    reading = read(parsed, entries, name)
+        parsed = None
+    reading = read(parsed, entries, name) if parsed is not None else None
     if reading is None:
-        return result
+        if sibling_fallback is None:
+            return result
+        return _place(result, sibling_fallback, entries, shown, judged)
     # The small judge says several of this batch's conversations are one person (the common answer, and where a silent join hides: it reads "both are connected to the
     # speaker" or "a later move" as a link), or divides the conversations against a person with a long history on record:
     # the main model reads the same prompt once and its grouping replaces the small judge's when it divides them. Its answer
@@ -520,16 +773,38 @@ async def plan(name: str, mentions: list[Mention], identities: list[Identity],
             logger.debug(f"Same-name second reading failed: {type(e).__name__}")
             second = None
         result.second = True
-        if second is not None and not second.single:
+        if second is not None and not second.single and _covers(second, entries):
             reading = second
+    if reading.single and sibling_fallback is not None:
+        reading = sibling_fallback   # one conversation names two of them: they are not one person
+    return _place(result, reading, entries, shown, judged)
+
+
+def _covers(reading: Reading, entries: list[Entry]) -> bool:
+    """The reading accounts for every description of a person on record. An answer that leaves them all out (a second reading
+    that grouped only this batch's conversations) puts the person on record nowhere, so each of the batch's people would be a
+    new one, however sure its grouping: that does not line up with what was shown, and the first reading stands (2026-11-24; a
+    real run made the cousin of a two-Nico conversation a third Nico this way)."""
+    return all(e.letter in reading.cluster_of for e in entries if e.identity is not None)
+
+
+def _place(result: Plan, reading: Reading, entries: list[Entry], shown: list[Identity], judged: list[Mention]) -> Plan:
+    """The reading's people → where each new conversation goes (`decide`), less a person a description too thin to stand
+    on would make new."""
+    first_seen = {m.episode: i for i, m in enumerate(judged)}
     if reading.single:
-        # One person, and it may be two who were held in doubt: nothing moves here, the pair is looked at again.
+        # One person throughout: the bare name's mentions stay as they always did. A mention written with a qualifier
+        # still goes where that person is (the plain page or line, or the bare name), never on under its qualified name.
+        moves, _flags = decide(reading, entries, shown, first_seen)
+        asked = {e.episodes[0] for e in entries if e.identity is None and e.qualified}
+        result.moves = {k: d for k, d in moves.items() if k in asked}
+        # One person, and it may be two who were held in doubt: nothing is joined here, the pair is looked at again.
         result.review_pairs = doubted_together(reading, entries, shown)
         if result.review_pairs:
             result.review = True
             result.review_reasons = ["doubt-may-be-one"] * len(result.review_pairs)
         return result
-    moves, flags = decide(reading, entries, shown, {m.episode: i for i, m in enumerate(judged)})
+    moves, flags = decide(reading, entries, shown, first_seen)
     result.review, result.review_reasons = flags.review, flags.review_reasons
     result.review_pages, result.review_pairs = flags.review_pages, flags.review_pairs
     # A split is a claim that two descriptions give one person facts the other cannot share, and a description that
@@ -544,8 +819,22 @@ async def plan(name: str, mentions: list[Mention], identities: list[Identity],
     for episode, destination in moves.items():
         if destination.kind == "new":
             news.setdefault(destination.ref, []).append(episode)
+    forced = {c for key, relation in reading.relation.items() if relation == ("apart", "", "") for c in key}
+    cluster_by_key = {e.episodes[0]: reading.cluster_of.get(e.letter) for e in entries if e.identity is None}
+    written = {e.episodes[0] for e in entries if e.identity is None and e.qualified}
     for episodes in news.values():
+        if any(cluster_by_key.get(e) in forced for e in episodes):
+            continue   # one conversation said they are two people: nothing thin about that
         if words(plain_text) < MIN_WORDS or words(" ".join(text_of[e] for e in episodes)) < MIN_WORDS:
+            if any(e in written for e in episodes):
+                # A person written with a qualifier is never put back under the bare name by a thin description, and never
+                # left under its written name: the judge and the qualifier say it is another person, the words say too
+                # little to be sure. That is a doubt (2026-11-24): a person of its own, waiting, joined to none.
+                for episode in episodes:
+                    moves[episode] = replace(moves[episode], doubt=True)
+                result.review = True
+                result.review_reasons.append("doubt-held")
+                continue
             result.thin += 1
             for episode in episodes:
                 del moves[episode]
