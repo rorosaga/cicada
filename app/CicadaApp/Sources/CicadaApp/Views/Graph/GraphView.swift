@@ -41,7 +41,10 @@ struct GraphView: NSViewRepresentable {
         webView.layer?.backgroundColor = .clear
 
         // Load bundled HTML
-        if let resourceURL = Bundle.cicadaResources.cicadaResource("index", ext: "html", in: "graph") {
+        // The both-layouts finder first (`cicadaResource`: the flat bundle, `bundle.sh`'s re-nested one and the Swift Build
+        // engine's); the older path-style name stays as a last resort, so this can only add a working path.
+        if let resourceURL = Bundle.cicadaResources.cicadaResource("index", ext: "html", in: "graph")
+            ?? Bundle.cicadaResources.url(forResource: "graph/index", withExtension: "html") {
             webView.loadFileURL(resourceURL, allowingReadAccessTo: resourceURL.deletingLastPathComponent())
         }
 

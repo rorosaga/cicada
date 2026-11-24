@@ -377,6 +377,8 @@ ALLOWED = {
     "api/services/question_order.py": "the order's reader",
     "api/services/ask_service.py": "counts the pages an answer read",
     "api/routers/banks.py": "wipes a deleted bank's counter",
+    "api/services/source_edits.py": "G244: names its held-record file by the bank's id (`page_reads.bank_key`, the id alone), "
+                                    "never reads, counts or serves a count",
 }
 
 
