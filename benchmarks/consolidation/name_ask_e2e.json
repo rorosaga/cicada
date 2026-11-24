@@ -1,0 +1,122 @@
+{
+ "about": "Invented. After night one every unnamed person (a swimming teacher said once, a guitar teacher, a partner) has a page and none is asked; on night two the guitar teacher and the partner come up again and are asked once, the swimming teacher still is not. Expect: `second` (names asked about after night two), `first_only` (never asked).",
+ "owner": "Elena Marsh",
+ "conversations": [
+  {
+   "id": "a1",
+   "phase": 1,
+   "day": -20,
+   "title": "Swimming",
+   "turns": [
+    "Mi hija empezó clases de natación en septiembre con la profesora de natación de la piscina municipal.",
+    "¡Qué bien! ¿Cómo le va?",
+    "La profesora de natación dice que mi hija ya flota de espalda. La profesora de natación es muy paciente con los niños.",
+    "¿Cuántas veces por semana van?",
+    "Los martes y los sábados. La profesora de natación quiere que practique las patadas en casa, en la bañera.",
+    "Es un buen consejo.",
+    "Sí, y la profesora de natación nos recomendó unas gafas pequeñas con goma suave."
+   ],
+   "lang": "es"
+  },
+  {
+   "id": "b1",
+   "phase": 1,
+   "day": -19,
+   "title": "Guitar lessons",
+   "turns": [
+    "Tomas started lessons with a Portuguese guitar teacher on Thursday evenings, and the guitar teacher plays fado in a bar on weekends.",
+    "That sounds lovely. What does Tomas want to play?",
+    "The Portuguese guitar teacher told Tomas to start with simple fado chords. The guitar teacher says it takes a year to get the feel for the ornamentation.",
+    "Is Tomas practicing at home?",
+    "Yes, every evening for twenty minutes, and the Portuguese guitar teacher gave him a worksheet of chord changes.",
+    "Good routine.",
+    "In person, in a studio above a bakery. The Portuguese guitar teacher charges forty euros an hour."
+   ],
+   "lang": "en"
+  },
+  {
+   "id": "c1",
+   "phase": 1,
+   "day": -18,
+   "title": "Moving",
+   "turns": [
+    "My partner and I are moving to a flat near the river in March, my partner found it through a friend.",
+    "Congratulations! Is it bigger?",
+    "Yes, my partner says the extra room will be a studio for painting. My partner paints landscapes.",
+    "Sounds great.",
+    "We are signing the lease next week, and my partner is already planning the colours of the walls.",
+    "Nice.",
+    "My partner wants to buy a big table for the studio."
+   ],
+   "lang": "en"
+  },
+  {
+   "id": "e1",
+   "phase": 1,
+   "day": -17,
+   "title": "Hike",
+   "turns": [
+    "I am planning a day hike near the lake on Saturday.",
+    "Pack water and a rain jacket."
+   ],
+   "lang": "en"
+  },
+  {
+   "id": "b2",
+   "phase": 2,
+   "day": -5,
+   "title": "Guitar again",
+   "turns": [
+    "Tomas's Portuguese guitar teacher cancelled Thursday's lesson because of a concert, so the guitar teacher moved it to Friday.",
+    "Do you know where the concert is?",
+    "In the old town, the Portuguese guitar teacher said they play fado there every second month.",
+    "Will you go?",
+    "Maybe, Tomas wants to hear the guitar teacher play live."
+   ],
+   "lang": "en"
+  },
+  {
+   "id": "c2",
+   "phase": 2,
+   "day": -4,
+   "title": "Partner",
+   "turns": [
+    "My partner bought the big table for the studio today, it took two people to carry it up the stairs.",
+    "Is it set up?",
+    "Yes, my partner painted the first canvas on it tonight.",
+    "Lovely."
+   ],
+   "lang": "en"
+  }
+ ],
+ "gold": {
+  "points": [],
+  "updates": [],
+  "forbid": [],
+  "people": {
+   "same": [],
+   "apart": [],
+   "apart_facts": [],
+   "one": []
+  },
+  "pages": {
+   "expected": [],
+   "not_expected": []
+  },
+  "dated": [],
+  "secret": "",
+  "apart_values": [],
+  "roles": [],
+  "fading": []
+ },
+ "expect": {
+  "second": [
+   "guitar teacher",
+   "partner"
+  ],
+  "first_only": [
+   "swimming teacher",
+   "profesora"
+  ]
+ }
+}

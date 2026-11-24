@@ -296,17 +296,16 @@ def _without_owner_page(text: str, owner: str) -> str:
 
 
 def strict_hit(row: dict, story: dict, eps: list[str], pages: list[str], owner: str) -> bool:
-    """A find that does not lean on the owner's page: recall holds a fact word outside it or names the story's own
-    conversation; an Ask answer names the story's own conversation or cites its page."""
-    text = row["text"]
+    """A find. An Ask answer holds a word of the story's fact (what an agent reads is the answer). A recall reply names the
+    story's own conversation, or holds a fact word outside the owner's page block: in a memory of thousands of
+    conversations that page holds a handful of its hundreds of facts, so a fact found only there is not a find."""
     if row["isError"]:
         return False
-    if any(e in text for e in eps):
-        return True
     if row["tool"] == "cicada_ask":
-        low = _fold(text)
-        return any(f"[[{p}]]" in text or _fold(p) in low for p in pages if len(p) > 3)   # `pages`: the page's name and its id
-    low = _fold(_without_owner_page(text, owner))
+        return bool(row["hit"])
+    if any(e in row["text"] for e in eps):
+        return True
+    low = _fold(_without_owner_page(row["text"], owner))
     return any(w in low for g in story["expect"] for w in g)
 
 
@@ -321,7 +320,7 @@ def table(out: Path, fixture: Path, tag: str) -> str:
     pages = _pages(bank)
     eps = own_episodes(bank, data)
     owner = data["owner"]
-    lines = ["story  kind    lang state              | recall own/reword/part | ask own/reword/part   (strict: Y = found without the owner's page)"]
+    lines = ["story  kind    lang state              | recall own/reword/part | ask own/reword/part   (Y = found; recall not by the owner's page alone)"]
     totals: dict[str, list[int]] = {}
     for s in data["stories"]:
         st = state_of(bank, s, pages)["state"]
