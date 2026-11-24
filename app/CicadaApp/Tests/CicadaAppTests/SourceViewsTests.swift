@@ -251,6 +251,62 @@ final class SourceViewsTests: XCTestCase {
         XCTAssertEqual(PersonSiteLink.name(ref: "https://wa.me/15550100", label: "", mark: "whatsapp"), "WhatsApp")
     }
 
+    /// A link that is not a profile never makes up a handle: a post, a repository, an invite link and a site's own pages
+    /// fall back to the link's words or the site's name (G245), every reserved first segment of each site covered.
+    func testALinkThatIsNotAProfileFallsBackToTheSitesNameNeverAMadeUpHandle() {
+        let named = [("https://www.instagram.com/p/Cabc123xyz/", "instagram", "Instagram"),
+                     ("https://www.instagram.com/reel/Cabc123xyz", "instagram", "Instagram"),
+                     ("https://www.instagram.com/stories/alex.example/123", "instagram", "Instagram"),
+                     ("https://www.instagram.com/explore/tags/example/", "instagram", "Instagram"),
+                     ("https://www.instagram.com/accounts/login/", "instagram", "Instagram"),
+                     ("https://github.com/alex-example/alpha-works", "github", "Github"),
+                     ("https://github.com/alex-example/alpha-works/issues/3", "github", "Github"),
+                     ("https://github.com/orgs/alpha-works/people", "github", "Github"),
+                     ("https://github.com/settings/profile", "github", "Github"),
+                     ("https://github.com/features", "github", "Github"),
+                     ("https://github.com/pricing", "github", "Github"),
+                     ("https://github.com/sponsors", "github", "Github"),
+                     ("https://github.com/marketplace", "github", "Github"),
+                     ("https://t.me/joinchat/AAAAAExample", "telegram", "Telegram"),
+                     ("https://t.me/+AbCdEfGhIjKlMn", "telegram", "Telegram"),
+                     ("https://t.me/joinchat", "telegram", "Telegram"),
+                     ("https://t.me/addstickers/example_pack", "telegram", "Telegram"),
+                     ("https://t.me/share/url?url=https://example.org", "telegram", "Telegram"),
+                     ("https://t.me/c/1234567/89", "telegram", "Telegram"),
+                     ("https://t.me/s/example_channel", "telegram", "Telegram"),
+                     ("https://x.com/i/web/status/1234567890", "x", "X"),
+                     ("https://x.com/alex_example/status/1234567890", "x", "X"),
+                     ("https://x.com/home", "x", "X"),
+                     ("https://twitter.com/search?q=example", "x", "X"),
+                     ("https://x.com/intent/follow?screen_name=alex_example", "x", "X"),
+                     ("https://x.com/hashtag/example", "x", "X"),
+                     ("https://www.youtube.com/watch?v=abc", "youtube", "YouTube"),
+                     ("https://www.youtube.com/channel/UCexample", "youtube", "YouTube"),
+                     ("https://www.youtube.com/playlist?list=PLexample", "youtube", "YouTube")]
+        for (ref, mark, site) in named {
+            XCTAssertEqual(PersonSiteLink.name(ref: ref, label: nil, mark: mark), site, ref)
+            XCTAssertNil(PersonSiteLink.profileHandle(ref: ref, mark: mark), ref)
+        }
+        // Every reserved first segment, on a link that is only that page.
+        for (mark, segments) in PersonSiteLink.reservedSegments {
+            let host = ["x": "x.com", "instagram": "www.instagram.com", "github": "github.com", "telegram": "t.me"][mark]!
+            for segment in segments {
+                XCTAssertNil(PersonSiteLink.profileHandle(ref: "https://\(host)/\(segment)", mark: mark), "\(host)/\(segment)")
+            }
+        }
+        XCTAssertEqual(PersonSiteLink.name(ref: "https://github.com/alex-example/alpha-works", label: "Alpha Works", mark: "github"),
+                       "Alpha Works", "the link's own words come before the site's name")
+        // A profile still reads as one, with or without a trailing slash, an @, or a query.
+        XCTAssertEqual(PersonSiteLink.profileHandle(ref: "https://github.com/alex-example/", mark: "github"), "alex-example")
+        XCTAssertEqual(PersonSiteLink.profileHandle(ref: "https://t.me/alex_example?start=1", mark: "telegram"), "alex_example")
+        XCTAssertEqual(PersonSiteLink.profileHandle(ref: "https://x.com/@alex_example", mark: "x"), "alex_example")
+        XCTAssertEqual(PersonSiteLink.profileHandle(ref: "https://www.youtube.com/@alexexample/videos", mark: "youtube"), "@alexexample")
+        XCTAssertNil(PersonSiteLink.profileHandle(ref: "https://www.linkedin.com/in/alex-example", mark: "linkedin"), "no handle on LinkedIn")
+        // The Inbox's review rows share the X rule: no "@i" for a page of the site.
+        XCTAssertNil(LinkWords.xHandle("https://x.com/i/web/status/1"))
+        XCTAssertEqual(LinkWords.xHandle("https://x.com/alex_example/status/1"), "alex_example")
+    }
+
     // MARK: The page's tabs, a card's line, a check's word
 
     private func stream(_ id: String, _ label: String, _ kind: StreamKind, count: Int?, state: StreamState = .on) -> ResolvedStream {

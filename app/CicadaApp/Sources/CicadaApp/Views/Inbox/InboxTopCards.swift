@@ -37,14 +37,16 @@ enum LinkWords {
         return Words(label: words.isEmpty ? ref : words, kind: linkKind ?? "website")
     }
 
-    /// The first path segment of an x.com / twitter.com link, when there is one.
+    /// The first path segment of an x.com / twitter.com link, when it names an account: not a page of the site (`/i/web/...`,
+    /// `/home`, `/search`), which the person's profile chip never calls "@i" (G245).
     static func xHandle(_ ref: String) -> String? {
         guard let url = URL(string: ref), let raw = url.host?.lowercased() else { return nil }
         let host = raw.hasPrefix("www.") ? String(raw.dropFirst(4)) : raw
         guard xHosts.contains(host) else { return nil }
         let first = url.path.split(separator: "/").first.map(String.init) ?? ""
         let handle = first.hasPrefix("@") ? String(first.dropFirst()) : first
-        return handle.isEmpty ? nil : handle
+        guard !handle.isEmpty, !(PersonSiteLink.reservedSegments["x"] ?? []).contains(handle.lowercased()) else { return nil }
+        return handle
     }
 }
 
