@@ -66,7 +66,7 @@ def trio(tmp_path):
             "replica_env": {**_base_env(replica.home, replica.cicada_home), "CICADA_PORT": str(replica.port)},
             "replica_projects": projects, "replica_device": copy_dev["device"]["id"],
             "client_env": {**_base_env(client_home, client_cicada), "CICADA_API_BASE": home.url,
-                           "CICADA_SPOOL_RETRY_FIRST_S": "2"},
+                           "CICADA_SPOOL_RETRY_FIRST_S": "2", "CICADA_SPOOL_RETRY_LIFETIME_S": "240"},
             "client_projects": cprojects, "client_device": client_dev["device"]["id"],
             "client_cicada": client_cicada,
         }

@@ -338,6 +338,8 @@ RETRY_FIRST_ENV = "CICADA_SPOOL_RETRY_FIRST_S"
 RETRY_FIRST_S = 20.0
 RETRY_MAX_S = 300.0
 RETRY_LIFETIME_S = 2 * 3600.0
+#: A test shortens the retrier's life so a scratch run leaves no process behind.
+RETRY_LIFETIME_ENV = "CICADA_SPOOL_RETRY_LIFETIME_S"
 RETRY_BUDGET_S = 25.0
 RETRY_LOCK = ".retry.lock"
 
@@ -399,7 +401,12 @@ def retry_spool(environ, *, home: Path | None = None, post=None, sleep=time.slee
             delay = float(environ.get(RETRY_FIRST_ENV) or RETRY_FIRST_S)
         except ValueError:
             delay = RETRY_FIRST_S
-        end = time.monotonic() + (RETRY_LIFETIME_S if lifetime is None else lifetime)
+        if lifetime is None:
+            try:
+                lifetime = float(environ.get(RETRY_LIFETIME_ENV) or RETRY_LIFETIME_S)
+            except ValueError:
+                lifetime = RETRY_LIFETIME_S
+        end = time.monotonic() + min(lifetime, RETRY_LIFETIME_S)
         while time.monotonic() < end:
             base, _token, problem = remote_client.target(environ)
             if problem or not spool.waiting(home, base)["here"]:
