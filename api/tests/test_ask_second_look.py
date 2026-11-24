@@ -169,3 +169,33 @@ def test_the_second_look_is_the_persons_switch_and_off_makes_no_call():
 
     assert ask_service.second_look_fn(Settings(_env_file=None, ask_second_look=False)) is None
     assert callable(ask_service.second_look_fn(Settings(_env_file=None, ask_second_look=True)))
+
+
+def test_the_planning_call_goes_through_the_provider_seam_with_its_own_stage_and_a_bound(monkeypatch):
+    """Like every other model call Cicada makes: `providers.resolve_llm_fn` (the sensitive-text door sits inside it) and
+    the usage ledger's stage label; bounded so a slow plan can never be the reason an Ask runs long."""
+    from api.config import Settings
+    from api.services import providers
+
+    seen = {}
+
+    class Reply:
+        choices = [type("C", (), {"message": type("M", (), {"content": '{"looks": ["a trip"]}'})()})()]
+
+    def fake_resolve(settings, **kw):
+        seen["stage"] = kw.get("stage")
+
+        def call(**kw2):
+            seen["messages"], seen["timeout"] = kw2["messages"], kw2.get("timeout")
+            return Reply
+
+        return call
+
+    monkeypatch.setattr(providers, "resolve_llm_fn", fake_resolve)
+    raw = ask_service._default_plan_fn(Settings(_env_file=None))("QUESTION:\nWhich cities?")
+    assert json.loads(raw) == {"looks": ["a trip"]}
+    assert seen["stage"] == "ask_plan"
+    assert seen["timeout"] == ask_service.PLAN_TIMEOUT_S <= 30
+    assert seen["messages"][0]["role"] == "system" and "do not answer" in seen["messages"][0]["content"].lower() \
+        or "You do not answer" in seen["messages"][0]["content"]
+    assert seen["messages"][1] == {"role": "user", "content": "QUESTION:\nWhich cities?"}

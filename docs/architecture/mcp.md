@@ -2281,6 +2281,51 @@ tokens a question (+10%). Graded, haiku, two baseline runs (163, multi-hop 57; a
 answers reworded over the same lines), tokens 10,923 → 10,990. `python -m benchmarks.public.run run --paths reach` records Ask's prompt and
 answer-turn reach per question with no model call.
 
+## The second look (G148, 2026-11-24)
+
+A question whose answer is spread over several conversations ("which cities has she visited", "what has she done with her
+family") asks for things no word or embedding of the question ranks: the turn that answers is "took a short trip to Rome".
+After 2026-11-23's change, about half the multi-hop prompts still missed a needed turn (37 of 76 with every gold turn shown).
+The second look is the one mechanism that finds them: **one short planning call before the answer, then a search by meaning
+for each thing it names.**
+
+- **The call** (`ask_service.plan_looks`, `PLAN_SYSTEM_PROMPT`, stage `ask_plan`, through `providers.resolve_llm_fn` like every other
+  call, so the sensitive-text door holds and it runs on the engine the person chose). It reads the question and the
+  lead of the first three pages Ask retrieved (`plan_message`: the kinds of thing the record holds, never a claim or a line of
+  the person's words) and names up to 6 short phrases a line holding part of the answer would say, in the conversations'
+  language, never a person's name. It never answers. The pages' lead matters: blind to them the phrases were guesses ("moved from
+  Chicago"), and 29 of conv-26's 39 multi-hop gold turns reached the prompt against 31 with them. Bounded by `PLAN_TIMEOUT_S` (25 s);
+  an unreadable, slow or failed plan is no plan, and Ask is the Ask it was. The question is never logged.
+- **The search** (`ask_sources.second_look`): each phrase's nearest 8 chunks of the vector index, their turns (at most 200) embedded
+  once with the on-device model (`vector_index.similarities`, one embed of the turns however many phrases), each scored by its
+  best phrase; lines a tenth of a cosine below the best are dropped; at most 12 lines, 4,000 characters, 2 per conversation, none
+  already shown, the people's own turns before an assistant's. They reach the model as **ALSO FOUND**, read as OTHER CONVERSATIONS
+  (rule 11). Needs the on-device search model; with none, no lines.
+- **A switch** (`CICADA_ASK_SECOND_LOOK`, `Settings.ask_second_look`, wired on `/ask` and the MCP direct path through
+  `second_look_fn`); `answer_query(plan_fn=None)` makes no such call, and recall's code, its text (recall, the hook and pending are
+  byte-for-byte equal on 200 questions) and its measured numbers do not move. Remote callers without the `sources` scope never plan.
+- **Latency bound.** The caller waits `ASK_WAIT_S` (600 s) for one answer; the engine's own clock is 300 s a call with one retry for an
+  unreadable reply. The plan's 25 s is the only addition to that worst case, and it adds a model call to the front of every Ask it runs
+  on (sequential, since the phrases depend on the pages): about 4 s p50 and 7 s p90 on a loaded machine, +1,450 tokens a call.
+- **No cheap gate was found.** The shape detector (`question_shape` enumerate) fires on 41 of 200 and holds 4 of the 17 questions the
+  second look made complete (0.24); "enumerate or 8+ conversations near the question" fires on 94 and holds 9 (0.53). A count or list asked
+  in other words is a "lookup" to the regexes, so a gate on them skips the questions that need it. Measured, not shipped.
+
+**Measured** (slept LoCoMo, 200 questions, haiku for answers and judge, the same cloned banks; `docs/research/2026-11-09-why-full-context-wins-on-locomo.md`
+§8 has the tables): multi-hop prompts with every gold turn shown 37 → 48 of 76 and 145 → 162 of 200, for +2,400 prompt characters and
++1 call a question. Graded, two runs of it alone: 166 and 167 right (multi-hop 61 and 64, temporal 90 and 88) against 167 and 168 before
+(multi-hop 62 and 61, temporal 92 and 90): inside the spread of the baselines themselves (13 questions flip between the two stored
+runs on identical code). It made 18 to 19 prompts complete, and 15 to 16 of those were already answered right. +18% tokens a question,
++1 call, a 4.2 to 4.8 s p50 plan. LongMemEval_S unslept (no pages for the planner to read) 79 → 69 of 100, 4 gained and 14 lost. **Off by default**: reach moved and the answers did not.
+`python -m benchmarks.public.run run --paths ask --second-look` runs it; `--paths reach --second-look` records the prompt and reach with the
+plan kept per question (`plans.jsonl`, `--plans-from` replays it for free); `--replay-from RUN` re-runs the answer step alone over a
+run's stored prompts.
+
+**An answer rule tried and dropped (same day).** A rule 13 ("commit to what the lines point to: name the likely person, count every item
+the lines show, say what is unconfirmed, never open with what memory does not say and then name it") moved 7 of the 21 answers right lines
+were shown for and still wrong (4 and 5 before), and the full 200-question run came out the same as before: 167 against 167 and 168, 7
+gained and 8 lost, multi-hop 61, +3% tokens. It is not in the prompt.
+
 ## Recording tools join the list when they're needed (G148, owner 2026-11-06)
 
 Seven tools only record what a job found: `cicada_record_read`, `_check`, `_youtube_list`, `_saved_list`, `_substack_list`,
