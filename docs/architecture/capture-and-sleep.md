@@ -4051,7 +4051,9 @@ count as time (`episode_time`, never a save, a feed, a tab group or a calendar e
 day, never the day it was received or read. **A note** is dated by its CREATED day (`created_at` on its episode, sent by the app
 beside the dump as `noteCreated`, Notes' locale-free local ISO time; an older app sends none, so a note it kept has no day) and
 only when it was not kept alive past a week: a note's `timestamp` is its last edit, so a line added today to an old note never
-makes the note look new. A page with no day never joins.
+makes the note look new. **A file of a watched folder** that is not a meeting gets no day either (its `timestamp` is the file's
+modified time when first read and no revision moves it); a meeting is dated by its own day and the report says `meeting`. A page
+with no day never joins.
 
 *What it writes when it is live.* The join IS the alias: the arrival's full name is added to the page's `aliases` (one `cicada`
 commit, trigger `sleep/arrival-join`, its own path only, restored if it fails; the title stays, no claim moves, no page is

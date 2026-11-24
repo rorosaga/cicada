@@ -131,7 +131,7 @@ class Holder:
     page: str
     word: str                      # the page's title, folded, one token
     day: str | None = None         # the earliest day its own words give (3.3)
-    day_from: str = ""             # conversation | note
+    day_from: str = ""             # conversation | meeting | note
     block: str | None = None       # a rule-2 refusal: owner, role, archived, not one word, second of its name ...
     others: int = 0                # rule 4: other pages and held lines carrying the word
     doubt: bool = False            # rule 7: the bank holds a same-name doubt for the word
@@ -464,6 +464,13 @@ def episode_day(fm: dict | None) -> tuple[str | None, str]:
         return None, ""
     if fm.get("locked_note") or authorship.is_saved(fm) or authorship.agent_saved(fm):
         return None, ""
+    from api.services import meeting_transcripts
+
+    folder = "folder" in (str(fm.get("source") or ""), str(fm.get("origin") or ""))
+    if folder and not meeting_transcripts.is_meeting(fm):
+        # A watched folder's file: its ``timestamp`` is the file's last-modified time when it was first read and no
+        # later revision moves it, so it is neither a created day nor a mention's day. Only a meeting is dated.
+        return None, ""
     modified = episode_ids.local_day(fm.get("timestamp"))
     if modified is None:
         return None, ""
@@ -472,7 +479,7 @@ def episode_day(fm: dict | None) -> tuple[str | None, str]:
         if created is None or (modified - created).days > LIVING_NOTE_DAYS or created > modified:
             return None, ""
         return created.isoformat(), "note"
-    return modified.isoformat(), "conversation"
+    return modified.isoformat(), "meeting" if folder else "conversation"
 
 
 def _holder_day(memory_path: Path, fm: dict) -> tuple[str | None, str, list[str]]:

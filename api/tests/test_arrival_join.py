@@ -305,6 +305,14 @@ def test_an_old_note_edited_this_week_has_no_day_and_neither_has_a_note_the_app_
     assert aj.episode_day(_fm(**note, created_at="2024-02-01T08:00:00+00:00")) == (None, "")             # created long before its last edit
 
 
+def test_a_watched_folder_note_has_no_day_and_only_a_meeting_is_dated_and_says_so():
+    note = dict(source="folder", origin="folder", folder_id="f", relpath="a.md")
+    assert aj.episode_day(_fm(**note)) == (None, "")
+    assert aj.episode_day(_fm(**note, created_at="2026-11-10T08:00:00+00:00")) == (None, "")
+    meeting = dict(note, folder_kind="meetings", meeting={"attendees": []})
+    assert aj.episode_day(_fm(**meeting)) == ("2026-11-10", "meeting")
+
+
 def test_a_nonsense_creation_moment_gives_no_day():
     note = dict(origin="apple-notes", source="apple-notes")
     assert aj.episode_day(_fm(**note, created_at="not a date")) == (None, "")
