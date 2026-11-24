@@ -94,7 +94,8 @@ struct SourcesPageView: View {
                                  waitingOn: Dictionary(uniqueKeysWithValues: catalog.compactMap { row in
                                      row.waitingOn.map { (row.id, $0) } }),
                                  notInstalled: Set(catalog.filter(\.notInstalled).map(\.id)),
-                                 siteSavesOn: Set(SiteSavePrefs().connected.map(\.key)), permissions: permissions)
+                                 siteSavesOn: SiteSavePrefs().noticedKeys(rows: catalog),
+                                 siteSavesOff: SiteSavePrefs().turnedOff, permissions: permissions)
         return SourceStreamOverlay.resolve(sourceStreams.value, app: app, entries: catalog.map(\.entry))
     }
 
@@ -428,7 +429,8 @@ struct SourcesPageView: View {
         StreamAppState(readers: localReaders,
                        waitingOn: Dictionary(uniqueKeysWithValues: catalog.compactMap { row in row.waitingOn.map { (row.id, $0) } }),
                        notInstalled: Set(catalog.filter(\.notInstalled).map(\.id)),
-                       siteSavesOn: Set(SiteSavePrefs().connected.map(\.key)), permissions: permissions)
+                       siteSavesOn: SiteSavePrefs().noticedKeys(rows: catalog),
+                       siteSavesOff: SiteSavePrefs().turnedOff, permissions: permissions)
     }
 
     /// The card's one button. A needs-you card names its fix: access and sign-in are given on the source's page (its
@@ -455,7 +457,7 @@ struct SourcesPageView: View {
             defer { working.remove(row.id) }
             await reading.loadSettings()
             let state = SourceConnect.State(row: row, reading: reading,
-                                            siteSavesOn: Set(SiteSavePrefs().connected.map(\.key)),
+                                            siteSavesOn: SiteSavePrefs().noticedKeys(rows: [row]),
                                             readersOn: localReaders, permissions: permissions)
             let plan = SourceConnect.plan(row.entry, state)
             // A reader one click starts is started here, the way its own page's Connect does (macOS's prompt follows).

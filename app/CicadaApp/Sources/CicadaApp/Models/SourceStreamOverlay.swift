@@ -79,8 +79,10 @@ struct StreamAppState: Equatable, Sendable {
     var waitingOn: [String: String] = [:]
     /// By catalogue entry id: the app was removed from this Mac.
     var notInstalled: Set<String> = []
-    /// `SiteSavePrefs().connected` keys: the sites whose saves are noticed on this Mac.
+    /// `SiteSavePrefs().noticedKeys`: the sites whose saves are noticed on this Mac.
     var siteSavesOn: Set<String> = []
+    /// `SiteSavePrefs().turnedOff`: the sites the person turned "Saves you make" off for, so the row says that is why.
+    var siteSavesOff: Set<String> = []
     /// Preflights only, never a prompt; a permission absent here is unknown and counts as given.
     var permissions: [MacPermission: Bool] = [:]
 
@@ -188,6 +190,8 @@ enum SourceStreamOverlay {
         s.why = nil
         guard on else {
             s.health = nil
+            // The person's own word keeps a connected site quiet; the row says so rather than only "off".
+            if app.siteSavesOff.contains(source) { s.why = Copy.Streams.savesTurnedOff }
             return ResolvedStream(source: source, stream: s, word: .off, fix: nil, reader: nil)
         }
         guard app.granted(.accessibility) else {

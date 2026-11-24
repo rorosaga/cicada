@@ -1614,6 +1614,16 @@ in `SiteSavePrefs`, learned only from a certain change, never shipped or transla
 change is `changed`: nothing is stored and nobody is asked. On X the post's own words are cut from the block's label
 between the handle and time link and the row's label (`text(of:item:)`), again with no word known.
 
+*Which sites are noticed (ruling 77c, 2026-11-24).* "Connected" is the Sources catalogue's own word for the site's source
+(`SiteSaveNoticing.setUp`: not Off — connected, waiting for an agent or a sign-in), the one word the connect offer also
+reads to leave a site alone. `SiteSavePrefs.noticing(site, status:)` is the per-Mac flag when the person or a Yes set it
+(`explicit`; an off stands across launches and the list being toggled), else on exactly while the source is set up, derived
+on read so nothing migrates. A site that is Off is the offer's (77b), so a click is never read by neither. `SiteSaveNoticingWatch`
+reads the set under Observation and tells the watcher when it moves (a list turned on anywhere, the catalogue first loading).
+The page's "Saves you make" row shows on for a noticed site, "You turned this off…" when the person did, and Accessibility's
+sentence with its button when that is missing; its hover names the browsers a save is seen in. The walk of every combination
+is `SiteSaveNoticingTests`.
+
 *The reader (`SiteSaveReader`).* The one place that asks macOS about another app's interface for a save, off the main
 thread, 0.25 s a call. It reads the page's address first and stops there for any site not in the table. Then the
 button under the point, the row of controls around it, the row's label, and the post links of the enclosing block.

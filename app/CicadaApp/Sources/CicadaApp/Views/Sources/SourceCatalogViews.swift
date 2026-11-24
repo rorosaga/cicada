@@ -484,16 +484,24 @@ struct SourceCatalogDetail: View {
 
     /// The streams model alone, with no reader of this Mac's in it (onboarding's sheet; a render): what the backend says.
     private var ownResolved: ResolvedStreams {
-        SourceStreamOverlay.resolve(sourceStreams?.value, app: StreamAppState(siteSavesOn: siteSavesOn,
-                                                                           permissions: [.accessibility: trusted]),
+        SourceStreamOverlay.resolve(sourceStreams?.value,
+                                    app: StreamAppState(siteSavesOn: siteSavesOn, siteSavesOff: siteSavesOff,
+                                                        permissions: [.accessibility: trusted]),
                                     entries: [row.entry])
     }
 
-    private var siteSavesOn: Set<String> { Set(SiteSavePrefs().connected.map(\.key)) }
+    /// This row's site, when this Mac notices its saves: what the person set, else on while the source is set up.
+    private var siteSavesOn: Set<String> {
+        SiteSavePrefs().noticing(row.id, status: row.status) ? [row.id] : []
+    }
+    private var siteSavesOff: Set<String> {
+        SiteSavePrefs().explicit(row.id) == false ? [row.id] : []
+    }
 
     private func clickStream(_ stream: SourceStream) -> ResolvedStream {
         SourceStreamOverlay.resolve(stream, of: row.id, entry: row.entry,
-                                    app: StreamAppState(siteSavesOn: siteSavesOn, permissions: [.accessibility: trusted]),
+                                    app: StreamAppState(siteSavesOn: siteSavesOn, siteSavesOff: siteSavesOff,
+                                                                           permissions: [.accessibility: trusted]),
                                     readerKeys: [], now: Date())
     }
 
