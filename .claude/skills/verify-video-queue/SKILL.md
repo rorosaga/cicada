@@ -148,6 +148,16 @@ and `F3s`, and their checks are expected to fail.
   episode's older timestamp (`watch_record._write_episode:153`), which errs towards leaving the row; `claim` sorts
   by the `requested_at` string, so mixed precisions should sort by the parsed instant.
 
+## Mention asks (ruling 78 (e), 2026-11-24)
+
+`video_queue.offer_mention` adds a `queued` `transcript` row for a key that has none (the model's `PutBegin` on a new row) and
+`video_queue.drop_mentions` removes unclaimed rows the way Remove does (`RemoveBegin`); both are called only by
+`mention_asks`, from Sleep and the settings route. `video_queue._honoured` hides a mention row from `view` and `claim` while
+agent reading or its list is off, which the model reads as a row nobody can claim (it never changes a row's fields), and
+`_upsert` drops the mark when the person's own ask meets the row. No lifecycle step changed; the model was run unchanged
+with `ALLOW_DRIFT=1` (dev's own drift in `cli._tool_context`, `cli_app.door`, `tool_door.context`,
+`mcp_tools.record_watch`, `mcp_tools.video_claim` and `watch_record._write_episode` predates this and was left as found).
+
 ## Reading a result
 
 `run.sh` prints `check | expected | got | states | s`. On anything unexpected, read `$OUT/<check>.trace.txt`.

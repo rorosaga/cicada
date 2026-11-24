@@ -21,6 +21,12 @@ refreshes), and the link's wire joins the row at read time.
   lands by temp file plus ``os.replace``. A reader never sees half a file.
 * An ask on a URL that already has a row resets it to ``waiting``: that is
   "Ask again".
+* **A mention ask** (ruling 78 (e), owner 2026-11-24, ``origin: mention``) is a row the backend leaves for a save the
+  person talked about (``mention_asks``): never the agent's, never the person's click. It carries the key of the list
+  the save came from (``list``, an enum word, never a title) and **does not expire while it waits** — a silent expiry
+  would turn "asked" back into "kept" with nobody told. It is bounded instead (``mention_asks.MAX_WAITING``, 5 a day):
+  it leaves when the person removes it, when agent reading or its list is turned off, or when an agent answers it
+  (then it ages out like any outcome, a week after).
 
 ``note`` is one short sentence the agent may leave (at most 200 characters,
 scrubbed); it is never served to a remote connection and never shown as the
@@ -50,6 +56,8 @@ MAX_ROWS = 500
 #: capped, so a big allowed site can never push the person's own asks out.
 MAX_SITE_ROWS = 200
 ORIGIN_SITE = "site"
+ORIGIN_MENTION = "mention"
+_LIST_KEY = re.compile(r"^[a-z0-9][a-z0-9:_-]{0,39}$")
 STATES = ("waiting", "read", "needs_login", "blocked", "not_found", "failed")
 #: What an agent may record. ``waiting`` is the person's, never an outcome.
 OUTCOMES = STATES[1:]
@@ -109,7 +117,13 @@ def _parse(value) -> datetime | None:
     return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
 
 
+def _waiting_mention(row: dict) -> bool:
+    return row.get("origin") == ORIGIN_MENTION and row.get("state") == "waiting"
+
+
 def _alive(row: dict, now: datetime) -> bool:
+    if _waiting_mention(row):
+        return True
     stamp = _parse(row.get("outcome_at")) or _parse(row.get("asked_at"))
     return stamp is not None and now - stamp < timedelta(days=EXPIRES_AFTER_DAYS)
 
@@ -130,6 +144,9 @@ def _clean_row(raw) -> dict | None:
             row[key] = value
     if raw.get("origin") == ORIGIN_SITE:
         row["origin"] = ORIGIN_SITE
+    elif raw.get("origin") == ORIGIN_MENTION and _LIST_KEY.match(str(raw.get("list") or "")):
+        row["origin"] = ORIGIN_MENTION
+        row["list"] = str(raw["list"])
     return row
 
 
@@ -166,7 +183,7 @@ def expiry_state(memory_path: Path, *, now: datetime | None = None) -> tuple[int
     next_at: float | None = None
     for row in rows:
         stamp = _parse(row.get("outcome_at")) or _parse(row.get("asked_at"))
-        if stamp is None:
+        if stamp is None or _waiting_mention(row):
             continue
         deadline = stamp + timedelta(days=EXPIRES_AFTER_DAYS)
         if moment >= deadline:
@@ -210,8 +227,11 @@ def _bounded(rows: list[dict]) -> list[dict]:
     if len(rows) > MAX_ROWS:
         overflow = len(rows) - MAX_ROWS
         # Evict site rows before any explicit one, oldest first within each class.
+        # A waiting mention ask is the last to go (it never expires; the person never removed it), after every site row
+        # and every explicit row or outcome.
         order = [i for i, r in enumerate(rows) if r.get("origin") == ORIGIN_SITE] + \
-                [i for i, r in enumerate(rows) if r.get("origin") != ORIGIN_SITE]
+                [i for i, r in enumerate(rows) if r.get("origin") not in (ORIGIN_SITE, ORIGIN_MENTION)] + \
+                [i for i, r in enumerate(rows) if r.get("origin") == ORIGIN_MENTION]
         gone = set(order[:overflow])
         rows = [r for i, r in enumerate(rows) if i not in gone]
     return rows
@@ -247,6 +267,28 @@ def ask(memory_path: Path, url_hash: str, *, host: str, host_class: str, now: da
     return row
 
 
+def mention(memory_path: Path, url_hash: str, *, host: str, host_class: str, list_key: str,
+            now: datetime | None = None) -> dict | None:
+    """Leave a mention ask (ruling 78 (e)): a ``waiting`` row marked ``origin: mention``, for a link the person talked
+    about. **Only ``mention_asks`` calls this**, from Sleep's own step — no tool, route or agent reaches it, and
+    :func:`record_outcome` never takes an origin from its caller but ``site``, so an agent cannot plant one. A link that
+    already has a live row (the person's own ask, an outcome, an earlier mention) gets none: ``None``, nothing
+    written."""
+    if not _LIST_KEY.match(str(list_key or "")):
+        return None
+    moment = _now(now)
+    with _locked(memory_path) as target:
+        rows = [r for r in _read_file(memory_path) if _alive(r, moment)]
+        if any(r["url_hash"] == url_hash for r in rows):
+            return None
+        row = {"url_hash": url_hash, "host": str(host or "")[:120],
+               "host_class": "walled" if host_class == "walled" else "public",
+               "asked_at": _iso(moment), "state": "waiting", "origin": ORIGIN_MENTION, "list": str(list_key)}
+        rows.append(row)
+        _write(target, rows)
+    return row
+
+
 def record_outcome(memory_path: Path, url_hash: str, state: str, *, host: str = "", host_class: str = "public",
                    via=None, harness: str | None = None, note=None, now: datetime | None = None,
                    create: bool = False, origin: str | None = None) -> dict | None:
@@ -275,6 +317,9 @@ def record_outcome(memory_path: Path, url_hash: str, state: str, *, host: str = 
         keep_origin = (current or {}).get("origin") or (origin if create and current is None else None)
         if keep_origin == ORIGIN_SITE:
             row["origin"] = ORIGIN_SITE
+        elif (current or {}).get("origin") == ORIGIN_MENTION:
+            # Only a stored mention row stays one (an answer to it); a caller's ``origin`` is never taken for it.
+            row["origin"], row["list"] = ORIGIN_MENTION, current["list"]
         for key, value in (("via", clean_via(via)), ("harness", (harness or "").strip()[:60] or None),
                            ("note", clean_note(note))):
             if value:

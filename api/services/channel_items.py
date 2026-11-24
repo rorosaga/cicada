@@ -137,7 +137,7 @@ from api.services.channel_registry import CHANNEL_IDS
 #: `g161-21`: ROR-15 — a Notes row the person pinned in Notes carries `pinned` (pinned rows list first, as a chat's do).
 #: `g161-22`: a saved link's `site` key is its own host, not its registrable domain (owner 2026-11-23).
 #: `g161-23`: G245 — `stream` and `folder` narrow a page to one list (and one of its folders); a saved-list row carries
-#: `lists`, `folders`, `depth` (`kept` | `read`) and `posted`.
+#: `lists`, `folders`, `depth` (`kept` | `asked` | `read` | `watched`) and `posted`.
 #: `g161-24`: A.4 (G245) — a Notes folder is a tree (`collections` gives each folder its `path`, `parent`, `children`, `depth`
 #: and `total`, in Notes' own order, and `pinsRead`), a note's row carries `modifiedAt`, a one-line `snippet` and sorts by its
 #: modified instant, and Notion's live pages are filed by database or parent page and sort by last edited.

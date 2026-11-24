@@ -77,7 +77,7 @@ class Entry:
     url_hash: str
     host: str
     site: str
-    origin: str          # "ask" | "site" | "check"
+    origin: str          # "ask" | "site" | "check" | "mention" (ruling 78 (e): the person talked about it, nobody asked)
     since: str           # ISO day: when asked, or when saved (a check: when the question was raised)
     title: str
     wall: str | None
@@ -98,9 +98,25 @@ CHECK_RECHECK_DAYS = 7
 
 def _live_rows(memory_path: Path, now: datetime | None) -> list[dict]:
     try:
-        return reading_asks.all_rows(memory_path, now=now)
+        return honoured_rows(reading_asks.all_rows(memory_path, now=now))
     except ValueError:
         return []
+
+
+def honoured_rows(rows: list[dict]) -> list[dict]:
+    """The ask rows that count right now: a mention ask (ruling 78 (e)) only while agent reading and its list are on."""
+    if not any(r.get("origin") == reading_asks.ORIGIN_MENTION for r in rows):
+        return rows
+    from api.services import mention_asks
+
+    ok = mention_asks.gate()
+    return [r for r in rows if r.get("origin") != reading_asks.ORIGIN_MENTION or ok(r)]
+
+
+def reading_asks_honoured(row: dict) -> bool:
+    from api.services import mention_asks
+
+    return mention_asks.honoured(row)
 
 
 def paused_sites(rows: list[dict]) -> set[str]:
@@ -119,8 +135,10 @@ def ask_entries(memory_path: Path, rows: list[dict], idx: dict) -> list[Entry]:
         verdict = reading_hosts.agent_may_read(url, enabled=True)
         if not verdict.ok:
             continue
+        mention = row.get("origin") == reading_asks.ORIGIN_MENTION
         out.append(Entry(url=url, url_hash=row["url_hash"], host=reading_hosts.display_host(verdict.host),
-                         site=verdict.site, origin="ask", since=str(row.get("asked_at") or "")[:10],
+                         site=verdict.site, origin="mention" if mention else "ask",
+                         since=str(row.get("asked_at") or "")[:10],
                          title=str(entry.get("title") or ""), wall=None, walled=verdict.walled))
     return out
 
@@ -367,6 +385,8 @@ def authorizes(memory_path: Path, url: str, *, now: datetime | None = None) -> t
         row = reading_asks.get(memory_path, h, now=now)
     except ValueError:
         row = None
+    if row is not None and row.get("origin") == reading_asks.ORIGIN_MENTION and not reading_asks_honoured(row):
+        row = None   # ruling 78 (e): a mention ask authorizes only while agent reading and its list are on
     if row is not None and row.get("origin") != reading_asks.ORIGIN_SITE:
         return "ask", row
     # A row this tool wrote itself (``origin: site``, for a needs_login or a failed read of a site

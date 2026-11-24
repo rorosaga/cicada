@@ -555,6 +555,12 @@ holding the pages** (`ToolContext.pages_held()`, asked lazily), so a drain canno
 lapsed lease is due, the `videoQueue` stamp also carries that hold bit (`<mtime>:<due>:<held>`), so the hold ending moves
 the component the app follows with nothing written. `VideoStateCache.reset()` on a bank switch keeps what a page asked
 for (`asked`), and the switch reads the new bank at once.
+**A mention ask (ruling 78 (e), owner 2026-11-24; amends R-VU3 and the spec's N-e for an ask the person's own words caused):** a `queued`
+`transcript` row marked `origin: mention` and `list: <settings key>` (`video_queue.offer_mention`, only `mention_asks` calls
+it, from Sleep's step after a batch that read the person naming a saved video from a list). `cicada_video_claim` and
+`cicada_video_queue` say "the person talked about this; nobody asked"; `/videos/state` carries `origin: "mention"` on the
+item. Leased, listed and counted only while agent reading and that list are on (`video_queue.view` and `claim` read
+`mention_asks.gate`); the person's own `PUT /videos/queue/{key}` or hand-off on the same video takes the mark away.
 `record_watch` credits the queue whether or not its bank commit ran. The lease lifecycle is model-checked by `.claude/skills/verify-video-queue` (run it on any change to the queue, the record credit or caller session ids). **No batch cap** (a hand-off takes every selected
 video; the queue file's ceiling is 2,000 rows) and **no site list** (any saved video can be queued; a login wall is handed
 back and surfaced). The hand-off prompt (`video_prompt.py`, ≤ 1,200 characters) is provider-neutral, names no browser
@@ -574,7 +580,13 @@ then **saved pages of sites the person allowed** (below) — empty unless `readi
 count, the Feed's `waiting` and the settings page: asks are rows, a site's pages are *derived at read* from
 `reading_walls.py` (never fanned out as rows, so a site switch writes one line, a new wall page joins with no write and
 turning a site or the master off dequeues at once). A site entry whose page was not saved through a saved-content channel
-(Telegram, an agent's save, a chat export: the person's own words) is served only to a caller holding `sources`. **The reason travels with the read (vision item 1, 2026-10-28):** an ask or site row whose link the person said why they saved (`saved_why.reason_of`: G191's newest answer — its labels, a project as "For <name>", their words — else a `## Saved because` section) ends `— saved because: <one scrubbed line, ≤ 240 chars>`, and the reply's head then says to read for it and to record the page's specifics as `facts`. The reason is the person's own words, so a connection sees it only with `sources` (`ctx.raw_excerpts`); it is filled by `reading_queue.with_why` in `entries()` alone, never on the hook's counting path (`counts`). The copy-for-an-agent prompt (`reading_prompt.READ_FOR`) says the same. `cicada_record_read(url, outcome, summary?, excerpts?, via?, note?, title?, facts?)` (`record` scope) takes `read |
+(Telegram, an agent's save, a chat export: the person's own words) is served only to a caller holding `sources`. **A mention ask (ruling 78 (e)):** a `waiting` row marked `origin: mention` (`reading_asks.mention`, only `mention_asks` calls it)
+for a walled post the person talked about, carrying `list`, the settings key of the list it came from. The queue says "the
+person talked about this <day>; nobody asked" (`Entry.origin` `mention`), never "asked <day>". It is honoured, and so
+authorizes `cicada_record_read` (`reading_queue.authorizes`), only while agent reading and that list are on; an agent can
+plant none (no tool, route or `record_outcome` argument carries the mark, `test_depth_on_mention_g245`), the answer keeps
+the mark, and a waiting one does not expire at 7 days. `GET /reading/asks` lists it with `origin: "mention"`; `DELETE
+/reading/asks/{urlHash}` removes it like any ask. **The reason travels with the read (vision item 1, 2026-10-28):** an ask or site row whose link the person said why they saved (`saved_why.reason_of`: G191's newest answer — its labels, a project as "For <name>", their words — else a `## Saved because` section) ends `— saved because: <one scrubbed line, ≤ 240 chars>`, and the reply's head then says to read for it and to record the page's specifics as `facts`. The reason is the person's own words, so a connection sees it only with `sources` (`ctx.raw_excerpts`); it is filled by `reading_queue.with_why` in `entries()` alone, never on the hook's counting path (`counts`). The copy-for-an-agent prompt (`reading_prompt.READ_FOR`) says the same. `cicada_record_read(url, outcome, summary?, excerpts?, via?, note?, title?, facts?)` (`record` scope) takes `read |
 needs_login | blocked | not_found | failed`. Only a **successful read is memory** (`page_read.py`): one episode
 (`assistant:` summary, then a quoted `attachment [host]:` block, so quotes are `page` spans — text the agent
 *reported*, never the person's words or checked by Cicada —, `processed: true`, `processed_by: agent`), one `describes`
