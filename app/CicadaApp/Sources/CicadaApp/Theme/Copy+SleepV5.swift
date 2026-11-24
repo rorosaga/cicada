@@ -18,8 +18,9 @@ extension Copy {
     enum SleepV5 {
         /// The Waiting list's two right-hand columns, named once.
         static let columnOldest = "Oldest"
-        /// ROR-118 round 5 - the list's last row: the saves nothing reads, with their count in the Items column (the tooltip says the rest).
-        static let keptForLookupRow = "Kept for lookup"
+        /// ROR-118 round 5 - the list's last row: the older saves Sleep has not read yet, with their count in the Items column
+        /// (the tooltip says the rest; ruling 80 changed its words, it used to hold what nothing read).
+        static let savesNotReadRow = "Saves not read yet"
         // MARK: Counting words
 
         static func count(_ n: Int, _ locale: Locale) -> String { UsageFormat.count(n, locale: locale) }

@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import date as _date, datetime, timedelta, timezone
 from pathlib import Path
 
-from api.services import bank_index, episode_time, folder_source, meeting_transcripts
+from api.services import bank_index, episode_time, folder_source, meeting_transcripts, saved_words
 
 # G134: meetings and dictation are their own section, VOICE & MEETINGS (R-LS25).
 # G39/G233: books — Apple Books, a Goodreads export, a scanned ISBN — are their own section, READING.
@@ -175,6 +175,8 @@ INTENTS = ("saved", "captured")
 #: "Telegram bot", 2026-11-04; v16: Apple Books, Goodreads and book scans, the Reading kind, G39/G233; v17: `kept`,
 #: ruling 62; v18: the publications followed, on their own row out of RSS's, G89; v19: a recorder's meeting folder
 #: carries the recorder's mark, 2026-11-23).
+#: Ruling 80 added `keptPerNight` and changed `kept` to the pile of older saves not read yet with no new shape: the name
+#: is another client's to read.
 SHAPE = "overview-v19"
 
 #: Sources v4 (owner 2026-10-19: "I don't understand how Sleep is also a source on the page"). A check record is the
@@ -315,8 +317,9 @@ def _new_state(key: str, labels: dict[str, str] | None = None, marks: dict[str, 
         # Sources v4 — this source's episodes still waiting for Sleep's read (`history_index.waits_for_model`, the
         # rule Sleep's own queue count uses), so the detail's "Consolidate now · N waiting" is the server's number.
         "waiting": 0,
-        # Ruling 62: this source's saves kept for lookup, unread until the person talks about one.
-        "kept": 0,
+        # Ruling 80: this source's older saves Sleep has not read yet (the pile); ``kept_per_night`` is how many Sleep
+        # reads a night (``saved_words.per_night``, set where the row is made), 0 until it has any.
+        "kept": 0, "kept_per_night": 0,
         "faces": [], "faces_more": 0,
         # Sparse ISO-UTC-day -> captures that day (R-A16); a silent day has no
         # key, so a gap can never be read as a zero the backend asserted.
@@ -387,8 +390,9 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
         state["episodes"] += 1
         if history_index.waits_for_model(fm):
             state["waiting"] += 1
-        elif history_index.kind(fm) == "saved" and not fm.get("source_deleted_at"):
+        elif history_index.save_state(fm) == "pile" and not fm.get("source_deleted_at"):
             state["kept"] += 1
+            state["kept_per_night"] = saved_words.per_night()
         if key in FACE_CHAT_SOURCES and fm.get("conversation") and not fm.get("source_deleted_at"):
             _note_chat(chats.setdefault(key, {}), fm)
         conversation = str(fm.get("session_id") or fm.get("source_id") or "").strip()

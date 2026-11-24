@@ -592,7 +592,7 @@ def test_reading_a_save_by_id_says_what_it_is_and_where_it_goes(found, monkeypat
     ep = next(p.stem for p in (found / "episodes").glob("*.md")
               if markdown_parser.parse(p).frontmatter.get("url") == "https://example.com/crdts")
     text = str(mcp.handle_sources(ep))
-    assert "nobody has read" in text and "https://example.com/crdts" in text
+    assert "not read yet" in text and "https://example.com/crdts" in text
 
 
 def test_ask_sees_a_save_no_claim_could_reach_and_no_engine_is_called_for_a_miss(found, monkeypatch):
@@ -607,7 +607,7 @@ def test_ask_sees_a_save_no_claim_could_reach_and_no_engine_is_called_for_a_miss
     out = ask_service.answer_query(found, "what have I saved about crdts", retrieve_fn=lambda q, k: [], llm_fn=llm,
                                  search_fn=lambda *a, **k: None)
     assert "SAVED LINKS" in prompts[0] and "https://example.com/crdts" in prompts[0]
-    assert "nobody has read them" in prompts[0]
+    assert "marked not read yet" in prompts[0]
     assert out["answer"] == "A saved link covers it."
     prompts.clear()
     miss = ask_service.answer_query(found, "what time is my dentist appointment", retrieve_fn=lambda q, k: [], llm_fn=llm,

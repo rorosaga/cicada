@@ -419,7 +419,7 @@ def test_reposts_is_a_stream_of_its_own_kind_on_xs_page_with_a_switch_that_start
     reposts = streams()["x.reposts"]
     assert (reposts["label"], reposts["kind"], reposts["how"], reposts["state"]) == ("Reposts", "reposted", "browser", "off")
     assert reposts["kind"] in source_streams.KINDS and reposts["switch"] == {"setting": "savedLists", "key": "x-reposts"}
-    assert reposts["depth"] == "index", "a repost is kept and found, read by no model until the person talks about it"
+    assert reposts["depth"] == "read", "a repost is the person's own act and is read by Sleep like any save (ruling 80)"
     assert client.put("/reading/settings", json={"savedLists": {"x-reposts": True}}).status_code == 200
     assert streams()["x.reposts"]["state"] == "on" and streams()["x.bookmarks"]["state"] == "off"
 

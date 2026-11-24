@@ -38,7 +38,7 @@ from typing import Callable
 
 from api.services import agent_commits, agentic_write, demo_guard, episode_ids, episode_scrub, episode_time
 from api.services import book_marks, entity_relations, episode_actor, page_blocks, source_spans
-from api.services import history_index, media_pages, page_use, saved_lookup, search_service
+from api.services import history_index, media_pages, page_use, saved_lookup, saved_words, search_service
 # One fence rule for every frontmatter reader (L final review, finding 2).
 from api.services import (bank_index, entity_bands, link_views, markdown_parser, page_lock, same_name, search_index,
                           write_admission)
@@ -1878,8 +1878,9 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     bank write) and ask the person to sign in (G205); ``failed`` is noted. A ``read``: each post becomes a save where
     saved links go (``media_ingestor``, one ``url_index`` row per post with its other spellings as aliases — a post saved
     before by an archive, a connector, a link or another list is a duplicate, never a second page; from another list it
-    gains this list on its page's ``collections:``), under the list's own origin, so it is indexed and never read by a
-    model (ruling 30). Nothing is fetched. Committed as the harness.
+    gains this list on its page's ``collections:``), under the list's own origin. Saving is the person's reason (ruling
+    80): Sleep reads each post, a few a night, newest first, as the post author's words and never the person's. Nothing
+    more is fetched. Committed as the harness.
 
     ROR-114: ``handle`` and ``profile_url`` are the person's own handle and profile link as the signed-in page showed
     them. A link is kept only if it is ``https`` on that platform's own host; either is kept beside the list's status
@@ -2048,8 +2049,8 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
         title = (_one_line(text, SAVED_TITLE_MAX) if text
                  else f"Post by {author}" if author else media_ingestor._fallback_title(url))
         posted = saved_at.posted_day(row.get("posted"))
-        # The list's own origin and folder make the save index-only (`history_index.kind`): no note, no reason —
-        # the post's words are the post's, never the person's.
+        # The list's own origin and folder: no note, no reason of the person's — the post's words are the post's, never
+        # the person's; Sleep reads it (ruling 80) as the author's.
         # Who posted it is kept as the save's channel (a LinkedIn link names nobody, and the words rarely do): the
         # site's own label for the post, never the person's words.
         item = RawItem(url=url, title=title, folder=p.folder, origin=p.origin, aliases=list(aliases),
@@ -2138,7 +2139,7 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     more = (f" Filed in \u201c{folder_name}\u201d." if folder_name else "") + (
         " This call continued the read: it was not counted again today." if continuing else "")
     return (f"Recorded the person's {p.name} {p.label}. {created} new post(s) saved; {duplicates} already in memory"
-            + (f" ({listed} now on this list too)" if listed else "") + f". Saved posts are kept for lookup, not read."
+            + (f" ({listed} now on this list too)" if listed else "") + f". {saved_words.recorded_posts()}"
             f"{more}{stop}{folders_said()}{started}{extra}{unkept}")
 
 
@@ -2190,8 +2191,9 @@ def _record_follows(memory_path: Path, rows: list, p, *, continuing: bool, wants
     left = (f" {out.dropped} row(s) were not an account's own profile link and were left out." if out.dropped else "") + (
         f" {out.full} account(s) did not fit." if out.full and not out.over_cap else "")
     return (f"Recorded the accounts the person follows on {site.name}. {out.added} new, {out.updated} updated, "
-            f"{out.unchanged} already kept. They are kept for lookup in a directory outside memory, never read by a model; "
-            "an account never makes a page, only a page that already exists gains its link and one dated fact."
+            f"{out.unchanged} already kept. They are kept in a directory outside memory and never read: the person followed "
+            "them, they did not save them. An account never makes a page, only a page that already exists gains its link "
+            "and one dated fact."
             + (" This call continued the read: it was not counted again today." if continuing else "")
             + f"{people}{stop}{started}{left}{unkept}")
 
@@ -2227,8 +2229,8 @@ def _record_connections(memory_path: Path, rows: list, p, *, continuing: bool, a
         f" {out.undated} row(s) showed a date in words Cicada does not read; they are kept undated." if out.undated else "") + (
         f" {out.full} row(s) did not fit." if out.full else "")
     return (f"Recorded the person's LinkedIn connections. {out.added} new, {out.updated} updated, {out.unchanged} already "
-            "kept. They are kept for lookup in a directory outside memory, never read by a model; a person's page gains "
-            "its connection when it has one (a connection never makes a page)."
+            "kept. They are kept in a directory outside memory and never read: a connection is not something the person "
+            "saved. A person's page gains its connection when it has one (a connection never makes a page)."
             + (" This call continued the read: it was not counted again today." if continuing else "")
             + f"{people}{stop}{started}{left}{unkept}")
 
@@ -2242,7 +2244,7 @@ SUBSTACK_LIST_SLEEPING = ("Not recorded: Cicada is consolidating memory right no
 
 def _substack_saved(ctx: ToolContext, memory_path: Path, rows: list,
                     folder: str | None = None) -> tuple[list[str], list[str], str, int]:
-    """Saved posts: each an indexed save where saved links go (ruling 30), under ``substack-saved``. The liked list
+    """Saved posts: each a save where saved links go (ruling 30; read by Sleep since ruling 80), under ``substack-saved``. The liked list
     is the same write under its own folder (ROR-138)."""
     from api.services import media_ingestor, substack, substack_lists
     from api.services.media_ingestor import MediaMeta, PreparedItem, RawItem
@@ -2266,7 +2268,7 @@ def _substack_saved(ctx: ToolContext, memory_path: Path, rows: list,
         author = _one_line(row.get("author"), 60)
         publication = _one_line(row.get("publication"), 120) or None
         title = title or (f"Post by {author}" if author else media_ingestor._fallback_title(url))
-        # The list's origin makes the save index-only (`history_index.kind`): the post's words are never the person's.
+        # The list's origin: the post's words are never the person's (Sleep reads them as the author's, ruling 80).
         item = RawItem(url=url, title=title, folder=folder or substack_lists.FOLDER_SAVED,
                        origin=substack_lists.ORIGIN_SAVED,
                        aliases=list(aliases), channel=publication, defer_enrich=True)
@@ -2292,8 +2294,7 @@ def _substack_saved(ctx: ToolContext, memory_path: Path, rows: list,
     lines = ([f"sources/url_index.json: updated (trigger: {ctx.trigger})"] if index_changed else []) + (
         [f"{created} saved Substack post(s) (trigger: {ctx.trigger})"] if created else []) + (
         [f"{listed} saved link(s) now list Substack {folder or substack_lists.FOLDER_SAVED} (trigger: {ctx.trigger})"] if listed else [])
-    said = (f"{created} new post(s) saved; {duplicates} already in memory. Saved posts are kept for lookup, not "
-            "read.")
+    said = f"{created} new post(s) saved; {duplicates} already in memory. {saved_words.recorded_posts()}"
     return paths, lines, said, dropped
 
 
@@ -2366,7 +2367,7 @@ def record_substack_list(ctx: ToolContext, list_name: str, outcome: str, items=N
     Refusals, in order, write nothing: a demo bank, agent reading off, an unknown list or outcome, a list the person
     has not turned on, the day's saved-list reads spent. ``needs_login`` / ``blocked`` pause every Substack list for a
     week (no bank write) and ask the person to sign in (G205); ``failed`` is noted. A ``read``: **Saved** and **Liked** posts become
-    indexed saves (``substack-saved``, never read by a model, ruling 30); **History** becomes reading days
+    saves (``substack-saved``, read by Sleep like any save, ruling 80); **History** becomes reading days
     (``substack_reads``, never saves); **Subscriptions** follow each publication's own public feed (``feed_registry``,
     tag ``substack``). Nothing is fetched here. Committed as the harness."""
     from api.services import reading_settings, saved_lists, substack_lists
@@ -2724,7 +2725,7 @@ def _recall(ctx: ToolContext, query: str) -> str:
     saved_hits = saved_lookup.find(memory_path, query, k=RECALL_SAVED_SHOWN, min_shared=1,
                                    exclude=frozenset(entity_block_ids), episodes=ctx.raw_excerpts)
     if saved_hits:
-        output_parts.append(f"{SAVED_HEADING}\n" + "\n".join(saved_lookup.line(h) for h in saved_hits))
+        output_parts.append(f"{saved_heading()}\n" + "\n".join(saved_lookup.line(h) for h in saved_hits))
 
     # === Wikilink traversal: one hop out — only when the floor left a single page (2026-10-27) ===
     # With two or more pages shown, their own `Related:` lines already name the neighbours; the heads of pages no leg
@@ -2827,8 +2828,11 @@ def _recall(ctx: ToolContext, query: str) -> str:
 
 RECALL_PICTURES_SHOWN = 3
 RECALL_SAVED_SHOWN = 3
-SAVED_HEADING = ("**Saved links on this (no reason given and nobody has read them; the page's words, not the person's. "
-                 "Follow a link to look further):**")
+
+
+def saved_heading() -> str:
+    """Recall's heading over the saved links a query's words found (``saved_words``: the one place that says it)."""
+    return saved_words.saved_heading()
 
 
 def _is_bare_save(memory_path: Path, episode_id: str) -> bool:
@@ -3549,23 +3553,27 @@ def _episode_read(ctx: ToolContext, episode_id: str) -> str | Reply:
     day = str(fm.get("timestamp") or "")[:10] or episode_id[3:13]
     kind = history_index.kind(fm)
     if kind is not None:
-        # Ruling 30: a watched day, a month's summary, a saved-list item or a trace day is indexed, never read by a
-        # model by id — one line saying what it is and where to ask, as recall and Ask treat it (review of #488).
+        # A watched day, a month's summary, a trace day or a locked note is one line saying what it is and where to ask,
+        # as recall and Ask treat it (review of #488); so is a save in the older pile (ruling 80: said as a save, with
+        # when Sleep reads it) and a record another service keeps (kept, never read, and why).
         if kind == "locked":
             return Reply(f"`{episode_id}` is a locked note: Cicada does not read it.",
                          data={"episode_id": episode_id, "index_only": kind})
-        if kind == "saved":
-            # Ruling 62: unread on purpose, and an agent may look further: the page's own words, never the person's.
+        if kind == "saved" and not history_index.is_record(fm):
             title = " ".join(str(fm.get("title") or "").split())
             where = f" {fm['url']}" if fm.get("url") else ""
-            return Reply(f"`{episode_id}` · {day} is a link the person saved with no reason given, and nobody has read "
-                         f"it: {title}{where}", data={"episode_id": episode_id, "index_only": kind})
+            return Reply(f"`{episode_id}` · {day} is " + saved_words.by_id("pile", title, where),
+                         data={"episode_id": episode_id, "index_only": kind})
+        if kind == "list" and not history_index.is_record(fm):
+            ask = " Ask about what it holds with `cicada_ask`." if ctx.can("cicada_ask") and not ctx.is_cli else ""
+            return Reply(f"`{episode_id}` · {day} is a post the person saved from one of their lists "
+                         f"({saved_words.about('pile')}).{ask}", data={"episode_id": episode_id, "index_only": kind})
         what = {"history": "a day of the person's watch history", "month": "a month's summary of the watch history",
-                "list": "a save from one of the person's saved lists", "traces": "an activity-trace day",
-                "reading": "a day of pages the person read",
+                "list": "a record another service keeps for the person", "saved": "a record another service keeps for the person",
+                "traces": "an activity-trace day", "reading": "a day of pages the person read",
                 "listening": "a day of what the person listened to on Spotify"}[kind]
         ask = " Ask about what it holds with `cicada_ask`." if ctx.can("cicada_ask") and not ctx.is_cli else ""
-        return Reply(f"`{episode_id}` · {day} is {what}: indexed for lookup, not read by an agent by id.{ask}",
+        return Reply(f"`{episode_id}` · {day} is {saved_words.not_a_save(what)}.{ask}",
                      data={"episode_id": episode_id, "index_only": kind})
     body = evidence.label_gaps(parsed.body, evidence.gap_ranges(fm, parsed.body)).strip()
     who = episode_actor.actor(fm)
@@ -3574,7 +3582,9 @@ def _episode_read(ctx: ToolContext, episode_id: str) -> str | Reply:
     head.append(f"With: {who}." if who else "With: nobody else is named on this record (the person's own capture).")
     if (gone := source_spans.removed_at(fm)):
         head.append(source_spans.removed_sentence(gone))
-    if not fm.get("processed"):
+    if (st := history_index.save_state(fm)) in ("waiting", "no-words"):
+        head.append(saved_words.head_line(st))   # ruling 80: what happens to it
+    elif not fm.get("processed"):
         head.append("Not yet read by Sleep.")
     _, max_chars = ctx.sources_limit
     limit = max_chars if ctx.is_remote else EPISODE_READ_MAX
@@ -6003,7 +6013,7 @@ def _render_entity_summary(entities_dir: Path, hit: dict, *, ranked_ids: frozens
     call = more_call(eid) if more_call else None
     if saved is not None and saved.url:
         # Ruling 62: a saved page's link and what it is, so an agent can look further from recall alone.
-        lines.append(f"Link: {saved.url}" + ("" if saved.read else " (no reason given; nobody has read it)"))
+        lines.append(f"Link: {saved.url}" + saved_words.link_suffix(saved.state))
     if related:
         lines.append(_related_line(list(related), ranked_ids, more_call(eid, start=1) if more_call else None))
     if truncated:

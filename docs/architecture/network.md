@@ -533,7 +533,7 @@ purpose" with automated tools), Reddit and Instagram alike — the same posture 
 person's own agent in their own signed-in session, a standing ask for one list page, ≤ 10 reads a day, the person's
 account carrying the risk (the v3 acknowledgement says so). Spotify was the one excluded, because its terms add the AI
 clause the 2026-10-29 ruling rested on; **ruling 72 (2026-11-06) lifted that for the browser path** — the person's own agent
-in their own browser is not an app ingesting Spotify Content, and the saved items are index-only — while the API connector
+in their own browser is not an app ingesting Spotify Content, and the saved items are read by Sleep like any save (ruling 80) — while the API connector
 stays unbuilt. The backend's own rail is unchanged: it never fetches a page behind authentication and never signs in.
 
 **Connect Reddit (G232).** `connectors/reddit.py` signs in with Cicada's own installed app: `POST

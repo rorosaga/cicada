@@ -1463,7 +1463,7 @@ the folder, and `covers` claims from the title's own words. Recall found the sam
   passages (`meta.saved_no_page`), the entity vectors. Rarity decides, as in the hook's topic leg: a word held by more than 3%
   of saved items (floor 5) finds nothing, a hit must carry 40% of the message's rare weight, and an unasked note needs two rare
   words, 60% of that weight and half of the title's own subject words. Three doors: **recall** (a media page a leg ranks shows `Link:`, its
-  saved day and "nobody has read it"; the rest under *Saved links on this*, at most 3, one rare word enough; a save is no
+  saved day and, while Sleep has not read it, "(not read yet)" or "(nothing to read yet)" (ruling 80, `saved_words`); the rest under *Saved links on this*, at most 3, one rare word enough; a save is no
   *conversation excerpt*), **Ask** (`SAVED LINKS`, at most 4, words then meaning; a line only the vectors found never earns a
   model call by itself; a tab group, which holds no page, only for a caller with the `sources` scope, as recall (G135), and
   `saved_lookup.find` leaves it out unless the caller says it may see one), **the hook's note** (at most 2 lines under the note's own 400-token cap and a 40 ms reserve, reason
@@ -1517,8 +1517,15 @@ the folder, and `covers` claims from the title's own words. Recall found the sam
   Between the upgrade and that run they are already out of every waiting count (`waits_for_model`, `/sleep/queue`,
   `/sleep/episodes?processed=false`). Measure with `history_index_dry_run --bank <path>`: `index_only_by_kind.saved` is that
   number, counts only.
-- **What the pages say.** Sources (`source.kept`, `overview-v17`) and the Sleep page's Waiting (`/sleep/queue`'s `kept`): one
-  line, "371 saved, kept for lookup. One is read when you talk about it." `Copy.keptForLookup`.
+- **What the pages say (ruling 80, Track R; the words live in `saved_words` and the app's `Copy`, never twice).** Sources
+  (`source.kept` and `keptPerNight`) and the Sleep page's Waiting (`/sleep/queue`'s `kept` and `keptPerNight`): one line, "371
+  saves not read yet. Sleep reads about 100 a night, newest first. Talk about one and it is read first." (`Copy.savesNotReadYet`;
+  the number is `SAVES_PER_DAY`, sent by the backend). A saved-list row says `read`, `not read yet`, `nothing to read yet`,
+  `waiting for your AI app` (his words named it and an ask is open) or `watched`; a stream says `read by Sleep`; watch history,
+  follows, connections, owned repositories and tabs open on another device say "kept, never read: you did not save it". Recall,
+  Ask and the hook's note mark an unread save "not read yet" and say when Sleep reads it; a record tool's reply says Sleep reads
+  the posts it saved; none of Cicada's own words ("lookup", "indexed", "index-only", "lean", "its turn") reach a person or an
+  agent (`test_words_on_screen.py`, `SaveWordsTests`).
 - **Reads everything, still (rulings 13, 16 as amended by 62).** A lean read is a read: everything waiting when a run starts is
   consolidated by the end of it, the lean part with no model.
 - **Measured.** All on scratch banks, Claude plan at haiku, the connector gate off, input tokens gross of cache. **25 bookmarks:** before 56 and 57 calls, 269k and 272k input tokens, about 2.5 minutes; after 0 calls, 0 tokens, 2 seconds. **The owner's 22-item shape** (7 coding sessions of which 2 long, 5 short chats, 6 bookmarks, 4 tab groups), fresh bank: before 62 calls, 421k tokens, 1 batch, its first commit after 54 calls; after 59 calls, 383k tokens, 4 batches, its first commit after 11 calls, its largest batch 19. The same again on a bank that already has those pages: before 92 calls, 522k tokens, 1 batch, first commit after 66 calls; after 75 calls, 461k tokens, 3 batches, largest 34. Conversations are most of a mixed run, so the lean pass saves little there, and more batches mean more merges (5 to 16 on the fresh bank) and a `skills` call each: the bound buys what a stop can cost, not fewer calls. **Retrieval** (15 messages about 25 bookmarks, 12 sharing words with the title and 3 only meaning; 4 unrelated; real doors, with vectors): recall 12/12 and 3/3 both when Sleep had read them and with the lean pass; the hook's note 3/12 before, 12/12 after, 0/3 by meaning both; Ask 3/4 before, 4/4 after; unrelated messages: the note 0/4 both, Ask 0/1 both, recall 4/4 both (its top-one rule shows the nearest page in a bank that holds nothing else). Words only, read by Sleep: recall 11/12 and 1/3. Nothing woke a save in all of it. **At scale:** 3,000 titles drawn from the same 70 technical words, a worst case: the leg's p95 is 3.9 ms, and 6 of 15 unrelated coding messages drew a line. Real titles have far more words; count `reason: saved` in the ledger on a real bank. **The read back:** a conversation naming one link and one whole title woke those two and not the link only the agent said; the next Sleep read them in 9 calls, and they are read for good. **Lost, disclosed:** the `covers` claims and the page's edges to concepts that a read made from the title's words, so a lean page draws unconnected until it is read. `test_lean_pass.py` pins each case.

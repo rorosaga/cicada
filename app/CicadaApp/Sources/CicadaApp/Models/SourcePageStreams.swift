@@ -144,7 +144,7 @@ enum SourceStreamRow {
         }
     }
 
-    /// "read by Sleep" / "kept and findable", only where a source's streams go to different depths; a source whose
+    /// "read by Sleep" / "kept, never read: you did not save it", only where a source's streams go to different depths; a source whose
     /// streams all go to one says it nowhere (it is the same on every row).
     private static func depthWord(_ stream: SourceStream, among streams: [SourceStream]) -> String? {
         guard Set(streams.map(\.depth)).count > 1 else { return nil }
@@ -322,11 +322,15 @@ enum SourceStreamItems {
 /// An item card's words (plan 3.2 item 3): two lines of the person's own words, and the footer
 /// `author · posted Sunday · Bookmarks · Likes · read` — one date, the lists it is on, the depth word (nothing for kept).
 enum SourceItemCardText {
-    /// The depth word: nothing for `kept` (the default, so it adds no noise) and for a value this build does not know; one
-    /// quiet word or phrase for `asked`, `read` and `watched`, said in the footer's own style and never a badge.
+    /// The depth word, said for every state a saved item can be in (ruling 80): `read`, `kept` (not read yet), `empty`
+    /// (nothing to read yet), `record` (kept, never read), `asked` and `watched`; nothing for a value this build does not
+    /// know. Said in the footer's own style, never a badge.
     static func depth(_ item: ChannelItem) -> String? {
         switch item.depth {
         case "read": Copy.Streams.itemRead
+        case "kept": Copy.Streams.itemNotRead
+        case "empty": Copy.Streams.itemNothing
+        case "record": Copy.Streams.itemRecord
         case "asked": Copy.Streams.itemAsked
         case "watched": Copy.Streams.itemWatched
         default: nil
