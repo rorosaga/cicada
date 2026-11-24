@@ -76,6 +76,58 @@ enum SaveWhySetup {
     }
 }
 
+/// G245 (plan 7.1 item 8) — what a browser's page says about asking why, in one quiet line: whether the question is on,
+/// and whether this browser's bookmarks are watched, so a bookmark that asks nothing is never a mystery. Pure.
+enum BrowserAskWhyLine {
+    struct Line: Equatable {
+        var text: String
+        /// True when the person has something to do (turn this browser's bookmarks on, use the Default profile).
+        var isAttention: Bool
+    }
+
+    /// `otherProfile`: the browser is using a profile Cicada does not read (Chrome's, see `ChromeProfile`).
+    static func lines(name: String, askWhy: Bool, watched: Bool, otherProfile: Bool) -> [Line] {
+        var out: [Line] = []
+        if !askWhy {
+            out.append(Line(text: Copy.SaveWhy.askWhyOff, isAttention: false))
+        } else if !watched {
+            out.append(Line(text: Copy.SaveWhy.askWhyNotWatched(name), isAttention: true))
+        } else if otherProfile {
+            out.append(Line(text: Copy.SaveWhy.otherProfile(name), isAttention: true))
+        } else {
+            out.append(Line(text: Copy.SaveWhy.askingHere(name), isAttention: false))
+        }
+        return out
+    }
+}
+
+/// G245 — the Chrome profile in use. Cicada reads only the Default profile's bookmarks (R-SR1: reading every `Profile N`
+/// would bring in a profile nobody ticked), so a bookmark made in another profile is in no file Cicada reads: the bubble
+/// would open a question nothing can confirm. Chrome keeps the profile it used last in its `Local State` (no permission
+/// is needed to read it).
+enum ChromeProfile {
+    /// The profile Chrome used last, from the bytes of `Local State`; nil when the file names none.
+    static func lastUsed(inLocalState data: Data) -> String? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let profile = root["profile"] as? [String: Any] else { return nil }
+        return profile["last_used"] as? String
+    }
+
+    static var localState: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Google/Chrome/Local State")
+    }
+
+    /// The profile in use now, or nil when it cannot be told (no Chrome, an unreadable file).
+    static func inUse(at url: URL = localState) -> String? {
+        (try? Data(contentsOf: url)).flatMap(lastUsed(inLocalState:))
+    }
+
+    /// Whether a bookmark made in this profile is one Cicada reads. An unknown profile counts as read: Chrome with no
+    /// `Local State` is Chrome with one profile.
+    static func isRead(_ profile: String?) -> Bool { profile == nil || profile == "Default" }
+}
+
 /// G191 v2 — the test harness the coordinator runs on a real Mac: a hidden menu-bar item that shows the panel now, for
 /// a sample bookmark, without waiting for a real one. Visible only when `defaults write <bundle id>
 /// cicada.debug.saveWhyPreview -bool YES` is set AND the app is a developer build — never in a release (G182) app,

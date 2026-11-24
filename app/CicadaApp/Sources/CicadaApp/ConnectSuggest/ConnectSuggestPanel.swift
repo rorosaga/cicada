@@ -121,7 +121,7 @@ struct ConnectSuggestPanelView: View {
                 // site's Yes it is pleased, inside a ring that closes into a check (owner 2026-11-23).
                 WormFace(mood: state.confirmedAt == nil ? .asking : .pleased, size: SaveWhyPanelView.headPoints)
                     .padding(CicadaTheme.scaled(4))
-                    .overlay { if state.confirmedAt != nil { ConnectedRing() } }
+                    .overlay { if Self.turnedOn(state) { ConnectedRing() } }
                     .accessibilityHidden(true)
                 // The app's own icon, as macOS draws it (DR-52: the real mark, never a stand-in).
                 if let icon = center.icon {
@@ -132,32 +132,75 @@ struct ConnectSuggestPanelView: View {
                         .accessibilityHidden(true)
                 }
                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                    Text(state.confirmedAt == nil ? Copy.ConnectSuggest.title(state.appName)
-                         : Copy.ConnectSuggest.connected(state.appName))
+                    Text(Self.title(state))
                         .font(CicadaTheme.font(size: 13, weight: .semibold))
                         .foregroundStyle(CicadaTheme.Notch.textPrimary)
                         .lineLimit(1)
-                    Text(state.keepsSave ? Copy.ConnectSuggest.keepsSave : Copy.ConnectSuggest.reads(state.target))
+                    Text(Self.line(state))
                         .font(CicadaTheme.captionFont)
                         .foregroundStyle(CicadaTheme.Notch.textTertiary)
-                        .lineLimit(1)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             HStack(spacing: CicadaTheme.spacingSM) {
                 Spacer()
-                answer(Copy.ConnectSuggest.no, tone: CicadaTheme.Notch.textTertiary) { center.input(.no) }
-                answer(Copy.ConnectSuggest.notNow, tone: CicadaTheme.Notch.textSecondary) { center.input(.notNow) }
-                answer(Copy.ConnectSuggest.yes, tone: CicadaTheme.Notch.textPrimary, filled: true) {
-                    center.input(.yes)
+                if state.confirmedAt != nil, Self.hasButtons(state) {
+                    // The one thing the person may need to do: the setting the words name (never a prompt, ruling 77).
+                    answer(Copy.ConnectSuggest.openSettings, tone: CicadaTheme.Notch.textPrimary, filled: true) {
+                        center.input(.openSetting)
+                    }
+                } else {
+                    answer(Copy.ConnectSuggest.no, tone: CicadaTheme.Notch.textTertiary) { center.input(.no) }
+                    answer(Copy.ConnectSuggest.notNow, tone: CicadaTheme.Notch.textSecondary) { center.input(.notNow) }
+                    answer(Copy.ConnectSuggest.yes, tone: CicadaTheme.Notch.textPrimary, filled: true) {
+                        center.input(.yes)
+                    }
                 }
             }
+            // Once answered the buttons have nothing left to do; they keep their place so the card does not jump.
+            .opacity(Self.hasButtons(state) ? 1 : 0)
         }
         .padding(.horizontal, CicadaTheme.spacingMD)
         .padding(.top, CicadaTheme.spacingSM)
         .padding(.bottom, CicadaTheme.spacingMD)
         .frame(width: Self.width, alignment: .leading)
-        // Once connected the buttons have nothing left to do; they keep their place so the card does not jump.
-        .allowsHitTesting(state.confirmedAt == nil)
+        .allowsHitTesting(Self.hasButtons(state))
+    }
+
+    /// The answers show before the Yes; after it only the setting's button, and only when the words name one.
+    static func hasButtons(_ state: ConnectSuggestPanelState) -> Bool {
+        state.confirmedAt == nil || (state.result?.needsReading == true && state.result?.isFailure == false)
+    }
+
+    /// What Yes came to is a turned-on source (the ring closes and a check shows), not a refusal or a page opened.
+    static func turnedOn(_ state: ConnectSuggestPanelState) -> Bool {
+        if case .turnedOn? = state.result { return true }
+        return false
+    }
+
+    /// The panel's title: the question; "Turning on…" while the Yes is at work; then what it came to.
+    static func title(_ state: ConnectSuggestPanelState) -> String {
+        guard state.confirmedAt != nil else { return Copy.ConnectSuggest.title(state.appName) }
+        switch state.result {
+        case nil: return Copy.ConnectSuggest.turningOn
+        case .failed?: return Copy.ConnectSuggest.couldntTurnOn
+        default: return Copy.ConnectSuggest.turnedOn
+        }
+    }
+
+    /// The one line under it. Said only as true as it is: "will ask why" only when the site really will.
+    static func line(_ state: ConnectSuggestPanelState) -> String {
+        switch state.result {
+        case .turnedOn(let asksWhy, let needsAccessibility)?:
+            if needsAccessibility { return Copy.ConnectSuggest.needsAccessibility(state.appName) }
+            if asksWhy { return Copy.ConnectSuggest.willAskWhy(state.appName) }
+            return Copy.ConnectSuggest.reads(state.target)
+        case .failed(let note)?:
+            return note ?? Copy.ConnectSuggest.tryOnSources
+        default:
+            return state.keepsSave ? Copy.ConnectSuggest.keepsSave : Copy.ConnectSuggest.reads(state.target)
+        }
     }
 
     /// The answers' size (owner 2026-11-23: "make the no, not now and yes buttons bigger"): the row face, in a pill whose

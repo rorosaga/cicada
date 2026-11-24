@@ -15,6 +15,9 @@ extension Copy {
         /// ROR-118 round 4 — a site read through the person's AI app leads with one button; the account is a way below.
         static func readSiteInBrowser(_ site: String) -> String { "Read \(site) in your browser" }
         static func useAccount(_ site: String) -> String { "Use your \(site) account" }
+        /// G245 — a source already read through the person's browser has its account as a second way, in the footer.
+        static func useOwnAPI(_ site: String) -> String { "Use \(site)'s own API instead…" }
+        static let useOwnAPIHelp = "Your browser already reads this for free. The site's own API is optional and may have a cost on the site's side."
         static let connectShort = "Connect"
         static let reconnect = "Reconnect"
         static let open = "Open…"

@@ -213,6 +213,31 @@ struct SiteSaveSite: Sendable {
 
     static let all: [SiteSaveSite] = [x, instagram, github, tiktok, reddit, youtube]
     static func named(_ key: String) -> SiteSaveSite? { all.first { $0.key == key } }
+
+    /// Whether a click on this site's own save control can be noticed. False for a site that is only a source.
+    var hasSaveControl: Bool { !items.isEmpty }
+
+    /// Sites that are sources but keep no save control Cicada can read (ruling 78, plan section 7; owner 2026-11-24:
+    /// "make sure the notch message appears correctly and works to connect the source correctly when I'm inside the
+    /// app or website"): LinkedIn's feed names no post (ruling 77a), the others have no control of their own. The page
+    /// in front may bring the connect offer for them, under ruling 77's limits (Accessibility already granted, the
+    /// offer switch on); nothing about them is read but the address. Never in `all`: no save table, no save click.
+    private static func offerOnly(_ key: String, _ name: String, _ origin: String, _ hosts: [String]) -> SiteSaveSite {
+        SiteSaveSite(key: key, name: name, origin: origin, hosts: hosts, items: [], rowAnchor: nil, slot: .none,
+                     listPages: [])
+    }
+
+    static let offerOnly: [SiteSaveSite] = [
+        offerOnly("linkedin", "LinkedIn", "linkedin-saved", ["linkedin.com"]),
+        offerOnly("pinterest", "Pinterest", "pinterest", ["pinterest.com"]),
+        offerOnly(SourceCatalog.substackId, "Substack", "substack-saved", ["substack.com"]),
+        offerOnly("spotify", "Spotify", "spotify-saved", ["spotify.com"]),
+        offerOnly("goodreads", "Goodreads", "goodreads", ["goodreads.com"]),
+    ]
+
+    /// Every site whose page may bring the connect offer: the ones with a save control, then the offer-only ones.
+    static let offered: [SiteSaveSite] = all + offerOnly
+    static func offered(_ key: String) -> SiteSaveSite? { offered.first { $0.key == key } }
     /// A link that is a post of any known site (what the reader looks for around a click).
     static func isItemLink(_ url: String) -> Bool { all.contains { $0.item(url) != nil } }
 }
@@ -707,7 +732,7 @@ enum SiteSaveReader {
         AXUIElementSetMessagingTimeout(app, timeout)
         guard let window = element(app, kAXFocusedWindowAttribute as String),
               let address = string(window, kAXDocumentAttribute as String) else { return nil }
-        return SiteSaveSite.all.first { $0.onHost(address) }
+        return SiteSaveSite.offered.first { $0.onHost(address) }
     }
 
     static let maxCensusNodes = 3000

@@ -77,16 +77,24 @@ final class ConnectSuggestCenter {
     /// The pid in front now, to confirm the app stayed after the dwell.
     @ObservationIgnored var frontmostPid: () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier }
     @ObservationIgnored var iconFor: (pid_t) -> NSImage? = { NSRunningApplication(processIdentifier: $0)?.icon }
-    /// Yes: open the source's page (`AppRouter.routeToCatalogEntry`).
-    @ObservationIgnored var onYes: (String) -> Void = { _ in }
+    /// Yes: connect the source through the one plan (`NotchConnector`, which is `SourceConnect`): turn on what one click
+    /// can, or open the source's page where a choice is needed. Answers what it came to; the write returns before
+    /// anything is confirmed, so the words are "Turned on", never "Connected".
+    @ObservationIgnored var connect: (String) async -> ConnectSuggestResult = { _ in .openedPage }
+    /// The setting the panel's one button opens (Accessibility), a preflight link: never a prompt.
+    @ObservationIgnored var openSetting: (MacPermission) -> Void = { _ in }
     /// G221 (ruling 77b) — a site's offer was answered Yes while it held saves the person had just made there: keep
     /// them (store, learn, ask why). Called after `onYes`, once the panel has left.
     @ObservationIgnored var onHeld: ([SiteSaveCandidate]) -> Void = { _ in }
     /// The saves the open offer holds, oldest first: in memory only, dropped with any answer but Yes.
     @ObservationIgnored private(set) var held: [SiteSaveCandidate] = []
     static let heldMax = 8
-    /// A site's Yes connects it at the press, before the panel's own confirmation plays out.
-    @ObservationIgnored private var connected = false
+    /// Yes was pressed on the open panel, and what it came to (nil while it is still turning on).
+    @ObservationIgnored private var pressed = false
+    @ObservationIgnored private var result: ConnectSuggestResult?
+    /// Saves held when the panel left before its Yes finished: kept when it does, unless it was refused.
+    @ObservationIgnored private var keepOnFinish: [SiteSaveCandidate] = []
+    @ObservationIgnored private var connecting: Task<Void, Never>?
 
     /// Whether an open panel's clock ticks by itself (tests send `.tick` by hand).
     @ObservationIgnored private let ticks: Bool
@@ -189,7 +197,8 @@ final class ConnectSuggestCenter {
 
     /// G221 — the page in the front browser is on a site whose saves Cicada can notice and the person has not
     /// connected it: the same offer, the same rules (the switch, once a day, No is kept, Not now waits), with the
-    /// site's own mark. `connected` is the site's switch on this Mac.
+    /// site's own mark. `connected` is the site's switch on this Mac; the source's own state is the catalogue's
+    /// (`status`, the word its page shows), so a source the page shows as set up is never offered (plan section 7).
     /// Answers whether the visit is spent: false only for a refusal about the moment (`Skip.passes`), which the next
     /// rest on the same page asks again.
     @discardableResult
@@ -198,7 +207,7 @@ final class ConnectSuggestCenter {
         let target = ConnectSuggestApps.site(site.key)
         let context = ConnectSuggestPolicy.Context(
             now: now(), enabled: store.enabled, memoryKnown: memoryKnown(), setUp: setUp(), isDemo: isDemo(),
-            status: connected ? .connected : .off, appLaunchedAt: nil, cicadaLaunchedAt: launchedAt,
+            status: connected ? .connected : status(site.key), appLaunchedAt: nil, cicadaLaunchedAt: launchedAt,
             saveWhyOpen: saveWhyOpen(), showing: state != nil)
         let decision = ConnectSuggestPolicy.decide(target, memory: store.memory, context: context, trigger: trigger)
         lastDecision = decision
@@ -218,18 +227,23 @@ final class ConnectSuggestCenter {
         let target = ConnectSuggestApps.site(site.key)
         guard save.offers else {
             // The person took it off again before answering: the offer lets go of it (and never shows for an unsave).
-            if state?.target == target, !connected {
+            if state?.target == target, !pressed {
                 held.removeAll { $0.item == save.item }
                 state?.keepsSave = held.contains { $0.outcome == .saved }
             }
             return
         }
         if let open = state, open.target == target {
-            guard !connected else {
-                onHeld([save])      // Yes was already pressed: the site is connected, the save is kept
+            guard pressed else {
+                hold(save)
                 return
             }
-            hold(save)
+            // Yes was already pressed: the save is kept once it has turned on (now, if it already has).
+            if let result {
+                if !result.isFailure { onHeld([save]) }
+            } else {
+                keepOnFinish.append(save)
+            }
             return
         }
         offer(site: site, connected: false, pid: pid, bundleId: bundleId, trigger: .saveClick)
@@ -241,6 +255,7 @@ final class ConnectSuggestCenter {
     /// says not to offer.
     func listens(site key: String) -> Bool {
         store.enabled && memoryKnown() && setUp() && !isDemo()
+            && (status(key).map { $0 == .off } ?? true)     // a source the page shows as set up is never offered
             && ConnectSuggestPolicy.listens(ConnectSuggestApps.site(key), memory: store.memory, now: now())
     }
 
@@ -257,7 +272,10 @@ final class ConnectSuggestCenter {
         store.memory = ConnectSuggestPolicy.shown(target.entryId, name: name, at: at, trigger: trigger,
                                                   in: store.memory)
         held = []
-        connected = false
+        keepOnFinish = []
+        pressed = false
+        result = nil
+        connecting = nil
         icon = mark ?? iconFor(pid)
         state = ConnectSuggestPanelState(target: target, appName: name, bundleId: bundleId, shownAt: uptime())
         Self.logger.info("show \(target.entryId, privacy: .public)")
@@ -277,18 +295,48 @@ final class ConnectSuggestCenter {
         let confirmed = open.confirmedAt != nil
         let outcome = open.handle(input, at: uptime())
         state = open
-        if !confirmed, open.confirmedAt != nil {
-            // A site's Yes is the whole connection: it is written at the press, so "Connected" is never said before
-            // it is true (and a quit during the confirmation keeps the answer).
-            connected = true
-            store.memory = ConnectSuggestPolicy.answered(open.target.entryId, .yes, at: now(), in: store.memory)
-            onYes(open.target.entryId)
-        }
+        if !confirmed, open.confirmedAt != nil { begin(open.target.entryId) }
+        if input == .openSetting, outcome != nil { openSetting(.accessibility) }
         if let outcome { close(outcome, record: true) }
+    }
+
+    /// The Yes was pressed: run the one connect plan. The panel says "Turning on…" until it comes back; the answer is
+    /// kept the moment it does (a quit while the panel confirms keeps it), Not now when it was refused.
+    private func begin(_ entryId: String) {
+        pressed = true
+        result = nil
+        let connect = self.connect
+        connecting = Task { @MainActor [weak self] in
+            let came = await connect(entryId)
+            self?.finished(came, entryId: entryId)
+        }
+    }
+
+    private func finished(_ came: ConnectSuggestResult, entryId: String) {
+        Self.logger.info("connect \(entryId, privacy: .public) \(came.logName, privacy: .public)")
+        let open = state?.target.entryId == entryId && state?.isConnecting == true
+        if open || came.isFailure {
+            store.memory = ConnectSuggestPolicy.answered(entryId, came.isFailure ? .notNow : .yes, at: now(),
+                                                         in: store.memory)
+        }
+        if !came.isFailure {
+            let saves = held + keepOnFinish
+            if !saves.isEmpty { onHeld(saves) }
+        }
+        held = []
+        keepOnFinish = []
+        guard open, var panel = state else { return }
+        result = came
+        let outcome = panel.finish(came, at: uptime())
+        state = panel
+        if let outcome { close(outcome, record: false) }
     }
 
     /// The ask-why question is about to use the notch.
     func yield() { input(.superseded) }
+
+    /// Tests: wait for the Yes's connect to come back.
+    func settle() async { await connecting?.value }
 
     private func close(_ outcome: ConnectSuggestPanelState.Outcome, record: Bool) {
         guard let open = state else { return }
@@ -297,17 +345,27 @@ final class ConnectSuggestCenter {
         ticking = nil
         presenter?.hide()
         lastOutcome = outcome
-        let saves = held, already = connected
+        // The saves the offer held are kept only on Yes, once the Yes has turned something on; any other answer drops
+        // them here, unread by anything else. A Yes that has not finished keeps them for when it does.
+        let saves = held, pressedYes = pressed
         held = []
-        connected = false
-        if record, !already {
+        if pressedYes, result == nil { keepOnFinish = saves + keepOnFinish }
+        pressed = false
+        if record, open.result == nil || !pressedYes {
             store.memory = ConnectSuggestPolicy.answered(open.target.entryId, outcome.answer, at: now(),
                                                          in: store.memory)
         }
         Self.logger.info("close \(open.target.entryId, privacy: .public) \(outcome.name, privacy: .public)")
-        if outcome == .yes, !already { onYes(open.target.entryId) }
-        // The saves the offer held are kept only on Yes, after the confirmation has shown; any other answer drops
-        // them here, unread by anything else.
-        if already || outcome == .yes, !saves.isEmpty { onHeld(saves) }
+    }
+}
+
+extension ConnectSuggestResult {
+    /// The log's name for it (an enum, never text).
+    var logName: String {
+        switch self {
+        case .turnedOn: "turned_on"
+        case .openedPage: "opened_page"
+        case .failed: "failed"
+        }
     }
 }
