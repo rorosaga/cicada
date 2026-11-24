@@ -8,6 +8,24 @@ One stable line per open question the step would look at, in the order it looks 
   inbox-126  conflict          left:not_on_record -
   inbox-127  merge_suggestion  left:short_name_not_alone -
   inbox-128  merge_suggestion  would_read     revisit_one      -          (without --read: a model decides)
+  inbox-129  name_no_page      would_join     revisit_same     ep_2026-10-03_001:12-61(user)
+  inbox-130  name_no_page      would_apart    revisit_apart    ep_2026-10-04_001:3-48(user)
+  inbox-131  name_no_page      would_retire   target_faded     -          (no read: the page it asked about has faded)
+  inbox-134  name_no_page      would_retire   name_not_said    -          (no read: the name is in no conversation it came from)
+  inbox-132  name_no_page      read:unsure    -
+  inbox-133  name_no_page      left:said_apart -
+
+  ``name_no_page`` is "Is <name> the same as <page>?" about a name with NO page (`name_revisit`): ``would_join`` files the
+  name as an alias of the page and lands what is held (``revisit_same``, only when a sentence of the person's own that holds
+  both names is their statement that they are one thing, and no other sentence of theirs that holds both says otherwise);
+  ``would_apart`` closes it as the person's "No, different" does (``revisit_apart``: the held lines stay held under their own
+  name, nothing lands, no relation is written; never when a sentence of the person's own could present the two as one, adjacent or joined only by a marker such as
+  "I mean" or "or", and its line must be the person's own words). A turn too long to show is read whole by the code and shown to
+  the reader in pieces around the names (cut marks between). ``would_retire`` (``target_faded``, no model read) retires a question about a page
+  that has since been archived when nothing was said about the name after the page's last mention (each conversation by its
+  own date): nothing is written, the held lines stay held, undoable. A name said after that last mention is read like any other
+  but is never joined (``read:unsure``): a person's own "yes" would leave the lines on an archived page nobody sees. ``would_retire`` with ``name_not_said`` (no model read) retires a question about a label nobody said: the asked name (and the held line's aliases) located (exact, whitespace, case-insensitive, never fuzzy) in no text, whoever's turn, of the question's own conversation or any its held line cites; nothing is written, the held lines stay held, undoable; ``left:conversation_missing`` when a cited conversation is missing or unreadable; never a person. Questions
+  about one page are read together, so the summary prints the model calls per question read.
 
   the id, the kind, what it would do, the rule, and the ids of the evidence (a conversation and the offsets of the located
   words, and whose words they are: only the person's own turn or a named speaker's can be one). Never a name, a title or a
@@ -18,8 +36,14 @@ The reasons a pair is ``left:<why>`` without a read: ``same_title`` (two pages w
 person held with no page could be whom a short name means), ``page_is_someone_in_full`` (a short-name page that carries
 another full name), ``two_full_names`` (two full names sharing no spelling), ``kept_apart``, ``in_a_doubt``,
 ``alias_removed``, ``too_many_conversations`` (more conversations hold both names than can be shown: never cut),
-``index_not_ready``, ``too_many_turns``, ``turn_too_long``, ``nothing_ties_them``, ``read_already`` (answered, nothing
-changed; a read that produced nothing usable is read again up to twice).
+``index_not_ready``, ``too_many_turns``, ``turn_too_long`` (even the pieces around the names pass the cap), ``nothing_ties_them``, ``read_already`` (answered, nothing
+changed; a read that produced nothing usable is read again up to twice). For a name with no page also: ``held_against_a_page``,
+``said_apart``, ``kept_apart``, ``person_and_a_thing``, ``not_a_name`` (a reference or a pronoun), ``name_of_a_page`` (a page
+already answers to it), ``title_of_another_page``, ``alias_removed``, ``not_this_name`` (a correspondent or a same-name
+person), ``policy:<why>`` (the engine-free rules decide it or only the person does), the person guards of a pair and, for the
+page it asked about: ``owner_page``, ``target_dropped``, ``target_missing``, ``no_name`` (the question names nothing),
+``target_faded_undated`` (archived, and a date is missing: neither retired nor read), ``page_name_shared`` (every name of the
+page is one another page answers to).
 
 Without ``--read`` nothing is sent to a model: a question that passes its engine-free guards is listed ``would_read``. With
 ``--read`` the engine's main model reads at most ``--max-reads`` of them, twice each for a pair, exactly as Sleep would
@@ -94,7 +118,8 @@ async def _run(memory: Path, args) -> int:
             left[f"{kind}: taken back, put off or the person's"] += 1
         elif kind not in ("merge_suggestion", *inbox_tend.RECORD_KINDS):
             left[f"{kind}: not read by this step"] += 1
-    print(f"\nlooked at {report.looked}, read {report.read} ({report.calls} model calls), would settle {report.settled}")
+    per = f", {report.calls / report.read:.2f} per question read" if report.read else ""
+    print(f"\nlooked at {report.looked}, read {report.read} ({report.calls} model calls{per}), would settle {report.settled}")
     print("by kind and outcome: " + (", ".join(f"{k[0]} {k[1]} {n}" for k, n in sorted(counts.items())) or "none"))
     print("not looked at: " + (", ".join(f"{k} {n}" for k, n in sorted(left.items())) or "none"))
     if report.skipped:

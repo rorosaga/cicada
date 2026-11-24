@@ -3650,6 +3650,9 @@ def _create_duplicate_clarification(
     """Ask whether ``entity`` is ``candidate``. ``same_title`` (G227): every page sharing the mention's exact title,
     so the item points at the candidate by id (never by a name two pages answer to) and the question names each."""
     candidate_name = _candidate_display_name(candidate)
+    from api.services import name_revisit
+    if name_revisit.coined_label(clarifier, entity, candidate):
+        return   # a label Stage 1 made up, said in no conversation it came from: held, never asked (ruling 82 (e), G98)
     try:
         item = clarifier.create(
             **({"heard_in": heard_in} if heard_in else {}),
