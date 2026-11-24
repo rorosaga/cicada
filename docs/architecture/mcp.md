@@ -802,6 +802,11 @@ page, nothing clicked that changes it, never a feed, timeline, someone else's pr
   author's profile: the queue tells the agent to build it from the result's own `data-chameleon-result-urn`; 1 of 76 was a
   saved article (`urn:li:article`), which `canonical` now takes. A refusal while the backend is too busy to answer says so
   ("consolidating memory right now, or too busy to say"): the stdio probe cannot tell the two apart and fails closed.
+* **Who posted it.** A row's `author` is kept as the save's channel (`media.channel` on the page, a `**Channel:**` line
+  in the episode), the field a video's channel and a feed's publication use and the words index reads. Until 2026-11-24
+  it only titled a post that showed no words, so 57 of 76 LinkedIn saves named nobody (their link is a urn). A save kept
+  before gains it on the next read of its list, in place and once (`media_ingestor.give_channel`); a page that names
+  one keeps it.
 * **A post's own day.** A row may carry `posted` (`YYYY-MM-DD`): written to the episode's frontmatter as `posted` beside the
   save's own day (`saved_at.posted_day`: a bare day in the sane range, never a relative phrase — "3 days ago" is left out), and
   given once, in place, to a post kept before without one (`episode_staging.amend_frontmatter`, committed). The items route
