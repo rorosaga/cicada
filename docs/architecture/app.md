@@ -1612,11 +1612,15 @@ one before the last), and which page is the person's own saved list. The post is
 the nearest post link *before* the row in the enclosing block (a post's time or heading precedes its controls; links
 only after the row belong to what follows, e.g. Instagram's stories tray), else by the page when it is a post's own.
 A save is the control's label differing a moment after the click. **Which way it went** is settled in this order: the
-saved list's own page (a toggle there is leaving it); one count moving by one (X's row label, GitHub's star count,
-TikTok's favourite count); the two labels this Mac already learned for that site (`SiteSaveRule.Labels`, kept per Mac
-in `SiteSavePrefs`, learned only from a certain change, never shipped or translated); the page's other posts
-(`Census`: at least two others still wear the label it left and none wears the one it took). With none of them the
-change is `changed`: nothing is stored and nobody is asked. On X the post's own words are cut from the block's label
+saved list's own page (a toggle there is leaving it); one count moving by one, the control's own before the row's
+(`countStep`: X's row label, GitHub's star count, TikTok's favourite count; on a post's own page X names the count in
+the control and again in the row, so only the control's own moves once); the two labels this Mac already learned for
+that site (`SiteSaveRule.Labels`, kept per Mac in `SiteSavePrefs`, learned only from a certain change, never shipped
+or translated); the page's other posts (`Census`: at least two others still wear the label it left and none wears the
+one it took). A control that names its count ("<count> Bookmarks. Bookmark") is compared, for the learned labels and
+the census, by its **tail** as well: the two labels with the lead they share removed at a word's start (`tails`, a
+digit matching any digit), which is how the same control reads where no count shows; a label naming a count teaches
+its tail or nothing (`lesson`). With none of them the change is `changed`: nothing is stored and nobody is asked. On X the post's own words are cut from the block's label
 between the handle and time link and the row's label (`text(of:item:)`), again with no word known.
 
 *Which sites are noticed (ruling 77c, 2026-11-24).* "Connected" is the Sources catalogue's own word for the site's source
