@@ -18,6 +18,8 @@
 
 ## Current state and evidence
 
+- **2026-11-24 — Sleep joins a name held in full to its short-name page itself (ruling 74b, G148; #857).** The question asked most (131 of 281 stored benchmark memories) is now answered by Sleep when the person's own turn names both as one: engine-free guards, two reads by the main model on words located inside one of the person's own turns, one undoable settle (`full_name_join`, rule `full_name_one`). Plan: 0 wrong joins in 85 replays of 17 two-people cases, 35 of 35 true variants, 26 of 26 stored memories joined (10 of 10 again after the review's fixes). Key, real Sleeps: the true story joined; a father and a son, and two colleagues, stayed two. Also fixed for every held name merged into a page, the person's own tap included: what the held line said in prose was dropped (101 of 125 lines on the replayed banks), and now lands through the page's one writer with its source rows. An undo of this join keeps the two apart and asks nothing again. Not covered: two existing pages, a held short name against a full-name page.
+- **2026-11-24 — A one-time sweep the person runs for what an existing memory already holds wrong (G148; #856).** Two fixes of 2026-11-24 only work from now on: a value pair the small judge refused stays doubled (#840 reads it again only when the newer value arrives), and a person written "Name (qualifier)" before #846 waits on a line titled so. `api/scripts/value_name_sweep.py`: `plan` writes nothing and shows every row (values with a judge through #840's own second reading; names with no model), `apply` makes no model call and lands one `cicada` commit. The names pass never joins anyone: an old line becomes a second person held in doubt, as #846 writes today, and Sleep decides later. Measured on copies of scratch banks: of the value joins proposed on 10 banks, 2 of 5 were clearly right, 1 right in the reader's opinion and 2 arguable (a later, vaguer restatement), so the review text opens with what to strike; names on 6 banks: every line held in doubt or renamed, 0 claims released onto a page by the next release. An independent review with an always-join judge found, and this fixes, a claim line that did not parse being dropped and a names row that could not be undone after a Sleep (the old design). Never run by an agent on the owner's memory. Open: the owner's yes to both was tentative ("yes?"); a revert is clean only until a Sleep rewrites the same pending lines.
 - **2026-11-24 — Ask's second look measured and not merged (G148; docs only).** Reach up (145 → 162 of 200 prompts complete), answers inside the noise, LongMemEval_S 79 → 69, +18% tokens and a second call. Branch `feat/ask-second-look` is kept for the record; do not rebuild it without a new idea. Owner question 6 is answered by this.
 - **2026-11-24 — New-user benchmark 22 → 24 of 25; the timeline row names the most-cited new pages (G148; #850).** Left for next: Stage 1 invents a kind and a name for something said by reference ("the hull" → a kayak, 8 of 8 replays) and files a project's progress on the owner's page; the one question still partial rests on it.
 - **2026-11-24 — After a same-name split the old page no longer states the other person's facts (G148; #843).** Pages stating the other person's fact after a split on a real git bank: 9 of 18 → 0 of 32, the split still one commit and its undo byte for byte. The moved prose is gated by words the record has, never by the model's say-so. Not solved: a thin mention joined earlier stays where it was (3 of 6 on the right page in the Spanish story).
@@ -4002,6 +4004,35 @@ A whole row moves to DONE only after its remaining implementation and required a
    no wrong join in 60 replays of two people the record never tells apart, and those 60 now raise no question (one each
    before). **Trigger to revisit:** a join of Sleep's the person undoes, counted (`_same_name_doubts.yaml` no longer holds
    it; the pair is in `split:`), or the price of the readings mattering again.
+
+74b. **Sleep joins a name held in full to its short-name page when the person's own words name both as one (owner, 2026-11-24; G148, amends 74 and 29 for this one class).**
+   The question asked most was "Is <Full Name> the same as <Short>?" after the person's own turn introduced both ("Had
+   lunch with <Short> today. <Full Name>, my old teammate …"; invented, real values redacted): pending in 131 of 281 stored
+   benchmark memories. Asked whether Sleep may join them itself, read twice and undoable, the way 74a joins a doubt, the
+   owner answered: "yes the idea is that sleep can join, split, and whatever. wouldn't this make cicada memory better?"
+   (a) **The class:** a person named in full who has no page (a line in the pending store), against the one person page
+   titled by the short name, on an open held-name question. Two pages, a held short name against a full-name page, and
+   a full name no turn names beside the short one stay under rulings 74 and 29. (b) **The evidence is the person's own
+   words:** one of their own turns (`kind: user`), in a conversation the held name was heard in, carries the full name
+   and, outside it, the short name as the page writes it. The code finds the turns; the model only copies. The words it
+   copies are located exactly, inside one turn of the person (never across into an agent's or another speaker's line,
+   never in a quoted block, never longer than a quote can be located), and the located words themselves carry both
+   names. (c) **Read twice by the main model:** the second read is framed to look for a reason they are two and does not
+   see the first; both must say one person on located words. Named together is not named as one (a relative, two
+   colleagues, a list, "the other one"): no word list of any language decides that, the model reads it. (d) **Nothing
+   speaks against it:** exactly one page of any type answers to the short name and no other page or held person could be
+   whom it means; the page carries no other name of two words or more; it is not the owner's, not titled by a relation,
+   not in a same-name doubt; the pair was never called two, split or undone; every turn naming both is shown to the
+   reader or Sleep does not join. (e) **One undoable settle through the writer the person's own answer uses**
+   (`inbox_tend`, rule `full_name_one`, "Settled by Sleep", the reason quoting the words): the held claims land with
+   their evidence, what the held line said in prose lands with its source rows, the full name becomes a name of the
+   page. **An undo is the person saying they are two:** the page and the store return as they were, the pair is kept
+   apart by the writer of their own "No, different", and nothing asks again. (f) Anything short of all of it is the
+   question as before. *Why:* measured on the Claude plan, 0 wrong joins in 85 replays of 17 two-people cases and 35 of
+   35 true variants; 26 of 26 stored memories replayed joined (10 of 10 again after the review's fixes); on a Claude key, real Sleeps of three stories: the true
+   one joined, a father and a son and two colleagues stayed two. An independent review with a judge rigged to always
+   answer "one" is why (b) and (d) read as they do. **Trigger to revisit:** a join of this rule the person undoes,
+   counted (`inbox/settled`, rule `full_name_one`, undone).
 
 73. **Questions Sleep may assume, and none loses a value (owner, 2026-11-06; G98, ROR-31).** The owner's words on the dry run: "Take the recommendations in dry-run.md for decisions 1 to 8. The four 'part of' items (1830, 1831, 2343, 2346) are moves: the latest stays current, older ones close. Items 1898 and 2267 stay open as questions. Drop the same_conversation rule. … A new contradiction opens its own question, if that stays small. Leave the 37 existing piled-up questions alone and don't touch fading." So: the same value said two ways is one value; a `part-of` said on different days is a move; the value a question alone held is written closed, never as the person's act, whenever the question ends; Sleep adds no page line when no value changed; two values from one conversation are not assumed compatible. Evidence: the dry run (real text, outside the repo): 11 of 11 respellings right, 6 of 9 same-conversation settles wrong. Revisit on: a measured wrong settle from one of these rules. A note: this reverses #672's test that a pick writes nothing for the other value — the other is now written closed.
 

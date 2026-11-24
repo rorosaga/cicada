@@ -3193,13 +3193,47 @@ def _release_answered(memory_path: Path, mention: str, target_id: str, settings,
     if not mention or not target_id:
         return []
     pending_store.clear_apart(memory_path, mention, target_id)   # G227: the person's join lifts their own "apart"
+    # 2026-11-24 (ruling 74b follow-up): the line's own words ("Teodor Brandt, my old teammate from university") reach the
+    # page too, not only its claims.
+    prose = _land_held_prose(memory_path, mention, target_id, subject_page=subject_page)
     release = pending_store.answered(memory_path, mention, target_id, subject_page=subject_page)
     if release is None:
-        return []
+        return [f"{rel}: updated (trigger: inbox/merge_suggestion/resolved:merge)" for rel in prose]
     written, landed = claim_pipeline.land_answered(memory_path, release, settings)
     if pending_store.drop_released(memory_path, release.name, landed):
         written.append(pending_store.PENDING_STORE_FILE)
+    written = [*prose, *[rel for rel in written if rel not in prose]]
     return [f"{rel}: updated (trigger: inbox/merge_suggestion/resolved:merge)" for rel in written]
+
+
+def _land_held_prose(memory_path: Path, mention: str, target_id: str, *, subject_page: str = "") -> list[str]:
+    """The person's answer (or Sleep's settle, `inbox_tend`) said the held name IS ``target_id``: the line's summary, key
+    facts, history, links and open questions go onto that page through the one page writer a promotion and every update
+    use (`conflict_resolver.apply_changes`, the deterministic section merge — no model): additive on a page a person
+    edited, never over a pinned passage, each item with the source rows the line kept (G118). ``untimed``: the page's last
+    mention and silence clock stay (an older conversation is no mention today). The summary goes in as a Key Fact — a
+    page that already has a Summary keeps it. Returns the paths written, ``[]`` when the line holds no prose."""
+    from api.services import conflict_resolver, pending_store, section_provenance
+
+    line = pending_store.held_line(memory_path, mention)
+    if line is None or (subject_page and line.held_against == subject_page):
+        return []
+    facts = [str(f) for f in [line.summary or line.description, *line.key_facts] if str(f or "").strip()]
+    history = [e for e in line.history_entries if isinstance(e, dict) and str(e.get("event") or "").strip()]
+    links = [d for d in line.links if isinstance(d, dict)]
+    questions = [str(q) for q in line.open_questions if str(q).strip()]
+    if not (facts or history or links or questions):
+        return []
+    path = Path(memory_path) / "entities" / f"{target_id}.md"
+    if not path.is_file():
+        return []
+    entity = {"summary": "", "description": "", "key_facts": facts, "history_entries": history, "links": links,
+              "open_questions": questions, "aliases": [], "tags": [], section_provenance.INPUTS: list(line.item_inputs)}
+    change = {"id": target_id, "action": "update", "entity": entity, "source_episodes": line.episodes(),
+              "untimed": True, "trigger": "inbox/held-prose"}
+    before = path.read_bytes()
+    conflict_resolver.apply_changes([change], Path(memory_path))
+    return [f"entities/{target_id}.md"] if path.read_bytes() != before else []
 
 
 def _keep_apart(settings, fm: dict, pages: list[str]) -> list[str] | None:
@@ -3218,6 +3252,22 @@ def _keep_apart(settings, fm: dict, pages: list[str]) -> list[str] | None:
     if pending_store.mark_apart(settings.memory_path, mention, pages, [episode] if episode else []):
         return [f"{pending_store.PENDING_STORE_FILE}: updated (trigger: inbox/merge_suggestion/rejected)"]
     return []   # nothing held under the name any more: a later mention is a new question, never a name-wide verdict
+
+
+def reject_effects(settings, fm: dict, entity_id: str, other: str, pages: list[str], *, source: str = "") -> list[str]:
+    """What the person's "No, different" on a merge question writes (the one writer; ruling 74b's undo uses it too): the
+    held mention kept apart on its own pending line (`_keep_apart`), else the pair in `_merge_rejected.yaml` and any alias
+    that names the other taken off (`uncross_aliases`). Returns the manifest lines; the caller removes the question."""
+    from api.services import merge_rejections
+
+    if (kept := _keep_apart(settings, fm, pages)) is not None:
+        return kept
+    merge_rejections.add_rejected(settings.memory_path, entity_id, other)
+    # "Two people": an alias on either page that names the other is wrong, and leaves (`uncross_aliases`).
+    crossed = merge_rejections.uncross_aliases(settings.memory_path, entity_id, other)
+    trigger = f"source: {source}, " if source else ""
+    return [f"{merge_rejections.FILE}: updated ({trigger}trigger: inbox/merge_suggestion/rejected)",
+            *[f"{rel}: updated ({trigger}trigger: inbox/merge_suggestion/rejected)" for rel in crossed]]
 
 
 async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
@@ -3258,19 +3308,9 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
 
         none = same_name_pick.is_another(request.option_key) and same_name_pick.applies(parsed.frontmatter)
         pages = same_name_pick.rejected_ids(parsed.frontmatter) if none else [other]
-        if (kept := _keep_apart(settings, parsed.frontmatter, pages)) is not None:
-            path.unlink()
-            return entity_id, False, kept
-        merge_rejections.add_rejected(settings.memory_path, entity_id, other)
-        # "Two people": an alias on either page that names the other is wrong, and leaves (`uncross_aliases`).
-        crossed = merge_rejections.uncross_aliases(settings.memory_path, entity_id, other)
+        lines = reject_effects(settings, parsed.frontmatter, entity_id, other, pages, source=path.stem)
         path.unlink()
-        return (
-            entity_id,
-            False,
-            [f"{merge_rejections.FILE}: updated (source: {path.stem}, trigger: inbox/merge_suggestion/rejected)",
-             *[f"{rel}: updated (source: {path.stem}, trigger: inbox/merge_suggestion/rejected)" for rel in crossed]],
-        )
+        return entity_id, False, lines
 
     source_episode = str(parsed.frontmatter.get("source_episode", "") or "").strip()
     source_timestamp = str(

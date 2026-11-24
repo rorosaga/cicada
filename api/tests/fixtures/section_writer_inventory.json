@@ -1914,5 +1914,13 @@
       "frontmatter": "fm",
       "disposition": "preserve_frontmatter_guarded"
     }
+  ],
+  "services/value_sweep.py": [
+    {
+      "function": "apply_page",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
   ]
 }
