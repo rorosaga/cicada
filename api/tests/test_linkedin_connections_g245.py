@@ -3,8 +3,10 @@
 "who i have connected with and in chronological order which to me is super important" — the person's own agent reads
 the connections page into the directory outside every bank (`linkedin_people.record_read`); the app lists it; the
 person's agents read a date range of it. And, later the same day: "a linkedin connection doesnt need a page just for the
-sake of having a page, the person is what gets a page" — a connection never makes a page, and the one that matches a
-person being born attaches in the write that births them (`linkedin_people.Attacher`), never on a doubted name.
+sake of having a page, the person is what gets a page" — a connection alone never makes a page, and the one that matches a
+person being born attaches in the write that births them (`linkedin_people.Attacher`), never on a doubted name. Asked
+whether one full-name mention of a connection with no Contacts card is enough: "yes it should be enough" — the person's
+own words naming exactly one waiting connection make the page, its link only proposed (`test_connection_mention_page`).
 
 Synthetic people, placeholder links; nothing reads a real bank, `~/.cicada` or the network."""
 from __future__ import annotations
@@ -381,13 +383,23 @@ def _born(bank, out):
     bank_index.invalidate()
 
 
-def test_a_connection_never_makes_a_page_not_on_one_full_name_mention_nor_on_two(stage2):
-    one = _resolve(stage2, _mention("Finn Sample"))                   # one conversation: held, as ever
+def test_a_connection_makes_a_page_only_when_the_person_names_it_in_full_in_their_own_words(stage2):
+    """Ruling 78 (c), amended the same day (owner 2026-11-24, "yes it should be enough"): the mention makes the page and the
+    connection attaches; a connection nobody mentioned still makes nothing. The rule's refusals: `test_connection_mention_page`."""
+    one = _resolve(stage2, _mention("Finn Sample"))     # Stage 1 named it, but no turn of the person's holds the name
     assert not [c for c in one["changes"] if c.get("action") == "create"]
     assert not list((stage2 / "entities").glob("*"))
     in_bank = subprocess.run(["grep", "-rl", "-e", "finn-sample", "-e", "Connected with", str(stage2)],
                              capture_output=True, text=True).stdout
-    assert in_bank == "", "nothing about a held name's connection is written into the bank before its page exists"
+    assert in_bank == "", "nothing about a name's connection is written into the bank before its page exists"
+    out = _resolve(stage2, _mention("Erin Example"))    # ep 001: "user: lunch with Erin Example today", once
+    (change,) = [c for c in out["changes"] if c.get("action") == "create"]
+    assert change["id"] == "erin-example"
+    _born(stage2, out)
+    (link,) = [s for s in _sources(stage2, "erin-example") if s.get("predicate") == "linkedin"]
+    assert (link["ref"], link["match"], link["proposed"]) == (f"{LI}/erin-example", "alias", True), "only proposed"
+    assert [c.object for c in _li(stage2, "erin-example", "connected-on")] == ["2026-11-03"]
+    assert not (stage2 / "entities" / "finn-sample.md").exists(), "a connection nobody mentioned makes nothing"
 
 
 def test_a_held_name_carries_its_connection_to_the_page_born_when_a_second_conversation_promotes_it(stage2, monkeypatch):

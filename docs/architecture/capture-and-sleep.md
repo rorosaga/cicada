@@ -767,10 +767,9 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   name in the directory, the same connected day to the day, the read the agent's — else they stay two. `imported_at` is the
   day of the latest export's import (a read never moves it).
   **The person gets the page, never the connection (owner 2026-11-24: "a linkedin connection doesnt need a page just for
-  the sake of having a page, the person is what gets a page"; ruling 78 (f) withdrawn).** A connection never makes a page:
-  not on a single full-name mention, not on two (the rule that a page needs 2+ conversations, the exchanges rule or a link
-  the person made is untouched, and the owner has **not** ruled on promoting from one mention of a connection — nothing
-  here does). What changed is *when the match lands*: `linkedin_people.Attacher` attaches the kept connection that matches
+  the sake of having a page, the person is what gets a page"; ruling 78 (f) withdrawn).** A connection alone never makes a
+  page: the import, the list and the tail make none (the 2+ conversations, exchanges and link rungs are untouched). What
+  makes one is **the person's own full-name mention** — the next paragraph. What changed first was *when the match lands*: `linkedin_people.Attacher` attaches the kept connection that matches
   the person **in the write that births their page** — Sleep's Stage 5 create (`conflict_resolver.apply_changes`, one
   instance per batch, the directory and the page index read once, every page born since added so two pages of one name
   born in one batch see each other) and a **local** agent's first claim about a new person (`agentic_write._ensure_subject_page`;
@@ -788,6 +787,32 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   doubt for that name (`same_name_doubts`: a doubted pair or a flagged one; a page's names and a held line's own name
   count), when two connections or two pages share it (a page born the same name as one already there counts), or when the
   page names a different profile; a link the person or an identified agent listed (`match: link`) is not a name-only match.
+  **One full-name mention is enough for a page (owner 2026-11-24, asked whether one mention of a connection with no
+  Contacts card suffices: "yes it should be enough").** A `person` mention the person made in their own words
+  (`named_by_person`, in a conversation) whose name or an alias is exactly one **waiting** connection's given + family
+  name, either order, with the full name standing in one of the person's own marked turns, makes the page that night
+  (`entity_resolver._connection_for`, beside `_card_for`; only when the usual rules and a card or number card did not
+  already promote it). Every refusal of the Contacts rule holds: never the owner's name or a self-reference, a relation-only
+  mention, a name two rows share (two links, or two rows with no link told apart only by `dup`), a name under a same-name
+  doubt, a name an existing person page holds (or a name a waiting Contacts card also carries: that card's rule decides and
+  the page is born with both, as above), an agent's reply, a relayed turn, a save, a tab group, a calendar entry or a feed
+  item. A link pasted in a turn is blanked first: a profile's slug is the name spelled, never said. "Waiting" is read by
+  `linkedin_people.waiting_connections` over `arrivals` (the bank's own pages, its doubts and the owner's names): a name is
+  offered only when every kept row of it waits. The page is born under the connection's name (the said form kept as an
+  alias; a second spelling in one batch joins it), and Stage 5 attaches the connection **in the same write, its link only
+  proposed** (`Attacher.attach(how=MATCH_ALIAS)`: `match: alias`, `proposed: true`, the grouped "Confirm N links" review): a
+  connection list is far larger than an address book, so the name alone makes no photo request (`person_photo.is_own_account`
+  is false for it), never reads as "from their connections", and the night's rematch keeps it a proposal until the person
+  takes it. The proposal is no acquaintance for ruling 44's public-figure test (`web_context.known_personally` reads
+  conversations from a personal channel and relations, not a page's `sources:`). The Stage 2 guards that read the pages'
+  names and each episode's kind now run when either a card **or a connection** waits (a bank with connections and no waiting
+  card once read an empty set). **The person's own notes (the coordinator's reading of the owner's example, 2026-11-24 —
+  "wrote some in Apple Notes" — not his ruling):** for a connection only, a full name standing as whole words in the person's
+  own Apple Notes or Notion note counts too (`CONNECTION_NAMED_IN_OWN_NOTES`, `_said_in_own_note`; one line to turn off): the
+  folder is a filing label and blanked, a locked note (`locked_note`, a stub, `Locked note`), an agent's saved note, a
+  shared Notion row (`notion_by_other`), a save or a clipped page (`authorship.is_saved`) never count, and a note cannot be
+  told from text pasted into it. The Contacts rule is untouched: a note never promotes a card. A connection nobody mentioned
+  makes nothing.
   The tail, the export's import and the list's matched page apply the same rules. A link the person removed
   (`sources_removed`) stays removed at birth too. Not built: pages for pages made by hand reach their connection only at
   the night's tail; a split page (a doubt by definition) is refused.
@@ -3927,7 +3952,8 @@ listed as an alias. Four gaps caused it, each closed:
   2026-10-20). Never the owner's card or page, never a relation-only mention.
   **LinkedIn rides the same birth (G245, owner 2026-11-24).** The kept LinkedIn connection that matches a person being
   born attaches in that write, and a waiting card and a waiting connection of one full name are one lead — the page
-  born from the card has both. A connection alone never promotes; see *LinkedIn connections* above.
+  born from the card has both. A connection alone never promotes; one full-name mention of one does (its link proposed);
+  see *LinkedIn connections* above.
   **A first name heard elsewhere is asked, never joined.** A one-word person name heard outside a chat (a harness
   session, an export, a note, a calendar entry) that begins exactly one full-name person page heard in a chat —
   on disk or born this batch — is never joined on the first name: a judge's `same` or `unsure` becomes the question,
