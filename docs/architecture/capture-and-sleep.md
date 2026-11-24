@@ -2441,11 +2441,72 @@ modified and uncommitted when a flag was taken with nothing to read, and **a sec
 while the first person was still a held line (the only page so titled took the name's key in Stage 2's index, so the first
 person's held claims were released onto the other person's page). A page recorded apart from the name's own slug no longer
 holds the name's key (`_second_person_titles`); the two runs made to hit that path then kept each person's facts their own.
+**One conversation that names both people ("X from work met my cousin X"; 2026-11-24, `same_name_people`, `entity_resolver`,
+Stage 1's name rule).** The commonest way a person tells two namesakes apart is also the one the step above handled worst: it
+worked on one mention per bare first name per conversation, and Stage 1 writes the two with what tells them apart in the
+name ("Nico (finance lead)", "Nico (cousin)"), which is not a bare name and was never judged: each waited as a held line
+under its qualified name, never matched to the Nico who already had a page, and an agent asking about Nico got half of him.
+*What Stage 1 writes* (`both_named_battery.py`, 11 invented conversations in English, Spanish, French and German: two relatives
+and a colleague, two colleagues, a friend and a public figure, a boss and a brother, two controls where the two names are one
+person said twice; the product's own call, Sonnet): two entities each carrying a parenthesised qualifier in 58 of 90 runs, one
+qualified and one written otherwise ("Aunt Sara", "Marie Curie") in 19, both written otherwise ("Luis de ventas") in 13, never one
+entity and never a bare name beside a qualified one; each person's facts on their own entity in 87 of 90 (the other 3 carry a
+sentence about the other person). The controls stayed one entity in 20 of 20. **Stage 1 now has one exception to "write a name as
+it was said"**: two different people of one conversation who share a name are each written `<name> (what tells them apart)`, in
+the conversation's own words, never with the qualifier before or after the name (a rule that holds in any language, no
+word list): both qualified in 49 of 56 runs, 6 "Marie Curie" (a real two-word name, rightly left alone), 1 "Luis de ventas";
+facts on the right entity 56 of 56; controls 12 of 12 one entity. *Stage 2 reads the structure only*: a person entity written
+`<one word> (<qualifier>)` (not a handle the record paired, not the owner's first name; a parenthesis on a concept or a two-word
+name is untouched) is a mention of the bare name (`same_name_people.stem_of`); its qualifier leads its description in brackets
+(`describe`), so the judge reads it and the thin-description count includes it. Two mentions of one conversation are two
+people, the conversation said so: they need no located quote and are never one group, and with nobody on record there is no
+judge call (`apart_reading`). **How they stand (2026-11-24, second pass, `sibling_relation`):** *apart for good* only when both
+were written with a qualifier, which is Stage 1 following its rule (all of 66 replayed two-person conversations; the controls
+stayed one entity in 12 of 12 here and 32 of 32 elsewhere); a bare name beside a qualified one is a shape Stage 1 produced in
+neither kind of replay, so it is *a doubt*, a person of its own waiting, never decided (the tail joins it on a located link, ruling
+74a). **An answer that puts the two of one conversation in one group, leaves one out, or cannot be used (a judge that fails)
+says nothing about which of them a person on record is: neither is** (it used to be the one Stage 1 listed first, so the cousin's
+facts could land on the colleague's page by mention order and the pair be written as split for good). Each waits as a person of its
+own, in doubt against the person on record and against what else was in that group, and the two stay as `sibling_relation`
+says (`read`, `sibling_reading`; `Destination.siblings` carries the pair to the resolver, which records it as a split or a doubt,
+`_resolve_same_name_people`). A group the judge itself placed with a known person's filed conversations, with the other of the
+conversation elsewhere, still goes to that person. Each is otherwise matched to who is on record by what is said of it, like
+any mention; a qualified mention is always placed by name: the plain person's page or line (`Destination(kind, ref)`),
+another person's, or a person of its own (`<slug>-2`); with nobody to compare it is the bare name's person
+(`Destination("plain")`: the entity takes the bare name in place, its edges and values follow), unless its own conversation
+also names the bare name (`no_rename`), which keeps the bare name. **A qualified mention is never left under its written name, on
+any exit** (`plan` closes with `fallback`, the resolver again for what the plan never saw: over the batch's cap, a cancelled
+run): a thin description after the judge said "different" (under `MIN_WORDS`, the qualifier counted) is *cannot tell*, a person of its own
+in doubt, never put back under the bare name nor left a held line (a thin bare mention still goes back to the plain name, as it
+always did); anything else nothing placed is the bare name's person, as a bare mention always was, or, when its conversation also
+names the bare name, a person of its own in doubt. A name the owner's page, a nickname or a relation bears is not for this rule
+and is left as it was. The written name stays as an alias, so a `[[Nico (finance lead)]]` link still resolves and no page is
+titled with a qualifier. **A conversation a person already lists, read again** (an edited one), goes back to that person with no
+judge: one mention and one person who lists it, or, when several do, the person whose aliases carry the name the mention was
+written with (the first read wrote it there; a bare name takes the one person left) (`known_for`); a third person is never
+minted for the same two. When the judge puts two groups the conversation told apart on the same known page (the page holds
+both people: flagged for the tail as before), the group with fewer of the page's conversations leaves it for a person of its own.
+The main model's second look replaces the small judge's grouping only when it accounts for every description of a person on record
+(`_covers`): one that grouped only the batch's conversations put the person on record nowhere, and a real run made the cousin a third
+person that way.
+*Measured* (the real
+Stage 1 answers above replayed through the real judge calls into a simulated bank in five states: nobody on record, the first
+person on record, the second, both as pages kept apart, one a page and one a held line in doubt; then a later bare
+conversation of each; `both_named_stories.py`; ok = two people, no blend, no cut): the code before **0 of 120** (every
+qualified name a person of its own, never matched), as landed **55 of 60** (92%; the 5 are the one "Luis de ventas" shape),
+**0 wrong joins, 0 questions**, 55 of 55 on the shape Stage 1 now writes; six stories of the shape are in
+`same_name_stories.json` (engine-free tests; eight since 2026-11-24, two of them the order reversed). *The second pass (2026-11-24, the four defects above):* the eight stories 64 of 64 (8 replays each, 0 wrong joins, 0 questions; 48 of 48 before); the same 38 Stage 1 conversations through the five bank states 183 of 190, the 7 being the 5 "Luis de ventas" shape (not a qualified name, left alone) and 2 of one Spanish case in the state where the second person is on record (the same 6 conversations replayed on the code before: 2 of 6; after: 5 of 6, 5 of 5, and 1 blend in 11); four real Sleeps of the three-phase story (`e2e_run.py`): the cousin and the finance lead each on their own page in 3 of 4, the fourth made the cousin of the two-Nico conversation a third Nico because the main model's second look grouped only that batch's conversations (fixed above, `_covers`, then 2 of 2). *The real path* (`e2e_run.py`, a three-phase twelve-conversation story with
+the two-Nico conversation, real Sleeps on a scratch bank): before, the finance Nico of that conversation waited as a held line
+"Nico (finance lead)" in 6 of 6 runs; as landed, three runs: two pages, the cousin's and the finance lead's, every fact of
+each on its own, the qualifiers as aliases, no held line, no question, 3 of 3 (a first version, 3 runs, joined the two on one
+page in 2 of 3: the judge had put a page's conversation with each, and the placement sent both people to the page; fixed above).
+*Not done:* a person the conversation names with a title and no parenthesis when Stage 1 ignores the rule is still a name of its own.
+
 *Known limits.* A split leaves the page's Summary as it was until the page is next rewritten (a Summary sentence has no
 provenance of its own), so one sentence about the other person can outlive the split. A thin conversation joined earlier
-(nothing in it to contrast) stays where it was. A conversation that names both people ("X from work met my cousin X") is
-one mention a name to Stage 2, and Stage 1 sometimes names the two with a qualifier in the name, which is not a bare name
-and is not judged here. *The benchmark* (3 runs, both people, as landed): the fixture's two Marcs apart in 3 of 3 runs (the code before joined them in 1 run of 3 on a one-person answer, and so did a fresh control of `dev` the same day), one person kept as one 5 of 5 each run, others' words kept off the person 13 of 13, pages made or not made 14 of 14, updates 12, 12, 13 of 13 (control 12, 12, 12), every fact a claim or held under a waiting name (52 of 52 each run; claims 48, 46, 51). Questions 6, 7, 3 a run against 3, 2, 5 for the control and 5, 3, 3 before: one of them is the pair of Marcs, asked once in 1 run of 3 when the second look could not tell them apart; the rest are other proposers' run-to-run spread. $0.68 a run against $0.64: the second reading, about three main-model calls a person. *With ruling 74a (2026-11-23, the stories again):* two people the record never tells apart stay apart in **60 of 60** replays with **no question** (one each before) and no wrong join; an established page then a different person 32 of 32 with no question (7 of 32 asked before). On the benchmark (3 runs): the two Marcs apart in 3 of 3 and **no question about them in any run** (asked in 1 run of 3 before; in 2 runs the pair waits as a doubt), Sleep joined no one (there is no one to join), one person kept as one 5 of 5, others' words 13 of 13, questions 4, 4, 3 a run against 6, 7, 3, the same $0.68 a run.
+(nothing in it to contrast) stays where it was. A conversation that names both people is handled above; the part that stays
+open is the one old bank's held lines written with a qualifier before this (`nico (finance lead)`), which are not people on
+record under the bare name and are not migrated. *The benchmark* (3 runs, both people, as landed): the fixture's two Marcs apart in 3 of 3 runs (the code before joined them in 1 run of 3 on a one-person answer, and so did a fresh control of `dev` the same day), one person kept as one 5 of 5 each run, others' words kept off the person 13 of 13, pages made or not made 14 of 14, updates 12, 12, 13 of 13 (control 12, 12, 12), every fact a claim or held under a waiting name (52 of 52 each run; claims 48, 46, 51). Questions 6, 7, 3 a run against 3, 2, 5 for the control and 5, 3, 3 before: one of them is the pair of Marcs, asked once in 1 run of 3 when the second look could not tell them apart; the rest are other proposers' run-to-run spread. $0.68 a run against $0.64: the second reading, about three main-model calls a person. *With ruling 74a (2026-11-23, the stories again):* two people the record never tells apart stay apart in **60 of 60** replays with **no question** (one each before) and no wrong join; an established page then a different person 32 of 32 with no question (7 of 32 asked before). On the benchmark (3 runs): the two Marcs apart in 3 of 3 and **no question about them in any run** (asked in 1 run of 3 before; in 2 runs the pair waits as a doubt), Sleep joined no one (there is no one to join), one person kept as one 5 of 5, others' words 13 of 13, questions 4, 4, 3 a run against 6, 7, 3, the same $0.68 a run.
 
 **Which way a relationship points (2026-11-23).** A role the other side holds toward the person ("my <role> X") was
 sometimes written backwards at Stage 1: `<user> | <role> of | X`, the person as the holder. Nothing downstream can catch it
