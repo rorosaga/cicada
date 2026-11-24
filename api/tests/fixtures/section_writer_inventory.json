@@ -287,7 +287,13 @@
       "disposition": "uninstrumented_guarded"
     },
     {
-      "function": "_write_retired",
+      "function": "_edit_page",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_write_late_episode",
       "method": "write",
       "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"

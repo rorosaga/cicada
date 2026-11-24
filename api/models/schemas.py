@@ -3868,6 +3868,12 @@ class SleepHistoryEntry(CamelModel):
     kind: str = "sleep"
     entities_created: int = 0
     entities_updated: int = 0
+    #: Owner 2026-11-24 (items-6): a cycle's pages counted as the opened card lists them — `entities_updated` is pages
+    #: changed in substance (never a decay stamp or a faded fact), and these three are the other lists' sizes
+    #: (`sleep_consolidated.figures`). Additive.
+    entities_archived: int = 0
+    entities_removed: int = 0
+    entities_faded: int = 0
     episodes: int = 0
     sessions: int = 0
     authors: list[str] = Field(default_factory=list)
@@ -3912,6 +3918,11 @@ class SleepRunRef(CamelModel):
     # `None` when not recorded (telemetry off), never zero.
     created: Optional[int] = None
     updated: Optional[int] = None
+    #: Owner 2026-11-24 (items-6): the opened card's own counts (`sleep_consolidated.figures`) — the closed card and the
+    #: opened one never disagree. `updated` is pages changed in substance; `faded` pages whose only change was silence.
+    archived: Optional[int] = None
+    removed: Optional[int] = None
+    faded: Optional[int] = None
     questions_raised: Optional[int] = None
     usage_summary: Optional["CycleUsageSummary"] = None
     models: list[str] = Field(default_factory=list)
@@ -4054,6 +4065,12 @@ class SleepConsolidatedPage(CamelModel):
     #: ids of THIS run's conversations that fed it (never another run's). Additive.
     change: str = "updated"
     episodes: list[str] = Field(default_factory=list)
+    #: items-6 (owner 2026-11-24, "what influenced this change?"): which step of the run changed this page, from a closed
+    #: set (`page_change.STEPS`: reading, decay, conflict, settled, join, source_check, link_enrichment, summary, web,
+    #: expiry, import, other), oldest first, one value each — the commits of the run that changed it, named by what
+    #: wrote them. The app shows the conversations (`episodes`) first and these only when none of the run's fed it.
+    #: `other` is a step Cicada cannot name honestly; the list is empty only for a page no run commit names. Additive.
+    steps: list[str] = Field(default_factory=list)
 
 
 class SleepConsolidatedQuestion(CamelModel):
@@ -4075,9 +4092,105 @@ class SleepConsolidated(CamelModel):
     #: items-5: a page is in exactly one of the four lists (removed > archived > created > updated). Additive.
     archived: list[SleepConsolidatedPage] = Field(default_factory=list)
     removed: list[SleepConsolidatedPage] = Field(default_factory=list)
+    #: items-6 (owner 2026-11-24): pages whose only change was confidence lost (or regained) to silence — quiet, never
+    #: "updated", never in the default list. A page with only bookkeeping (a decay stamp, a date, a counter) is in no
+    #: list and counted in `counts.bookkeeping`. Additive.
+    faded: list[SleepConsolidatedPage] = Field(default_factory=list)
     questions_raised: list[SleepConsolidatedQuestion] = Field(default_factory=list)
     questions_settled: list[SleepConsolidatedQuestion] = Field(default_factory=list)
     counts: dict[str, int] = Field(default_factory=dict)
+    truncated: bool = False
+
+
+class SleepChangeFieldChange(CamelModel):
+    """One meaningful field of one fact that changed, words-ready: `field` is one of `text, subject, predicate, object,
+    valid_from, valid_to, expected_end, superseded_by, supersedes, status, target, context, source_trust, observer,
+    epistemic, confidence, sources, details` (`details` names nothing: a field with no sentence). `before`/`after` are
+    the values as strings (`None` when it had or has none); `sources` carries conversation ids in `added`/`removed`."""
+    field: str
+    before: Optional[str] = None
+    after: Optional[str] = None
+    added: list[str] = Field(default_factory=list)
+    removed: list[str] = Field(default_factory=list)
+
+
+class SleepChangeFact(CamelModel):
+    """A fact the run added or withdrew (`claim` is the one claim wire, `transclusion_resolver.claim_to_model`), or
+    changed (`claim` is its new state and `changes` what moved). `conversation` is the conversation its own evidence
+    names — one that exists in the bank, preferring one of this run's — and `in_run` whether the run read it."""
+    claim: "ClaimModel"
+    changes: list[SleepChangeFieldChange] = Field(default_factory=list)
+    conversation: Optional[str] = None
+    in_run: bool = False
+
+
+class SleepChangeFacts(CamelModel):
+    added: list[SleepChangeFact] = Field(default_factory=list)
+    withdrawn: list[SleepChangeFact] = Field(default_factory=list)
+    changed: list[SleepChangeFact] = Field(default_factory=list)
+    #: How many facts only lost (or regained) confidence to silence — not listed, never a change.
+    faded: int = 0
+    #: The whole counts when a list was cut (`MAX_FACTS` each).
+    counts: dict[str, int] = Field(default_factory=dict)
+    truncated: bool = False
+
+
+class SleepChangeSegment(CamelModel):
+    op: str   # equal | added | removed
+    text: str
+
+
+class SleepChangeBlock(CamelModel):
+    """One block of the page's own markdown. `op`: `context` (unchanged, one either side of a change), `added`,
+    `removed`, or `edited` (`before`/`after` the paragraph, `segments` its words that changed, a link kept whole).
+    `markdown` is the block as the page writes it (for `edited` the new one); `heading` the heading text it sits
+    under (inline markdown), `level` > 0 only on a heading block itself."""
+    op: str
+    markdown: str
+    heading: Optional[str] = None
+    level: int = 0
+    before: Optional[str] = None
+    after: Optional[str] = None
+    segments: list[SleepChangeSegment] = Field(default_factory=list)
+
+
+class SleepChangeProse(CamelModel):
+    blocks: list[SleepChangeBlock] = Field(default_factory=list)
+    counts: dict[str, int] = Field(default_factory=dict)
+    truncated: bool = False
+
+
+class SleepChangeOther(CamelModel):
+    """A change other than facts and prose, in words: `field` is `status`, `name`, `type`, `decay_class` (before ->
+    after), or `aliases`, `tags`, `sources` (added / removed)."""
+    field: str
+    before: Optional[str] = None
+    after: Optional[str] = None
+    added: list[str] = Field(default_factory=list)
+    removed: list[str] = Field(default_factory=list)
+
+
+class SleepConversation(SleepConsolidatedConversation):
+    """A conversation named by a page's change: the run's own, or one a fact's evidence names (`in_run` false)."""
+    in_run: bool = False
+
+
+class SleepPageChange(CamelModel):
+    """``GET /sleep/runs/{id}/pages/{page}/change`` and ``GET /sleep/history/{commit}/pages/{page}/change`` — what one
+    run did to one page, ready to render (``page_change.change``): why first (`page.episodes` the run's conversations
+    that fed it, else `page.steps`), then the facts, the prose as the page's own blocks, and the other changes. No
+    bookkeeping key, claim id outside the claim wire, or frontmatter. `change`: created | updated | archived | removed
+    | faded | bookkeeping (the last two are only reachable by id: nothing lists them as a change). `empty`: nothing in
+    substance changed. Bounded (`truncated`)."""
+    page: SleepConsolidatedPage
+    change: str
+    conversations: list[SleepConversation] = Field(default_factory=list)
+    facts: SleepChangeFacts = Field(default_factory=SleepChangeFacts)
+    prose: SleepChangeProse = Field(default_factory=SleepChangeProse)
+    other: list[SleepChangeOther] = Field(default_factory=list)
+    #: Further frontmatter keys that changed and have no sentence (counted, never named).
+    other_details: int = 0
+    empty: bool = False
     truncated: bool = False
 
 
@@ -4100,6 +4213,8 @@ class EpisodeMeetingBrief(CamelModel):
 
 
 SleepConsolidatedConversation.model_rebuild()
+SleepConversation.model_rebuild()
+SleepPageChange.model_rebuild()
 
 
 class EpisodeQueueItem(CamelModel):

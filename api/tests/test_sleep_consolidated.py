@@ -152,6 +152,10 @@ def test_each_history_entry_carries_the_whole_runs_figures(tmp_path, monkeypatch
     assert runs and all(r == runs[0] for r in runs), "the run's own numbers, the same on every batch"
     run = runs[0]
     assert run["created"] == len(ids) and run["updated"] is not None
+    # owner 2026-11-24: the closed card's counts ARE the opened card's
+    items = _client(cfg).get("/sleep/runs/sleep_card/items").json()["counts"]
+    assert {k: run[k] for k in ("created", "updated", "archived", "removed", "faded")} == \
+           {k: items[k] for k in ("created", "updated", "archived", "removed", "faded")}
     assert run["questionsRaised"] is not None
     assert run["models"] == ["model-a"]
     assert run["usageSummary"]["engine"] == "claude-cli" and run["usageSummary"]["basis"]
@@ -226,10 +230,29 @@ def _set_status(memory, eid, status):
                     .replace("status: archived", f"status: {status}"), encoding="utf-8")
 
 
+def _manifest_message(memory, subject, *, trigger="sleep/extraction", overrides=None, authors=("model-a",)):
+    """What `sleep_cycle._finalize` writes: the subject, a manifest line for each entity file the commit is about to
+    carry (its trigger: what changed it), the author trailer."""
+    from api.services import git_service
+
+    lines = []
+    for raw in git(memory, "status", "--porcelain", "--untracked-files=all").splitlines():
+        path = raw[3:].strip()
+        if not path.startswith("entities/") or not path.endswith(".md"):
+            continue
+        eid = path[len("entities/"):-3]
+        action = "removed" if "D" in raw[:2] else "created" if raw[:2] in ("??", "A ") else "updated"
+        lines.append(f"{path}: {action} (source: n/a, trigger: {(overrides or {}).get(eid, trigger)})")
+    return git_service.build_commit_message(subject, lines, authors=list(authors))
+
+
 def synthetic_run(tmp_path, *, tie_decay=True):
     """A bank whose run read four conversations (two origins, a device, a saved link, a meeting) and made two
     batches: pages created, updated, archived (by the batch's own commit and by its decay commit), removed (deleted),
-    one fed by two conversations and one with no conversation of this run behind it. Returns ``(memory, commits)``."""
+    one fed by two conversations and one with no conversation of this run behind it; a decay commit that also let one
+    page fade (its confidence moved by silence) and only stamped another (bookkeeping). The manifests name each page's
+    trigger, so a page no conversation fed says which step changed it. Returns ``(memory, commits, decay commit)``."""
+    from sleep_changes_synth import DAY, claim_entry, write_page
     memory = seed_bank(tmp_path, [])
     for ep, fm in {
         "ep_2026-10-01_000": {"source": "mcp", "session_id": "ses_a"},
@@ -244,11 +267,18 @@ def synthetic_run(tmp_path, *, tie_decay=True):
     a, b, c, d = ("ep_2026-10-01_00" + i for i in "0123")
     for eid in ("upd-one", "solo-two", "arch-batch", "arch-decay", "restored", "gone-one", "gone-two"):
         _page(memory, eid, sources=["ep_2026-08-01_000"], typ="person" if eid.startswith("gone") else "concept")
+    write_page(memory, "faded-one", [claim_entry("faded-one", 0), claim_entry("faded-one", 1)])
+    write_page(memory, "stamp-one", [claim_entry("stamp-one", 0)])
     _commit(memory, "base")
     # the decay commit comes first (arithmetic only), then the batch commit
     _set_status(memory, "arch-decay", "archived")
     _set_status(memory, "restored", "archived")
-    first_decay = _commit(memory, "Sleep cycle 2026-10-01 (decay)")
+    write_page(memory, "faded-one", [claim_entry("faded-one", 0, decayed=DAY, confidence=0.4),
+                                     claim_entry("faded-one", 1, decayed=DAY)], decayed_through=DAY, confidence=0.4)
+    write_page(memory, "stamp-one", [claim_entry("stamp-one", 0, decayed=DAY)], decayed_through=DAY,
+               last_referenced=DAY, version=2)
+    first_decay = _commit(memory, _manifest_message(memory, "Sleep cycle 2026-10-01 (decay)", trigger="sleep/decay",
+                                                    authors=("cicada",)))
     for ep in (a, b):   # batch 1: it reads a and b
         _processed(memory, ep)
     _page(memory, "new-one", sources=[a])
@@ -258,7 +288,8 @@ def synthetic_run(tmp_path, *, tie_decay=True):
     _set_status(memory, "arch-batch", "archived")                 # a correction archives it in the batch commit
     (memory / "entities" / "gone-one.md").unlink()                # merged away
     _page(memory, "made-then-archived", sources=[c])
-    one = _commit(memory, "Sleep cycle 2026-10-01 (batch 1 of 2)")
+    one = _commit(memory, _manifest_message(memory, "Sleep cycle 2026-10-01 (batch 1 of 2)",
+                                            overrides={"solo-two": "sleep/conflict_resolution"}))
     # batch 2: reads c and d; restores a page the decay archived; archives what batch 1 created; removes another
     for ep in (c, d):
         _processed(memory, ep)
@@ -266,7 +297,7 @@ def synthetic_run(tmp_path, *, tie_decay=True):
     _set_status(memory, "made-then-archived", "archived")
     (memory / "entities" / "gone-two.md").unlink()
     _page(memory, "new-three", sources=[d])
-    two = _commit(memory, "Sleep cycle 2026-10-01 (batch 2 of 2)")
+    two = _commit(memory, _manifest_message(memory, "Sleep cycle 2026-10-01 (batch 2 of 2)"))
     return memory, [one, two], first_decay
 
 
@@ -277,7 +308,7 @@ def _by_id(rows):
 def test_every_page_is_in_one_list_with_its_change_and_the_conversations_that_fed_it(tmp_path):
     memory, commits, _decay = synthetic_run(tmp_path)
     out = asyncio.run(sleep_consolidated.build(memory, commits))
-    assert sleep_consolidated.SHAPE == "items-5"
+    assert sleep_consolidated.SHAPE == "items-6"
     assert [p.id for p in out.created] == ["new-one", "new-two", "new-three"], "made-then-archived is archived, not new"
     assert sorted(p.id for p in out.updated) == ["restored", "solo-two", "upd-one"]
     assert sorted(p.id for p in out.archived) == ["arch-batch", "arch-decay", "made-then-archived"]
@@ -288,6 +319,12 @@ def test_every_page_is_in_one_list_with_its_change_and_the_conversations_that_fe
     assert {p.change for p in out.archived} == {"archived"} and {p.change for p in out.updated} == {"updated"}
     assert out.counts["created"] == 3 and out.counts["updated"] == 3
     assert out.counts["archived"] == 3 and out.counts["removed"] == 2
+    assert [p.id for p in out.faded] == ["faded-one"] and out.counts["faded"] == 1 and out.counts["bookkeeping"] == 1
+    assert all("stamp-one" not in [p.id for p in rows] for rows in (out.created, out.updated, out.archived, out.removed,
+                                                                      out.faded)), "a stamp is no change"
+    steps = {p.id: p.steps for rows in (out.created, out.updated, out.archived, out.removed, out.faded) for p in rows}
+    assert steps["solo-two"] == ["conflict"], "no conversation behind it: the step that changed it"
+    assert steps["arch-decay"] == ["decay"] and steps["faded-one"] == ["decay"] and steps["new-one"] == ["reading"]
 
 
 def test_a_page_says_which_of_this_runs_conversations_fed_it_and_never_another_runs(tmp_path):

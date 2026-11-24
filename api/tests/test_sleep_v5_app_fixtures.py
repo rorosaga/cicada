@@ -217,6 +217,39 @@ def test_the_run_card_fixtures_are_the_servers_wire(tmp_path, monkeypatch):
     _write_or_compare("sleep-history-run.json", entry)
 
 
+def test_the_page_change_fixture_is_the_servers_wire(tmp_path, monkeypatch):
+    """``GET /sleep/runs/{id}/pages/{page}/change`` (items-6): a page a conversation fed (facts added and changed, the
+    prose as blocks, an alias), a page a tail step changed, a faded page and a bookkeeping-only one, over the synthetic
+    story of `test_sleep_page_change`. Commits are pinned; every name is synthetic."""
+    from test_sleep_page_change import _run_of, _story
+
+    memory, commits, start, end, step = _story(tmp_path)
+    client = _run_of(memory, commits, monkeypatch, window=(start, end))
+    pinned = {*commits, step}
+    # the story's own decay commit is the one before the batch's: pinned too
+    pinned.add(git_log_first_parent(memory, commits[0]))
+
+    def pin(node):
+        if isinstance(node, dict):
+            return {k: pin(v) for k, v in node.items()}
+        if isinstance(node, list):
+            return [pin(v) for v in node]
+        return "0" * 40 if node in pinned else node
+
+    wire = {name: pin(client.get(f"/sleep/runs/story/pages/{page}/change").json())
+            for name, page in (("fed", "fed-page"), ("step", "step-page"), ("faded", "fade-page"),
+                               ("bookkeeping", "stamp-page"))}
+    assert wire["fed"]["page"]["episodes"] and wire["step"]["page"]["steps"] == ["source_check"]
+    assert wire["faded"]["change"] == "faded" and wire["bookkeeping"]["empty"] is True
+    _write_or_compare("sleep-page-change.json", wire)
+
+
+def git_log_first_parent(memory, commit):
+    from drain_harness import git
+
+    return git(memory, "rev-parse", f"{commit}^").strip()
+
+
 def _items5_wire(tmp_path, monkeypatch) -> dict:
     """``GET /sleep/runs/{id}/items`` (items-5) over a synthetic bank that exercises every field: four conversations
     (two origins, one from a device, a saved link with a site, a meeting), a created, an updated, an archived and a
