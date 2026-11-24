@@ -102,6 +102,123 @@ final class AppleNotesReaderTests: XCTestCase {
         XCTAssertEqual(parts.dump.components(separatedBy: fs).count, 8)
     }
 
+    // MARK: - A.4: the folder structure
+
+    /// The folder records are read beside the notes and never reach the dump (an older backend counts a record's fields).
+    private func folderRecords() -> (raw: String, note: String) {
+        let fs = AppleNotesReader.fieldSeparator, rs = AppleNotesReader.recordSeparator
+        func folder(_ account: String, _ id: String, _ parent: String, _ name: String) -> String {
+            [AppleNotesReader.folderMark, account, id, parent, name].joined(separator: fs)
+        }
+        func at(_ note: String, _ folderId: String) -> String { [AppleNotesReader.atMark, note, folderId].joined(separator: fs) }
+        func note(_ id: String, _ folderName: String) -> String {
+            [id, "alpha-project", "body", "c", "m", folderName, "2026-11-01T10:00:00", "0", "iCloud"].joined(separator: fs)
+        }
+        let raw = [folder("iCloud", "f-child", "f-parent", "Plans"),           // a child listed BEFORE its parent
+                   folder("iCloud", "f-parent", "", "Work"),
+                   folder("iCloud", "f-vault", "", "Vault"),
+                   folder("iCloud", "f-empty", "", "Empty"),
+                   AppleNotesReader.folderHeldMark + fs + "f-vault",
+                   AppleNotesReader.lockedMark + fs + "id-locked",
+                   note("id-1", "Plans"), at("id-1", "f-child"),
+                   note("id-2", "Work"), at("id-2", "f-parent"),
+                   at("id-locked", "f-vault"),
+                   AppleNotesReader.statsMark + fs + "4" + fs + "0" + fs + "0"].joined(separator: rs)
+        return (raw, note("id-1", "Plans"))
+    }
+
+    func testEachNotesFolderPathIsBuiltFromTheParentIdsWhateverOrderTheFoldersCame() {
+        let parts = AppleNotesReader.split(folderRecords().raw)
+        XCTAssertEqual(parts.folderPaths["id-1"], ["Work", "Plans"])
+        XCTAssertEqual(parts.folderPaths["id-2"], ["Work"])
+        // Notes' own order is kept: the child listed first stays first.
+        XCTAssertEqual(parts.folders.map(\.path), [["Work", "Plans"], ["Work"], ["Empty"]])
+        XCTAssertEqual(parts.folders.first?.account, "iCloud")
+    }
+
+    func testALockedNoteGetsNoPathAndAFolderOfOnlyLockedNotesIsNotListed() {
+        let parts = AppleNotesReader.split(folderRecords().raw)
+        XCTAssertNil(parts.folderPaths["id-locked"])
+        XCTAssertEqual(parts.locked, ["id-locked"])
+        XCTAssertFalse(parts.folders.contains { $0.path == ["Vault"] }, "its name would say locked notes live there")
+        XCTAssertFalse(parts.folderPaths.values.contains { $0.contains("Vault") })
+    }
+
+    func testTheFolderRecordsNeverReachTheDump() {
+        let fs = AppleNotesReader.fieldSeparator, rs = AppleNotesReader.recordSeparator
+        let parts = AppleNotesReader.split(folderRecords().raw)
+        XCTAssertEqual(parts.dump.components(separatedBy: rs).count, 2, "the two unlocked notes only")
+        for mark in [AppleNotesReader.folderMark, AppleNotesReader.folderHeldMark, AppleNotesReader.atMark, "f-vault", "Vault"] {
+            XCTAssertFalse(parts.dump.contains(mark), mark)
+        }
+        XCTAssertEqual(parts.dump.components(separatedBy: rs).map { $0.components(separatedBy: fs).count }, [8, 8])
+    }
+
+    func testAnOlderScriptsReadHasNoPathsAndStillSplits() {
+        let fs = AppleNotesReader.fieldSeparator
+        let note = ["id-1", "alpha-project", "body", "c", "m", "Notes", "2026-11-01T10:00:00", "0", "iCloud"].joined(separator: fs)
+        let parts = AppleNotesReader.split(note)
+        XCTAssertTrue(parts.folderPaths.isEmpty && parts.folders.isEmpty)
+        XCTAssertEqual(parts.accounts, ["id-1": "iCloud"])
+    }
+
+    func testAParentLoopOrAMissingParentNamesNoPath() {
+        let result = AppleNotesReader.folderStructure(
+            rows: [(account: "iCloud", id: "a", parent: "b", name: "A"), (account: "iCloud", id: "b", parent: "a", name: "B"),
+                   (account: "iCloud", id: "c", parent: "gone", name: "C")],
+            held: [], noteFolder: ["n1": "a", "n2": "c"], noteIds: ["n1", "n2"], lockedIds: [])
+        XCTAssertTrue(result.paths.isEmpty && result.folders.isEmpty)
+    }
+
+    /// Only a folder's own id, name and container are asked outside the unlocked filter, and a note's `cicada-at` line
+    /// is written inside the per-note loop, after the lists lined up — so a locked note is never named by it.
+    func testTheScriptAsksAFolderForItsStructureAndNeverANoteForItsFolder() {
+        let script = AppleNotesReader.script
+        XCTAssertTrue(script.contains("set holder to container of fld"))
+        XCTAssertFalse(script.contains("container of note"), "a note's own container is never asked")
+        XCTAssertFalse(script.contains("container of (every note"))
+        guard let aligned = script.range(of: "if idsAfter = noteIds then"),
+              let at = script.range(of: "set end of outList to \"\(AppleNotesReader.atMark)\"") else { return XCTFail("the read's shape changed") }
+        XCTAssertTrue(aligned.lowerBound < at.lowerBound)
+        XCTAssertTrue(script.contains(AppleNotesReader.folderHeldMark))
+    }
+
+    func testTheFolderStructureTravelsBesideTheDumpAndOnlyWhenThereIsSome() {
+        let none = APIClient.notesSyncBody(dump: "d", accounts: [:], locked: [], lockedKeys: [], pinned: nil,
+                                           folderPaths: [:], folders: [])
+        XCTAssertEqual(Set(none.keys), ["notesDump", "lockedNoteIds", "lockedNoteKeys"])
+        let some = APIClient.notesSyncBody(dump: "d", accounts: [:], locked: [], lockedKeys: [], pinned: [],
+                                           folderPaths: ["id-1": ["Work", "Plans"]],
+                                           folders: [AppleNotesReader.NoteFolder(account: "iCloud", path: ["Work"])])
+        XCTAssertEqual(some["noteFolderPaths"] as? [String: [String]], ["id-1": ["Work", "Plans"]])
+        let listed = some["noteFolders"] as? [[String: Any]]
+        XCTAssertEqual(listed?.first?["account"] as? String, "iCloud")
+        XCTAssertEqual(listed?.first?["path"] as? [String], ["Work"])
+        XCTAssertNotNil(some["pinnedNoteIds"], "could not tell is no key; an empty list says none is pinned")
+    }
+
+    func testTheTreeAndTheNoteRowDecodeWhatTheBackendAddsAndAnOlderBackendsDoNotBreak() throws {
+        let tree = try JSONDecoder().decode(ChannelCollections.self, from: Data("""
+        {"channel":"notes","pinsRead":false,"accounts":[{"name":"iCloud","count":1,"collections":[
+          {"id":"nf-1","name":"Work","count":0,"total":1,"path":["Work"],"parent":null,"children":["nf-2"],"depth":0},
+          {"id":"nf-2","name":"Plans","count":1,"total":1,"path":["Work","Plans"],"parent":"nf-1","children":[],"depth":1}]}]}
+        """.utf8))
+        XCTAssertEqual(tree.pinsRead, false)
+        let folders = tree.accounts[0].collections
+        XCTAssertEqual(folders.map(\.path), [["Work"], ["Work", "Plans"]])
+        XCTAssertEqual(folders[1].parent, folders[0].id)
+        XCTAssertEqual(folders[0].children, ["nf-2"])
+        let old = try JSONDecoder().decode(SourceCollection.self, from: Data(#"{"id":"nf-1","name":"Work","count":2}"#.utf8))
+        XCTAssertTrue(old.path == nil && old.parent == nil && old.children == nil && old.depth == nil && old.total == nil)
+        let page = try JSONDecoder().decode(ChannelItemsPage.self, from: Data("""
+        {"channel":"notes","total":1,"offset":0,"pinsRead":true,"items":[
+          {"kind":"episode","id":"ep","title":"Alpha plan","day":"2026-11-01","snippet":"First line","modifiedAt":"2026-11-01T10:00:00Z"}]}
+        """.utf8))
+        XCTAssertEqual(page.pinsRead, true)
+        XCTAssertEqual(page.items[0].snippet, "First line")
+        XCTAssertEqual(page.items[0].modifiedAt, "2026-11-01T10:00:00Z")
+    }
+
     /// "The same read saw it" protects a note only when the read saw every note, so a partial one sends no name keys.
     /// The ids still go: a note's own id is no guess.
     func testNameKeysGoOnlyWithACompleteRead() {

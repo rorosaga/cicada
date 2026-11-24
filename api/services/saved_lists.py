@@ -27,6 +27,11 @@ a week (a sign-in on X says nothing about Instagram) and asks the person, throug
 turning the list on again lifts the pause (Try again). Bounds until measured (G206): one site's list offered at a time,
 and at most :data:`DAILY_READS` recorded reads a UTC day per bank across the three — the LinkedIn profile read's bound.
 
+**G245 (ruling 78b, 2026-11-24)** adds second lists of a site (``Platform.base``: X likes, Instagram likes, Reddit upvoted —
+each off until turned on, sharing its site's address rules, handle, profile link and pause), the folder pass (a read is the
+All page then up to 12 folders, its calls tied by ``continues`` and counted once against :data:`DAILY_READS`), catching up
+(the first read scrolls deeper, a later one stops at what is kept) and a row's own ``posted`` day. See ``folder_pass``.
+
 This module holds only the offer: when each list was last read for each bank, the pauses and the day's count. One
 small file outside every bank (``$CICADA_HOME/saved_lists.json``, 0600, atomic, ``flock``ed — the backend and every
 stdio server write it). Ids, enums, counts and times only; never a title or a URL of the person's.
@@ -45,7 +50,7 @@ from pathlib import Path
 from typing import Iterator
 from urllib.parse import urlparse
 
-from api.services import reading_settings
+from api.services import folder_pass, reading_settings
 from api.services.auth import cicada_home
 
 FILENAME = "saved_lists.json"
@@ -69,16 +74,55 @@ class Platform:
     reason: str
     #: The domains the person's own profile link may be on (ROR-114): the platform's own, never another site.
     profile_hosts: tuple[str, ...] = ()
+    #: A list that is a second list of a site already here (G245: X likes beside X bookmarks) names that site's key. A
+    #: key with a base shares the site's address rules (``canonical``), handle, profile link and pause (a login wall
+    #: pauses every list of the site); its own switch, cadence and read are its own.
+    base: str = ""
+    #: Does the site file this list's posts in folders of their own (X bookmark folders, Instagram collections), each
+    #: on its own page? Only then does a read include the folder pass (:data:`FOLDERS_PER_PASS`).
+    folders: bool = False
+    #: What the agent reads of each post, when the list shows less or more than words (Instagram's grid).
+    reads: str = "its author as the page shows it, and the words the post shows"
 
 
 PLATFORMS: dict[str, Platform] = {
-    "x": Platform("x", "X", "Bookmarks", "https://x.com/i/bookmarks", "", "x-bookmarks", "Bookmarks",
-                  "x.com", "to read your bookmarks", ("x.com", "twitter.com")),
+    # Measured 2026-11-24: X now files Bookmarks under History, so this address lands on ``/i/history`` (tabs Bookmarks
+    # and Likes); the old address still opens it.
+    "x": Platform("x", "X", "Bookmarks", "https://x.com/i/bookmarks",
+                  " (X may show it as History, Bookmarks tab, at /i/history: the same list)", "x-bookmarks", "Bookmarks",
+                  "x.com", "to read your bookmarks", ("x.com", "twitter.com"), folders=True),
+    # G245 (ruling 78b, owner 2026-11-24): the person's own Likes tab — a page that holds only that list. Files under the
+    # X archive's like.js origin and label, so a like the archive brought in and the same like read here are one row;
+    # a post already kept from Bookmarks gains "Likes" on its page's `collections:` instead of a second page. Off until
+    # the person turns it on. Reposts are mixed into the profile timeline, which no list page covers: not read.
+    # Measured 2026-11-24: History's Likes tab is ``/i/history/likes``, a page of its own; the profile's Likes tab is
+    # the way in where that address does not open.
+    "x-likes": Platform("x-likes", "X", "Likes", "https://x.com/i/history/likes",
+                        " (History, Likes tab; if that address does not open, the person's own profile, then its Likes "
+                        "tab: the page that holds only their likes)",
+                        "x-likes", "Likes", "x.com", "to read your likes", ("x.com", "twitter.com"), base="x"),
     "instagram": Platform("instagram", "Instagram", "Saved", "https://www.instagram.com/",
                           " — open the person's profile, then Saved, then All posts", "instagram-saved", "Saved",
-                          "instagram.com", "to read your saved posts", ("instagram.com",)),
+                          "instagram.com", "to read your saved posts", ("instagram.com",), folders=True,
+                          reads="its author as the page shows it, and the words the post shows (a grid of pictures "
+                                "shows none: send the link and author only)"),
+    # G245: the posts the person liked, from Your activity — under the export's own origin and label
+    # (`liked_posts.json`: `instagram-saved`, "Liked posts"), index-only like every Instagram save.
+    "instagram-likes": Platform("instagram-likes", "Instagram", "Likes",
+                                "https://www.instagram.com/your_activity/interactions/likes/",
+                                " — if it does not open, open Your activity, then Interactions, then Likes",
+                                "instagram-saved", "Liked posts", "instagram.com", "to read your likes",
+                                ("instagram.com",), base="instagram",
+                                reads="its author as the page shows it, and the words the post shows (a grid of "
+                                      "pictures shows none: send the link and author only)"),
+    # Measured 2026-11-24 on a list of 76: five results showed no link to their post at all (only the author's
+    # profile), so a read by links alone lost them; each result still names its post in its own urn.
     "linkedin": Platform("linkedin", "LinkedIn", "Saved posts", "https://www.linkedin.com/my-items/saved-posts/", "",
-                         "linkedin-saved", "Saved Items", "linkedin.com", "to read your saved posts", ("linkedin.com",)),
+                         "linkedin-saved", "Saved Items", "linkedin.com", "to read your saved posts", ("linkedin.com",),
+                         reads="its author as the page shows it, and the words the post shows (a result that shows no "
+                               "link to its post still names it in its own `data-chameleon-result-urn`, "
+                               "`urn:li:activity:<number>`: its link is then "
+                               "`https://www.linkedin.com/feed/update/<that urn>/`)"),
     # G232 (owner 2026-11-04: "offer the website connection through browser harness, just like a toggle switch …
     # Same for TikTok, same for Pinterest, same for Reddit"). Each files under its export's own origin and folder, so
     # a post the export (or Reddit's connector) brought in is the same row, and every one is index-only (ruling 30).
@@ -87,6 +131,11 @@ PLATFORMS: dict[str, Platform] = {
     # are books, held for the person's choice (`goodreads_waiting`) instead of saved as links.
     "reddit": Platform("reddit", "Reddit", "Saved", "https://www.reddit.com/user/me/saved/", "", "reddit-saved",
                        "Saved posts", "reddit.com", "to read your saved posts", ("reddit.com",)),
+    # G245: the posts and comments the person upvoted — the export's `post_votes.csv` label on its own origin
+    # (`history_index.LIST_FOLDERS` makes it index-only). Reddit has no folders.
+    "reddit-upvoted": Platform("reddit-upvoted", "Reddit", "Upvoted", "https://www.reddit.com/user/me/upvoted/", "",
+                               "reddit-saved", "Upvoted", "reddit.com", "to read your upvoted posts",
+                               ("reddit.com",), base="reddit"),
     "pinterest": Platform("pinterest", "Pinterest", "Saved Pins", "https://www.pinterest.com/",
                           " — open the person's profile, then Saved, then All Pins", "pinterest-saved", "Saved",
                           "pinterest.com", "to read your saved Pins", ("pinterest.com",)),
@@ -107,10 +156,45 @@ PAUSING = ("needs_login", "blocked")
 OUTCOMES = ("read", "needs_login", "blocked", "failed")
 #: Recorded reads a UTC day per bank, across the three sites (G206: the LinkedIn profile read's bound until measured).
 DAILY_READS = 10
+#: G245: one *read* of a list is a pass — its All page, then up to :data:`FOLDERS_PER_PASS` folders — recorded in as many
+#: calls as it takes (the agent sets ``continues`` on each after the first). The whole pass counts once against
+#: :data:`DAILY_READS`: a call that continues an open pass is not counted again. A pass stays open this long after its
+#: last call, and for at most :data:`PASS_CALLS` calls, so ``continues`` cannot be a way round the bound.
+PASS_WINDOW = timedelta(hours=3)
+PASS_CALLS = 20
+#: Ruling 78 as amended 2026-11-24 (owner: "check also we capture all my saved x posts and linkedin posts at first
+#: correctly"; measured that night on a real list of 377 posts: its end was about 190 screens down, so twenty screens
+#: kept one post in ten and nothing ever fetched the rest). **A list is read to its end once**: until a read says it
+#: reached the end (``reached_end``, kept as ``whole``), every read of the list is asked to go all the way, known posts
+#: are no reason to stop, and its pass may take this many calls (200 posts each). After that a read only looks for what
+#: is new. Still one pass, one read against the day.
+WHOLE_PASS_CALLS = 500
+#: The folders (X bookmark folders, Instagram collections) one read opens after the All page, least recently read first
+#: (``folder_pass``).
+FOLDERS_PER_PASS = folder_pass.FOLDERS_PER_PASS
+#: How far a read scrolls and when it has caught up (``folder_pass``): the first read of a list goes deeper to catch up;
+#: a later one stops at what is already kept (the record's reply says when it has). Older items still come with the
+#: site's export.
+FIRST_READ_SCREENS = folder_pass.FIRST_READ_SCREENS
+LATER_READ_SCREENS = folder_pass.LATER_READ_SCREENS
+FOLDER_SCREENS = folder_pass.FOLDER_SCREENS
+KNOWN_RUN = folder_pass.KNOWN_RUN
 
 
 def path() -> Path:
     return cicada_home() / FILENAME
+
+
+def base_of(key: str) -> str:
+    """The key whose site ``key`` shares (``x`` for ``x-likes``), or ``key`` itself for a site's first list."""
+    platform = PLATFORMS.get(key)
+    return (platform.base if platform is not None else "") or key
+
+
+def siblings(key: str) -> list[str]:
+    """Every key of ``key``'s site, its base first."""
+    base = base_of(key)
+    return [k for k in PLATFORMS if base_of(k) == base]
 
 
 def _now(now: datetime | None) -> datetime:
@@ -185,20 +269,31 @@ def allowed(key: str) -> bool:
 
 
 def pause_key(key: str) -> str:
-    """The key a list's pause is kept under: a list with a ``base`` site (its likes, its connections) shares that site's
-    pause — a login wall on the site pauses every list of it, and a read of any one proves the sign-in for all. A table
-    entry with no ``base`` is its own."""
-    return getattr(PLATFORMS.get(key), "base", None) or key
+    """The key a list's pause is kept under: its site's (:func:`base_of`). A login wall on a site pauses every list of
+    it, and a read of any one proves the sign-in for all; a list with no ``base`` is its own."""
+    return base_of(key)
 
 
 def paused_until(key: str, now: datetime | None = None) -> datetime | None:
+    """When ``key``'s pause ends. The pause is the site's: a login wall met on X likes pauses X bookmarks too, and only
+    "I signed in" / Try again lifts it (G245: one rule for every list of a site, stored under the site's first key)."""
     until = _parse((_load().get("paused_until") or {}).get(pause_key(key)))
     return until if until is not None and until > _now(now) else None
 
 
 def last(memory_path: Path, key: str) -> dict:
-    entry = ((_load().get("banks") or {}).get(_bank_key(memory_path)) or {}).get(key)
-    return entry if isinstance(entry, dict) else {}
+    banks = (_load().get("banks") or {}).get(_bank_key(memory_path)) or {}
+    entry = banks.get(key)
+    entry = dict(entry) if isinstance(entry, dict) else {}
+    for sibling in siblings(key):
+        # Every list of a site is the same person (ROR-114): the handle and profile link one of them recorded show on
+        # all. Read, never written to another list's entry, so a list never looks read for want of a read.
+        held = banks.get(sibling) if sibling != key else None
+        if isinstance(held, dict):
+            for who in ("handle", "profile_url"):
+                if held.get(who) and not entry.get(who):
+                    entry[who] = held[who]
+    return entry
 
 
 def reads_today(memory_path: Path, now: datetime | None = None) -> int:
@@ -303,30 +398,104 @@ def clean_profile_url(key: str, value) -> str | None:
     return f"https://{host}{parsed.path}"
 
 
+def whole(memory_path: Path, key: str) -> bool:
+    """Has a read of ``key``'s list reached its end (:data:`WHOLE_PASS_CALLS`)? Until one has, the list is not all in
+    memory and the next read is asked to go to the end."""
+    return last(memory_path, key).get("whole") is True
+
+
+def pass_calls(memory_path: Path, key: str) -> int:
+    """The calls one pass of ``key``'s list may take: far more while the list has not been read to its end."""
+    return PASS_CALLS if whole(memory_path, key) else WHOLE_PASS_CALLS
+
+
+def pass_open(memory_path: Path, key: str, now: datetime | None = None) -> bool:
+    """Is a pass of ``key``'s list open — a read whose first call was counted, whose last was within
+    :data:`PASS_WINDOW`, with calls to spare? Only such a pass can be continued (G245)."""
+    entry = last(memory_path, key)
+    return _pass_open(entry.get("pass"), _now(now), entry.get("whole") is True)
+
+
+def _pass_open(held, moment: datetime, is_whole: bool = True) -> bool:
+    if not isinstance(held, dict):
+        return False
+    at = _parse(held.get("at"))
+    calls = PASS_CALLS if is_whole else WHOLE_PASS_CALLS
+    return at is not None and moment - at < PASS_WINDOW and int(held.get("calls") or 0) < calls
+
+
 def note(memory_path: Path, key: str, outcome: str, *, items: int = 0, handle: str | None = None,
-         profile_url: str | None = None, now: datetime | None = None) -> None:
+         profile_url: str | None = None, continues: bool = False, reached_end: bool = False,
+         now: datetime | None = None) -> bool:
     """Record an outcome. A read counts toward the day and clears that site's pause (the agent was signed in);
     ``needs_login``/``blocked`` start one. ``handle`` and ``profile_url`` (already cleaned) are kept beside it, in this
-    machine state and never a bank; one not given leaves the last one standing."""
+    machine state and never a bank; one not given leaves the last one standing.
+
+    ``continues`` (G245): this read carries on an open pass of the same list (:func:`pass_open`) — it adds to the pass's
+    items and is **not** counted again. With no open pass it is a new read, counted like any. Returns whether the call
+    was counted against the day.
+
+    ``reached_end``: this read got to the end of the list (the page stopped growing), so the whole list is in memory
+    from now on (:func:`whole`); kept until the list's entry is gone."""
     moment = _now(now)
+    counted = False
     with _locked() as data:
         bank = _bank_key(memory_path)
-        entry = data.setdefault("banks", {}).setdefault(bank, {}).setdefault(key, {})
+        banks = data.setdefault("banks", {}).setdefault(bank, {})
+        entry = banks.setdefault(key, {})
         entry.update(at=moment.isoformat(), outcome=outcome)
         entry.pop("check_requested_at", None)   # an attempt, whatever its outcome, answers a requested check
         if handle:
             entry["handle"] = handle
         if profile_url:
             entry["profile_url"] = profile_url
+        base = pause_key(key)
         pauses = data.setdefault("paused_until", {})
         if outcome == "read":
+            held_pass = entry.get("pass")
+            if continues and _pass_open(held_pass, moment, entry.get("whole") is True):
+                entry["pass"] = {"at": moment.isoformat(), "calls": int(held_pass.get("calls") or 0) + 1}
+                items = int(entry.get("items") or 0) + int(items)
+            else:
+                entry["pass"] = {"at": moment.isoformat(), "calls": 1}
+                _count(data, bank, moment)
+                counted = True
             entry.update(read_at=moment.isoformat(), items=int(items))
-            pauses.pop(pause_key(key), None)
-            _count(data, bank, moment)
+            if reached_end:
+                entry["whole"] = True
+            pauses.pop(base, None)
         elif outcome in PAUSING:
-            pauses[pause_key(key)] = (moment + PAUSE).isoformat()
+            pauses[base] = (moment + PAUSE).isoformat()
+            entry.pop("pass", None)
         if not pauses:
             data.pop("paused_until", None)
+    return counted
+
+
+def note_folders(memory_path: Path, key: str, names: list[str]) -> None:
+    """The folders the site listed on the All page (``names``, cleaned; empty for a site or account with none): how many
+    there are, kept as a count. Nothing else of them is kept here."""
+    with _locked() as data:
+        entry = data.setdefault("banks", {}).setdefault(_bank_key(memory_path), {}).setdefault(key, {})
+        entry["folder_count"] = len(names)
+
+
+def folder_count(memory_path: Path, key: str) -> int:
+    """How many folders the site last listed for this list; 0 when it showed none or was never asked."""
+    return int(last(memory_path, key).get("folder_count") or 0)
+
+
+def next_folders(memory_path: Path, names: list[str], key: str) -> list[str]:
+    """The folders to open after the All page: at most :data:`FOLDERS_PER_PASS` of ``names``, the ones never read first
+    (in the order the site listed them), then the least recently read."""
+    return folder_pass.order(names, last(memory_path, key).get("folder_reads"))
+
+
+def stamp_folder(memory_path: Path, key: str, name: str, now: datetime | None = None) -> None:
+    """One folder's own page was read now (the order :func:`next_folders` rotates by). Only a hash is kept."""
+    with _locked() as data:
+        entry = data.setdefault("banks", {}).setdefault(_bank_key(memory_path), {}).setdefault(key, {})
+        entry["folder_reads"] = folder_pass.stamped(entry.get("folder_reads"), name, _now(now).isoformat())
 
 
 def _count(data: dict, bank: str, moment: datetime) -> None:
@@ -366,7 +535,8 @@ _X_HOSTS = ("x.com", "twitter.com")
 _X_STATUS = re.compile(r"^/(?:(?P<user>[A-Za-z0-9_]{1,15})|i(?:/web)?)/status/(?P<id>\d{1,25})(?:/|$)")
 _X_RESERVED = frozenset({"i", "home", "search", "explore", "settings", "messages", "notifications"})
 _IG_POST = re.compile(r"^/(?:[A-Za-z0-9._]{1,30}/)?(?P<kind>p|reel|tv)/(?P<code>[A-Za-z0-9_-]{5,64})(?:/|$)")
-_LI_POST = re.compile(r"^/(?:feed/update/urn:li:(?:activity|share|ugcPost):\d{5,25}|posts/[^/?#\s]{3,300})(?:/|$)")
+#: A saved article is listed with the other saved posts, as ``urn:li:article`` (measured 2026-11-24: one in 76).
+_LI_POST = re.compile(r"^/(?:feed/update/urn:li:(?:activity|share|ugcPost|article):\d{5,25}|posts/[^/?#\s]{3,300})(?:/|$)")
 #: A post or a comment on Reddit: ``/r/<sub>/comments/<id>[/<slug>[/<comment id>]]``.
 _REDDIT_POST = re.compile(r"^/r/(?P<sub>[A-Za-z0-9_]{2,21})/comments/(?P<id>[a-z0-9]{3,12})"
                           r"(?:/(?P<slug>[^/?#\s]{1,120})(?:/(?P<comment>[a-z0-9]{3,12}))?)?/?$")
@@ -394,6 +564,7 @@ def canonical(key: str, url) -> tuple[str, tuple[str, ...]] | None:
         return None
     if parsed.scheme not in ("http", "https"):
         return None
+    key = base_of(key)   # a second list of a site (X likes) holds the site's own posts: one address rule
     host = (parsed.hostname or "").lower()
     path_ = parsed.path or "/"
     if key == "x":
@@ -456,6 +627,19 @@ def canonical(key: str, url) -> tuple[str, tuple[str, ...]] | None:
 # --- the offer ------------------------------------------------------------------------------------
 
 
+def screens_words(memory_path: Path, key: str) -> str:
+    """How far this read goes, in the words the agent gets (G245): the first read of a list catches up; a later one stops
+    where the list reaches what is already kept."""
+    if not whole(memory_path, key):
+        return ("This list has not been read to its end yet, so read all of it this time: keep scrolling until the list "
+                "stops growing (a few more tries bring no new post), however long it is, recording as you go in calls "
+                "of up to 200 posts, newest first. Posts already in memory are no reason to stop this time. On the last "
+                "call set `reached_end=true`; if you have to stop before the end, leave it out and the next read "
+                "carries on.")
+    return (f"Scroll only until you reach posts already in memory, and at most {LATER_READ_SCREENS} screens: the reply to "
+            "each call says when you have reached them. Record as you go, newest first.")
+
+
 def queue_lines(memory_path: Path, *, can_record: bool, now: datetime | None = None) -> list[str]:
     """The reading queue's lines for the list that is due — empty when none is (or agent reading is off)."""
     keys = due(memory_path, now)
@@ -464,17 +648,32 @@ def queue_lines(memory_path: Path, *, can_record: bool, now: datetime | None = N
     p = PLATFORMS[keys[0]]
     if p.key == "goodreads":
         return _goodreads_lines(can_record)
-    lines = [f"- The person's {p.name} {p.label}: {p.url}{p.how} — read each post's link, its author as the page "
-             "shows it, and the words the post shows."]
-    tail = (f"Record it with `cicada_record_saved_list(platform, outcome, items=[{{url, author, text}}], via)` "
-            f"(platform `{p.key}`). If {p.name} asks you to sign in, do not sign in or type credentials: record "
+    lines = [f"- The person's {p.name} {p.label}: {p.url}{p.how} — read each post's link, {p.reads}."]
+    lines.append(f"{screens_words(memory_path, p.key)} Add `posted` (YYYY-MM-DD) to a row only when the page shows the "
+                 "post's own date as a day; leave it out for \"3 days ago\" or nothing.")
+    if p.folders:
+        lines.append(
+            f"If {p.name} lets the person keep these posts in folders ({'bookmark folders' if p.key == 'x' else 'collections'}), "
+            f"each folder is its own page: after the All page, send the folders' names as `folder_names` (an empty list "
+            f"when there are none, which is common), and the reply names the {FOLDERS_PER_PASS} at most to open next. "
+            "Open each and record it with `folder=\"<its name>\"` and `continues=true` (scroll at most "
+            f"{FOLDER_SCREENS} screens; its posts need no `folders`). One read of this list, all its calls together, "
+            "counts once.")
+    tail = (f"Record it with `cicada_record_saved_list(platform, outcome, items=[{{url, author, text, posted}}], via)` "
+            f"(platform `{p.key}`); when a read takes more than one call, set `continues=true` on every call after the "
+            f"first. If {p.name} asks you to sign in, do not sign in or type credentials: record "
             "`needs_login` and stop."
             if can_record else
             f"If {p.name} asks you to sign in, do not sign in or type credentials: stop and tell the person.")
-    return [f"The person asked their agent to keep their saved {p.name} posts current in Cicada. Open this list in "
-            "their own signed-in browser session; read only the list (scroll at most a few screens), never their "
-            "feed or messages, and never click anything that changes the list (no unsave, like, follow or "
+    return [f"The person asked their agent to keep their {p.name} {_what(p)} current in Cicada. Open this list in "
+            "their own signed-in browser session; read only the list, never their "
+            "feed, timeline or messages, and never click anything that changes the list (no unsave, like, follow or "
             "reply)."] + lines + [tail]
+
+
+def _what(p: Platform) -> str:
+    """What the list is called in a sentence: the saved posts of a site's first list, the list's own name for a second."""
+    return f"{p.label.lower()}" if p.base else "saved posts"
 
 
 def _goodreads_lines(can_record: bool) -> list[str]:

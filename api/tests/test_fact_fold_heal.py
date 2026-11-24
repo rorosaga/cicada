@@ -155,18 +155,53 @@ def test_equal_and_extending_bullets_fold_by_the_rule_with_no_call():
     assert sorted(s for f in row["folds"] for s in f["sources_move"]) == ["ep_0", "ep_2"]
 
 
-def test_a_bullet_no_row_proves_sleep_wrote_is_never_dropped_and_never_held(tmp_path):
-    bank = _bank(tmp_path, _convs(FAMILY))
+def _typed(bank, after, *lines):
+    """Lines no provenance row covers (written before the rows existed, or typed), right after the bullet ``after``."""
     path = bank / "entities" / f"{PAGE}.md"
     parsed = markdown_parser.parse(path)
-    # a person typed a copy of the first line: no provenance row
-    body = parsed.body.replace("- Plays chess on weekends", "- Plays chess on weekends\n- Has been vegetarian since 2019, typed by hand")
+    assert f"- {after}\n" in parsed.body
+    body = parsed.body.replace(f"- {after}\n", f"- {after}\n" + "".join(f"- {line}\n" for line in lines))
     markdown_parser.write(path, parsed.frontmatter, body)
+
+
+def test_a_line_with_no_source_rows_folds_into_a_sourced_line_that_says_it_in_full(tmp_path):
+    """Owner 2026-11-24: an old line with no source record may go when a sourced line says the same thing in full."""
+    bank = _bank(tmp_path, _convs(FAMILY))
+    old = "Vegetarian from 2019 onwards"
+    _typed(bank, "Plays chess on weekends", old)
     read, _ = _read(bank)
     assert read.rowed.count(False) == 1
-    row, _ = _plan(bank, Judge(everything=True), chunk=1)
-    assert all("typed by hand" not in f["drop"] and "typed by hand" not in f["into"] for f in row["folds"])
-    assert row["rowless_kept"] == 1
+    row, _ = _plan(bank, Judge({old: "Has been vegetarian since 2019"}), chunk=1)
+    fold = next(f for f in row["folds"] if f["drop"] == old)
+    assert fold["into"] == "Has been vegetarian since 2019" and fold["unsourced"] is True and fold["sources_move"] == []
+    assert (row["rowless_kept"], row["unsourced_dropped"]) == (0, 1)
+    before = (bank / "entities" / f"{PAGE}.md").read_text(encoding="utf-8")
+    result = _apply(bank, row)
+    assert result.counts()["pages_written"] == 1 and result.counts()["folds_skipped"] == {}
+    page = _page(bank, bank / "entities" / f"{PAGE}.md")
+    assert f"- {old}\n" in before and old not in page["body"]
+    rows = section_provenance.matched(page["frontmatter"], page["body"])["key_facts"]
+    scan = {i.text: i for i in section_provenance.scan(page["body"])["key_facts"]}
+    assert "ep_2026-11-01_001" in {ev.episode for ev in rows[scan["Has been vegetarian since 2019"].key][1]}
+
+
+def test_a_line_with_no_source_rows_never_holds_another(tmp_path):
+    bank = _bank(tmp_path, _convs(FAMILY))
+    longer = "Plays chess on weekends, usually at the club"       # word for word extends a sourced line: it cannot hold it
+    said = "On the balcony grows tomatoes"
+    _typed(bank, "Plays chess on weekends", longer, said)
+    # the judge names the sourced line as the one to drop, both times
+    row, _ = _plan(bank, Judge({"Plays chess on weekends": longer, "Grows tomatoes on the balcony": said}), chunk=1)
+    assert all(f["into"] not in (longer, said) for f in row["folds"])
+    assert "Plays chess on weekends" not in {f["drop"] for f in row["folds"]}
+    # the second pair says the same both ways, so it is turned round: the unsourced line goes, the sourced one holds
+    turned = [f for f in row["folds"] if f["drop"] == said]
+    assert turned and turned[0]["into"] == "Grows tomatoes on the balcony" and turned[0]["unsourced"] is True
+    assert any(r["stage"] == "the kept line has no source record" for r in row["refused"])
+    # a plan file edited by hand to keep an unsourced line is refused at apply
+    forged = {**row, "folds": [{"id": f"{PAGE}#9", "drop": "Plays chess on weekends", "into": longer, "strike": False}]}
+    result = _apply(bank, forged)
+    assert result.counts()["pages_written"] == 0 and result.counts()["folds_skipped"] == {"no_source_rows": 1}
 
 
 def test_a_second_sweep_asks_again_about_what_the_first_left_and_a_quiet_one_ends_it(tmp_path):

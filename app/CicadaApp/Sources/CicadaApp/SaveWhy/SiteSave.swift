@@ -751,6 +751,27 @@ enum SiteSaveReader {
     }
 }
 
+/// A save click read on a site the person has not connected (ruling 77b): the post, which way the control went, and
+/// what the click would have taught this Mac. A value in memory, handed to the connect offer; kept only on Yes.
+struct SiteSaveCandidate: Equatable, Sendable {
+    enum Lesson: Equatable, Sendable {
+        case labels(was: String, now: String, outcome: SiteSaveRule.Outcome)
+        case menu(seen: SiteMenuRule.Seen, saved: String?, unsaved: String?)
+    }
+
+    var item: SiteSaveItem
+    var outcome: SiteSaveRule.Outcome
+    var text: String
+    var folder: String?
+    var lesson: Lesson?
+
+    /// A click that put the post on the list, or changed the control in a direction nothing settled, brings the
+    /// offer; an unsave or a click that changed nothing does not.
+    var offers: Bool { outcome == .saved || outcome == .changed }
+    /// Whether the offer hears of it at all: an unsave is told too, so a save it holds for that post is let go.
+    var matters: Bool { offers || outcome == .unsaved }
+}
+
 /// Watches the pointer and the person's clicks in the front browser and reports a save. One global monitor while a
 /// browser is in front (mouse moves and mouse-downs; the same permission-free kind the bookmark bubble uses); the
 /// reads need the Accessibility grant, and without it nothing is armed.
@@ -760,6 +781,11 @@ enum SiteSaveReader {
 /// a tap is over before any read could finish. So a rest of `restDelay` on a control reads its row and keeps it in
 /// memory (never stored; replaced by the next rest, dropped when the browser leaves the front); a click near it
 /// then compares that with the row a moment later. A rest on anything else keeps nothing.
+///
+/// **A site that is not connected (ruling 77b, owner 2026-11-24).** While its offer may still show
+/// (`ConnectSuggestPolicy.listens`), the front tab's site is read the same way, so the person's own save click there
+/// can bring the offer at that moment. What is read is held in memory only (`SiteSaveCandidate`): nothing is stored,
+/// nothing is learned and nobody is asked unless the person answers Yes.
 @MainActor
 final class SiteSaveWatcher {
     /// The browsers whose pages are read (`BrowserInventory`'s supported ones).
@@ -786,8 +812,24 @@ final class SiteSaveWatcher {
     var offers: () -> Bool = { false }
     /// The pointer rests on a page of a site the person has not connected: what the connect offer listens to. Said
     /// once per visit (again only after the pointer has been on another site or none).
-    var onSite: ((SiteSaveSite, pid_t, String) -> Void)?
+    /// Answers whether the visit is spent (an offer showed, or the site is not to be offered): a refusal about the
+    /// moment alone is asked again at the next rest.
+    var onSite: ((SiteSaveSite, pid_t, String) -> Bool)?
     private var lastSite: String?
+    /// The sites not connected whose save click may still bring the offer (ruling 77b; none: no such page is read).
+    var candidates: () -> [SiteSaveSite] = { [] }
+    /// The person clicked the save control of a site they have not connected.
+    var onCandidate: ((SiteSaveCandidate, SiteSaveSite, pid_t, String) -> Void)?
+    /// The candidate site the front tab was on at the pointer's last rest.
+    private var candidate: SiteSaveSite?
+    private var askedWeb = false
+
+    /// What is read now: the connected sites, and the candidate the front tab is on.
+    private func watched() -> [SiteSaveSite] {
+        let connected = sites()
+        guard let candidate, !connected.contains(where: { $0.key == candidate.key }) else { return connected }
+        return connected + [candidate]
+    }
     /// A click changed a save control: the post, which way it went, the post's own words when the page gave them,
     /// and the person's own list it was filed in when the site showed one (YouTube's playlists).
     var onOutcome: ((SiteSaveItem, SiteSaveRule.Outcome, String, String?) -> Void)?
@@ -854,7 +896,8 @@ final class SiteSaveWatcher {
         armedBundle = bundle
         // The browser is asked to build its page tree only once a site is connected: it costs the browser work,
         // and an offer needs only the front tab's address.
-        if !sites().isEmpty { Task.detached(priority: .utility) { SiteSaveReader.askForWebContent(pid: pid) } }
+        askedWeb = !sites().isEmpty
+        if askedWeb { Task.detached(priority: .utility) { SiteSaveReader.askForWebContent(pid: pid) } }
         monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .mouseMoved]) { [weak self] event in
             let location = NSEvent.mouseLocation, down = event.type == .leftMouseDown
             MainActor.assumeIsolated { down ? self?.clicked(atAppKit: location) : self?.moved(atAppKit: location) }
@@ -867,6 +910,8 @@ final class SiteSaveWatcher {
         armedPid = nil
         armedBundle = nil
         lastSite = nil
+        candidate = nil
+        askedWeb = false
         pending?.cancel()
         pending = nil
         rest?.cancel()
@@ -888,19 +933,23 @@ final class SiteSaveWatcher {
         rest = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(Self.restDelay * 1_000_000_000))
             guard !Task.isCancelled, let self, self.armedPid == pid else { return }
-            // The page is read only once a site is connected; before that only the front tab's address is, for the
-            // offer.
-            if !self.sites().isEmpty {
+            // The page itself is read only on a connected site, or on the candidate's own page (ruling 77b; the
+            // candidate is the one the last rest found, so this read waits on nothing).
+            let sites = self.watched()
+            if sites.isEmpty {
+                self.hovered = nil
+                self.hoveredMenu = nil
+            } else {
                 let reading = await Task.detached(priority: .utility) {
                     await SiteSaveReader.settledRead(pid: pid, at: point)
                 }.value
                 guard !Task.isCancelled, self.armedPid == pid else { return }
-                if let reading, case let .success(item) = SiteSaveRule.item(reading, sites: self.sites()) {
+                if let reading, case let .success(item) = SiteSaveRule.item(reading, sites: sites) {
                     self.hovered = Hover(item: item, reading: reading, point: point, at: SaveWhyTimings.now())
                 } else {
                     self.hovered = nil
                 }
-                let menus = self.sites().filter { $0.menu != nil }
+                let menus = sites.filter { $0.menu != nil }
                 if self.hovered == nil, !menus.isEmpty {
                     let menu = await Task.detached(priority: .utility) {
                         await SiteSaveReader.settledReadMenu(pid: pid, at: point, sites: menus)
@@ -911,14 +960,24 @@ final class SiteSaveWatcher {
                     self.hoveredMenu = nil
                 }
             }
-            guard self.offers() else { return }
-            let site = await Task.detached(priority: .utility) { SiteSaveReader.frontSite(pid: pid) }.value
-            guard !Task.isCancelled, self.armedPid == pid else { return }
-            if let site, site.key != self.lastSite, !self.sites().contains(where: { $0.key == site.key }),
-               let bundle = self.armedBundle {
-                self.onSite?(site, pid, bundle)
+            // The front tab's address is read only while an offer may still show: for the offer itself, and to know
+            // whether a save click on this page could bring it.
+            guard self.offers() else {
+                self.candidate = nil
+                return
             }
-            self.lastSite = site?.key
+            let front = await Task.detached(priority: .utility) { SiteSaveReader.frontSite(pid: pid) }.value
+            guard !Task.isCancelled, self.armedPid == pid else { return }
+            if let site = front, !self.sites().contains(where: { $0.key == site.key }), let bundle = self.armedBundle {
+                if site.key != self.lastSite, self.onSite?(site, pid, bundle) ?? true { self.lastSite = site.key }
+            } else {
+                self.lastSite = front?.key
+            }
+            self.candidate = front.flatMap { site in self.candidates().first { $0.key == site.key } }
+            if self.candidate != nil, !self.askedWeb {
+                self.askedWeb = true
+                Task.detached(priority: .utility) { SiteSaveReader.askForWebContent(pid: pid) }
+            }
         }
     }
 
@@ -930,28 +989,45 @@ final class SiteSaveWatcher {
     }
 
     private func clicked(atAppKit location: CGPoint) {
-        guard let pid = armedPid, !sites().isEmpty else { return }
+        let sites = watched()
+        guard let pid = armedPid, !sites.isEmpty else { return }
         let point = screenPoint(location)
         let hover = Self.usable(hovered, at: point, now: SaveWhyTimings.now())
         let menuHover = Self.usable(hoveredMenu, at: point, now: SaveWhyTimings.now())
-        let menus = sites().filter { $0.menu != nil }
+        let menus = sites.filter { $0.menu != nil }
         rest?.cancel()
         pending?.cancel()
         pending = Task { [weak self] in
             guard let self else { return }
             if !menus.isEmpty, await self.menuClick(pid: pid, point: point, hover: menuHover, sites: menus) { return }
-            let found = await Self.follow(pid: pid, point: point, hover: hover, sites: self.sites(),
+            let found = await Self.follow(pid: pid, point: point, hover: hover, sites: sites,
                                           learned: self.prefs.allLabels)
             guard !Task.isCancelled, let found else { return }
             // The control's new state is what a second click on it starts from (the pointer has not moved).
             self.hovered = Hover(item: found.item, reading: found.seen, point: point, at: SaveWhyTimings.now())
+            let text = SiteSaveRule.text(of: found.seen, item: found.item)
+            guard self.sites().contains(where: { $0.key == found.item.site }) else {
+                // Not connected (ruling 77b): nothing is learned or stored; the click only brings the offer.
+                let lesson = found.teaches
+                    ? SiteSaveCandidate.Lesson.labels(was: found.was, now: found.now, outcome: found.outcome) : nil
+                self.offer(SiteSaveCandidate(item: found.item, outcome: found.outcome, text: text, folder: nil,
+                                             lesson: lesson), pid: pid)
+                return
+            }
             if found.teaches {
                 self.prefs.learn(found.item.site, was: found.was, now: found.now, outcome: found.outcome)
             }
-            if found.outcome != .none {
-                self.onOutcome?(found.item, found.outcome, SiteSaveRule.text(of: found.seen, item: found.item), nil)
-            }
+            if found.outcome != .none { self.onOutcome?(found.item, found.outcome, text, nil) }
         }
+    }
+
+    /// A save click on a site that is not connected: handed to the connect offer when it is one that offers.
+    private func offer(_ found: SiteSaveCandidate, pid: pid_t) {
+        guard found.matters, let site = SiteSaveSite.named(found.item.site), let bundle = armedBundle else { return }
+        SiteSaveReader.logger.info("""
+            save control on \(site.key, privacy: .public), not connected: \(found.outcome.rawValue, privacy: .public)
+            """)
+        onCandidate?(found, site, pid, bundle)
     }
 
     /// The rest's reading of a menu, for a click inside the same item while it is fresh.
@@ -1003,6 +1079,14 @@ final class SiteSaveWatcher {
         case let .success(found):
             let settled = Self.settle(reading, item: found.item, site: site, learned: prefs.labels(site.key),
                                       seen: prefs.seen(site.key))
+            guard sites().contains(where: { $0.key == site.key }) else {
+                // Not connected (ruling 77b): what the click would teach rides with the offer, kept only on Yes.
+                offer(SiteSaveCandidate(item: found.item, outcome: settled.verdict.outcome, text: found.text,
+                                        folder: found.folder,
+                                        lesson: .menu(seen: settled.seen, saved: settled.verdict.saved,
+                                                      unsaved: settled.verdict.unsaved)), pid: pid)
+                return true
+            }
             prefs.setSeen(site.key, settled.seen)
             prefs.teach(site.key, saved: settled.verdict.saved, unsaved: settled.verdict.unsaved)
             SiteSaveReader.logger.info("""
@@ -1126,6 +1210,16 @@ struct SiteSavePrefs {
         guard known.saved.count <= 12, known.unsaved.count <= 12,
               let data = try? JSONEncoder().encode(known) else { return }
         defaults.set(data, forKey: Self.labelsKey(site))
+    }
+    /// The offer was answered Yes: what the held click taught is kept now (ruling 77b).
+    func keep(_ lesson: SiteSaveCandidate.Lesson?, site: String) {
+        switch lesson {
+        case let .labels(was, now, outcome): learn(site, was: was, now: now, outcome: outcome)
+        case let .menu(seen, saved, unsaved):
+            setSeen(site, seen)
+            teach(site, saved: saved, unsaved: unsaved)
+        case nil: break
+        }
     }
     var allLabels: [String: SiteSaveRule.Labels] {
         Dictionary(uniqueKeysWithValues: SiteSaveSite.all.map { ($0.key, labels($0.key)) })

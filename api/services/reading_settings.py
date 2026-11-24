@@ -165,8 +165,11 @@ def never_explore() -> dict[str, str]:
     return out
 
 
-#: The YouTube lists an agent may be asked to read (``youtube_lists.LISTS``' keys).
-YOUTUBE_LISTS = ("watch_later", "history")
+#: The YouTube lists an agent may be asked to read (``youtube_lists.LISTS``' keys). G245: the playlists index (each
+#: playlist's own page) and the liked videos (``list=LL``) join Watch later and history; neither is ever on by default.
+YOUTUBE_LISTS = ("watch_later", "history", "playlists", "liked")
+#: The YouTube lists :func:`apply_list_defaults` may turn on (owner 2026-10-26: onboarding pre-ticks them).
+DEFAULT_ON_YOUTUBE_LISTS = ("watch_later", "history")
 
 
 def youtube_lists() -> dict[str, str]:
@@ -182,7 +185,10 @@ def youtube_list_allowed(name: str) -> bool:
 
 
 #: The saved lists on walled sites an agent may be asked to read (G206; ``saved_lists.PLATFORMS``' keys).
-SAVED_LISTS = ("x", "instagram", "linkedin", "reddit", "pinterest", "tiktok", "spotify", "goodreads")
+#: G245: ``x-likes``, ``instagram-likes`` and ``reddit-upvoted`` are second lists of a site (``Platform.base``); the order is
+#: ``saved_lists.PLATFORMS``' (a test holds the two together). None of them is ever on by default.
+SAVED_LISTS = ("x", "x-likes", "instagram", "instagram-likes", "linkedin", "reddit", "reddit-upvoted", "pinterest",
+               "tiktok", "spotify", "goodreads")
 #: The saved lists :func:`apply_list_defaults` may turn on (owner 2026-10-26: onboarding pre-ticks them and an off is
 #: remembered). G232's Reddit, Pinterest and TikTok lists are off until the person turns one on: the app has no switch
 #: or onboarding row for them yet, so no consent and no visible off exist to rest a default on (review of #596).
@@ -247,7 +253,7 @@ def apply_list_defaults(*, detected: set[str], read_before: set[str] = frozenset
     day = (today or date.today()).isoformat()
     changed: list[str] = []
     defaulted = data.get("lists_defaulted") if isinstance(data.get("lists_defaulted"), dict) else {}
-    for family, keys, account in (("youtube", YOUTUBE_LISTS, lambda _k: "youtube"),
+    for family, keys, account in (("youtube", DEFAULT_ON_YOUTUBE_LISTS, lambda _k: "youtube"),
                                   ("saved", DEFAULT_ON_SAVED_LISTS, lambda k: k)):
         on_key, off_key = f"{family}_lists", f"{family}_lists_off"
         on = data.get(on_key) if isinstance(data.get(on_key), dict) else {}
@@ -290,10 +296,12 @@ def snapshot() -> dict:
         "ackCurrent": ack_current(),
         "exploreSignedIn": explore_signed_in(),
         "neverExplore": never_explore(),
-        "youtubeLists": {"watchLater": "watch_later" in lists, "history": "history" in lists},
+        "youtubeLists": {"watchLater": "watch_later" in lists, "history": "history" in lists,
+                         "playlists": "playlists" in lists, "liked": "liked" in lists},
         "savedLists": {k: k in saved for k in SAVED_LISTS},
         # 2026-10-26: the lists the person turned off (an off is remembered; nothing automatic turns it on again).
-        "youtubeListsOff": {"watchLater": "watch_later" in yt_off, "history": "history" in yt_off},
+        "youtubeListsOff": {"watchLater": "watch_later" in yt_off, "history": "history" in yt_off,
+                            "playlists": "playlists" in yt_off, "liked": "liked" in yt_off},
         "savedListsOff": {k: k in saved_off for k in SAVED_LISTS},
         # G89 (2026-11-04): the Substack lists the person's own agent keeps current, and the ones turned off.
         "substackLists": {k: k in substack for k in SUBSTACK_LISTS},
@@ -358,8 +366,8 @@ def update(*, agent_enabled_: bool | None = None, acknowledge: bool = False, sit
             data.pop("never_explore", None)
     if youtube_lists_ is not None:
         if not isinstance(youtube_lists_, dict) or any(str(k) not in YOUTUBE_LISTS for k in youtube_lists_):
-            raise SettingsError("youtubeLists must be a map of watch_later or history to true or false. "
-                                "Nothing was changed.")
+            raise SettingsError("youtubeLists must be a map of watch_later, history, playlists or liked to true or "
+                                "false. Nothing was changed.")
         if any(youtube_lists_.values()) and not _ack_ok(data):
             raise SettingsError(
                 "Read the sheet and tick I understand before turning this on. Nothing was changed.")
@@ -386,8 +394,8 @@ def update(*, agent_enabled_: bool | None = None, acknowledge: bool = False, sit
     if saved_lists_ is not None:
         # G206: the same standing ask as a YouTube list, one per walled site's saved list.
         if not isinstance(saved_lists_, dict) or any(str(k) not in SAVED_LISTS for k in saved_lists_):
-            raise SettingsError("savedLists must be a map of x, instagram, linkedin, reddit, pinterest, tiktok, spotify or goodreads to true or false."
-                                "Nothing was changed.")
+            raise SettingsError(f"savedLists must be a map of {', '.join(SAVED_LISTS[:-1])} or {SAVED_LISTS[-1]} to "
+                                "true or false. Nothing was changed.")
         if any(saved_lists_.values()) and not _ack_ok(data):
             raise SettingsError(
                 "Read the sheet and tick I understand before turning this on. Nothing was changed.")

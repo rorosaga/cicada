@@ -92,4 +92,10 @@ cannot see a one-in-ten defect; both cost cents and need only `ANTHROPIC_API_KEY
   first mention, one established page re-read. Each replay plays the batches through `plan`, applies the decisions to a
   small simulated bank as the resolver and `same_name_tend` do, runs the end-of-drain review, and scores wrong joins,
   wrong splits, questions asked and whether the end state is what the story expects. `--module OLD.py` replays the code
-  before a change (the stories' baseline).
+  before a change (the stories' baseline). Each batch is a night: the review runs after it, on the pairs and pages
+  that batch flagged and no others, as the product does (2026-11-24; reviewing every doubt hid a pair nothing flagged).
+- `same_name_e2e.py`: one small story through **the real Sleep** on a scratch bank (the stager, Stage 1's own
+  descriptions, the store, the tail, git), about $0.20 a run. The stories above are a simulated bank and twice hid a
+  defect only the real path has; run this before landing a change to who a mention belongs to. Its fixture
+  (`same_name_e2e_join.json`) is a doubt a later conversation links, beside a pair nothing links and one person whose
+  life moves on; `expect` names the first names that must end as one page and as two.

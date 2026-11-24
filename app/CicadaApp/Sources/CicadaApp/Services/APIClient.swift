@@ -2865,12 +2865,27 @@ actor APIClient {
     /// for unlocked notes only. A backend that predates it ignores the key.
     /// ROR-15: `pinned` is the dump's notes the person pinned in Notes; nil (no key) is "could not tell", which leaves
     /// every pin as it was, while an empty list says none is pinned.
+    /// A.4 (G245): `folderPaths` is each unlocked note's folder path (outermost first) by note id and `folders` every folder
+    /// in Notes' own order, both beside the dump so a backend that predates them ignores the keys; a locked note has no
+    /// entry. Empty ones are not sent.
     func syncNotes(dump: String, accounts: [String: String], locked: [String],
-                   lockedKeys: [String], pinned: [String]? = nil) async throws -> NoteSyncResult {
+                   lockedKeys: [String], pinned: [String]? = nil, folderPaths: [String: [String]] = [:],
+                   folders: [AppleNotesReader.NoteFolder] = []) async throws -> NoteSyncResult {
+        return try await post("/sources/sync-notes", body: Self.notesSyncBody(
+            dump: dump, accounts: accounts, locked: locked, lockedKeys: lockedKeys, pinned: pinned,
+            folderPaths: folderPaths, folders: folders))
+    }
+
+    /// The post's body: the dump, and every extra beside it under its own key (pure; tested).
+    static func notesSyncBody(dump: String, accounts: [String: String], locked: [String], lockedKeys: [String],
+                              pinned: [String]?, folderPaths: [String: [String]],
+                              folders: [AppleNotesReader.NoteFolder]) -> [String: Any] {
         var body: [String: Any] = ["notesDump": dump, "lockedNoteIds": locked, "lockedNoteKeys": lockedKeys]
         if !accounts.isEmpty { body["noteAccounts"] = accounts }
         if let pinned { body["pinnedNoteIds"] = pinned }
-        return try await post("/sources/sync-notes", body: body)
+        if !folderPaths.isEmpty { body["noteFolderPaths"] = folderPaths }
+        if !folders.isEmpty { body["noteFolders"] = folders.map { ["account": $0.account, "path": $0.path] } }
+        return body
     }
 
     // MARK: - Local sources (G133 / G134)

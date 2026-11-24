@@ -22,7 +22,8 @@ final class TypeLadderTests: XCTestCase {
     func testIconSizesByRoleScale() {
         CicadaTheme.uiScale = 1.0
         let expected: [(CicadaTheme.IconRole, CGFloat)] = [(.rail, 18), (.railFoot, 17), (.titlebar, 16), (.sidebar, 16),
-                                                           (.list, 14), (.commandBar, 13), (.inline, 12), (.badge, 10)]
+                                                           (.list, 14), (.commandBar, 13), (.inline, 12), (.badge, 10),
+                                                           (.navTile, 13)]
         for (role, points) in expected { XCTAssertEqual(CicadaTheme.iconPoints(role), points, "\(role)") }
         CicadaTheme.uiScale = 1.4
         XCTAssertEqual(CicadaTheme.iconPoints(.rail), 25.2, accuracy: 0.05)

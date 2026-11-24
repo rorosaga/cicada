@@ -242,11 +242,30 @@ def test_two_people_in_doubt_that_the_judge_now_puts_in_one_group_flag_the_pair(
                      frozenset({"marc-2"}))
     b = snp.Identity("page", "marc-2", False, FAM_Q, frozenset({"k2"}), (snp.Item("(2026-10-25) " + FAM_Q, ("k2",)),),
                      frozenset({"marc"}))
-    result = _run(snp.plan("Marc", M[:1], [a, b], _judge(ans("ABC"))))
-    assert result.moves == {}, "one group: nothing is placed apart"
-    assert not result.review, "the plan only flags what it sees as two groups; a single group is the old behaviour"
     both = ans("ABC")
     assert snp.read(both, snp.entries_for(M[:1], [a, b])).single
+    result = _run(snp.plan("Marc", M[:1], [a, b], _judge(both)))
+    assert result.moves == {}, "one group: nothing is placed apart, and nothing is joined here"
+    assert result.review and result.review_pairs == {("marc", "marc-2")}, \
+        "the whole name reads as one person, which is how a doubt usually ends: the pair is looked at again"
+    assert result.review_reasons == ["doubt-may-be-one"]
+
+
+def test_one_group_with_no_doubt_among_the_people_on_record_flags_nothing():
+    a = snp.Identity("page", "marc", True, WORK_Q, frozenset({"k1"}), (snp.Item("(2026-10-04) " + WORK_Q, ("k1",)),))
+    b = snp.Identity("page", "marc-2", False, FAM_Q, frozenset({"k2"}), (snp.Item("(2026-10-25) " + FAM_Q, ("k2",)),))
+    result = _run(snp.plan("Marc", M[:1], [a, b], _judge(ans("ABC"))))
+    assert not result.review and not result.review_pairs and result.moves == {}, \
+        "two people kept apart for good (a split, a refusal) are not a doubt: one group changes nothing"
+
+
+def test_a_doubted_pair_in_one_of_several_groups_is_flagged_too():
+    a = snp.Identity("page", "marc", True, WORK_Q, frozenset({"k1"}), (snp.Item("(2026-10-04) " + WORK_Q, ("k1",)),),
+                     frozenset({"marc-2"}))
+    b = snp.Identity("page", "marc-2", False, WORK_Q, frozenset({"k2"}), (snp.Item("(2026-10-25) " + WORK_Q, ("k2",)),),
+                     frozenset({"marc"}))
+    result = _run(snp.plan("Marc", M[:1], [a, b], _judge(ans("A", "BC", pairs=[(1, 2, "different", FAM_Q, WORK_Q)]))))
+    assert ("marc", "marc-2") in result.review_pairs
 
 
 def test_only_a_bare_name_is_for_this_rule():

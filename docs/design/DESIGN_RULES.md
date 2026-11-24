@@ -27,7 +27,7 @@ Status: **binding** from 2026-09-23. Owner: Rodrigo. Lives at `docs/design/DESIG
 |---|---|---|
 | P-a | **Chrome recedes; the work leads.** Navigation sits a few notches dimmer than content. Selection is brightness plus one neutral fill, never colour. | Linear, "Don't compete for attention you haven't earned" |
 | P-b | **Structure is felt, not seen.** Group with a surface one lightness step up, not with rules and borders. | Linear, "Structure should be felt not seen" |
-| P-c | **One base, one accent, one contrast.** Surfaces are small lightness steps from one base. Hue is spent on identity (data), never decoration. | Linear's Theme Editor |
+| P-c | **One base, one accent, one contrast.** Surfaces are small lightness steps from one base. Hue is spent on identity (data), never decoration; the one other place it is spent is the sidebar's icon tiles, one hue per destination (§3.9, 2026-11-24). | Linear's Theme Editor |
 | P-d | **Hierarchy comes from brightness steps.** Four text steps; size and weight stay put. | Linear's refresh: title and body unchanged, chrome dimmed |
 | P-e | **Keep the density; buy calm with spacing.** Group gaps grow about 8–10%; rows do not get bigger. | Linear's sidebar: +8–10% group gap, same row pitch |
 | P-f | **Actions sit in predictable places.** One header anatomy, with fixed slots on every page. | Linear's header blueprint |
@@ -98,7 +98,7 @@ Direction D takes **Direction C's material** unchanged: the values below are cop
 5. links (`accentText`);
 6. "Recommended" (`accentText`).
 
-It is never used for selection, nav, badges, tabs or chips. `[lint]` An allowlist caps the number of `accent` references per file.
+It is never used for selection, nav, badges, tabs or chips. `[lint]` An allowlist caps the number of `accent` references per file. **The sidebar's tile hues (§3.9) are not the accent and none of them is it:** the accent keeps these six uses and never fills a tile.
 
 **DR-6. Never put small text on an accent fill.** White measures 3.6:1 on `#0A84FF` and 4.0:1 on `#007AFF`. `[test]`
 - A label on an accent fill is at least 13 pt medium, and appears only on the one primary button.
@@ -125,7 +125,7 @@ It is never used for selection, nav, badges, tabs or chips. `[lint]` An allowlis
 | merge | `#F2C744` | `#B48A00` |
 
 - A kind hue appears once per item: as one glyph (≤ 16 pt) or one dot (≤ 8 pt).
-- It is never a rail, a pill fill or a tile.
+- It is never a rail, a pill fill or a tile. (The sidebar's own icon tiles, §3.9, take their hues from their own palette and none of these.)
 - Light merge (2.98:1) and light decay (3.5:1) are never text. Their glyph sits beside the kind's name, or carries it as its accessibility label.
 
 ### 3.5 Elevation
@@ -157,6 +157,7 @@ It is never used for selection, nav, badges, tabs or chips. `[lint]` An allowlis
 | `cornerRadius` | 10 (was 12) | command bar, menus, popovers, the palette, grouped blocks |
 | `cornerRadiusSmall` | 8 | rows, option rows, buttons, rail cells, tabs, fields |
 | `radiusXS` | 4 | keycaps, the span wash (badges and tags are capsules) |
+| `radiusTile` | 6 | the sidebar's 24 pt icon tiles (2026-11-24, §3.9) |
 | spacing | 4 / 8 / 12 / 16 / 24 / 32, plus new `spacingCard` 28 and `spacingGutter` 40 | |
 
 **DR-12. Radii are continuous and concentric.** `[lint]` `ContinuousCornerLintTests`: no bare `RoundedRectangle(cornerRadius:` outside `Theme/`.
@@ -200,6 +201,29 @@ Both values come from the Meadow `meadow` hue (H ≈ 130). Light is `meadow` its
 - **Nodes stay neutral.** Everything drawn on the band is in the text ladder, as a shape: `textPrimary` for done dots, done diamonds and the Today marker ("You, today"); `textSecondary` for planned diamonds and ongoing spans; `textTertiary`, dashed, for a moved milestone's earlier date and the bracket that joins it to the new one. Each node inside the green gets a 2 pt `bgBase` knockout ring. The fill is the band's one hue. Selection is a `textPrimary` ring, never the accent (DR-5).
 - **No plan, no track.** An unplanned project's bar (band and list row) is the fill plus a dashed open end, never a grey remainder: a remainder would read as "almost done". "N of M done" is shown only when there is a plan; there is never a percentage (G141 R-PJ11).
 - **Disclosed:** the unfilled track is not held to 3:1 against its surface: `bgBase` 1.68:1 dark / 1.32:1 light, and `bgSelected` (a selected list row's mini bar) 1.40:1 / 1.15:1. Nothing depends on seeing its end: the plan's end carries the last milestone's `textSecondary` diamond (≥ 7:1) on the band, and "N of M done" or "Next · …" says it in words on the row and in the bar's `.help`.
+
+### 3.9 Navigation tiles: one hue per destination
+
+**DR-82. Each destination wears a flat tile of its own hue, with its symbol in white (owner, 2026-11-24, §9).** `[test]` `NavTilePaletteTests`; `CicadaTheme.tile…` / `navTile(_:)` in `Theme/NavTilePalette.swift` own every value.
+- **The tile.** 24 pt (`ShellMetrics.navTile`), `radiusTile` continuous corners, the resting ring (DR-9), no shadow, no glass, no gradient (a flat fill reads cleaner at 24 pt: a gradient adds a second lightness inside a shape whose only job is to hold one hue and one white glyph). The symbol is `icon(.navTile)` (13 pt medium, outline, DR-53) in `tileGlyph` (white, both themes, since the fill is an identity hue, not a theme surface). Tile and glyph scale with the text size (`scaled`); the radius does not (DR-12).
+- **The same in the labelled sidebar and the rail.** The labelled row is tile, a 10 pt gap, then the name at `rowFont` in `textSecondary` (`textPrimary` when selected or hovered). The rail's 36 pt cell holds the same tile centred, so the two states read as one sidebar.
+- **State never touches the tile.** Selected is `bgSelected` and a `textPrimary` label; hover is `bgRailHover`; focus is the system's (DR-48). A badge (Home's pending count) is the neutral `bgBadge` capsule on the row's trailing edge, or hung off the rail cell's corner as before. While a cycle runs, Sleep's tile holds a small white spinner.
+- **It is separate from the accent and from the data hues.** Nothing here is the accent (DR-5) and nothing equals an entity, status, inbox-kind or semantic hue (DR-7, DR-8); `NavTilePaletteTests.testNoTileIsAnotherTokensValue`. The hue never carries meaning alone: the name is always beside the tile (the rail's tooltip and accessibility label say it there).
+- **Increase Contrast** (`colorSchemeContrast == .increased`) draws the same hue 25 % deeper: the glyph then reads at 4.5:1 or more on every tile.
+
+| Token | Dark | Light | Hue | White glyph, dark / light | Tile on `bgRail`, dark / light |
+|---|---|---|---|---|---|
+| `tileHome` | `#2F6FE4` | `#2563D6` | blue | 4.65 / 5.48 | 4.18 / 4.75 |
+| `tileGraph` | `#32894C` | `#2A7A41` | green | 4.36 / 5.30 | 4.46 / 4.60 |
+| `tileClusters` | `#B38B1D` | `#A67B0E` | amber | 3.17 / 3.85 | 6.14 / 3.34 |
+| `tileSkills` | `#C9382A` | `#B22E1F` | red | 5.14 / 6.36 | 3.78 / 5.52 |
+| `tileSleep` | `#8A80DE` | `#7468CC` | lavender | 3.37 / 4.57 | 5.76 / 3.97 |
+| `tileSources` | `#D6407F` | `#BF356E` | pink | 4.29 / 5.32 | 4.54 / 4.62 |
+| `tileProjects` | `#13877F` | `#0E7871` | teal | 4.38 / 5.32 | 4.45 / 4.62 |
+| `tileAgents` | `#8744BC` | `#742FA6` | purple | 5.86 / 7.78 | 3.32 / 6.75 |
+| `tileTraces` | `#6E88A8` | `#5C7594` | slate | 3.65 / 4.74 | 5.33 / 4.12 |
+
+The Inbox draws no cell (ruling 48 (2)); where its page needs a tile it wears `tileHome`. Floors the test holds: glyph ≥ 3:1 (DR-3, lowest 3.17:1), tile ≥ 3:1 from `bgRail`, and the nine hues at least CIE76 ΔE 16 apart for normal vision and 9 apart under simulated protanopia, deuteranopia and tritanopia (Machado 2009, severity 1.0; measured minima 21.0 / 12.2 / 14.7 / 10.4 dark and 16.2 / 10.9 / 13.2 / 9.5 light). Nine hues cannot all be told apart by hue alone, so lightness is spent too (Sleep's lavender against Agents' purple, Clusters' amber against Skills' red). **Disclosed:** a tile on the selected row's `bgSelected` is not held to 3:1 (Agents' dark tile measures 2.58:1 there); the row's fill and the label say selection, the tile only holds the glyph, and the glyph's own 3:1 against its tile is what is held.
 
 ---
 
@@ -269,8 +293,8 @@ List pages have no page title (DR-25). Apart from the Settings panel, `PageTitle
 ```
 
 **DR-22. Navigation is an icon rail, 56 pt wide.** `[lint]` `SelectionTintLintTests`: rail and sidebar state uses only `textTertiary`, `textPrimary` and `bgSelected`.
-- **Cells.** Each cell is 36 × 36 pt, uses `cornerRadiusSmall`, sits at a 40 pt pitch, and holds an 18 pt glyph.
-- **State.** Inactive glyphs are `textTertiary`. The selected cell is `bgSelected` with a `textPrimary` glyph: never the accent, never a filled symbol.
+- **Cells.** Each cell is 36 × 36 pt, uses `cornerRadiusSmall`, sits at a 40 pt pitch, and holds a 24 pt tile (§3.9; an 18 pt bare glyph until 2026-11-24).
+- **State.** The selected cell is `bgSelected` with a `textPrimary` label: never the accent, never a filled symbol. Since 2026-11-24 (§9, DR-82) each cell's glyph is white on its own destination's tile (§3.9), in the rail and the sidebar alike; the tile never changes with state, so `textTertiary` no longer colours a nav glyph.
 - **Tooltips.** Every cell has a tooltip naming its page and shortcut ("Inbox ⌘6"). The first tooltip waits 450 ms; after that, the next one opens instantly (R-F2).
 - **Pages, in ⌘ order:** Home ⌘1, Graph ⌘2, Clusters ⌘3, Skills ⌘4, Sleep ⌘5, Inbox ⌘6, Sources ⌘7, Projects ⌘8 (ruling of 2026-09-23, §9). **The Inbox leaves the rail (owner, 2026-10-28, §9 (2)):** its questions live on Home and on each page; ⌘6 is left unused so no shortcut moves, and the pending numeral moves to Home's cell. Looks (⌘9 from 2026-10-14) went on 2026-10-20 (§9): a look lives on its page's card. The Feed retired into Sleep and Skills took its cell (⌘ map A, ruling of 2026-10-16, §9). The rail's order is its ⌘ order, so a new page joins at the end and no shortcut moves. The first tooltip waits 450 ms; after that, the next one opens instantly (R-F2).
 - **The Inbox badge** (on Home's cell since 2026-10-28) is a neutral tabular numeral in a `bgBadge` capsule, with a 2 pt knockout in `bgRail`.
@@ -388,8 +412,8 @@ It never animates (DR-60). `[test]`
 
 | Role | Height | Horizontal padding | Notes |
 |---|---|---|---|
-| Rail cell | 36 (pitch 40) | — | 18 pt glyph |
-| Labelled nav row | 40 | 12 | 32 before 2026-11-23 (§9); a 12 pt gap between groups, 4 pt inside one |
+| Rail cell | 36 (pitch 40) | — | 24 pt icon tile (an 18 pt glyph until 2026-11-24, §3.9) |
+| Labelled nav row | 40 | 12 | 32 before 2026-11-23 (§9); a 24 pt icon tile then a 10 pt gap then the name (2026-11-24, §3.9); a 12 pt gap between groups, 4 pt inside one |
 | Card (an item with words and a source) | content | 14 / 12 (snug 12 / 8) | `softCard`, 12 pt between cards, no divider (2026-11-23, §9) |
 | List row, one line (S0) | 36 | 10 / 8 | no gap between rows |
 | Triage row, two lines (S1) | 56 | 10 | 2 pt between rows |
@@ -524,7 +548,7 @@ Mocks reach every variant and state through the "Preview states" menu. The app r
 
 **DR-53. Icons.** `[lint]` `IconButtonHelpLintTests`.
 - **Style.** SF Symbols at regular weight, in outline variants.
-- **Sizes** come from `CicadaTheme.icon(_ role:)` (new): rail 18 (the gear at its foot 17), titlebar controls 16, list glyph 14, command bar 13, inline 12, badge 10 (pt).
+- **Sizes** come from `CicadaTheme.icon(_ role:)` (new): rail 18 (the gear at its foot 17; a page's own symbol is 13 on its 24 pt tile since 2026-11-24, §3.9), titlebar controls 16, list glyph 14, command bar 13, inline 12, badge 10 (pt).
 - **Remove redundant glyphs.** A glyph that repeats the word next to it is removed.
 - **Icon-only controls** have a 28 pt hit area, a `.help` naming the action and its shortcut, and an accessibility label.
 - **The disclosure glyph (2026-10-20)** is `chevron.right`, turned a quarter when open, at `icon(.disclosure)` (10 pt semibold), `textTertiary`, in a 12 pt slot — never a `chevron.down`/`chevron.right`/`chevron.up` swap and never another size. A fold whose panel opens above it (the Graph's Legend) turns the same glyph up while closed (`opensUpward`). An `IconButton` fold keeps its own 28 pt target. Its VoiceOver value is the state and the count beside it ("Collapsed, 4"); a button whose only content is the glyph names itself. `[lint]` `DesignConsistencyLintTests`.
@@ -954,6 +978,7 @@ Each number appears once, and each is a link to the page that owns it. An empty 
 
 **Projects (v2, 2026-10-19 — supersedes the G141 block; §9; ⌘8). Fixes P3, P4.** *The detail's folds and Suggested/Fading folds are superseded by 2026-10-28 (§9 (9); DR-81).* A list page in the same columns: projects list → project → Reader. The eyebrow reads "Projects"; the tabs Current · Past carry the counts. Current is the projects in motion as two-line rows — name, one-liner, and where it stands as one signal at the end — with a parent's parts folded under a chevron, then one folded *Fading* disclosure. Past is searchable, newest heard first under year labels, each row its day alone, 50 rows at a time. ↑/↓ reach every project (Fading and the next page open as the keys arrive); →/← fold a parent's parts. A project opens on its name and one-liner, then *Where it stands* · *Last* · *Next*, each once; then the 112 pt band — a `progressFill` track from the first moment to a "You, today" marker, done happenings and milestones as neutral dots and diamonds, planned dates hollow on the unfilled track, ongoing threads as spans to Today, every mark clickable (§3.8, ruling of 2026-09-23 in §9) — then Log progress and the folded sections (In progress, What happened, Plan, Backlog, Around this project). What happened's sentences carry their provenance: each noun links to its entity, the evidence chip opens the Reader, dates are relative at read time (DR-58). Projects clicked again in the rail returns to this root.
 
+- **Icon tiles (2026-11-24, §9; DR-82).** Screens changed: the labelled sidebar and the rail, nothing else.
 - **The soft card (2026-11-23, §9; DR-37 amended).** Screens changed: the labelled sidebar and the rail (40 pt rows, groups by space), Sleep › Saved and Videos and a source's items (`FeedListRow` cards), Home's lead question, Clusters' cards and groups, Sources' shelf cards and Needs you, the catch-up bar, the Contributors strip, the web-reading and book cards, the entity card's blocks. One chrome, `softCard` (`Theme/SoftCard.swift`).
 
 ---
@@ -982,6 +1007,7 @@ Each number appears once, and each is a link to the page that owns it. An empty 
 | `ThemeContrastTests` | DR-2, DR-3, DR-6: every text token on every permitted surface |
 | `AccentSourceLintTests` | DR-4, DR-5: `accent` = `Color.accentColor`; no `Color.blue`; a per-file cap |
 | `SelectionTintLintTests` | DR-22, DR-45: no `accent` in rail, sidebar or tab files |
+| `NavTilePaletteTests` (2026-11-24) | DR-82, §3.9: every tile's glyph ≥ 3:1 (4.5:1 under Increase Contrast), the tile ≥ 3:1 from the rail, the nine hues told apart for normal, protan, deutan and tritan eyes, none the accent or another token's value, no hex or gradient in `NavRail.swift` |
 | `ElevationLintTests` | DR-9, DR-10: `.shadow(` and `.stroke(CicadaTheme.border` only in `Theme/` |
 | `DividerLintTests` | DR-11: `Divider()` only on the allowlist |
 | `ContinuousCornerLintTests` | DR-12: no bare `RoundedRectangle(cornerRadius:` outside `Theme/` (written in round 3, 2026-10-20; named here since D landed) |
@@ -1046,3 +1072,4 @@ Each number appears once, and each is a link to the page that owns it. An empty 
 - **2026-11-23: A link never shows as `[[example]]` anywhere (owner, verbatim: *"fix when the text in search and appwide makes links appear as [[example]]? it should always be rendered."*; amends the same day's "A link is a chip" for every surface that is not the article; applies DR-5, DR-18, DR-48, DR-54, DR-56).** Page text shown as a plain line (a search row and its passage, an Ask citation, a question and its options, Home's lead question, the catch-up bar, a list's one line, a hover card, a history line, a belief, the Reader's title) reads as the page's own name, an unknown or ambiguous link as its written words, a cut link as the words it kept, and `**`, `_` and backticks are not words; one door (`PageLine`), one lint (`PageLineLintTests`). No layout changes. The Ask citation chip loses its literal brackets. `PageLineTests`.
 - **2026-11-24: Sources is one column of source cards; nothing is added, everything is checked (owner, verbatim: *"cleaner and minimal with the cards we use for the consolidation queue"*; *"remove importing from files"*; *"better ability to check for connections with sources"*; *"remove the weird diagrams"*; G245, ruling 78; amends §9 2026-11-03 (the import at the top right), 2026-11-04 (the ways block), 2026-11-05 (the root as a grid of apps, DR-46's departure) and 2026-11-06 (the shelves and bento, the website-reading card) for the root, and DR-75's Sources adopter; applies DR-5, DR-34, DR-37, DR-38, DR-45, DR-46, DR-48, DR-52, DR-60, DR-61, DR-75, DR-81 and the 2026-11-23 soft-card line).** With nothing open the page is the header (*Sources · N connected* and one button, *Check connections*), the find and the kinds as `TextTabs`, then one column of cards capped like the Sleep page. One card for every source: a real mark (`SourceLogoTile`), the name, the state as a `StatusWord` with when it last read, a quiet second line of what it reads ("Bookmarks 214 · Likes 1,032 · 3 folders", the tertiary ink for what a source not connected could read) — `softCardRow(ground: .page)`, no chevron, no fold, no preview of items, the whole card the tap target. The one button on a card (compact `NeutralButton`, outside that tap target) is *Connect*, or, on a needs-you card, the fix it names; a card is amber only in its word. Order: needs you, connected (newest read first), then not connected under one `SectionLabel`; Chat exports and Files and links only while they hold something; Statistics stays as the quiet tail. Beside an open source the list is the narrow DR-34 rows in the same order. There is **no Add source button, no add overlay and no import action on the page** (DR-75 lists Skills alone; a lint fails a `PageAddButton` on Sources); a hand-off that named an add opens that source's page. Keys walk the visible kind and never animate (DR-60); the one hover ease is `softCardRow`'s (DR-61). `SourcesRootTests`, `SourceGridTests`, `DesignConsistencyLintTests`.
 - **2026-11-24: a source's page says what it reads, in one block of rows (owner, verbatim: *"easily see what is being read (history, liked, saved, etc)"*; *"remove the weird diagrams"*; *"cleaner and minimal with the cards we use for the consolidation queue"*; *"remove importing from files"*; G245, ruling 78; amends §9 2026-11-03 (the import at the top right, "this text is extremely unnecessary"), 2026-11-04 (1) no paragraph and (3) the ways block, 2026-11-06 (the website-reading card and its scene), and DR-75's Sources adopter; applies DR-5, DR-9, DR-34, DR-37, DR-38, DR-45, DR-47, DR-52, DR-59, DR-60, DR-61, DR-74, DR-81 and the 2026-11-23 soft-card line).** The `DetailHeader` is unchanged; under the status one quiet line (the account and how it is read), whose hover holds the browser-reading facts. Then **Reads**: a `SectionLabel` row with *Check now* (a compact `NeutralButton`, never a primary) at its trailing edge, and ONE soft block (`softCard(shape: .block)`) with a row per stream — name, a quiet line, "count · last read" or the state word, a switch; a stream that needs the source's own setup shows its state and the source's connect step under the block. The page holds no diagram, no animation, no standing paragraph, and **no import action** (no *Import a file* way, no `IntakePanel`; a file comes in by the window's drop, ⇧⌘I, the palette, Home, the Agents page and onboarding). Items: a list source draws `TextTabs` per stream (All first) and a folder menu, then item cards in the queue card's layout — `softCardRow(ground: .page)`, since an item on a page stands on the page — with the footer `[mark] site · posted · kept · lists · depth`, five then "All N" (DR-81). Onboarding mounts the same page compact (head, Reads, the connect step). `SourcePageStreamsTests`, `SourcePageStreamsRenderTests`, `DesignConsistencyLintTests`.
+- **2026-11-24: The sidebar wears coloured icon tiles (owner, verbatim, asked "do you want coloured icon tiles in the sidebar?": *"yeah go ahead with everything"*; follows 2026-11-23's *"i would copy more the ui of superwhisper look."*; amends P-c, DR-22's state line, DR-53's rail size and the 2026-11-23 sidebar entry's "glyphs stay the monochrome symbols"; applies DR-3, DR-5, DR-8, DR-9, DR-10, DR-12, DR-48, DR-70; adds DR-82 and §3.9).** The same sidebar, destinations, order and behaviour, now with the reference's tiles. (1) **A palette, not the accent:** nine named tokens in `Theme/NavTilePalette.swift`, one per destination, each with a dark and a light value (§3.9 lists them with their measured contrast); the accent keeps its six uses and no tile is it, no tile is a data or semantic hue. (2) **One tile everywhere the page is a row:** 24 pt, `radiusTile` 6, flat fill, the resting ring, the symbol in white at 13 pt medium, then a 10 pt gap and the name; scaled with the text size, checked at 80 %, 100 % and 130 %. A flat fill, no gradient: at 24 pt a gradient adds a second lightness inside a shape that holds one hue and one white glyph. (3) **The collapsed rail wears the same tiles** (decision: the two states are one sidebar, and with no label in the rail the hue is real wayfinding; seen on the demo bank at 100 %, nine 24 pt tiles in the 56 pt rail read calm, not loud or crowded, so the rail stays tiled. Cost: the selected cell's `bgSelected` margin is 6 pt around a tile, so selection reads weaker there than beside a label). (4) **State is untouched:** selection is the neutral `bgSelected` fill and a primary label, hover `bgRailHover`, focus the system's; the badge still sits beside the row (or off the rail cell's corner); Sleep's tile holds a white spinner while a cycle runs. (5) **Increase Contrast** draws the same hues 25 % deeper (glyph ≥ 4.5:1). (6) **Departure, said plainly:** P-c said hue is spent on data and never on decoration, and DR-22 said a nav glyph is `textTertiary`. A tile hue encodes nothing; it is the one place hue is spent on finding a row, so it is a single palette in one file, the name is always beside it, and nothing outside the sidebar wears a tile in this change (not list rows, not Settings). `NavTilePaletteTests`, `NavRailTests`.
