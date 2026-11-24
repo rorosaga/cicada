@@ -1415,8 +1415,29 @@ writes every save index-only, `take_turns` releases nothing, `retire` retires a 
   the day's number released from the bulk list of 200) cost 0 Stage 1 calls (the connector fetch gate was off, so no page was
   read); the 100 left in the pile wait. Retrieval 12/12 by words and 11/12 by the hook's note, before and after Sleep. Gates still
   failing, and why, are in the PR that built this (the old-shape connector rows, a quill-page cap that counts `external` claims only).
-- **Not in this change:** the words the app and agents show about saves (Track R); Stage 1 reading a group of short saves in one call
-  (Track 3).
+- **Short saves of one origin read together (Track 3, `grouped_save_read`, built and OFF: `ON = False`, flipped by the coordinator
+  after the saves battery's grouped leg is read against the single one; numbers below).** Stage 1 is one call per item, and a 60 to 250
+  token post rides a fixed prompt of about 8k tokens. With the constant on, `extract` plans groups before its fan-out (`plan`): saves
+  with none of his words, not talked about (`read_asked` now rides the episode dict), no tab group, feed item, book or conversation,
+  none over 1,500 characters, none whose text holds the question's own marker, of one origin, up to 25 a group (a group of one reads
+  alone). Each save is still prepared and finished alone (its date note, its source note, the sensitive-text hold and `on_sensitive`
+  before the send, every per-item callback); only the model call is shared: one call at Stage 1's own stage label (`extraction`, so the
+  spending line, the ledger and the model tier are the same and no stage enum was added) with the Stage 1 prompt plus `GROUP_PROMPT`,
+  each save between `<<<SAVE n>>>` markers carrying its own date note and source note, no answer shape forced on a plan engine. The
+  answer is used only when it lines up exactly (`json_parse.numbered_rows` over `results`, one numbered block per save, each block's
+  lists lists); anything else, a refusal, or a timeout twice, reads each save alone with the same facts (a bad answer costs a call,
+  never a fact); a rate limit, a sign-out, the network or the line are the engine's and reach each save as they would a single read
+  (a spending line skips them, never fails them). A quote a block lifts from a neighbour is located only in its own save's text (so it
+  is `reasoning`, and the claim is still written; the log counts them). A batch of background saves alone may hold 50 (bytes bound
+  150,000) and skips Stage 4's skills call (`saves_only_batch`; a skill needs two conversations).
+  *Measured once each* (`saves_battery run --leg single` and `--leg grouped`, the real path, 288 synthetic saves and 8 conversations,
+  Claude plan at haiku, 80 saves sent to a model): Stage 1 calls 88 against 22 (1.10 against 0.28 a save), Stage 1 input tokens 940k
+  against 263k (11.8k against 3.3k a save), output tokens 67k against 63k; every stage 163 calls against 57 (2.04 against 0.71 a
+  save), 13.8k against 4.2k input and 1.4k against 1.0k output tokens a save; evidence not located 5 of 42 spans against 1 of 23; all
+  12 gates the same (nothing on his page, no page from saves alone, every fact `external:`, 12 claims on the 50-post page, the 2021
+  fact dated); the grouped leg kept fewer facts (42 claims from saves against 23, almost all of it on the 50 near-identical posts,
+  where the page's cap is 12 either way), which is part of why its later stages are cheaper: repeat both legs before turning it on.
+- **Not in this change:** the words the app and agents show about saves (Track R).
 
 **The lean pass (ruling 62, owner 2026-11-04; G236) — since ruling 80 the pile above, which only a bulk, a late arrival and a save already kept enter.** Owner: "For chrome bookmarks, and the rest of things I told you we
 can do a leaner initial pass for consolidation on those things who have no reason/user intent attached, but enough info so

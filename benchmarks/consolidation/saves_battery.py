@@ -16,11 +16,15 @@ Legs (one scratch bank each, one process each, ``--leg``):
   arrives late (the pile), a video's title and link has nothing to read. Sleep's own first step releases the day's number
   from the pile (``history_index.take_turns``) and reads the whole queue in its order, with the saved-item reading of Tracks
   2a to 2c. ``--wake-bulk`` is retired (the bulk waits its turn; nothing is woken by hand).
-* ``grouped``: the Track 3 leg. Not built: it needs ``feat/grouped-save-read``.
+* ``grouped``: the Track 3 leg (G246, ``grouped_save_read``): the single leg's real path with the one constant on, so short saves of
+  one origin ride one Stage 1 call (up to 25) and a batch of background saves alone holds up to 50. The grouped switch is set
+  in this process only; the product's constant stays off until this leg is read against the single one
+  (``report OUT/single OUT/grouped`` prints the comparison and says whether the plan's bar is met).
 
     api/.venv/bin/python -m benchmarks.consolidation.saves_battery run --leg baseline --out OUT/baseline
     api/.venv/bin/python -m benchmarks.consolidation.saves_battery run --leg single   --out OUT/single
-    api/.venv/bin/python -m benchmarks.consolidation.saves_battery report OUT/baseline OUT/single
+    api/.venv/bin/python -m benchmarks.consolidation.saves_battery run --leg grouped  --out OUT/grouped
+    api/.venv/bin/python -m benchmarks.consolidation.saves_battery report OUT/baseline OUT/single OUT/grouped
     api/.venv/bin/python -m benchmarks.consolidation.saves_battery selfcheck     # no model, a few seconds
 
 Isolation is the verify-cicada skill's: the process runs on a scratch HOME, ``CICADA_HOME``, bank and ledger with capture,
@@ -36,6 +40,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -116,7 +121,10 @@ def stand_in_runner(calls: list):
         system = next((a[len("--system-prompt="):] for a in argv if a.startswith("--system-prompt=")), "")
         calls.append(argv)
         low = system[:600].lower()
-        if "entities" in low:
+        if "SEVERAL SAVED ITEMS" in system:   # a grouped read: one empty result per save, so the grouped path is what runs
+            n = len(re.findall(r"<<<SAVE \d+>>>", stdin or ""))
+            text = json.dumps({"results": [{"save": k, "entities": [], "relationships": []} for k in range(1, n + 1)]})
+        elif "entities" in low:
             text = json.dumps({"entities": [], "relationships": [], "claims": []})
         elif "same" in low and "decision" in low:
             text = json.dumps({"decision": "different", "reason": "stand-in"})
@@ -161,7 +169,7 @@ def _snip(text: str, n: int = 110) -> str:
 
 def measure(bank: Path, manifest: dict, rows_by_key: dict, clock: date) -> dict:
     """Everything the gates read, counted from the finished bank with no model. Counts and short examples only."""
-    from api.services import markdown_parser, quiet_pages
+    from api.services import markdown_parser, quiet_pages, saved_reading
     from benchmarks.consolidation import saves_fixture as fx
 
     saves = set(manifest)
@@ -185,16 +193,21 @@ def measure(bank: Path, manifest: dict, rows_by_key: dict, clock: date) -> dict:
                  "episodes": {"saves_captured": len(saves), "conversations": len(list((bank / "episodes").glob("*.md"))) - len(saves)}}
 
     # --- what was read
-    read_saves = unread_saves = 0
+    read_saves = unread_saves = with_words = 0
     read_by_group: Counter = Counter()
     for ep in saves:
-        fm = markdown_parser.parse(bank / "episodes" / f"{ep}.md").frontmatter or {}
+        parsed = markdown_parser.parse(bank / "episodes" / f"{ep}.md")
+        fm = parsed.frontmatter or {}
         if fm.get("processed") and fm.get("processed_by") != "index":
             read_saves += 1
             read_by_group[group_of[ep]] += 1
+            # a save whose body holds a section (or no link at all, a tab group) is sent to a model; a title and a link is not
+            if not saved_reading.holds_no_words(parsed.body or "") or not fm.get("url"):
+                with_words += 1
         else:
             unread_saves += 1
     out["saves_read_by_a_model"], out["saves_left_indexed"], out["saves_read_by_group"] = read_saves, unread_saves, dict(sorted(read_by_group.items()))
+    out["saves_with_words_read"] = with_words   # the ones a model was actually sent: what "per save" divides by when legs are compared
 
     # --- pages made
     kind_of = quiet_pages.episode_lookup(bank)
@@ -221,16 +234,21 @@ def measure(bank: Path, manifest: dict, rows_by_key: dict, clock: date) -> dict:
     out["save_claims"] = {"total": len(save_claims), "saves_only": sum(saves_only(c) for _, c in save_claims),
                           "by_observer": dict(Counter(("external" if str(c.get("observer") or "").startswith("external:") else str(c.get("observer") or "none")) for _, c in save_claims)),
                           "saves_only_not_external": sum(saves_only(c) and not str(c.get("observer") or "").startswith("external:") for _, c in save_claims)}
-    kinds = Counter(); located = reasoning = 0
+    kinds = Counter(); located = reasoning = 0; claims_unlocated = 0
     for _, c in save_claims:
-        for e in c.get("evidence") or []:
+        spans = c.get("evidence") or []
+        if not any(str(e.get("kind")) != "reasoning" and e.get("start") is not None for e in spans):
+            claims_unlocated += 1   # a fact none of whose quotes was found in its own save
+        for e in spans:
             kinds[str(e.get("kind"))] += 1
             if str(e.get("kind")) == "reasoning" or e.get("start") is None:
                 reasoning += 1
             else:
                 located += 1
     out["save_claim_evidence"] = {"spans_by_kind": dict(kinds), "located": located, "reasoning_or_unlocated": reasoning,
-                                  "reasoning_share": round(reasoning / max(1, located + reasoning), 3)}
+                                  "reasoning_share": round(reasoning / max(1, located + reasoning), 3),
+                                  "claims": len(save_claims), "claims_without_located_evidence": claims_unlocated,
+                                  "claims_without_located_share": round(claims_unlocated / max(1, len(save_claims)), 3)}
     per_page = Counter(pid for pid, c in save_claims if _open(c))
     out["open_save_claims_per_page"] = {"max": max(per_page.values(), default=0), "top": per_page.most_common(4), "quillnote": per_page.get("quillnote", 0)}
     owner_claims = [(pid, c) for pid, c in save_claims if pid == owner_id or owner_id in (c.get("subject"), c.get("object"))]
@@ -379,7 +397,8 @@ def gates(m: dict, ret: dict, ret_before: dict, waiting_if_all_woken: int) -> li
          "value": f"at capture {ret_before['words']}/{ret_before['cases']} words, {ret_before['hook_note']}/{ret_before['cases']} hook; after {ret['words']}/{ret['cases']}, {ret['hook_note']}/{ret['cases']}",
          "pass": ret["words"] >= ret_before["words"] and ret["hook_note"] >= ret_before["hook_note"],
          "note": f"missed after: {[x['case'] for x in ret['missed']]}; a feed item has no page and is {'found' if ret['feed_item_found_by_words'] else 'not found'} by words"},
-        {"gate": "grouped reads' reasoning share no higher than single reads'", "value": "not run", "pass": None, "note": "needs Track 3 (the grouped leg)"},
+        {"gate": "grouped reads' reasoning share no higher than single reads'", "value": m["save_claim_evidence"]["reasoning_share"], "pass": None,
+         "note": "this leg's share of save-claim evidence that is not located; judged against the single leg by `report`"},
         {"gate": f"held names per 100 saves reported (entity cap drops from 8 to 5 above {HELD_PER_100_LIMIT})", "value": m["held_names"]["per_100_saves"],
          "pass": m["held_names"]["per_100_saves"] <= HELD_PER_100_LIMIT, "note": "per 100 saves a model read"},
     ]
@@ -445,12 +464,13 @@ def run_sleep(out: Path, *, stand_in: bool) -> dict:
 
 def run_leg(args) -> int:
     out: Path = args.out
-    if args.leg == "grouped":
-        print("The grouped-read leg is a stub: it needs Track 3 (feat/grouped-save-read), which is not built. Nothing was run.")
-        return 2
     isolate(out, stand_in=args.stand_in)
     out.mkdir(parents=True, exist_ok=True)
     clock = date.today()
+    if args.leg == "grouped":
+        from api.services import grouped_save_read
+
+        grouped_save_read.ON = True   # this process only: the product's constant stays off until the legs are compared
     prep = prepare(out, args.leg, clock)
     sleep = run_sleep(out, stand_in=args.stand_in)
     return finish(out, args.leg, prep, sleep, clock, stand_in=args.stand_in)
@@ -517,7 +537,7 @@ def report(paths: list[Path]) -> int:
         print()
     base = next((r for r in legs if r["leg"] == "baseline"), None)
     for r in legs:
-        if r["leg"] != "single" or base is None:
+        if r["leg"] not in ("single", "grouped") or base is None:
             continue
         extra = r["measure"]["saves_read_by_a_model"] - base["measure"]["saves_read_by_a_model"]
         print(f"== marginal cost of reading a save today ({r['leg']} minus baseline, over {extra} extra saves read)")
@@ -531,12 +551,75 @@ def report(paths: list[Path]) -> int:
             print(f"  {s:28} calls {d['calls']:6.2f}  input {d['input_tokens']:8.0f}  cache_read {d['cache_read']:8.0f}  output {d['output_tokens']:7.0f}  per save")
         tot = {k: (r["usage"]["total"][k] - base["usage"]["total"][k]) / extra for k in ("calls", "input_tokens", "output_tokens", "cache_read")}
         print(f"  {'TOTAL':28} calls {tot['calls']:6.2f}  input {tot['input_tokens']:8.0f}  cache_read {tot['cache_read']:8.0f}  output {tot['output_tokens']:7.0f}  per save")
+    single = next((r for r in legs if r["leg"] == "single"), None)
+    grouped = next((r for r in legs if r["leg"] == "grouped"), None)
+    if single is not None and grouped is not None:
+        print()
+        print("\n".join(compare(single, grouped)))
     return 0
+
+
+#: The plan's bar for turning the grouped read on (``docs/plans/2026-11-24-saves-are-read.md`` 3.5), and what "a real token
+#: saving" is taken to mean here: total tokens (input, cache reads and output) per save read at least this much lower.
+MAX_CALLS_PER_SAVE = 2.0
+REAL_SAVING = 0.25
+
+
+def compare(single: dict, grouped: dict) -> list[str]:
+    """Single against grouped, per save a model read: calls, input, cache and output tokens (Stage 1 and every stage), the share
+    of save-claim evidence that could not be located, and every gate count; then whether the plan's bar is met."""
+    def per(r: dict, stage: str | None) -> dict:
+        row = r["usage"]["total"] if stage is None else r["usage"]["by_stage"].get(stage, {})
+        n = max(1, r["measure"].get("saves_with_words_read") or r["measure"]["saves_read_by_a_model"])
+        return {k: row.get(k, 0) / n for k in ("calls", "input_tokens", "cache_read", "output_tokens")}
+
+    out = ["== single against grouped (per save a model was sent, whole run: the 8 conversations and every later stage included; one run each, "
+           "a small model's single run is a range, not a point)",
+           f"  saves read: single {single['measure']['saves_read_by_a_model']}, grouped {grouped['measure']['saves_read_by_a_model']}; "
+           f"of them sent to a model (a section of words): single {single['measure'].get('saves_with_words_read')}, grouped {grouped['measure'].get('saves_with_words_read')}"]
+    for label, stage in (("Stage 1 (extraction)", "extraction"), ("every stage", None)):
+        a, b = per(single, stage), per(grouped, stage)
+        out.append(f"  {label}:")
+        for k, name in (("calls", "calls"), ("input_tokens", "input tokens"), ("cache_read", "cache reads"), ("output_tokens", "output tokens")):
+            ratio = f"{b[k] / a[k]:.2f}x" if a[k] else "n/a"
+            out.append(f"    {name:14} single {a[k]:9.2f}   grouped {b[k]:9.2f}   ({ratio})")
+    es, eg = single["measure"]["save_claim_evidence"], grouped["measure"]["save_claim_evidence"]
+    out.append(f"  evidence not located: single {es['reasoning_or_unlocated']} of {es['located'] + es['reasoning_or_unlocated']} spans "
+               f"({es['reasoning_share']:.1%}), grouped {eg['reasoning_or_unlocated']} of {eg['located'] + eg['reasoning_or_unlocated']} ({eg['reasoning_share']:.1%})")
+    out.append(f"  facts (claims) with no located evidence: single {es['claims_without_located_evidence']} of {es['claims']} "
+               f"({es['claims_without_located_share']:.1%}), grouped {eg['claims_without_located_evidence']} of {eg['claims']} "
+               f"({eg['claims_without_located_share']:.1%})")
+    cs, cg = single["measure"]["save_claims"]["total"], grouped["measure"]["save_claims"]["total"]
+    out.append(f"  facts kept (claims drawn from saves): single {cs}, grouped {cg} ({cg / max(1, cs):.0%}); a leg that kept fewer read less, "
+               "which makes its later stages cheaper too: not a bar of the plan, but read it before the per-save cost")
+    out.append("  gates (value, pass):")
+    for gs, gg in zip(single["gates"], grouped["gates"]):
+        out.append(f"    {gs['gate'][:84]:84}  single {gs['value']!s:>14} {gs['pass']!s:5}  grouped {gg['value']!s:>14} {gg['pass']!s:5}")
+    ts, tg = per(single, None), per(grouped, None)
+    tokens = lambda t: t["input_tokens"] + t["output_tokens"]   # noqa: E731 - the ledger's input already counts cache reads
+    saving = 1 - tokens(tg) / max(1.0, tokens(ts))
+    checks = [("grouped evidence locates at least as well (spans and facts)",
+               eg["reasoning_share"] <= es["reasoning_share"] and eg["claims_without_located_share"] <= es["claims_without_located_share"],
+               f"spans {eg['reasoning_share']:.1%} against {es['reasoning_share']:.1%} not located; facts "
+               f"{eg['claims_without_located_share']:.1%} against {es['claims_without_located_share']:.1%}"),
+              (f"calls per save under {MAX_CALLS_PER_SAVE:g} over this fixture's mixed origins", tg["calls"] < MAX_CALLS_PER_SAVE,
+               f"{tg['calls']:.2f} (single {ts['calls']:.2f})"),
+              (f"a real token saving (at least {REAL_SAVING:.0%} fewer tokens per save)", saving >= REAL_SAVING, f"{saving:.1%} fewer")]
+    gate_regressions = [gg["gate"] for gs, gg in zip(single["gates"], grouped["gates"]) if gs["pass"] is True and gg["pass"] is False]
+    checks.append(("no gate that passed on the single read fails on the grouped one", not gate_regressions, ", ".join(gate_regressions) or "none"))
+    out.append("  the plan's bar:")
+    for what, ok, detail in checks:
+        out.append(f"    {'MET    ' if ok else 'NOT MET'}  {what}: {detail}")
+    fewer = cg < 0.8 * cs
+    out.append(f"  verdict: {'the bar is met on this run' if all(ok for _w, ok, _d in checks) else 'the bar is NOT met on this run'}"
+               + ("; BUT the grouped leg kept fewer than 80% as many facts: repeat the legs before turning it on" if fewer else "")
+               + "; the product's constant (`grouped_save_read.ON`) stays off either way and the coordinator flips it.")
+    return out
 
 
 # ---- selfcheck ---------------------------------------------------------------------------------------------------------------------
 
-def selfcheck(out: Path) -> int:
+def selfcheck(out: Path, grouped: bool = False) -> int:
     """No model, a few seconds: the fixture builds, capture stores each kind of save as dev stores it, a woken save waits,
     ruling 62's retrieval cases pass on the pile, and the whole path (Sleep through a stand-in engine, the ledger, the
     measures, the gates) runs and reports. Nothing here is a measurement."""
@@ -556,7 +639,11 @@ def selfcheck(out: Path) -> int:
     expect(sum(r["group"] == "page-50" for r in rows) == 50, "50 posts about the one existing page")
     expect(sum(r["group"] == "bulk-list" for r in rows) == 200, "a bulk list of 200 rows")
     expect(len(rows) - 200 - 50 + 50 in range(70, 100), f"about 80 non-bulk saves ({len(rows) - 200})")
-    prep = prepare(out, "single", clock)
+    if grouped:
+        from api.services import grouped_save_read
+
+        grouped_save_read.ON = True
+    prep = prepare(out, "grouped" if grouped else "single", clock)
     s, st = prep["at_capture"], prep["waiting_at_capture"]
     expect(len(prep["manifest"]) >= len(rows) - 1, f"every save written ({len(prep['manifest'])} episodes)")
     expect(s.get("model/waiting-for-model", 0) > 60, f"capture leaves the saves made singly waiting for Sleep (ruling 80): {s}")
@@ -568,8 +655,12 @@ def selfcheck(out: Path) -> int:
     expect(r["words"] == r["cases"] and r["hook_note"] >= r["cases"] - 2, f"retrieval cases on the pile (the hook never brings up a list row, so 10 of 12 is dev today): {r['words']}/{r['cases']} words, {r['hook_note']}/{r['cases']} hook, missed {r['missed']}")
     sleep = run_sleep(out, stand_in=True)
     expect(sleep["error"] is None and sleep["stand_in_calls"] > 0, f"Sleep ran through the stand-in engine ({sleep['stand_in_calls']} calls, error {sleep['error']})")
-    code = finish(out, "single", prep, sleep, clock, stand_in=True)
+    code = finish(out, "grouped" if grouped else "single", prep, sleep, clock, stand_in=True)
     result = json.loads((out / "battery.json").read_text(encoding="utf-8"))
+    if grouped:
+        stage_one = result["usage"]["by_stage"].get("extraction", {}).get("calls", 0)
+        read = result["measure"]["saves_read_by_a_model"]
+        expect(0 < stage_one < read, f"short saves of one origin were read together: {stage_one} Stage 1 calls for {read} saves")
     expect(code == 0 and len(result["gates"]) == 12, "the gates are computed")
     expect(result["measure"]["saves_read_by_a_model"] > 60, f"the saves that waited were read: {result['measure']['saves_read_by_a_model']}")
     print("\nselfcheck:", "FAILED " + str(fails) if fails else "passed")
@@ -589,6 +680,7 @@ def main(argv: list[str] | None = None) -> int:
     rp.add_argument("legs", nargs="+", type=Path)
     s = sub.add_parser("selfcheck", help="the fixture and the whole path through a stand-in engine, no model")
     s.add_argument("--out", type=Path, default=None)
+    s.add_argument("--grouped", action="store_true", help="with the grouped read on: the stand-in answers a group, so that path runs")
     a = ap.parse_args(argv)
     if a.cmd == "run":
         return run_leg(a)
@@ -598,7 +690,7 @@ def main(argv: list[str] | None = None) -> int:
         return rescore(a.out)
     import tempfile
     out = a.out or Path(tempfile.mkdtemp(prefix="saves-battery-selfcheck-"))
-    return selfcheck(out)
+    return selfcheck(out, grouped=a.grouped)
 
 
 if __name__ == "__main__":
