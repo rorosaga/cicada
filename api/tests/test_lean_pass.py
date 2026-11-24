@@ -396,7 +396,9 @@ def test_a_paste_of_many_links_wakes_only_the_first_few(tmp_path):
     for i, url in enumerate(urls):
         _save(memory, url, f"Item {i}", idx=idx)
     conv = _conversation(memory, "ep_2026-12-01_001", "user: " + " ".join(urls))
-    assert len(saved_mentions.wake_mentioned(memory, [conv], at=AT)) == saved_mentions.MAX_WAKES_PER_CONVERSATION
+    paths = saved_mentions.wake_mentioned(memory, [conv], at=AT)
+    assert len([p for p in paths if "read_asked" in _fm(memory, p.split("/")[-1][:-3])]) == saved_mentions.MAX_WAKES_PER_CONVERSATION
+    assert len(paths) == 9   # every link named is marked (G246): the cap bounds reads, not the mark
 
 
 def test_a_lit_page_wakes_its_indexed_save_and_an_untouched_one_costs_nothing(tmp_path):

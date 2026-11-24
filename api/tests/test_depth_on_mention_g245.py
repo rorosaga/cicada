@@ -142,8 +142,10 @@ def test_the_wake_keeps_its_bound_of_five_a_conversation_over_list_saves(reading
     for i, url in enumerate(urls):
         _x_like(memory, url, f"Distinct title number {i} words here")
     said = _say(memory, " ".join(urls))
-    woken = saved_mentions.wake_mentioned(memory, [said], at=AT)
+    paths = saved_mentions.wake_mentioned(memory, [said], at=AT)
+    woken = [p for p in paths if "read_asked" in _fm(memory, p.split("/")[-1][:-3])]
     assert len(woken) == saved_mentions.MAX_WAKES_PER_CONVERSATION == 5
+    assert len(paths) == 8   # every post named is marked (G246): the cap bounds reads, not the mark
 
 
 def test_a_save_with_a_reason_from_a_list_is_read_as_before(reading):
