@@ -759,6 +759,9 @@ struct MediaBlock: Codable, Equatable {
     var isBook: Bool { kind == "book" }
     /// G230 — a repository page (`github_repos.KIND`).
     var isRepository: Bool { kind == "repository" }
+    /// G246 (ruling 81) — a list's own small page (`media.kind: list`): it has no link of its own, and its block still
+    /// reaches the card.
+    var isList: Bool { kind == "list" }
 
     /// True when there's a real url to preview. A media entity whose frontmatter
     /// couldn't be parsed (empty url) shouldn't render a broken preview.
@@ -946,7 +949,7 @@ struct Entity: Identifiable, Codable {
         // Prefer the backend-surfaced `media` block; if absent (older backend
         // that drops the nested block), reconstruct it from the `media:` YAML
         // in `rawMarkdown` so previews still work. Skip for non-media entities.
-        if let decoded = try c.decodeIfPresent(MediaBlock.self, forKey: .media), decoded.hasURL || decoded.isFile {
+        if let decoded = try c.decodeIfPresent(MediaBlock.self, forKey: .media), decoded.hasURL || decoded.isFile || decoded.isList {
             media = decoded
         } else if type == .media {
             media = Entity.parseMediaFrontmatter(rawMarkdown)

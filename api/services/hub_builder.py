@@ -21,7 +21,7 @@ from datetime import date
 from pathlib import Path
 
 from api.config import Settings
-from api.services import inbox_service, markdown_parser
+from api.services import inbox_service, markdown_parser, saved_posts
 from api.services.claims import strip_claims_block
 from api.services.id_utils import provenance_tags
 
@@ -81,6 +81,11 @@ def _topic_tags(fm: dict) -> list[str]:
     return [str(t) for t in (fm.get("tags", []) or []) if t and str(t) not in drop]
 
 
+def _is_list_page(fm: dict) -> bool:
+    media = fm.get("media")
+    return isinstance(media, dict) and media.get("kind") == "list"
+
+
 def _load_active_entities(entities_dir: Path) -> tuple[list[dict], int]:
     """Return (member-eligible entities, total entity count incl. archived).
 
@@ -91,6 +96,9 @@ def _load_active_entities(entities_dir: Path) -> tuple[list[dict], int]:
     total = 0
     if not entities_dir.exists():
         return members, total
+    # G246: a saved post nobody gave a reason to is a row under its list, so it is no member of a hub (an earned one is,
+    # like any page); a list's own page is no member either — a list is never a hub (2026-10-19). Still counted below.
+    hidden = saved_posts.hidden_ids(entities_dir.parent)
     for filepath in sorted(entities_dir.glob("*.md")):
         try:
             parsed = markdown_parser.parse(filepath)
@@ -99,7 +107,7 @@ def _load_active_entities(entities_dir: Path) -> tuple[list[dict], int]:
         total += 1
         fm = parsed.frontmatter or {}
         status = str(fm.get("status", "active") or "active").lower()
-        if status in _ARCHIVED_STATUSES:
+        if status in _ARCHIVED_STATUSES or filepath.stem in hidden or _is_list_page(fm):
             continue
         members.append({
             "id": filepath.stem,

@@ -556,7 +556,9 @@ def _subject_quiet(memory_path: Path, entity_id: str) -> bool:
     if not entity_id:
         return False
     filepath = resolve_entity_file(memory_path, entity_id)
-    return filepath is not None and quiet_pages.page_is_quiet(memory_path, filepath.stem)
+    # G246: a saved post the person gave a reason to is an ordinary page (`page_is_dimmed`): it may be asked about; a post
+    # drawn as a row never is.
+    return filepath is not None and quiet_pages.page_is_dimmed(memory_path, filepath.stem)
 
 
 def _fold_anchor(memory_path: Path, fm: dict) -> str:
