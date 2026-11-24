@@ -306,6 +306,47 @@ enum InboxGuess {
     }
 }
 
+/// 2026-11-24 (owner, DESIGN_RULES §9) — the one quiet line that says when a question was first asked and by what:
+/// "Asked 13 days ago by Sleep's duplicate check". The day is the question's own `createdDate`; who is the server's
+/// `askedBy`, derived from the question's file. A step is said in its own words (never a provider or a model: the model
+/// stays in the card's guess line, where provenance names it, DR-54/DR-57); an agent is the harness the record names,
+/// worded as every contributor is (`OriginIconography`). Unknown is nothing: no day, no line; no who, only the day.
+enum InboxAskedLine {
+    /// The line, or nil when the day is unknown. `today` is the viewer's own day.
+    static func text(_ item: InboxItem, today: ISODay = .today()) -> String? {
+        guard let when = whenPhrase(item, today: today) else { return nil }
+        return Copy.Inbox.AskedBy.line(when, by: by(item))
+    }
+
+    /// Who, in words: the step as the server said it, or the harness for an agent's proposal, or "an agent".
+    static func by(_ item: InboxItem) -> String? {
+        guard let asked = item.askedBy else { return nil }
+        if asked.how == "agent" {
+            let id = (asked.agent ?? "").trimmingCharacters(in: .whitespaces)
+            guard !id.isEmpty, id != "mcp", id != "unknown" else { return Copy.Inbox.AskedBy.anAgent }
+            return OriginIconography.label(for: id)
+        }
+        let words = (asked.by ?? "").trimmingCharacters(in: .whitespaces)
+        return words.isEmpty ? nil : words
+    }
+
+    /// The hover (DR-54: nothing technical at body weight): what kind of asker it was, the first asking in full, and
+    /// when it was seen again if that differs. nil when there is nothing to add to the line.
+    static func help(_ item: InboxItem, locale: Locale = .autoupdatingCurrent) -> String? {
+        guard let first = ISODay(item.createdDate) else { return nil }
+        var lines = [Copy.Inbox.AskedBy.how(item.askedBy?.how), Copy.Inbox.AskedBy.onDay(RelativeDay.full(first, locale: locale))]
+        if let again = item.updatedDate.flatMap({ ISODay($0) }), again != first {
+            lines.append(Copy.Inbox.AskedBy.seenAgain(RelativeDay.full(again, locale: locale)))
+        }
+        return lines.compactMap { $0 }.joined(separator: "\n")
+    }
+
+    private static func whenPhrase(_ item: InboxItem, today: ISODay) -> String? {
+        guard let day = ISODay(item.createdDate) else { return nil }
+        return InboxAge.phrase(days: max(0, today - day))
+    }
+}
+
 /// G61 — the hint's "Open source ↗" target: its first URL, or nothing to open.
 enum HintLink {
     static func firstURL(in text: String) -> URL? {

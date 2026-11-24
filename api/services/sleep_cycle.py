@@ -11,7 +11,7 @@ from loguru import logger
 
 from api.config import Settings
 from api.services import authorship, bank_index, episode_ids, episode_revision, episode_scrub, evidence, git_service, machine_state, markdown_parser
-from api.services import corrections_record, sleep_drain, sleep_reserve, sleep_spend, source_edits
+from api.services import corrections_record, grouped_save_read, sleep_drain, sleep_reserve, sleep_spend, source_edits
 
 
 @dataclass
@@ -2935,6 +2935,16 @@ async def _drain(
         batch_ids, more = sleep_drain.next_batch_retrying(
             ids, waiting, ds.settled, ds.spend.batch_size(size) if ds.spend else size, ds.attempts, sizes=sizes,
             light=ds.light_ids)
+        if grouped_save_read.ON and batch_ids and size < grouped_save_read.BATCH_CEILING and all(
+                i in ds.background_ids for i in batch_ids):
+            # G246 Track 3: a batch of background saves alone may hold up to the ceiling (two groups' worth), still within
+            # what a spending line leaves; a wider read that took in anything else is not used.
+            wide, wide_more = sleep_drain.next_batch_retrying(
+                ids, waiting, ds.settled,
+                ds.spend.batch_size(grouped_save_read.BATCH_CEILING) if ds.spend else grouped_save_read.BATCH_CEILING,
+                ds.attempts, sizes=sizes, max_bytes=grouped_save_read.BATCH_BYTES, light=ds.light_ids)
+            if len(wide) > len(batch_ids) and all(i in ds.background_ids for i in wide):
+                batch_ids, more = wide, wide_more
         if not batch_ids:
             ds.finished = True   # a cancel that came too late has nothing left to stop
             break
@@ -3888,8 +3898,8 @@ async def _run_stages(
     _say("Stage 4/5: Extracting skills...")
     logger.info("Stage 4: Pattern detection & skill extraction")
     from api.services.skill_extractor import detect_patterns
-    if decay_only:
-        skills = []
+    if decay_only or grouped_save_read.saves_only_batch(batch):
+        skills = []   # a batch of background saves alone has no two conversations for a skill (G246 Track 3)
     else:
         skills = await detect_patterns(
             changes,
@@ -4493,6 +4503,8 @@ def _get_unprocessed_episodes(
             # Ruling 80 (G245): the marks of the person's own words on a save (a reason, a why-answer, a note, a folder
             # reason) — a save with none is no mention and one source for the 2+ rule (`saved_reading.no_words_of_his`).
             **{key: fm[key] for key in history_index.PERSON_KEYS if fm.get(key)},
+            # Ruling 80 / G246 Track 3: a save he talked about is read alone, never in a group (`grouped_save_read`).
+            **({history_index.WOKEN_KEY: fm[history_index.WOKEN_KEY]} if fm.get(history_index.WOKEN_KEY) else {}),
             "filepath": f.path,
             # G48: which conversation produced this episode. `session_id` is
             # stamped by the MCP seam at capture; `source_id` is G20's

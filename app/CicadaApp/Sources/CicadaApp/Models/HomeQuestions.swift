@@ -40,6 +40,9 @@ enum HomeQuestions {
         let age: String
         let ageHelp: String
         let kind: InboxKind
+        /// "Asked 13 days ago by Sleep's duplicate check" (`InboxAskedLine`): Home's lead question says it in its hover,
+        /// not as a second line of small type (ROR-118 round 5); nil when the day is unknown.
+        var asked: String? = nil
     }
 
     struct Figures: Equatable {
@@ -75,7 +78,8 @@ enum HomeQuestions {
             rows.append(Row(id: item.id, entityId: item.entityId, entityName: item.displayName,
                             entityType: item.entityType.flatMap(EntityType.init(rawValue:)),
                             question: item.askText, reason: item.askReason, onPage: perPage[key] ?? 1,
-                            age: age.text, ageHelp: age.help, kind: item.kind))
+                            age: age.text, ageHelp: age.help, kind: item.kind,
+                            asked: InboxAskedLine.text(item, today: .today(now: now))))
         }
         return Figures(rows: rows, total: items.count, catchUp: asked.map(\.id), catchUpPages: perPage.count)
     }

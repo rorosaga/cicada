@@ -3747,6 +3747,13 @@ shipped the Graph page and the entity card, and DS-3c (2026-09-24) shipped Clust
 columns. The Inbox's focus card gained a name variant on 2026-10-14 (`NameBody`, `FocusCardVariant.name`, chosen by an
 item's `asks: "name"` before its options; DR-43's table and §9): the question about a person Cicada knows only by a
 relation (`features.md`) takes a typed name through `resolve`, or "I'd rather not say" (`NameAnswer.decline`).
+**Who asked (owner 2026-11-24; `AskedByLine`, `InboxAskedLine`, DESIGN_RULES §9):** one quiet line in the header row of the
+focus card, the quick review's card and a page's questions strip — "Asked 13 days ago by Sleep's duplicate check", the
+day from `createdDate`, the step from `askedBy.by` (an agent's proposal is the harness the record names, worded as every
+contributor is, else "an agent") — secondary text that truncates before it widens, so no answer moves; its hover says
+what kind of asker it was (a rule, a model's read, an agent, a re-check), the first asking in full and when it was seen
+again. Home's lead question carries the same sentence in its hover (`HomeQuestions.Row.asked`), not as a second line.
+Unknown is nothing: no day, no line; no who, only "Asked 13 days ago". No model is named on it.
 **Settled by a check (owner ruling 2026-10-16):** below the questions at full width (`InboxQuestionList`'s `footer`) and
 on the empty page, `SettledChecksSection` — closed until clicked ("Settled by a check · N"), then one filled row per
 settled question (the subject and its answer, the quote, "From <site> · <age> · your agent looked it up | looked up while

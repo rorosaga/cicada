@@ -3236,6 +3236,10 @@ class InboxItem(CamelModel):
     # requests are placed above the questions. The order is derived at read (`question_order`) and carries no magnitude;
     # a client that has it for EVERY item sorts by it, else by `priority` then newest (an older server). Additive.
     order_index: Optional[int] = None
+    # 2026-11-24 (owner): who asked, for the one quiet line on the card ("Asked 13 days ago by Sleep's duplicate check"),
+    # derived at read from what the question itself stamped (`question_origin`), never stored. `{step, how, by, agent}`;
+    # the day is `created_date`. Null when the record says nothing: the card then says only when. Additive.
+    asked_by: Optional[dict] = None
 
 
 class CatchupTurnRequest(CamelModel):
