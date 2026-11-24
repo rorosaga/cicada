@@ -1915,6 +1915,14 @@
       "disposition": "fresh_frontmatter_untracked"
     }
   ],
+  "services/typo_join.py": [
+    {
+      "function": "_materialize",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "fresh_frontmatter_untracked"
+    }
+  ],
   "services/connector_text.py": [
     {
       "function": "repair",
