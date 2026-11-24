@@ -594,8 +594,19 @@ The ETag already moves with `entities` and `episodes`, so no client mapping chan
 
 **Cause (G115 Phase 1, delivers G97).** Every item carries its `cause` — episode, timestamp,
 conversation, harness, excerpt, offsets — resolved **at read** by `api/services/inbox_context.py` in
-three tiers (item → claim → entity), engine-free. The excerpt is ±240 chars around the mention, cut
-on word boundaries, **offsets recomputed on every read and never stored**. Nothing resolves →
+three tiers (item → claim → entity), engine-free. **The excerpt is cut by `evidence_window` (owner 2026-11-24, "chats
+should appear as chat bubbles"):** a conversation (the episode has turns a marker wrote, not a feed or calendar entry) is
+the mention's own turn with the one before and the one after, whole where they fit (a turn over 640 / 360 characters is cut
+at a sentence, around the mention in its own turn, toward it in a neighbour; a thin window grows a second ring, at most 5
+turns), stitched into `excerpt` with `turns` saying where each begins, who spoke (`EpisodeTurn`'s shape plus
+`cutBefore`/`cutAfter`) and `source`/`correspondent` for naming the other side; anything else is the mention's sentence grown
+by whole sentences to about 300 characters, never across a blank line, cut at a word only when one sentence is longer, with
+`cutBefore`/`cutAfter` saying words remain. `mentionOffsets` hold every place the mention's words and, on a same-one
+question, either side's names are said (the first is the question's); `focus` is the mention's place in the episode's own
+text (what "Show in conversation" lands on; a stitched excerpt has no `start`). A turn or sentence overlapping what
+`source_spans` holds as a secret (G235) is left out, and a mention that does is no conversation window; the sentence quote honours the same hold (it shrinks to the mention's own sentence, and is empty when even that reaches a secret). **The card attributes a turn as the Reader does:** the cause carries the episode's `relay` (`provenance._relay`: a relayed person's turn is headed "Relayed by <app>", never the agent's name) and `meeting` (`meeting_transcripts.meeting_wire`: every run named; the recorder's summary turn is never a bubble or a neighbour, and a mention in it is a plain quote), the app puts both on the `EpisodeText` it builds, and the first run of the other side is named beside its mark (`ReaderChat.rows(namesOtherSide:)`, the Reader unchanged). A window that raises falls back to the sentence quote, never losing the question. The wire shape rides
+the inbox ETag (`evidence_window.SHAPE`); a question stored before it has no `turns` and draws as a quote. **Offsets are
+recomputed on every read and never stored**. Nothing resolves →
 `tier: none` and a literal `[ no source recorded ]`, served — never a hidden card.
 
 **Checkability (G61 phase 2 S2).** Every item also carries `check` — `{state:
@@ -725,6 +736,7 @@ tends the inbox (`inbox_tend`, `capture-and-sleep.md`) in three moves, through t
 | `merge_suggestion` between people, one name written two ways | **joined** (ruling 74c, owner 2026-11-24, `typo_one`, `typo_join`): the main model copies one line about each side that state the same fact, both located, a sceptical second read agrees; never near a third page, never named together; otherwise held quietly, never asked (`person_duplicates.propose` skips the pair); an undo keeps them apart |
 | `merge_suggestion`, the record already answers it | **closed** (ruling 74c, `already_one_page`, `already_a_name`, `answered_questions`): both ends one page through redirects, or the asked name is already a name of the page it asks about (what a line still holds lands on the page); engine-free, before every other rule, undoable |
 | `conflict` whose values are names of one page | **closed** (ruling 74c, `names_one_page`): every value a name of one page; the page's own spelling stays |
+| a first-name page and the person who newly appeared the same week (G245, `arrival_join`, owner 2026-11-24) | **decided and reported, not yet written** (`arrival_join.LIVE = False`): no inbox question exists for it, so it is not on this list; when live it is one `cicada` commit adding the full name as an alias, shown on the page's History and on the connection's row, undone by **Not them** (`POST /entities/{id}/arrival-join/undo`) — see `capture-and-sleep.md`, "A first name joined to the person who newly appeared the same week" | — |
 | `merge_suggestion` | same name once spelling is folded, same type, not a person (`same_spelling`); or the judge reads both pages: `same` ≥ 0.9 merges (`judged_same`), `different` ≥ 0.9 keeps them apart (`_merge_rejected.yaml`, `judged_different`). A merge of two existing pages **folds the duplicate's page into the target** (`entity_merge.merge_entities`: its claims, ledger, sources and references follow; undo brings it back) | ask (unsure; a person — only their own words merge two people) |
 | `normalization` | the two labels differ only in spelling (case, separators, a plural): "Correct fold" (`spelling_fold`); a fold the shipped predicate seed lists (`synonyms`), curated like an ending (`seed_fold`, ruling 37); else the judge: same meaning ≥ 0.9 folds (`judged_fold`) | ask (the meaning changes, or unsure) |
 | `decay` | a one-off nobody would miss: a `concept`/`tool`/`media`/`company` page on one conversation, not evergreen or durable, never kept, no claim of the person's own → archive (`one_off`); any other such page: the judge reads the page and its last mentions — clearly passing → archive (`judged_archive`), clearly live → marked active only (`judged_keep`: no mention dated today, no claim reopened, no confidence lifted — the person's "still true" stays theirs) | ask (the person's projects, skills, people, places; unsure) |

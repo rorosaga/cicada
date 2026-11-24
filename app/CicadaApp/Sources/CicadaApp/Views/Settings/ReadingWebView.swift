@@ -36,6 +36,12 @@ final class ReadingAgentModel {
                                                           savedLists: lists)
         }
 
+        /// G245 (2026-11-24) — the one shell line for the person's own scheduler. Last, with the live call as its
+        /// default, so every existing `Deps(...)` stays source-compatible.
+        var dailyCommand: @MainActor () async throws -> String = {
+            try await APIClient.shared.fetchReadingDailyCommand()
+        }
+
         /// G89 (2026-11-04) — a Substack list patch `{saved|history|subscriptions: true|false}`.
         var writeSubstack: @MainActor ([String: Bool]) async throws -> ReadingSettingsResponse = {
             try await APIClient.shared.setReadingSettings(substackLists: $0)
@@ -255,6 +261,9 @@ final class ReadingAgentModel {
 
     func promptText() async -> String? { try? await deps.prompt() }
 
+    /// G245 — the line for the person's own scheduler; nil when the backend cannot say (an older one has no daily variant).
+    func dailyCommand() async -> String? { try? await deps.dailyCommand() }
+
     /// Choosing how the agent reads. The server files a chosen skill's page in the graph and says what happened.
     func choose(_ id: String, job: String = ReadingAgentModel.job) async {
         guard id != (job == Self.watchJob ? watchMethods : methods)?.chosen else { return }
@@ -396,6 +405,8 @@ struct ReadingWebView: View {
                 if model.enabled, let settings = model.settings {
                     SettingsDivider()
                     promptRow(settings)
+                    SettingsDivider()
+                    DailyCommandRow(model: model)
                     // G166 exploring (D2 amended): the person's signed-in session by default, off in one switch.
                     SettingsDivider()
                     SettingsRow(.readingExploreSignedIn, title: Copy.Explore.signedInTitle,

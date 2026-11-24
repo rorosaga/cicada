@@ -17,7 +17,7 @@ from thefuzz import fuzz
 from api.config import Settings
 from api.services import (agent_engine, alias_policy, application_page, authorship, contact_identity, contacts_local, linkedin_people, phone_numbers, correspondents, engine_errors,
                           entity_body, entity_relations, entity_types, fact_policy, json_parse, link_names, owner_identity, pair_evidence, people_directory, person_leads,
-                          project_birth, promotion, quiet_pages, role_people, same_name_people, section_provenance,
+                          project_birth, promotion, quiet_pages, role_people, same_name_people, saves_bounded, section_provenance,
                           text_fold, wrong_aliases)
 from api.services.clarification_manager import (
     ClarificationManager,
@@ -390,6 +390,8 @@ async def resolve(
     held_people: list[tuple[dict, list[dict]]] = []   # person names this batch held below the bar (W1, below)
     held_names: set[str] = set()   # every name this batch held (its endpoints follow the hold, below)
     decided_names: set[str] = set()   # every name this batch joined to a page or gave one
+    saves = saves_bounded.for_bank(getattr(settings, "memory_path", None))
+    saves_names_held = 0   # G245: names only saves carried that matched no page exactly and wait below the bar
 
     # A self-reference's facts are the owner's: they land on the owner page, under
     # its own name and type (a "User" concept must not retype or rename it). With
@@ -485,13 +487,14 @@ async def resolve(
             },
         ))
 
-    def hold(name: str, entity: dict, siblings: list[dict], ambiguous_match: bool) -> None:
-        """A name below the bar: parked as one pending line, and asked about only on the model's word (:func:`ask`)."""
+    def hold(name: str, entity: dict, siblings: list[dict], ambiguous_match: bool, *, quiet: bool = False) -> None:
+        """A name below the bar: parked as one pending line, and asked about only on the model's word (:func:`ask`).
+        ``quiet`` (G245): a name only saves carried raises nothing — no "same person?", no "who is this?"."""
         held_names.add(name.strip().lower())
         confidence = float(entity.get("confidence", 0.3) or 0.3)
-        if (entity.get("type") or "").lower() == "person" and not ambiguous_match:
+        if (entity.get("type") or "").lower() == "person" and not ambiguous_match and not quiet:
             held_people.append((entity, siblings))
-        if not ambiguous_match:
+        if not ambiguous_match and not quiet:
             ask(name, entity, siblings)
 
         if indexer is not None:
@@ -539,6 +542,10 @@ async def resolve(
                 break
             name = entity["name"]
             siblings = [e for e in extractions_by_name.get(name_lower, []) if e is not entity]
+            # G245 (ruling 80, Track 2c): a person met only in saves — every conversation that named the name, this
+            # batch's and an earlier line's, a saved item with no words of the person's — joins a page on an exact name or
+            # alias alone, and asks nothing. A name the person said themselves behaves as it always did.
+            exact_only = _from_saves_alone(saves, indexer, name, episode_mentions.get(name_lower, ())) and _is_person(entity)
             card_id = (contact_identity.card_of(entity, siblings)
                        if _is_person(entity) and not any(e.get(role_people.UNNAMED_KEY) for e in (entity, *siblings))
                        else None)
@@ -550,7 +557,9 @@ async def resolve(
             # mention is never weighed against, or asked about, a page the person said it is not. A join on the name
             # itself is never suppressed by it (only `apart_here` above, on a re-read).
             line_apart = _apart_here(indexer, name, None)
-            if match is None:
+            if match is None and exact_only:
+                match = _exact_person_match(entity, existing_by_name, aliases, apart_here)
+            elif match is None:
                 match = _find_direct_candidate_match(
                     new_entity=entity,
                     existing_by_name=existing_by_name,
@@ -559,7 +568,7 @@ async def resolve(
                     same_title=same_title,
                     rejected=apart_here,
                 )
-            if match is None:
+            if match is None and not exact_only:
                 # G227: a title the name alone may not join (two pages share it, or none is of the mention's kind).
                 match = await _same_title_match(entity, same_title, llm_match_cache, settings,
                                                 gate=lookahead.gate if lookahead is not None else None,
@@ -570,7 +579,7 @@ async def resolve(
                 match = _answered_match(entity, aliases)
             if match is not None and lookahead is not None:
                 lookahead.discard(done_names)
-            if match is None:
+            if match is None and not exact_only:
                 match = await _find_llm_candidate_match(
                     new_entity=entity,
                     existing_by_name=existing_by_name,
@@ -644,7 +653,7 @@ async def resolve(
                         )
                     else:
                         _merge_into_create(resolved_creates[candidate["id"]], incoming)
-                if candidate["id"] != owner_id:
+                if candidate["id"] != owner_id and not exact_only:
                     ask(_candidate_display_name(candidate), entity, siblings)   # a stake on a page already there (G239)
                 change = (resolved_updates if candidate["source"] == "existing" else resolved_creates)[candidate["id"]]
                 if _is_fallback(candidate):
@@ -652,7 +661,7 @@ async def resolve(
                 _fold_named_handle_lines(change, name_lower, named_handle_lines, name_to_id, promoted_pending)
                 family = (person_index if _candidate_type(candidate) == "person"
                           else org_index if _candidate_type(candidate) in person_leads.ORG_TYPES else None)
-                if candidate["source"] == "existing" and family is not None:
+                if candidate["source"] == "existing" and family is not None and not exact_only:
                     # G209: a page that matched by name still meets the page that carries that name as an alias or
                     # a linked account — as a question, never a merge. 2026-10-27: an organisation, lab, project or
                     # tool too, by alias only.
@@ -692,7 +701,7 @@ async def resolve(
                 # The person already said these are different: the name goes on by the usual rule (its own page or
                 # a pending line), never held back by a question that will not be asked again.
                 match, ambiguous_match = None, False
-            if match is None and (entity.get("type") or "").lower() == "person":
+            if match is None and (entity.get("type") or "").lower() == "person" and not exact_only:
                 # G209: a new name that another person page links as its account is asked about, not given a page.
                 linked = [(pid, kind) for pid, kind in person_index.holders_of(name)
                           if kind.startswith("profile:") and not _said_different(settings.memory_path, name, pid)]
@@ -834,11 +843,12 @@ async def resolve(
                     # 2026-10-27: the page with this exact id is another one it did not join (a name several people
                     # answer to, judged different or with no lead): never a create over it — held, and asked.
                     shared = [p["id"] for p in same_title.get(name_lower) or ()]
-                    pending_actions.append((
-                        _create_duplicate_clarification, (),
-                        {"clarifier": clarifier, "entity": entity,
-                         "candidate": {"source": "existing", "id": page["id"], "data": page},
-                         **({"same_title": shared} if shared else {})}))
+                    if not exact_only:   # a name only saves carried is held, never asked about (G245)
+                        pending_actions.append((
+                            _create_duplicate_clarification, (),
+                            {"clarifier": clarifier, "entity": entity,
+                             "candidate": {"source": "existing", "id": page["id"], "data": page},
+                             **({"same_title": shared} if shared else {})}))
                     ambiguous_match = True
                     unsure_pairs.add((name_lower, str(page["id"])))
             if should_promote and not ambiguous_match:
@@ -875,14 +885,17 @@ async def resolve(
                     (),
                     {"entity_name": name, "confidence": float(entity.get("confidence", 0.0) or 0.0)},
                 ))
-                ask(name, entity, siblings)   # after that: a new page the model says only the person can explain (G239)
+                if not exact_only:
+                    ask(name, entity, siblings)   # after that: a new page the model says only the person can explain (G239)
                 if pending_entry is not None:
                     # The line leaves the store only once Stage 5 has written the page that now carries
                     # what it held (`sleep_cycle`): a cancel before that keeps it, and the next run
                     # promotes it again with everything it heard.
                     promoted_pending.append(name)
             else:
-                hold(name, entity, siblings, ambiguous_match)
+                hold(name, entity, siblings, ambiguous_match, quiet=exact_only)
+                if exact_only:
+                    saves_names_held += 1
                 if not ambiguous_match and not _is_person(entity):
                     held_here.append((name, entity, siblings, pending_entry))
 
@@ -1008,6 +1021,9 @@ async def resolve(
         # 2026-10-29 (`entity_relations`): what the judge said two names are to each other instead of "the same?" —
         # Stage-1-shaped relationships Stage 5.56 writes as claims through the claim pipeline.
         "relations": relations,
+        # G245 (ruling 80, Track 2c): names only saves carried that no page's exact name or alias took, held with no
+        # question — a count, never a name.
+        "saves_names_held": saves_names_held,
     }
 
 
@@ -1396,6 +1412,7 @@ async def _plan_same_name_people(
     origin: dict[str, str] = {}                 # mention key -> the name as the conversation wrote it, lower case
     owner_page = next((e for e in existing if owner_page_id and str(e.get("id")) == owner_page_id), None)
     owner_first = str(((owner_page or {}).get("frontmatter") or {}).get("name") or "").split()[:1]
+    saves = saves_bounded.for_bank(memory_path)
     for extraction in extracted:
         episode_id = str(extraction.get("episode_id") or "")
         for entity in extraction.get("entities", []):
@@ -1403,6 +1420,10 @@ async def _plan_same_name_people(
             # 2026-11-24: a person written with a qualifier ("Nico (finance lead)") is a mention of the bare name too, as
             # long as the parenthesis is not a handle the record paired (G209) and the bare name is not the owner's.
             if not episode_id or same_name_skip(name, entity, refs, owner_first) is not None:
+                continue
+            if saves.of(episode_id):
+                # G245 (ruling 80, Track 2c): a name a post carries is nobody the person said anything of — never compared
+                # with, nor placed beside, another person of the name; below, it joins a page on an exact name alone.
                 continue
             qualified = same_name_people.stem_of(name)
             stem = qualified[0] if qualified is not None else name
@@ -1685,6 +1706,41 @@ def _pinned(rel: dict, key: str, live: frozenset[str], creates: dict) -> str | N
     if not pin:
         return None
     return pin if (pin in live or pin in creates) else ""
+
+
+def _from_saves_alone(saves: "saves_bounded.Saves", indexer, name: str, heard_now) -> bool:
+    """Is every conversation that named this name — this batch's, and any an earlier run parked it from — a saved item
+    with no words of the person's (G245, ruling 80)? A single one of the person's own makes it theirs, and it goes by the
+    usual rules."""
+    heard = [str(e) for e in heard_now or ()]
+    if not heard or not saves.all_of(heard):
+        return False
+    if indexer is None:
+        return True
+    try:
+        line = indexer.pending_by_name(name)
+    except Exception:  # noqa: BLE001 - an unreadable store is no earlier conversation
+        return True
+    return line is None or saves.all_of(line.episodes())
+
+
+def _exact_person_match(entity: dict, existing_by_name: dict[str, dict], aliases: dict[str, list[dict]],
+                        rejected: frozenset | set = frozenset()) -> dict | None:
+    """The page a person's name met only in saves joins, if any (G245, ruling 80): the page TITLED exactly so, or the one
+    person page that lists it among its aliases — and no other, never through a judge, a close spelling, a shared first
+    word or the same-name rule. A post's "Sam" beside a page "Sam Example" matches neither: it waits, held.
+    The guards of the direct match stand: a recording's page never takes a person, a name several pages answer to
+    (:func:`_shared_name`) or a page the person said this mention is not joins nothing."""
+    name = (entity.get("name") or "").strip()
+    page = existing_by_name.get(name.lower())
+    if page is not None and not _is_file_page(page) and not _shared_name(name, page, aliases) \
+            and not _rejected_pair(rejected, name, page.get("id")):
+        return {"decision": "same", "candidate": {"source": "existing", "id": page["id"], "data": page}}
+    holders = [p for p in (aliases or {}).get(person_leads.handle_key(name), ())
+               if _page_type(p) == "person" and not _is_file_page(p) and not _rejected_pair(rejected, name, p.get("id"))]
+    if len(holders) == 1:
+        return {"decision": "same", "candidate": {"source": "existing", "id": holders[0]["id"], "data": holders[0]}}
+    return None
 
 
 def existing_by_name(existing: list[dict]) -> dict[str, dict]:
@@ -2626,6 +2682,26 @@ async def _settle_unborn(
         match = _pick_match(u.name, judged)
         # Review of #545 (B2): only when nothing came back same or unsure — "unsure" about one page holds and asks.
         whole = _part_of_page(judged, u.name) if match is None else None
+        placed = None
+        if match is None and whole is None:
+            # 2026-11-24 (G148): the pair judge called it a part of (or the whole of) another name this batch has no page for
+            # yet: one thing under two names (`_related_unborn`).
+            placed = _related_unborn(judged)
+        if placed is not None:
+            candidate, relation = placed
+            if candidate["source"] in ("existing", "created"):
+                u.part = True
+                on_page.setdefault(candidate["id"], (candidate, []))[1].append(u)
+            else:   # a name with no page yet: the two are one group, and the part is never the page's name nor its alias
+                if candidate["source"] == "unborn":
+                    members = groups[candidate["index"]]
+                else:   # a line an earlier batch parked
+                    members = [stored.pop(candidate["line"])]
+                    groups.append(members)
+                for m in (u,) if relation == "part_of" else tuple(members):
+                    m.part = True
+                members.append(u)
+            continue
         if whole is not None:
             # 2026-10-29, the owner's 2026-10-23 rule ("a canoe, its hull, the hull build — is one thing"): a name the
             # judge calls a part, feature, stage, task or pull request of a page lands on that page as a mention of it
@@ -2686,7 +2762,7 @@ async def _settle_unborn(
                 if not m.stored:
                     hold(m.name, m.entity, m.siblings, False)
             continue
-        rep = max(members, key=lambda m: (len(m.heard), not m.stored, _specificity_key(m.entity)))
+        rep = max(members, key=lambda m: (not m.part, len(m.heard), not m.stored, _specificity_key(m.entity)))
         entity_id = sanitize_id(rep.name)
         if entity_id in existing_ids or entity_id in resolved_creates:
             for m in members:   # that id is another page's: never folded into by its spelling
@@ -2702,7 +2778,7 @@ async def _settle_unborn(
             credit(change, m, entity_id)
         # The page keeps the name it was heard by most (a merge would take the longest spelling, "Hull build project");
         # every other spelling the judge joined is an alias, so the next one is brought to the judge by it.
-        others = [m.name for m in members if m is not rep]
+        others = [m.name for m in members if m is not rep and not m.part]   # a part's name is never an alias of its whole
         change["entity"] = {**change["entity"], "name": rep.name,
                             "aliases": _union_text(change["entity"].get("aliases"), others)}
         change[project_birth.PROPOSED_KEY] = "project"
@@ -2714,6 +2790,15 @@ async def _settle_unborn(
     logger.info(f"Stage 2: {len(unborn)} project name(s) with no page → {len(groups)} group(s), {made} fallback "
                 f"page(s), {sum(len(m) for _, m in on_page.values())} onto existing pages")   # counts, never names
     return False
+
+
+def _related_unborn(judged: list[tuple[dict, str]]) -> tuple[dict, str] | None:
+    """The first name with no page of its own (this batch's, or a parked line) the pair judge called a part of the name
+    or the name a part of — one thing said under two names, the owner's canoe rule, decided in one batch where neither
+    has a page to hold a relation (`_judged_relations` skips such a pair, which left them two pages with nothing between)."""
+    return next(((c, entity_relations.relation_of(decision)) for c, decision in judged
+                 if c.get("source") in ("unborn", "held")
+                 and entity_relations.relation_of(decision) in ("part_of", "has_part")), None)
 
 
 def _part_of_page(judged: list[tuple[dict, str]], name: str) -> dict | None:
@@ -2830,7 +2915,10 @@ def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: 
         lines = pending_store.load(Path(memory_path)) if memory_path else []
     except Exception:  # noqa: BLE001 — an unreadable store holds nothing to ask about
         lines = []
+    saves = saves_bounded.for_bank(memory_path)
     for line in lines:
+        if saves.all_of(line.episodes()):
+            continue   # G245: a name only saves carried is never the subject of a "same person?" (ruling 80, Track 2c)
         if str(line.type or "").lower() == "person" and person_leads.handle_key(line.name) not in held:
             held[person_leads.handle_key(line.name)] = (
                 line.name, set(line.aliases or []),

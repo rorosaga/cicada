@@ -106,6 +106,8 @@ struct LinkedInConnectionsSection: View {
     @Environment(\.linkedInConnectionsFetch) private var fetch
     @Environment(AppRouter.self) private var router: AppRouter?
     @Environment(ProvenanceRouter.self) private var provenance: ProvenanceRouter?
+    @Environment(Store.self) private var store: Store?
+    @Environment(GraphViewModel.self) private var graphVM: GraphViewModel?
 
     var body: some View {
         LinkedInConnectionsContent(
@@ -113,7 +115,8 @@ struct LinkedInConnectionsSection: View {
             phase: model.phase, streamOn: streamOn, query: $query, today: ISODay.today(),
             onOpenPage: { SourcePageRouting.go(.entity($0), router: router, provenance: provenance) },
             onOpenProfile: { NSWorkspace.shared.open($0) },
-            onMore: { Task { await model.more(using: fetch) } })
+            onMore: { Task { await model.more(using: fetch) } },
+            onNotThem: { page in notThem(page) })
             .task(id: "\(kept)|\(query)") {
                 if !query.trimmingCharacters(in: .whitespaces).isEmpty {
                     try? await Task.sleep(for: SourceSearch.debounce)
@@ -121,6 +124,23 @@ struct LinkedInConnectionsSection: View {
                 }
                 await model.load(query: query, kept: kept, using: fetch)
             }
+    }
+}
+
+extension LinkedInConnectionsSection {
+    /// G245 (arrival join): "Not them" on a joined row — the server takes the name, its links and facts back and refuses the
+    /// pair; the list is read again so the line is gone, and a refusal says what is still on the page, in the server's words.
+    private func notThem(_ page: String) {
+        Task {
+            do {
+                _ = try await APIClient.shared.undoArrivalJoin(entityId: page)
+                store?.toast = Copy.Arrivals.undone
+                await graphVM?.loadGraph()
+                await model.load(query: query, kept: kept, using: fetch)
+            } catch {
+                store?.toast = PageJoinWords.problem(error)
+            }
+        }
     }
 }
 
@@ -137,6 +157,8 @@ struct LinkedInConnectionsContent: View {
     let onOpenPage: (String) -> Void
     let onOpenProfile: (URL) -> Void
     let onMore: () -> Void
+    /// G245: "Not them" on a row a first-name page was joined to (the page's id).
+    var onNotThem: (String) -> Void = { _ in }
 
     private var searching: Bool { !SourceSearch.normalized(query).isEmpty }
 
@@ -162,7 +184,7 @@ struct LinkedInConnectionsContent: View {
                                 ForEach(Array(month.rows.enumerated()), id: \.element.id) { index, row in
                                     if index > 0 { divider }
                                     LinkedInConnectionRow(row: row, today: today, onOpenPage: onOpenPage,
-                                                          onOpenProfile: onOpenProfile)
+                                                          onOpenProfile: onOpenProfile, onNotThem: onNotThem)
                                 }
                             }
                             .padding(.vertical, CicadaTheme.spacingXS)
@@ -209,6 +231,7 @@ struct LinkedInConnectionRow: View {
     let today: ISODay
     let onOpenPage: (String) -> Void
     let onOpenProfile: (URL) -> Void
+    var onNotThem: (String) -> Void = { _ in }
 
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -235,6 +258,13 @@ struct LinkedInConnectionRow: View {
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         }
+                        if let joined = row.joined {
+                            Text(Copy.Arrivals.rowLine(joined.name.isEmpty ? joined.page : joined.name))
+                                .font(CicadaTheme.metaFont)
+                                .foregroundStyle(CicadaTheme.textSecondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
                     }
                     Spacer(minLength: CicadaTheme.spacingSM)
                 }
@@ -244,6 +274,10 @@ struct LinkedInConnectionRow: View {
             .disabled(profile == nil)
             .help(profile != nil ? Copy.Streams.connectionsOpenProfile(row.name) : row.name)
             .accessibilityLabel([row.name, row.headline, day?.help].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", "))
+            if let joined = row.joined {
+                TextButton(title: Copy.Arrivals.notThem, inline: true) { onNotThem(joined.page) }
+                    .help(Copy.Arrivals.notThemHelp)
+            }
             // The page's chip first, then the day and the mark: those two stand in one column down the whole list.
             if let page = row.page {
                 ConnectionPageChip(help: Copy.Streams.connectionsMatchHelp) { onOpenPage(page) }

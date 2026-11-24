@@ -17,7 +17,9 @@ import SwiftUI
 /// gets 1.
 enum CitedSpan {
     /// `.changed` (owner 2026-11-23): a stretch that changed since Sleep read the source — `washChanged`, no underline.
-    enum Mark: Equatable { case plain, current, other, mention, changed }
+    /// `.found` (owner 2026-11-24, the question card): a name found by searching — the soft wash and semibold, never the
+    /// underline, which stays the quoted span's alone. The Reader's found-by-name words stay `.mention`.
+    enum Mark: Equatable { case plain, current, other, mention, found, changed }
     struct Segment: Equatable {
         let text: String
         let mark: Mark
@@ -50,6 +52,9 @@ enum CitedSpan {
         case .mention:
             // Found, not quoted: emphasis only, no fill (R-DI11).
             marks.inlinePresentationIntent = .stronglyEmphasized
+        case .found:
+            marks.swiftUI.backgroundColor = CicadaTheme.washSoft.opacity(reveal)
+            marks.inlinePresentationIntent = .stronglyEmphasized
         case .changed:
             marks.swiftUI.backgroundColor = CicadaTheme.washChanged.opacity(reveal)
         }
@@ -79,6 +84,7 @@ enum CitedSpan {
                 case .current: text + Text(segment.text).customAttribute(CitedSpanTag(current: true))
                 case .other: text + Text(segment.text).customAttribute(CitedSpanTag(current: false))
                 case .mention: text + Text(segment.text).fontWeight(.semibold)
+                case .found: text + Text(segment.text).fontWeight(.semibold).customAttribute(CitedSpanTag(current: false))
                 case .changed: text + Text(segment.text).customAttribute(CitedSpanTag(current: false, changed: true))
                 }
             }

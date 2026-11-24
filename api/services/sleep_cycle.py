@@ -81,6 +81,14 @@ class SleepState:
     claims_released: int = 0
     claims_hold_capped: int = 0
     claims_waiting: int = 0
+    # G245 (ruling 80, Track 2c) — what a save's words were kept to (`saves_bounded`): claims folded into the same fact
+    # another author said, older ones closed past a page's twelve, claims a name only saves named was refused past its
+    # three, and names met only in saves held with no page (Stage 2's exact-name rule). Counts only, carried into the
+    # `sleep_run` ledger row.
+    saves_folded: int = 0
+    saves_closed: int = 0
+    saves_held_capped: int = 0
+    saves_names_held: int = 0
     # Decay inbox items (Stage 5): the cycle's cap on NEW "Still tracking X?"
     # questions turned this many entities away (they raise again next cycle),
     # and this many open ones were refreshed instead of duplicated. Counts
@@ -1196,6 +1204,93 @@ async def _typo_join_safely(memory_path: Path, settings: Settings, *, user_trigg
                     + (f", skipped {report.skipped}" if report.skipped else ""))
 
 
+async def _arrival_refusals_safely(memory_path: Path) -> None:
+    """G245 (arrival join): each "Not them" the person said to a first name joined to someone who had no page, whose full name
+    now belongs to a page, becomes a refused pair of pages — before the same-name review, so 74 / 74a / 74b hold it the same
+    night. Engine-free, one `cicada` commit of its own file; nothing refused means no read and no commit. Never raises."""
+    from api.services import arrival_join, arrival_join_write, merge_rejections
+
+    if not (memory_path / ".git").exists() or not merge_rejections.arrival_refusals(memory_path):
+        return
+    try:
+        paths = await asyncio.to_thread(arrival_join_write.promote_refusals, memory_path)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Arrival refusals failed: {type(exc).__name__}")
+        return
+    if not paths:
+        return
+    try:
+        async with _lock:
+            await git_service.commit_paths(
+                memory_path, git_service.build_commit_message(
+                    f"Arrival join refusals {date.today().isoformat()}",
+                    [f"{p}: updated (source: n/a, trigger: {arrival_join.TRIGGER})" for p in paths], authors=["cicada"]), paths)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Arrival refusals commit failed: {type(exc).__name__}")
+
+
+async def _arrival_join_safely(memory_path: Path, settings: Settings, *, user_triggered: bool, no_model: bool) -> None:
+    """G245 (arrival join, owner 2026-11-24 "yes ofc join ... accross sources"): a page titled by one first name and the one
+    person who newly appeared the same week (a LinkedIn connection or a Contacts card), decided by `arrival_join` — every rule,
+    a conflict screen and a two-read veto — and reported outside every bank. **It ships deciding only**: while
+    `arrival_join.LIVE` is false nothing is written to the bank, here or anywhere. When live, each join is one `cicada` commit
+    of its own page alone (`arrival_join_write.apply_join`), restored if it fails; the rematches that follow attach. Counts
+    only — never a name. Never raises."""
+    from api.services import arrival_join, arrival_join_write
+
+    try:
+        report = await arrival_join.run_tail(memory_path, settings, user_triggered=user_triggered, no_model=no_model)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Arrival join failed: {type(exc).__name__}")
+        return
+    joined = 0
+    if report.joins and (memory_path / ".git").exists():
+        skip: frozenset[str] = frozenset()
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Arrival join writes skipped: tree status unreadable ({type(exc).__name__})")
+            report.joins = []
+        for decision, _case in report.joins:
+            applied = await asyncio.to_thread(arrival_join_write.apply_join, memory_path, decision, skip=skip)
+            if applied is None:
+                continue
+            try:
+                async with _lock:
+                    await git_service.commit_paths(
+                        memory_path, arrival_join_write.commit_message(applied.page, decision, date.today()), [applied.path])
+                joined += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"Arrival join commit failed — undoing: {type(exc).__name__}")
+                await asyncio.to_thread(arrival_join_write.restore, memory_path, applied.path)
+    if report.looked or report.skipped:
+        logger.info(f"Arrival join: {report.looked} first-name page(s) with a namesake, {report.candidates} to the veto "
+                    f"({report.reads} read), {report.would_join} would join, {joined} joined"
+                    + (f", skipped {report.skipped}" if report.skipped else ""))
+
+
+async def _arrival_record_safely(memory_path: Path) -> None:
+    """G245 (arrival join), after the two rematches: record in the bank which commits a join caused, the claim ids and a hash of
+    each link it wrote — so the person's "Not them" can take it all back. Nothing joined: no read of any page beyond the
+    frontmatter index, no commit. Never raises."""
+    from api.services import arrival_join, arrival_join_write
+
+    if not (memory_path / ".git").exists():
+        return
+    try:
+        paths = await asyncio.to_thread(arrival_join_write.finish, memory_path)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Arrival record failed: {type(exc).__name__}")
+        return
+    if not paths:
+        return
+    try:
+        async with _lock:
+            await git_service.commit_paths(memory_path, arrival_join_write.record_commit_message(paths, date.today()), paths)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Arrival record commit failed: {type(exc).__name__}")
+
+
 async def _catchup_questions_safely(memory_path: Path) -> None:
     """Vision item 10 — the engine-free proposers that feed the catch-up chat: "are you still …?" about a quiet fact on
     the person's own page (`still_questions`) and "are these the same person?" for a nickname and its long form
@@ -1783,6 +1878,8 @@ async def _run_engine_independent_tail(
         await _expire_claims_safely(memory_path)
         # G141 PJ-6: after expiry (the night's ends are visible), before any poll's `git add -A`.
         await _propose_followups_safely(memory_path)
+        # G245: a "Not them" the person said, whose full name now has a page, is a refused pair before 74 / 74a / 74b look.
+        await _arrival_refusals_safely(memory_path)
         # 2026-11-23: the people who share a first name that tonight's batches flagged, looked at again — before the
         # catch-up proposers (a pair joined here is never asked about there) and any poll's `git add -A`.
         if no_model:
@@ -1793,6 +1890,9 @@ async def _run_engine_independent_tail(
             await _full_name_join_safely(memory_path, settings, user_triggered=user_triggered)
             # Ruling 74c (2026-11-24): a name that is plainly one person's page written two ways.
             await _typo_join_safely(memory_path, settings, user_triggered=user_triggered)
+        # G245 (owner 2026-11-24): a first-name page and the person who newly appeared the same week — decided and reported
+        # here (`arrival_join.LIVE` false writes nothing); a write is its own commit, before the rematches attach.
+        await _arrival_join_safely(memory_path, settings, user_triggered=user_triggered, no_model=no_model)
         # Vision item 10: "still?" and same-person questions for the catch-up, one shared budget per drain.
         await _catchup_questions_safely(memory_path)
         # G61 S3-a (D8): exact-match source -> its own page links, before any poll's `git add -A`.
@@ -1801,6 +1901,8 @@ async def _run_engine_independent_tail(
         await _rematch_linkedin_safely(memory_path)
         # Contacts cards waiting outside the bank, matched against tonight's pages (owner ruling 2026-10-20) — the same slot.
         await _rematch_contacts_safely(memory_path)
+        # G245: which commits an arrival join caused, recorded once both rematches have run.
+        await _arrival_record_safely(memory_path)
         # G61 "Where to check" (ruling 36 D5): links already on the record proposed as sources — after the imports
         # above (a link they put on a page is not proposed again), before any poll's `git add -A`.
         await _where_to_check_safely(memory_path)
@@ -2286,6 +2388,10 @@ def _reset_batch_counters() -> None:
     _state.claims_released = 0
     _state.claims_hold_capped = 0
     _state.claims_waiting = 0
+    _state.saves_folded = 0
+    _state.saves_closed = 0
+    _state.saves_held_capped = 0
+    _state.saves_names_held = 0
     _state.decay_nudges_deferred = 0
     _state.decay_nudges_refreshed = 0
     _state.inbox_settled = 0
@@ -3085,6 +3191,12 @@ def _decide_progress(live: "sleep_drain.BatchLive"):
     return cb
 
 
+
+def _stage2_summary(creates: int, updates: int, relationships: int, saves_names_held: int = 0) -> str:
+    """Stage 2's one log line; the held-name count (G245) is an integer, never a name."""
+    held = f", {saves_names_held} name(s) met only in saves held" if saves_names_held else ""
+    return f"Stage 2 complete: {creates} new entities, {updates} updates, {relationships} relationships{held}"
+
 async def _run_stages(
     settings: Settings, cycle_id: str, memory_path: Path, *, user_triggered: bool = True,
     batch: BatchPlan | None = None,
@@ -3482,7 +3594,8 @@ async def _run_stages(
     episode_cooccurrences = resolved_result.get("episode_cooccurrences", {})
     creates = sum(1 for r in resolved_changes if r.get("action") == "create")
     updates = sum(1 for r in resolved_changes if r.get("action") == "update")
-    logger.info(f"Stage 2 complete: {creates} new entities, {updates} updates, {len(resolved_edges)} relationships")
+    _state.saves_names_held = int(resolved_result.get("saves_names_held", 0) or 0)   # G245, Track 2c
+    logger.info(_stage2_summary(creates, updates, len(resolved_edges), _state.saves_names_held))
     _state.entities_created = creates
     _state.entities_updated = updates
     _state.relationships_created = len(resolved_edges)
@@ -3704,6 +3817,9 @@ async def _run_stages(
         _state.claims_released = int(claim_result.get("claims_released", 0) or 0)
         _state.claims_hold_capped = int(claim_result.get("claims_hold_capped", 0) or 0)
         _state.claims_waiting = int(claim_result.get("claims_waiting", 0) or 0)
+        _state.saves_folded = int(claim_result.get("saves_folded", 0) or 0)
+        _state.saves_closed = int(claim_result.get("saves_closed", 0) or 0)
+        _state.saves_held_capped = int(claim_result.get("saves_held_capped", 0) or 0)
         nudge_result = await asyncio.to_thread(
             write_claim_nudges, claim_result.get("nudges", []), memory_path, decay_budget=decay_budget
         )
@@ -4122,6 +4238,9 @@ def _get_unprocessed_episodes(
             # it was posted, and whose site it is (`saved_reading`); the save's own day stays `timestamp`.
             **({"posted": str(fm["posted"])} if fm.get("posted") else {}),
             **({"url": str(fm["url"])} if fm.get("url") else {}),
+            # Ruling 80 (G245): the marks of the person's own words on a save (a reason, a why-answer, a note, a folder
+            # reason) — a save with none is no mention and one source for the 2+ rule (`saved_reading.no_words_of_his`).
+            **{key: fm[key] for key in history_index.PERSON_KEYS if fm.get(key)},
             "filepath": f.path,
             # G48: which conversation produced this episode. `session_id` is
             # stamped by the MCP seam at capture; `source_id` is G20's
@@ -4719,6 +4838,11 @@ async def _finalize(
             "claims_released": _state.claims_released,
             "claims_hold_capped": _state.claims_hold_capped,
             "claims_waiting": _state.claims_waiting,
+            # G245 (ruling 80, Track 2c): what a save's words were kept to — integers only, never a name.
+            "saves_folded": _state.saves_folded,
+            "saves_closed": _state.saves_closed,
+            "saves_held_capped": _state.saves_held_capped,
+            "saves_names_held": _state.saves_names_held,
             # Decay inbox questions (Stage 5): counts only.
             "decay_nudges_deferred": _state.decay_nudges_deferred,
             "decay_nudges_refreshed": _state.decay_nudges_refreshed,

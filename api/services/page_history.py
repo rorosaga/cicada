@@ -176,10 +176,27 @@ async def page(entity_id: str, memory_path: Path, *, limit: int = DEFAULT_LIMIT,
         if join == "undo":
             undone.update(m.group(1) for m in _UNDOES.finditer(body))
         rows.append(EntityHistoryEntry(
-            join=join, undoable=join in ("merge", "split") and commit not in undone,
+            join=join, undoable=join in ("merge", "split", "arrival") and commit not in undone,
             date=day, at=at, change_type=git_service._infer_change_type(subject, body, entity_id),
             description=git_service._build_description(subject, body, entity_id), author=author,
             author_kind=kind, author_provider=provider, commit_hash=commit,
             sessions=git_service._parse_entity_sessions(body, entity_id), trigger=trigger, via=via,
             bucket=bucket(trigger, via, author, kind), summary=summarize(patch)))
+    if any(r.join == "arrival" for r in rows):
+        _name_arrivals(memory_path, entity_id, rows)
     return rows, more
+
+
+def _name_arrivals(memory_path: Path, entity_id: str, rows: list[EntityHistoryEntry]) -> None:
+    """G245: each arrival join's row says whom it joined, read from the page's own alias and record (never the commit)."""
+    from api.services import arrival_join_write, markdown_parser
+
+    try:
+        fm = markdown_parser.parse(Path(memory_path) / "entities" / f"{entity_id}.md").frontmatter
+    except Exception:  # noqa: BLE001 - a row without a name is still a row
+        return
+    records = arrival_join_write.records(fm)
+    for row in rows:
+        if row.join == "arrival":
+            record = next((r for r in records if row.commit_hash in (r.get("commits") or [])), None)
+            row.joined_as = arrival_join_write.name_of(fm, record) if record else None

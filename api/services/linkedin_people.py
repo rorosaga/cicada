@@ -1302,10 +1302,13 @@ def list_rows(memory_path: Path, bank: str, *, query: str = "", since: str | Non
         for c in _rows(held):
             for key in _name_keys(c):
                 by_key.setdefault(key, []).append(c)
+        from api.services import arrival_join_write
+
+        joined = arrival_join_write.joined_for(Path(memory_path)) if idx else {}   # G245: a first name joined to this row
         for c in page_rows:
             out.append({"id": c.id, "name": c.name, "headline": _headline(c), "url": c.url, "day": c.connected_on,
                         "precision": c.precision if c.connected_on else None,
-                        "page": _page_for(idx, doubted, by_key, c) if idx else None})
+                        "page": _page_for(idx, doubted, by_key, c) if idx else None, "joined": joined.get(c.id)})
     return {"rows": out, "total": total, "offset": offset,
             "next": offset + limit if offset + limit < total else None,
             "exportedOn": held.get("exported_on"), "readOn": held.get("read_on"), "kept": len(_rows(held))}

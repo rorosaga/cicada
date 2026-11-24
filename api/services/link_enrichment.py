@@ -40,7 +40,7 @@ nightly one. A page the person's own agent read is left alone (its read carried 
 
 G102 cheap slice (2026-09-02): the in-cycle pass above only ever sees the 20
 most recent pages of a cycle that had episodes. ``backfill`` (bottom of this
-module) is the whole-bank, oldest-first driver that closes that gap on the
+module) is the whole-bank driver (newest saves first since ruling 80, :data:`READ_SAVED_PAGES`) that closes that gap on the
 engine-independent Sleep tail and on demand; its rulings (R1-R9) are in
 ``docs/plans/2026-09-02-link-summaries-backfill.md``.
 """
@@ -298,16 +298,39 @@ def _excluded_media(url: str, mtype: str) -> bool:
     return "instagram.com" in url or "linkedin.com" in url
 
 
+#: Ruling 80 (owner 2026-11-24: "if i save it already has a reason"; the coordinator's reading, pending the owner's
+#: confirmation): when Sleep reads a save, the public page behind its link is read too — by the existing path (the
+#: connector fetch gate, the per-cycle caps, never a walled site, a video or a paper) — and the saves read first are
+#: the newest (the backfill's order; the in-cycle pass was always most recent first). ``False`` turns it off: a page
+#: whose every save has no words of the person's, and that nobody talked about, is then never fetched or described
+#: (the plan's first reading), and the backfill is oldest-imported first again.
+READ_SAVED_PAGES = True
+
+
 def lean_page(memory_path: Path, fm: dict) -> bool:
-    """Ruling 62: a saved page nobody has said anything about: every episode it rests on is a bare save or a list save.
-    No model describes it, no recon relates it and no claim is written until one of them gets its read, whatever the
-    page's description. A page with no episode on record is not one (it did not come through a saving door)."""
-    from api.services import bank_index, history_index
+    """A saved page whose save no model reads: every episode it rests on is stored as a bare save or a list save (ruling
+    62, ``history_index.kind``). No model describes it, no recon relates it and no claim is written until one of them
+    gets its read, whatever the page's description: a save Sleep reads (or owes a read) is not lean, so its public page
+    is read like any other (ruling 80, :data:`READ_SAVED_PAGES`). With the switch off, a page every episode of which is
+    a save with no words of the person's and no mention (``read_asked``) stays lean whatever its read state. A page with
+    no episode on record is not one (it did not come through a saving door)."""
+    from api.services import bank_index, history_index, saved_reading
 
     episodes = [str(e).split("#", 1)[0] for e in (fm.get("source_episodes") or []) if str(e).startswith("ep_")]
     found = [bank_index.file(Path(memory_path), "episodes", f"{e}.md") for e in episodes]
     held = [f for f in found if f is not None]
-    return bool(held) and all(history_index.kind(f.frontmatter) in ("saved", "list") for f in held)
+    if not held:
+        return False
+    if all(history_index.kind(f.frontmatter) in ("saved", "list") for f in held):
+        return True
+    return not READ_SAVED_PAGES and all(
+        saved_reading.no_words_of_his(f.frontmatter) and not f.frontmatter.get(history_index.WOKEN_KEY) for f in held)
+
+
+def _newest_first(fm: dict) -> str:
+    """The sort key of the in-cycle pass: when the page was last mentioned, else (a page only saves made has no mention)
+    the day its save was made."""
+    return str(fm.get("last_referenced") or "") or _saved_sort_key(fm)
 
 
 def _candidates(memory_path: Path, max_per_cycle: int, *, min_len: int = 120,
@@ -318,7 +341,7 @@ def _candidates(memory_path: Path, max_per_cycle: int, *, min_len: int = 120,
     that would need a fetch — not inside the ``retry_days`` backoff a failed or
     blocked fetch stamped (the tail backfill stamps ``fetch_status`` only, so
     the ``enrichment_attempted`` gate alone never sees it). Capped at
-    ``max_per_cycle`` (most recent first). The whole-bank, oldest-first pass
+    ``max_per_cycle`` (most recent first). The whole-bank pass (:data:`READ_SAVED_PAGES`)
     over pages this one never reaches is ``backfill`` below.
 
     The cap is one budget over two kinds of page: *reuse* (a substantive
@@ -358,7 +381,7 @@ def _candidates(memory_path: Path, max_per_cycle: int, *, min_len: int = 120,
         # A reuse page needs no network; a page that would be fetched honours the 30-day backoff.
         if not reuse and _in_fetch_backoff(fm, date.today(), retry_days):
             continue
-        out.append((str(fm.get("last_referenced", "") or ""), fp, reuse))
+        out.append((_newest_first(fm), fp, reuse))
     out.sort(key=lambda t: t[0], reverse=True)
     if scour_floor <= 0:
         return [fp for _, fp, _ in out[:max_per_cycle]]
@@ -645,7 +668,7 @@ async def enrich_media_links(
 # 2026-09-02: 603 media pages, 370 with a ``## Description``, 210 of them
 # substantive, ZERO ``describes`` claims. ``backfill`` closes those three gaps:
 # it runs on the engine-independent Sleep tail (idle nights included) and on
-# demand, oldest-imported first, keyed on the one fact that matters — "does
+# demand, newest saves first (:data:`READ_SAVED_PAGES`), keyed on the one fact that matters — "does
 # this page carry a ``describes`` claim yet?" — with a dated fetch backoff.
 # Every tier here reuses the helpers above verbatim.
 
@@ -998,9 +1021,8 @@ def scan_backfill(memory_path: Path, settings, *, today: date | None = None) -> 
             scan.backoff += 1
         else:
             scan.fetch.append(cand)
-    scan.reuse.sort(key=lambda c: (c.sort_key, c.media_id))
-    scan.fetch.sort(key=lambda c: (c.sort_key, c.media_id))
-    scan.reason.sort(key=lambda c: (c.sort_key, c.media_id))
+    for tier in (scan.reuse, scan.fetch, scan.reason):
+        tier.sort(key=lambda c: (c.sort_key, c.media_id), reverse=READ_SAVED_PAGES)   # newest saves first (ruling 80)
     return scan
 
 
@@ -1165,7 +1187,7 @@ async def backfill(
     commit: bool = True,
     today: date | None = None,
 ) -> BackfillReport:
-    """Describe + relate EXISTING media pages, oldest-imported first (R1-R9).
+    """Describe + relate EXISTING media pages, newest saves first unless :data:`READ_SAVED_PAGES` is off (R1-R9).
 
     ``summarize_fn``/``fetch_fn`` ``None`` (the hermetic default) disables the
     §2b tier: the run is then zero-LLM and the commit is authored ``cicada``.

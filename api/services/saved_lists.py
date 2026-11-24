@@ -381,7 +381,8 @@ def due(memory_path: Path, now: datetime | None = None, *, unattended: bool = Fa
     list never read before any (G245: the first key in table order no longer always wins, so a later list is not
     starved). Ties keep table order. A check never lifts a pause, and never goes past :data:`DAILY_READS`.
 
-    ``unattended`` is for a read nobody is watching (a later track's daily run; nothing uses it yet): it never offers a
+    ``unattended`` is for a read nobody is watching (``cicada_reading_queue(unattended)``, the person's own scheduler):
+    it never offers a
     list that has not been read to its end (:func:`whole`: a first read takes many screens and minutes), never an
     ``accounts`` list, and orders posts, then people, then books, a timeline last (reposts share their site's pause, so a
     block met reading them must never come before bookmarks). The person's own read keeps the fair order above: with more
@@ -795,9 +796,11 @@ def screens_words(memory_path: Path, key: str) -> str:
             "each call says when you have reached them. Record as you go, newest first.")
 
 
-def queue_lines(memory_path: Path, *, can_record: bool, now: datetime | None = None) -> list[str]:
-    """The reading queue's lines for the list that is due — empty when none is (or agent reading is off)."""
-    keys = due(memory_path, now)
+def queue_lines(memory_path: Path, *, can_record: bool, now: datetime | None = None,
+                unattended: bool = False) -> list[str]:
+    """The reading queue's lines for the list that is due — empty when none is (or agent reading is off).
+    ``unattended``: the list :func:`due` offers a read nobody watches."""
+    keys = due(memory_path, now, unattended=unattended)
     if not keys:
         return []
     p = PLATFORMS[keys[0]]

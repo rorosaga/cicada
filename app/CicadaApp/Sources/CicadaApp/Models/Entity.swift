@@ -214,6 +214,8 @@ struct EntityHistoryEntry: Identifiable, Codable {
     /// `undoable` — a merge or split the History tab offers to take back. nil / false from an older backend.
     var join: String?
     var undoable = false
+    /// G245 (arrival join): for a join of kind `arrival`, the full name Sleep joined to the page (read from the page's own alias).
+    var joinedAs: String?
 
     var dateValue: Date {
         let f = DateFormatter()
@@ -223,7 +225,7 @@ struct EntityHistoryEntry: Identifiable, Codable {
 
     enum CodingKeys: String, CodingKey {
         case date, changeType, description, author, authorKind, authorProvider, commitHash, diff, sessions, trigger, via
-        case at, bucket, summary, join, undoable
+        case at, bucket, summary, join, undoable, joinedAs
     }
 
     init(from decoder: Decoder) throws {
@@ -244,6 +246,7 @@ struct EntityHistoryEntry: Identifiable, Codable {
         summary = (try? c.decodeIfPresent(HistorySummary.self, forKey: .summary)) ?? nil
         join = (try? c.decodeIfPresent(String.self, forKey: .join)) ?? nil
         undoable = (try? c.decodeIfPresent(Bool.self, forKey: .undoable)) ?? false
+        joinedAs = (try? c.decodeIfPresent(String.self, forKey: .joinedAs)) ?? nil
     }
 
     init(

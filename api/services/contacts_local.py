@@ -239,6 +239,12 @@ def remember_removal(memory_path: Path, entity_id: str, source: dict) -> str | N
     return REFUSED_FILE
 
 
+def detach_photo(bank: str, entity_id: str) -> None:
+    """The page's cached Contacts thumbnail leaves the picture cache (the page's own mark is the caller's to drop): a join the
+    person took back (`arrival_join_write.undo`) takes the face it brought."""
+    _remove_photo(bank, entity_id)
+
+
 def _desired(eid: str, contact: dict, mine: dict, refused: set, today: str) -> dict[tuple, dict]:
     """The entries this card owns on page ``eid``: one per fact it holds, minus what the person removed."""
     ref = f"{REF_SCHEME}{str(contact['id']).strip()}"
@@ -354,6 +360,13 @@ def sync(memory_path: Path, payload: dict, *, bank: str | None = None) -> dict:
         if _write_page(memory_path, eid, contact, photo, bank=bank, refused=refused, today=today, counts=counts):
             paths.append(f"entities/{eid}.md")
     kept = save_waiting(bank, waiting, read_at=read_at)
+    try:
+        _note_seen(bank, [c for c in contacts if not c.get("is_me")], {str(c["id"]).strip() for c in waiting},
+                   read_at=read_at, today=today)
+    except Exception as exc:  # noqa: BLE001 - a first-seen stamp is a hint for one reader; it never fails a sync
+        from loguru import logger
+
+        logger.warning(f"Contacts first-seen not kept: {type(exc).__name__}")
     if phone_numbers.enabled():
         cards: dict[str, list[str]] = {}
         for contact in contacts:
@@ -487,6 +500,73 @@ def _save_waiting(bank: str, contacts: list[dict]) -> int:
     return len(rows)
 
 
+# --------------------------------------------------------------------------- when a card first showed (G245, arrival join)
+
+#: ``$CICADA_HOME/people/<bank>/contacts-seen.json``: every card the book has ever shown, by the hash of its id, with the
+#: day it was first seen WAITING — or ``null`` when that day is not known. Outside every bank and git, never a name, wiped
+#: with the waiting cards (`forget_waiting`) and with the bank.
+SEEN_FILE = "contacts-seen.json"
+#: A card's first-seen day is believed only when the sync before it was at most this many days earlier ...
+SEEN_MAX_GAP_DAYS = 3
+#: ... and no more than this many cards were new in it. A phone restore, an iCloud merge or a vCard import adds hundreds at
+#: once: all of that sync's new cards stay unstamped (counted as ``bulk``), so a book that grew in one gulp never reads as
+#: a week's new acquaintances.
+SEEN_MAX_NEW = 5
+#: The most ids the file keeps (a book is at most `MAX_CONTACTS`).
+SEEN_CAP = 2 * MAX_CONTACTS
+
+
+def _note_seen(bank: str, contacts: list[dict], waiting_ids: set[str], *, read_at: int, today: str) -> None:
+    """Record what this sync showed (called by :func:`sync` after the waiting set is saved).
+
+    * The very first sync marks every card seen with no day (``null``): the baseline is unknown, never "new".
+    * A later sync: a card whose id is not in the file is NEW. Its day is today only when the previous sync was at most
+      :data:`SEEN_MAX_GAP_DAYS` days ago, at most :data:`SEEN_MAX_NEW` cards were new, and the card WAITS (matches no page);
+      otherwise ``null``. A card that already matched a page is marked ``null`` for good — one that carried a page is never
+      "new", so one that returns to waiting after a split, an archive or an undo is not an arrival.
+    * Never lowers or moves a day once kept; never records a name."""
+    with _WAITING_LOCK:
+        if forgotten_since(read_at):
+            return
+        held = people_directory.load_json(bank, SEEN_FILE)
+        seen = {str(k): (v if isinstance(v, str) else None) for k, v in (held.get("seen") or {}).items()} \
+            if isinstance(held.get("seen"), dict) else {}
+        prior_day = str(held.get("synced_on") or "")
+        first = not held
+        keyed = {_card_key(str(c["id"]).strip()): str(c["id"]).strip() for c in contacts if str(c.get("id") or "").strip()}
+        new = [k for k in keyed if k not in seen]
+        gap = None
+        try:
+            gap = (date.fromisoformat(today) - date.fromisoformat(prior_day)).days if prior_day else None
+        except ValueError:
+            gap = None
+        trusted = (not first) and gap is not None and 0 <= gap <= SEEN_MAX_GAP_DAYS and len(new) <= SEEN_MAX_NEW
+        for k in new:
+            seen[k] = today if (trusted and keyed[k] in waiting_ids) else None
+        for k, cid in keyed.items():
+            if cid not in waiting_ids and seen.get(k):
+                seen[k] = None    # it carried a page: never an arrival again, whatever happens to that page
+        if len(seen) > SEEN_CAP:
+            seen = dict(list(seen.items())[-SEEN_CAP:])
+        bulk = len(new) if (not first and not trusted) else 0
+        people_directory.save_json(bank, SEEN_FILE, {"v": 1, "synced_on": today, "seen": seen, "bulk": bulk,
+                                                     "new": 0 if first else len(new)})
+
+
+def first_seen(bank: str) -> tuple[dict[str, str | None], str | None]:
+    """``({card id hash: the day it was first seen waiting, or None}, the day of the last sync)`` — what the arrival join
+    reads (`arrival_join`). Empty when no sync has run (or Contacts was stopped)."""
+    held = people_directory.load_json(bank, SEEN_FILE)
+    seen = held.get("seen") if isinstance(held.get("seen"), dict) else {}
+    day = str(held.get("synced_on") or "") or None
+    return {str(k): (v if isinstance(v, str) else None) for k, v in seen.items()}, day
+
+
+def card_hash(card_id) -> str:
+    """The key a card has in :func:`first_seen`: its id hashed, never the id."""
+    return _card_key(str(card_id))
+
+
 def load_waiting(bank: str) -> list[dict]:
     """The waiting cards, each stamped with when they were read (``READ_AT``, taken before the read) so a later use asks
     :func:`card_live` — the forget removes the file first and stamps the marker after, so a read that saw the file
@@ -542,6 +622,7 @@ def _forget_files(root: Path) -> int:
     for folder in sorted(p for p in root.iterdir() if p.is_dir() and not p.is_symlink()):
         forgotten += len(load_waiting(folder.name))
         (folder / WAITING_FILE).unlink(missing_ok=True)
+        (folder / SEEN_FILE).unlink(missing_ok=True)   # G245: when each card first showed goes with the cards
         photos = folder / WAITING_PHOTOS
         if photos.is_dir() and not photos.is_symlink():
             for item in photos.iterdir():

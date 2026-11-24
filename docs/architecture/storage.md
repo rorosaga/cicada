@@ -848,6 +848,24 @@ no `has_note`, and the tweet's `created_at` is its `posted` day. Episodes writte
 origin `x-bookmarks` or `pinterest`) are put right by `connector_text.repair`, committed alone before the index's own commit
 so a later wake finds no revision; it is **report-only** behind `connector_text.REPAIR` until the coordinator reads
 `python -m api.scripts.connector_text_dry_run --bank <path>` (counts only; `--ids` adds episode ids).
+**What a save may add, and how much (G245, ruling 80's plan, Track 2c; `saves_bounded`).** A claim "rests on saves alone"
+when its observer is somebody else's (`external:<author>`, never given to a claim with a span in the person's own words)
+and every conversation it cites is a saved item, a save he wrote a reason on included (the claim is still the author's);
+one conversation of his also citing it makes it his. Three bounds, each one line to undo, derived on read from the episodes'
+own records (an episode that cannot be read is no save), nothing stored. (1) **At most 12 open such claims on one page**
+(`MAX_OPEN_CLAIMS`, in `claim_reconciler.reconcile_stage3` after the pass's placements, on the subjects a save-only claim
+was placed on): the newest by the post's own day (`posted`, else `published_at`, else the save's day) stay, an older one is
+closed with `valid_to` the day it was set aside, never deleted (git holds it; a re-read of it stays closed like any closed
+claim), and a claim the person stated, or one a conversation of his also cites, is never counted or closed. (2) **The same
+fact from several authors is one claim**: a claim's slot is keyed by its observer, so before placement a save-only claim
+with the predicate, context and object of an open save-only claim by another author is folded into it (`_reinforce`: every
+author's evidence and source, the first author's observer) instead of opening one per author. (3) **A name only saves
+carried keeps at most 3 held claims** (`pending_store.hold`, `saves_bounded.MAX_HELD_CLAIMS`): a line every one of whose
+conversations (`PendingEntity.episodes()`) is a save with no words of the person's takes a fourth at no price but the count; a
+line any conversation of his names keeps `MAX_HELD_CLAIMS` of 50, and a claim already held is never evicted. Nothing is
+silent: the claim pipeline returns `saves_folded` and `saves_closed` (the `save_folded` and `save_capped` audit entries) and
+`saves_held_capped` (of `claims_hold_capped`, what a saves-only line refused), Stage 2 returns `saves_names_held`, and Sleep
+carries all four into the `sleep_run` ledger row; each is also in a log line (the claim pipeline's for folded and closed, its hold summary for held-capped, Stage 2's complete line for `saves_names_held`) — integers, never a name or a word.
 **An agent's saved note is the agent's words (ruling 50, owner 2026-10-29).** A note an agent saved through a tool door
 — `cicada_save_episode` over stdio (`source: mcp`), the remote connector (`mcp-remote`), or `cicada save` from an
 agent's shell (`cli` with the harness or session it ran in; the CLI stamps a Codex sandbox's harness too) — is known by
@@ -3095,3 +3113,20 @@ top; a line still being written waits for its newline); `state_dictionary.refres
 (`shared_scans`). None changes a wire shape. Not done: paging `/claims` (the entity card groups and counts contested
 keys over every claim, so a first-N page would need the card changed too), and the whole-bank payloads (`/graph`
 14.9 MB, `/sleep/episodes` 5.8 MB, `/sources` 4.0 MB — already compressed on the wire).
+
+### The arrival join's state (G245, owner 2026-11-24)
+
+Where the arrival join (`arrival_join`, `arrival_join_write`; `capture-and-sleep.md`) keeps what it knows. **Outside every bank**, in
+`$CICADA_HOME/people/<bank>/` beside the directories it reads, wiped with them and with the bank: `contacts-seen.json` (every
+Contacts card the book has ever shown, by the hash of its id, with the day it was first seen waiting or `null`, the last sync's
+day and how many cards were new in it: ids hashed, never a name), `arrival-join-report.json` (the night's reading, one item per
+first-name page that has a namesake in a directory: page id, both days, the gap, each directory's freshness stamp, each namesake
+row by its hash with the role it played, the conflict and veto answers, the decision and its reason; overwritten nightly) and
+`arrival-join-veto.json` (each veto's answers by the digest of what it read, so a candidate is read once, not every night). **In
+the bank**, only once a join is live: the first-name page's frontmatter `arrival_joins` (a hash of the folded full name, the
+directory rows' hashes, both days, the gap, the commits the join caused, the claim ids it wrote, a hash of each link it added,
+`state: joined | undone`), the alias itself on the page like any alias, and `_merge_rejected.yaml`'s `arrival_joins` list
+(`[{holder, key, on}]`, a hash of the name, until a page of that name exists and the refusal becomes a refused pair). A note's
+episode gains `created_at` (frontmatter alone, the aware ISO moment the note was begun, sent by the app beside the dump). No
+name, company, headline, link or e-mail of a directory row is in a commit message, a record, a log line or the ledger
+(`test_arrival_join.py`'s privacy test).

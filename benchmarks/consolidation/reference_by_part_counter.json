@@ -1,0 +1,426 @@
+{
+ "about": "Invented. Counter-stories: the part or noun belongs to another thing, or is a thing of its own (two drafts of two projects, a kitchen renovation that is not the house purchase, a tool used on two builds, a seed swap beside an allotment plot, a mother's kitchen beside one's own flat). Nothing may be folded into the wrong thing.",
+ "owner": "Imke Rosales",
+ "conversations": [
+  {
+   "id": "w1",
+   "phase": 1,
+   "day": -60,
+   "title": "Screenplay Harbor Lights",
+   "turns": [
+    "I am writing a short screenplay called Harbor Lights, about two sisters running a ferry. A film collective in Rotterdam wants it for their autumn programme.",
+    "What stage are you at?",
+    "Outline done, now writing scenes."
+   ]
+  },
+  {
+   "id": "w2",
+   "phase": 1,
+   "day": -52,
+   "title": "Harbor Lights characters",
+   "turns": [
+    "Worked on the characters for Harbor Lights today. The older sister, Mette, is stubborn and the younger one, Liv, keeps the books.",
+    "Good contrast.",
+    "Yes, the ferry itself is almost a third character."
+   ]
+  },
+  {
+   "id": "w3",
+   "phase": 1,
+   "day": -58,
+   "title": "Garden grant application",
+   "turns": [
+    "I am writing a grant application for the Greenside community garden, funded by the Aldermoor Foundation, due in December.",
+    "What are you asking for?",
+    "Money for raised beds and a tool shed."
+   ]
+  },
+  {
+   "id": "w4",
+   "phase": 1,
+   "day": -50,
+   "title": "Grant budget",
+   "turns": [
+    "Worked on the budget section of the Greenside grant today. We are asking for 12,000 euros.",
+    "Do you have quotes?",
+    "Two for the shed, three for the beds."
+   ]
+  },
+  {
+   "id": "w5",
+   "phase": 2,
+   "day": -18,
+   "title": "Reader notes on the screenplay",
+   "turns": [
+    "The draft of the screenplay came back from the collective's reader. She loved the ferry scenes but wants the ending shorter.",
+    "Will you cut it?",
+    "Yes, by about four pages."
+   ]
+  },
+  {
+   "id": "w6",
+   "phase": 2,
+   "day": -17,
+   "title": "Foundation deadline",
+   "turns": [
+    "The draft the foundation asked for is due on Friday and I still need the budget table.",
+    "Can you finish it in time?",
+    "If I skip the weekend, yes."
+   ]
+  },
+  {
+   "id": "k1",
+   "phase": 1,
+   "day": -60,
+   "title": "Buying the house",
+   "turns": [
+    "We signed the purchase of the house on Elm Court. The mortgage is approved with Halvern Bank and closing is on the 30th.",
+    "Congratulations! When do you move in?",
+    "In two weeks."
+   ]
+  },
+  {
+   "id": "k2",
+   "phase": 1,
+   "day": -55,
+   "title": "Moving in",
+   "turns": [
+    "Booked the movers for the Elm Court house. Mortgage payments start in January.",
+    "Is everything packed?",
+    "Almost, the books are the last thing."
+   ]
+  },
+  {
+   "id": "k3",
+   "phase": 2,
+   "day": -15,
+   "title": "Kitchen renovation",
+   "turns": [
+    "I have hired a contractor to renovate the kitchen, a separate job with its own 14k budget, starting in January.",
+    "What will change?",
+    "Everything, cabinets, floor and the layout."
+   ]
+  },
+  {
+   "id": "k4",
+   "phase": 3,
+   "day": -6,
+   "title": "Kitchen tiles",
+   "turns": [
+    "The kitchen tiles are chosen, grey slate, and the contractor wants a 30 percent deposit.",
+    "Is the deposit normal?",
+    "Yes, it is standard."
+   ]
+  },
+  {
+   "id": "r1",
+   "phase": 1,
+   "day": -60,
+   "title": "Oak bookshelf",
+   "turns": [
+    "I am building an oak bookshelf for the living room, two metres wide, with housed dado joints.",
+    "Sounds solid.",
+    "I want it finished by Christmas."
+   ]
+  },
+  {
+   "id": "r2",
+   "phase": 1,
+   "day": -55,
+   "title": "Rocking chair restoration",
+   "turns": [
+    "I am restoring my grandfather's rocking chair, beech, the spindles are loose and the finish is shot.",
+    "A nice heirloom project.",
+    "Yes, I want it back in the family room by spring."
+   ]
+  },
+  {
+   "id": "r3",
+   "phase": 1,
+   "day": -50,
+   "title": "Bookshelf sides",
+   "turns": [
+    "Cut the sides of the bookshelf today and used the router table for the dados.",
+    "How did they come out?",
+    "Clean. Eight of them, all matching."
+   ]
+  },
+  {
+   "id": "r4",
+   "phase": 1,
+   "day": -48,
+   "title": "Chair spindles",
+   "turns": [
+    "Re-glued the rocking chair's spindles and the router table made the new tenons.",
+    "Did they fit?",
+    "Snug, I had to pare a few."
+   ]
+  },
+  {
+   "id": "r5",
+   "phase": 2,
+   "day": -14,
+   "title": "Router table fence",
+   "turns": [
+    "The router table's fence is out of true by a millimetre, so I am replacing it with an aluminium one. I used the table all weekend, on both projects.",
+    "Good call.",
+    "The chair's seat edge and the shelf's top edge both needed a roundover."
+   ]
+  },
+  {
+   "id": "r6",
+   "phase": 3,
+   "day": -5,
+   "title": "Router bit set",
+   "turns": [
+    "Bought a new bit set for the router table, 12 pieces, carbide.",
+    "A good investment.",
+    "I think so, the old bits were dull."
+   ]
+  },
+  {
+   "id": "g1",
+   "phase": 1,
+   "day": -60,
+   "title": "Allotment plot",
+   "turns": [
+    "I took over plot 12 at the Hillside allotments this spring. Raised beds, tomatoes, beans and a compost bin.",
+    "Nice. What is growing best?",
+    "The beans, by far."
+   ]
+  },
+  {
+   "id": "g2",
+   "phase": 1,
+   "day": -50,
+   "title": "Plot 12 beds",
+   "turns": [
+    "Built three more raised beds on plot 12 and ordered 4 cubic metres of soil.",
+    "That is a lot of soil.",
+    "It is. The delivery comes Saturday."
+   ]
+  },
+  {
+   "id": "g3",
+   "phase": 2,
+   "day": -14,
+   "title": "Seed swap",
+   "turns": [
+    "I am organising the allotment association's seed swap on the 20th, a separate event from my own plot. I am in charge of the flyers and the tea.",
+    "How many people do you expect?",
+    "Thirty or so."
+   ]
+  },
+  {
+   "id": "g4",
+   "phase": 3,
+   "day": -6,
+   "title": "Seed swap logistics",
+   "turns": [
+    "The seed swap has 30 people signed up so far and the hall costs 40 euros.",
+    "Do you need helpers?",
+    "Two more for the tea table."
+   ]
+  },
+  {
+   "id": "m1",
+   "phase": 1,
+   "day": -58,
+   "title": "Rénovation de mon appartement",
+   "turns": [
+    "Je rénove mon appartement à Lyon, 55 mètres carrés, dans le quartier de la Croix-Rousse. Le chantier commence en janvier.",
+    "Un beau projet. Quel est le budget ?",
+    "Environ 22 000 euros."
+   ],
+   "lang": "fr"
+  },
+  {
+   "id": "m2",
+   "phase": 1,
+   "day": -50,
+   "title": "Devis pour Lyon",
+   "turns": [
+    "J'ai reçu les devis pour mon appartement de la Croix-Rousse : l'électricité et la salle de bain, c'est le plus gros poste.",
+    "Tu as comparé plusieurs artisans ?",
+    "Oui, trois devis pour chaque poste."
+   ],
+   "lang": "fr"
+  },
+  {
+   "id": "m3",
+   "phase": 2,
+   "day": -13,
+   "title": "Cuisine de maman",
+   "turns": [
+    "J'aide ma mère à refaire la cuisine de son appartement à Nantes. On a choisi des meubles blancs et un plan de travail en granit.",
+    "C'est un gros chantier ?",
+    "Deux semaines, et je prends mes congés pour l'aider."
+   ],
+   "lang": "fr"
+  },
+  {
+   "id": "m4",
+   "phase": 3,
+   "day": -5,
+   "title": "Cuisine de maman, suite",
+   "turns": [
+    "La cuisine de ma mère est presque finie. Il manque la hotte, livrée jeudi.",
+    "Elle doit être contente.",
+    "Elle l'est, elle veut déjà cuisiner pour toute la famille."
+   ],
+   "lang": "fr"
+  }
+ ],
+ "gold": {
+  "points": [],
+  "updates": [],
+  "forbid": [],
+  "people": {
+   "same": [],
+   "apart": [],
+   "apart_facts": [],
+   "one": []
+  },
+  "pages": {
+   "expected": [],
+   "not_expected": []
+  },
+  "dated": [],
+  "secret": "",
+  "apart_values": [],
+  "roles": [],
+  "fading": []
+ },
+ "expect": {
+  "stories": [
+   {
+    "id": "screenplay",
+    "whole": "harbor lights|screenplay",
+    "facts": [
+     "shorter|ferry scenes"
+    ],
+    "others": [
+     "greenside|grant|garden"
+    ],
+    "ask": {
+     "q": "What did the reader say about my screenplay draft?",
+     "must": [
+      [
+       "ending"
+      ],
+      [
+       "shorter",
+       "four pages"
+      ]
+     ]
+    },
+    "why": ""
+   },
+   {
+    "id": "grant",
+    "whole": "greenside|grant",
+    "facts": [
+     "due on Friday|budget table"
+    ],
+    "others": [
+     "harbor lights|screenplay"
+    ],
+    "ask": {
+     "q": "When is the foundation draft due?",
+     "must": [
+      [
+       "Friday"
+      ]
+     ]
+    },
+    "why": ""
+   },
+   {
+    "id": "kitchen",
+    "whole": "kitchen",
+    "facts": [
+     "14k|slate|deposit"
+    ],
+    "others": [
+     "elm court|house"
+    ],
+    "ask": {
+     "q": "Where does the kitchen renovation stand?",
+     "must": [
+      [
+       "slate",
+       "14k",
+       "deposit"
+      ]
+     ]
+    },
+    "why": ""
+   },
+   {
+    "id": "tool",
+    "whole": "router table",
+    "facts": [
+     "aluminium|bit set|carbide"
+    ],
+    "others": [
+     "bookshelf|rocking chair|chair"
+    ],
+    "ask": {
+     "q": "What did I change on the router table?",
+     "must": [
+      [
+       "fence",
+       "bit set",
+       "aluminium"
+      ]
+     ]
+    },
+    "why": ""
+   },
+   {
+    "id": "seedswap",
+    "whole": "seed swap",
+    "facts": [
+     "30 people|flyers|hall"
+    ],
+    "others": [
+     "plot 12|allotment plot|hillside"
+    ],
+    "ask": {
+     "q": "How is the seed swap going?",
+     "must": [
+      [
+       "30"
+      ],
+      [
+       "hall",
+       "flyers",
+       "tea"
+      ]
+     ]
+    },
+    "why": ""
+   },
+   {
+    "id": "cuisine",
+    "whole": "ma mère|maman|nantes|cuisine",
+    "facts": [
+     "granit|hotte"
+    ],
+    "others": [
+     "croix-rousse|lyon"
+    ],
+    "ask": {
+     "q": "Où en est la cuisine de ma mère ?",
+     "must": [
+      [
+       "hotte",
+       "granit"
+      ]
+     ]
+    },
+    "why": ""
+   }
+  ]
+ }
+}

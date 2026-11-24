@@ -170,11 +170,12 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   those paths, never stats a path a request names, never runs git in a declared repo; the app reads (browsers, Notes via
   its own `osascript`, Calendar, Contacts, Chrome tab groups, watched folders; Wispr Flow's reader is off for now, `app.md`) and posts bytes. A browser is
   read only after the person turned it on. An unreadable file shows the exact fix in the app. Chrome's history is read
-  from a copy, YouTube video pages only; watch history is one episode per day, never a save (G71, `capture-and-sleep.md`);
-  it and saves from a platform's saved list are indexed, never read by a model (ruling 30). **Ruling 62 (owner
-  2026-11-04):** so is every other save with no reason (a bookmark, tab group, saved link, feed item): no model, claim, page
-  or question, found by recall, Ask and the hook; read once when the person's own words name it, a conversation lights its
-  page or they give a reason, never for a retrieval hit; one already read keeps what it made (`capture-and-sleep.md`).
+  from a copy, YouTube video pages only; watch history is one episode per day, never a save (G71, `capture-and-sleep.md`),
+  indexed and never read by a model (ruling 30), as are records the person did not save and, as coded, feed items. **Ruling 80 (owner
+  2026-11-24, "if i save it already has a reason"; withdraws 62's index-only rule and 30's saved-list half):** every save
+  (bookmark, tab group, saved link, like, upvote, repost, list post) is to be read by Sleep after the person's conversations,
+  its words the author's, never theirs, and no page or mention from saves alone (`capture-and-sleep.md`). **Reading is not on
+  yet:** it waits for their answer on pace and cost, with a daily allowance for the older pile (amends 13, 16; pending).
 - **Books (G39, G233):** a scanned ISBN (`/capture/isbn`) resolves at the home behind the connector
   gate, cached outside every bank; Apple Books is read by the app once turned on; Goodreads through the person's own agent
   and browser first, its export second (ruling 72); one `media` page per work across doors (identical title and authors join, a doubt asks; ruling 67; a door's rename follows, the person's stands; 69), status as dated claims, imports quiet (`capture-and-sleep.md`, "Books").
@@ -191,44 +192,42 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Capture never depends on a model calling a tool where a hook exists (G105; ruling 57 for the apps with none).** Claude Code and Codex sessions are captured by the
   harness's own Stop hook; the backend reads a transcript only when it resolves under the harness root as
   `<session_id>.jsonl`. Only the person's turns and the agent's final reply are kept, plus each agent
-  turn's model and effort, capped after scrubbing (G110 A2, `capture-and-sleep.md`).
-  Cursor and Gemini CLI hooks post the turn's own words to `/capture/turn` (no transcript read, `capture-and-sleep.md`). **One episode per session** (G104). Cicada's own `claude -p` / `codex exec` spawns run with
-  `CICADA_CAPTURE=off` and `CICADA_RECALL=off` (separate switches since 2026-10-23, `mcp.md`). Stop is the trigger; PreCompact and SessionEnd run the same hook as an idempotent
-  flush (G110 gate A). Over the session cap the head and the latest turns are kept (gate B2, `capture-and-sleep.md`). Recall is the same move (G149): the
+  turn's model and effort, capped after scrubbing (G110 A2).
+  Cursor and Gemini CLI hooks post the turn's own words to `/capture/turn` (no transcript read). **One episode per session** (G104). Cicada's own `claude -p` / `codex exec` spawns run with
+  `CICADA_CAPTURE=off` and `CICADA_RECALL=off` (separate switches, `mcp.md`). Stop is the trigger; PreCompact and SessionEnd run the same hook as an idempotent
+  flush (G110 gate A). Over the session cap the head and the latest turns are kept (gate B2). Recall is the same move (G149): the
   SessionStart/UserPromptSubmit hooks inject Cicada's note; a note the harness records as a separate non-person record
   is never captured, and one that arrives inside the person's own text is kept, counted and disclosed (G110 gate C).
   **Apps with no hook** relay each turn through `cicada_capture_turns`, by default (rulings 32, 57): claude.ai, ChatGPT
   and their phone apps on the remote connector, the Claude desktop app on its local connection — offered by exact client
   name to no session a harness named, so a hook-captured harness never is. One episode per conversation, stored as
-  relayed (`evidence_kind: assistant`), never the person's own words until that app's export upgrades it in place
-  (`capture-and-sleep.md`). **Exports are one-time (ruling 58):** a new memory's start or an import from an AI provider;
+  relayed (`evidence_kind: assistant`), never the person's own words until that app's export upgrades it in place. **Exports are one-time (ruling 58):** a new memory's start or an import from an AI provider;
   nothing reminds a person to repeat one or watches for one. **58b:** a one-off wait the person starts, their agent requesting it in their own browser (`cicada_export_requests`), never a repeat or a mail watch. Turns after an import stay in that episode, each marked as relayed.
 - **An agent's edit of a watched source file is recorded by a hook, never by the agent (G244, ruling 76, owner 2026-11-23):**
-  Claude Code's `PostToolUse` posts the file's hash, never a word; the backend never opens the path; the line stays its speaker's, marked `correctedBy` (`capture-and-sleep.md`).
+  Claude Code's `PostToolUse` posts the file's hash, never a word; the backend never opens the path; the line stays its speaker's, marked `correctedBy`.
 - **Transcripts under `~/.claude/` are never read anywhere else** — the MCP seam and resume only `isfile()` them.
   A client of a server elsewhere reads its session there with Cicada's own extractor and posts the capped turns (ruling 28).
   **Agent memory notes (ruling 43):** Claude Code's `projects/*/memory/*.md` are read by its own hook, never the backend
   — the backend's one `~/.claude` read stays the transcript —
-  posted as bytes, one agent-worded episode per note, one switch, on by default (`capture-and-sleep.md`).
+  posted as bytes, one agent-worded episode per note, one switch, on by default.
 - **One id rule** (`episode_ids`): max-suffix+1 per date — the conversation's local day, never renamed (ruling 34) —
   aware UTC timestamps; `processed_by` says who flipped it. **Both dates (ruling 39):** `timestamp` is the item's own
   date, `received_at` when Cicada received it — stamped once by `create_episode`, never backfilled; a feed item is
   dated when published and is no time signal (`episode_time`, `capture-and-sleep.md`).
   A new episode never replaces a file (`create_episode`); dedup, edits and Sleep's revision-checked retirement share
-  `episode_lock`, and every page write is atomic (audit K01/A01/A02, `capture-and-sleep.md`).
+  `episode_lock`, and every page write is atomic (audit K01/A01/A02).
 - **Every writer scrubs, every source-keyed writer stages through one module** (`episode_scrub`, `episode_staging`:
   hash over the scrubbed body, edits in place with `processed: false` and a `revised` record Sleep reads as a revision
   (owner 2026-11-03), deletions tombstoned, never unlinked).
 - **Meetings are conversations (owner ruling 2026-11-03, G95):** a recorder's transcript (Hex's Markdown folder, any
   folder of transcripts) is an episode Sleep consolidates — one per meeting, its own date, through the folder stager;
   unlike a `media_files` recording. Only a line the recorder labels `You`/`Me` is the person's (52a); every other is
-  its speaker's (`speaker:<label>`), the summary the recorder's model's (`capture-and-sleep.md`).
+  its speaker's (`speaker:<label>`), the summary the recorder's model's.
 - **An added recording, video, memo or photo is a quiet `media` page** (`media_pages`, ruling 68); its words stay outside every bank (`storage.md`).
 - **Capture never writes into a demo bank** (`demo_guard`, by `_bank.yaml`, never by name): every capture/sources
   POST/PUT answers 409; the Stop hook redirects to the real bank left most recently.
 - **The Contacts page's faces (G154, owner 2026-11-04):** every card's names and thumbnail, outside every bank, per
-  device, for the app's grid alone; no match reads them, no agent door reaches them, every forget wipes them
-  (`contacts_book`, `capture-and-sleep.md`).
+  device, for the app's grid alone; no match reads them, no agent door reaches them, every forget wipes them (`contacts_book`).
 - **A ticked chat's attachments show at view time (G179, 2026-11-04):** the app opens the file the chat app holds on
   this Mac (Telegram's through the person's own session); the bank keeps names only; thumbnails outside every bank,
   gone on untick (`app.md`).
@@ -249,7 +248,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 
 - **Five stages** (extract → resolve/dedup → conflicts/decay → patterns/skills → nudges + commit) plus an
   **engine-independent tail** on every exit path, in a clean-tree-guarded slot, each step committing only its own paths.
-- **Consolidate reads everything** (rulings 13, 16; a lean read counts, ruling 62): every run — the person's and a
+- **Consolidate reads everything** (rulings 13, 16; ruling 80's allowance on older saves awaits the owner): every run — the person's and a
   scheduled one — is a drain over the ids frozen at its start, in committed batches (ruling 62), so a stop loses at most the batch in progress. Decay and the
   page reads run once per drain. A plan limit is a pause, not a failure. **Ruling 4: a scheduled run uses a Claude or ChatGPT plan only
   through the person's "Scheduled runs may use my plan" switch, on unless they turned it off** (4b 2026-10-16, 4c
@@ -272,9 +271,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   Sleep sets its flag then waits holders out — past the bound it pauses, never reads; never held across a model call or a fetch. Sleep's bank-wide work runs off the event loop; Stage 2's judge calls alone go back to it (G238).
 - **Sleep tends the inbox (ruling 29):** after each batch's commit it settles questions the person's own words answer
   (spans in their own turns, never a guess) and, per drain, the small stuff by rule, through the person's own resolvers
-  as Sleep's commit (`inbox/<kind>/settled:`), each undoable; never a person's identity without their words (`features.md`).
+  as Sleep's commit (`inbox/<kind>/settled:`), each undoable; never a person's identity without their words, bar ruling 79 (c) (`features.md`).
   **Ruling 73:** no question loses a value; its own counters are never asked. **Ruling 74 (2026-11-07):** two people pages
-  join only on two independent kinds of evidence, the name (an alias included, 2026-11-08) counting once (`person_duplicates.joins`), else a question.
+  join only on two independent kinds of evidence, the name (an alias included, 2026-11-08) counting once (`person_duplicates.joins`), else a question; **79 (c):** time is the second kind for a first name and a same-week arrival, report-only.
   **74a (2026-11-23):** a same-name pair Sleep holds in doubt it joins itself on a located link read twice, undoable; one that reads like two is not asked.
   **74b (2026-11-24):** a name held in full joins its short-name page on the person's own located words naming both as one, read twice; an undo keeps them apart.
   **74c (2026-11-24):** a plain misspelling is assumed, not asked: joined on one located same-fact line per side, read twice, else held quietly (`typo_join`); a question the record already answers is closed by Sleep's tending (`answered_questions`).
@@ -456,11 +455,11 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Reading with the person's own agent (G166):** Cicada never spawns a browser and never signs in to a site; it only asks
   (only ruling 47's tier 2 — an official API the person connects — signs in, never as a browser session, `network.md`). Only a
   link the person asked about, or a wall page of a site they allowed, can be recorded — and (owner 2026-10-16, G71) the
-  person's YouTube Watch later or history page, a standing ask once they turn that list on, stdio only; their saved list on X, Instagram or LinkedIn the same way, one site at a time, each item an
-  indexed save (G206, 2026-10-22, `mcp.md`) — and on Reddit, Pinterest or TikTok the same way, off by default until the
+  person's YouTube Watch later or history page, a standing ask once they turn that list on, stdio only; their saved list on X, Instagram or LinkedIn the same way, one site at a time, each item a
+  save (G206, 2026-10-22, `mcp.md`; X reposts too, from the person's own profile, ruling 79 (a)) — and on Reddit, Pinterest or TikTok the same way, off by default until the
   person turns it on (G232, 2026-11-04; Spotify and Goodreads too, ruling 72: a site's terms don't decide this, 2026-11-06); one person's
   LinkedIn profile only through the link their page lists, on the person's ask, stdio only (2026-10-16,
-  `mcp.md`). Imported LinkedIn connections enrich existing people only, never mint a page (also read by the person's agent from the connections page and listed to the app on the local API, ruling 78 (c)). The backend never fetches a
+  `mcp.md`). A LinkedIn connection alone makes no page; the person's own full-name mention of one does, its link proposed (ruling 79 (e); also read by the person's agent and listed to the app on the local API, ruling 78 (c)). The backend never fetches a
   login-walled page. **Exploring saved sites (ruling 25):** only the person's click or a trusted local agent they asked
   starts a run; the agent uses their signed-in session unless they turn it off, every capture says which (`mcp.md`).
 - **Skills (2026-10-15):** Cicada installs third-party skills only on the person's consent, pinned to what they saw

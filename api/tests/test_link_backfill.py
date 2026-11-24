@@ -153,7 +153,7 @@ def test_redirect_target_uses_the_wider_login_path_set_only_when_moved():
 
 # --- scan + ordering -------------------------------------------------------
 
-def test_scan_orders_reuse_before_fetch_oldest_first_and_skips_done(tmp_path):
+def test_scan_orders_reuse_before_fetch_newest_first_and_skips_done(tmp_path):
     memory = _bank(tmp_path)
     _media(memory, "media-new-thin", "New Thin", "https://example.com/new", saved_at="2026-08-01")
     _media(memory, "media-old-thin", "Old Thin", "https://example.com/old", saved_at="2026-01-01")
@@ -162,8 +162,9 @@ def test_scan_orders_reuse_before_fetch_oldest_first_and_skips_done(tmp_path):
     _media(memory, "media-yt", "A Video", "https://www.youtube.com/watch?v=abc", saved_at="2025-01-01")
     _media(memory, "media-consent", "Before you continue to Google Search", "https://www.google.com/search", saved_at="2025-01-01")
     scan = link_enrichment.scan_backfill(memory, _settings(memory), today=date(2026, 9, 2))
-    assert [c.media_id for c in scan.reuse] == ["media-old-rich", "media-new-rich"]
-    assert [c.media_id for c in scan.fetch] == ["media-old-thin", "media-new-thin"]
+    # Ruling 80 (G245): the newest saves are read first (`link_enrichment.READ_SAVED_PAGES`; off, oldest-imported first).
+    assert [c.media_id for c in scan.reuse] == ["media-new-rich", "media-old-rich"]
+    assert [c.media_id for c in scan.fetch] == ["media-new-thin", "media-old-thin"]
     assert [p.stem for p, kind in scan.junk] == ["media-consent"]
     assert scan.junk[0][1] == "interstitial"
 
@@ -179,7 +180,7 @@ def test_scan_respects_fetch_backoff_and_retries_after_30_days(tmp_path):
     _media(memory, "media-legacy", "Legacy", "https://example.com/c", saved_at="2026-01-03",
            extra_fm={"enrichment_attempted": True, "enrichment_status": "no_description"})
     scan = link_enrichment.scan_backfill(memory, _settings(memory), today=today)
-    assert [c.media_id for c in scan.fetch] == ["media-old-fail", "media-legacy"]
+    assert [c.media_id for c in scan.fetch] == ["media-legacy", "media-old-fail"]
     assert scan.backoff == 1
 
 
@@ -313,11 +314,11 @@ def test_engine_failure_aborts_llm_tier_without_marking_pages(tmp_path):
 
     report = _backfill(memory, _settings(memory), limit=20,
                                           summarize_fn=summ, fetch_fn=_fetch_ok, commit=False)
-    assert calls == ["A"]                       # aborted after the first engine failure
+    assert calls == ["B"]                       # newest first; aborted after the first engine failure
     assert report.engine_aborted == "EngineUnavailable"
     assert report.summarized == 0 and report.failed == 0
-    assert not [c for c in _claims(memory, "media-a") if c.predicate == "describes"]
-    assert _fm(memory, "media-b").get("fetch_attempted_at") is None   # never reached
+    assert not [c for c in _claims(memory, "media-b") if c.predicate == "describes"]
+    assert _fm(memory, "media-a").get("fetch_attempted_at") is None   # never reached
     assert report.remaining == 2
     assert report.llm_calls == 0                # the engine never answered (review M2)
 
@@ -414,7 +415,7 @@ def test_limit_and_remaining_and_second_run_resumes(tmp_path):
         _media(memory, f"media-r{i}", f"Rich {i}", f"https://example.com/{i}", saved_at=f"2026-01-0{i + 1}", description=LONG)
     first = _backfill(memory, _settings(memory), limit=2, summarize_fn=None, fetch_fn=None, commit=False)
     assert first.selected == 2 and first.remaining == 3
-    assert [c.predicate for c in _claims(memory, "media-r0")] == ["describes"]
+    assert [c.predicate for c in _claims(memory, "media-r4")] == ["describes"]      # the newest two first
     assert not _claims(memory, "media-r2")
     second = _backfill(memory, _settings(memory), limit=10, summarize_fn=None, fetch_fn=None, commit=False)
     assert second.selected == 3 and second.remaining == 0
@@ -542,7 +543,7 @@ def test_a_night_full_of_reuse_still_fetches_new_pages(tmp_path):
     report = _backfill(memory, _settings(memory), limit=20, summarize_fn=_summ, fetch_fn=_fetch_ok, commit=False)
     assert report.reused == 10 and report.fetched == 10 and report.summarized == 10
     assert report.selected == 20                                    # the night's total is unchanged
-    assert _claims(memory, "media-thin-00") and not _claims(memory, "media-thin-10")
+    assert _claims(memory, "media-thin-29") and not _claims(memory, "media-thin-19")   # newest saves first
 
 
 def test_the_floor_is_only_reserved_for_fetch_candidates_that_exist(tmp_path):

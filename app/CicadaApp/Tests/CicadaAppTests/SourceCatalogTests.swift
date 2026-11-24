@@ -159,7 +159,8 @@ final class SourceCatalogTests: XCTestCase {
     /// Tester readiness (2026-10-26, `13-sources.png`): a fresh setup that accepted the pre-ticked saved-lists step with
     /// no agent connected read "Sources · 5 connected", X, YouTube, Instagram and LinkedIn each Connected. A list only
     /// an agent reads is Connected only while an agent on this Mac is connected; until then it is on, says what it
-    /// waits for, and the header does not count it.
+    /// waits for, and the Connected group does not hold it. The header counts what is ON (owner 2026-11-24, "0 connected"
+    /// beside a card that said "On · waits for your agent"), in its own word, so it claims no read.
     func testSavedListsWithNoAgentHereWaitAndAreNotCounted() {
         let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
         let synced = [SourceChannel(id: "calendar-local", label: "Calendar", connected: true,
@@ -172,7 +173,8 @@ final class SourceCatalogTests: XCTestCase {
             XCTAssertNil(SourceCatalog.line(row(id, in: waiting)!, now: .now), "\(id): no sync line while waiting")
         }
         XCTAssertEqual(SourceCatalog.connectedCount(waiting), 1, "only the calendar is connected")
-        XCTAssertEqual(Copy.Catalog.eyebrow(SourceCatalog.connectedCount(waiting)), Copy.Catalog.eyebrow(1))
+        XCTAssertEqual(SourceCatalog.onCount(waiting), 5, "the calendar and the four lists the person turned on")
+        XCTAssertEqual(Copy.Catalog.eyebrow(SourceCatalog.onCount(waiting)), "5 on")
         // Every other row is untouched by the lists: nothing else waits.
         XCTAssertEqual(Set(waiting.filter { $0.status == .waitingForAgent }.map(\.id)), ["x", "youtube", "instagram",
                                                                                       "linkedin"])
@@ -180,6 +182,7 @@ final class SourceCatalogTests: XCTestCase {
                                            savedListsOn: lists, localAgent: true)
         // Lists turned on with an agent here but nothing read yet are on, not connected (sources-truth).
         XCTAssertEqual(SourceCatalog.connectedCount(connected), 1)
+        XCTAssertEqual(SourceCatalog.onCount(connected), 5, "on counts the same with an agent here and nothing read yet")
         XCTAssertEqual(SourceCatalogStatus.waitingForAgent.word, "On · waits for your agent")
         XCTAssertNotEqual(SourceCatalogStatus.waitingForAgent.tone, .on, "never painted as connected")
     }

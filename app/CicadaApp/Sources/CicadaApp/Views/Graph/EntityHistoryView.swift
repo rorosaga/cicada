@@ -349,11 +349,14 @@ struct HistoryUndoButton: View {
     @State private var undoing = false
     @State private var undoProblem: String?
 
+    /// G245: a join Sleep made of a first name and the person who newly appeared the same week — "Not them", its own route.
+    private var arrival: Bool { entry.join == "arrival" }
+
     var body: some View {
         HStack(spacing: CicadaTheme.spacingSM) {
-            TextButton(title: Copy.Graph.historyUndo) { undo() }
+            TextButton(title: arrival ? Copy.Arrivals.notThem : Copy.Graph.historyUndo) { undo() }
                 .disabled(undoing)
-                .help(Copy.Graph.historyUndoHelp)
+                .help(arrival ? Copy.Arrivals.notThemHelp : Copy.Graph.historyUndoHelp)
             if undoing { ProgressView().controlSize(.small) }
             if let undoProblem {
                 Text(undoProblem).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
@@ -369,8 +372,9 @@ struct HistoryUndoButton: View {
         Task {
             defer { undoing = false }
             do {
-                let answer = try await APIClient.shared.undoJoin(entityId: entityId, commitHash: entry.commitHash)
-                store?.toast = Copy.Graph.historyUndone(kind)
+                let answer = arrival ? try await APIClient.shared.undoArrivalJoin(entityId: entityId)
+                                     : try await APIClient.shared.undoJoin(entityId: entityId, commitHash: entry.commitHash)
+                store?.toast = arrival ? Copy.Arrivals.undone : Copy.Graph.historyUndone(kind)
                 await graphVM?.loadGraph()
                 if answer.removed.contains(entityId) {
                     // The page itself was the split's new page: go back to the one it came from, never a dead card.

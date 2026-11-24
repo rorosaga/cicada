@@ -408,6 +408,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /entities/{entity_id}/merge": (ADMITTED, None),
     "POST /entities/{entity_id}/split": (ADMITTED, None),
     "POST /entities/{entity_id}/history/{commit_hash}/undo": (ADMITTED, None),
+    # G245, the arrival join: "Not them" takes back the name Sleep joined, one admitted transaction (`page_joins`).
+    "POST /entities/{entity_id}/arrival-join/undo": (ADMITTED, None),
     "POST /projects/{project_id}/milestones": (ADMITTED, None),
     "PATCH /projects/{project_id}/milestones/{slug}": (ADMITTED, None),
     "POST /projects/{project_id}/happenings": (ADMITTED, None),
