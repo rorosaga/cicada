@@ -130,6 +130,10 @@ RULES: dict[str, str] = {
     "already_described": "Sleep already read what it is; nothing was changed",
     "not_fading": "It is not fading any more; nothing was changed",
     "source_corrected": "The words it asked about were corrected",
+    # 2026-11-24 (`alias_collisions`): two pages that go by one name.
+    "alias_apart": "Two different things: one no longer lists the other's name as its own",
+    "alias_quiet": "A saved link shares the name; it is no question about your memory",
+    "alias_doubt": "Sleep could not tell whether they are one thing; nothing was changed",
 }
 #: What the settled list says each retired "same as?" question became (owner 2026-11-04, `pair_evidence`).
 RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
@@ -137,6 +141,8 @@ RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
 #: The rules that read only the bank: re-run inside each settle, which goes ahead only when they still agree.
 #: The rules whose settle is a join Sleep read twice: taking one back is the person saying they are two (74b, 74c).
 JOINS = frozenset({"full_name_one", "typo_one"})
+#: The settle that took a name off a page (`alias_collisions`): taking it back is the person keeping the name.
+ALIAS_RULES = frozenset({"alias_apart"})
 ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "seed_fold", "one_off", "newest_evidence",
                          "multi_valued", "in_passing", "newest_words", "own_settings", "named_account",
                          "owner_unsaid", "no_pair_evidence", "two_signals", "not_started", "same_value", "moved_on",
@@ -419,6 +425,13 @@ def _merge_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | N
     if mention_type and target_type and mention_type != target_type:
         return None, "judgement"
     name = _fold_name(fm.get("entity_name") or fm.get("entity_mention") or mention_fm.get("name"))
+    if (mention is not None and fm.get("fold_page") is not True and name != _fold_name(target[1].get("name"))
+            and name in _names(target[1])):
+        # 2026-11-24 (`alias_collisions`, G21): two PAGES that meet only because one lists the other's title as an alias are
+        # not "the same name, spelled differently": the resolver refuses a fold of a page that is no flagged page question
+        # ("the fold is the person's call"), so settling it here only left the question open — and read as a join in the
+        # dry run. The tending of alias collisions owns the pair: it reads both pages, then removes the alias, asks once, or holds.
+        return None, "alias_collision"
     if name and name in _names(target[1]):
         return Decision(item_id, "merge_suggestion", "same_spelling",
                         {"action": "merge", "merge_target": target[0].stem},
@@ -3193,6 +3206,25 @@ def undo(memory_path: Path, item_id: str) -> tuple[str, list[str], list[str], di
             _write_bytes(target, data)
         paths.append(rel)
         lines.append(f"{rel}: updated (source: {item_id}, trigger: inbox/sleep-settle/undone)")
+    if rec.get("rule") in ALIAS_RULES:
+        # 2026-11-24 (`alias_collisions`): taking back the removal of a name is the person keeping it. The page is back as it
+        # was (above); the name is marked kept so it is never removed or proposed for removal again, and the question does
+        # not come back (it was never theirs to answer: Sleep read two things).
+        from api.services import wrong_aliases
+
+        for row in rec.get("alias_apart") or []:
+            page = memory_path / "entities" / f"{str((row or {}).get('page') or '')}.md"
+            if page.is_file() and wrong_aliases.remember_kept(page, [str((row or {}).get("alias") or "")]):
+                rel = page.relative_to(memory_path).as_posix()
+                if rel not in paths:
+                    paths.append(rel)
+                    lines.append(f"{rel}: updated (source: {item_id}, trigger: inbox/sleep-settle/undone)")
+        rec_path.unlink()
+        bank_index.invalidate(memory_path)
+        markdown_parser.invalidate_pages(os.path.realpath(memory_path))
+        paths.append(record_rel)
+        lines.append(f"{record_rel}: removed (source: {item_id}, trigger: inbox/sleep-settle/undone)")
+        return item_id, paths, lines, rec
     if rec.get("rule") in JOINS:
         # Ruling 74b: taking back Sleep's join of a held full name is the person saying they are two people. The
         # question does not come back: the pair is kept apart by the writer their own "No, different" uses

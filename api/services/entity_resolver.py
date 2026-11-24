@@ -15,7 +15,7 @@ from loguru import logger
 from thefuzz import fuzz
 
 from api.config import Settings
-from api.services import (agent_engine, alias_policy, application_page, authorship, contact_identity, contacts_local, linkedin_people, phone_numbers, correspondents, engine_errors,
+from api.services import (agent_engine, alias_collisions, alias_policy, application_page, authorship, contact_identity, contacts_local, linkedin_people, phone_numbers, correspondents, engine_errors,
                           entity_body, entity_relations, entity_types, fact_policy, json_parse, link_names, owner_identity, pair_evidence, people_directory, person_leads,
                           project_birth, promotion, quiet_pages, role_people, same_name_people, saves_bounded, section_provenance,
                           text_fold, wrong_aliases)
@@ -666,6 +666,9 @@ async def resolve(
                     # a linked account — as a question, never a merge. 2026-10-27: an organisation, lab, project or
                     # tool too, by alias only.
                     for lead in family.leads_for(candidate["id"]):
+                        if (family is org_index and settings.memory_path is not None
+                                and alias_collisions.owns(settings.memory_path, lead.page, lead.holder)):
+                            continue   # a pair the tending of alias collisions holds or asked once (G21): never asked again here
                         if (lead.page, lead.holder) not in lead_pairs:
                             lead_pairs.add((lead.page, lead.holder))
                             if family is org_index:
