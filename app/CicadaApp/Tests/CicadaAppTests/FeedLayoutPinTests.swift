@@ -33,13 +33,13 @@ final class FeedLayoutPinTests: XCTestCase {
     }
 
     /// Owner 2026-11-23 ("I don't get why there is an add"): Sleep's tab row has no Add — it only opened Sources,
-    /// which the rail opens and which keeps its own Add.
+    /// which the rail opens; the add sheet lives off Sleep entirely (G245).
     func testTheTabRowHasNoAdd() throws {
         let row = try source("Views/Sleep/SleepTabRow.swift")
         XCTAssertFalse(row.contains(#"systemImage: "plus""#))
         XCTAssertFalse(row.contains(#"KeyboardShortcut("n", modifiers: .command)"#))
         let page = try source("Views/Sleep/SleepView.swift")
         XCTAssertFalse(page.contains(".opacity(0)"), "no hidden zero-size button")
-        XCTAssertEqual(page.components(separatedBy: "AddSourceSheet(").count - 1, 1)
+        XCTAssertFalse(page.contains("AddSourceSheet("), "G245: Sleep owns no add sheet; the Sources page has its own Add")
     }
 }

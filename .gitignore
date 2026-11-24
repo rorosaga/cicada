@@ -44,3 +44,6 @@ benchmarks/queries.txt
 
 # launchd backend service logs
 logs/
+
+# SwiftPM build products, wherever a swift command was run from (a stray app/.build was once committed)
+.build/
