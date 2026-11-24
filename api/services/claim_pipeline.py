@@ -524,6 +524,8 @@ def run_claim_pipeline(
     owner_id = refs.owner_id
     incoming: list[Claim] = entities_to_claims(
         extracted, memory_path, resolve_id=subject_resolver(name_to_id, owner_id, refs))
+    # Ruling 80 (G246): what Sleep wrote from saves that hold none of his words is the author's, however it was drawn.
+    saves_bounded.attribute_to_authors(incoming, saves_bounded.for_bank(memory_path))
     incoming, relabelled = _relabel_event_labels(incoming)
     # Stage-1 only — never the person's extra_claims, never a released claim:
     # the only claims a hold ever takes (R-HP2).

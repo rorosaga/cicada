@@ -195,6 +195,28 @@ def test_the_pipeline_reports_what_it_folded_and_closed(memory):
     assert len([c for c in claims if c.valid_to is None]) == 12 and len(claims) == 15
 
 
+def test_what_sleep_drew_from_saves_with_none_of_his_words_is_the_authors_whatever_drew_it(memory):
+    """A relation the Stage 2 judge drew from two posts' descriptions (observer `agent`, `reasoning` evidence) is the first
+    post's author's; with his reason on the save, or a conversation also citing it, it stays Cicada's own reading."""
+    from api.services import entity_relations
+
+    markdown_parser.write(memory / "entities" / "quillnote.md",
+                          {"name": "Quillnote", "type": "tool", "status": "active", "source_episodes": [CONVERSATION]},
+                          "## Summary\nA synthetic note tool.\n")
+    plain, reasoned = _save(memory, 1, channel="author-one"), _save(memory, 2, reason="for the team notes")
+    rels = [entity_relations.relationship("made_by", "Quillnote Pro", "Quillnote", a_id="quillnote", b_id="quillnote-pro", episode=plain),
+            entity_relations.relationship("version_of", "Quillnote 2", "Quillnote", a_id="quillnote", b_id="quillnote-2", episode=reasoned),
+            entity_relations.relationship("part_of", "Quillnote API", "Quillnote", a_id="quillnote", b_id="quillnote-api", episode=CONVERSATION)]
+    extracted = [{"episode_id": r["source_episode"], "episode_timestamp": "2026-11-20T08:00:00Z", "origin": "sleep",
+                  "entities": [], "relationships": [r]} for r in rels]
+    claim_pipeline.run_claim_pipeline(extracted, [], memory, _settings(memory), now_date=TODAY, name_to_id={"quillnote": "quillnote"})
+    by_object = {c.object: c for c in parse_claims(markdown_parser.parse(memory / "entities" / "quillnote.md").body)}
+    assert by_object["quillnote-pro"].observer == "external:author-one"
+    assert by_object["quillnote-2"].observer == "agent"
+    assert by_object["quillnote-api"].observer == "agent"
+    assert saves_bounded.is_save_only(by_object["quillnote-pro"], saves_bounded.for_bank(memory))
+
+
 def test_the_run_row_carries_the_save_counts(tmp_path, monkeypatch):
     from api.config import Settings
     from api.services import git_service

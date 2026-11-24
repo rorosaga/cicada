@@ -129,6 +129,16 @@ class Saves:
     def day(self, episode_id: str) -> str:
         return self._read(episode_id)[2]
 
+    def author_observer(self, episode_id: str) -> str | None:
+        """``external:<author>`` of a saved item (`saved_reading.author_observer`), or ``None`` when it is no save or cannot be read."""
+        if not self.is_save(episode_id):
+            return None
+        try:
+            entry = bank_index.file(self.memory_path, "episodes", f"{episode_id}.md")
+            return saved_reading.author_observer(dict(entry.frontmatter or {}), entry.body())
+        except Exception:  # noqa: BLE001 - an unreadable save names no author
+            return None
+
 
 def for_bank(memory_path: Path | str | None) -> Saves:
     return Saves(memory_path)
@@ -160,6 +170,29 @@ def is_save_only(claim, saves: Saves) -> bool:
     if is_event(claim) or is_record(claim) or getattr(claim, "source_trust", "") == "user_stated":
         return False
     return saves.all_saves(refs(claim))
+
+
+def attribute_to_authors(claims: Iterable, saves: Saves) -> int:
+    """A claim Sleep wrote (observer ``agent``, ``agent_extracted``) that every cited conversation of is a saved item with none
+    of the person's words is the first such save's author's (``external:<author>``), whatever wrote it: a relation Stage 2's
+    judge drew from two posts' descriptions, an unlocated quote, a fold — in a save that holds none of his words every fact
+    is the author's (ruling 80, G246), so the per-page cap and the fold count it. Mutates in place; returns how many."""
+    from api.services.claims import is_event, is_record
+
+    done = 0
+    for claim in claims:
+        if str(getattr(claim, "observer", "") or "") != "agent" or getattr(claim, "source_trust", "") != "agent_extracted":
+            continue
+        if is_event(claim) or is_record(claim):
+            continue
+        cited = refs(claim)
+        if not cited or not saves.all_of(cited):
+            continue
+        observer = next((o for o in (saves.author_observer(e) for e in cited) if o), None)
+        if observer:
+            claim.observer = observer
+            done += 1
+    return done
 
 
 def claim_day(claim, saves: Saves) -> str:

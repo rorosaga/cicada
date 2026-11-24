@@ -853,7 +853,7 @@ read, and a bank with no such row changes nothing). `python -m api.scripts.conne
 **What a save may add, and how much (G245, ruling 80's plan, Track 2c; `saves_bounded`).** A claim "rests on saves alone"
 when its observer is somebody else's (`external:<author>`, never given to a claim with a span in the person's own words;
 a quote nothing locates is the author's too, in a save with a reason as in one without — the safe side: a stranger's words are
-never made Cicada's own reading or his, and two authors stating one fact in one run keep the first author's, `entities_to_claims`)
+never made Cicada's own reading or his, and two authors stating one fact in one run keep the first author's, `entities_to_claims`; and a claim Sleep wrote that every cited conversation of is a save with none of his words — a relation Stage 2's judge drew from two posts' descriptions, `reasoning` evidence — is the first such save's author's, `saves_bounded.attribute_to_authors`, in `claim_pipeline` right after Stage 1's projection)
 and every conversation it cites is a saved item, a save he wrote a reason on included (the claim is still the author's);
 one conversation of his also citing it makes it his. Three bounds, each one line to undo, derived on read from the episodes'
 own records (an episode that cannot be read is no save), nothing stored. (1) **At most 12 open such claims on one page**
