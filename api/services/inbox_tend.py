@@ -118,6 +118,7 @@ RULES: dict[str, str] = {
     "owner_unsaid": "Nothing you said names you that: it is not a question about you",
     "no_pair_evidence": "No conversation names the two together",
     "two_signals": "Two separate kinds of evidence say these are one person",
+    "full_name_one": "Your own words name them together as one person",
     "not_started": "It is not one of your projects",
     "same_value": "The same value, said two ways",
     "moved_on": "It moved: the latest is current, the earlier ones are kept as past",
@@ -2106,6 +2107,11 @@ def still_holds(memory_path: Path, d: Decision) -> bool:
     rule decides the same again. Asked inside the settle's own hold (Sleep's window or the tidy's admission)."""
     if not guard_holds(memory_path, d):
         return False
+    if d.rule == "full_name_one":
+        # Ruling 74b (2026-11-24): a model read twice; what is re-checked here is everything that is not a reading.
+        from api.services import full_name_join
+
+        return full_name_join.still_holds(memory_path, d)
     if d.rule not in ENGINE_FREE:
         return True
     path = _inbox(Path(memory_path)) / f"{d.item_id}.md"
