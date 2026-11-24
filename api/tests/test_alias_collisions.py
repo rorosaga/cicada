@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -182,11 +183,13 @@ def test_the_labelled_set_has_no_wrong_decision(bank):
     assert _aliases(bank, "sam-ortega") == ["Sam"]
     # The saved link took nothing and asked nothing.
     assert _aliases(bank, "solstice-co") == ["Solstice"]
-    # Questions: six old unflagged ones before; after, one per kind-(a) pair, the rest closed or rewritten.
+    # Questions: six old unflagged ones before; after, one per kind-(a) pair, the closed ones are the two things and the
+    # saved link; the question about the pair Sleep could not tell stays exactly as it was (ruling 29).
     after = _open(bank)
     assert len(before) == 6
     asked = {n: fm for n, fm in after.items() if fm.get("detected") == alias_collisions.DETECTED}
-    assert len(asked) == 2 and len(after) == 2
+    assert len(asked) == 2 and set(after) == {"inbox-301", "inbox-302", "inbox-306"}
+    assert after["inbox-306"] == before["inbox-306"]
     assert all(fm["fold_page"] is True and "one thing under two names" in fm["title"] for fm in asked.values())
     assert {frozenset({fm["entity_id"], fm["merge_target_hint"]}) for fm in asked.values()} == {
         frozenset({"nwdb", "northwind-database"}), frozenset({"acme-cloud", "acme-cloud-co"})}
@@ -195,7 +198,7 @@ def test_the_labelled_set_has_no_wrong_decision(bank):
     log = _git(bank, "log", "--format=%s")
     assert "Inbox settled by Sleep" in log
     settled = {markdown_parser.parse(p).frontmatter["settled"]["rule"] for p in (bank / "inbox" / "settled").glob("*.md")}
-    assert settled == {alias_collisions.APART, alias_collisions.QUIET, alias_collisions.DOUBT}
+    assert settled == {alias_collisions.APART, alias_collisions.QUIET}   # a doubt writes no settle: it closes nothing
 
 
 def test_a_second_run_reads_nothing_and_asks_nothing(bank):
@@ -241,6 +244,151 @@ def test_the_tail_step_in_sleep_runs_the_engine_free_half_with_no_model(bank):
     assert "inbox-305" not in _open(bank)
 
 
+# ---------- a question the person took back or put off, a doubt, the person's own words ----------
+
+
+def _undo_a_quiet_settle(bank) -> str:
+    """A company page with an alias, a saved link titled the same, an open question about the pair: Sleep closes it as
+    quiet, the person takes that back. Returns the reopened question's id."""
+    _page(bank, "solstice-co", "Solstice Co", "company", aliases=["Solstice"])
+    _page(bank, "solstice", "Solstice", "media", origin="saved-link")
+    _question(bank, 305, "solstice", "solstice-co")
+    _commit(bank)
+    assert _tend(bank, None, no_model=True).quiet == 1 and not _open(bank)
+    _commit(bank, "settled")
+    settled = next(p.stem for p in (bank / "inbox" / "settled").glob("*.md"))
+    restored, _paths, _lines, _rec = inbox_tend.undo(bank, settled)
+    _commit(bank, "undone")
+    assert _open(bank)[restored]["sleep_settle"] == "undone"
+    return restored
+
+
+def test_a_question_the_person_took_back_is_never_closed_again(bank):
+    item = _undo_a_quiet_settle(bank)
+    head, before = _git(bank, "rev-parse", "HEAD"), _open(bank)
+    for _ in range(2):
+        report = _tend(bank, None, no_model=True)
+        assert (report.quiet, report.skipped.get("person_holds")) == (0, 1)
+    assert _open(bank) == before and item in _open(bank) and _git(bank, "rev-parse", "HEAD") == head
+    assert alias_collisions.owns(bank, "solstice", "solstice-co")   # Stage 2 raises no second lead beside it
+
+
+def test_a_question_the_person_put_off_is_never_closed_rewritten_or_counted(bank):
+    _page(bank, "acme-cloud-co", "Acme Cloud Co", "company", aliases=["Acme Cloud"])
+    _page(bank, "acme-cloud", "Acme Cloud", "company")
+    _question(bank, 301, "acme-cloud", "acme-cloud-co", remind_after="2026-12-24")
+    _commit(bank)
+    judge = Judge({frozenset({"Acme Cloud Co", "Acme Cloud"}): ("same", "same")})
+    before, head = _open(bank), _git(bank, "rev-parse", "HEAD")
+    report = _tend(bank, judge, today=date(2026, 11, 24))
+    assert judge.calls == [] and _open(bank) == before and _git(bank, "rev-parse", "HEAD") == head
+    assert (report.asked, report.reads) == (0, 0)
+    # The settle and the question writers refuse it too, whoever calls them.
+    pair = next(p for p in alias_collisions.pairs(bank))
+    assert alias_collisions.ask_sync(bank, pair, TODAY) is None and alias_collisions.open_questions(bank, pair, TODAY) == []
+    assert not alias_collisions._settle_sync(bank, alias_collisions.Plan(pair, rule=alias_collisions.QUIET), TODAY)
+    assert _open(bank) == before
+    # The day it comes back the tending may read it again.
+    report = _tend(bank, judge, today=date(2026, 12, 25))
+    assert report.asked == 1 and len(judge.calls) == 2
+
+
+def test_an_undone_settle_does_not_make_the_step_ask_a_second_question(bank):
+    _page(bank, "acme-cloud-co", "Acme Cloud Co", "company", aliases=["Acme Cloud"])
+    _page(bank, "acme-cloud", "Acme Cloud", "company")
+    _question(bank, 301, "acme-cloud", "acme-cloud-co", sleep_settle="undone")
+    _commit(bank)
+    judge = Judge({frozenset({"Acme Cloud Co", "Acme Cloud"}): ("same", "same")})
+    _tend(bank, judge)
+    assert judge.calls == [] and list(_open(bank)) == ["inbox-301"] and "detected" not in _open(bank)["inbox-301"]
+
+
+def test_a_doubt_closes_no_question_and_is_remembered(bank):
+    table = _labelled(bank)
+    judge = Judge(table)
+    before = _open(bank)
+    _tend(bank, judge)
+    # The pair the model could not tell (unsure) and the pair its reads disagreed on: their questions stand as they were.
+    assert _open(bank)["inbox-306"] == before["inbox-306"]
+    assert alias_collisions.owns(bank, "fern", "fern-app") and alias_collisions.owns(bank, "pylib", "snakelang")
+    # Remembered: nothing is read again until a page changes.
+    _commit(bank, "after")
+    calls = len(judge.calls)
+    _tend(bank, judge)
+    assert len(judge.calls) == calls and _open(bank)["inbox-306"] == before["inbox-306"]
+    # A page it read changes: it is read again, and a doubt still closes nothing.
+    page = bank / "entities" / "fern.md"
+    parsed = markdown_parser.parse(page)
+    markdown_parser.write(page, parsed.frontmatter, parsed.body + "\nMore words.\n")
+    _commit(bank, "changed")
+    _tend(bank, judge)
+    assert len(judge.calls) == calls + 1 and _open(bank)["inbox-306"] == before["inbox-306"]
+
+
+def test_a_read_of_two_things_does_not_close_the_question_when_the_persons_words_use_the_name(bank):
+    _labelled(bank)
+    _question(bank, 307, "xq", "alpha-engine")
+    _commit(bank)
+    _tend(bank, Judge({frozenset({"Alpha Reasoning Engine", "XQ"}): ("different", "different")}))
+    assert "inbox-307" in _open(bank) and _aliases(bank, "alpha-engine") == ["XQ"]
+
+
+def test_the_record_saying_two_but_not_the_person_never_closes_a_question_over_a_name_they_use(bank):
+    # A relation claim (a model may have written it) holds the pair as two; the alias is the person's own word: held, open.
+    _labelled(bank)
+    _question(bank, 307, "xq", "alpha-engine")
+    from api.services import entity_relations
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(entity_relations, "known", lambda mp, a, b: {a, b} == {"alpha-engine", "xq"})
+    try:
+        _commit(bank)
+        report = _tend(bank, None, no_model=True)
+    finally:
+        monkey.undo()
+    assert "inbox-307" in _open(bank) and report.held >= 1 and _aliases(bank, "alpha-engine") == ["XQ"]
+
+
+def _episode(memory: Path, num: int, text: str) -> str:
+    eid = f"ep_2026-10-{num:02d}_001"
+    markdown_parser.write(memory / "episodes" / f"{eid}.md",
+                          {"id": eid, "timestamp": f"2026-10-{num:02d}T09:00:00+00:00", "processed": True,
+                           "source": "claude-code", "title": "chat", "authorship": {"kind": "user"}}, text)
+    return eid
+
+
+def test_the_persons_own_words_are_looked_for_in_every_conversation_the_page_lists(bank):
+    # The name is used only in the oldest of twenty conversations, well past the twelve the guard used to read.
+    ids = [_episode(bank, n, "XQ came up once.\n" if n == 1 else "Nothing about it today.\n") for n in range(1, 21)]
+    _page(bank, "alpha-engine", "Alpha Reasoning Engine", "tool", aliases=["XQ"], source_episodes=ids)
+    fm = markdown_parser.parse(bank / "entities" / "alpha-engine.md").frontmatter
+    assert alias_collisions.called_by_own_words(bank, fm, "XQ")
+    assert not alias_collisions.called_by_own_words(bank, fm, "Zed")
+    # Only the person's own turns count: an agent's saved note naming it does not.
+    note = _episode(bank, 25, "XQ is mentioned by the agent only.\n")
+    p = bank / "episodes" / f"{note}.md"
+    parsed = markdown_parser.parse(p)
+    markdown_parser.write(p, {**parsed.frontmatter, "evidence_kind": "assistant"}, parsed.body)
+    assert not alias_collisions.called_by_own_words(bank, {"source_episodes": [note]}, "XQ")
+
+
+def test_a_page_with_too_many_conversations_to_scan_keeps_its_alias(bank, monkeypatch):
+    monkeypatch.setattr(alias_collisions, "MAX_EPISODES", 3)
+    ids = [_episode(bank, n, "Nothing about it today.\n") for n in range(1, 6)]
+    assert alias_collisions.called_by_own_words(bank, {"source_episodes": ids}, "Zed")      # not scanned: kept
+    assert not alias_collisions.called_by_own_words(bank, {"source_episodes": ids[:3]}, "Zed")
+
+
+def test_the_scan_stops_at_the_first_hit(bank, monkeypatch):
+    from api.services import full_name_join
+
+    ids = [_episode(bank, n, "XQ again.\n") for n in range(1, 11)]
+    seen = []
+    real = full_name_join._user_turns
+    monkeypatch.setattr(full_name_join, "_user_turns", lambda mp, eid: seen.append(eid) or real(mp, eid))
+    assert alias_collisions.called_by_own_words(bank, {"source_episodes": ids}, "XQ")
+    assert seen == [ids[-1]]
+
+
 # ---------- undo, and the question Stage 2 would have raised ----------
 
 
@@ -259,6 +407,11 @@ def test_taking_the_removal_back_keeps_the_name_for_good(bank):
     _commit(bank, "undo")
     # Kept: never a pair again, never read, never removed.
     assert "lumen-platform|lumen-search" not in {p.key for p in alias_collisions.pairs(bank)}
+    # A second run changes nothing at all: no commit, no read, the name stays.
+    head, judge = _git(bank, "rev-parse", "HEAD"), Judge(table)
+    _tend(bank, judge)
+    assert _git(bank, "rev-parse", "HEAD") == head and _aliases(bank, "lumen-search") == ["Lumen Platform"]
+    assert not any(c[0] == frozenset({"Lumen Search", "Lumen Platform"}) for c in judge.calls)
 
 
 def test_the_pair_is_the_tendings_so_stage_2_raises_no_lead_for_it(bank):
@@ -377,3 +530,22 @@ def test_the_dry_run_prints_one_stable_line_per_pair_and_no_false_join(bank, cap
     before = files()
     module.main(["--memory", str(bank)])
     assert before == files()
+
+
+def test_the_dry_run_says_a_held_question_is_left_and_a_doubt_closes_nothing(bank, capsys):
+    import importlib.util
+
+    _undo_a_quiet_settle(bank)
+    _page(bank, "fern-app", "Fern App", "tool", aliases=["Fern"])
+    _page(bank, "fern", "Fern", "concept")
+    _question(bank, 306, "fern", "fern-app")
+    _commit(bank)
+    _tend(bank, Judge({frozenset({"Fern App", "Fern"}): ("unsure", "unsure")}))
+    spec = importlib.util.spec_from_file_location(
+        "answered_questions_dry_run2", Path(__file__).resolve().parents[2] / "scripts" / "answered_questions_dry_run.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.main(["--memory", str(bank)]) == 0
+    lines = [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith("ALIAS ")]
+    assert any(ln.startswith("ALIAS solstice solstice-co") and " skip person_holds questions: inbox-" in ln for ln in lines)
+    assert not any("alias_doubt" in ln and "questions:" in ln for ln in lines)

@@ -70,23 +70,37 @@ async def _alias_pairs(memory: Path, *, read: bool, max_reads: int, summary: boo
     judge = await _engine_judge() if read else None
     counts: Counter = Counter()
     left = max_reads
+    today = date.today().isoformat()
+    held = alias_collisions.held_pairs(memory, today)
     for pair in alias_collisions.pairs(memory):
         fa = bank_index.file(memory, "entities", f"{pair.a}.md")
         fb = bank_index.file(memory, "entities", f"{pair.b}.md")
         types = "/".join(str(((f.frontmatter if f else None) or {}).get("type") or "?") for f in (fa, fb))
         plan = alias_collisions.triage(memory, pair)
         rule, why = plan.rule or "skip", plan.why
+        if pair.key in held:
+            # A question the person took back or put off is theirs: the tending reads, closes and asks nothing for the pair.
+            rule, why = "skip", "person_holds"
+            asked = [p.stem for p, _fm, key in alias_collisions._questions(memory) if key == pair.key]
+            counts[rule] += 1
+            if not summary:
+                print(f"ALIAS {pair.a} {pair.b} {'mutual' if pair.mutual else 'one-way'} {types} {rule} {why}"
+                      + (f" questions: {','.join(asked)} (left as they are)" if asked else ""))
+            continue
         if plan.rule == "read" and judge is not None and left > 0:
             left -= 1
             plan = await alias_collisions.assess(memory, pair, judge)
             rule, why = plan.rule, plan.why
         elif plan.rule == "read":
             why = "needs_a_model_read" if judge is None else "over_the_cap"
-        asked = [p.stem for p, _fm in alias_collisions.open_questions(memory, pair)]
+        # Only a question the tending would CLOSE is listed: a doubt (held, remembered) closes nothing, and an `ask` rewrites one.
+        asked = ([p.stem for p, _fm in alias_collisions.open_questions(memory, pair, today)]
+                 if rule != alias_collisions.DOUBT else [])
         counts[rule] += 1
         if not summary:
             print(f"ALIAS {pair.a} {pair.b} {'mutual' if pair.mutual else 'one-way'} {types} {rule} {why}"
-                  + (f" questions: {','.join(asked)}" if asked else ""))
+                  + (f" questions: {','.join(asked)}" if asked else "")
+                  + (" (held, nothing closed)" if rule == alias_collisions.DOUBT else ""))
     return counts
 
 

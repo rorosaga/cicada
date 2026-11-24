@@ -32,8 +32,15 @@ ruling 4's switch (`same_name_tend.main_engine`): both pages (name, type, other 
 * both read ``same`` -> ONE question for the pair, worded as one thing under two names (``detected: alias_collision``,
   `fold_page`: the person's yes folds the less-used page into the other, no keeps them apart and then the alias goes), the
   older "same as?" about the pair is that question, or is closed; never asked twice;
-* anything else (``unsure``, the two reads disagree) is held quietly: an older open question about the pair is closed
-  (rule ``alias_doubt``), nothing else changes, and the pair is not read again until a page it read changes.
+* anything else (``unsure``, the two reads disagree, or a read of two things where the person's own words call the page by
+  the alias) is held quietly: **nothing is written and no open question is closed** (ruling 29 lets Sleep settle only on the
+  person's own words or a small-stuff rule, and a model that could not tell is neither), the read is remembered, and the
+  pair is not read again until a page it read changes. The same when the record says two things but not by the person
+  (a relation claim may be a model's) and the alias is the person's own word: the question stays open.
+
+**What the person holds is never touched.** A question about the pair that the person took back (``sleep_settle: undone``)
+or put off is theirs: this step reads, closes, rewrites and counts none of them, asks no second question beside one, and
+leaves the pair alone until they answer or the day passes (`person_holds`).
 
 Sleep never folds two pages here: the fold stays the person's call. A person page on either side, or the owner's, is never
 read (ruling 74). What a read stood on is kept outside every bank, ids and a hash only (`_seen`).
@@ -58,6 +65,7 @@ APART, QUIET, DOUBT = "alias_apart", "alias_quiet", "alias_doubt"
 WORDS = {
     APART: "Two different things: one no longer lists the other's name as its own",
     QUIET: "A saved link shares the name; it is no question about your memory",
+    # No longer written (a doubt closes nothing); kept so the settles made before still read in the list.
     DOUBT: "Sleep could not tell whether they are one thing; nothing was changed",
 }
 #: Pairs the model reads in one run (two calls each); the rest wait for the next one.
@@ -66,8 +74,9 @@ MAX_READS = 8
 MAX_FREE = 40
 #: What a read shows of each page.
 PAGE_CHARS = 1200
-#: The person's conversations looked at for the alias in their own words, per page.
-MAX_EPISODES = 12
+#: The most conversations one page may list for Sleep to look through for the alias in the person's own words (newest
+#: first, stopping at the first hit). A page with more is not scanned: the alias is kept, never removed.
+MAX_EPISODES = 200
 #: A read that could not be made is tried this many times with the record unchanged.
 MAX_UNREAD_TRIES = 2
 
@@ -229,12 +238,16 @@ def _whole_word(alias: str, text: str) -> bool:
 
 
 def called_by_own_words(memory_path: Path, holder_fm: dict, alias: str) -> bool:
-    """Does the person's own turn, in a conversation this page was built from, say the alias (a whole word)? Then the
-    alias is what they call that thing, and Sleep never takes it (the brief's short-name rule)."""
+    """Does the person's own turn, in ANY conversation this page was built from, say the alias (a whole word)? Then the
+    alias is what they call that thing, and Sleep never takes it (the brief's short-name rule). Newest first, stops at the
+    first hit, reads only the person's turns (`full_name_join._user_turns`, by authorship). A page listing more than
+    :data:`MAX_EPISODES` conversations is not scanned and counts as called by it: the alias is kept, never removed."""
     from api.services import full_name_join
 
-    episodes = [str(e) for e in holder_fm.get("source_episodes") or [] if isinstance(e, str)][-MAX_EPISODES:]
-    for eid in episodes:
+    episodes = list(dict.fromkeys(str(e) for e in holder_fm.get("source_episodes") or [] if isinstance(e, str) and e))
+    if len(episodes) > MAX_EPISODES:
+        return True
+    for eid in reversed(episodes):
         try:
             if any(_whole_word(alias, turn) for turn in full_name_join._user_turns(memory_path, eid)):
                 return True
@@ -417,17 +430,18 @@ def digest(memory_path: Path, pair: Pair) -> str:
 
 
 def owns(memory_path: Path, a: str, b: str) -> bool:
-    """Is this pair the tending's to settle, so Stage 2 raises no lead question about it: a question of its own is open, or
-    a read of it stood (held or asked) and nothing it read has changed since."""
+    """Is this pair the tending's to settle, so Stage 2 raises no lead question about it: a question of its own is open, one
+    the person holds is open, or a read of it stood (held or asked) and nothing it read has changed since."""
     try:
         pair = Pair(*sorted((a, b)))
         if _seen(memory_path).get(pair.key, "#").find("#") < 0:   # a read that stood; an unread one is tried again
             return True
         from api.services import bank_index
 
-        return any(str((f.frontmatter or {}).get("detected") or "") == DETECTED
-                   and {str(f.frontmatter.get("entity_id") or ""), str(f.frontmatter.get("merge_target_hint") or "")} == {a, b}
-                   for f in bank_index.files(Path(memory_path), "inbox"))
+        return (any(str((f.frontmatter or {}).get("detected") or "") == DETECTED
+                    and {str(f.frontmatter.get("entity_id") or ""), str(f.frontmatter.get("merge_target_hint") or "")} == {a, b}
+                    for f in bank_index.files(Path(memory_path), "inbox"))
+                or person_holds(memory_path, pair, date.today().isoformat()))
     except Exception:  # noqa: BLE001
         return False
 
@@ -435,19 +449,41 @@ def owns(memory_path: Path, a: str, b: str) -> bool:
 # --------------------------------------------------------------------------- open questions about a pair
 
 
-def open_questions(memory_path: Path, pair: Pair) -> list[tuple[Path, dict]]:
-    """The open "same as?" questions about exactly these two pages, whoever asked them and whichever way round."""
+def _questions(memory_path: Path):
+    """Every open "same as?" question about two live pages, ``(path, frontmatter, pair key)``, whoever asked it."""
     from api.services import inbox_tend
 
-    out = []
     for path, fm, _body in inbox_tend.pending(Path(memory_path)):
         if str(fm.get("kind") or "") != "merge_suggestion" or fm.get("same_title") or fm.get("heard_in"):
             continue
         ask = inbox_tend._page(Path(memory_path), str(fm.get("entity_id") or ""))
         target = inbox_tend._page(Path(memory_path), str(fm.get("merge_target_hint") or ""))
-        if ask is not None and target is not None and {ask[0].stem, target[0].stem} == {pair.a, pair.b}:
-            out.append((path, fm))
-    return out
+        if ask is not None and target is not None:
+            yield path, fm, "|".join(sorted((ask[0].stem, target[0].stem)))
+
+
+def _held(fm: dict, today: str) -> bool:
+    """The person took this settle back or put the question off: it is theirs (`inbox_tend._blocked`, the guard every other
+    tending rule uses)."""
+    from api.services import inbox_tend
+
+    return inbox_tend._blocked(fm, today) in ("undone", "deferred")
+
+
+def held_pairs(memory_path: Path, today: str) -> set[str]:
+    """The pair keys with a question the person took back or put off: one scan of the inbox."""
+    return {key for _p, fm, key in _questions(memory_path) if _held(fm, today)}
+
+
+def person_holds(memory_path: Path, pair: Pair, today: str) -> bool:
+    return pair.key in held_pairs(memory_path, today)
+
+
+def open_questions(memory_path: Path, pair: Pair, today: str | None = None) -> list[tuple[Path, dict]]:
+    """The open "same as?" questions about exactly these two pages, whoever asked them and whichever way round, that Sleep
+    may touch: never one the person took back or put off."""
+    day = today or date.today().isoformat()
+    return [(path, fm) for path, fm, key in _questions(memory_path) if key == pair.key and not _held(fm, day)]
 
 
 # --------------------------------------------------------------------------- the writers
@@ -460,7 +496,9 @@ def _settle_sync(memory_path: Path, plan: Plan, today: str) -> bool:
     from api.services import bank_index, git_service, page_edits, page_lock
 
     pair = plan.pair
-    questions = open_questions(memory_path, pair)
+    if plan.rule not in (APART, QUIET) or person_holds(memory_path, pair, today):
+        return False   # a doubt closes nothing; a question the person holds is theirs
+    questions = open_questions(memory_path, pair, today)
     with page_lock.page_lock(memory_path):
         if plan.rule == APART:
             for holder, alias in plan.removals:   # the pair must still be what it was read as
@@ -582,7 +620,9 @@ def ask_sync(memory_path: Path, pair: Pair, today: str) -> str | None:
     question of this kind is already open or nothing needed writing."""
     from api.services import (bank_index, git_service, inbox_service, markdown_parser, page_lock, page_use)
 
-    questions = open_questions(memory_path, pair)
+    if person_holds(memory_path, pair, today):
+        return None   # the person took one back or put it off: never a second question beside it
+    questions = open_questions(memory_path, pair, today)
     if any(str(fm.get("detected") or "") == DETECTED for _p, fm in questions):
         return None
     fa = bank_index.file(memory_path, "entities", f"{pair.a}.md")
@@ -628,6 +668,13 @@ def ask_sync(memory_path: Path, pair: Pair, today: str) -> str | None:
 # --------------------------------------------------------------------------- the tail step
 
 
+def _hold(memory_path: Path, pair: Pair, mark: str, report: Report) -> None:
+    """A doubt: remembered (so the pair is not read again until a page it read changes) and nothing else. No open question
+    is closed or rewritten: Sleep settles only on the person's own words or a small-stuff rule (ruling 29)."""
+    _remember(memory_path, pair.key, mark)
+    report.held += 1
+
+
 async def tend(memory_path: Path, settings, judge, *, today: date | None = None, max_reads: int = MAX_READS,
                no_model: bool = False) -> Report:
     """Settle what the record already says, then read up to ``max_reads`` pairs. The judge runs outside any write; each
@@ -637,10 +684,14 @@ async def tend(memory_path: Path, settings, judge, *, today: date | None = None,
     report = Report()
     seen = _seen(memory_path)
     found = [p for p in await asyncio.to_thread(pairs, memory_path)]
+    held = await asyncio.to_thread(held_pairs, memory_path, day)
     free = 0
     for pair in found:
         if pair.skip:
             report.skip(pair.skip)
+            continue
+        if pair.key in held:   # the person took a settle back or put the question off: it is theirs until they answer
+            report.skip("person_holds")
             continue
         plan = await asyncio.to_thread(triage, memory_path, pair)
         mark = await asyncio.to_thread(digest, memory_path, pair)
@@ -660,11 +711,16 @@ async def tend(memory_path: Path, settings, judge, *, today: date | None = None,
                 _remember(memory_path, pair.key, f"{mark}#{tries + 1}")
                 report.skip("unread")
                 continue
+            if plan.rule == DOUBT:   # a model that could not tell settles nothing: remember the read, change nothing
+                _hold(memory_path, pair, mark, report)
+                continue
         elif plan.rule in (APART, QUIET, DOUBT):
+            if plan.rule == DOUBT:
+                if before != mark:
+                    _hold(memory_path, pair, mark, report)
+                continue
             if free >= MAX_FREE:
                 report.skip("max_free")
-                continue
-            if before == mark and plan.rule == DOUBT:
                 continue
             free += 1
         else:
@@ -685,8 +741,6 @@ async def tend(memory_path: Path, settings, judge, *, today: date | None = None,
             report.removed += 1 if ok else 0
             if not ok:
                 report.skip("not_applied")
-        elif plan.rule == DOUBT:
-            report.held += 1   # held whether or not an older question was there to close
         elif plan.rule == QUIET:
             report.quiet += 1
     return report
