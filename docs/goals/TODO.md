@@ -3939,6 +3939,15 @@ A whole row moves to DONE only after its remaining implementation and required a
    everything updated": feeds, calendar feeds and the tier-1 connectors get their own backend job apart from Sleep, Notes
    is read when Notes opens, and the hook names the list that is due (plan section 10); a scheduled run of the person's
    own agent stays his to turn on. The ask-why panel's silent cases are fixed with the notch (plan 7.1).
+   **Amended the same night — a list is read to its end once (owner 2026-11-24: "check also we capture all my saved x
+   posts and linkedin posts at first correctly").** Measured that night on his own lists: one of 377 posts whose end
+   was about 190 screens down, so the plan's "first read … a bounded number of screens" (20) would have kept one post in
+   ten, and with no import on a source page nothing would ever fetch the rest; one of 76. So until a read says it reached
+   the end of a list (`reached_end`), every read of that list is asked to go all the way, posts already in memory are no
+   reason to stop, and the pass may take up to 500 calls of 200 posts; after that a read only looks for what is new
+   (`saved_lists.whole`). Unchanged: one pass is one read against the day's 10, a login wall pauses the site, nothing on
+   the list is ever clicked. YouTube's own lists keep their 20 screens (not asked about; their Takeout already holds
+   them here). **Revisit** if a site meets a long scroll with a block (the read must then stop and record `blocked`).
    **Waiting on the owner, not built:** (1) reposts, which are mixed into the profile timeline that no list page covers;
    (2) accounts followed (he said "maybe"; accounts are a new kind of item, G120 sketches it); (3) a first name in a note
    tied to a same-week connection: a lead only, or may Sleep join it (undoable)?; (4) a post's picture or video itself
