@@ -1,0 +1,720 @@
+[
+ {
+  "id": "same-abbreviation",
+  "group": "single",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "QL",
+    "turn": "QL, also called Quartzline, is the thing I deploy on Fridays.",
+    "expect": "same"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "same-description",
+  "group": "single",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Scheduler Service",
+    "turn": "Scheduler Service, known as Quartzline, runs the Friday deploys for us.",
+    "expect": "same"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "same-spanish",
+  "group": "single",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Cuarzo",
+    "turn": "Cuarzo, llamado también Quartzline, es el servicio que despliego los viernes.",
+    "expect": "same"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "same-said-later",
+  "group": "single",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Kiln",
+    "turn": "Kiln failed its nightly run again and I restarted it.",
+    "expect": "same",
+    "later": {
+     "id": "ep_2026-11-20_001",
+     "text": "Kiln, which I also call Quartzline, is the scheduler I keep restarting."
+    }
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "same-person",
+  "group": "single",
+  "page": {
+   "id": "teodor-brandt",
+   "name": "Teodor Brandt",
+   "type": "person",
+   "facts": [
+    "Teodor Brandt leads the platform team at Kestrel Robotics."
+   ]
+  },
+  "names": [
+   {
+    "name": "Teo",
+    "turn": "Teo, called Teodor Brandt, leads the platform team and sat in on the review.",
+    "expect": "same",
+    "type": "person"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "person-short-name-another-could-be",
+  "group": "single",
+  "page": {
+   "id": "teodor-brandt",
+   "name": "Teodor Brandt",
+   "type": "person",
+   "facts": [
+    "Teodor Brandt leads the platform team at Kestrel Robotics."
+   ]
+  },
+  "names": [
+   {
+    "name": "Teo",
+    "turn": "Teo, called Teodor Brandt, leads the platform team and sat in on the review.",
+    "expect": "none",
+    "type": "person"
+   }
+  ],
+  "pages": [
+   {
+    "id": "teo-vance",
+    "name": "Teo Vance",
+    "type": "person",
+    "facts": [
+     "Teo Vance is a neighbour."
+    ]
+   }
+  ]
+ },
+ {
+  "id": "part-name-contains-the-whole",
+  "group": "single",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Quartzline backend",
+    "turn": "The Quartzline backend is the Python service behind the dashboard.",
+    "expect": "different"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "part-said-with-the-whole",
+  "group": "single",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Quartzline importer",
+    "turn": "The Quartzline importer feeds Quartzline with the nightly data and I restart it separately.",
+    "expect": "different"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "part-component-no-whole",
+  "group": "single",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Job Runner",
+    "turn": "Job Runner is the worker process inside our scheduler that picks jobs off the queue.",
+    "expect": "different"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "sibling-all-but-one-word",
+  "group": "single",
+  "page": {
+   "id": "quartzline-api",
+   "name": "Quartzline API",
+   "type": "project",
+   "facts": [
+    "Quartzline API is the HTTP interface of the scheduling service."
+   ]
+  },
+  "names": [
+   {
+    "name": "Quartzline CLI",
+    "turn": "Quartzline CLI and Quartzline API ship together but they are different tools.",
+    "expect": "different"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "sibling-same-maker",
+  "group": "single",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Quartzline Lite",
+    "turn": "Quartzline Lite is the small sibling I wrote for the hobby server, not the Friday service.",
+    "expect": "different"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "sibling-other-model",
+  "group": "single",
+  "page": {
+   "id": "tern-4",
+   "name": "Tern 4",
+   "type": "tool",
+   "facts": [
+    "Tern 4 is the language model the team uses for summaries."
+   ]
+  },
+  "names": [
+   {
+    "name": "Tern 5",
+    "turn": "Tern 5 is the newer model; Tern 4 is still what the team uses for summaries.",
+    "expect": "different"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "unrelated-shares-a-word",
+  "group": "single",
+  "page": {
+   "id": "harbor-scheduler",
+   "name": "Harbor Scheduler",
+   "type": "project",
+   "facts": [
+    "Harbor Scheduler plans the ferry timetable."
+   ]
+  },
+  "names": [
+   {
+    "name": "Harbor Lights",
+    "turn": "Harbor Lights is the string of lamps I want to hang along the dock, nothing to do with the timetable.",
+    "expect": "different"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "unrelated-no-turn-names-both",
+  "group": "single",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Marlin",
+    "turn": "Marlin is the fishing app I wrote last month.",
+    "expect": "different"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "pile-of-ten-on-one-page",
+  "group": "pile",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "QL",
+    "turn": "QL, also called Quartzline, is the thing I deploy on Fridays.",
+    "expect": "same"
+   },
+   {
+    "name": "Scheduler Service",
+    "turn": "Scheduler Service, known as Quartzline, runs the Friday deploys for us.",
+    "expect": "same"
+   },
+   {
+    "name": "Kiln",
+    "turn": "Kiln, which I also call Quartzline, is the scheduler I keep restarting.",
+    "expect": "same"
+   },
+   {
+    "name": "Quartzline backend",
+    "turn": "The Quartzline backend is the Python service behind the dashboard.",
+    "expect": "different"
+   },
+   {
+    "name": "Quartzline importer",
+    "turn": "The Quartzline importer feeds Quartzline with the nightly data and I restart it separately.",
+    "expect": "different"
+   },
+   {
+    "name": "Job Runner",
+    "turn": "Job Runner is the worker process inside our scheduler that picks jobs off the queue.",
+    "expect": "different"
+   },
+   {
+    "name": "Quartzline Lite",
+    "turn": "Quartzline Lite is the small sibling I wrote for the hobby server, not the Friday service.",
+    "expect": "different"
+   },
+   {
+    "name": "Quartz Garden",
+    "turn": "Quartz Garden is the rock garden my neighbour is building.",
+    "expect": "different"
+   },
+   {
+    "name": "Marlin",
+    "turn": "Marlin is the fishing app I wrote last month.",
+    "expect": "different"
+   },
+   {
+    "name": "Harbor Lights",
+    "turn": "Harbor Lights is the string of lamps I want to hang along the dock.",
+    "expect": "different"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "reviewer-lines-must-not-join-or-close",
+  "group": "adversarial",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Kestrel",
+    "turn": "Kestrel is Quartzline's backend.",
+    "expect": "different"
+   },
+   {
+    "name": "Wren",
+    "turn": "Wren is Quartzline? No. Wren is not Quartzline.",
+    "expect": "either"
+   },
+   {
+    "name": "Plover",
+    "turn": "I don't think Plover is Quartzline.",
+    "expect": "none"
+   },
+   {
+    "name": "Heron",
+    "turn": "Is Heron also Quartzline?",
+    "expect": "either"
+   },
+   {
+    "name": "Finch",
+    "turn": "If Finch is Quartzline then we ship.",
+    "expect": "either"
+   },
+   {
+    "name": "Sparrow",
+    "turn": "Sparrow is a Quartzline.",
+    "expect": "none"
+   },
+   {
+    "name": "Linnet",
+    "turn": "Linnet is for Quartzline.",
+    "expect": "either"
+   },
+   {
+    "name": "Avocet",
+    "turn": "Avocet es como Quartzline.",
+    "expect": "either"
+   },
+   {
+    "name": "Pipit",
+    "turn": "Pipit, also Quartzline, are both due Friday.",
+    "expect": "either"
+   },
+   {
+    "name": "Siskin",
+    "turn": "Siskin is the Quartzline.",
+    "expect": "none"
+   },
+   {
+    "name": "Merlin",
+    "turn": "Tools like Merlin (Quartzline) are common.",
+    "expect": "none"
+   },
+   {
+    "name": "Swift",
+    "turn": "Swift, I mean Quartzline, is the thing we deploy on Fridays.",
+    "expect": "none"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "faded-page-name-said-before",
+  "group": "faded",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ],
+   "status": "archived",
+   "last_referenced": "2026-11-20"
+  },
+  "names": [
+   {
+    "name": "QL",
+    "turn": "QL, also called Quartzline, is the thing I deploy on Fridays.",
+    "expect": "retire"
+   },
+   {
+    "name": "Quartzline backend",
+    "turn": "The Quartzline backend is the Python service behind the dashboard.",
+    "expect": "retire"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "faded-page-name-said-after",
+  "group": "faded",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ],
+   "status": "archived",
+   "last_referenced": "2026-10-20"
+  },
+  "names": [
+   {
+    "name": "QL",
+    "turn": "QL, also called Quartzline, is the thing I deploy on Fridays.",
+    "expect": "none"
+   },
+   {
+    "name": "Quartzline backend",
+    "turn": "The Quartzline backend is the Python service behind the dashboard.",
+    "expect": "different"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "generic-alias-two-pages",
+  "group": "adversarial",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ],
+   "aliases": [
+    "scheduler"
+   ]
+  },
+  "names": [
+   {
+    "name": "Teal",
+    "turn": "Teal, also called scheduler, is the thing I deploy on Fridays.",
+    "expect": "none"
+   }
+  ],
+  "pages": [
+   {
+    "id": "harbor-cron",
+    "name": "Harbor Cron",
+    "type": "tool",
+    "aliases": [
+     "scheduler"
+    ],
+    "facts": [
+     "Harbor Cron wraps the nightly cron jobs."
+    ]
+   }
+  ]
+ },
+ {
+  "id": "part-of-a-project-sentences",
+  "group": "part",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Nightwatch",
+    "turn": "The Nightwatch for Quartzline pages me when a job fails.",
+    "expect": "different"
+   },
+   {
+    "name": "Gantry",
+    "turn": "Gantry in Quartzline broke again yesterday.",
+    "expect": "different"
+   },
+   {
+    "name": "Brazier",
+    "turn": "Quartzline's Brazier is the new retry queue.",
+    "expect": "different"
+   },
+   {
+    "name": "Anvil",
+    "turn": "Anvil is part of Quartzline and ships with it.",
+    "expect": "different"
+   },
+   {
+    "name": "Ember",
+    "turn": "I wired Ember into Quartzline last week.",
+    "expect": "different"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "same-sentences-the-close-must-not-close",
+  "group": "single",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Cobalt",
+    "turn": "Cobalt, I mean Quartzline, is the thing we deploy on Fridays.",
+    "expect": "none"
+   },
+   {
+    "name": "Garnet",
+    "turn": "Garnet or Quartzline, whichever you call it, ships on Fridays.",
+    "expect": "none"
+   },
+   {
+    "name": "Onyx",
+    "turn": "Onyx / Quartzline ships on Fridays.",
+    "expect": "none"
+   },
+   {
+    "name": "Jasper",
+    "turn": "Jasper, i.e. Quartzline, ships on Fridays.",
+    "expect": "none"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "coined-label-nobody-said",
+  "group": "coined",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Dashboard revamp",
+    "turn": "We rebuilt the scheduling dashboard this week and shipped it on Friday.",
+    "expect": "coined"
+   },
+   {
+    "name": "Nightly export worker",
+    "turn": "The nightly batch of exports finished late, so I reran it by hand.",
+    "expect": "coined"
+   },
+   {
+    "name": "Daily summary sheet",
+    "turn": "Every morning I get a one-page summary of what Quartzline ran.",
+    "expect": "coined"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "coined-label-a-cited-conversation-is-missing",
+  "group": "coined",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Dashboard revamp",
+    "turn": "We rebuilt the scheduling dashboard this week and shipped it on Friday.",
+    "heard_in": [
+     "ep_2026-10-20_001"
+    ],
+    "expect": "left"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "name-said-only-by-an-assistant",
+  "group": "coined",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Dashboard revamp",
+    "turn": "We rebuilt the scheduling dashboard this week and shipped it on Friday.",
+    "assistant": "The Dashboard revamp looks finished to me.",
+    "expect": "left"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "name-differing-only-by-case-or-spacing",
+  "group": "coined",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Dashboard revamp",
+    "turn": "The DASHBOARD   REVAMP went out on Friday and nobody noticed.",
+    "expect": "either"
+   },
+   {
+    "name": "Tern-4",
+    "turn": "We moved the exports to Tern 4 on Friday.",
+    "expect": "either"
+   }
+  ],
+  "pages": []
+ }
+]

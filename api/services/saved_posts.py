@@ -68,6 +68,11 @@ _BOOKMARKED_LINKS = ("by-link", "pages", "rows")
 
 #: The sites whose lists hold posts (``saved_lists.LIST_KINDS`` ``posts``). Not Spotify (tracks) or Goodreads (books).
 POST_SITES = ("x", "instagram", "linkedin", "reddit", "pinterest", "tiktok")
+#: The stream every post site gains once :data:`HIDE_POSTS` is on (Track 3): the posts of that site saved through any door
+#: other than its own lists (a link pasted, the notch, a browser's bookmarks, an agent, a chat), which sit on none of its
+#: streams. ``ANOTHER_WAY`` is the stream's name inside its id (``x.another-way``), ``ANOTHER_LABEL`` what the person reads.
+ANOTHER_WAY = "another-way"
+ANOTHER_LABEL = "Saved another way"
 #: ``media.kind`` values a page declares for itself: never a post whatever its link says (``media_kinds.kind_of``).
 DECLARED_WORKS = frozenset({"book", "paper", "repository", "file", "list"})
 
@@ -106,6 +111,11 @@ def post_site(url: str) -> str | None:
                 return None
             return key
     return None
+
+
+def is_another_way(stream_id: str) -> bool:
+    """Is this stream id a post site's "Saved another way" (``x.another-way``)? What the list pages and the rows ask."""
+    return str(stream_id or "").endswith("." + ANOTHER_WAY)
 
 
 def is_post_site(key: str) -> bool:

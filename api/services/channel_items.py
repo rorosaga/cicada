@@ -101,6 +101,7 @@ from api.services import (
     messages_source,
     notes_sync,
     reading_hosts,
+    saved_posts,
     saved_why,
     source_collections,
     source_overview,
@@ -822,6 +823,23 @@ def _bookmarks(memory_path: Path, channel_id: str, media: _Media) -> list[dict]:
 
 
 def _collect(memory_path: Path, channel_id: str) -> list[dict]:
+    """Every row of a channel: what it brought in (:func:`_collect_own`), and — only while ``saved_posts.HIDE_POSTS`` is on,
+    for a post site's own channel — the site's posts it holds on its "Saved another way" stream, so the whole of the
+    source's page is the sum of its streams (G246, ruling 81)."""
+    rows = _collect_own(memory_path, channel_id)
+    if not saved_posts.HIDE_POSTS or not saved_posts.is_post_site(channel_id):
+        return rows
+    from api.services import source_streams
+
+    held = source_streams.another_way(memory_path).get(channel_id)
+    if not held:
+        return rows
+    have = {r.get("id") for r in rows}
+    media = _Media(memory_path)
+    return rows + [row for entity_id in sorted(held - have) if (row := media.row(entity_id)) is not None]
+
+
+def _collect_own(memory_path: Path, channel_id: str) -> list[dict]:
     if channel_id == "notes":
         return _notes(memory_path)
     if channel_id == calendar_local.CHANNEL_ID:

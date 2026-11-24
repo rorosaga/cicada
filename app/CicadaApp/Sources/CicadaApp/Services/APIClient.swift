@@ -2861,6 +2861,11 @@ actor APIClient {
         try await post("/sources/keep-as-page", body: ["url": url, "kept": kept])
     }
 
+    /// G246 — the same click for a row of a list, which holds no link: by the row's own page id (`entity`).
+    func keepAsPage(entity: String, kept: Bool) async throws -> KeepAsPageReply {
+        try await post("/sources/keep-as-page", body: ["entity": entity, "kept": kept])
+    }
+
     /// G191 v3 — forget a bookmark in Cicada (`POST /sources/bookmarks/remove`): the page archived, never deleted.
     func removeBookmark(url: String) async throws {
         let _: BookmarkRemoveReply = try await post("/sources/bookmarks/remove", body: ["url": url])

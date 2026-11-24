@@ -77,6 +77,30 @@ struct SourceItemCard: View {
     }
 }
 
+/// One item of a list: its card, and — only when the backend told this row it may (`ChannelItem.keep`, G246) — the quiet
+/// "Keep as a page" under it (DR-40: a text button; DR-38: nothing said twice, so a row that has a page, a work and every
+/// row while the posts-as-rows switch is off carry nothing). The card and the control are two things, so the control is
+/// never a button inside the card's own.
+struct SourceItemRow: View {
+    let item: ChannelItem
+    var omittingList: String?
+    let today: ISODay
+    let route: CapturedItemRoute?
+    let open: (CapturedItemRoute) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SourceItemCard(item: item, omittingList: omittingList, today: today, route: route, open: open)
+            if SourceItemRow.offersKeep(item) { KeepAsPageControl(row: item.id, word: item.keep) }
+        }
+    }
+
+    /// Whether a row draws the control at all: only for a media row the backend marked `row` or `kept`.
+    static func offersKeep(_ item: ChannelItem) -> Bool {
+        item.kind == .media && KeepAsPage.offer(KeepAsPage.seeded(item.keep, page: item.id)) != nil
+    }
+}
+
 /// The tabs and the folder menu in one row (tabs left, the menu at the trailing edge); nothing at all with one list.
 struct SourceStreamTabsRow: View {
     let tabs: [TextTab<String>]
@@ -84,11 +108,15 @@ struct SourceStreamTabsRow: View {
     /// The folders the selected stream keeps, and the one chosen (nil is every folder); empty draws no menu.
     var folders: [String] = []
     @Binding var folder: String?
+    /// G246 — the page that stands for what is open (the list's, or the chosen folder's), when it has one: a quiet link
+    /// at the trailing edge, drawn only when the backend named a page. `openPage` is handed the page's id.
+    var page: SourceStreamItems.PageLink?
+    var openPage: (String) -> Void = { _ in }
 
     @State private var menuOpen = false
 
     var body: some View {
-        if !tabs.isEmpty || !folders.isEmpty {
+        if !tabs.isEmpty || !folders.isEmpty || page != nil {
             HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
                 if !tabs.isEmpty {
                     TextTabs(tabs: tabs, selection: Binding(get: { selection }, set: { chosen in
@@ -97,6 +125,10 @@ struct SourceStreamTabsRow: View {
                     }))
                 }
                 Spacer(minLength: CicadaTheme.spacingSM)
+                if let page {
+                    TextButton(title: page.title, help: page.help, inline: true) { openPage(page.id) }
+                        .accessibilityIdentifier("source-list-page-link")
+                }
                 if !folders.isEmpty { folderMenu }
             }
             .frame(minHeight: CicadaTheme.scaled(TextTabs<String>.height))
@@ -182,8 +214,9 @@ struct SourceStreamCards: View {
                 let today = ISODay.today()
                 VStack(alignment: .leading, spacing: CicadaTheme.cardGap) {
                     ForEach(rows, id: \.self) { item in
-                        SourceItemCard(item: item, omittingList: omittingList, today: today, route: CapturedItemRoute.of(item, interactive: true),
-                                       open: { SourcePageRouting.go($0, router: router, provenance: provenance) })
+                        SourceItemRow(item: item, omittingList: omittingList, today: today,
+                                      route: CapturedItemRoute.of(item, interactive: true),
+                                      open: { SourcePageRouting.go($0, router: router, provenance: provenance) })
                     }
                     footer(list, shown: rows.count, cache: cache)
                 }
@@ -239,6 +272,8 @@ struct SourceStreamItemsSection: View {
     @State private var tab: String?
     @State private var folder: String?
     @Environment(ChannelItemsCache.self) private var cache: ChannelItemsCache?
+    @Environment(ProvenanceRouter.self) private var provenance: ProvenanceRouter?
+    @Environment(AppRouter.self) private var router: AppRouter?
 
     /// `startTab` is the stream the page opens on (nil is All): a hand-off or a render names it.
     init(channel: String, streams: [ResolvedStream], query: String = "", startTab: String? = nil,
@@ -259,7 +294,9 @@ struct SourceStreamItemsSection: View {
         let key = SourceStreamItems.key(channel: channel, stream: history ? nil : selected, folder: folderStream == nil ? nil : folder)
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             SourceStreamTabsRow(tabs: SourceStreamItems.tabs(streams), selection: $tab,
-                                folders: folderStream == nil ? [] : folderNames, folder: $folder)
+                                folders: folderStream == nil ? [] : folderNames, folder: $folder,
+                                page: SourceStreamItems.pageLink(tab, folder: folderStream == nil ? nil : folder, streams: streams),
+                                openPage: { SourcePageRouting.go(.entity($0), router: router, provenance: provenance) })
             if history, let historyChannel {
                 // The watched days, in the source's own rows (a day opens to its videos), under their own tab.
                 SourceItemsSection(channel: historyChannel, query: query, onDrill: onDrill)

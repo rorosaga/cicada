@@ -15,7 +15,8 @@ The coordinator reads it on the real memory before the flip and reports it to th
   main view as the app draws it), and how many of them are not archived;
 * ``degree``: pages whose degree falls, and by how much at most (a row's edges no longer count toward its target);
 * ``doors_without_a_list``: posts that came in through a door that puts them on no site's list (a browser bookmark, a
-  paste, the notch, Telegram, an agent): they need a later track before the flip;
+  paste, the notch, Telegram, an agent): each is on its site's "Saved another way" (``saved_another_way``, a count a site);
+* ``saved_another_way``: how many posts each site's "Saved another way" stream holds (the posts no other stream of the site has);
 * ``links_on_two_pages``: post links that exist as two pages (the bookmark and paste doors keep the host as written);
 * ``related_lines``: ``## Related`` entries that would be filtered, and the pages that carry them;
 * ``old_shape_episodes``: connector saves whose text sits under the person's note, which earn nothing;
@@ -103,6 +104,10 @@ def _measure(bank, bank_index, graph_builder, quiet_pages, saved_lists, saved_po
     doors_without = Counter(door(p) for pid, p in posts.items() if door(p) not in list_origins)
     doors_without_rows = Counter(door(p) for pid, p in posts.items() if door(p) not in list_origins and pid in rows)
 
+    from api.services import source_streams
+
+    another_way = {site: len(ids) for site, ids in sorted(source_streams.another_way(bank).items())}
+
     pairs = []
     for pid, p in posts.items():
         site = verdict.state.sites.get(pid)
@@ -183,6 +188,7 @@ def _measure(bank, bank_index, graph_builder, quiet_pages, saved_lists, saved_po
         "degree": {"pages_whose_degree_falls": len(falls), "largest_fall": max(falls, default=0)},
         "doors_without_a_list": {"posts": sum(doors_without.values()), "rows": sum(doors_without_rows.values()),
                                  "by_door": dict(sorted(doors_without.items()))},
+        "saved_another_way": another_way,
         "links_on_two_pages": {"links": doubled, "pages_beyond_the_first": extra},
         "related_lines": {"filtered": related_lines, "pages_carrying_them": related_pages},
         "old_shape_episodes": old_shape,

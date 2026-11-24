@@ -398,3 +398,40 @@ def test_the_dry_run_refuses_a_live_bank_or_an_output_in_the_repo(tmp_path):
     (copy / "entities").mkdir(parents=True)
     (copy / "inbox").mkdir()
     assert dry.main(["--bank", str(dry.REPO / "memory"), "--out", str(tmp_path / "o")]) == 2
+
+
+# ---------- a label nobody said is held, never asked (ruling 82 (e), G98) ----------
+
+
+def _unsure_about(memory, mention, monkeypatch):
+    return _resolve(memory, [{"episode_id": EP, "entities": [mention], "relationships": []}],
+                    [_tool_page("example-db", "Example DB")], monkeypatch, "unsure")
+
+
+def _conversation(memory, text):
+    markdown_parser.write(memory / "episodes" / f"{EP}.md", {"id": EP, "timestamp": TS, "processed": False, "title": "chat",
+                                                            "source": "claude-code"}, text)
+
+
+def test_an_unsure_match_for_a_label_said_in_no_turn_is_held_and_never_asked(tmp_path, monkeypatch):
+    from api.services import pending_store
+
+    memory = _bank(tmp_path)
+    _conversation(memory, "user: We moved the nightly job to the new hosting plan.\nassistant: Ok.\n")
+    _unsure_about(memory, _entity("Example DB Cloud", "tool", EP, TS), monkeypatch)
+    assert _asked(memory) == []                                           # no question for a name nobody said
+    assert pending_store.held_line(memory, "Example DB Cloud") is not None   # the held line is written exactly as before
+
+
+def test_an_unsure_match_for_a_name_that_was_said_is_still_asked(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    _conversation(memory, "user: The example db CLOUD plan is the one we moved to.\nassistant: Ok.\n")   # case: said
+    _unsure_about(memory, _entity("Example DB Cloud", "tool", EP, TS), monkeypatch)
+    assert [fm["merge_target_hint"] for fm in _asked(memory)] == ["example-db"]
+
+
+def test_a_conversation_that_cannot_be_read_never_stops_a_question(tmp_path, monkeypatch):
+    memory = _bank(tmp_path)
+    assert not (memory / "episodes" / f"{EP}.md").exists()
+    _unsure_about(memory, _entity("Example DB Cloud", "tool", EP, TS), monkeypatch)
+    assert [fm["merge_target_hint"] for fm in _asked(memory)] == ["example-db"]

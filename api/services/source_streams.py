@@ -52,6 +52,7 @@ from api.services import (
     reading_settings,
     saved_at,
     saved_lists,
+    saved_posts,
     save_folders,
     source_overview,
     substack_lists,
@@ -61,6 +62,10 @@ from api.services import (
 )
 
 SHAPE = "streams-1"
+
+#: ``Spec.match`` of the "Saved another way" stream: its members are the site's posts that sit on no other stream of the source
+#: (:func:`_build_members`), whatever origin or door wrote them.
+ANOTHER = "another"
 
 # --- the vocabulary of the wire (plan 2.1) ----------------------------------------------------------------------
 KINDS = ("saved", "liked", "reposted", "history", "later", "playlists", "connections", "following", "notes", "pages",
@@ -212,7 +217,19 @@ def _saved_groups() -> dict[str, Group]:
     for group in out.values():
         # The base list leads: the order the site itself shows them is the table's own, base first.
         group.specs.sort(key=lambda s: 0 if s.key == group.id else 1)
+        if saved_posts.HIDE_POSTS and saved_posts.is_post_site(group.id):
+            group.specs.append(_another_way_spec(group.id))
     return out
+
+
+def _another_way_spec(source: str) -> Spec:
+    """G246 (ruling 81, Track 3): the stream of a post site that holds the site's posts saved through any door but its own
+    lists, so no door leads to a post that shows nowhere. Not read by anything and not switched: a place posts go, counted
+    by membership like every list, so it carries the shape of "Files and links" (``app``, ``backend``, ``setup``) and is
+    left out of the wire while it holds nothing. Only exists while ``saved_posts.HIDE_POSTS`` is on."""
+    return Spec(id=f"{source}.{saved_posts.ANOTHER_WAY}", source=source, label=saved_posts.ANOTHER_LABEL, kind="saved",
+                how="app", owner="backend", control="setup", channel=_items_channel(source), counts="members",
+                match=ANOTHER)
 
 
 def _items_channel(source: str) -> str | None:
@@ -485,6 +502,8 @@ def _build_members(entries, plan) -> Members:
     origin_counts: Counter = Counter()
     sites = {source: _sites_of(source) for source, _o, _s in plan}
     streams_of: dict[str, list[str]] = {}
+    # "Saved another way" (Track 3): a source that has one gets the site's posts that no other stream of it holds.
+    another = {source: next((s for s in specs if s.match == ANOTHER), None) for source, _o, specs in plan}
     for f in entries:
         fm = f.frontmatter or {}
         if fm.get("type") != "media" or source_overview.is_hidden(fm):
@@ -492,12 +511,14 @@ def _build_members(entries, plan) -> Members:
         origin = str(fm.get("origin") or "").strip()
         origin_counts[origin] += 1
         lists = id_utils.page_lists(fm)
+        post_of: list[str | None] = []     # this page's post site, asked once and only when a source wants it
         for source, origins, specs in plan:
+            hit: list[Spec] = []
             # Counts are list membership, not a post's first origin: a post first kept as a saved link and later seen on
             # the site's list is on that list too (its page's own site and the list's label say so).
-            if origin not in origins and not _on_site(origin, fm, sites[source]):
-                continue
-            for spec in _classify(specs, origin, lists):
+            if origin in origins or _on_site(origin, fm, sites[source]):
+                hit = _classify(specs, origin, lists)
+            for spec in hit:
                 held[spec.id].add(f.stem)
                 streams_of.setdefault(f.stem, []).append(spec.id)
                 if spec.id in playlists:
@@ -506,6 +527,12 @@ def _build_members(entries, plan) -> Members:
                         if _cf(name) not in own:
                             slot = playlists[spec.id].setdefault(_cf(name), [name, 0])
                             slot[1] += 1
+            if not hit and another[source] is not None:
+                if not post_of:
+                    post_of.append(saved_posts.site_of(fm) if saved_posts.is_post(fm) else None)
+                if post_of[0] == source:
+                    held[another[source].id].add(f.stem)
+                    streams_of.setdefault(f.stem, []).append(another[source].id)
     return Members({k: frozenset(v) for k, v in held.items()},
                    {k: {c: (v[0], v[1]) for c, v in names.items()} for k, names in playlists.items()}, origin_counts,
                    {k: tuple(v) for k, v in streams_of.items()})
@@ -761,6 +788,8 @@ def _stream(spec: Spec, memory_path: Path, rows, connected, mem, eps, origins, n
                    pausedUntil=lv["until"], checkRequestedAt=lv["checkRequestedAt"])
     elif spec.note == "click" or spec.id == "traces.traces":
         pass   # the app's own switch and permission write over this row (``owner: app``)
+    elif spec.match == ANOTHER:
+        out.update(state="on", health="read")   # nothing reads it and nothing switches it: it holds what it holds
     else:
         out.update(state="on" if view["connected"] else "off", health=_health(view), lastReadAt=view["last"])
         if spec.id in ("chat-exports.chats", "files.files"):
@@ -820,12 +849,24 @@ def build(memory_path: Path, *, channels: list[dict], connectors_connected: dict
     rows = {c["id"]: c for c in channels}
     connected = connectors_connected or {}
     mem, eps = members(memory_path), episodes(memory_path)
+    from api.services import list_pages
+
+    pages = list_pages.stream_pages(memory_path)   # G246: the page that stands for a list ({} until the posts-as-rows flip)
     out = []
     for group in _groups_for(rows, memory_path, eps):
         origins = _site_origins([s for s in group.specs if s.counts == "members"], group.id)
         streams = []
         for spec in group.specs:
+            if spec.match == ANOTHER and not mem.members.get(spec.id):
+                continue   # a place posts go: it has a row once one has gone there, never as an empty "0"
             stream = _stream(spec, memory_path, rows, connected, mem, eps, origins, now, feed_fetch_allowed)
+            if (held := pages.get(spec.id)) is not None:
+                # Additive and only when there is one, so a stream's body (and the route's ETag) is what it was until a page
+                # exists, and moves only when the answer does: ``page`` the list's own page, ``folderPages`` each folder's.
+                if held["page"]:
+                    stream["page"] = held["page"]
+                if held["folders"]:
+                    stream["folderPages"] = dict(sorted(held["folders"].items()))
             if spec.counts == "conversations":
                 stream["count"] = eps.harnesses.get(spec.note, 0)
                 stream["state"] = "on"
@@ -893,7 +934,7 @@ async def _check_one(spec: Spec, memory_path: Path, connected, ran: dict, sync, 
         return "requested" if store.request_check(memory_path, spec.key, now) else "off"
     if spec.connector:
         return "not_connected"
-    if spec.note == "click" or spec.how == "click":
+    if spec.note == "click" or spec.how == "click" or spec.match == ANOTHER:
         return "noted"
     return "app"
 
@@ -935,6 +976,16 @@ def stream_members(memory_path: Path, stream_id: str) -> frozenset[str] | None:
     return members(memory_path).members.get(spec.id, frozenset())
 
 
+def another_way(memory_path: Path) -> dict[str, frozenset[str]]:
+    """``{source: the posts on its "Saved another way" stream}`` for each source that holds any; ``{}`` while
+    ``saved_posts.HIDE_POSTS`` is off (the stream does not exist). The one answer the stream's count, its rows, its list page
+    and a source's whole listing share."""
+    if not saved_posts.HIDE_POSTS:
+        return {}
+    held = members(memory_path).members
+    return {sid.split(".", 1)[0]: ids for sid, ids in held.items() if ids and saved_posts.is_another_way(sid)}
+
+
 def folder_matches(memory_path: Path, rows: list[dict], pages: dict[str, dict], folder: str) -> list[dict]:
     """The rows filed in ``folder``: on the site (``save_folders``, by the save's episode) or as a list of the page itself
     (a playlist, a board). Compared the way folders are everywhere, ignoring case."""
@@ -961,6 +1012,16 @@ def _list_display_names() -> dict[tuple[str, str], str]:
     return out
 
 
+def _keep_word(memory_path: Path, page_id: str, verdict) -> str | None:
+    """What "Keep as a page" may offer on this row (G246): ``row`` (a post drawn under its list) or ``kept`` (the person's
+    own click holds its page and nothing else does, so the way back is open); None for every other row. Read from the one
+    predicate (``keep_as_page.facts``), so a row and the card agree."""
+    from api.services import keep_as_page
+
+    state, others = keep_as_page.facts(memory_path, page_id, verdict)
+    return "row" if state == "row" else "kept" if state == "kept" and not others else None
+
+
 def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], posted: Callable[[dict], str | None]) -> dict[str, dict]:
     """The three fields a list row gains (plan 2.2), by row id: ``lists`` (the labels of the lists the item is on),
     ``folders`` (the site's own folder names), ``depth`` and ``posted`` (the post's own day, when the list showed one).
@@ -969,7 +1030,8 @@ def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], post
     honoured now) · ``read`` (Sleep read it, or an agent read its page) · ``empty`` (it holds a title and a link only:
     nothing to read yet) · ``record`` (another service's record: kept, never read) · ``kept`` (not read yet: waiting for
     Sleep's next run or its turn in the older pile). The words are the app's (``Copy.Streams``). Built from maps computed
-    once per request; only a media row of a list origin gets any."""
+    once per request; only a media row of a list origin gets any. A fifth field, ``keep`` (G246, ruling 81), is there only
+    once ``saved_posts.HIDE_POSTS`` is on: ``row`` or ``kept``, so a row can offer Keep as a page with no call of its own."""
     from api.services import mention_asks
 
     eps = episodes(memory_path)
@@ -977,6 +1039,7 @@ def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], post
     streams_of = members(memory_path).streams_of
     asked = mention_asks.waiting_hashes(memory_path)
     names = _list_display_names()
+    verdict = saved_posts.verdict(memory_path) if saved_posts.HIDE_POSTS and rows else None   # once per request
     out: dict[str, dict] = {}
     for row in rows:
         if row.get("kind") != "media":
@@ -991,6 +1054,8 @@ def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], post
         held = {_cf(n) for n in lists}
         # A list is drawn under the stream's own name (LinkedIn's saved posts were filed under the export's "Saved Items").
         lists = list(dict.fromkeys(next((names[(sid, _cf(n))] for sid in on if (sid, _cf(n)) in names), n) for n in lists))
+        if any(saved_posts.is_another_way(sid) for sid in on):
+            lists.append(saved_posts.ANOTHER_LABEL)   # a post a list does not hold says which stream it is on instead
         folders = [n for n in eps.folders_of.get(str(row.get("_episode") or ""), ()) if _cf(n) not in held]
         h = media_ingestor.url_hash(str(row["_url"])) if row.get("_url") else ""
         read = row.get("id") in eps.read_pages or (bool(h) and h in eps.agent_read)
@@ -998,6 +1063,8 @@ def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], post
         depth = "watched" if h and h in eps.agent_watched else "asked" if h and h in asked else \
             "read" if read else "empty" if state == "no-words" else "record" if state == "record" else "kept"
         fields: dict[str, Any] = {"depth": depth}
+        if verdict is not None and (word := _keep_word(memory_path, row["id"], verdict)):
+            fields["keep"] = word
         if lists:
             fields["lists"] = lists
         if folders:

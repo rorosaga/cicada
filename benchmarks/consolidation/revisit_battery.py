@@ -14,6 +14,17 @@ scratch bank (invented names) and runs the product's own step on it ``--repeats`
     api/.venv/bin/python -m benchmarks.consolidation.revisit_battery --repeats 3            # on the Claude plan
     api/.venv/bin/python -m benchmarks.consolidation.revisit_battery --only owner --repeats 5
 
+``--names`` runs the second set (`revisit_name_cases.json`, `api/services/name_revisit.py`): "Is <name> the same as <page>?" about
+a name with NO page, whose facts wait on a held line. Per case a scratch bank, the product's own `question_revisit.tend` for
+real (reads, settles, the commits), then the bank says what was done: ``joined`` (an alias and what is held landed; wrong
+if the case is not ``same``), ``closed apart`` (held kept apart; wrong if the case is ``same`` or ``none``), ``retired`` (the page
+it asked about had faded, the name not said since: nothing written; wrong unless the case is ``retire``), or ``left``; ``retired (label nobody said)`` is the engine-free retirement of a name no turn of the
+conversations it came from says (`name_not_said`: wrong unless the case is ``coined``). A name
+is ``none`` when the person's own turn relates the two in a way that is no statement of identity (a part, a denial, a doubt,
+a question) or says both in one sentence: it must be neither joined nor closed.
+``--rigged same`` replaces the model by the adversary that answers "same" to every name and quotes the best line it can
+find; ``--rigged different`` the one that answers "different" to every name; ``--group 1`` reads one name per call.
+
 A case is ``one`` (a settle is expected) or ``two``/``none`` (a settle is a wrong settle). Prints, per case, the outcomes and the
 model calls, then settles made, WRONG settles and questions left, and the calls per question read. All names are invented.
 The plan's numbers on haiku are a floor: the product runs a stronger main model.
@@ -214,6 +225,181 @@ async def run_record(case: dict, repeats: int, llm_fn, make_settings) -> dict:
     return row
 
 
+NAME_CASES = Path(__file__).with_name("revisit_name_cases.json")
+
+
+def build_names(root: Path, case: dict) -> tuple[Path, list[str]]:
+    """A scratch bank for a name case: the page, optional other pages, and per name a conversation (and a later one), a held
+    line and an open question. Returns the bank and the asked names in question order."""
+    from api.services import markdown_parser, pending_store
+
+    bank = _bank(root)
+    for i in range(24):
+        _page(bank, f"filler-{i}", f"Filler Topic {i}", f"## Summary\nNote number {i} about the harbour garden.\n", type="concept")
+    pg = case["page"]
+    _episode(bank, "ep_2026-10-01_001", "user: " + pg["facts"][0] + "\nassistant: Noted.\n")
+    for other in [pg, *case.get("pages", [])]:
+        facts = other["facts"]
+        extra = {k: other[k] for k in ("status", "last_referenced", "aliases") if k in other}
+        _page(bank, other["id"], other["name"], "## Summary\n" + facts[0] + "\n\n## Key Facts\n" + "\n".join(f"- {f}" for f in facts) + "\n",
+              type=other["type"], source_episodes=["ep_2026-10-01_001"], **extra)
+    asked = []
+    for k, item in enumerate(case["names"], 1):
+        ep = f"ep_2026-11-{k:02d}_001"
+        _episode(bank, ep, f"user: {item['turn']}\nassistant: {item.get('assistant') or 'Ok.'}\n")
+        if item.get("later"):
+            _episode(bank, item["later"]["id"], f"user: {item['later']['text']}\nassistant: Ok.\n")
+        text = f"{item['name']} came up in a planning call."
+        pending_store.upsert(bank, pending_store.PendingEntity(
+            name=item["name"], type=item.get("type", "concept"), description=text, source_episode=ep, confidence=0.4, tags=[],
+            history_entries=[{"date": "2026-11-14", "event": text}], held_claims=[], aliases=[], summary=text, key_facts=[text],
+            heard_in=[{"episode": e} for e in item.get("heard_in", [])]))
+        markdown_parser.write(bank / "inbox" / f"inbox-{k:03d}.md", {
+            "kind": "merge_suggestion", "required_input": "merge", "status": "pending", "priority": 0.6,
+            "entity_id": item["name"].lower().replace(" ", "-"), "entity_name": item["name"],
+            "title": f"Is {item['name']} the same as {pg['name']}?", "created_date": "2026-11-01", "merge_target_hint": pg["id"],
+            "suggested_classification": item.get("type", "concept"), "source_episode": ep, "held_mention": True},
+            "They may be one thing; asked, never joined: only your answer joins them.")
+        asked.append(item["name"])
+    _finish(bank)
+    return bank, asked
+
+
+def rigged_llm(kind: str):
+    """The adversary: ``same`` answers "same" to every name quoting the first turn it is shown for it; ``different`` answers
+    "different" to every name quoting the first line of the memory it is shown for it. No model."""
+    import re
+
+    def fn(messages, **_kw):
+        prompt = "\n".join(str(m["content"]) for m in messages)
+        marks = list(re.finditer(r'NAME (\d+): "([^"]+)"', prompt))
+        answers = []
+        for j, m in enumerate(marks):
+            block = prompt[m.end(): marks[j + 1].start() if j + 1 < len(marks) else len(prompt)]
+            turns = re.findall(r"^\[\d+\] \([^)]*\) (.*)$", block, re.M)
+            memory_lines = re.findall(r"^- (.*)$", block, re.M)
+            if kind == "same":
+                text = turns[0] if turns else (memory_lines[0] if memory_lines else "")
+                answers.append({"name": int(m.group(1)), "verdict": "same", "said_turn": 1, "said": text, "here": text,
+                                "there": "Quartzline is the scheduling service the team deploys on Fridays.", "reason": "adversary"})
+            else:
+                # the best line it can find: a turn of the person's that names the name (the held text is no evidence)
+                answers.append({"name": int(m.group(1)), "verdict": "different", "relation": "part",
+                                "line": turns[0] if turns else (memory_lines[0] if memory_lines else ""), "reason": "adversary"})
+        return {"choices": [{"message": {"content": json.dumps({"answers": answers})}}], "model": "rigged"}
+
+    return fn
+
+
+async def run_names(case: dict, repeats: int, llm_fn, make_settings) -> dict:
+    from api.services import markdown_parser, question_revisit as qr
+
+    row = {"id": case["id"], "group": case["group"], "runs": repeats, "outcomes": Counter(), "calls": 0, "reads": 0, "questions": 0,
+           "same_made": 0, "same_wrong": 0, "apart_made": 0, "apart_wrong": 0, "left": 0, "wanted_same": 0, "wanted_apart": 0,
+           "retire_made": 0, "retire_wrong": 0, "wanted_retire": 0, "unsaid_made": 0, "unsaid_wrong": 0, "wanted_unsaid": 0}
+    expect = {n["name"]: n["expect"] for n in case["names"]}
+    for _ in range(repeats):
+        with tempfile.TemporaryDirectory(prefix="revisit-names-") as tmp:
+            bank, asked = build_names(Path(tmp), case)
+            # a measurement reads every question of a case (the product's own bound is `qr.MAX_READS` a run)
+            report_ = await qr.tend(bank, make_settings(bank), llm_fn, model="haiku", today=date(2026, 11, 24), max_reads=50)
+            row["calls"] += report_.calls
+            row["reads"] += report_.read
+            done: dict[str, str] = {}
+            settled_dir = bank / "inbox" / "settled"
+            for rec in sorted(settled_dir.glob("inbox-*.md")) if settled_dir.is_dir() else []:
+                fm = markdown_parser.parse(rec).frontmatter
+                done[str(fm.get("entity_name") or "")] = str((fm.get("settled") or {}).get("rule") or "")
+            for name in asked:
+                row["questions"] += 1
+                want, rule = expect[name], done.get(name, "")
+                row["wanted_same"] += want == "same"
+                row["wanted_apart"] += want == "different"
+                row["wanted_retire"] += want == "retire"
+                row["wanted_unsaid"] += want == "coined"
+                if rule == "target_faded":
+                    row["retire_made"] += 1
+                    row["retire_wrong"] += want != "retire"
+                    row["outcomes"][f"{name}: retired " + ("right" if want == "retire" else "WRONG")] += 1
+                elif rule == "name_not_said":
+                    row["unsaid_made"] += 1
+                    row["unsaid_wrong"] += want != "coined"
+                    row["outcomes"][f"{name}: retired (label nobody said) " + ("right" if want == "coined" else "WRONG")] += 1
+                elif rule == "revisit_same":
+                    row["same_made"] += 1
+                    row["same_wrong"] += want != "same"
+                    row["outcomes"][f"{name}: joined " + ("right" if want == "same" else "WRONG")] += 1
+                elif rule == "revisit_apart":
+                    row["apart_made"] += 1
+                    row["apart_wrong"] += want not in ("different", "either")    # "either": a close or a question left are both right
+                    row["outcomes"][f"{name}: closed apart " + ("right" if want in ("different", "either") else "WRONG")] += 1
+                else:
+                    row["left"] += 1
+                    row["outcomes"][f"{name}: left" + (f" ({rule})" if rule else "")] += 1
+    return row
+
+
+def report_names(rows: list[dict]) -> str:
+    out = []
+    for r in rows:
+        shown = ", ".join(f"{k} x{v}" for k, v in sorted(r["outcomes"].items()))
+        out.append(f"{r['group']:7} {r['id']:36} [{shown}]  reads {r['reads']} calls {r['calls']}")
+    t = {k: sum(r[k] for r in rows) for k in ("questions", "same_made", "same_wrong", "apart_made", "apart_wrong", "left",
+                                               "wanted_same", "wanted_apart", "reads", "calls", "retire_made", "retire_wrong",
+                                               "wanted_retire", "unsaid_made", "unsaid_wrong", "wanted_unsaid")}
+    per = f"model calls {t['calls']} for {t['reads']} questions read ({t['calls'] / t['reads']:.2f} per question)" if t["reads"] else "no question read"
+    out.append(f"QUESTIONS {t['questions']}   SAME SETTLES {t['same_made']} (wanted {t['wanted_same']}) WRONG {t['same_wrong']}   "
+               f"CLOSED APART {t['apart_made']} (wanted {t['wanted_apart']}) WRONG {t['apart_wrong']}   "
+               f"RETIRED (page faded) {t['retire_made']} (wanted {t['wanted_retire']}) WRONG {t['retire_wrong']}   "
+               f"RETIRED (label nobody said) {t['unsaid_made']} (wanted {t['wanted_unsaid']}) WRONG {t['unsaid_wrong']}   LEFT {t['left']}   {per}")
+    return "\n".join(out)
+
+
+def main_names(a) -> int:
+    import os
+
+    from benchmarks.consolidation import engines
+    from benchmarks.consolidation.run import engine_model
+    from benchmarks.engine_parity import _leg_environment, settings_for
+
+    if a.engine == "plan":
+        # The skill's `plan-claude` shim: the real HOME for that one child (the plan's sign-in), the pinned argv, one model.
+        import shutil
+
+        os.environ.pop("ANTHROPIC_API_KEY", None)
+        os.environ.update({"CICADA_CAPTURE": "off", "CICADA_RECALL": "off", "CICADA_VERIFY_MODEL": a.model,
+                           "CICADA_CLAUDE_CLI": str(REPO / ".claude" / "skills" / "verify-cicada" / "bin" / "plan-claude"),
+                           "CICADA_VERIFY_REAL_CLAUDE": os.environ.get("CICADA_VERIFY_REAL_CLAUDE") or shutil.which("claude") or ""})
+    cases = [c for c in json.loads(NAME_CASES.read_text(encoding="utf-8")) if a.only in c["id"]]
+    root = Path(tempfile.mkdtemp(prefix="revisit-names-battery-"))
+    home, scratch = root / "home", root / "scratch"
+    home.mkdir()
+    scratch.mkdir()
+    if a.group:
+        from api.services import name_revisit
+
+        name_revisit.GROUP_MAX = a.group
+    rows = []
+    with _leg_environment(home, scratch), engines.tally() as counted:
+        from api.services import inbox_tend, same_name_tend
+
+        def make(bank):
+            return settings_for("plan" if a.engine == "plan" else "key", bank, model=engine_model(a.engine, a.model),
+                                judge=engine_model(a.engine, a.model))
+
+        llm_fn = rigged_llm(a.rigged) if a.rigged else inbox_tend.default_llm_fn(same_name_tend.main_tier(make(scratch)))
+        for case in cases:
+            row = asyncio.run(run_names(case, a.repeats, llm_fn, make))
+            rows.append(row)
+            print(report_names([row]).splitlines()[0], flush=True)
+    print(report_names(rows).splitlines()[-1])
+    if not a.rigged:
+        print("engine replies:\n" + counted.report())
+    if a.json:
+        a.json.write_text(json.dumps([{**r, "outcomes": dict(r["outcomes"])} for r in rows], indent=1, ensure_ascii=False))
+    return 0 if not any(r["same_wrong"] or r["apart_wrong"] or r["retire_wrong"] or r["unsaid_wrong"] for r in rows) else 1
+
+
 def report(rows: list[dict]) -> str:
     out = []
     for r in rows:
@@ -241,7 +427,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--model", default="haiku", help="the main model's tier")
     p.add_argument("--key-file", type=Path, default=Path("~/.cicada/secrets.env"))
     p.add_argument("--json", type=Path, help="write the rows here")
+    p.add_argument("--names", action="store_true", help="the names-with-no-page set (`revisit_name_cases.json`)")
+    p.add_argument("--rigged", choices=("same", "different"), help="with --names: the adversary judge, no model")
+    p.add_argument("--group", type=int, default=0, help="with --names: names of one page read per call (default: the product's)")
     a = p.parse_args(argv)
+    if a.names:
+        return main_names(a)
     from benchmarks.engine_parity import _leg_environment, settings_for
 
     if a.engine == "key":
