@@ -410,6 +410,7 @@ TOOLS = [
                 "continues": {"type": "boolean", "description": "true on every call after the first of one read of a list (more posts of the same page, or a folder's page): it carries on the open read and is not counted again today. Ignored when no read is open."},
                 "folder": {"type": "string", "description": "The name of the folder whose own page these `items` came from (X bookmark folders, Instagram collections), as the site shows it. Its posts are filed there; implies `continues`."},
                 "folder_names": {"type": "array", "items": {"type": "string"}, "description": "With the All page: the names of the site's folders as it lists them, or [] when it shows none. The reply names the (at most 12) to open next."},
+                "reached_end": {"type": "boolean", "description": "true on the last call of a read that got to the end of the list (its page stopped growing). Cicada then knows the whole list is in memory; leave it out if you stopped early."},
                 "via": {"type": "string", "description": "The tool you read with; shown as what you said, never as proof."},
             },
             "required": ["platform", "outcome"],
@@ -1787,7 +1788,8 @@ def _handle_local_tool(name: str, arguments: dict) -> str:
         return mcp_tools.record_saved_list(_ctx(), arguments.get("platform", ""), arguments.get("outcome", ""),
                                            arguments.get("items"), arguments.get("via"), arguments.get("handle"),
                                            arguments.get("profile_url"), arguments.get("continues"),
-                                           arguments.get("folder"), arguments.get("folder_names"))
+                                           arguments.get("folder"), arguments.get("folder_names"),
+                                           arguments.get("reached_end"))
     elif name == "cicada_record_substack_list":
         return mcp_tools.record_substack_list(_ctx(), arguments.get("list", ""), arguments.get("outcome", ""),
                                               arguments.get("items"), arguments.get("via"))

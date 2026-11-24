@@ -86,14 +86,20 @@ class Platform:
 
 
 PLATFORMS: dict[str, Platform] = {
-    "x": Platform("x", "X", "Bookmarks", "https://x.com/i/bookmarks", "", "x-bookmarks", "Bookmarks",
+    # Measured 2026-11-24: X now files Bookmarks under History, so this address lands on ``/i/history`` (tabs Bookmarks
+    # and Likes); the old address still opens it.
+    "x": Platform("x", "X", "Bookmarks", "https://x.com/i/bookmarks",
+                  " (X may show it as History, Bookmarks tab, at /i/history: the same list)", "x-bookmarks", "Bookmarks",
                   "x.com", "to read your bookmarks", ("x.com", "twitter.com"), folders=True),
     # G245 (ruling 78b, owner 2026-11-24): the person's own Likes tab — a page that holds only that list. Files under the
     # X archive's like.js origin and label, so a like the archive brought in and the same like read here are one row;
     # a post already kept from Bookmarks gains "Likes" on its page's `collections:` instead of a second page. Off until
     # the person turns it on. Reposts are mixed into the profile timeline, which no list page covers: not read.
-    "x-likes": Platform("x-likes", "X", "Likes", "https://x.com/",
-                        " — open the person's own profile, then its Likes tab (the page that holds only their likes)",
+    # Measured 2026-11-24: History's Likes tab is ``/i/history/likes``, a page of its own; the profile's Likes tab is
+    # the way in where that address does not open.
+    "x-likes": Platform("x-likes", "X", "Likes", "https://x.com/i/history/likes",
+                        " (History, Likes tab; if that address does not open, the person's own profile, then its Likes "
+                        "tab: the page that holds only their likes)",
                         "x-likes", "Likes", "x.com", "to read your likes", ("x.com", "twitter.com"), base="x"),
     "instagram": Platform("instagram", "Instagram", "Saved", "https://www.instagram.com/",
                           " — open the person's profile, then Saved, then All posts", "instagram-saved", "Saved",
@@ -109,8 +115,14 @@ PLATFORMS: dict[str, Platform] = {
                                 ("instagram.com",), base="instagram",
                                 reads="its author as the page shows it, and the words the post shows (a grid of "
                                       "pictures shows none: send the link and author only)"),
+    # Measured 2026-11-24 on a list of 76: five results showed no link to their post at all (only the author's
+    # profile), so a read by links alone lost them; each result still names its post in its own urn.
     "linkedin": Platform("linkedin", "LinkedIn", "Saved posts", "https://www.linkedin.com/my-items/saved-posts/", "",
-                         "linkedin-saved", "Saved Items", "linkedin.com", "to read your saved posts", ("linkedin.com",)),
+                         "linkedin-saved", "Saved Items", "linkedin.com", "to read your saved posts", ("linkedin.com",),
+                         reads="its author as the page shows it, and the words the post shows (a result that shows no "
+                               "link to its post still names it in its own `data-chameleon-result-urn`, "
+                               "`urn:li:activity:<number>`: its link is then "
+                               "`https://www.linkedin.com/feed/update/<that urn>/`)"),
     # G232 (owner 2026-11-04: "offer the website connection through browser harness, just like a toggle switch …
     # Same for TikTok, same for Pinterest, same for Reddit"). Each files under its export's own origin and folder, so
     # a post the export (or Reddit's connector) brought in is the same row, and every one is index-only (ruling 30).
@@ -150,6 +162,13 @@ DAILY_READS = 10
 #: last call, and for at most :data:`PASS_CALLS` calls, so ``continues`` cannot be a way round the bound.
 PASS_WINDOW = timedelta(hours=3)
 PASS_CALLS = 20
+#: Ruling 78 as amended 2026-11-24 (owner: "check also we capture all my saved x posts and linkedin posts at first
+#: correctly"; measured that night on a real list of 377 posts: its end was about 190 screens down, so twenty screens
+#: kept one post in ten and nothing ever fetched the rest). **A list is read to its end once**: until a read says it
+#: reached the end (``reached_end``, kept as ``whole``), every read of the list is asked to go all the way, known posts
+#: are no reason to stop, and its pass may take this many calls (200 posts each). After that a read only looks for what
+#: is new. Still one pass, one read against the day.
+WHOLE_PASS_CALLS = 500
 #: The folders (X bookmark folders, Instagram collections) one read opens after the All page, least recently read first
 #: (``folder_pass``).
 FOLDERS_PER_PASS = folder_pass.FOLDERS_PER_PASS
@@ -379,28 +398,45 @@ def clean_profile_url(key: str, value) -> str | None:
     return f"https://{host}{parsed.path}"
 
 
+def whole(memory_path: Path, key: str) -> bool:
+    """Has a read of ``key``'s list reached its end (:data:`WHOLE_PASS_CALLS`)? Until one has, the list is not all in
+    memory and the next read is asked to go to the end."""
+    return last(memory_path, key).get("whole") is True
+
+
+def pass_calls(memory_path: Path, key: str) -> int:
+    """The calls one pass of ``key``'s list may take: far more while the list has not been read to its end."""
+    return PASS_CALLS if whole(memory_path, key) else WHOLE_PASS_CALLS
+
+
 def pass_open(memory_path: Path, key: str, now: datetime | None = None) -> bool:
     """Is a pass of ``key``'s list open — a read whose first call was counted, whose last was within
     :data:`PASS_WINDOW`, with calls to spare? Only such a pass can be continued (G245)."""
-    return _pass_open(last(memory_path, key).get("pass"), _now(now))
+    entry = last(memory_path, key)
+    return _pass_open(entry.get("pass"), _now(now), entry.get("whole") is True)
 
 
-def _pass_open(held, moment: datetime) -> bool:
+def _pass_open(held, moment: datetime, is_whole: bool = True) -> bool:
     if not isinstance(held, dict):
         return False
     at = _parse(held.get("at"))
-    return at is not None and moment - at < PASS_WINDOW and int(held.get("calls") or 0) < PASS_CALLS
+    calls = PASS_CALLS if is_whole else WHOLE_PASS_CALLS
+    return at is not None and moment - at < PASS_WINDOW and int(held.get("calls") or 0) < calls
 
 
 def note(memory_path: Path, key: str, outcome: str, *, items: int = 0, handle: str | None = None,
-         profile_url: str | None = None, continues: bool = False, now: datetime | None = None) -> bool:
+         profile_url: str | None = None, continues: bool = False, reached_end: bool = False,
+         now: datetime | None = None) -> bool:
     """Record an outcome. A read counts toward the day and clears that site's pause (the agent was signed in);
     ``needs_login``/``blocked`` start one. ``handle`` and ``profile_url`` (already cleaned) are kept beside it, in this
     machine state and never a bank; one not given leaves the last one standing.
 
     ``continues`` (G245): this read carries on an open pass of the same list (:func:`pass_open`) — it adds to the pass's
     items and is **not** counted again. With no open pass it is a new read, counted like any. Returns whether the call
-    was counted against the day."""
+    was counted against the day.
+
+    ``reached_end``: this read got to the end of the list (the page stopped growing), so the whole list is in memory
+    from now on (:func:`whole`); kept until the list's entry is gone."""
     moment = _now(now)
     counted = False
     with _locked() as data:
@@ -417,7 +453,7 @@ def note(memory_path: Path, key: str, outcome: str, *, items: int = 0, handle: s
         pauses = data.setdefault("paused_until", {})
         if outcome == "read":
             held_pass = entry.get("pass")
-            if continues and _pass_open(held_pass, moment):
+            if continues and _pass_open(held_pass, moment, entry.get("whole") is True):
                 entry["pass"] = {"at": moment.isoformat(), "calls": int(held_pass.get("calls") or 0) + 1}
                 items = int(entry.get("items") or 0) + int(items)
             else:
@@ -425,6 +461,8 @@ def note(memory_path: Path, key: str, outcome: str, *, items: int = 0, handle: s
                 _count(data, bank, moment)
                 counted = True
             entry.update(read_at=moment.isoformat(), items=int(items))
+            if reached_end:
+                entry["whole"] = True
             pauses.pop(base, None)
         elif outcome in PAUSING:
             pauses[base] = (moment + PAUSE).isoformat()
@@ -520,7 +558,8 @@ _X_HOSTS = ("x.com", "twitter.com")
 _X_STATUS = re.compile(r"^/(?:(?P<user>[A-Za-z0-9_]{1,15})|i(?:/web)?)/status/(?P<id>\d{1,25})(?:/|$)")
 _X_RESERVED = frozenset({"i", "home", "search", "explore", "settings", "messages", "notifications"})
 _IG_POST = re.compile(r"^/(?:[A-Za-z0-9._]{1,30}/)?(?P<kind>p|reel|tv)/(?P<code>[A-Za-z0-9_-]{5,64})(?:/|$)")
-_LI_POST = re.compile(r"^/(?:feed/update/urn:li:(?:activity|share|ugcPost):\d{5,25}|posts/[^/?#\s]{3,300})(?:/|$)")
+#: A saved article is listed with the other saved posts, as ``urn:li:article`` (measured 2026-11-24: one in 76).
+_LI_POST = re.compile(r"^/(?:feed/update/urn:li:(?:activity|share|ugcPost|article):\d{5,25}|posts/[^/?#\s]{3,300})(?:/|$)")
 #: A post or a comment on Reddit: ``/r/<sub>/comments/<id>[/<slug>[/<comment id>]]``.
 _REDDIT_POST = re.compile(r"^/r/(?P<sub>[A-Za-z0-9_]{2,21})/comments/(?P<id>[a-z0-9]{3,12})"
                           r"(?:/(?P<slug>[^/?#\s]{1,120})(?:/(?P<comment>[a-z0-9]{3,12}))?)?/?$")
@@ -614,10 +653,12 @@ def canonical(key: str, url) -> tuple[str, tuple[str, ...]] | None:
 def screens_words(memory_path: Path, key: str) -> str:
     """How far this read goes, in the words the agent gets (G245): the first read of a list catches up; a later one stops
     where the list reaches what is already kept."""
-    if not last(memory_path, key).get("read_at"):
-        return (f"This is the first read of this list, so go deeper than usual to catch up: scroll up to "
-                f"{FIRST_READ_SCREENS} screens, recording as you go in calls of up to 200 posts, newest first. Older "
-                "posts than that come only with the site's own export, which the person can drop on the Cicada window.")
+    if not whole(memory_path, key):
+        return ("This list has not been read to its end yet, so read all of it this time: keep scrolling until the list "
+                "stops growing (a few more tries bring no new post), however long it is, recording as you go in calls "
+                "of up to 200 posts, newest first. Posts already in memory are no reason to stop this time. On the last "
+                "call set `reached_end=true`; if you have to stop before the end, leave it out and the next read "
+                "carries on.")
     return (f"Scroll only until you reach posts already in memory, and at most {LATER_READ_SCREENS} screens: the reply to "
             "each call says when you have reached them. Record as you go, newest first.")
 

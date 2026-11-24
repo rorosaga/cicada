@@ -1592,9 +1592,9 @@ def record_read(ctx: ToolContext, url: str, outcome: str, summary: str | None = 
 
 #: At most this many videos in one ``cicada_record_youtube_list`` call (a few screens of a list, never a whole archive).
 MAX_YOUTUBE_LIST_VIDEOS = 500
-YOUTUBE_LIST_SLEEPING = ("Not recorded: Cicada is consolidating memory right now, and this list is written into it. "
-                         "Nothing was saved. Keep what you read and record it with `cicada_record_youtube_list` when "
-                         "Cicada has finished.")
+YOUTUBE_LIST_SLEEPING = ("Not recorded: Cicada is consolidating memory right now, or too busy to say, and this list is "
+                         "written into it. Nothing was saved. Keep what you read and record it with "
+                         "`cicada_record_youtube_list` in a few minutes.")
 
 
 @_holding_pages
@@ -1785,9 +1785,11 @@ MAX_SAVED_LIST_ITEMS = 200
 #: A post's words as the list shows them: a title's share and a description's (the X archive's own bounds).
 SAVED_TITLE_MAX = 80
 SAVED_TEXT_MAX = 500
-SAVED_LIST_SLEEPING = ("Not recorded: Cicada is consolidating memory right now, and this list is written into it. "
-                       "Nothing was saved. Keep what you read and record it with `cicada_record_saved_list` when "
-                       "Cicada has finished.")
+#: The probe that decides this (`_backend_sleep_running`) answers "running" for a backend too busy to answer in time
+#: as well, so the sentence says both (found 2026-11-24: on a loaded Mac it said "consolidating" with no Sleep running).
+SAVED_LIST_SLEEPING = ("Not recorded: Cicada is consolidating memory right now, or too busy to say, and this list is "
+                       "written into it. Nothing was saved. Keep what you read and record it with "
+                       "`cicada_record_saved_list` in a few minutes.")
 
 
 def _ask_sign_in_for_list(ctx: ToolContext, memory_path: Path, platform) -> None:
@@ -1835,7 +1837,7 @@ def _give_posted(memory_path: Path, episode_id: str, day: str) -> bool:
 @_holding_pages
 def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None, via: str | None = None,
                       handle: str | None = None, profile_url: str | None = None, continues=None,
-                      folder: str | None = None, folder_names=None) -> str:
+                      folder: str | None = None, folder_names=None, reached_end=None) -> str:
     """``cicada_record_saved_list`` (G206, redesign 2026-10-22): what the person's own agent read on their saved list
     on X (Bookmarks, Likes), Instagram (Saved, Likes), LinkedIn (Saved posts) or, since G232, Reddit (Saved, Upvoted),
     Pinterest (Saved Pins) or TikTok (Favorites), and, since ROR-128, Spotify (Library) or Goodreads (shelves), in their
@@ -1858,7 +1860,11 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     whole pass counts once against the day's bound; a folder's own page is a call with ``folder`` (its name), after the
     All page named the site's folders in ``folder_names`` and the reply said which to open (at most
     ``saved_lists.FOLDERS_PER_PASS``, least recently read first). A row's ``posted`` is the post's own day when the page
-    showed one. The reply says when the call reached posts already in memory, so a later read stops there."""
+    showed one. The reply says when the call reached posts already in memory, so a later read stops there.
+
+    Ruling 78 as amended 2026-11-24: **a list is read to its end once.** Until a call says ``reached_end`` (the list's
+    own page stopped growing; a folder's page never counts), the pass may take ``saved_lists.WHOLE_PASS_CALLS`` calls
+    and the reply never says to stop at posts already in memory."""
     from api.services import folder_pass, media_ingestor, reading_settings, save_folders, saved_at, saved_lists
     from api.services.media_ingestor import MediaMeta, PreparedItem, RawItem
 
@@ -1893,7 +1899,11 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     wants_more = _truthy(continues) or bool(folder_name)
     continuing = wants_more and saved_lists.pass_open(memory_path, key)
     started = (" This call asked to continue a read, but none was open (it ended, or used its "
-               f"{saved_lists.PASS_CALLS} calls), so it counted as a new read." if wants_more and not continuing else "")
+               f"{saved_lists.pass_calls(memory_path, key)} calls), so it counted as a new read."
+               if wants_more and not continuing else "")
+    # The end of the list's own page, never of one folder's.
+    at_end = _truthy(reached_end) and not folder_name
+    was_whole = saved_lists.whole(memory_path, key)
     if outcome in saved_lists.PAUSING:
         saved_lists.note(memory_path, key, outcome, **who)
         _ask_sign_in_for_list(ctx, memory_path, p)
@@ -1921,7 +1931,8 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
 
     if isinstance(items, list) and not items:
         # The list is there and has nothing in it: a read of an empty list, not a failed page (sources-truth).
-        saved_lists.note(memory_path, key, "read", items=0, continues=continuing, **who)
+        # An empty list has no further end to reach.
+        saved_lists.note(memory_path, key, "read", items=0, continues=continuing, reached_end=not folder_name, **who)
         if folder_name:
             saved_lists.stamp_folder(memory_path, key, folder_name)
         return (f"Recorded: the person's {p.name} {p.label} is empty"
@@ -2022,7 +2033,7 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
         saved_lists.note(memory_path, key, "failed", **who)
         return (f"Recorded: the read failed. None of the {dropped} row(s) were {p.name} posts, so nothing was written; "
                 f"the list is offered again later. Open {p.name}'s {p.label} page and read that list." + unkept)
-    saved_lists.note(memory_path, key, "read", items=len(seen), continues=continuing, **who)
+    saved_lists.note(memory_path, key, "read", items=len(seen), continues=continuing, reached_end=at_end, **who)
     if folder_name:
         saved_lists.stamp_folder(memory_path, key, folder_name)
     if paths:
@@ -2035,7 +2046,13 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
                                    author=ctx.author, session=ctx.session_id)
     extra = f" {dropped} row(s) were not {p.name} posts and were left out." if dropped else ""
     stop = ""
-    if folder_pass.known_ground(known):
+    if at_end:
+        stop = " The whole list is in memory now; later reads only look for what is new."
+    elif not was_whole and not folder_name:
+        # The list has never been read to its end: posts already kept are where an earlier read stopped, not the end.
+        stop = (" This list has not been read to its end yet: keep scrolling and recording (`continues=true`) until it "
+                "stops growing, and set `reached_end=true` on the last call.")
+    elif folder_pass.known_ground(known):
         stop = (f" Known ground: {sum(known)} of these {len(known)} post(s) were already in memory"
                 + (f" and filed in \u201c{folder_name}\u201d" if folder_name else "")
                 + ", so you have caught up with this list; stop scrolling it. A later read starts again from the top.")
@@ -2048,9 +2065,9 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
 
 #: At most this many rows in one ``cicada_record_substack_list`` call (a few screens of a list, never a whole archive).
 MAX_SUBSTACK_LIST_ITEMS = 200
-SUBSTACK_LIST_SLEEPING = ("Not recorded: Cicada is consolidating memory right now, and this list is written into it. "
-                          "Nothing was saved. Keep what you read and record it with `cicada_record_substack_list` "
-                          "when Cicada has finished.")
+SUBSTACK_LIST_SLEEPING = ("Not recorded: Cicada is consolidating memory right now, or too busy to say, and this list is "
+                          "written into it. Nothing was saved. Keep what you read and record it with "
+                          "`cicada_record_substack_list` in a few minutes.")
 
 
 def _substack_saved(ctx: ToolContext, memory_path: Path, rows: list,
