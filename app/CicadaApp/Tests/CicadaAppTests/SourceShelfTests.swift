@@ -55,76 +55,47 @@ final class SourceShelfTests: XCTestCase {
 
     func testOnlyASourceThatReadsThroughAnAccountOrKeyCarriesAnHonestLineAndItIsReadOnly() {
         for id in ["notion", "linear", "github", TelegramChats.channel] {
-            XCTAssertNotNil(WebReadingScene.honestLine(id), id)
+            XCTAssertNotNil(SourceHeadLine.honestLine(id), id)
         }
         for id in ["notes", "files", "folders", "spotify", "imessage", "x"] {
-            XCTAssertNil(WebReadingScene.honestLine(id), id)
+            XCTAssertNil(SourceHeadLine.honestLine(id), id)
         }
         XCTAssertTrue(Copy.Honest.notion.hasPrefix("Read-only"))
         XCTAssertTrue(Copy.Honest.telegram.contains("one-to-one chats you tick"))
     }
 
-    // MARK: The website-reading card
+    // MARK: A source read through the person's own agent
 
-    func testOnlySourcesAnAgentReadsInTheBrowserGetTheCard() {
+    func testOnlySourcesAnAgentReadsInTheBrowserReadThroughTheAI() {
         let all = rows()
         for id in ["x", "instagram", "linkedin", "reddit", "pinterest", "tiktok", "spotify", "youtube",
                    SourceCatalog.substackId] {
-            XCTAssertTrue(WebReadingScene.applies(all.first { $0.id == id }!.entry), id)
+            XCTAssertTrue(SourceHeadLine.readsThroughAI(all.first { $0.id == id }!.entry), id)
         }
         for id in ["notes", "github", "imessage"] {
-            XCTAssertFalse(WebReadingScene.applies(all.first { $0.id == id }!.entry), id)
+            XCTAssertFalse(SourceHeadLine.readsThroughAI(all.first { $0.id == id }!.entry), id)
         }
     }
 
-    func testThePersonsOwnLocalAppStandsInTheScene() {
-        XCTAssertNil(WebReadingScene.app(rows: []))
-        XCTAssertNil(WebReadingScene.app(rows: [AgentLiveRow(id: "chatgpt", connected: true, via: "remote")]),
+    func testThePersonsOwnLocalAppIsTheOneTheHeadNames() {
+        XCTAssertNil(SourceHeadLine.app(rows: []))
+        XCTAssertNil(SourceHeadLine.app(rows: [AgentLiveRow(id: "chatgpt", connected: true, via: "remote")]),
                      "a remote connection cannot read a list in this Mac's browser")
-        XCTAssertEqual(WebReadingScene.app(rows: [AgentLiveRow(id: "codex", connected: true, via: "config"),
-                                                  AgentLiveRow(id: "claude-code", connected: true, via: "mcp")])?.id,
+        XCTAssertEqual(SourceHeadLine.app(rows: [AgentLiveRow(id: "codex", connected: true, via: "config"),
+                                                 AgentLiveRow(id: "claude-code", connected: true, via: "mcp")])?.id,
                        "claude-code", "the Agents page's order")
     }
 
-    func testTheSceneNeverPlaysTwiceByItselfNorWithNothingToPlayItFor() {
-        XCTAssertTrue(WebReadingScene.autoplays(seen: false, hasApp: true, reduceMotion: false))
-        XCTAssertFalse(WebReadingScene.autoplays(seen: true, hasApp: true, reduceMotion: false), "Replay is the way back")
-        XCTAssertFalse(WebReadingScene.autoplays(seen: false, hasApp: false, reduceMotion: false))
-        XCTAssertFalse(WebReadingScene.autoplays(seen: false, hasApp: true, reduceMotion: true), "Reduce Motion")
-        XCTAssertEqual(WebReadingScene.litNodes(atBeat: -1), 1)
-        XCTAssertEqual(WebReadingScene.litNodes(atBeat: 4), 4)
-    }
-
-    func testTheCardSaysItInPlainStepsWithNoWordThePersonHasToKnow() throws {
-        let entry = rows().first { $0.id == "x" }!.entry
-        let steps = WebReadingScene.steps(entry: entry, app: "Claude Code", browser: "Chrome")
-        XCTAssertEqual(steps.count, 4)
-        XCTAssertTrue(steps[1].contains("Next time you use Claude Code"), "when it happens")
-        XCTAssertTrue(steps[1].contains("At most once a day"), "G206's 20-hour offer")
-        XCTAssertTrue(steps[2].contains("where you are already signed in"), "whose session")
-        XCTAssertTrue(steps[2].contains("only at your Bookmarks"), "what is read")
-        XCTAssertTrue(steps[3].contains("link and words"), "the post's words are kept too (mcp.md)")
-        XCTAssertTrue(steps[3].contains("posted or changed"))
-        let headline = Copy.WebReading.headline(site: "X", app: "Claude Code", list: "your Bookmarks")
-        let all = (steps + [headline, Copy.WebReading.headlineNoAI, Copy.WebReading.roleAI, Copy.WebReading.whoseSession,
-                            Copy.WebReading.whoSees(app: "Claude Code"), Copy.WebReading.oneClick]).joined(separator: " ")
-        for word in ["assistant app", "agent", "AI app", "switch"] {
-            XCTAssertFalse(all.localizedCaseInsensitiveContains(word), word)
-        }
-        XCTAssertTrue(Copy.WebReading.whoseSession.contains("never sees your password"))
-        XCTAssertTrue(Copy.WebReading.whoSees(app: "Claude Code").contains("company sees what it reads"))
-        XCTAssertTrue(Copy.WebReading.oneClick.contains(Copy.SourceLayout.readInBrowser), "names the control that is there")
-        let view = try String(contentsOf: Self.source("Views/Sources/WebReadingCard.swift"), encoding: .utf8)
-        XCTAssertFalse(view.contains("duration:"), "no duration is spelled in the view")
-        XCTAssertFalse(view.contains(".seconds(0") || view.contains(".seconds(1"), "nor a sleep")
-    }
-
-    func testTheStepLitFollowsTheBeatAndASiteReadThroughAnAIIsNotReadingYetRatherThanOff() {
-        XCTAssertEqual((-1...4).map(WebReadingScene.step(atBeat:)), [0, 0, 1, 2, 2, 3])
-        XCTAssertEqual(WebReadingScene.laneGlyphs.count, 3, "one thing travels each lane")
+    func testASiteReadThroughAnAIIsNotReadingYetRatherThanOff() {
         XCTAssertEqual(SourcePageStatus.of(row: .off, run: .idle, latest: nil, readsThroughAI: true).word, "Not reading yet")
         XCTAssertEqual(SourcePageStatus.of(row: .off, run: .idle, latest: nil).word, "Off", "every other source keeps its word")
         XCTAssertEqual(SourcePageStatus.of(row: .connected, run: .idle, latest: nil, readsThroughAI: true).word, "Connected")
+    }
+
+    func testTheDrawnDiagramIsGone() throws {
+        for path in ["Views/Sources/WebReadingCard.swift", "Models/WebReadingScene.swift"] {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: Self.source(path).path), "\(path) is gone (ruling 78)")
+        }
     }
 
     static func source(_ path: String) -> URL {

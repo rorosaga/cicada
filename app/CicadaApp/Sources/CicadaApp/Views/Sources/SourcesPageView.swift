@@ -249,7 +249,9 @@ struct SourcesPageView: View {
         case .entry(let id)?:
             if let row = catalog.first(where: { $0.id == id }) {
                 SourceCatalogDetail(row: row, hiddenListCount: back, onShowList: { showList() },
-                                    onClose: { close() }, onSelectEntity: onSelectEntity)
+                                    onClose: { close() }, onSelectEntity: onSelectEntity,
+                                    resolved: resolvedStreams(catalog),
+                                    onCheckNow: { Task { await runCheck([row.id], catalog: catalog) } })
                     .id(row.id)
                     .focusable()
                     .focusEffectDisabled()

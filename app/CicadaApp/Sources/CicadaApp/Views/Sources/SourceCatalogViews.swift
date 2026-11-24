@@ -218,26 +218,42 @@ struct SourceCatalogList: View {
     }
 }
 
-/// One way in, opened: the head (tile, name, dot + word), the source's own control (the same rows Settings drew,
-/// so nothing a person set moves), per-site reading for an account read in the browser, then what came in.
+/// One way in, opened (G245, ruling 78, plan 3.2): the head (tile, name, dot + word, and one quiet line of the account
+/// and how it is read), the **Reads** block (a row per stream, a switch each, *Check now*), the source's own connect
+/// step where a stream needs one, then what came in — item cards under tabs for the list kinds, the source's own content
+/// for the rest — and a quiet footer. `compact` is onboarding's sheet: the head, Reads and the connect step, no items,
+/// no Check now.
 struct SourceCatalogDetail: View {
     let row: SourceCatalogRow
     var hiddenListCount: Int? = nil
     var onShowList: () -> Void = {}
     let onClose: () -> Void
     var onSelectEntity: ((String) -> Void)?
+    /// The page's resolved streams (the backend's answer with this Mac's overlay on it). Nil: resolved here from the
+    /// streams model alone, as onboarding's sheet does.
+    var resolved: ResolvedStreams? = nil
+    /// Onboarding's sheet: no items, no Check now (plan 3.2).
+    var compact = false
+    /// *Check now*: the page's check of this one source. Nil hides the button (no page owns a check here).
+    var onCheckNow: (() -> Void)? = nil
+    /// The stream the Items open on (nil is All), and the clock the ages are read against (nil is now): a hand-off or a
+    /// render pins them.
+    var startTab: String? = nil
+    var clock: Date? = nil
 
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
     @Environment(ReadingAgentModel.self) private var reading
-    /// The site whose switch raised the first-use sheet (acknowledgement not current).
-    @State private var consentSite: String?
-    /// Whether that switch was the site's saved list (G206), so the sheet turns on the list, never the site.
-    @State private var consentSavedList = false
-    /// 2026-10-26 — the YouTube list whose switch raised the first-use sheet.
-    @State private var consentYouTube: YouTubeList?
-    /// G89 — the Substack list whose switch raised the first-use sheet.
-    @State private var consentSubstack: SubstackList?
+    @Environment(SourceStreamsModel.self) private var sourceStreams: SourceStreamsModel?
+    @Environment(SourceStreamCheckModel.self) private var check: SourceStreamCheckModel?
+    @Environment(AgentLiveProbe.self) private var agents: AgentLiveProbe?
+    /// G245 — the first-use acknowledgement a switch asked for, by the contract's own words (`ReadingConsent`): one
+    /// state for every list (a site's saved list, YouTube's, Substack's, a new one), mounted on this page.
+    @State private var consent: ReadingConsent?
+    /// A stream's switch flipped and not yet answered: drawn as flipped, rolled back when the write is refused.
+    @State private var pendingSwitch: [String: Bool] = [:]
+    /// Whether Accessibility is granted to this app (preflight only — ruling 77: the app never prompts for it).
+    @State private var trusted = AXIsProcessTrusted()
     @Environment(LocalSourceWatcher.self) private var localSources
     @State private var flowTile: AddSourceTile?
     /// The connector panel's export walkthrough binding; a tier-2 connector has no export walkthrough.
@@ -262,9 +278,10 @@ struct SourceCatalogDetail: View {
     @Environment(TabGroupWatcher.self) private var tabGroups: TabGroupWatcher?
     @Environment(ContactsReader.self) private var contacts: ContactsReader?
     @Environment(RemindersReader.self) private var remindersReader: RemindersReader?
-    @Environment(IntakeRouter.self) private var intake
     /// What the footer's last Refresh said.
     @State private var feedNote: String?
+    /// A switch the backend refused, said under the Reads block until the next one.
+    @State private var switchNote: String?
 
     private var channels: [SourceChannel] { store.channels.value ?? [] }
 
@@ -310,7 +327,7 @@ struct SourceCatalogDetail: View {
         let run = SourceRowText.status(channel: channel, watch: watch, run: channel.flatMap { activity?.run(for: $0.id) })
         return SourcePageStatus.of(row: row.status, run: run, latest: latest, check: chatCheck,
                                    notInstalled: row.notInstalled, waitingOn: row.waitingOn, browser: row.browser,
-                                   readsThroughAI: WebReadingScene.applies(row.entry))
+                                   readsThroughAI: SourceHeadLine.readsThroughAI(row.entry))
     }
 
     private var chatCheck: ChatCheck? {
@@ -372,23 +389,28 @@ struct SourceCatalogDetail: View {
         // GitHub draws its own page on the same layout: its status comes from its sign-in, not the catalogue alone.
         if row.entry.id == "github" {
             GitHubSourcePage(row: row, backLabel: hiddenListCount.map { Copy.Lists.sourcesBack($0) },
-                             onShowList: onShowList, onClose: onClose)
+                             onShowList: onShowList, onClose: onClose, line: headLine, lineHelp: headHelp,
+                             reads: AnyView(readsBlock))
         } else {
             page
         }
     }
 
-    /// The standard source page (owner 2026-11-04; `SourcePageLayout`): head, connect area, content, footer.
+    /// The standard source page (owner 2026-11-04; `SourcePageLayout`): head, Reads, connect step, content, footer.
     private var page: some View {
         SourcePageLayout(title: row.entry.title, origin: row.entry.origin, status: pageStatus, statusHelp: statusHelp,
+                         line: headLine, lineHelp: headHelp,
                          backLabel: hiddenListCount.map { Copy.Lists.sourcesBack($0) }, onShowList: onShowList,
                          onClose: onClose) {
             if drill == nil {
+                readsBlock
                 connectSlot
                 browserIdentity
             }
         } content: {
-            if let drill {
+            if compact {
+                EmptyView()
+            } else if let drill {
                 drilled(drill)
             } else {
                 if let overview, overview.kind != .harness, !removalsEmpty(overview) {
@@ -397,7 +419,7 @@ struct SourceCatalogDetail: View {
                 contentSlot
             }
         } footer: {
-            if drill == nil { footerSlot }
+            if drill == nil && !compact { footerSlot }
         }
         .sheet(item: $flowTile) { tile in
             AddSourceSheet(initialTile: tile, onClose: { flowTile = nil }, flowOnly: true)
@@ -410,29 +432,121 @@ struct SourceCatalogDetail: View {
         }
         .sourcePageBack(active: drill != nil) { drill = nil }
         .task { await reading.loadSettings() }
+        .task { await sourceStreams?.refresh() }
         // G136 R-SU18 — a palette conversation row lands on its agent's page with the search filled.
         .onAppear { takeConversationQuery() }
         .onChange(of: router.pendingConversationQuery) { _, _ in takeConversationQuery() }
-        .sheet(item: $consentSubstack) { list in
-            SettingsSheet(title: Copy.Reading.sheetTitle, onClose: { consentSubstack = nil }) {
-                ReadingFirstUseSheet(model: reading, site: nil, label: nil, substackList: list) { consentSubstack = nil }
-            }
+        // The grant is given in System Settings and the person comes back: look again (a preflight, never a prompt).
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            trusted = AXIsProcessTrusted()
         }
-        .sheet(item: $consentYouTube) { list in
-            SettingsSheet(title: Copy.Reading.sheetTitle, onClose: { consentYouTube = nil }) {
-                ReadingFirstUseSheet(model: reading, site: nil, label: nil, youtubeList: list) { consentYouTube = nil }
-            }
-        }
-        .sheet(isPresented: Binding(get: { consentSite != nil }, set: { if !$0 { consentSite = nil } })) {
-            SettingsSheet(title: Copy.Reading.sheetTitle, onClose: { consentSite = nil }) {
-                ReadingFirstUseSheet(model: reading, site: consentSite, label: row.entry.title,
-                                     savedList: consentSavedList) { consentSite = nil }
+        .sheet(item: $consent) { ask in
+            SettingsSheet(title: Copy.Reading.sheetTitle, onClose: { consent = nil }) {
+                ReadingFirstUseSheet(model: reading, site: nil, label: row.entry.title, consent: ask) {
+                    consent = nil
+                    Task {
+                        await reading.load()
+                        await sourceStreams?.refresh()
+                    }
+                }
             }
         }
         .task {
             if row.entry.id.hasPrefix(SourceCatalog.browserPrefix) {
                 browsers = await Task.detached(priority: .userInitiated) { BrowserInventory.live() }.value
             }
+        }
+    }
+
+    // MARK: - The head's line and the Reads block (G245)
+
+    /// The page's streams: the answer the page resolved (or this build's own resolve of the streams model), each "Saves
+    /// you make" row read fresh from this Mac, and — for a site with a save control the backend named no stream for — that
+    /// row too, so the notch's switch always has its row here (plan 7: one truth).
+    private var pageStreams: [ResolvedStream] {
+        let base = (resolved ?? ownResolved).streams(row.id)
+        var out = base.map { $0.stream.how == .click && $0.stream.owner == .app ? clickStream($0.stream) : $0 }
+        if SiteSaveSite.named(row.id) != nil, !out.contains(where: { $0.stream.how == .click }) {
+            out.append(clickStream(SourceStream(id: row.id + ".saves", label: Copy.Streams.savesYouMake, kind: .other("saves"),
+                                                how: .click, owner: .app, control: .switch, state: .off)))
+        }
+        return out
+    }
+
+    /// The streams model alone, with no reader of this Mac's in it (onboarding's sheet; a render): what the backend says.
+    private var ownResolved: ResolvedStreams {
+        SourceStreamOverlay.resolve(sourceStreams?.value, app: StreamAppState(siteSavesOn: siteSavesOn,
+                                                                           permissions: [.accessibility: trusted]),
+                                    entries: [row.entry])
+    }
+
+    private var siteSavesOn: Set<String> { Set(SiteSavePrefs().connected.map(\.key)) }
+
+    private func clickStream(_ stream: SourceStream) -> ResolvedStream {
+        SourceStreamOverlay.resolve(stream, of: row.id, entry: row.entry,
+                                    app: StreamAppState(siteSavesOn: siteSavesOn, permissions: [.accessibility: trusted]),
+                                    readerKeys: [], now: Date())
+    }
+
+    /// Whether the backend named this source's streams (else the page keeps today's controls).
+    private var hasBackendStreams: Bool { !(resolved ?? ownResolved).streams(row.id).isEmpty }
+
+    private var agentName: String? {
+        SourceHeadLine.app(rows: Array(agents?.rows.values.map { $0 } ?? []))?.name
+    }
+
+    private var headLine: String? {
+        SourceHeadLine.text(account: (resolved ?? ownResolved).accounts[row.id], streams: pageStreams, app: agentName)
+    }
+
+    private var headHelp: String? { SourceHeadLine.help(entryId: row.id, streams: pageStreams, app: agentName) }
+
+    @ViewBuilder
+    private var readsBlock: some View {
+        let streams = pageStreams
+        if !streams.isEmpty {
+            TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
+                SourceReadsBlock(streams: streams, results: check?.results ?? [:], checking: check?.checking ?? [],
+                                 pending: pendingSwitch, isChecking: check?.isChecking ?? false,
+                                 checkedAt: check?.lastCheckedAt, failure: check?.failure,
+                                 showsCheck: !compact && onCheckNow != nil, now: clock ?? context.date,
+                                 onToggle: { toggle($0, on: $1) }, onFix: { NSWorkspace.shared.open($0.settingsURL()) },
+                                 onCheck: { onCheckNow?() })
+            }
+            if let switchNote { SourceConnectLine(text: switchNote, isAttention: true) }
+        }
+    }
+
+    /// A stream's switch (plan 3.2, section 7): the one connect plan decides — turn off is one call; turn on needs agent
+    /// reading with a current acknowledgement, else the first-use sheet is raised here and nothing is written until its
+    /// "Turn on". Optimistic: the row shows the flip at once and snaps back if the write is refused.
+    private func toggle(_ resolved: ResolvedStream, on: Bool) {
+        let stream = resolved.stream
+        pendingSwitch[stream.id] = on
+        Task { @MainActor in
+            defer { pendingSwitch[stream.id] = nil }
+            if stream.how == .click {
+                SiteSavePrefs().setConnected(row.id, on)
+                NotificationCenter.default.post(name: SiteSaveSwitches.changed, object: nil)
+                trusted = AXIsProcessTrusted()
+                return
+            }
+            guard let ref = stream.switchRef else { return }
+            await reading.loadSettings()
+            let state = SourceConnect.State(row: row, reading: reading, siteSavesOn: siteSavesOn, readersOn: [:],
+                                            permissions: [:])
+            let plan = SourceConnect.planSwitch(entry: row.id, setting: ref.setting, key: ref.key, on: on, state)
+            let deps = SourceConnect.Deps(
+                setList: { setting, key, on in await reading.setSwitch(setting: setting, key: key, on: on) },
+                noticeSaves: { _ in }, startReader: { _ in false }, openPage: { _ in },
+                raiseConsent: { consent = $0 }, lastNote: { reading.note })
+            if case .failed(let note) = await SourceConnect.run(plan, entry: row.id, deps: deps) {
+                switchNote = note ?? Copy.Streams.couldntSwitch
+            } else {
+                switchNote = nil
+            }
+            await reading.load()
+            await sourceStreams?.refresh()
         }
     }
 
@@ -449,16 +563,18 @@ struct SourceCatalogDetail: View {
         }
     }
 
-    /// The connect area, by source: one primary and at most one line for its state, then its ways in.
+    /// The source's own connect step (a chat picker, a QR, a sign-in, a permission, a folder, a key, an address): shown
+    /// where a stream needs one — a stream no switch can flip — a connected account, or no stream at all (the backend
+    /// named none). A source whose every stream is a switch has none: its Reads rows are the whole of it.
     @ViewBuilder
     private var connectSlot: some View {
-        // ROR-118 — a source read through the person's own agent shows who does what, before its switch.
-        if WebReadingScene.applies(row.entry) { WebReadingCard(entry: row.entry) }
-        if let honest = WebReadingScene.honestLine(row.entry.id) {
-            Text(honest).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        connectControls
+        if showsConnectStep { connectControls }
+    }
+
+    private var showsConnectStep: Bool {
+        guard hasBackendStreams else { return true }
+        if Self.connectorChannel(in: mine) != nil { return true }
+        return pageStreams.contains { SourceStreamRow.control($0) == .setup }
     }
 
     @ViewBuilder
@@ -472,7 +588,7 @@ struct SourceCatalogDetail: View {
         case AppleBooksReader.channel: AppleBooksSlot(slot: .connect, channel: mine.first)
         case GoogleBooksKeyModel.id: GoogleBooksKeySlot(slot: .connect)
         case VoiceMemosReader.channel: VoiceMemosSlot(slot: .connect)
-        case "goodreads": GoodreadsSlot(browserWay: savedListWay("goodreads"))
+        case "goodreads": GoodreadsSlot(browserWay: hasBackendStreams ? nil : savedListWay("goodreads"))
         case "book-scan": BookAddSlot()
         case MessagesWatcher.channel: ChatPickerSlot(slot: .connect, kind: .messages)
         case WhatsAppWatcher.channel: ChatPickerSlot(slot: .connect, kind: .whatsApp)
@@ -492,30 +608,18 @@ struct SourceCatalogDetail: View {
             // person follows is the area's one line.
             SourceConnectArea(line: substackFollowing, ways: substackWays)
         case "spotify", "files":
-            // Nothing in yet: the export's own drop, its where-from on hover — the source's mark on a file, never the
-            // chat vendors'. Once something came in, the next import is one quiet way row above the list.
-            if row.status == .off {
-                IntakePanel(origin: .emptyState(.sources), compact: true, mark: entry.origin,
-                            how: SourceCatalog.exportHow(entry.id))
-            } else {
-                SourceConnectArea(ways: [.importFile(origin: entry.origin, help: SourceCatalog.exportHow(entry.id)) {
-                    chooseExport()
-                }])
-            }
+            // Nothing to connect: Spotify's list is a Reads row, Files and links only list what came in (the window's
+            // drop, ⇧⌘I, the palette, Home and the Agents page are how a file arrives — no way row on this page).
+            EmptyView()
         case "chat-exports":
             // A chat export is the chat vendors' own file: their marks are the right ones here. Each app's "request
-            // your export" is a way in (its export page; its steps on hover). The reminder menu stays in the window's
-            // intake overlay and Getting started: a menu of delays is not a switch or a button.
-            IntakePanel(origin: .emptyState(.sources), compact: true, how: SourceCatalog.exportHow(entry.id))
+            // your export" is a way in (its export page; its steps on hover); the file itself arrives by the window's
+            // drop (ruling 58: exports are one-time).
             SourceConnectArea(ways: ChatVendor.allCases.map(ChatExportWay.of))
         case "notion":
-            // The live connection is the primary; the export is one more way in, the file chooser of the one intake.
-            let export = SourceWayIn.importFile(origin: entry.origin, help: Copy.Catalog.notionHow) { chooseExport() }
+            // Notion is its live connection (ruling 47 tier 2); no export way on its page.
             if let api = channels.first(where: { $0.id == "notion-api" }) {
-                ConnectorSlot(slot: .connect, channel: api, title: "Notion", ways: [export],
-                              needsSignIn: row.status == .needsSignIn)
-            } else {
-                SourceConnectArea(ways: [export])
+                ConnectorSlot(slot: .connect, channel: api, title: "Notion", needsSignIn: row.status == .needsSignIn)
             }
         case "telegram":
             // The bot feed needs a public address Cicada never opens: its steps are one click away.
@@ -536,7 +640,7 @@ struct SourceCatalogDetail: View {
                 ConnectorSlot(slot: .connect, channel: connector, title: entry.title,
                               ways: siteWays(withoutBrowser: webStart != nil), vendors: entry.tile?.vendors ?? [],
                               needsSignIn: row.status == .needsSignIn, primaryOverride: webStart)
-            } else if entry.site != nil || entry.savedListKey != nil || entry.verb == .importFile {
+            } else if entry.site != nil || entry.savedListKey != nil {
                 SourceConnectArea(primary: webStart, ways: siteWays(withoutBrowser: webStart != nil))
             } else if let feed = mine.first, feed.actions.contains("manage"), let tile = entry.tile {
                 // A feed: the Subscribe field and the list are its flow.
@@ -550,26 +654,17 @@ struct SourceCatalogDetail: View {
                         SettingsInlineLink(section: .general, row: .backgroundService, label: Copy.Catalog.feedsTurnOn)
                     }
                 }
-            } else if let tile = entry.tile, row.status == .off {
+            } else if let tile = entry.tile, row.status == .off, entry.verb != .importFile {
                 SourceConnectArea(primary: SourcePrimaryAction(title: verbTitle(entry.verb)) { flowTile = tile })
             }
         }
     }
 
-    /// The one intake's file chooser; what it reads runs in the window's intake overlay, as a drop would.
-    private func chooseExport() {
-        let urls = IntakePicker.choose()
-        guard !urls.isEmpty else { return }
-        intake.accept(urls: urls, from: .emptyState(.sources))
-    }
-
-    /// An account's ways in beyond its connector: the browser reader's per-site switch, the saved list it keeps
-    /// current, and the export (the source's own mark on a file, its where-from on hover).
-    /// ROR-118 round 4 — a site read through the person's own AI app, still off: the card above says how, and ONE
-    /// button turns it on. The account connection, the file and the switch are ways below it, never rivals of it.
+    /// ROR-118 round 4 — a site read through the person's own AI app, still off, with no stream rows to turn on (the
+    /// backend named none, so this is the old page's one button). With the streams answer the Reads rows are the way on.
     private var webStart: SourcePrimaryAction? {
-        guard WebReadingScene.applies(row.entry), let key = row.entry.savedListKey, row.status == .off,
-              !reading.savedListsOn.contains(key) else { return nil }
+        guard !hasBackendStreams, SourceHeadLine.readsThroughAI(row.entry), let key = row.entry.savedListKey,
+              row.status == .off, !reading.savedListsOn.contains(key) else { return nil }
         return SourcePrimaryAction(title: Copy.SourceLayout.readSiteInBrowser(row.entry.title),
                                    help: Copy.Catalog.readSavedList(key)) { flipSavedList(key, on: true) }
     }
@@ -578,7 +673,10 @@ struct SourceCatalogDetail: View {
         siteWays.filter { !(withoutBrowser && ($0.id == "saved" || $0.id == "browser")) }
     }
 
+    /// An account's ways in beyond its connector: the browser reader's per-site switch and the saved list it keeps
+    /// current — only while the backend names no streams (the Reads rows are those switches otherwise).
     private var siteWays: [SourceWayIn] {
+        guard !hasBackendStreams else { return [] }
         var ways: [SourceWayIn] = []
         // ROR-114: a source with a saved list has ONE switch, "Read through your browser" (the list's). The site grant
         // beside it was refused (422) until Cicada had needed the browser for that site, so it could never be the way
@@ -587,11 +685,6 @@ struct SourceCatalogDetail: View {
             ways.append(.browser(on: reading.readableSites.contains(site)) { flip(site, on: $0) })
         }
         if let key = row.entry.savedListKey, let way = savedListWay(key) { ways.append(way) }
-        if let tile = row.entry.tile, row.entry.verb == .importFile || row.entry.site != nil {
-            ways.append(.importFile(origin: row.entry.origin, help: SourceCatalog.exportHow(row.entry.id)) {
-                flowTile = tile
-            })
-        }
         return ways
     }
 
@@ -603,8 +696,8 @@ struct SourceCatalogDetail: View {
                            help: Copy.Catalog.readSavedList(key))
     }
 
-    /// YouTube's ways in: the history Chrome keeps on this Mac, the two lists the person's agent keeps current, and
-    /// the Takeout file.
+    /// YouTube's ways in: the history Chrome keeps on this Mac and, while the backend names no streams, the two lists the
+    /// person's agent keeps current.
     private var youtubeWays: [SourceWayIn] {
         var ways: [SourceWayIn] = []
         if let history = watchHistory {
@@ -614,16 +707,13 @@ struct SourceCatalogDetail: View {
                                     },
                                     help: Copy.watchHistoryOffLine))
         }
+        // With the streams answer the two lists are Reads rows; only what the Reads rows cannot flip stays a way.
+        guard !hasBackendStreams else { return ways }
         for list in YouTubeList.allCases {
             let on = reading.enabled && (reading.settings?.youtubeLists.isOn(list) ?? false)
             ways.append(SourceWayIn(id: "list-\(list.id)", icon: .symbol("globe"), title: Copy.SourceLayout.youtubeList(list),
                                     control: .toggle(on) { flipYouTube(list, on: $0) },
                                     help: YouTubeListWords.detail(list, on: on, status: reading.settings?.youtube)))
-        }
-        if let tile = row.entry.tile {
-            ways.append(.importFile(origin: row.entry.origin, help: SourceCatalog.exportHow("youtube")) {
-                flowTile = tile
-            })
         }
         return ways
     }
@@ -632,7 +722,8 @@ struct SourceCatalogDetail: View {
     /// first-use sheet first while agent reading is not yet on (`flipSubstack`). What each reads is its hover; why it
     /// goes through the person's own agent (Substack offers readers no connection) is every switch's hover too.
     private var substackWays: [SourceWayIn] {
-        Self.substackWays(isOn: { reading.enabled && (reading.settings?.isOn($0) ?? false) },
+        guard !hasBackendStreams else { return [] }
+        return Self.substackWays(isOn: { reading.enabled && (reading.settings?.isOn($0) ?? false) },
                           status: reading.settings?.substack) { flipSubstack($0, on: $1) }
     }
 
@@ -767,7 +858,23 @@ struct SourceCatalogDetail: View {
         if row.entry.overviewId != nil {
             out.append(SourceFooterAction(id: "agents", title: Copy.Catalog.openAgents) { router.routeToAgents() })
         }
+        // LinkedIn: the connections a past export left are kept for matching; forgetting them is a removal, not an import.
+        if row.entry.id == "linkedin" {
+            out.append(SourceFooterAction(id: "forget", title: LinkedInConnectionsWords.forget,
+                                          confirm: (LinkedInConnectionsWords.forget, LinkedInConnectionsWords.forget,
+                                                    Copy.Streams.forgetKeptHelp)) { forgetKeptConnections() })
+        }
         return out
+    }
+
+    private func forgetKeptConnections() {
+        Task {
+            do {
+                feedNote = LinkedInConnectionsWords.forgotten(try await APIClient.shared.forgetLinkedInConnections())
+            } catch {
+                feedNote = AddSourceSheet.friendlyError(error)
+            }
+        }
     }
 
     private func refresh(_ id: String) {
@@ -793,51 +900,29 @@ struct SourceCatalogDetail: View {
         }
     }
 
-    private func flipSubstack(_ list: SubstackList, on: Bool) {
+    /// A list's switch on the old ways (while the backend names no streams): off is one call; on needs agent reading with a
+    /// current acknowledgement, else the first-use sheet is raised for that list by the contract's own words.
+    private func flipList(_ setting: String, _ key: String, on: Bool) {
         Task { @MainActor in
             await reading.loadSettings()
             if on, reading.needsFirstUseSheet || !reading.enabled {
-                consentSubstack = list
+                consent = ReadingConsent(entryId: row.id, setting: setting, key: key)
             } else {
-                _ = await reading.setSubstackList(list, on)
+                _ = await reading.setSwitch(setting: setting, key: key, on: on)
+                await sourceStreams?.refresh()
             }
         }
     }
 
-    private func flipYouTube(_ list: YouTubeList, on: Bool) {
-        Task { @MainActor in
-            await reading.loadSettings()
-            if on, reading.needsFirstUseSheet || !reading.enabled {
-                consentYouTube = list
-            } else {
-                _ = await reading.setYouTubeList(list, on)
-            }
-        }
-    }
+    private func flipSubstack(_ list: SubstackList, on: Bool) { flipList("substackLists", list.rawValue, on: on) }
+    private func flipYouTube(_ list: YouTubeList, on: Bool) { flipList("youtubeLists", list.rawValue, on: on) }
+    private func flipSavedList(_ site: String, on: Bool) { flipList("savedLists", site, on: on) }
 
-    private func flipSavedList(_ site: String, on: Bool) {
-        Task { @MainActor in
-            await reading.loadSettings()
-            if on, reading.needsFirstUseSheet || !(reading.settings?.agentEnabled ?? false) {
-                consentSavedList = true
-                consentSite = site
-            } else {
-                _ = await reading.setSavedList(site, on)
-            }
-        }
-    }
-
-    /// Settings' rule (`ReadingWebView.flip`): turning a site on without a current acknowledgement raises the
-    /// first-use sheet, and nothing changes until its "Turn on"; otherwise one call (`setSite`, never acknowledging).
+    /// The site's own grant, shown only while one is held, to take it away (ROR-114): never a way on.
     private func flip(_ site: String, on: Bool) {
         Task { @MainActor in
             await reading.loadSettings()
-            if on, reading.needsFirstUseSheet {
-                consentSavedList = false
-                consentSite = site
-            } else {
-                _ = await reading.setSite(site, allowed: on)
-            }
+            _ = await reading.setSite(site, allowed: on)
         }
     }
 
@@ -867,7 +952,13 @@ struct SourceCatalogDetail: View {
         } else if !listChannels.isEmpty {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 SourceSearchHeader(query: $query, prompt: searchPrompt)
-                ForEach(listChannels, id: \.id) { list in
+                if let cards = cardChannel {
+                    // G245 — a list source's saves are cards under one tab per stream (plan 3.2 item 3).
+                    SourceStreamItemsSection(channel: cards, streams: pageStreams, query: query, startTab: startTab) {
+                        drill = .all(channel: $0)
+                    }
+                }
+                ForEach(listChannels.filter { $0.id != cardChannel }, id: \.id) { list in
                     // 2026-11-03 — a chat source's chats are the page: all of them, paged, never "All N" (the apps
                     // list every chat; a person keeps a few dozen, where a feed keeps thousands).
                     if list.id == FeedChannelText.substackChannel, SourceSearch.normalized(query).isEmpty {
@@ -886,6 +977,12 @@ struct SourceCatalogDetail: View {
         }
     }
 
+    /// The channel whose items are cards: the saved list of a source with a tabbed list stream (plan 3.2 item 3).
+    private var cardChannel: String? {
+        guard SourceStreamItems.usesCards(pageStreams) else { return nil }
+        return overviewRows.first { $0.intent == .saved }?.itemsListId ?? (savedStyle ? listChannels.first?.id : nil)
+    }
+
     /// A list opened in the page's place (DR-81): "‹ <source>" and Esc return.
     @ViewBuilder
     private func drilled(_ drill: SourceDrill) -> some View {
@@ -894,7 +991,11 @@ struct SourceCatalogDetail: View {
             switch drill {
             case .all(let channel):
                 SourceSearchHeader(query: $query, prompt: searchPrompt)
-                SourceItemsSection(channel: channel, saved: savedStyle, query: query, cap: nil) { self.drill = $0 }
+                if SourceListKey.streamParts(channel) != nil {
+                    SourceStreamCards(key: channel, query: query, cap: nil) { _ in }
+                } else {
+                    SourceItemsSection(channel: channel, saved: savedStyle, query: query, cap: nil) { self.drill = $0 }
+                }
             case .chat(let item):
                 SourceChatConversations(item: item)
             case .day(let item):

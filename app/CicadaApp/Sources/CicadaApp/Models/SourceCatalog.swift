@@ -277,10 +277,10 @@ enum SourceCatalog {
                            origin: "book-scan", channels: ["book-scan"]),
         SourceCatalogEntry(id: "files", group: .exports, category: .files, title: Copy.Catalog.filesAndLinks,
                            origin: filesOrigin, channels: ["files"], tile: .bookmarksFile, verb: .importFile),
-        // G219 slice 1: a Notion export (Markdown & CSV) through the one intake; ruling 47 tier 2: or live, through the
-        // person's own connection (`notion-api`), on the same row.
-        SourceCatalogEntry(id: "notion", group: .exports, category: .notes, title: "Notion", origin: "notion-export",
-                           channels: ["notion", "notion-api"], verb: .importFile),
+        // Ruling 47 tier 2: Notion is its live connection, through the person's own sign-in (`notion-api`). G245: it left the
+        // file group — no export way on its page (a Notion export still arrives by the window's drop).
+        SourceCatalogEntry(id: "notion", group: .accounts, category: .notes, title: "Notion", origin: "notion-export",
+                           channels: ["notion", "notion-api"], verb: .connect(Copy.Catalog.connect)),
         SourceCatalogEntry(id: "chat-exports", group: .exports, category: .agents, title: Copy.Catalog.chatExports,
                            origin: chatExportsOrigin,
                            channels: ["chat-export:claude", "chat-export:chatgpt", "chat-export:gemini"],
@@ -348,9 +348,9 @@ enum SourceCatalog {
         return all
     }
 
-    /// 2026-10-26 — where the file an entry imports comes from, said before its Import a file button. Every entry that
-    /// offers a file import has one (Notion says its own in `notionHow`); an
-    /// entry with no line imports no file.
+    /// 2026-10-26 — where the file an entry imports comes from. G245: no source page says it any more (a file comes in by
+    /// the window's drop, ⇧⌘I, the palette, Home, the Agents page and onboarding); the lines stay as the catalogue's record
+    /// of which entries are export-only. An entry with no line imports no file.
     static func exportHow(_ id: String) -> String? {
         switch id {
         case "youtube": Copy.Catalog.howYouTube

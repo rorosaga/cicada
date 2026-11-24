@@ -49,5 +49,52 @@ extension Copy {
         static let checkFailed = "Couldn't ask Cicada's memory to check. Try again in a moment."
         /// The last result beside "Your AI app reads it next".
         static func lastResult(_ word: String) -> String { "last: \(word.lowercased())" }
+
+        /// "Connect the AI you use": the fix a needs-you card names when no AI app on this Mac can read for it.
+        static let openAgents = "Connect the AI you use"
+
+        // A source's page (plan 3.2): the head's one quiet line, then the Reads block.
+        static let reads = "Reads"
+        static let checkNow = "Check now"
+        static let checkNowHelp = "Ask every stream below how it is doing. Nothing is changed or posted."
+        static let setUpBelow = "Set up below"
+        static func readInBrowser(app: String?) -> String {
+            "Read in your browser by \(app ?? "your AI app"), about once a day"
+        }
+        static let readOnThisMac = "Read on this Mac"
+        static let readWithSignIn = "Read with your sign-in"
+        static let noticedWhenYouSave = "Noticed when you save, on this Mac"
+
+        /// A row's quiet line: how it is read, then how deep its items go.
+        static let lineBrowser = "In your browser, by your AI app"
+        static let lineApp = "On this Mac"
+        static let lineAccount = "With your sign-in"
+        static let lineClick = "When you save, on this Mac"
+        static let depthIndex = "kept and findable"
+        static let depthRead = "read by Sleep"
+
+        /// The browser-reading facts: the head line's hover and the first-use sheet's, never a standing paragraph.
+        static let whoseSession = "It uses your own sign-in, in your browser on this Mac. Cicada never sees your password and never opens the browser itself."
+        static func whoSees(app: String?) -> String {
+            "\(app ?? "Your AI app")'s company sees what it reads. No AI reads a saved item unless you mention it."
+        }
+        static let neverPosts = "Nothing is posted or changed on the site."
+        static let howToStop = "To stop, turn the stream off here. What was kept stays until you remove it."
+        /// A browser list's row hover: the newest are read, the rest come with the site's export (the window's drop).
+        static let browserReach = "The newest are read. Older ones come with the site's export: drop it on the window. Unsaving on the site does not remove one here."
+
+        // Items (plan 3.2 item 3).
+        static let allFolders = "All folders"
+        static let folders = "Folders"
+        static let itemRead = "read"
+        static let itemAsked = "asked about"
+        static let itemWatched = "watched"
+        static func posted(_ day: String) -> String { "posted \(day)" }
+        static func kept(_ age: String) -> String { "kept \(age)" }
+        static let savesYouMake = "Saves you make"
+        static let couldntSwitch = "Couldn't change that. Try again in a moment."
+        static let forgetKeptHelp = "People already updated keep what they gained."
+        static let noItemsYet = "Nothing kept from this list yet."
+        static let allFoldersHelp = "Show only the items in one of the site's own folders"
     }
 }

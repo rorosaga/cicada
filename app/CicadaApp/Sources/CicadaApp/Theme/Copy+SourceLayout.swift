@@ -5,7 +5,6 @@ extension Copy {
     enum SourceLayout {
         static let readInBrowser = "Read through your browser"
         static let readInBrowserHelp = "Your own agent reads it in your signed-in browser, only when you ask"
-        static let importFile = "Import a file"
         static let choose = "Choose…"
         static let refresh = "Refresh"
         static let refreshHelp = "Read it again now"

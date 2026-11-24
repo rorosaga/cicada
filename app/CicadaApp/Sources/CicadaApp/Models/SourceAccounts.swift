@@ -18,11 +18,31 @@ enum SourceListKey {
         return channel + String(separator) + collection
     }
 
+    /// G245 — a list of one STREAM (and, inside it, one folder) of a channel: `x` + `x.likes` + a folder. The suffix
+    /// rides after the collection and never occurs in a channel, a collection, a stream id or a folder's name.
+    static let streamSeparator: Character = "\u{1D}"
+
+    static func make(_ channel: String, stream: String?, folder: String? = nil) -> String {
+        guard let stream, !stream.isEmpty else { return channel }
+        let tail = String(streamSeparator) + stream
+        guard let folder, !folder.isEmpty else { return channel + tail }
+        return channel + tail + String(streamSeparator) + folder
+    }
+
     /// The channel and, when the key names one, the collection.
     static func parts(_ key: String) -> (channel: String, collection: String?) {
-        guard let cut = key.firstIndex(of: separator) else { return (key, nil) }
-        let collection = String(key[key.index(after: cut)...])
-        return (String(key[..<cut]), collection.isEmpty ? nil : collection)
+        let head = key.split(separator: streamSeparator, maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? key
+        guard let cut = head.firstIndex(of: separator) else { return (head, nil) }
+        let collection = String(head[head.index(after: cut)...])
+        return (String(head[..<cut]), collection.isEmpty ? nil : collection)
+    }
+
+    /// The stream a key names and, inside it, the folder — nil for a plain list.
+    static func streamParts(_ key: String) -> (stream: String, folder: String?)? {
+        let pieces = key.split(separator: streamSeparator, maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+        guard pieces.count >= 2, !pieces[1].isEmpty else { return nil }
+        let folder = pieces.count > 2 && !pieces[2].isEmpty ? pieces[2] : nil
+        return (pieces[1], folder)
     }
 
     static func channel(of key: String) -> String { parts(key).channel }

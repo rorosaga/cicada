@@ -51,7 +51,7 @@ enum SourcesRoot {
             case .signIn: Copy.Catalog.signIn
             case .giveAccess: Copy.Streams.giveAccess
             case .tryAgain: Copy.tryAgain
-            case .connectYourAI: Copy.WebReading.openAgents
+            case .connectYourAI: Copy.Streams.openAgents
             }
         }
     }

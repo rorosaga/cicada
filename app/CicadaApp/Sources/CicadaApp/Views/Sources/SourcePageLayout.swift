@@ -7,8 +7,9 @@ import SwiftUI
 //   2. **Connect area** (`SourceConnectArea`) — the state the source is in (`SourceConnectState`): not connected,
 //      connecting, connected, needs attention. Each state is one primary action and at most one short line. Several
 //      ways in are a small set of option rows (`SourceWayIn`), each with its own icon and a switch or a button: the
-//      official account, "Read through your browser", "Import a file" (the source's own mark on a file, never another
-//      company's mark). A connected source with nothing to choose draws no connect area at all.
+//      official account, "Read through your browser". A connected source with nothing to choose draws no connect area
+//      at all. (G245: no "Import a file" way on any source page — a file comes in by the window's drop, ⇧⌘I, the
+//      palette, Home, the Agents page and onboarding.)
 //   3. **Content** — the source's own sections (`SourceSection`): GitHub's "Your repositories" and "Starred", YouTube's
 //      lists, a chat source's chats, a saved source's saves.
 //   4. **Footer** (`SourcePageFooter`) — Refresh and Disconnect as quiet text buttons, last.
@@ -57,7 +58,7 @@ struct SourceWayIn: Identifiable {
         case mark(String)
         /// An SF Symbol (the browser reader's globe).
         case symbol(String)
-        /// The source's own mark on a file — "Import a file" (never another company's mark).
+        /// The source's own mark on a file — the window's intake panel's icon (`IntakePanel`); no source page uses it.
         case file(String)
     }
 
@@ -79,13 +80,6 @@ struct SourceWayIn: Identifiable {
     static func browser(on: Bool, help: String? = nil, set: @escaping (Bool) -> Void) -> SourceWayIn {
         SourceWayIn(id: "browser", icon: .symbol("globe"), title: Copy.SourceLayout.readInBrowser,
                     control: .toggle(on, set), help: help ?? Copy.SourceLayout.readInBrowserHelp)
-    }
-
-    /// "Import a file" — the source's own mark on a file icon, opening its import.
-    static func importFile(origin: String, title: String = Copy.SourceLayout.importFile,
-                           help: String? = nil, action: @escaping () -> Void) -> SourceWayIn {
-        SourceWayIn(id: "file", icon: .file(origin), title: title,
-                    control: .button(Copy.SourceLayout.choose, action), help: help)
     }
 }
 
@@ -125,6 +119,10 @@ struct SourcePageLayout<Connect: View, Content: View, Footer: View>: View {
     let status: SourcePageStatus
     /// What the status words measure, on hover only (never a standing sentence).
     var statusHelp: String? = nil
+    /// G245 (plan 3.2 item 1) — the head's one quiet line under the status: the account and how the source is read. The
+    /// browser-reading facts are its hover, never a paragraph.
+    var line: String? = nil
+    var lineHelp: String? = nil
     var backLabel: String? = nil
     var onShowList: () -> Void = {}
     let onClose: () -> Void
@@ -146,6 +144,15 @@ struct SourcePageLayout<Connect: View, Content: View, Footer: View>: View {
                 SourceStatusLine(status: status, help: statusHelp)
                     .padding(.leading, Self.statusIndent)
                     .padding(.top, -CicadaTheme.spacingMD)
+                if let line {
+                    Text(line)
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .padding(.leading, Self.statusIndent)
+                        .help(lineHelp.map { "\(line). \($0)" } ?? line)
+                }
             }
             .padding(.horizontal, CicadaTheme.spacingXL)
             .padding(.bottom, CicadaTheme.spacingLG)
@@ -271,7 +278,7 @@ struct SourceWayRow: View {
 }
 
 /// A way's icon at the list glyph's size (DR-53): the source's real mark (DR-52), a symbol, or the source's mark on a
-/// file — the import's icon is the source's own, never other companies' marks.
+/// file (the intake panel's drop zone).
 struct SourceWayIcon: View {
     let icon: SourceWayIn.Icon
     /// The icon's square in unscaled points: the list glyph's row size (16), larger in a drop zone.

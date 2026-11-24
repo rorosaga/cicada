@@ -333,14 +333,22 @@ struct GitHubSourcePage: View {
     var backLabel: String? = nil
     var onShowList: () -> Void = {}
     let onClose: () -> Void
+    /// G245 — the head's quiet line and the Reads block the standard page draws for every source.
+    var line: String? = nil
+    var lineHelp: String? = nil
+    var reads: AnyView? = nil
 
     @State private var connect: GitHubConnectModel
     @State private var repos: GitHubReposModel
 
     /// The models are injected only by tests and the offscreen renders; the app uses the live ones.
     init(row: SourceCatalogRow, backLabel: String? = nil, onShowList: @escaping () -> Void = {},
-         onClose: @escaping () -> Void, connect: GitHubConnectModel? = nil, repos: GitHubReposModel? = nil) {
+         onClose: @escaping () -> Void, line: String? = nil, lineHelp: String? = nil, reads: AnyView? = nil,
+         connect: GitHubConnectModel? = nil, repos: GitHubReposModel? = nil) {
         self.row = row
+        self.line = line
+        self.lineHelp = lineHelp
+        self.reads = reads
         self.backLabel = backLabel
         self.onShowList = onShowList
         self.onClose = onClose
@@ -352,9 +360,12 @@ struct GitHubSourcePage: View {
     @Environment(Store.self) private var store
 
     var body: some View {
-        SourcePageLayout(title: row.entry.title, origin: row.entry.origin, status: status, backLabel: backLabel,
-                         onShowList: onShowList, onClose: onClose) {
-            if drill == nil { GitHubConnectSlot(model: connect) }
+        SourcePageLayout(title: row.entry.title, origin: row.entry.origin, status: status, line: line, lineHelp: lineHelp,
+                         backLabel: backLabel, onShowList: onShowList, onClose: onClose) {
+            if drill == nil {
+                if let reads { reads }
+                GitHubConnectSlot(model: connect)
+            }
         } content: {
             if let drill {
                 SourceDrillHead(source: row.entry.title, title: nil) { self.drill = nil }

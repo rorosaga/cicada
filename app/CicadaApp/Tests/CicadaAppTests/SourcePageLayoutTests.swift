@@ -22,10 +22,6 @@ final class SourcePageLayoutTests: XCTestCase {
         let browser = SourceWayIn.browser(on: true) { _ in }
         XCTAssertEqual(browser.icon, .symbol("globe"))
         XCTAssertEqual(browser.title, Copy.SourceLayout.readInBrowser)
-        // "Import a file" wears the source's own mark on a file — never another company's mark.
-        let file = SourceWayIn.importFile(origin: "spotify-saved") {}
-        XCTAssertEqual(file.icon, .file("spotify-saved"))
-        XCTAssertEqual(file.title, Copy.SourceLayout.importFile)
     }
 
     // MARK: - Review of #593
