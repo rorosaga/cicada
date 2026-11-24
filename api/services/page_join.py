@@ -61,9 +61,21 @@ class JoinError(ValueError):
         self.status = status
 
 
+#: G245 (the arrival join): Sleep's own commit that added a joined name to a first-name page ("Arrival join <day>"; never the later
+#: "Arrival join recorded" or "Arrival join refusals"), and the person's "Not them" ("Undid an arrival join <day>").
+_ARRIVAL = re.compile(r"^Arrival join \d{4}-\d{2}-\d{2}")
+SUBJECT_ARRIVAL_UNDO = "Undid an arrival join"
+
+
 def kind_of(subject: str) -> str | None:
-    """``merge`` / ``split`` / ``undo`` for a join commit's subject line, else ``None``."""
+    """``merge`` / ``split`` / ``undo`` / ``arrival`` for a join commit's subject line, else ``None``. ``arrival`` is Sleep's
+    join of a first name to the person who newly appeared the same week (`arrival_join_write`); its undo is "Not them" and
+    reads as ``undo`` here so the History marks the join taken back."""
     s = str(subject or "")
+    if _ARRIVAL.match(s):
+        return "arrival"
+    if s.startswith(SUBJECT_ARRIVAL_UNDO):
+        return "undo"
     if s.startswith(SUBJECT_MERGE):
         return "merge"
     if s.startswith(SUBJECT_SPLIT):

@@ -99,6 +99,19 @@ def alias_of(fm: dict, record: dict) -> str | None:
     return None
 
 
+def name_of(fm: dict, record: dict) -> str | None:
+    """The full name a record joined, from the page's own words: its alias while joined, else the removed-alias row that
+    names it once the person said "Not them". None when neither is there."""
+    alias = alias_of(fm, record)
+    if alias:
+        return alias
+    for row in fm.get(page_edits.ALIASES_REMOVED) or []:
+        name = row.get("alias") if isinstance(row, dict) else row
+        if isinstance(name, str) and arrival_join.key_hash(people_directory.fold(name)) == record.get("alias_key"):
+            return name
+    return None
+
+
 # --------------------------------------------------------------------------- the display name (read back, never stored apart from the alias)
 
 
@@ -445,13 +458,13 @@ def _commit_undo(memory_path: Path, paths: list[str], record: dict, *, trigger: 
 
 
 def joined_for(memory_path: Path) -> dict[str, dict]:
-    """``{directory row hash: {page, on, delta}}`` for every row an arrival join is standing on — what the connections list
+    """``{directory row hash: {page, name, on, delta, holderDay}}`` for every row an arrival join is standing on — what the connections list
     shows beside a row ("joined to <page>, undo"). Derived on read from the pages' own records."""
     out: dict[str, dict] = {}
     for f in bank_index.files(Path(memory_path), "entities"):
         for r in records(f.frontmatter or {}):
             if r.get("state") == JOINED:
                 for ref in r.get("refs") or []:
-                    out[str(ref)] = {"page": f.stem, "on": r.get("on"), "delta": r.get("delta"),
-                                     "holderDay": (r.get("days") or {}).get("holder")}
+                    out[str(ref)] = {"page": f.stem, "name": str((f.frontmatter or {}).get("name") or f.stem), "on": r.get("on"),
+                                     "delta": r.get("delta"), "holderDay": (r.get("days") or {}).get("holder")}
     return out

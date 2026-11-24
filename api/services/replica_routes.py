@@ -214,6 +214,7 @@ ROUTES: dict[str, str] = {
     "POST /conversations/upload": FORWARD,
     "POST /design": FORWARD,
     "POST /entities/{entity_id}/edits": FORWARD,
+    "POST /entities/{entity_id}/arrival-join/undo": FORWARD,
     "POST /entities/{entity_id}/history/{commit_hash}/undo": FORWARD,
     "POST /entities/{entity_id}/merge": FORWARD,
     "POST /entities/{entity_id}/picture": FORWARD,

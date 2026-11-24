@@ -1852,10 +1852,10 @@ async def _run_engine_independent_tail(
         await _expire_claims_safely(memory_path)
         # G141 PJ-6: after expiry (the night's ends are visible), before any poll's `git add -A`.
         await _propose_followups_safely(memory_path)
-        # 2026-11-23: the people who share a first name that tonight's batches flagged, looked at again — before the
-        # catch-up proposers (a pair joined here is never asked about there) and any poll's `git add -A`.
         # G245: a "Not them" the person said, whose full name now has a page, is a refused pair before 74 / 74a / 74b look.
         await _arrival_refusals_safely(memory_path)
+        # 2026-11-23: the people who share a first name that tonight's batches flagged, looked at again — before the
+        # catch-up proposers (a pair joined here is never asked about there) and any poll's `git add -A`.
         if no_model:
             logger.info(f"Same-name review skipped: {why}")
         else:

@@ -3550,6 +3550,9 @@ def linkedin_connections_read(ctx: ToolContext, since=None, until=None, limit=No
         bits = [when, row["name"]] + ([row["headline"]] if row["headline"] else [])
         if row["page"]:
             bits.append(f"page `{row['page']}`")
+        if row.get("joined"):   # ids and days only: the first-name page Sleep joined to this row, and how far apart they appeared
+            bits.append(f"joined to the first-name page `{row['joined']['page']}` ({row['joined']['delta']} days from "
+                        f"{row['joined']['holderDay']})")
         lines.append("- " + " · ".join(bits))
     more = f" {out['total'] - len(out['rows'])} more in range; narrow `since`/`until` to see them." if out["next"] else ""
     own = (f"{out['total']} connection(s) dated {window}, newest first"
