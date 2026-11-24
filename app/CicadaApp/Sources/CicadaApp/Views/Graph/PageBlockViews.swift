@@ -119,7 +119,35 @@ struct WhereToCheckBox: View {
         .accessibilityLabel(Copy.Pages.whereToCheck)
     }
 
+    @ViewBuilder
     private func row(_ source: PageBlocks.Source) -> some View {
+        if isPerson, let mark = PersonSiteLink.mark(ref: source.ref), let url = URL(string: source.ref) {
+            profileRow(source, mark: mark, url: url)
+        } else {
+            plainRow(source)
+        }
+    }
+
+    /// 2026-11-24 — a person's link to a site people keep a profile on is the page's own link chip: the site's bundled
+    /// real mark and the account's name, opening the link; its state stays on the trailing edge (DESIGN_RULES §9).
+    private func profileRow(_ source: PageBlocks.Source, mark: String, url: URL) -> some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            ProfileLinkChip(url: url, name: PersonSiteLink.name(ref: source.ref, label: source.label, mark: mark),
+                            entityId: entityId)
+            Spacer(minLength: CicadaTheme.spacingSM)
+            Text(PageWords.state(source, today: today))
+                .font(CicadaTheme.metaFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, CicadaTheme.spacingMD)
+        .frame(minHeight: CicadaTheme.scaled(36))
+        .contextMenu {
+            Button(Copy.Pages.remove, role: .destructive) { change(source.ref, .remove) }
+        }
+    }
+
+    private func plainRow(_ source: PageBlocks.Source) -> some View {
         let words = PageWords.mention(source)
         return Button {
             if let url = URL(string: source.ref), url.scheme != nil { NSWorkspace.shared.open(url) }

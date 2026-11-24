@@ -184,3 +184,66 @@ struct PageLinkChip: View {
         siteImage = await SiteIconStore.shared.image(site: site, bank: store?.bank ?? "", entity: entityId, saved: nil)
     }
 }
+
+// MARK: - A person's profile link wears its site's real mark (owner 2026-11-24, DESIGN_RULES §9)
+//
+// *"The link to the profile with the logo of the site, kind of how the logos appear in the consolidation queue, like for
+// the meeting platform in hex transcripts."* On a person's page — "Where to check" and "Sites and links" — a link to
+// one of the sites people keep a profile on is the same soft chip as a link in prose: the bundled real mark, then the
+// account's own name, opening the link. Bundled assets only; nothing is fetched to draw one (the app loads no picture
+// from the web). A link to any other site keeps the row it had.
+
+enum PersonSiteLink {
+    /// The families whose mark a person's profile link wears: the sites a person keeps an account on.
+    static let families: [String] = ["linkedin", "x", "instagram", "github", "youtube", "telegram", "whatsapp"]
+
+    /// The bundled mark a profile `ref` wears, when it is a link to one of the families and the mark ships. Nil for any
+    /// other link, and for a note that is not a link at all.
+    static func mark(ref: String, exists: (String) -> Bool = LogoImage.exists(name:)) -> String? {
+        guard let url = URL(string: ref.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http",
+              let mark = PageChipMark.bundled(url: url, exists: exists), families.contains(mark) else { return nil }
+        return mark
+    }
+
+    /// The chip's name: the account (`@handle`) where the link names one, else the link's own words when they are words,
+    /// else the site's name — never a bare address.
+    static func name(ref: String, label: String?, mark: String) -> String {
+        if let handle = LinkWords.xHandle(ref) { return "@" + handle }
+        let url = URL(string: ref)
+        let first = url?.path.split(separator: "/").first.map(String.init) ?? ""
+        switch mark {
+        case "instagram", "github", "telegram":
+            let handle = first.hasPrefix("@") ? String(first.dropFirst()) : first
+            if !handle.isEmpty { return "@" + handle }
+        case "youtube":
+            if first.hasPrefix("@") { return first }
+        default: break
+        }
+        let words = (label ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let isAddress = words.contains("/") || (words.contains(".") && !words.contains(" "))
+        if !words.isEmpty, !isAddress { return words }
+        return siteName(mark)
+    }
+
+    static func siteName(_ mark: String) -> String {
+        switch mark {
+        case "linkedin": "LinkedIn"
+        case "x": "X"
+        case "youtube": "YouTube"
+        case "whatsapp": "WhatsApp"
+        default: mark.prefix(1).uppercased() + mark.dropFirst()
+        }
+    }
+}
+
+/// A person's profile link as a chip: the bundled mark and the account's name; a click opens the link.
+struct ProfileLinkChip: View {
+    let url: URL
+    let name: String
+    let entityId: String?
+
+    var body: some View {
+        PageLinkChip(face: .web(label: name), url: url, entityId: entityId)
+    }
+}

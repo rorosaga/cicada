@@ -34,7 +34,8 @@ struct SourceReadsBlock: View {
                     ForEach(Array(streams.enumerated()), id: \.element.id) { index, resolved in
                         if index > 0 { rowDivider }
                         SourceReadsRow(resolved: resolved, siblings: streams.map(\.stream), result: results[resolved.id],
-                                       checking: checking.contains(resolved.id), pending: pending[resolved.id], now: now,
+                                       checking: checking.contains(resolved.id), pending: pending[resolved.id],
+                                       headSaysOff: streams.count == 1, now: now,
                                        onToggle: { onToggle(resolved, $0) }, onFix: onFix)
                     }
                 }
@@ -79,6 +80,8 @@ struct SourceReadsRow: View {
     var result: SourceStreamCheckModel.Result?
     var checking = false
     var pending: Bool?
+    /// A source with one stream: the head's state word already says Off, so the row does not say it again (DR-38).
+    var headSaysOff = false
     let now: Date
     let onToggle: (Bool) -> Void
     let onFix: (MacPermission) -> Void
@@ -155,7 +158,7 @@ struct SourceReadsRow: View {
             if let word = trailing.word {
                 StatusWord(word: word.text, tone: word.tone(how: stream.how))
                     .help(trailing.help ?? "")
-            } else if control == .setup, resolved.word == .off {
+            } else if control == .setup, resolved.word == .off, !headSaysOff {
                 // No switch to say it: a stream that needs the source's own setup says it is not on yet.
                 StatusWord(word: Copy.Streams.off, tone: .off)
             }

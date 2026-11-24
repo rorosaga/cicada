@@ -885,6 +885,18 @@ def folder_matches(memory_path: Path, rows: list[dict], pages: dict[str, dict], 
     return out
 
 
+def _list_display_names() -> dict[tuple[str, str], str]:
+    """``(origin, folded list name)`` -> the label of the stream that list is, for the lists whose stored name is not
+    the stream's own name (``Saved Items`` -> ``Saved posts``); a list that already carries it is not in the map."""
+    out: dict[tuple[str, str], str] = {}
+    for group in groups():
+        for spec in group.specs:
+            if spec.counts == "members" and spec.origin and spec.list_label and spec.label \
+                    and _cf(spec.list_label) != _cf(spec.label):
+                out[(spec.origin, _cf(spec.list_label))] = spec.label
+    return out
+
+
 def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], posted: Callable[[dict], str | None]) -> dict[str, dict]:
     """The three fields a list row gains (plan 2.2), by row id: ``lists`` (the labels of the lists the item is on),
     ``folders`` (the site's own folder names), ``depth`` and ``posted`` (the post's own day, when the list showed one).
@@ -906,6 +918,9 @@ def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], post
             continue
         lists = id_utils.page_lists(fm)
         held = {_cf(n) for n in lists}
+        # A list is drawn under the stream's own name (LinkedIn's saved posts were filed under the export's "Saved Items").
+        names = _list_display_names()
+        lists = list(dict.fromkeys(names.get((str(fm.get("origin") or "").strip(), _cf(n)), n) for n in lists))
         folders = [n for n in eps.folders_of.get(str(row.get("_episode") or ""), ()) if _cf(n) not in held]
         h = media_ingestor.url_hash(str(row["_url"])) if row.get("_url") else ""
         read = row.get("id") in eps.read_pages or (bool(h) and h in eps.agent_read)
@@ -918,5 +933,9 @@ def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], post
             fields["folders"] = folders
         if day := eps.posted_of.get(str(row.get("_episode") or "")) or posted(row):
             fields["posted"] = day
+        # Who wrote the post: the page's channel, which the record tool keeps (`media.channel`, as a video's channel).
+        media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
+        if who := " ".join(str(media.get("channel") or "").split())[:60]:
+            fields["author"] = who
         out[row["id"]] = fields
     return out

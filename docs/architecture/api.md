@@ -602,7 +602,7 @@ row (a media page of a list origin) gains `lists` (the labels of the lists it is
 their agent on the video or reading queue, honoured now (`mention_asks.waiting_hashes`, one read of each queue file per
 request); `read` = Sleep read its save, or an agent recorded a read of its page; `kept` = indexed, no model has read it; the items ETag
 also carries both queue files' mtimes, so a removed ask moves it) and `posted` (the post's own day: the `posted` the record tool kept in the save's episode frontmatter, else a
-url-index `posted_at` or `published_at`; the row's `day` stays the day it was kept). `folder` is never logged (`main._REDACTED_PARAMS`).
+url-index `posted_at` or `published_at`; the row's `day` stays the day it was kept). **Shape `g161-25`:** the row also carries `author` — who wrote the post as the list showed it (the record tool's `author`, kept on the save's page as `media.channel` — one line, at most 60 characters, given once to a save kept before it, never rewritten; an X handle wears its `@`), absent when the list showed none; `lists` names a list by its stream's own label (LinkedIn's saved posts, filed under the export's "Saved Items", are listed as "Saved posts"; only the display changes, never the stored name or the membership). `folder` is never logged (`main._REDACTED_PARAMS`).
 **Where an item lives (G161, ROR-111, shape `g161-17`).** A row on `GET /sources/channels/{id}/items` whose item records
 a place carries `place`: its kind alone (`notes`, `github`, `web`), never the URL or a note's id, so a list stays titles
 only. `GET /sources/channels/{id}/items/{item}/place` answers one listed item on the person's click:

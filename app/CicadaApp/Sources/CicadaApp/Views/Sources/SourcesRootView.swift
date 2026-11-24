@@ -52,6 +52,10 @@ struct SourceRootCard: View {
     let act: () -> Void
     /// The card's button is working (a check ran from it, a connect is writing).
     var busy = false
+    /// A check this card's streams just ended in (`SourceStreamCheckModel.cardWord`): shown for a while in place of the
+    /// state, so the root says what each connection answered, not only that a check ran.
+    var checked: (word: StreamWord, how: StreamHow)?
+    @Environment(SourceStreamCheckModel.self) private var checkModel: SourceStreamCheckModel?
 
     var body: some View {
         HStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
@@ -105,9 +109,17 @@ struct SourceRootCard: View {
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .lineLimit(1)
             }
-            if let trailing = card.trailingWord {
+            if let word = shownCheck {
+                StatusWord(word: word.word.text, tone: word.word.tone(how: word.how))
+            } else if let trailing = card.trailingWord {
                 StatusWord(word: trailing.word, tone: trailing.tone)
             }
+        }
+    }
+
+    private var shownCheck: (word: StreamWord, how: StreamHow)? {
+        checked ?? checkModel.flatMap {
+            SourceStreamCheckModel.cardWord(streams: card.streams, results: $0.results, now: now)
         }
     }
 
@@ -121,7 +133,7 @@ struct SourceRootCard: View {
     }
 
     private var accessibilityLabel: String {
-        [card.row.entry.title, card.trailingWord?.word, card.line?.text()].compactMap { $0 }.joined(separator: ", ")
+        [card.row.entry.title, shownCheck?.word.text ?? card.trailingWord?.word, card.line?.text()].compactMap { $0 }.joined(separator: ", ")
     }
 }
 

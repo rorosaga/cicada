@@ -563,4 +563,4 @@ def test_the_folder_parameter_is_never_logged():
 
 
 def test_the_items_shape_was_bumped():
-    assert channel_items.SHAPE == "g161-24"
+    assert channel_items.SHAPE == "g161-25"

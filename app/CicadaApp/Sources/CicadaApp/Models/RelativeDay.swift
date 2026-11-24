@@ -118,6 +118,11 @@ enum RelativeDay {
         format(day, template: "yMMM", locale: locale)
     }
 
+    /// "November" — a month's own name, a group's title where the year is the current one.
+    static func fullMonth(_ day: ISODay, locale: Locale = .autoupdatingCurrent) -> String {
+        format(day, template: "LLLL", locale: locale)
+    }
+
     /// "Sep" — the band's month labels.
     static func month(_ day: ISODay, locale: Locale = .autoupdatingCurrent) -> String {
         format(day, template: "MMM", locale: locale)

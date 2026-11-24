@@ -202,25 +202,84 @@ enum SourceStreamItems {
         }
     }
 
+    /// The stream of the people the person has met (LinkedIn's connections): drawn as its own tab beside the saved list,
+    /// by date, never as cards of posts (`LinkedInConnectionsView`).
+    static func connections(_ streams: [ResolvedStream]) -> ResolvedStream? {
+        streams.first { $0.stream.kind == .connections && $0.stream.state != .unavailable }
+    }
+
+    /// The tabs of a page that has a connections stream: the saved lists under their own stream's name (one list) or
+    /// "Saved" (several), then Connections. A list stream with nothing in it has no tab. Empty with no connections stream.
+    static func peopleTabs(_ streams: [ResolvedStream]) -> [TextTab<String>] {
+        guard let people = connections(streams) else { return [] }
+        let held = tabbed(streams)
+        var tabs: [TextTab<String>] = []
+        if !held.isEmpty {
+            let label = held.count == 1 ? held[0].stream.label : Copy.SourceLayout.saved
+            tabs.append(TextTab<String>(id: listsTab, label: label, count: held.reduce(0) { $0 + ($1.stream.count ?? 0) }))
+        }
+        tabs.append(TextTab<String>(id: people.id, label: people.stream.label, count: people.stream.count))
+        return tabs
+    }
+
+    /// The people tab's id for the saved lists.
+    static let listsTab = "lists"
+
+    /// The tab a page of people opens on: the one named, else Connections (what the person came for) when it holds
+    /// anything or nothing else does, else the saved lists.
+    static func peopleSelection(_ choice: String?, streams: [ResolvedStream]) -> String? {
+        guard let people = connections(streams) else { return nil }
+        let held = tabbed(streams)
+        if let choice, choice == people.id || (choice == listsTab && !held.isEmpty) { return choice }
+        if let choice, held.contains(where: { $0.id == choice }) { return listsTab }
+        return (people.stream.count ?? 0) > 0 || held.isEmpty ? people.id : listsTab
+    }
+
     /// Whether the page draws its items as cards: a source with a tabbed stream (the list kinds).
     static func usesCards(_ streams: [ResolvedStream]) -> Bool { !tabbed(streams).isEmpty }
 
-    /// Tab selection: nil is All. Drawn only when more than one stream holds items (a lone list is the page's list).
-    static func tabs(_ streams: [ResolvedStream]) -> [TextTab<String>] {
-        let held = tabbed(streams)
-        guard held.count > 1 else { return [] }
-        return [TextTab<String>(id: nil, label: Copy.Streams.all)]
-            + held.map { TextTab<String>(id: $0.id, label: $0.stream.label, count: $0.stream.count) }
+    /// A watched history that holds days (YouTube's): its own tab beside the lists, its days drawn in the page's items area
+    /// (the source's own rows, not cards). Nil when the source keeps none or none was read.
+    static func historyStream(_ streams: [ResolvedStream]) -> ResolvedStream? {
+        streams.first { $0.stream.kind == .history && $0.stream.state != .unavailable && ($0.stream.count ?? 0) > 0 }
     }
 
-    /// The tab that is really selected: a stream that no longer holds items falls back to All.
+    /// Tab selection: nil is the cards (All the lists, or the one list there is). Drawn only when more than one thing holds
+    /// items: several lists (All first, then each), or a list and the watched history.
+    static func tabs(_ streams: [ResolvedStream]) -> [TextTab<String>] {
+        let held = tabbed(streams)
+        let history = historyStream(streams)
+        guard held.count + (history == nil ? 0 : 1) > 1 else { return [] }
+        var tabs: [TextTab<String>] = []
+        if held.count > 1 {
+            tabs.append(TextTab<String>(id: nil, label: Copy.Streams.all))
+            tabs += held.map { TextTab<String>(id: $0.id, label: $0.stream.label, count: $0.stream.count) }
+        } else if let only = held.first {
+            tabs.append(TextTab<String>(id: nil, label: only.stream.label, count: only.stream.count))
+        }
+        if let history { tabs.append(TextTab<String>(id: history.id, label: history.stream.label, count: history.stream.count)) }
+        return tabs
+    }
+
+    /// The tab that is really selected: a stream that no longer holds items falls back to the cards (nil); the watched
+    /// history is the page's when it is the only thing that holds items.
     static func effective(_ selection: String?, streams: [ResolvedStream]) -> String? {
+        if let history = historyStream(streams), selection == history.id || (selection == nil && tabbed(streams).isEmpty) {
+            return history.id
+        }
         guard let selection, tabbed(streams).contains(where: { $0.id == selection }) else { return nil }
         return selection
     }
 
+    /// Whether the selected tab is the watched history (its days, not cards).
+    static func showsHistory(_ selection: String?, streams: [ResolvedStream]) -> Bool {
+        guard let history = historyStream(streams) else { return false }
+        return effective(selection, streams: streams) == history.id
+    }
+
     /// The folders menu: only for one stream with folders (`folderCount > 0`); All has none (plan 3.2).
     static func folderStream(_ selection: String?, streams: [ResolvedStream]) -> ResolvedStream? {
+        if showsHistory(selection, streams: streams) { return nil }
         let held = tabbed(streams)
         let chosen = effective(selection, streams: streams).flatMap { id in held.first { $0.id == id } }
             ?? (held.count == 1 ? held.first : nil)

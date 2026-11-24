@@ -230,7 +230,11 @@ struct SourceStreamItemsSection: View {
     let channel: String
     let streams: [ResolvedStream]
     var query = ""
+    /// The channel the watched history's days are listed under, when the source has one (YouTube): the History tab's content.
+    var historyChannel: String?
     let onAll: (String) -> Void
+    /// A watched day opens in the page's place.
+    var onDrill: (SourceDrill) -> Void = { _ in }
 
     @State private var tab: String?
     @State private var folder: String?
@@ -238,23 +242,31 @@ struct SourceStreamItemsSection: View {
 
     /// `startTab` is the stream the page opens on (nil is All): a hand-off or a render names it.
     init(channel: String, streams: [ResolvedStream], query: String = "", startTab: String? = nil,
-         onAll: @escaping (String) -> Void) {
+         historyChannel: String? = nil, onAll: @escaping (String) -> Void, onDrill: @escaping (SourceDrill) -> Void = { _ in }) {
         self.channel = channel
         self.streams = streams
         self.query = query
+        self.historyChannel = historyChannel
         self.onAll = onAll
+        self.onDrill = onDrill
         _tab = State(initialValue: startTab)
     }
 
     var body: some View {
         let selected = SourceStreamItems.effective(tab, streams: streams)
+        let history = SourceStreamItems.showsHistory(tab, streams: streams) && historyChannel != nil
         let folderStream = SourceStreamItems.folderStream(selected, streams: streams)
-        let key = SourceStreamItems.key(channel: channel, stream: selected, folder: folderStream == nil ? nil : folder)
+        let key = SourceStreamItems.key(channel: channel, stream: history ? nil : selected, folder: folderStream == nil ? nil : folder)
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             SourceStreamTabsRow(tabs: SourceStreamItems.tabs(streams), selection: $tab,
                                 folders: folderStream == nil ? [] : folderNames, folder: $folder)
-            SourceStreamCards(key: key, query: query,
-                              omittingList: selected.flatMap { id in streams.first { $0.id == id }?.stream.label }, onAll: onAll)
+            if history, let historyChannel {
+                // The watched days, in the source's own rows (a day opens to its videos), under their own tab.
+                SourceItemsSection(channel: historyChannel, query: query, onDrill: onDrill)
+            } else {
+                SourceStreamCards(key: key, query: query,
+                                  omittingList: selected.flatMap { id in streams.first { $0.id == id }?.stream.label }, onAll: onAll)
+            }
         }
         .task(id: folderStream?.id) {
             if folderStream != nil { await cache?.refreshCollections(channel) }
