@@ -133,6 +133,9 @@ struct ConnectSuggestMemory: Codable, Equatable, Sendable {
         var lastShown: Date?
         var answer: Answer?
         var answeredAt: Date?
+        /// G221 — when this site's offer last showed because the person clicked its save control
+        /// (`ConnectSuggestPolicy.Trigger.saveClick`): such a click may show the offer once inside a wait.
+        var saveShown: Date?
     }
 
     var sources: [String: Source] = [:]
@@ -167,6 +170,11 @@ struct ConnectSuggestMemory: Codable, Equatable, Sendable {
 ///   things), nor in the first minute after Cicada launched (the memory's sources are not read yet). A suggestion is
 ///   never deferred to later: it belongs to the moment the person entered the app, so a refused one waits for the next
 ///   time they bring it forward.
+/// - **A save made on a site that is not connected** (ruling 77b, owner 2026-11-24, after three saves on unconnected
+///   sites passed unseen: "yes go ahead and do it") shows that site's offer at that moment, and Yes keeps the save.
+///   It is the person's strongest sign that the site matters, so it may show once inside a wait (an offer that left
+///   unanswered when the page opened must not silence the save that follows it); after an offer a save brought, the
+///   wait holds for saves too. No, the cap on shows and every rule below hold for it as for any offer.
 /// - **Never over the ask-why panel**, never twice at once, never in a demo memory, never before the active memory is
 ///   known or before its setup ran or was skipped (setup's own Sources step offers every source — found live: the
 ///   offer's Yes landed behind the Welcome), and never for a source that is set up (connected, waiting on a sign-in
@@ -209,6 +217,38 @@ enum ConnectSuggestPolicy {
     enum Skip: String, Equatable, Sendable {
         case off, showing, saveWhyOpen, memoryUnknown, inSetup, demo, noEntry, setUp, declined, answered, shownEnough, snoozed,
              dailyCap, appJustLaunched, cicadaJustLaunched
+
+        /// Whether this refusal is about the moment and not the source: the next look at the same page may offer, so
+        /// the visit is not spent on it (found 2026-11-24: a site opened in Cicada's first minute, or while another
+        /// panel was up, was never offered until the person left it and came back).
+        var passes: Bool {
+            switch self {
+            case .showing, .saveWhyOpen, .memoryUnknown, .noEntry, .appJustLaunched, .cicadaJustLaunched: true
+            case .off, .inSetup, .demo, .setUp, .declined, .answered, .shownEnough, .snoozed, .dailyCap: false
+            }
+        }
+    }
+
+    /// What brought the offer: the person entered the app or the site, or (G221, ruling 77b) clicked a site's save
+    /// control while that site is not connected.
+    enum Trigger: Equatable, Sendable { case entered, saveClick }
+
+    /// Whether `source`'s wait is over for `trigger`. A save click passes a wait once: when the last offer was not
+    /// itself brought by a save click.
+    static func waited(_ source: ConnectSuggestMemory.Source, now: Date, trigger: Trigger) -> Bool {
+        guard source.shown > 0 else { return true }
+        if trigger == .saveClick, source.saveShown == nil || source.saveShown != source.lastShown { return true }
+        let since = source.answeredAt ?? source.lastShown ?? .distantPast
+        return now.timeIntervalSince(since) >= waits[min(source.shown, waits.count) - 1]
+    }
+
+    /// G221 — whether a save click on this site could still bring its offer, by what the memory holds alone: only
+    /// then is a click on a site that is not connected read at all. A site answered No (or Yes), shown its last time,
+    /// or inside a wait a save click cannot pass, is not read.
+    static func listens(_ target: ConnectSuggestApps.Target, memory: ConnectSuggestMemory, now: Date) -> Bool {
+        let source = memory.sources[target.entryId] ?? .init()
+        guard source.answer != .no, source.answer != .yes, source.shown < maxShows else { return false }
+        return waited(source, now: now, trigger: .saveClick)
     }
 
     enum Decision: Equatable {
@@ -217,7 +257,7 @@ enum ConnectSuggestPolicy {
     }
 
     static func decide(_ target: ConnectSuggestApps.Target, memory: ConnectSuggestMemory,
-                       context c: Context) -> Decision {
+                       context c: Context, trigger: Trigger = .entered) -> Decision {
         guard c.enabled else { return .skip(.off) }
         guard !c.showing else { return .skip(.showing) }
         guard !c.saveWhyOpen else { return .skip(.saveWhyOpen) }
@@ -233,12 +273,9 @@ enum ConnectSuggestPolicy {
         case .notNow, nil: break
         }
         guard source.shown < maxShows else { return .skip(.shownEnough) }
-        if source.shown > 0 {
-            // Shown before and not answered Yes or No: only after a Not now, and not before the snooze ends. A record
-            // with a show but no answer (the app quit while it showed) counts as Not now from when it showed.
-            let since = source.answeredAt ?? source.lastShown ?? .distantPast
-            guard c.now.timeIntervalSince(since) >= waits[source.shown - 1] else { return .skip(.snoozed) }
-        }
+        // Shown before and not answered Yes or No: only after a Not now, and not before the snooze ends. A record
+        // with a show but no answer (the app quit while it showed) counts as Not now from when it showed.
+        guard waited(source, now: c.now, trigger: trigger) else { return .skip(.snoozed) }
         // The cap is between different sources: when the last offer of all was this source's own, its wait above
         // already decided. A site's offer is not held by it either: the person is on that site now, its saves do
         // nothing until it is connected, and nothing else says why (found live: one site's unanswered offer kept
@@ -255,13 +292,14 @@ enum ConnectSuggestPolicy {
     }
 
     /// The panel showed: counted at once, so a crash or a quit while it shows never makes it free again.
-    static func shown(_ entryId: String, name: String? = nil, at now: Date,
+    static func shown(_ entryId: String, name: String? = nil, at now: Date, trigger: Trigger = .entered,
                       in memory: ConnectSuggestMemory) -> ConnectSuggestMemory {
         var memory = memory
         var source = memory.sources[entryId] ?? .init()
         if let name { source.name = name }
         source.shown += 1
         source.lastShown = now
+        if trigger == .saveClick { source.saveShown = now }
         memory.sources[entryId] = source
         memory.lastShown = now
         return memory
@@ -339,6 +377,9 @@ struct ConnectSuggestPanelState: Equatable {
     /// G221 — a site's Yes is the whole connection (there is no page to send the person to), so the panel stays a
     /// moment to say so: a ring around the worm, then a check. When it was pressed, on the same clock; nil otherwise.
     private(set) var confirmedAt: TimeInterval?
+    /// G221 — the offer holds a save the person just made on this site, which Yes keeps (the line under the title
+    /// says so).
+    var keepsSave = false
 
     init(target: ConnectSuggestApps.Target, appName: String, bundleId: String, shownAt: TimeInterval) {
         self.target = target

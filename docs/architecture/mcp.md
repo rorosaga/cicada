@@ -682,7 +682,7 @@ paused and not read for this bank in 20 hours; `cicada_reading_queue` (stdio onl
 (`https://www.youtube.com/playlist?list=WL`, `https://www.youtube.com/feed/history`), what to read (link, title,
 channel, and for history the day the page files it under), never click anything that changes a list, never sign in —
 and `reading_queue.counts` counts a due list as one of the person's asks, so the recall hook's "N links are waiting"
-hears it. **`cicada_record_youtube_list(list, outcome, videos?, via?)`** (`record` scope, stdio only —
+hears it. **`cicada_record_youtube_list(list, outcome, videos?, via?, playlist_names?)`** (`record` scope, stdio only —
 `catalog.NEVER_REMOTE`, the re-check's seat; a proposed CLI row `read youtube`, not exposed) under one admission and
 page lock: refused, writing nothing, in a demo bank, with reading off, for an unknown list or outcome, or a list not
 turned on; `needs_login`/`blocked` pause both lists for 7 days (no bank write; turning a list on again, or a later
@@ -692,13 +692,27 @@ folder `Watch later`, origin `youtube-playlist` — a video already saved by any
 through `watch_history` (door `agent`, the page's day; a row without a day is left out). Committed alone as the harness
 with its session trailer. **Not built:** a video removed from Watch later on YouTube stays saved here (the read only
 adds); the agent reads a few screens, so a long list fills over several reads.
+**Playlists and Liked videos (G245, ruling 78b, 2026-11-24).** `youtube_lists.LISTS` also holds `playlists`
+(`https://www.youtube.com/feed/playlists`, then each playlist's own page) and `liked` (`https://www.youtube.com/playlist?list=LL`),
+both **off until the person turns one on** (`reading_settings.YOUTUBE_LISTS`; `DEFAULT_ON_YOUTUBE_LISTS` stays Watch later and
+history, so `list_defaults` never turns either on; `GET /reading/settings` `youtubeLists` carries `playlists` and `liked`).
+Both save under `youtube-playlist`, index-only like Watch later: Liked videos under the folder `Liked videos`, a playlist's
+video under **the playlist's own name** (a `playlist` on each row, the label a Takeout's playlist file gives — a row naming
+none is left out and said), so a video in two lists is one page on both (`collections:`, the reply says "now on this list
+too"). Playlists are a pass: a call with `playlist_names` (what the index shows, `[]` for an account with none) and no
+videos keeps the count and answers which at most 12 to open next, never-read first then least recently read; it is not yet
+a read. Machine state keeps a short hash of each playlist name and the time it was read, never the name
+(`folder_pass`). The YouTube lists stay **outside the saved lists' daily bound**, as Watch later and history always were: they
+are one page a list a day on their own 20-hour cadence, a playlists read is capped at 12 playlists, and a login wall pauses
+every YouTube list. The first read of Watch later, Liked videos and playlists may scroll up to 20 screens (a playlist's page
+5), a later one 4 and it stops where the reply says (`Known ground`) the call reached videos already in memory.
 
 **Saved lists on X, Instagram and LinkedIn (G206, redesign 2026-10-22, ruling 36).** The YouTube lists' shape, per
 walled site: X Bookmarks (`https://x.com/i/bookmarks`), Instagram Saved (the profile's Saved tab, reached from
 `https://www.instagram.com/` — Cicada keeps no profile name) and LinkedIn Saved posts
 (`https://www.linkedin.com/my-items/saved-posts/`). Cicada never spawns a browser, never signs in and never fetches a list
 page; it only offers. **Consent:** agent reading on (its sheet acknowledged) AND the person turned that site's list on
-(`reading.json` `saved_lists`, `{x|instagram|linkedin|reddit|pinterest|tiktok: day}` (the last three G232), on by default since 2026-10-26 on the same terms, offs in `saved_lists_off` — refused without a current acknowledgement;
+(`reading.json` `saved_lists`, `{x|x-likes|instagram|instagram-likes|linkedin|reddit|reddit-upvoted|pinterest|tiktok|…: day}` (Reddit, Pinterest and TikTok G232, the three `-likes`/`-upvoted` keys G245), X, Instagram and LinkedIn on by default since 2026-10-26 on the same terms, offs in `saved_lists_off` — refused without a current acknowledgement;
 `PUT /reading/settings` `savedLists` patch, the Sources page's switch; `GET /reading/settings` carries `savedLists`
 and `saved` — per site the last read, its outcome, item count and pause, plus `readsToday`/`dailyReads`). Like a YouTube
 list it is a **standing ask for exactly that page**, never a site grant: it lets no other page of the site be recorded.
@@ -709,7 +723,8 @@ measured). **Which one (G245):** a list the person asked to check goes first, wh
 /sources/streams/check` stamps `check_requested_at`, only on a list that is on and not paused; the next recorded attempt
 of any outcome clears it); then the list read longest ago, a list never read before any, ties in table order — the first
 key in table order no longer always wins. A check never lifts a pause and never passes the day's bound. A list with a
-`base` site shares that site's pause (`saved_lists.pause_key`). YouTube's lists (every one due, the same order) and
+`base` site shares that site's pause (`saved_lists.pause_key`, kept under the site's own key, so no entry is made for the
+base list and `list_defaults.read_before` never sees it read). YouTube's lists (every one due, the same order) and
 Substack's (one) follow the same order. `cicada_reading_queue` (stdio only) appends its
 lines — the page, what to read (each post's link, author and the words it shows), only the list (never the feed or
 messages), never click anything that changes it (no unsave, like, follow or reply), never sign in — and
@@ -741,6 +756,46 @@ one is said in the reply and not stored, and one not given leaves the last stand
 `saved.lists.<site>` adds `through: "browser"`, `state` (`read | signed_out | couldnt_read | not_read`, from the last
 attempt alone: `read` the only healthy one), `handle` and `profileUrl`. Cicada learns signed-out only when an agent
 tries the page (cadence 20 h, a login wall pauses 7 days); it reads no cookie and runs no browser in the background.
+
+**More lists, folders, catching up and a post's own day (G245, ruling 78, 2026-11-24).** Four additions to
+`cicada_record_saved_list`, all inside G206's rails (the person's own agent, their own signed-in browser, only the list's
+page, nothing clicked that changes it, never a feed, timeline, someone else's profile or messages).
+* **A second list of a site is a key with a base** (`saved_lists.Platform.base`): `x-likes` (base `x`), `instagram-likes`
+  (base `instagram`), `reddit-upvoted` (base `reddit`) — in `PLATFORMS`, `reading_settings.SAVED_LISTS` (`tuple(PLATFORMS)`
+  order, held by a test), the tool's `platform` enum, `tool_door`, `cli_map` and `savedLists` on the wire, each **off until
+  the person turns it on** (never in `DEFAULT_ON_SAVED_LISTS`). It shares its site's address rules (`canonical`), handle,
+  profile link (`last()` and `note` carry them both ways) and **pause** (a login wall met on any list pauses every list of the
+  site, stored under the base key; only "I signed in" / Try again lifts it, as today); its switch, cadence and read are its own.
+  Pages: X's own profile → the Likes tab (a page that holds only that list; reposts are mixed into the timeline, which no
+  list page covers, so they are not read), Instagram's Your activity → Interactions → Likes, `https://www.reddit.com/user/me/upvoted/`.
+  **Items land under the origin and label the export readers already write, so the two are one row:** `x-likes` / `Likes`
+  (`saved_exports`' `like.js`), `instagram-saved` / `Liked posts` (`liked_posts.json`), `reddit-saved` / `Upvoted`
+  (`post_votes.csv`) — every one already in `history_index.LIST_ORIGINS` or `LIST_FOLDERS`, so index-only (ruling 30; a gate
+  test walks every `PLATFORMS` entry and every YouTube list through `history_index.kind`). A post already kept from another
+  list (a bookmark that is also liked) is a duplicate that gains the list on its media page's `collections:` (the reply counts
+  "now on this list too"), never a second page. A grid of pictures shows no words: the item is kept with its link and author only.
+  A site's notch route never notices a second list (`site_saves.target` skips a base key).
+* **Folders are their own pages; one read is a pass** (`folder_pass`, `saved_lists.PASS_*`). For a site whose list has folders
+  (`Platform.folders`: X bookmark folders, Instagram collections) the All page's call sends `folder_names` (the site's folder
+  names, `[]` when it shows none — a site or account with none reports none and `folder_count` stays 0; a list with no folders
+  ignores the argument and says so). The reply names at most **12** folders to open next, never-read first then the least
+  recently read, so a long list of folders is covered over several reads; each folder's page is a call with `folder` (its name),
+  and its posts are filed in that folder (`save_folders.file_save`, origin the list's own; a post saved before is filed, not saved
+  again). **The whole pass counts once against the daily bound:** a call with `continues=true` (implied by `folder`) carries on
+  an *open* pass — the same list's last counted read, its last call under 3 hours ago, under 20 calls — and is not counted
+  again; with no open pass the call is a new read, counted and bound like any (the reply says so), so `continues` cannot be a way
+  round the 10 a day. The day's bound itself is unchanged; a login wall closes the pass. Machine state keeps a short hash of each
+  folder name and when it was read, never a name (`folder_pass.folder_hash`; the names the agent sends are echoed back in the
+  reply and kept nowhere). The folders' names in the bank are the posts' own `save_folders`, as before.
+* **Catching up.** The queue's words tell the agent how far to go: the **first read** of a list scrolls up to 20 screens,
+  recording as it goes in calls of up to 200 posts (a folder's page: 5); a **later** read scrolls at most 4 and stops where the
+  reply says `Known ground` — a run of 3 posts in a row (a short call: all of them) already on that list and, for a folder page,
+  already filed there. Older items than the first read reaches still come only with the site's own export, dropped on the window
+  (the queue says so). Nothing about the lists is claimed to be complete: a post unsaved or unliked on the site stays kept here.
+* **A post's own day.** A row may carry `posted` (`YYYY-MM-DD`): written to the episode's frontmatter as `posted` beside the
+  save's own day (`saved_at.posted_day`: a bare day in the sane range, never a relative phrase — "3 days ago" is left out), and
+  given once, in place, to a post kept before without one (`episode_staging.amend_frontmatter`, committed). The items route
+  serves it as the row's `posted`.
 
 **Reddit, Pinterest and TikTok join (G232, owner 2026-11-04: "offer the website connection through browser harness,
 just like a toggle switch").** Three more `saved_lists.PLATFORMS`, after LinkedIn in the offer's order, on the same

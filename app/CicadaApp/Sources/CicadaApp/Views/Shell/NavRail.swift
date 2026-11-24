@@ -11,8 +11,9 @@ import SwiftUI
 /// One view draws both widths — the rail, and the 208 pt labelled sidebar the titlebar toggle
 /// and ⌃⌘S switch to (R-DS15) — so a page never has two drawings.
 ///
-/// **State.** Inactive glyphs are `textTertiary`. The selected cell is `bgSelected` with a
-/// `textPrimary` glyph: never the accent, never a filled symbol. A hover is `bgRailHover`. The
+/// **State.** Each page's symbol sits white on a tile of its own hue (`NavTilePalette`, owner 2026-11-24); the label's
+/// ink and the cell's fill carry the state: the selected cell is `bgSelected` with a `textPrimary` label, never the
+/// accent, never a filled symbol, and the tile never changes with it. A hover is `bgRailHover`. The
 /// Inbox numeral is neutral: `bgBadge`, with a 2 pt `bgRail` knockout. Sleep shows a spinner
 /// while a cycle runs.
 ///
@@ -121,6 +122,7 @@ struct NavRailCell: View {
     let busy: Bool
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
 
     /// ROR-118 — resting ink is `textSecondary`, not the dim tertiary the thin glyphs had: the name and icon of every page
     /// are legible without a hover; the selected page is `textPrimary` on `bgSelected`.
@@ -128,7 +130,7 @@ struct NavRailCell: View {
     private var fill: Color { selected ? CicadaTheme.bgSelected : (hovering ? CicadaTheme.bgRailHover : Color.clear) }
 
     var body: some View {
-        HStack(spacing: CicadaTheme.scaled(labelled ? 12 : 10)) {
+        HStack(spacing: CicadaTheme.scaled(ShellMetrics.navTileGap)) {
             glyph
             if labelled {
                 Text(tab.title)
@@ -158,18 +160,28 @@ struct NavRailCell: View {
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
     }
 
+    /// Owner 2026-11-24 (§9): the page's symbol, white on a rounded square of the page's own hue (`NavTilePalette`) — in
+    /// the labelled sidebar and in the rail's cell alike, so the two states read as one sidebar. The tile is a flat fill
+    /// with the resting ring (DR-9), never a shadow, glass or gradient; it is the same under hover, focus and selection
+    /// (the row's neutral fill and the label's ink say those, DR-48), and under Increase Contrast it is the same hue 25 %
+    /// deeper. It scales with the text size (`scaled`), glyph and all.
     @ViewBuilder
     private var glyph: some View {
-        let side = CicadaTheme.iconPoints(.rail)
-        if busy {
-            ProgressView().controlSize(.small).frame(width: side, height: side)
-        } else {
-            Image(systemName: tab.icon)
-                .font(CicadaTheme.icon(.rail))
-                .foregroundStyle(ink)
-                .frame(width: side, height: side)
-                .iconHover(hovering: hovering)
+        let side = CicadaTheme.scaled(ShellMetrics.navTile)
+        let shape = CicadaTheme.shape(CicadaTheme.radiusTile)
+        ZStack {
+            shape.fill(CicadaTheme.navTile(tab, increasedContrast: contrast == .increased))
+            if busy {
+                ProgressView().controlSize(.mini).environment(\.colorScheme, .dark)
+            } else {
+                Image(systemName: tab.icon)
+                    .font(CicadaTheme.icon(.navTile))
+                    .foregroundStyle(CicadaTheme.tileGlyph)
+                    .iconHover(hovering: hovering)
+            }
         }
+        .frame(width: side, height: side)
+        .ringed(.resting, in: shape)
     }
 }
 

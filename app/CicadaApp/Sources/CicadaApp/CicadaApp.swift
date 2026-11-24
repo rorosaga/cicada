@@ -503,6 +503,7 @@ struct CicadaApp: App {
             if let site = ConnectSuggestApps.siteKey(entryId: entryId) {
                 SiteSavePrefs().setConnected(site, true)
                 siteSaves.refresh()
+                NotificationCenter.default.post(name: SiteSaveSwitches.changed, object: nil)
                 return
             }
             Task { @MainActor in
@@ -516,6 +517,17 @@ struct CicadaApp: App {
                     appRouter.openSettings(.privacy, row: .permissions)
                 case .source(let id):
                     appRouter.routeToCatalogEntry(id)
+                }
+            }
+        }
+        // Ruling 77b — the saves the offer held when the person said Yes: what each click taught is kept, and a
+        // save (never an unsave or an unsettled change) is stored and asked about like any save on a connected site.
+        connectSuggest.onHeld = { [saveWhy] saves in
+            let prefs = SiteSavePrefs()
+            for save in saves { prefs.keep(save.lesson, site: save.item.site) }
+            Task {
+                for save in saves where save.outcome == .saved {
+                    await saveWhy.siteSaved(save.item, text: save.text, folder: save.folder)
                 }
             }
         }
@@ -585,6 +597,15 @@ struct CicadaApp: App {
         siteSaves.onSite = { [connectSuggest] site, pid, bundle in
             connectSuggest.offer(site: site, connected: SiteSavePrefs().isConnected(site.key), pid: pid,
                                  bundleId: bundle)
+        }
+        // Ruling 77b — a site that is not connected is read only while a save click there could still bring its
+        // offer: the switch on, and the site neither declined nor inside a wait such a click cannot pass.
+        siteSaves.candidates = { [connectSuggest] in
+            let prefs = SiteSavePrefs()
+            return SiteSaveSite.all.filter { !prefs.isConnected($0.key) && connectSuggest.listens(site: $0.key) }
+        }
+        siteSaves.onCandidate = { [connectSuggest] save, site, pid, bundle in
+            connectSuggest.offer(saved: save, site: site, pid: pid, bundleId: bundle)
         }
         siteSaves.onOutcome = { [saveWhy] item, outcome, text, folder in
             Task {

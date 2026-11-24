@@ -78,6 +78,8 @@ UNKNOWN_AUTHOR_WORDS = ("Notion does not say which of these pages you wrote, so 
                         "not as your own words.")
 
 PAGE_SIZE = 100
+#: A.4: a page's parent path is at most this deep (Notion nests further than a person draws).
+PATH_DEPTH = 8
 MAX_LIST_PAGES = 20
 MAX_PAGES_PER_SYNC = 150
 TITLE_CAP = 300
@@ -322,7 +324,10 @@ async def _fetch_rest(client: tier2.Client, cursor: dict, memory_path: Path) -> 
         db_id = _database_of(page)
         db_title = await _database_title(client, db_id, db_titles) if db_id else None
         mine = owner is not None and str((page.get("created_by") or {}).get("id") or "") == owner
-        batch.drafts.extend(drafts_for(page, md, db_title=db_title, mine=mine))
+        # A.4: the REST path names no parent page's title without reading it, and an unshared parent is never read: a
+        # row is filed under its database alone.
+        chain = [(_hex(db_id), db_title)] if db_id and db_title else None
+        batch.drafts.extend(drafts_for(page, md, db_title=db_title, mine=mine, chain=chain))
         batch.replaced.append(sid)
         batch.seen += 1
     for page in await _trashed_pages(client):
@@ -464,7 +469,11 @@ def page_text(md: dict) -> str:
     return notion_export._links(text)
 
 
-def drafts_for(page: dict, md: dict, *, db_title: str | None, mine: bool) -> list[episode_staging.EpisodeDraft]:
+def drafts_for(page: dict, md: dict, *, db_title: str | None, mine: bool,
+               chain: list[tuple[str, str]] | None = None) -> list[episode_staging.EpisodeDraft]:
+    """One page (or row) as its draft episodes. ``chain`` (A.4, G245) is where the page sits, ``[(id, title)]`` outermost
+    first — the parents the person shared or chose, then its database — kept in frontmatter beside the database's own
+    title so the Sources page can file it. Filing labels only: never part of the body, never evidence."""
     hex_id = _hex(page.get("id"))
     sid = SOURCE_PREFIX + hex_id
     title = title_of(page)
@@ -485,6 +494,12 @@ def drafts_for(page: dict, md: dict, *, db_title: str | None, mine: bool) -> lis
     extra = {"notion_kind": "row" if db_title is not None else "page", "notion_by_other": not mine,
              "evidence_kind": "user" if mine else "assistant",
              "notion_last_edited": str(page.get("last_edited_time") or "") or None}
+    if db_title is not None:
+        extra["notion_database"] = _clip(db_title, 120)
+    shown = [(str(i), _clip(t, 120) or "Untitled") for i, t in (chain or []) if str(i).strip()][:PATH_DEPTH]
+    if shown:
+        extra["notion_path_ids"] = [i for i, _ in shown]
+        extra["notion_path"] = [t for _, t in shown]
     episodes = notion_export._sections(sid, title, head, content, when, extra)
     out = []
     for ep in episodes:

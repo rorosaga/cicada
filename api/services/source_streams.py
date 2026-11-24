@@ -49,6 +49,7 @@ from api.services import (
     id_utils,
     media_ingestor,
     reading_settings,
+    saved_at,
     saved_lists,
     save_folders,
     source_overview,
@@ -481,6 +482,9 @@ class Episodes:
     #: source key -> episodes, for the agents' conversations (``harness:<name>``).
     harnesses: Counter
     harness_last: dict[str, str]
+    #: episode id -> the day the post itself was published, for the saves whose list showed one (``posted`` in the
+    #: episode's frontmatter, written by ``cicada_record_saved_list``).
+    posted_of: dict[str, str]
 
 
 def _build_episodes(entries) -> Episodes:
@@ -491,6 +495,7 @@ def _build_episodes(entries) -> Episodes:
     agent_read: set[str] = set()
     harnesses: Counter = Counter()
     last: dict[str, str] = {}
+    posted_of: dict[str, str] = {}
     for f in entries:
         fm = f.frontmatter or {}
         if fm.get("source_deleted_at"):
@@ -506,6 +511,8 @@ def _build_episodes(entries) -> Episodes:
                 and fm.get("processed_by") != history_index.INDEXED_BY \
                 and fm.get("source") not in history_index.NOT_A_SAVE:
             read_pages.add(page)
+        if day := saved_at.posted_day(fm.get("posted")):
+            posted_of[stem] = day
         held = save_folders.folders_of(fm)
         if held:
             names = tuple(dict.fromkeys(n for _o, n in held))
@@ -519,7 +526,7 @@ def _build_episodes(entries) -> Episodes:
             stamp = str(fm.get("timestamp") or "")
             if stamp > last.get(key, ""):
                 last[key] = stamp
-    return Episodes(folders_of, folder_names, days, frozenset(read_pages), frozenset(agent_read), harnesses, last)
+    return Episodes(folders_of, folder_names, days, frozenset(read_pages), frozenset(agent_read), harnesses, last, posted_of)
 
 
 def episodes(memory_path: Path) -> Episodes:
@@ -892,7 +899,7 @@ def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], post
             fields["lists"] = lists
         if folders:
             fields["folders"] = folders
-        if day := posted(row):
+        if day := eps.posted_of.get(str(row.get("_episode") or "")) or posted(row):
             fields["posted"] = day
         out[row["id"]] = fields
     return out
