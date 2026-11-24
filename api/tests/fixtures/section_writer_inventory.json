@@ -1907,6 +1907,14 @@
       "disposition": "fresh_frontmatter_untracked"
     }
   ],
+  "services/connector_text.py": [
+    {
+      "function": "repair",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
   "services/value_sweep.py": [
     {
       "function": "apply_page",

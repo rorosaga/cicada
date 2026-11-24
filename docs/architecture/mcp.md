@@ -601,7 +601,7 @@ write). **There is no pre-picked list of sites** (owner, 2026-09-30: "limiting t
 because we will never know which sites this will happen"): a **wall page** is a saved page Cicada's own reader could not
 read — a sign-in, a consent wall, a refusal, or a host the backend never requests — decided by `reading_walls.wall_kind`
 from stamps the fetchers already write (`fetch_status`) plus the closed host set, and only while it holds no words (no
-`describes` claim, agent read stamp, substantive `## Description`, `description_source`, or — an X bookmark, whose saved item is the post — a non-empty `## Notes`; a saved sign-in or consent URL is
+`describes` claim, agent read stamp, substantive `## Description`, `description_source`, or — an X bookmark, whose saved item is the post — a non-empty `## Description` (a post kept before G245: a non-empty `## Notes`); a saved sign-in or consent URL is
 never one). The stamps are written wherever the reader fails: at save time (`MediaMeta.fetch_status`), in the in-cycle pass
 and in the backfill, in the backfill's own vocabulary and 30-day backoff, so a site surfaces when its page is walled, not
 when the capped backfill reaches it. Wall pages group by **site** (`reading_hosts.site_of`: a walled family folds to its
@@ -726,7 +726,7 @@ walled site: X Bookmarks (`https://x.com/i/bookmarks`), Instagram Saved (the pro
 `https://www.instagram.com/` — Cicada keeps no profile name) and LinkedIn Saved posts
 (`https://www.linkedin.com/my-items/saved-posts/`). Cicada never spawns a browser, never signs in and never fetches a list
 page; it only offers. **Consent:** agent reading on (its sheet acknowledged) AND the person turned that site's list on
-(`reading.json` `saved_lists`, `{x|x-likes|instagram|instagram-likes|linkedin|reddit|reddit-upvoted|pinterest|tiktok|…: day}` (Reddit, Pinterest and TikTok G232, the three `-likes`/`-upvoted` keys G245), X, Instagram and LinkedIn on by default since 2026-10-26 on the same terms, offs in `saved_lists_off` — refused without a current acknowledgement;
+(`reading.json` `saved_lists`, `{x|x-likes|x-reposts|instagram|instagram-likes|linkedin|reddit|reddit-upvoted|pinterest|tiktok|…: day}` (Reddit, Pinterest and TikTok G232, the three `-likes`/`-upvoted` keys G245), X, Instagram and LinkedIn on by default since 2026-10-26 on the same terms, offs in `saved_lists_off` — refused without a current acknowledgement;
 `PUT /reading/settings` `savedLists` patch, the Sources page's switch; `GET /reading/settings` carries `savedLists`
 and `saved` — per site the last read, its outcome, item count and pause, plus `readsToday`/`dailyReads`). Like a YouTube
 list it is a **standing ask for exactly that page**, never a site grant: it lets no other page of the site be recorded.
@@ -773,15 +773,17 @@ tries the page (cadence 20 h, a login wall pauses 7 days); it reads no cookie an
 
 **More lists, folders, catching up and a post's own day (G245, ruling 78, 2026-11-24).** Four additions to
 `cicada_record_saved_list`, all inside G206's rails (the person's own agent, their own signed-in browser, only the list's
-page, nothing clicked that changes it, never a feed, timeline, someone else's profile or messages).
-* **A second list of a site is a key with a base** (`saved_lists.Platform.base`): `x-likes` (base `x`), `instagram-likes`
-  (base `instagram`), `reddit-upvoted` (base `reddit`) — in `PLATFORMS`, `reading_settings.SAVED_LISTS` (`tuple(PLATFORMS)`
+page, nothing clicked that changes it, never a feed, timeline, someone else's profile or messages — **one page is the
+amendment**: X reposts are read from the person's own profile timeline, its rows marked as their own repost and nothing
+else, below).
+* **A second list of a site is a key with a base** (`saved_lists.Platform.base`): `x-likes` (base `x`), `x-reposts`
+  (base `x`, below), `instagram-likes` (base `instagram`), `reddit-upvoted` (base `reddit`) — in `PLATFORMS`, `reading_settings.SAVED_LISTS` (`tuple(PLATFORMS)`
   order, held by a test), the tool's `platform` enum, `tool_door`, `cli_map` and `savedLists` on the wire, each **off until
   the person turns it on** (never in `DEFAULT_ON_SAVED_LISTS`). It shares its site's address rules (`canonical`), handle,
   profile link (`last()` and `note` carry them both ways) and **pause** (a login wall met on any list pauses every list of the
   site, stored under the base key; only "I signed in" / Try again lifts it, as today); its switch, cadence and read are its own.
-  Pages: X's own profile → the Likes tab (a page that holds only that list; reposts are mixed into the timeline, which no
-  list page covers, so they are not read), Instagram's Your activity → Interactions → Likes, `https://www.reddit.com/user/me/upvoted/`.
+  Pages: X's own profile → the Likes tab (a page that holds only that list; reposts have no list page, see "X reposts"
+  below), Instagram's Your activity → Interactions → Likes, `https://www.reddit.com/user/me/upvoted/`.
   **Items land under the origin and label the export readers already write, so the two are one row:** `x-likes` / `Likes`
   (`saved_exports`' `like.js`), `instagram-saved` / `Liked posts` (`liked_posts.json`), `reddit-saved` / `Upvoted`
   (`post_votes.csv`) — every one already in `history_index.LIST_ORIGINS` or `LIST_FOLDERS`, so index-only (ruling 30; a gate
@@ -789,6 +791,37 @@ page, nothing clicked that changes it, never a feed, timeline, someone else's pr
   list (a bookmark that is also liked) is a duplicate that gains the list on its media page's `collections:` (the reply counts
   "now on this list too"), never a second page. A grid of pictures shows no words: the item is kept with its link and author only.
   A site's notch route never notices a second list (`site_saves.target` skips a base key).
+* **X reposts are a list of their own, read from the person's own timeline (owner 2026-11-24, "Should reposts be kept as
+  their own list?" "1. yes?"; the amendment is the docs PR's ruling).** `x-reposts` (base `x`, origin `x-reposts`, label
+  `Reposts`): off until turned on (never in `DEFAULT_ON_SAVED_LISTS`), index-only (`x-reposts` is in
+  `history_index.LIST_ORIGINS`; a gate test walks every `PLATFORMS` entry), a stream `x.reposts` of kind `reposted` on X's
+  page (a tab like Likes), and a post that is also bookmarked or liked stays one page whose marks read
+  `Bookmarks · Likes · Reposts` (`collections:`). **The one rail amended, narrowly:** "never a feed or timeline" does not
+  hold for this page. X has no page of only the person's reposts; they are rows of their **own profile**, between their
+  own posts, so the queue sends the agent there and tells it to take only the rows the page marks as the person's own
+  repost (the original post's link) and to leave out their own posts, replies, quotes and the pinned post, anyone else's
+  profile, their feed and messages (`saved_lists._timeline_lines`). Two things follow from a timeline. **Their own posts
+  are among the rows**, shaped like a repost's link: a row whose link names the person's recorded handle (or, for the
+  generic `/i/web/status/` link, whose author is it) is dropped and counted, never filed (`saved_lists.is_own_post`), and
+  with no handle on record (`handle`, ROR-114, shared with the site's other lists) the call is refused and writes nothing,
+  saying to send it. **And there is no end:** `Platform.max_screens` (20, `folder_pass.FIRST_READ_SCREENS`; unmeasured,
+  to be set after a look at a real profile) bounds the first read, the reply never says the list is whole or complete,
+  and `reached_end=true` here only says the read went that deep, which sets `whole` so later reads stop at known ground
+  (`LATER_READ_SCREENS`). A pass of a bounded list is never given the 500 calls of a list with an end. One line to undo:
+  delete the `x-reposts` row from `PLATFORMS` (and its key in `SAVED_LISTS` and the tool's `platform` enum); what was kept
+  stays kept. Other sites' reposts, quote posts and the person's own posts are not read.
+* **Every list has a kind, its own cadence and a back-off (`saved_lists`).** `Platform.kind` is `posts`, `people`
+  (LinkedIn connections: a directory outside every bank), `accounts` (none yet) or `books` (Goodreads); the record tool, the
+  queue and the stream's count branch on the kind, never on a key. `Platform.cadence` overrides the 20 h default (reposts:
+  3 days). **`due()`**: a list is offered again after `cadence_of` — its cadence, pushed to 3 days after two reads of the
+  whole list in a row that found nothing new and to a week after four (`note(new=)`, counted per pass; the person's own
+  "Check now" and any read that finds something reset it; a list not yet whole never backs off). **Two `failed` reads in a
+  row on one site pause it for 3 days** (`failed` was not a pausing outcome, so a soft block read as one was offered again
+  every cadence), lifted like a login wall's pause by turning a list on; a read of the site ends the count. **`due(...,
+  unattended=True)`** is for a read nobody is watching (nothing uses it yet; a later track's daily run): it never offers a
+  list not yet read to its end (not even the person's own check), never an `accounts` list, and orders posts, then people,
+  then books, a timeline last (a block met on reposts pauses every X list). The person's own read keeps the
+  longest-ago-first order, so a timeline is never starved behind other lists.
 * **Folders are their own pages; one read is a pass** (`folder_pass`, `saved_lists.PASS_*`). For a site whose list has folders
   (`Platform.folders`: X bookmark folders, Instagram collections) the All page's call sends `folder_names` (the site's folder
   names, `[]` when it shows none — a site or account with none reports none and `folder_count` stays 0; a list with no folders

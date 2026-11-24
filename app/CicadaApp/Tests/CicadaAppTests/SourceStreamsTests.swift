@@ -67,15 +67,15 @@ final class SourceStreamsTests: XCTestCase {
     }
 
     func testEveryKindTheContractNamesIsKnownAndOnlyTheListKindsAreLists() {
-        let names = ["saved", "liked", "history", "later", "playlists", "connections", "notes", "pages", "chats",
-                     "events", "tasks", "code", "books", "feed", "files"]
+        let names = ["saved", "liked", "reposted", "history", "later", "playlists", "connections", "notes", "pages",
+                     "chats", "events", "tasks", "code", "books", "feed", "files"]
         for name in names {
             let kind = StreamKind(rawValue: name)
             XCTAssertEqual(kind.rawValue, name)
             if case .other = kind { XCTFail("\(name) is a contract kind") }
         }
         XCTAssertEqual(Set(names.filter { StreamKind(rawValue: $0).isList }),
-                       ["saved", "liked", "history", "later", "playlists"], "plan 3.2 item 3")
+                       ["saved", "liked", "reposted", "history", "later", "playlists"], "plan 3.2 item 3")
     }
 
     // MARK: Leniency
@@ -83,13 +83,13 @@ final class SourceStreamsTests: XCTestCase {
     func testAnUnknownKindWayHealthStateDepthAndFieldNeverFailThePage() throws {
         let response = try decode("""
         {"sources": [{"id": "x", "label": "X", "futureField": 1, "streams": [
-          {"id": "x.reposts", "label": "Reposts", "kind": "reposts", "how": "telepathy", "owner": "robot",
+          {"id": "x.polls", "label": "Polls", "kind": "polls", "how": "telepathy", "owner": "robot",
            "control": "dial", "state": "maybe", "health": "rate_limited", "depth": "frames", "count": 5,
            "newField": {"a": 1}}
         ]}]}
         """)
         let s = try XCTUnwrap(response.sources.first?.streams.first)
-        XCTAssertEqual(s.kind, .other("reposts"))
+        XCTAssertEqual(s.kind, .other("polls"))
         XCTAssertFalse(s.kind.isList)
         XCTAssertEqual(s.how, .other("telepathy"))
         XCTAssertEqual(s.owner, .backend, "an unknown owner is the backend's, whose word is the wire's")

@@ -100,7 +100,7 @@ CATALOG: tuple[SourceSpec, ...] = (
     SourceSpec("pinterest", "Pinterest", "social", "pinterest", ("pinterest", "pinterest-saved"), "pinterest"),
     SourceSpec("reddit", "Reddit", "social", "reddit-saved", ("reddit-saved",), "reddit"),
     # `x-likes`: the X archive's like.js (saved_exports); bookmarks come from the connector.
-    SourceSpec("x", "X", "social", "x-bookmarks", ("x-bookmarks", "x-likes"), "x"),
+    SourceSpec("x", "X", "social", "x-bookmarks", ("x-bookmarks", "x-likes", "x-reposts"), "x"),
     SourceSpec("instagram", "Instagram", "social", "instagram-saved", ("instagram-saved",), None),
     SourceSpec("youtube", "YouTube", "social", "youtube-playlist", ("youtube-playlist",), None),
     # G71 (2026-10-16): `youtube-history` — the day episodes of what was watched (Takeout, Chrome, the agent). Its own

@@ -96,7 +96,7 @@ def test_pins_to_items_uses_the_outbound_link_and_the_board_as_folder():
     assert {i.folder for i in items} == {"Recipes"}
     assert {i.origin for i in items} == {"pinterest"}
     assert items[0].title == "Recipe one"
-    assert items[0].note == "A soup"
+    assert items[0].preview == "A soup" and items[0].note is None, "the pin's text is its author's, never a note"
 
 
 def test_pins_to_items_skips_junk_rows():

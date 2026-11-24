@@ -145,7 +145,7 @@ def test_the_pinned_ids_are_still_in_the_catalogue_source():
 
 def test_the_sources_the_plan_names_are_there_with_their_streams(bank, more_lists):
     out = _sources(bank)
-    assert [s["id"] for s in out["x"]["streams"]] == ["x.bookmarks", "x.likes", "x.saves-you-make"]
+    assert [s["id"] for s in out["x"]["streams"]] == ["x.bookmarks", "x.likes", "x.reposts", "x.saves-you-make"]
     assert [s["id"] for s in out["instagram"]["streams"]] == ["instagram.saved", "instagram.likes",
                                                               "instagram.saves-you-make"]
     assert [s["id"] for s in out["reddit"]["streams"]] == ["reddit.saved", "reddit.upvoted", "reddit.saves-you-make"]
@@ -171,17 +171,20 @@ def test_a_list_added_to_the_tables_appears_under_its_source_with_its_kind(bank,
 
 def test_a_key_the_annotations_do_not_know_still_gets_a_stream(bank, monkeypatch):
     table = dict(saved_lists.PLATFORMS)
-    table["x-reposts"] = _Based("x-reposts", "X", "Reposts", "https://x.com/", "", "x-reposts", "Reposts", "x.com",
-                                "to read your reposts", ("x.com",), base="x")
+    table["x-polls"] = _Based("x-polls", "X", "Polls", "https://x.com/", "", "x-polls", "Polls", "x.com",
+                              "to read your polls", ("x.com",), base="x")
     monkeypatch.setattr(saved_lists, "PLATFORMS", table)
-    stream = _streams(bank, "x")["x.reposts"]
-    assert (stream["label"], stream["kind"], stream["how"]) == ("Reposts", "saved", "browser")
+    stream = _streams(bank, "x")["x.polls"]
+    assert (stream["label"], stream["kind"], stream["how"]) == ("Polls", "saved", "browser")
+    # Reposts is annotated: its own kind, never "saved" or "liked" (the app draws the word the person knows).
+    assert _streams(bank, "x")["x.reposts"]["kind"] == "reposted"
 
 
 def test_a_table_entry_with_no_base_is_its_own_source(bank):
     assert not saved_lists.PLATFORMS["x"].base and saved_lists.PLATFORMS["x-likes"].base == "x"
     out = _sources(bank)
-    assert set(saved_lists.PLATFORMS) - {"x-likes", "instagram-likes", "linkedin-connections", "reddit-upvoted"} <= set(out)
+    assert set(saved_lists.PLATFORMS) - {"x-likes", "x-reposts", "instagram-likes", "linkedin-connections",
+                                      "reddit-upvoted"} <= set(out)
     assert _streams(bank, "reddit")["reddit.saved"]["label"] == "Saved"
     assert saved_lists.pause_key("x") == "x" and saved_lists.pause_key("x-likes") == "x"
 

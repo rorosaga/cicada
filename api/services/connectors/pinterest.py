@@ -198,7 +198,9 @@ def pins_to_items(board_name: str, pins: list) -> list[RawItem]:
         items.append(RawItem(
             url=url,
             title=(str(pin.get("title") or "").strip() or None),
-            note=(str(pin.get("description") or "").strip() or None),
+            # The pin's text is its author's words, never a note of the person's (G245): `preview` keeps it as the
+            # page's description beside what the linked page says of itself.
+            preview=(str(pin.get("description") or "").strip() or None),
             added=saved_at.from_iso8601(pin.get("created_at")),
             folder=board_name or "Pinterest",
             origin="pinterest",

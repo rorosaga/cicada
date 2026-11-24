@@ -30,7 +30,7 @@ from urllib.parse import urlencode
 
 from loguru import logger
 
-from api.services import sync_state
+from api.services import saved_at, sync_state
 from api.services.connections import secrets
 from api.services.connectors import base
 from api.services.media_ingestor import RawItem
@@ -359,7 +359,7 @@ async def fetch_bookmarks(
     resources_read = 0
 
     for _ in range(MAX_PAGES):
-        params: dict = {"max_results": PAGE_SIZE, "tweet.fields": "text"}
+        params: dict = {"max_results": PAGE_SIZE, "tweet.fields": "text,created_at"}
         if next_token:
             params["pagination_token"] = next_token
         payload = await base.call_http(
@@ -394,10 +394,15 @@ def bookmarks_to_items(tweets: list) -> list[RawItem]:
     "outbound link" concept the way a Pinterest pin or a Reddit link-post has;
     the saved thing IS the tweet. There is no board/subreddit-equivalent
     either, so ``folder`` stays unset (the brief's "no folder"). Tweet text
-    rides ``note`` so it lands in the episode body's "## User note" section
-    even when best-effort enrichment fails to scrape it back off x.com — a
-    JS-rendered page frequently unreachable without an authenticated session,
-    exactly why the text is captured here instead of left to enrichment.
+    rides ``preview`` so it lands in the episode body's "## Description"
+    section even when best-effort enrichment fails to scrape it back off
+    x.com — a JS-rendered page frequently unreachable without an
+    authenticated session, exactly why the text is captured here instead of
+    left to enrichment. It is the AUTHOR'S words, never a note of the person's
+    (G245, owner 2026-11-24): as a ``note`` it landed under "## User note",
+    stamped the episode as carrying the person's own words, and Sleep read the
+    post as something they said. A tweet's own day (``created_at``) is its
+    ``posted`` day, so what it says is dated by when it was written.
     """
     items: list[RawItem] = []
     for tweet in tweets or []:
@@ -411,7 +416,8 @@ def bookmarks_to_items(tweets: list) -> list[RawItem]:
         items.append(RawItem(
             url=f"https://x.com/i/web/status/{tweet_id}",
             title=title,
-            note=(text or None),
+            preview=(text or None),
+            posted=saved_at.posted_day(str(tweet.get("created_at") or "")[:10]),
             origin="x-bookmarks",
         ))
     return items
