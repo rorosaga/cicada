@@ -236,10 +236,12 @@ final class SaveWhyCenter {
     /// The bundle id of the app in front (tests set it).
     @ObservationIgnored var frontBundleId: () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
 
-    /// Whether the browser a bookmark channel belongs to is the app in front. A channel that is no browser's (a site's own
-    /// source) has no browser to witness it and counts as witnessed.
+    /// Whether the browser a bookmark channel belongs to is the app in front — asked only of a browser that records no
+    /// instant for a bookmark (Safari); the Chromium browsers date every one, so their instant stands for itself. A
+    /// channel that is no browser's (a site's own source) has no browser to witness it and counts as witnessed.
     nonisolated static func browserInFront(channel: String, front: String?) -> Bool {
-        guard let spec = BrowserInventory.catalog.first(where: { $0.bookmarksChannel == channel }) else { return true }
+        guard let spec = BrowserInventory.catalog.first(where: { $0.bookmarksChannel == channel }),
+              spec.engine == .safari else { return true }
         return spec.bundleId == front
     }
 

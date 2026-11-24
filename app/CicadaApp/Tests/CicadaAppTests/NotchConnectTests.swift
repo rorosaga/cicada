@@ -420,6 +420,7 @@ final class NotchConnectTests: XCTestCase {
         if case .ask = decide(result(addedAt: now), witnessed: false) {} else { XCTFail("an instant stands for itself") }
         XCTAssertTrue(SaveWhyCenter.browserInFront(channel: "safari-bookmarks", front: "com.apple.Safari"))
         XCTAssertFalse(SaveWhyCenter.browserInFront(channel: "safari-bookmarks", front: "com.google.Chrome"))
+        XCTAssertTrue(SaveWhyCenter.browserInFront(channel: "chrome-bookmarks", front: nil), "Chrome dates its own")
         XCTAssertTrue(SaveWhyCenter.browserInFront(channel: "x-bookmarks", front: nil), "a site's own source has no browser")
     }
 }
