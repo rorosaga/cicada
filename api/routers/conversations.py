@@ -95,7 +95,7 @@ async def recent_conversations(
     extra = f"limit={limit}|harness={harness or ''}|origin={origin or ''}"
     if q:
         extra += f"|q={q}"
-    etag = sync_service.etag_for(settings.memory_path, "episodes", "entities", extra=extra)
+    etag = await sync_service.etag_for_async(settings.memory_path, "episodes", "entities", extra=extra)
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
 
@@ -132,7 +132,7 @@ async def get_conversation(
     """
     conversation_id = (conversation_id or "").strip()
 
-    etag = sync_service.etag_for(
+    etag = await sync_service.etag_for_async(
         settings.memory_path, "episodes", "entities", extra=f"id={conversation_id}"
     )
     if (early := sync_service.conditional(request, response, etag)) is not None:

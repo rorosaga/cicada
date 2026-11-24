@@ -99,7 +99,7 @@ def _etag(memory_path, name: str) -> str:
 @router.get("/videos/state")
 async def get_video_state(request: Request, response: Response, settings: Settings = Depends(get_settings)):
     memory_path = settings.memory_path
-    etag = _etag(memory_path, "state")
+    etag = await run_in_threadpool(_etag, memory_path, "state")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     return await run_in_threadpool(_state, memory_path)
@@ -108,7 +108,7 @@ async def get_video_state(request: Request, response: Response, settings: Settin
 @router.get("/videos/summary")
 async def get_video_summary(request: Request, response: Response, settings: Settings = Depends(get_settings)):
     memory_path = settings.memory_path
-    etag = _etag(memory_path, "summary")
+    etag = await run_in_threadpool(_etag, memory_path, "summary")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     return await run_in_threadpool(_summary, memory_path)

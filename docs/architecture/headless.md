@@ -83,7 +83,11 @@ has not trusted — "Refusing to load formula rorosaga/cicada/cicada from untrus
 - **No `service do` block.** The background service keeps one source per platform —
   `scripts/install-backend-agent.sh` (launchd `com.cicada.backend`) and `scripts/install-backend-service.sh`
   (systemd) — so `brew services` never writes a second plist or unit for the same port. `brew services` has nothing
-  to start for `cicada`.
+  to start for `cicada`. The launchd plist carries `ProcessType` `Interactive` (G238, 2026-11-24): with no key a launchd
+  agent runs at priority 20 under a terminal job's 31 and loses the CPU first on a busy Mac; Background and Adaptive
+  are never used (they throttle the search model's load, 9.7 s against 2.3 s). The systemd unit has no such default to
+  fix (a service starts at the normal priority) and is unchanged. Re-running the script rewrites the plist and restarts
+  the backend (`bootout`, then `bootstrap`); that is how an installed agent takes the key.
 - **Settings and logs outside the keg:** `api/.env` is a link to `$(brew --prefix)/etc/cicada/api.env` (0600, kept
   across upgrades); `CICADA_LOG_DIR` is `$(brew --prefix)/var/log/cicada`.
 - **The version:** the stable `url` is the git tag `v$VERSION`. `make release` stamps it and `check_version.py agree`
