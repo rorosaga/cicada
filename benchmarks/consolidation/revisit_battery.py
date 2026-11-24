@@ -80,16 +80,29 @@ def _finish(bank: Path) -> None:
 
 
 def build_pair(root: Path, case: dict) -> Path:
+    """One scratch bank for a pair case. Optional keys of the case: a page's ``aliases``; ``history`` (conversations each page
+    lists of its own, none naming both: the owner's pages list far more than a read can show); an episode with ``"listed":
+    false`` (a conversation neither page lists yet: where a later denial lives); ``bank_pages`` (concept pages around the
+    pair, so a bank can tell a rare word from a common one) of which the first five carry ``mention``."""
     from api.services import markdown_parser
 
     bank = _bank(root)
-    eps = [e["id"] for e in case["episodes"]]
+    eps = [e["id"] for e in case["episodes"] if e.get("listed", True)]
     for e in case["episodes"]:
         _episode(bank, e["id"], e["text"])
+    for i in range(int(case.get("bank_pages", 24))):
+        body = f"## Summary\nNote number {i} about the harbour garden.\n" + (f"\n{case['mention']}\n" if case.get("mention") and i < 5 else "")
+        _page(bank, f"filler-{i}", f"Filler Topic {i}", body, type="concept")
     a, b = case["pages"]
-    for page in (a, b):
+    for n, page in enumerate((a, b)):
+        own = []
+        for i in range(int(case.get("history", 0))):
+            eid = f"ep_2026-09-{i + 1:02d}_{n + 1:03d}"
+            _episode(bank, eid, f"user: {page['name']} came by on day {i + 1}.\n")
+            own.append(eid)
         body = "## Summary\n" + page["facts"][0] + "\n\n## Key Facts\n" + "\n".join(f"- {f}" for f in page["facts"]) + "\n"
-        _page(bank, page["id"], page["name"], body, source_episodes=eps)
+        extra = {"aliases": page["aliases"]} if page.get("aliases") else {}
+        _page(bank, page["id"], page["name"], body, source_episodes=[*own, *eps], **extra)
     markdown_parser.write(bank / "inbox" / "inbox-001.md", {
         "kind": "merge_suggestion", "required_input": "merge", "status": "pending", "priority": 0.6, "entity_id": a["id"],
         "entity_name": a["name"], "title": f"Are {a['name']} and {b['name']} the same person?", "created_date": "2026-11-01",

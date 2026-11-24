@@ -11,7 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from api.services import bank_index, inbox_tend, markdown_parser, merge_rejections, predicates, question_revisit, web_settle
+from api.services import (bank_index, inbox_tend, markdown_parser, merge_rejections, pending_store, predicates, question_revisit,
+                          web_settle)
 from api.services.claims import Claim, Evidence, parse_claims, write_claims
 
 
@@ -53,6 +54,7 @@ def _episode(memory: Path, eid: str, text: str, **fm) -> None:
 def memory(tmp_path, monkeypatch):
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
     monkeypatch.setattr(inbox_tend, "_RECORD_READ", {})
+    monkeypatch.setattr("api.services.pair_evidence.FRESH_S", 0.0)    # the lexical index is checked against the files each look
     m = tmp_path / "memory"
     for sub in ("entities", "episodes", "inbox"):
         (m / sub).mkdir(parents=True)
@@ -127,12 +129,41 @@ def test_a_located_line_that_presents_both_names_as_one_is_read_twice_and_joins(
     assert "sceptical reader" in calls[1] and "sceptical reader" not in calls[0]
 
 
-def test_a_line_in_an_assistants_turn_counts_and_its_kind_is_recorded(memory):
+def test_only_the_persons_and_a_named_speakers_turns_can_say_two_names_are_one(memory):
+    # An assistant repeating "<Full Name> (<Short>)" (Sleep's own prose reaches an agent through recall) is no evidence.
     path = _pair(memory, role="assistant")
+    calls: list = []
+    result = _assess(memory, path, _judge(ONE_SAID, calls=calls))
+    assert result.outcome == "unsure" and result.decision is None and result.reads == 1
+    assert "Teodor Brandt, called Teo" in calls[0]            # shown to the reader as context, never as the line
+    # an agent's saved note and text relayed from an app are the agent's, whatever markers they carry
+    _episode(memory, "ep_2026-10-03_001", f"user: {APPOSITION}\n", evidence_kind="assistant", source="mcp")
+    _commit(memory)
+    assert _assess(memory, path, _judge(ONE_SAID)).outcome == "unsure"
+    _episode(memory, "ep_2026-10-03_001", f"relayed [ChatGPT]: {APPOSITION}\n")
+    _commit(memory)
+    assert _assess(memory, path, _judge(ONE_SAID)).outcome == "unsure"
+    # a named speaker in a meeting counts, and its kind is recorded: never the person's own quote
+    _episode(memory, "ep_2026-10-03_001", f"speaker:Mina Okoye: {APPOSITION}\n")
+    _commit(memory)
     result = _assess(memory, path, _judge(ONE_SAID))
-    assert result.outcome == "join"
-    assert [s["kind"] for s in result.decision.spans] == ["assistant"]
-    assert result.decision.quote is None      # the person's words only ever ride as the person's quote
+    assert result.outcome == "join" and [s["kind"] for s in result.decision.spans] == ["speaker"] and result.decision.quote is None
+    # and the person's own turn still does
+    _episode(memory, "ep_2026-10-03_001", f"user: {APPOSITION}\n\nassistant: Noted.\n")
+    _commit(memory)
+    assert _assess(memory, path, _judge(ONE_SAID)).outcome == "join"
+
+
+def test_an_assistants_line_does_not_stand_in_for_a_belief_either(memory):
+    path = _pair(memory, turn=TOGETHER_TWO)
+    _filler(memory, 24)
+    _episode(memory, "ep_2026-10-03_001", f"user: {TOGETHER_TWO}\n\nassistant: Teo wrote the zephyr cutover runbook for Kestrel Robotics.\n")
+    _page(memory, "teo", "Teo", "## Summary\nA colleague.\n")
+    _page(memory, "teodor-brandt", "Teodor Brandt", "## Summary\nTeodor Brandt wrote the zephyr cutover runbook for Kestrel Robotics.\n")
+    _commit(memory)
+    belief = {"verdict": "one", "here": "Teo wrote the zephyr cutover runbook for Kestrel Robotics.",
+              "there": "Teodor Brandt wrote the zephyr cutover runbook for Kestrel Robotics.", "reason": "same"}
+    assert _assess(memory, path, _judge(belief)).outcome == "unsure"
 
 
 def test_words_that_are_not_in_a_turn_shown_withdraw_the_answer(memory):
@@ -158,6 +189,7 @@ def test_the_second_read_looks_for_the_other_answer_and_any_two_stops_it(memory)
 
 def test_two_people_named_in_one_breath_stay_two_when_either_read_says_so(memory):
     path = _pair(memory, turn=TOGETHER_TWO)
+    _filler(memory, 24)
     belief = {"verdict": "one", "here": "Teo leads the migration of the billing platform at Kestrel Robotics.",
               "there": "Teodor Brandt leads the migration of the billing platform at Kestrel Robotics.", "reason": "same"}
     two = {"verdict": "two", "reason": "the offsite turn names them as two people at different tables"}
@@ -168,17 +200,52 @@ def test_two_people_named_in_one_breath_stay_two_when_either_read_says_so(memory
     assert _assess(memory, path, _judge(two)).outcome == "two"
 
 
+def _filler(memory: Path, n: int, *, mention: str = "") -> None:
+    """Pages enough for the bank to tell a rare word from a common one (`typo_join.MIN_BANK_PAGES`); ``mention`` is a line
+    the first few of them carry (a company many people at it are known by)."""
+    for i in range(n):
+        body = f"## Summary\nNote number {i} about the harbour garden.\n" + (f"\n{mention}\n" if mention and i < 5 else "")
+        _page(memory, f"filler-{i}", f"Filler Topic {i}", body, type="concept")
+    _commit(memory)
+
+
+RARE_SAME = ("Teo leads the zephyr cutover runbook at Kestrel Robotics.", "Teodor Brandt leads the zephyr cutover runbook at Kestrel Robotics.")
+
+
 def test_a_belief_needs_name_and_a_second_kind_and_lines_found_on_each_side(memory):
     path = _pair(memory, turn=TOGETHER_TWO)
-    ok = {"verdict": "one", "here": "Teo leads the migration of the billing platform at Kestrel Robotics.",
-          "there": "Teodor Brandt leads the migration of the billing platform at Kestrel Robotics.", "reason": "same fact"}
+    _filler(memory, 24)
+    _page(memory, "teo", "Teo", f"## Summary\n{RARE_SAME[0]}\n", source_episodes=["ep_2026-10-03_001"])
+    _page(memory, "teodor-brandt", "Teodor Brandt", f"## Summary\n{RARE_SAME[1]}\n", source_episodes=["ep_2026-10-03_001"])
+    _commit(memory)
+    ok = {"verdict": "one", "here": RARE_SAME[0], "there": RARE_SAME[1], "reason": "same fact"}
     assert _assess(memory, path, _judge(ok)).outcome == "join"
     wrong_side = {**ok, "there": "Teodor Brandt runs the whole sales team at Kestrel Robotics."}
     assert _assess(memory, path, _judge(wrong_side)).outcome == "unsure"
-    common = _pair_common_ground(memory)
-    assert _assess(memory, common, _judge({"verdict": "one", "here": "Teo works at Kestrel Robotics as an engineer.",
-                                            "there": "Teodor Brandt works at Kestrel Robotics as an engineer.",
-                                            "reason": "same"})).outcome in ("unsure", "join")
+
+
+def test_a_shared_employer_or_role_is_not_a_fact_about_this_pair(memory):
+    # Two people with one first name at one company, each page saying where they work: true of many people. The company
+    # is on several pages of the bank (colleagues), so no word the two lines share is rare.
+    path = _pair(memory, turn=TOGETHER_TWO)
+    _filler(memory, 24, mention="Works at Kestrel Robotics as an engineer.")
+    _page(memory, "teo", "Teo", "## Summary\nTeo works at Kestrel Robotics as an engineer.\n", source_episodes=["ep_2026-10-03_001"])
+    _page(memory, "teodor-brandt", "Teodor Brandt", "## Summary\nTeodor Brandt works at Kestrel Robotics as an engineer.\n",
+          source_episodes=["ep_2026-10-03_001"])
+    _commit(memory)
+    same = {"verdict": "one", "here": "Teo works at Kestrel Robotics as an engineer.",
+            "there": "Teodor Brandt works at Kestrel Robotics as an engineer.", "reason": "same"}
+    assert _assess(memory, path, _judge(same)).outcome == "unsure"
+    # and a bank too small to count how common a word is anchors nothing: a named thing in both lines is not enough here
+    tiny = _pair_common_ground(_fresh_bank_with_pair(memory))
+    assert _assess(memory, tiny, _judge(same)).outcome == "unsure"
+
+
+def _fresh_bank_with_pair(memory: Path) -> Path:
+    for f in (memory / "entities").glob("filler-*.md"):
+        f.unlink()
+    _commit(memory)
+    return memory
 
 
 def _pair_common_ground(memory: Path) -> Path:
@@ -244,7 +311,6 @@ def _llm(*replies, calls: list | None = None):
 
 
 def test_what_was_read_is_not_read_again_until_it_changes_or_the_reader_is_stronger(memory, monkeypatch):
-    monkeypatch.setattr("api.services.pair_evidence.FRESH_S", 0.0)    # the lexical index is rebuilt for each look here
     _pair(memory)
     calls: list = []
     fn = _llm({"verdict": "cannot_tell"}, calls=calls)
@@ -404,3 +470,169 @@ def test_a_question_the_person_put_off_is_not_looked_at(memory):
     markdown_parser.write(path, {**dict(markdown_parser.parse(path).frontmatter),
                                  "remind_after": (date.today() + timedelta(days=5)).isoformat()}, "x")
     assert question_revisit.candidates(memory) == []
+
+
+# --------------------------------------------------------------------------- what the reader is shown (review 2026-11-24)
+
+
+def _long_histories(memory: Path, n: int = 12) -> None:
+    """Both pages list `n` conversations of their own (more than a bound cuts at), none of them naming both."""
+    a_eps, b_eps = [], []
+    for i in range(n):
+        ea, eb = f"ep_2026-09-{i + 1:02d}_001", f"ep_2026-09-{i + 13:02d}_002"
+        _episode(memory, ea, "user: Teo went to the gym.\n")
+        _episode(memory, eb, "user: Teodor Brandt went to the bank.\n")
+        a_eps.append(ea)
+        b_eps.append(eb)
+    for pid, name, eps in (("teo", "Teo", a_eps), ("teodor-brandt", "Teodor Brandt", b_eps)):
+        fm = dict(markdown_parser.parse(memory / "entities" / f"{pid}.md").frontmatter)
+        markdown_parser.write(memory / "entities" / f"{pid}.md", {**fm, "source_episodes": eps},
+                              f"## Summary\n{name} leads the migration of the billing platform.\n")
+
+
+def test_a_later_denial_in_a_conversation_no_page_lists_is_always_shown(memory):
+    path = _pair(memory)
+    _long_histories(memory)
+    _episode(memory, "ep_2026-11-22_001", "user: Teo and Teodor Brandt are two different people, stop mixing them up.\n", processed=False)
+    _commit(memory)
+    calls: list = []
+    result = _assess(memory, path, _judge({"verdict": "one", "said": "Teodor Brandt, called Teo, starts on the platform team",
+                                           "reason": "x"}, calls=calls))
+    assert result.case is not None
+    assert "stop mixing them up" in calls[0]                              # the reader sees the denial a cut used to drop
+    assert result.case.turns[0].episode in ("ep_2026-10-03_001", "ep_2026-11-22_001")   # conversations naming both lead
+    assert {t.episode for t in result.case.turns if t.both} == {"ep_2026-10-03_001", "ep_2026-11-22_001"}
+
+
+def test_more_conversations_naming_both_than_can_be_shown_leave_the_question_with_a_reason(memory):
+    path = _pair(memory)
+    for i in range(question_revisit.MAX_BOTH_CONVERSATIONS + 1):
+        _episode(memory, f"ep_2026-08-{i + 1:02d}_001", "user: I asked Teo about Teodor Brandt's plan.\n")
+    _commit(memory)
+    case, why = question_revisit.pair_case(memory, path, dict(markdown_parser.parse(path).frontmatter))
+    assert case is None and why == "too_many_conversations"
+    calls: list = []
+    assert _assess(memory, path, _judge(ONE_SAID, calls=calls)).outcome == "skip" and calls == []
+
+
+# --------------------------------------------------------------------------- guards a wrong join must pass (review 2026-11-24)
+
+
+def test_a_short_name_page_that_carries_another_full_name_is_left(memory):
+    path = _pair(memory)
+    fm = dict(markdown_parser.parse(memory / "entities" / "teo.md").frontmatter)
+    markdown_parser.write(memory / "entities" / "teo.md", {**fm, "aliases": ["Teodor Vance"]}, "## Summary\nTeo, also Teodor Vance.\n")
+    _commit(memory)
+    case, why = question_revisit.pair_case(memory, path, dict(markdown_parser.parse(path).frontmatter))
+    assert case is None and why == "page_is_someone_in_full"
+    calls: list = []
+    assert _assess(memory, path, _judge(ONE_SAID, calls=calls)).outcome == "skip" and calls == []
+
+
+def test_a_held_person_the_short_name_could_mean_leaves_the_question(memory):
+    path = _pair(memory)
+    fm = dict(markdown_parser.parse(path).frontmatter)
+    assert question_revisit.pair_case(memory, path, fm)[0] is not None
+    pending_store.upsert(memory, pending_store.PendingEntity("Teo Marin", "person", "a barber", "ep_2026-10-20_001", 0.4, [], []))
+    _commit(memory)
+    assert question_revisit.pair_case(memory, path, fm)[1] == "short_name_not_alone"
+
+
+def test_another_page_of_any_type_that_answers_to_the_short_name_leaves_the_question(memory):
+    path = _pair(memory)
+    _page(memory, "teo-the-cat", "Teo", "## Summary\nA cat.\n", type="concept")
+    _commit(memory)
+    assert question_revisit.pair_case(memory, path, dict(markdown_parser.parse(path).frontmatter))[1] == "short_name_not_alone"
+
+
+def test_two_full_names_that_share_no_spelling_are_two_people_for_the_person(memory):
+    path = _pair(memory)
+    fm = dict(markdown_parser.parse(memory / "entities" / "teo.md").frontmatter)
+    markdown_parser.write(memory / "entities" / "teo.md", {**fm, "name": "Teo Okafor"}, "## Summary\nTeo Okafor leads billing.\n")
+    _commit(memory)
+    case, why = question_revisit.pair_case(memory, path, dict(markdown_parser.parse(path).frontmatter))
+    assert case is None and why == "two_full_names"
+
+
+# --------------------------------------------------------------------------- a failed read is not a read
+
+
+def test_an_unusable_reply_is_read_again_on_a_later_run_up_to_the_bound(memory):
+    _pair(memory)
+    calls: list = []
+    fn = _llm("garbage", calls=calls)                                       # not an object: nothing usable
+    for expected in (1, 2, 2, 2):
+        run(question_revisit.tend(memory, _Settings(memory), fn, model="claude-haiku-4"))
+        assert len(calls) == expected
+    assert question_revisit._seen(memory)["inbox-001"]["o"] == "unread"
+    run(question_revisit.tend(memory, _Settings(memory), fn, model="claude-sonnet-4"))
+    assert len(calls) == 3                                                  # a stronger reader still gets its look
+
+
+def test_a_read_that_answered_is_final_for_the_same_material(memory):
+    _pair(memory)
+    calls: list = []
+    fn = _llm({"verdict": "cannot_tell"}, calls=calls)
+    for _ in range(3):
+        run(question_revisit.tend(memory, _Settings(memory), fn, model="claude-haiku-4"))
+    assert len(calls) == 1
+
+
+# --------------------------------------------------------------------------- the owner's case: a short name that is also an alias
+
+
+def _owner_case(memory: Path, *, turn: str = APPOSITION, filler: int = 14) -> Path:
+    """Short-name page titled "Teo"; the full-name page carries the alias "Teo"; each lists more than 12 conversations; one
+    conversation (the person's own turn, or a named speaker's) uses both names for one person."""
+    path = _pair(memory, turn=turn)
+    _long_histories(memory, filler)
+    fm = dict(markdown_parser.parse(memory / "entities" / "teodor-brandt.md").frontmatter)
+    markdown_parser.write(memory / "entities" / "teodor-brandt.md", {**fm, "aliases": ["Teo"]},
+                          "## Summary\nTeodor Brandt leads the migration of the billing platform.\n")
+    _commit(memory)
+    return path
+
+
+def test_a_title_the_other_page_lists_as_an_alias_is_read_and_joins_on_a_located_line(memory):
+    path = _owner_case(memory)
+    case, why = question_revisit.pair_case(memory, path, dict(markdown_parser.parse(path).frontmatter))
+    assert why == "" and case is not None
+    assert case.a.names == ["Teo"] and case.b.names == ["Teodor Brandt"] and "Teo" in case.b.all_names
+    result = _assess(memory, path, _judge(ONE_SAID))
+    assert result.outcome == "join" and result.reads == 2
+    assert result.decision.request == {"action": "merge", "merge_target": "teodor-brandt"}
+
+
+def test_the_short_name_alone_names_neither_page_so_a_turn_must_say_both_names(memory):
+    path = _owner_case(memory, turn="Teo sent the rota; I asked Teodor Brandt about it.")
+    _episode(memory, "ep_2026-10-04_001", "user: Teo is great and Teo is on call tonight.\n")
+    _commit(memory)
+    result = _assess(memory, path, _judge(ONE_SAID))
+    assert [t.n for t in result.case.turns if t.both] == [1] and "Teo is great" not in "".join(t.text for t in result.case.turns if t.both)
+    assert result.outcome == "unsure"                                       # no turn presents the two as one
+
+
+def test_the_owners_case_with_a_later_denial_and_the_guards_still_hold(memory):
+    path = _owner_case(memory)
+    _episode(memory, "ep_2026-11-22_001", "user: Teo and Teodor Brandt are different people, stop mixing them up.\n", processed=False)
+    _commit(memory)
+    calls: list = []
+    result = _assess(memory, path, _judge({"verdict": "two", "reason": "denied"}, calls=calls))
+    assert "stop mixing them up" in calls[0] and result.outcome == "two"
+    # a short name another page answers to is still left
+    _page(memory, "teo-the-cat", "Teo", "## Summary\nA cat.\n", type="concept")
+    _commit(memory)
+    assert question_revisit.pair_case(memory, path, dict(markdown_parser.parse(path).frontmatter))[1] == "short_name_not_alone"
+
+
+def test_identical_titles_and_an_alias_neither_title_owns_stay_left(memory):
+    path = _pair(memory)
+    fm = dict(markdown_parser.parse(memory / "entities" / "teodor-brandt.md").frontmatter)
+    markdown_parser.write(memory / "entities" / "teodor-brandt.md", {**fm, "name": "Teo"}, "## Summary\nTeo again.\n")
+    _commit(memory)
+    assert question_revisit.pair_case(memory, path, dict(markdown_parser.parse(path).frontmatter))[1] == "same_title"
+    markdown_parser.write(memory / "entities" / "teodor-brandt.md", {**fm, "aliases": ["TB"]}, "## Summary\nx.\n")
+    markdown_parser.write(memory / "entities" / "teo.md", {**dict(markdown_parser.parse(memory / "entities" / "teo.md").frontmatter),
+                                                          "aliases": ["TB"]}, "## Summary\nx.\n")
+    _commit(memory)
+    assert question_revisit.pair_case(memory, path, dict(markdown_parser.parse(path).frontmatter))[1] == "one_spelling"

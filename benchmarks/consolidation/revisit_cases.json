@@ -1,105 +1,26 @@
 [
- {"id": "owner-card", "group": "pair", "kind": "one", "why": "the owner's case: each page says so in prose, two conversations name both, one presents them as one person",
-  "pages": [
-   {"id": "teo", "name": "Teo", "facts": ["Teo leads the billing migration at Kestrel Robotics.", "A chat names Teo by the full name Teodor Brandt."]},
-   {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt, called Teo, leads the billing migration at Kestrel Robotics."]}],
-  "episodes": [
-   {"id": "ep_2026-10-03_001", "text": "user: Teodor Brandt, called Teo, takes over the billing migration at Kestrel Robotics on Monday.\n\nassistant: Noted."},
-   {"id": "ep_2026-10-12_001", "text": "user: Teodor Brandt sent the migration plan and Teo says it ships on Friday.\n\nassistant: Understood."}],
-  "source": "ep_2026-10-03_001"},
- {"id": "assistant-apposition", "group": "pair", "kind": "one", "why": "only an assistant's turn presents the two names as one person",
-  "pages": [
-   {"id": "teo", "name": "Teo", "facts": ["Teo leads the billing migration at Kestrel Robotics."]},
-   {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt leads the billing migration at Kestrel Robotics."]}],
-  "episodes": [
-   {"id": "ep_2026-10-03_001", "text": "user: Who is running the billing migration?\n\nassistant: Teodor Brandt (Teo to his team) is running the billing migration at Kestrel Robotics."}],
-  "source": "ep_2026-10-03_001"},
- {"id": "true-spanish", "group": "pair", "kind": "one", "why": "another language: a nickname after the full name",
-  "pages": [
-   {"id": "lu", "name": "Lu", "facts": ["Lu vive en Valencia y trabaja en el hospital."]},
-   {"id": "lucia-herrera", "name": "Lucia Herrera", "facts": ["Lucia Herrera trabaja en el hospital de Valencia."]}],
-  "episodes": [
-   {"id": "ep_2026-10-03_001", "text": "user: Hable con Lucia Herrera, a quien todos llaman Lu, sobre el turno en el hospital de Valencia.\n\nassistant: Entendido."}],
-  "source": "ep_2026-10-03_001"},
- {"id": "true-parenthesis", "group": "pair", "kind": "one", "why": "the nickname in a parenthesis after the full name",
-  "pages": [
-   {"id": "teo", "name": "Teo", "facts": ["Teo is back from Lisbon and plays cello in the Harbour Quartet."]},
-   {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt plays cello in the Harbour Quartet."]}],
-  "episodes": [
-   {"id": "ep_2026-10-03_001", "text": "user: Ran into Teodor Brandt (Teo) at the station this morning, he is back from Lisbon.\n\nassistant: Noted."}],
-  "source": "ep_2026-10-03_001"},
- {"id": "colleagues-one-breath", "group": "pair", "kind": "two", "why": "two colleagues of one first name at one company, named in one breath",
-  "pages": [
-   {"id": "teo", "name": "Teo", "facts": ["Teo is a backend engineer at Kestrel Robotics."]},
-   {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt is a salesman at Kestrel Robotics."]}],
-  "episodes": [
-   {"id": "ep_2026-10-03_001", "text": "user: Teo and Teodor Brandt both joined the Kestrel standup today, they sat at different tables.\n\nassistant: Noted."}],
-  "source": "ep_2026-10-03_001"},
- {"id": "colleagues-same-project", "group": "pair", "kind": "two", "why": "two colleagues on the same project and employer, named in a list",
-  "pages": [
-   {"id": "teo", "name": "Teo", "facts": ["Teo works on the billing migration at Kestrel Robotics."]},
-   {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt works on the billing migration at Kestrel Robotics."]}],
-  "episodes": [
-   {"id": "ep_2026-10-03_001", "text": "user: The billing migration team at Kestrel Robotics is Mira, Teo, Teodor Brandt and Ana.\n\nassistant: Noted."}],
-  "source": "ep_2026-10-03_001"},
- {"id": "colleagues-told-apart", "group": "pair", "kind": "two", "why": "one is told apart from the other by the person",
-  "pages": [
-   {"id": "teo", "name": "Teo", "facts": ["Teo works on the billing migration at Kestrel Robotics."]},
-   {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt works on the billing migration at Kestrel Robotics."]}],
-  "episodes": [
-   {"id": "ep_2026-10-03_001", "text": "user: Not Teodor Brandt, I meant Teo, the other one, the one who sits by the window.\n\nassistant: Understood."}],
-  "source": "ep_2026-10-03_001"},
- {"id": "siblings", "group": "pair", "kind": "two", "why": "a brother and a sister whose names are a letter apart",
-  "pages": [
-   {"id": "dana-kovac", "name": "Dana Kovac", "facts": ["Dana Kovac is the person's sister and lives in Porto."]},
-   {"id": "dan-kovac", "name": "Dan Kovac", "facts": ["Dan Kovac is the person's brother and lives in Porto."]}],
-  "episodes": [
-   {"id": "ep_2026-10-03_001", "text": "user: My sister Dana Kovac and my brother Dan Kovac both live in Porto now.\n\nassistant: Noted."}],
-  "source": "ep_2026-10-03_001"},
- {"id": "relative-of", "group": "pair", "kind": "two", "why": "one is the other's relative",
-  "pages": [
-   {"id": "teo", "name": "Teo", "facts": ["Teo is a student in Lisbon."]},
-   {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt is Teo's grandfather and a retired clockmaker."]}],
-  "episodes": [
-   {"id": "ep_2026-10-03_001", "text": "user: My nephew Teo visited his grandfather Teodor Brandt, the retired clockmaker.\n\nassistant: Noted."}],
-  "source": "ep_2026-10-03_001"},
- {"id": "copied-facts-denied", "group": "pair", "kind": "two", "why": "identical lines on both pages (a wrong earlier join), and the person says they are two",
-  "pages": [
-   {"id": "teo", "name": "Teo", "facts": ["Teo leads the billing migration at Kestrel Robotics."]},
-   {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teo leads the billing migration at Kestrel Robotics."]}],
-  "episodes": [
-   {"id": "ep_2026-10-03_001", "text": "user: Teodor Brandt is not Teo, they are two different people who both work on the billing migration at Kestrel Robotics.\n\nassistant: Noted."}],
-  "source": "ep_2026-10-03_001"},
- {"id": "adv-comma-list", "group": "pair", "kind": "two", "why": "a comma list that looks like an apposition",
-  "pages": [
-   {"id": "teo", "name": "Teo", "facts": ["Teo works on the billing migration at Kestrel Robotics."]},
-   {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt works on the billing migration at Kestrel Robotics."]}],
-  "episodes": [
-   {"id": "ep_2026-10-03_001", "text": "user: Lunch today was Mira, Teo, Teodor Brandt, and Ana, we talked about the billing migration at Kestrel Robotics.\n\nassistant: Noted."}],
-  "source": "ep_2026-10-03_001"},
- {"id": "adv-father-of", "group": "pair", "kind": "two", "why": "an apposition naming a relation between them",
-  "pages": [
-   {"id": "teo", "name": "Teo", "facts": ["Teo studies cello in Lisbon."]},
-   {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt is a retired judge in Lisbon."]}],
-  "episodes": [
-   {"id": "ep_2026-10-03_001", "text": "user: Teodor Brandt, the father of Teo, retired from the court in Lisbon in June.\n\nassistant: Noted."}],
-  "source": "ep_2026-10-03_001"},
- {"id": "adv-not-him", "group": "pair", "kind": "two", "why": "a negation inside the apposition",
-  "pages": [
-   {"id": "teo", "name": "Teo", "facts": ["Teo leads the billing migration at Kestrel Robotics."]},
-   {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt leads the billing migration at Kestrel Robotics."]}],
-  "episodes": [
-   {"id": "ep_2026-10-03_001", "text": "user: Teodor Brandt, not Teo, owns the billing migration at Kestrel Robotics; Teo only reviews it.\n\nassistant: Noted."}],
-  "source": "ep_2026-10-03_001"},
- {"id": "conflict-later-words", "group": "conflict", "kind": "one", "value_a": "Lisbon", "value_b": "Porto", "pick": "Porto",
-  "later": "user: Ana Reyes moved to Porto last month, her Lisbon flat is gone.\n\nassistant: Noted."},
- {"id": "conflict-later-other-thing", "group": "conflict", "kind": "none", "value_a": "Lisbon", "value_b": "Porto",
-  "later": "user: Ana Reyes sent me photos of the Lisbon trams from last spring.\n\nassistant: Noted."},
+ {"id": "owner-card", "group": "pair", "kind": "one", "why": "the owner's case: each page says so in prose, two conversations name both, one presents them as one person", "pages": [{"id": "teo", "name": "Teo", "facts": ["Teo leads the billing migration at Kestrel Robotics.", "A chat names Teo by the full name Teodor Brandt."]}, {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt, called Teo, leads the billing migration at Kestrel Robotics."]}], "episodes": [{"id": "ep_2026-10-03_001", "text": "user: Teodor Brandt, called Teo, takes over the billing migration at Kestrel Robotics on Monday.\n\nassistant: Noted."}, {"id": "ep_2026-10-12_001", "text": "user: Teodor Brandt sent the migration plan and Teo says it ships on Friday.\n\nassistant: Understood."}], "source": "ep_2026-10-03_001"},
+ {"id": "assistant-apposition", "group": "pair", "kind": "none", "why": "only an assistant's turn presents the two names as one person, and the pages share no specific fact: an assistant's words are never that line, so it is left", "pages": [{"id": "teo", "name": "Teo", "facts": ["Teo plays chess on Fridays."]}, {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt manages the billing migration at Kestrel Robotics."]}], "episodes": [{"id": "ep_2026-10-03_001", "text": "user: Who is running the billing migration?\n\nassistant: Teodor Brandt (Teo to his team) is running the billing migration at Kestrel Robotics."}], "source": "ep_2026-10-03_001"},
+ {"id": "owner-as-it-was", "group": "pair", "kind": "one", "why": "the owner's case as it really was: the short-name page is titled with the name the full-name page lists as an alias, each page lists more than 12 conversations, one conversation uses both names for one person", "pages": [{"id": "teo", "name": "Teo", "facts": ["Teo leads the billing migration at Kestrel Robotics.", "A chat names Teo by the full name Teodor Brandt."]}, {"id": "teodor-brandt", "name": "Teodor Brandt", "aliases": ["Teo"], "facts": ["Teodor Brandt, called Teo, leads the billing migration at Kestrel Robotics."]}], "history": 14, "episodes": [{"id": "ep_2026-10-03_001", "text": "user: Teodor Brandt, called Teo, takes over the billing migration at Kestrel Robotics on Monday.\\n\\nassistant: Noted."}, {"id": "ep_2026-10-12_001", "text": "user: Teodor Brandt sent the migration plan and Teo says it ships on Friday.\\n\\nassistant: Understood."}], "source": "ep_2026-10-03_001"},
+ {"id": "owner-shape-denied-later", "group": "pair", "kind": "two", "why": "the owner's shape, but a conversation neither page lists yet has the person saying they are two different people", "pages": [{"id": "teo", "name": "Teo", "facts": ["Teo leads the billing migration at Kestrel Robotics."]}, {"id": "teodor-brandt", "name": "Teodor Brandt", "aliases": ["Teo"], "facts": ["Teodor Brandt leads the billing migration at Kestrel Robotics."]}], "history": 14, "episodes": [{"id": "ep_2026-10-03_001", "text": "user: Teodor Brandt, called Teo, takes over the billing migration at Kestrel Robotics on Monday.\\n\\nassistant: Noted."}, {"id": "ep_2026-11-22_001", "listed": false, "text": "user: Teo and Teodor Brandt are two different people, stop mixing them up, Teo is the quiet one on the platform team.\\n\\nassistant: Understood."}], "source": "ep_2026-10-03_001"},
+ {"id": "employer-first-name", "group": "pair", "kind": "two", "why": "two people with one first name at one company, each page saying where they work; the company is on several pages of the bank", "mention": "Works at Kestrel Robotics as an engineer.", "history": 3, "pages": [{"id": "teo", "name": "Teo", "facts": ["Teo works at Kestrel Robotics as an engineer."]}, {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt works at Kestrel Robotics as an engineer."]}], "episodes": [{"id": "ep_2026-10-03_001", "text": "user: Teodor Brandt and Teo are both at Kestrel Robotics these days, Teodor Brandt on the platform side.\\n\\nassistant: Noted."}], "source": "ep_2026-10-03_001"},
+ {"id": "short-page-another-surname", "group": "pair", "kind": "two", "why": "the short-name page already carries a different full name (an alias of another surname)", "pages": [{"id": "teo", "name": "Teo", "aliases": ["Teodor Vance"], "facts": ["Teo, also Teodor Vance, leads the billing migration at Kestrel Robotics."]}, {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt leads the billing migration at Kestrel Robotics."]}], "episodes": [{"id": "ep_2026-10-03_001", "text": "user: Teodor Brandt, called Teo, takes over the billing migration at Kestrel Robotics on Monday.\\n\\nassistant: Noted."}], "source": "ep_2026-10-03_001"},
+ {"id": "true-spanish", "group": "pair", "kind": "one", "why": "another language: a nickname after the full name", "pages": [{"id": "lu", "name": "Lu", "facts": ["Lu vive en Valencia y trabaja en el hospital."]}, {"id": "lucia-herrera", "name": "Lucia Herrera", "facts": ["Lucia Herrera trabaja en el hospital de Valencia."]}], "episodes": [{"id": "ep_2026-10-03_001", "text": "user: Hable con Lucia Herrera, a quien todos llaman Lu, sobre el turno en el hospital de Valencia.\n\nassistant: Entendido."}], "source": "ep_2026-10-03_001"},
+ {"id": "true-parenthesis", "group": "pair", "kind": "one", "why": "the nickname in a parenthesis after the full name", "pages": [{"id": "teo", "name": "Teo", "facts": ["Teo is back from Lisbon and plays cello in the Harbour Quartet."]}, {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt plays cello in the Harbour Quartet."]}], "episodes": [{"id": "ep_2026-10-03_001", "text": "user: Ran into Teodor Brandt (Teo) at the station this morning, he is back from Lisbon.\n\nassistant: Noted."}], "source": "ep_2026-10-03_001"},
+ {"id": "colleagues-one-breath", "group": "pair", "kind": "two", "why": "two colleagues of one first name at one company, named in one breath", "pages": [{"id": "teo", "name": "Teo", "facts": ["Teo is a backend engineer at Kestrel Robotics."]}, {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt is a salesman at Kestrel Robotics."]}], "episodes": [{"id": "ep_2026-10-03_001", "text": "user: Teo and Teodor Brandt both joined the Kestrel standup today, they sat at different tables.\n\nassistant: Noted."}], "source": "ep_2026-10-03_001"},
+ {"id": "colleagues-same-project", "group": "pair", "kind": "two", "why": "two colleagues on the same project and employer, named in a list", "pages": [{"id": "teo", "name": "Teo", "facts": ["Teo works on the billing migration at Kestrel Robotics."]}, {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt works on the billing migration at Kestrel Robotics."]}], "episodes": [{"id": "ep_2026-10-03_001", "text": "user: The billing migration team at Kestrel Robotics is Mira, Teo, Teodor Brandt and Ana.\n\nassistant: Noted."}], "source": "ep_2026-10-03_001"},
+ {"id": "colleagues-told-apart", "group": "pair", "kind": "two", "why": "one is told apart from the other by the person", "pages": [{"id": "teo", "name": "Teo", "facts": ["Teo works on the billing migration at Kestrel Robotics."]}, {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt works on the billing migration at Kestrel Robotics."]}], "episodes": [{"id": "ep_2026-10-03_001", "text": "user: Not Teodor Brandt, I meant Teo, the other one, the one who sits by the window.\n\nassistant: Understood."}], "source": "ep_2026-10-03_001"},
+ {"id": "siblings", "group": "pair", "kind": "two", "why": "a brother and a sister whose names are a letter apart", "pages": [{"id": "dana-kovac", "name": "Dana Kovac", "facts": ["Dana Kovac is the person's sister and lives in Porto."]}, {"id": "dan-kovac", "name": "Dan Kovac", "facts": ["Dan Kovac is the person's brother and lives in Porto."]}], "episodes": [{"id": "ep_2026-10-03_001", "text": "user: My sister Dana Kovac and my brother Dan Kovac both live in Porto now.\n\nassistant: Noted."}], "source": "ep_2026-10-03_001"},
+ {"id": "relative-of", "group": "pair", "kind": "two", "why": "one is the other's relative", "pages": [{"id": "teo", "name": "Teo", "facts": ["Teo is a student in Lisbon."]}, {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt is Teo's grandfather and a retired clockmaker."]}], "episodes": [{"id": "ep_2026-10-03_001", "text": "user: My nephew Teo visited his grandfather Teodor Brandt, the retired clockmaker.\n\nassistant: Noted."}], "source": "ep_2026-10-03_001"},
+ {"id": "copied-facts-denied", "group": "pair", "kind": "two", "why": "identical lines on both pages (a wrong earlier join), and the person says they are two", "pages": [{"id": "teo", "name": "Teo", "facts": ["Teo leads the billing migration at Kestrel Robotics."]}, {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teo leads the billing migration at Kestrel Robotics."]}], "episodes": [{"id": "ep_2026-10-03_001", "text": "user: Teodor Brandt is not Teo, they are two different people who both work on the billing migration at Kestrel Robotics.\n\nassistant: Noted."}], "source": "ep_2026-10-03_001"},
+ {"id": "adv-comma-list", "group": "pair", "kind": "two", "why": "a comma list that looks like an apposition", "pages": [{"id": "teo", "name": "Teo", "facts": ["Teo works on the billing migration at Kestrel Robotics."]}, {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt works on the billing migration at Kestrel Robotics."]}], "episodes": [{"id": "ep_2026-10-03_001", "text": "user: Lunch today was Mira, Teo, Teodor Brandt, and Ana, we talked about the billing migration at Kestrel Robotics.\n\nassistant: Noted."}], "source": "ep_2026-10-03_001"},
+ {"id": "adv-father-of", "group": "pair", "kind": "two", "why": "an apposition naming a relation between them", "pages": [{"id": "teo", "name": "Teo", "facts": ["Teo studies cello in Lisbon."]}, {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt is a retired judge in Lisbon."]}], "episodes": [{"id": "ep_2026-10-03_001", "text": "user: Teodor Brandt, the father of Teo, retired from the court in Lisbon in June.\n\nassistant: Noted."}], "source": "ep_2026-10-03_001"},
+ {"id": "adv-not-him", "group": "pair", "kind": "two", "why": "a negation inside the apposition", "pages": [{"id": "teo", "name": "Teo", "facts": ["Teo leads the billing migration at Kestrel Robotics."]}, {"id": "teodor-brandt", "name": "Teodor Brandt", "facts": ["Teodor Brandt leads the billing migration at Kestrel Robotics."]}], "episodes": [{"id": "ep_2026-10-03_001", "text": "user: Teodor Brandt, not Teo, owns the billing migration at Kestrel Robotics; Teo only reviews it.\n\nassistant: Noted."}], "source": "ep_2026-10-03_001"},
+ {"id": "conflict-later-words", "group": "conflict", "kind": "one", "value_a": "Lisbon", "value_b": "Porto", "pick": "Porto", "later": "user: Ana Reyes moved to Porto last month, her Lisbon flat is gone.\n\nassistant: Noted."},
+ {"id": "conflict-later-other-thing", "group": "conflict", "kind": "none", "value_a": "Lisbon", "value_b": "Porto", "later": "user: Ana Reyes sent me photos of the Lisbon trams from last spring.\n\nassistant: Noted."},
  {"id": "conflict-no-later", "group": "conflict", "kind": "none", "value_a": "Lisbon", "value_b": "Porto", "later": ""},
- {"id": "who-is-it-answered", "group": "clarification", "kind": "one", "name": "Quill",
-  "later": "user: Quill is the note-taking app I use for my meeting notes.\n\nassistant: Noted."},
- {"id": "who-is-it-passing", "group": "clarification", "kind": "none", "name": "Quill",
-  "later": "user: I opened Quill for a second and closed it again.\n\nassistant: Noted."},
+ {"id": "who-is-it-answered", "group": "clarification", "kind": "one", "name": "Quill", "later": "user: Quill is the note-taking app I use for my meeting notes.\n\nassistant: Noted."},
+ {"id": "who-is-it-passing", "group": "clarification", "kind": "none", "name": "Quill", "later": "user: I opened Quill for a second and closed it again.\n\nassistant: Noted."},
  {"id": "decay-later-mention", "group": "decay", "kind": "one", "mentioned": true},
  {"id": "decay-no-mention", "group": "decay", "kind": "none", "mentioned": false}
 ]

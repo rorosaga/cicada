@@ -10,7 +10,16 @@ One stable line per open question the step would look at, in the order it looks 
   inbox-128  merge_suggestion  would_read     revisit_one      -          (without --read: a model decides)
 
   the id, the kind, what it would do, the rule, and the ids of the evidence (a conversation and the offsets of the located
-  words, and whose words they are). Never a name, a title or a word of text.
+  words, and whose words they are: only the person's own turn or a named speaker's can be one). Never a name, a title or a
+  word of text.
+
+The reasons a pair is ``left:<why>`` without a read: ``same_title`` (two pages with one title: ruling 74a's), ``one_spelling``
+(a spelling shared that is neither page's title), ``short_name_not_alone`` (another page of any type, another person or a
+person held with no page could be whom a short name means), ``page_is_someone_in_full`` (a short-name page that carries
+another full name), ``two_full_names`` (two full names sharing no spelling), ``kept_apart``, ``in_a_doubt``,
+``alias_removed``, ``too_many_conversations`` (more conversations hold both names than can be shown: never cut),
+``index_not_ready``, ``too_many_turns``, ``turn_too_long``, ``nothing_ties_them``, ``read_already`` (answered, nothing
+changed; a read that produced nothing usable is read again up to twice).
 
 Without ``--read`` nothing is sent to a model: a question that passes its engine-free guards is listed ``would_read``. With
 ``--read`` the engine's main model reads at most ``--max-reads`` of them, twice each for a pair, exactly as Sleep would

@@ -307,6 +307,30 @@ def _turns_naming_both(memory_path: Path, episodes: list[str], full_names: list[
     return out, ""
 
 
+def short_name_is_alone(memory_path: Path, short_keys: set[str], own_ids: set[str], *, people: list[tuple[str, dict]] | None = None,
+                        held_skip: set[str] = frozenset()) -> bool:
+    """Is every thing the short names could mean one of ``own_ids``? No page of ANY type (a company, a pet, a tool called
+    the same) answers to one of them besides those, no other person page has a name one of them begins, and no person held
+    in ``pending_store`` (a name with no page yet) could be whom they mean; ``held_skip``: held lines (lower-cased names)
+    that are the very names being joined. One reading for the two joins that start from a short name: `guards` here and
+    `question_revisit.pair_case`."""
+    from api.services import pending_store
+
+    memory_path = Path(memory_path)
+    if any(pid not in own_ids and short_keys & {_key(n) for n in _names_of(pfm)} for pid, pfm in _all_pages(memory_path)):
+        return False
+    for pid, pfm in (people if people is not None else _person_pages(memory_path)):
+        if pid not in own_ids and any(_could_mean(k, _names_of(pfm)) for k in short_keys):
+            return False
+    for other in pending_store.load(memory_path):
+        if other.name.strip().lower() in held_skip or str(other.type or "").lower() != "person":
+            continue
+        names = [other.name, other.title, *other.aliases]
+        if any(_could_mean(k, names) for k in short_keys):
+            return False
+    return True
+
+
 def guards(memory_path: Path, path: Path, fm: dict, *, today: str | None = None) -> tuple[Case | None, str]:
     """``(case, "")`` when every engine-free condition (1 to 5 of the module's list) holds for this open question, else
     ``(None, why it stays)``. Reads only."""
@@ -361,19 +385,9 @@ def guards(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
     if any(len(_words(n)) >= 2 and _key(n) not in full_keys for n in _names_of(target_fm)):
         return None, "page_is_someone_in_full"
     # Exactly ONE page (of any type: a company or a pet called the same) answers to the short name, and no other person
-    # could be whom it means.
-    answering = [pid for pid, pfm in _all_pages(memory_path) if short_keys & {_key(n) for n in _names_of(pfm)}]
-    if answering != [target_id]:
+    # (a page, or a held line) could be whom it means.
+    if not short_name_is_alone(memory_path, short_keys, {target_id}, people=people, held_skip={full.lower()}):
         return None, "short_name_not_alone"
-    for pid, pfm in people:
-        if pid != target_id and any(_could_mean(k, _names_of(pfm)) for k in short_keys):
-            return None, "short_name_not_alone"
-    for other in pending_store.load(memory_path):
-        if other.name.strip().lower() == full.lower() or str(other.type or "").lower() != "person":
-            continue
-        names = [other.name, other.title, *other.aliases]
-        if any(_could_mean(k, names) for k in short_keys):
-            return None, "short_name_not_alone"
     if (merge_rejections.is_rejected(memory_path, own_id, target_id) or merge_rejections.is_split(memory_path, own_id,
                                                                                                     target_id)
             or inbox_tend._split_apart(memory_path, own_id, target_id)):

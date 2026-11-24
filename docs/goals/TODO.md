@@ -4109,27 +4109,38 @@ A whole row moves to DONE only after its remaining implementation and required a
    on are copied and the code locates them (`source_spans` rungs, never fuzzy), with authorship known. **People:** two pages close
    as one person only on a located line, in a conversation, whoever's turn (the kind is recorded), that carries both names and
    presents them as one, or on two independent kinds in ruling 74's sense (the name, an alias included, counts once; a shared
-   account is the code's; a shared belief is two copied lines, one per side, the same specific fact, sharing a word the bank does
-   not hold on many pages; an employer, a team or a city is never the same fact). A page's own prose that says so is not evidence
-   (Sleep wrote it). Both names in one conversation no longer blocks a read (it blocked ruling 74 and 74c on the owner's card, where
+   account is the code's; a shared belief is two copied lines, one per side, the same specific fact, sharing a word the bank
+   holds on at most three pages: here a shared employer, team or role never anchors, because the name evidence may be only a
+   first name inside a full name, and a bank too small to count anchors nothing). A page's own prose that says so is not evidence
+   (Sleep wrote it), and neither is an assistant's turn, an agent's saved note or text relayed from an app: only the person's own
+   turn or a named speaker's counts (authorship says which), since Sleep's prose reaches an agent through recall and comes back
+   as its sentence, a loop with no new evidence (review 2026-11-24, B5). Both names in one conversation no longer blocks a read (it blocked ruling 74 and 74c on the owner's card, where
    "named together in 2 conversations" was the same person); every turn that names both is shown whole, "named together as two
    people" is the model's reading in context, and a second read, framed to look for a reason they are two and blind to the first,
    must agree. Any "two", an unlocatable quote, an unusable reply or an error leaves the question as it is. Never the owner's page,
    a relation's page, a pair the person answered "no" to, split or undid, a page in a same-name doubt, or a short name another
-   person could be. **(b) Per kind.** Conflict, clarification, follow-up: the person's own newest words, located in their own turn
+   person could be (read as `full_name_join` reads it, one function: no other page of any type answers to it, no other person
+   page or person held with no page could be whom it means; a short-name page that already carries another full name is someone
+   in full; two full names sharing no spelling are two people). **A denial is never cut for room (B1):** the conversations that
+   name both names are shown first, every one (the index finds candidates, the code checks whole words); more than twelve, or an
+   index not ready to say, leaves the question with a counted reason. **The owner's own card (G1):** the full-name page listed the
+   short name as an alias and the short-name page was titled with it, so the pair shared a name key and was skipped as "one
+   spelling"; a title the other page lists as an alias, or a short name inside a full name, is now read, the shared name naming
+   only the short page. Two pages with the identical title stay ruling 74a's. **(b) Per kind.** Conflict, clarification, follow-up: the person's own newest words, located in their own turn
    and after every side of a conflict, read twice (the second read looks for why the option is wrong); the other value is kept
    (ruling 73). Decay: a later mention is itself the answer and `not_fading` already closes it with no model; nothing else about a
    fading page is Sleep's. Proposed page edits and sensitive items: left (the person's or a trusted agent's). A "same as?" about a
    name with no page and a same-name doubt keep their own lanes (74a, 74b). **(c) Order and bound.** The inbox's own order
-   (ruling 70); at most 8 questions read and 120 looked at per run; what was read is remembered outside every bank (ids, a digest
-   and the reader's model) and not read again until a page or conversation it read changed or the main model is a stronger one;
+   (ruling 70); at most 8 questions read and 120 looked at per run; what was read is remembered outside every bank (ids, a digest,
+   the reader's model and a count) and an answered question is not read again until a page or conversation it read changed or the
+   main model is a stronger one; a read that produced nothing usable (an unusable reply, an error) is no answer and is read again on
+   later runs, at most twice in all on the same material (B4);
    plan only through ruling 4's switch, a key inside the spending limit, a demo bank never read. Every settle is the question's
    own resolver as Sleep's commit (`revisit_one`, "Settled by Sleep"), undoable; an undo is the person saying they are two. **(d) Not
    built: computer use and browser use.** The rails say Cicada never spawns a browser and never signs in (G166); that needs his own
    ruling. The existing web check (27, 44, 54) is the only reach, unchanged. *What such a step could close that this cannot, from
    the synthetic set:* a question whose answer is not in any conversation or page of the bank (a person's role, an employer's
-   name) and sits behind a login or on a page only his own signed-in session shows. *Why:* on the Claude plan with haiku (the
-   product runs a stronger main model, so these are a floor), 20 labelled cases of invented people (13 pairs of pages, 3 conflicts, 2 "who is it?", 2 decay), 3 replays each: 21 of 21 wanted settles made, 0 wrong, and 39 of 39 replays of the cases that must stay open left open; the 9 cases that are two people (colleagues of one first name at one company, a list, siblings, a relative, a negation, a person's own "not him") 72 replays at 8 each before the last small edits and 27 after: 0 wrong joins. About 1.4 model calls per question read (69 calls, 51 reads: a pair two, a conflict one or two). **Trigger to revisit:** a settle of this rule the person undoes
+   name) and sits behind a login or on a page only his own signed-in session shows. *Why:* on the Claude plan with haiku (the product runs a stronger main model, so these are a floor), 24 labelled cases of invented people (17 pairs of pages, 3 conflicts, 2 "who is it?", 2 decay), 3 replays each (final run after the review fixes, bank of 25+ pages): 21 of 21 wanted settles made (4 pair cases, among them the owner's card as it really was: short-name page titled "<Short>", the full-name page carrying the alias "<Short>", both pages listing 14 conversations, one conversation using both names for one person), **0 wrong settles**, and every case that must stay open stayed open: the 13 cases that are two people or no evidence (a person's own "not him", a list, siblings, a relative, colleagues of one first name at one employer, a denial in a conversation neither page lists yet, an assistant's apposition, a short-name page carrying another surname) 39 of 39 replays left, 33 by a read and 6 by a guard with no read, and the 4 record cases that must stay open 12 of 12. About 1.3 model calls per question read (76 calls, 57 reads: a pair two). An earlier run with a mislabelled case (an assistant's apposition over two pages that already shared a specific fact, which is two kinds in ruling 74's sense) joined it twice: the case now shares no fact and is left 8 of 8. **Trigger to revisit:** a settle of this rule the person undoes
    (`inbox/settled`, rule `revisit_one` or `said_on_record`), counted, or the owner's ruling on browser use.
 
 80. **Every save is read: saving is the reason (owner, 2026-11-24; G246; withdraws ruling 62's index-only rule (points 1 to 4) and the saved-list half of ruling 30 point 1; amends rulings 13 and 16 in one place, PENDING HIS CONFIRMATION; amends 77 (d) and (e), 78 (e), and 79 (a) and (d)'s "rulings 30, 62, 68 stand"; plan `docs/plans/2026-11-24-saves-are-read.md`).**

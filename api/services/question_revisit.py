@@ -28,28 +28,43 @@ or to ask is not read here), and never a parallel lane: it settles through `inbo
 **Two people, one person** (`pair_case`, `assess`). The code finds and checks; the model only reads and copies.
 
 1. Guards (engine-free): both ends person pages, neither the owner's, archived, a relation's or unnamed; never a pair the
-   person called two, split or undid; never a page in a same-name doubt; no other person could be whom a short name
-   means; no spelling in common; and `inbox_tend.policy` still says only the person settles it.
+   person called two, split or undid; never a page in a same-name doubt; the short-name guards of `full_name_join.guards`
+   (one reading, `full_name_join.short_name_is_alone`: no other page of ANY type answers to a short name, no other person
+   could be whom it means, no person held with no page yet could be; a page titled by one word that carries another full
+   name is someone in full; two full names that share no spelling are two people for the person); and `inbox_tend.policy`
+   still says only the person settles it. **Two pages with the identical title are ruling 74a's** and are left; a title the
+   other page lists as an alias (the owner's case: the full-name page lists "<Short>", the short-name page is titled with
+   it) or a short name inside a full name is read here, and a name both pages share is then no evidence of naming either:
+   the short name alone names the short page, the full-name page is named by its full name (`_distinguishing`).
 2. The evidence is **located** and each piece has a **kind**, counted as ruling 74 counts them (the name, an alias
    included, is one kind however it shows): ``name`` and ``contact`` are the code's (`person_duplicates`); ``belief`` is two
    lines the model copies, one about each side, found word for word in the text shown for their side (never fuzzy), each
-   saying more than the name, sharing a specific word the bank does not hold on many pages (`typo_join.anchored`);
-   ``said`` is one line, in ONE turn of ONE conversation (whoever's turn: its kind is recorded), located with
-   `evidence.verify`, that itself carries both names and presents them as one person.
+   saying more than the name and sharing a word the bank holds on very few pages (`typo_join.anchored` with
+   ``rare_only``: a shared employer, team or role is true of many people, so a capital in both lines anchors nothing
+   here, and a bank too small to count anchors nothing); ``said`` is one line, in ONE turn of ONE conversation, located
+   with `evidence.verify`, that itself carries both names and presents them as one person. **Only the person's own turn
+   and a named speaker's turn count** for either kind (authorship says which): an assistant's turn, an agent's saved note and
+   text relayed from an app never do, because Sleep's own page prose reaches an agent through recall and comes back as its
+   sentence, a loop with no new evidence. Those turns are still shown to the reader, marked, as context.
 3. A pair closes only when a located ``said`` line holds, or when two kinds beyond that hold. A page's own prose that says
    so counts for nothing by itself: Sleep wrote it, and a quote must be in a conversation or a page's claim lines shown.
 4. **Named together is not named as two** (the owner's card was blocked by "named together in 2 conversations"): every
    turn that names both is shown to the reader, whole, and a turn that names two people ("<A> and <B> both came") makes
    it "two". No word list decides that; the model reads each turn in its context, and a second read, framed to look
    for a reason they are two, never sees the first. Any "two", any unlocatable quote, any unusable reply and any error is
-   "not answered": the question stays exactly as it is (ruling 73).
+   "not answered": the question stays exactly as it is (ruling 73). **A denial is never cut for room** (`_conversations`):
+   the conversations that name both names come first (the question's own, then every one the lexical index finds that holds
+   both, checked whole-word), then each page's own, then what names one; more that hold both than can be shown
+   (:data:`MAX_BOTH_CONVERSATIONS`), or an index that is not ready to say, leaves the question with a counted reason.
 5. The join is one `inbox_tend.apply` (rule ``revisit_one``): the same resolver the person's tap uses, Sleep's commit,
    listed under "Settled by Sleep" with the reason in words and the spans; an undo is the person saying they are two
    (`inbox_tend.JOINS`).
 
-**What was read is remembered outside every bank** (`question_revisits/<bank>.json`: ids, a digest and the reader's
-model, never a word): a question is not read again until a page or conversation it read changed, a conversation about it
-arrived, or the main model is a stronger one than the reader was (`stronger`).
+**What was read is remembered outside every bank** (`question_revisits/<bank>.json`: ids, a digest, the reader's model and a
+count, never a word): a question that was answered (``cannot_tell``, ``two``, a guard) is not read again until a page or
+conversation it read changed, a conversation about it arrived, or the main model is a stronger one than the reader was
+(`stronger`). A read that produced nothing usable (an unusable reply, an error: outcome ``unread``) is no answer and is
+read again on a later run, up to :data:`MAX_UNREAD_TRIES` reads of the same material (`due`).
 
 **Order and bound.** `question_order.ranked`; at most :data:`MAX_READS` questions read per run (each is one to four model
 calls); at most :data:`MAX_LOOKS` looked at; a question looked at recently goes behind those not. A scheduled run reaches a
@@ -87,6 +102,10 @@ MAX_BOTH_TURNS = 6
 MAX_CONTEXT_TURNS = 4
 TURN_CHARS = 1500
 MAX_CONVERSATIONS = 24
+#: Conversations that hold both names are every one shown, first (a denial lives in one of them); more than this is no read
+#: (a counted skip, never a cut), and so are more index candidates than this are worth checking whole-word.
+MAX_BOTH_CONVERSATIONS = 12
+MAX_CANDIDATES = 60
 MAX_FACTS = 8
 FACT_CHARS = 260
 REASON_QUOTE_CHARS = 110
@@ -118,6 +137,7 @@ Answer with one of:
 Rules:
 - A wrong join tells the person things about someone that are true of another; a question left costs little. When any turn or anything in the memory points to two people, say "two" or "cannot_tell".
 - Both names in one turn is not one person: the words must present them as one, or as the same person across the record. A turn that names both in one breath as two people ("Teo and Teodor came") is evidence they are two; a turn that uses both names for the same person is not.
+- Only the person's own turns and a named speaker's turns can say it: what an assistant said, a note an agent saved and text relayed from an app are never the words that present two names as one person.
 - Decide only from the memory and the turns shown. What you know about the names themselves (that one is usually short for the other) is no evidence.
 
 Answer in JSON only: {{"verdict": "one" | "two" | "cannot_tell", "said_turn": <number or null>, "said": "words copied from that turn" | null, "here": "words copied about A" | null, "there": "words copied about B" | null, "reason": "one short sentence"}}
@@ -150,6 +170,10 @@ class Side:
     texts: list[str]
     episodes: list[str]
     fm: dict = field(default_factory=dict)
+    #: Every name the page answers to, as the reader is told. ``names`` is what a turn must say to name THIS page: a name
+    #: the other page lists as an alias is not it (the page titled "<Short>" is named by "<Short>", the full-name page by
+    #: its full name), so a turn that says only the short name never counts as naming both.
+    all_names: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -300,22 +324,43 @@ def _episode_day(memory_path: Path, episode: str) -> str:
     return str(pair_evidence.episode_timestamp(memory_path, episode) or "")[:10]
 
 
-def _conversations(memory_path: Path, fm: dict, a: Side, b: Side) -> list[str]:
-    """The conversations that bear on the pair, never a scan: the question's own, each page's own, and what the lexical
-    index finds holding a spelling of each side."""
+def _holds_both(memory_path: Path, episode: str, a: Side, b: Side) -> bool:
+    """Does the conversation name each side somewhere (whole words, in any turn)? The index finds candidates by prefix:
+    this is the check."""
+    on_a = on_b = False
+    for _role, text in _turn_rows(memory_path, episode):
+        x, y = _hits(a.names, b.names, text)
+        on_a, on_b = on_a or x, on_b or y
+        if on_a and on_b:
+            return True
+    return False
+
+
+def _conversations(memory_path: Path, fm: dict, a: Side, b: Side) -> tuple[list[str], str]:
+    """``(conversations, "")`` that bear on the pair, never a scan, or ``([], why)``. Order: the question's own, then EVERY
+    conversation that names both sides (a later denial lives in one no page lists yet: it is never cut for room), then each
+    page's own, then what the lexical index finds holding one spelling. More that name both than are shown, or an index that
+    is not ready to say which do, is no read: the question stays, with a counted reason."""
     from api.services import search_index
 
-    named = [str(fm.get("source_episode") or ""), *a.episodes[-12:][::-1], *b.episodes[-12:][::-1]]
+    memory_path = Path(memory_path)
     keys_a, keys_b = [_key(n) for n in a.names][:4], [_key(n) for n in b.names][:4]
+    own = str(fm.get("source_episode") or "")
+    if pair_evidence.fresh_index(memory_path) != "ready":
+        return [], "index_not_ready"
+    candidates = search_index.episodes_naming_each(memory_path, (keys_a, keys_b), MAX_CANDIDATES + 1)
+    if len(candidates) > MAX_CANDIDATES:
+        return [], "too_many_conversations"
+    both = [e for e in candidates if e.startswith("ep_") and _holds_both(memory_path, e, a, b)]
+    if len(set(both) | ({own} if own and _holds_both(memory_path, own, a, b) else set())) > MAX_BOTH_CONVERSATIONS:
+        return [], "too_many_conversations"
     try:
-        pair_evidence.fresh_index(memory_path)
-        both = search_index.episodes_naming_each(Path(memory_path), (keys_a, keys_b), 12)
         # What was said about either side since: the newest conversations first, so new information is always seen.
-        one = [e for names in (keys_a, keys_b) for e in pair_evidence._search(Path(memory_path), names, fresh=False)][:12]
-    except Exception:  # noqa: BLE001 - a derived index only finds less
-        both, one = [], []
-    found = [e for e in dict.fromkeys([*named, *both, *one]) if e.startswith("ep_")]
-    return found[:MAX_CONVERSATIONS]
+        one = [e for names in (keys_a, keys_b) for e in pair_evidence._search(memory_path, names, fresh=False)][:12]
+    except Exception:  # noqa: BLE001 - a derived index only finds less of what only fills the room
+        one = []
+    found = [e for e in dict.fromkeys([own, *both, *a.episodes[-12:][::-1], *b.episodes[-12:][::-1], *one]) if e.startswith("ep_")]
+    return found[:MAX_CONVERSATIONS], ""
 
 
 def _turns_for(memory_path: Path, episodes: list[str], a: Side, b: Side) -> tuple[list[Turn], str]:
@@ -363,9 +408,36 @@ def _page_lines(memory_path: Path, pid: str) -> list[str]:
     return [t for t in dict.fromkeys(t for t in out if t)][:MAX_FACTS]
 
 
-def _side(memory_path: Path, pid: str, fm: dict) -> Side:
-    return Side(pid, str(fm.get("name") or pid), full_name_join._names_of(fm), _page_lines(memory_path, pid),
-                [str(e) for e in (fm.get("source_episodes") or ()) if e], dict(fm))
+def _side(memory_path: Path, pid: str, fm: dict, names: list[str] | None = None) -> Side:
+    every = full_name_join._names_of(fm)
+    return Side(pid, str(fm.get("name") or pid), names if names is not None else every, _page_lines(memory_path, pid),
+                [str(e) for e in (fm.get("source_episodes") or ()) if e], dict(fm), every)
+
+
+def _carries_another_full_name(own: list[str], other: list[str]) -> bool:
+    """Does a page carry a full name (two words or more) the other does not? A page titled by one word that does is
+    someone in full already: "<Short>" with the alias "<Short> <Other surname>" is not the short name of this full name
+    (`full_name_join.guards`, ``page_is_someone_in_full``)."""
+    theirs = {_key(n) for n in other}
+    return any(len(_key(n).split()) >= 2 and _key(n) not in theirs for n in own)
+
+
+def _distinguishing(a_names: list[str], b_names: list[str], a_title: str, b_title: str) -> tuple[list[str], list[str]] | str:
+    """``(names that name A, names that name B)`` or ``why the pair is not read``. A page's title the other lists as an
+    alias (the owner's case: the full-name page lists "<Short>", the short-name page is titled with it) is the short page's
+    own name and no one else's evidence: the other page is named by what is left. Identical titles are ruling 74a's;
+    a spelling shared that is neither title is a doubt for the person."""
+    ka, kb = {_key(n) for n in a_names}, {_key(n) for n in b_names}
+    ta, tb = _key(a_title), _key(b_title)
+    shared = ka & kb
+    if not shared:
+        return a_names, b_names
+    if ta == tb:
+        return "same_title"
+    if not shared <= {ta, tb}:
+        return "one_spelling"
+    drop_a, drop_b = ({tb} if tb in ka else set()), ({ta} if ta in kb else set())
+    return [n for n in a_names if _key(n) not in drop_a], [n for n in b_names if _key(n) not in drop_b]
 
 
 def pair_case(memory_path: Path, path: Path, fm: dict, pairs: dict[tuple[str, str], list[str]] | None = None,
@@ -401,8 +473,10 @@ def pair_case(memory_path: Path, path: Path, fm: dict, pairs: dict[tuple[str, st
         if role_people.parse(str(pfm.get("name") or pid)) is not None or pfm.get("unnamed"):
             return None, "role_page"
     a_names, b_names = full_name_join._names_of(afm), full_name_join._names_of(tfm)
-    if {_key(n) for n in a_names} & {_key(n) for n in b_names}:
-        return None, "one_spelling"
+    named = _distinguishing(a_names, b_names, str(afm.get("name") or a_id), str(tfm.get("name") or target_id))
+    if isinstance(named, str):
+        return None, named
+    a_only, b_only = named
     if _removed_from(afm, b_names) or _removed_from(tfm, a_names):
         return None, "alias_removed"
     if (merge_rejections.is_rejected(memory_path, a_id, target_id) or merge_rejections.is_split(memory_path, a_id, target_id)
@@ -413,17 +487,26 @@ def pair_case(memory_path: Path, path: Path, fm: dict, pairs: dict[tuple[str, st
         if (same_name_doubts.doubts_of(memory_path, pid) or pid in flagged_pages
                 or any(pid in pair for pair in flagged_pairs) or pid in same_name_doubts.one(memory_path)):
             return None, "in_a_doubt"
-    # A short name that could be someone else is no join for Sleep: a page that could be either waits for the person.
-    mine = {a_id, target_id}
-    for names in (a_names, b_names):
-        for short in {_key(n) for n in names if len(_key(n).split()) == 1}:
-            for pid, pfm in people.items():
-                if pid not in mine and full_name_join._could_mean(short, full_name_join._names_of(pfm)):
-                    return None, "short_name_not_alone"
-    a, b = _side(memory_path, a_id, afm), _side(memory_path, target_id, tfm)
+    # A page that already carries another full name is someone in full, and two full names that share no spelling are two
+    # people for the person to say (`full_name_join.guards`).
+    for own_fm, own, other in ((afm, a_names, b_names), (tfm, b_names, a_names)):
+        if len(_key(str(own_fm.get("name") or "")).split()) == 1 and _carries_another_full_name(own, other):
+            return None, "page_is_someone_in_full"
+    multi_a, multi_b = {_key(n) for n in a_names if len(_key(n).split()) >= 2}, {_key(n) for n in b_names if len(_key(n).split()) >= 2}
+    if multi_a and multi_b and not multi_a & multi_b:
+        return None, "two_full_names"
+    # A short name that could be someone else is no join for Sleep: any other page (of any type) it names, any person it
+    # begins, a person held with no page yet — one reading with `full_name_join.guards`.
+    short_keys = {_key(n) for n in (*a_names, *b_names) if len(_key(n).split()) == 1}
+    if not full_name_join.short_name_is_alone(memory_path, short_keys, {a_id, target_id}, people=list(people.items())):
+        return None, "short_name_not_alone"
+    a, b = _side(memory_path, a_id, afm, a_only), _side(memory_path, target_id, tfm, b_only)
     pairs = pairs if pairs is not None else _page_pairs(memory_path)
     kinds = list(pairs.get(tuple(sorted((a_id, target_id))), []))
-    turns, why = _turns_for(memory_path, _conversations(memory_path, fm, a, b), a, b)
+    episodes, why = _conversations(memory_path, fm, a, b)
+    if why:
+        return None, why
+    turns, why = _turns_for(memory_path, episodes, a, b)
     if why:
         return None, why
     if not any(t.both for t in turns) and not kinds:
@@ -448,7 +531,7 @@ def build_prompt(case: Case, speaker: str | None, *, skeptic: bool = False) -> s
     named = " ".join(str(speaker or "").replace('"', "").split())
 
     def others(side: Side) -> str:
-        return ", ".join(f"“{n}”" for n in side.names if _key(n) != _key(side.name)) or "no other name"
+        return ", ".join(f"“{n}”" for n in side.all_names if _key(n) != _key(side.name)) or "no other name"
 
     def shown(group: list[Turn]) -> str:
         return "\n".join(f"[{t.n}] ({t.day or 'undated'}, {t.role}) {t.text}" for t in group) or "(none)"
@@ -462,15 +545,23 @@ def build_prompt(case: Case, speaker: str | None, *, skeptic: bool = False) -> s
         a_record=_lines(case.a.texts), b_record=_lines(case.b.texts), turns=turns)
 
 
+#: The turns whose words may say two names are one person (`_turn_rows` roles): the person's own and a named speaker's.
+_OWN_WORDS = ("person", "speaker")
+
+
 def _quote_span(memory_path: Path, case: Case, quote: str) -> tuple[Turn, str, dict] | None:
     """The quote located (`evidence.verify`: exact, whitespace, case; never fuzzy) inside ONE turn shown, with whose words
     they are recorded: ``(turn, the words as located, span)``. ``None`` when it is in no turn, is longer than the
-    evidence cap, touches a line the speaker quoted from someone else (a ``>`` block), or is not someone's own words."""
+    evidence cap, touches a line the speaker quoted from someone else (a ``>`` block), or is not the words of the person or
+    of a named speaker (an assistant's turn, an agent's saved note and text relayed from an app are never the line that says
+    two names are one person: Sleep's own prose reaches an agent through recall and comes back as its sentence)."""
     from api.services import evidence
 
     if len(quote) > evidence.MAX_QUOTE_CHARS:
         return None
     for turn in case.turns:
+        if turn.role not in _OWN_WORDS:
+            continue
         hit = evidence.locate(turn.text, quote)
         if hit is None:
             continue
@@ -480,7 +571,7 @@ def _quote_span(memory_path: Path, case: Case, quote: str) -> tuple[Turn, str, d
             return None
         words = turn.text[start:end]
         ev = evidence.verify(Path(memory_path), turn.episode, words)
-        if not ev.is_span() or ev.kind not in ("user", "assistant", "speaker"):
+        if not ev.is_span() or ev.kind not in ("user", "speaker"):
             return None
         return turn, words, {"episode": ev.episode, "start": ev.start, "end": ev.end, "kind": ev.kind}
     return None
@@ -490,9 +581,11 @@ def _anchored(memory_path: Path, case: Case, here: str, there: str, speaker: str
     from api.services import typo_join
 
     shim = typo_join.Case(case.item_id,
-                          typo_join.Side(case.a.id, case.a.name, case.a.names, case.a.texts, case.a.episodes, True),
-                          typo_join.Side(case.b.id, case.b.name, case.b.names, case.b.texts, case.b.episodes, True), [])
-    return typo_join.anchored(memory_path, shim, typo_join.Read(here=here, there=there), speaker)
+                          typo_join.Side(case.a.id, case.a.name, case.a.all_names, case.a.texts, case.a.episodes, True),
+                          typo_join.Side(case.b.id, case.b.name, case.b.all_names, case.b.texts, case.b.episodes, True), [])
+    # Here the name evidence may be only a first name inside a full name, so a shared employer or role is no fact about this
+    # pair: only a word the bank holds on very few pages anchors (the capital-in-both branch is off).
+    return typo_join.anchored(memory_path, shim, typo_join.Read(here=here, there=there), speaker, rare_only=True)
 
 
 def located(memory_path: Path, case: Case, parsed: dict, speaker: str | None = None) -> Read:
@@ -520,8 +613,9 @@ def located(memory_path: Path, case: Case, parsed: dict, speaker: str | None = N
             quote = found[1]
     here, there = " ".join(str(parsed.get("here") or "").split()), " ".join(str(parsed.get("there") or "").split())
     if here and there and here.lower() != "null" and there.lower() != "null":
-        a_texts = [*case.a.texts, *[t.text for t in case.turns if _hits(case.a.names, case.b.names, t.text)[0]]]
-        b_texts = [*case.b.texts, *[t.text for t in case.turns if _hits(case.a.names, case.b.names, t.text)[1]]]
+        own = [t for t in case.turns if t.role in _OWN_WORDS]
+        a_texts = [*case.a.texts, *[t.text for t in own if _hits(case.a.names, case.b.names, t.text)[0]]]
+        b_texts = [*case.b.texts, *[t.text for t in own if _hits(case.a.names, case.b.names, t.text)[1]]]
         flipped = snp._located(here, b_texts) and snp._located(there, a_texts) and not snp._located(here, a_texts)
         ours, theirs = (case.b, case.a) if flipped else (case.a, case.b)
         if (snp._squash(here) != snp._squash(there)
@@ -698,6 +792,14 @@ def fresh_read(entry: dict | None, mark: str, model: str) -> bool:
     return stronger(model, str(entry.get("m") or ""))
 
 
+def due(entry: dict | None, mark: str, model: str) -> bool:
+    """`fresh_read`, or a read that read nothing: an unusable reply or an error (outcome ``unread``) is no answer and so no
+    reason to stop looking, so the same material is read again on a later run, up to :data:`MAX_UNREAD_TRIES` reads in all."""
+    if fresh_read(entry, mark, model):
+        return True
+    return str((entry or {}).get("o") or "") == "unread" and int((entry or {}).get("t") or 0) < MAX_UNREAD_TRIES
+
+
 # --------------------------------------------------------------------------- the record kinds
 
 
@@ -836,9 +938,7 @@ async def tend(memory_path: Path, settings, llm_fn, *, today: date | None = None
                     note(item_id, kind, f"left:{why}")
                     continue
                 mark = await asyncio.to_thread(digest, memory_path, case)
-                tried = bool(entry and entry.get("d") == mark and entry.get("o") == "unread"
-                             and int(entry.get("t") or 0) >= MAX_UNREAD_TRIES and not stronger(model, str(entry.get("m") or "")))
-                if not fresh_read(entry, mark, model) or tried:
+                if not due(entry, mark, model):
                     report.skip("read_already")
                     note(item_id, kind, "left:read_already")
                     continue
@@ -854,7 +954,8 @@ async def tend(memory_path: Path, settings, llm_fn, *, today: date | None = None
                 report.read += 1
                 report.calls += result.reads
                 if result.outcome != "join" or result.decision is None:
-                    tries = int(entry.get("t") or 0) + 1 if entry and entry.get("d") == mark else 1
+                    same = bool(entry and entry.get("d") == mark and entry.get("m") == model)
+                    tries = int(entry.get("t") or 0) + 1 if same else 1
                     remember(item_id, mark, result.outcome, tries if result.outcome == "unread" else 0)
                     note(item_id, kind, f"read:{result.outcome}")
                     continue
