@@ -78,6 +78,7 @@ from api.services import (
     reader_catch_up,
     safari_tabs,
     saved_at as saved_at_service,
+    saved_posts,
     save_folders,
     saved_why,
     site_captures,
@@ -747,7 +748,11 @@ async def save_site_item(request: SiteSaveRequest, settings: Settings = Depends(
                                 episodeId=result.episode_id, mediaEntityId=result.media_entity_id, addedAt=added_at,
                                 folders=filed["folders"], reason=filed["reason"])
 
-    return await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(SITE_SAVE_BUSY))
+    saved = await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(SITE_SAVE_BUSY))
+    # A save that made a list's first item gets its page moments later, in the writer's own commit (G246, ruling 81): a
+    # background no-op until the flip, on a replica and on a demo bank.
+    list_pages.start_sync(memory_path, delay_s=list_pages.SETTLE_S)
+    return saved
 
 
 @router.post("/sources/site-unsave", response_model=SiteUnsaveResponse, dependencies=_DEMO_GATE)
@@ -1759,7 +1764,10 @@ async def list_channel_items(
         etag = await sync_service.etag_for_async(
             memory_path, "sources", "episodes", "entities", "photos",
             extra=(f"{channel_items.SHAPE}|{channel_id}|{offset}|{limit}|{q or ''}|{collection or ''}"
-                   f"|{stream or ''}|{folder or ''}|{mention_asks.stamp(memory_path)}"),
+                   f"|{stream or ''}|{folder or ''}|{mention_asks.stamp(memory_path)}"
+                   # G246: a row's `keep` word follows the earned set, which a graph edge can move with no file of these
+                   # folders changing; empty (so the digest is what it was) until the posts-as-rows flip.
+                   + (f"|earned:{earned}" if (earned := saved_posts.stamp(memory_path)) else "")),
         )
         if (early := sync_service.conditional(request, response, etag)) is not None:
             return early

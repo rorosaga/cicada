@@ -61,3 +61,7 @@ TraceNoNetworkTests
 ## A saved post kept as a page (G246, ruling 81): nothing is offered until the switch is on, and the line names no internal word
 KeepAsPageTests/testNothingIsOfferedForAWorkAPostWithAPageOrWhileTheSwitchIsOff
 KeepAsPageTests/testTheLineNamesNoInternalWordAndNoProvider
+
+## A list's page is linked from its source only once the backend names one; a row offers Keep as a page only when told (G246, ruling 81, Track 2b)
+SourceListPageLinkTests/testNoPageNamedMeansNoLinkWhateverElseIsOn
+SourceListPageLinkTests/testARowWithNoWordOfferNothingAndTheWordsOfARowAndAKeptPostOfferTheirControl

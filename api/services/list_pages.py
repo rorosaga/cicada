@@ -262,6 +262,46 @@ def block(memory_path: Path, entity_id: str, fm: dict | None) -> dict | None:
         return None
 
 
+# --------------------------------------------------------------------------- what an agent is told, and what it is refused
+
+
+#: The one sentence every agent write to a list's own page is refused with, on every door (the stdio tools, the remote
+#: connection, the command line, the agent API): the page stands for the list, so it takes no belief, edit, merge, split or
+#: link. No name in it: a folder's name is the person's own word.
+AGENT_REFUSAL = ("That page is a list of saved posts, read from the person's saves each time, so it takes no fact, edit, "
+                 "merge, split or link and nothing was changed; record a fact on the page of the thing a post is about "
+                 "instead.")
+
+
+def line_for(memory_path: Path, entity_id: str, *, rows: bool = False) -> dict | None:
+    """What an agent reading this page is told when it is a list's own page, else None: ``{"words", "count", "newest"}``.
+    The count and the newest rows come from the saves now (:func:`block`), never from the page's text. ``rows`` adds the
+    :data:`RECENT` newest titles — the person's saved words, so only for a caller that may read them. Never raises."""
+    memory_path = Path(memory_path)
+    try:
+        entry = bank_index.file(memory_path, "entities", f"{entity_id}.md")
+        fm = entry.frontmatter if entry is not None else None
+        info = list_of(fm)
+        if info is None:
+            return None
+        got = block(memory_path, entity_id, fm) or {}
+        count, newest = int(got.get("count") or 0), got.get("newest")
+        head = (f"This page is a list of saved posts ({fm.get('name') or entity_id}): {count} saved"
+                + (f", newest {newest}" if newest else "")
+                + ". It holds no posts or facts of its own: the count and the rows are read from the person's saves each "
+                  "time, so find a post by its words in a search, never by this page's text.")
+        out = [head]
+        if rows and got.get("recent"):
+            out.append("Newest first: " + "; ".join(
+                f"{r.get('title') or '(untitled)'}" + (f" ({r['posted'] if r.get('posted') else r.get('saved')})"
+                                                       if r.get("posted") or r.get("saved") else "")
+                for r in got["recent"]) + ".")
+        return {"words": " ".join(out), "count": count, "newest": newest}
+    except Exception as exc:  # noqa: BLE001 - a derived line never fails a read
+        logger.debug(f"list pages: line skipped ({type(exc).__name__})")
+        return None
+
+
 # --------------------------------------------------------------------------- which pages are drawn
 
 
@@ -335,6 +375,19 @@ def stamp(memory_path: Path) -> str:
 
 def drawn_ids(memory_path: Path) -> frozenset:
     return frozenset(state(memory_path).drawn)
+
+
+def stream_pages(memory_path: Path) -> dict[str, dict]:
+    """``{stream id: {"page": id | None, "folders": {folder name: id}}}`` for every list that is drawn now: which page stands
+    for a stream on the Sources page. Empty while dark, so a stream row carries no page and no link shows."""
+    out: dict[str, dict] = {}
+    for pid, d in sorted(state(memory_path).drawn.items()):
+        row = out.setdefault(d.stream, {"page": None, "folders": {}})
+        if d.folder:
+            row["folders"][d.folder] = pid
+        else:
+            row["page"] = pid
+    return out
 
 
 def read_time_edges(memory_path: Path, entity_ids, earned) -> list[tuple[str, str, str]]:
@@ -613,4 +666,5 @@ def _retry(memory_path: Path) -> None:
 
 
 __all__ = ["KIND", "PAGE_ORIGIN", "is_list", "list_of", "wanted", "block", "state", "stamp", "drawn_ids",
-           "read_time_edges", "sync", "start_sync", "retire_source", "page_id", "sentence"]
+           "read_time_edges", "sync", "start_sync", "retire_source", "page_id", "sentence", "stream_pages",
+           "line_for", "AGENT_REFUSAL"]

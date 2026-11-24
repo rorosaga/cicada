@@ -49,11 +49,16 @@ class KeepError(ValueError):
         self.because_of = because_of
 
 
-def _find(memory_path: Path, url: str) -> tuple[str, str, Path]:
-    """``(episode id, page id, episode path)`` of the saved link, or :class:`KeepError`: 422 for a link that is not
-    http(s), 404 for one not saved or whose save has no page of its own to keep."""
+def _find(memory_path: Path, url: str = "", entity: str = "") -> tuple[str, str, Path]:
+    """``(episode id, page id, episode path)`` of the saved link — or, from a row of a list that already knows its page
+    (``entity``, the row's own id: the app holds no link for a row), of that page's own save — or :class:`KeepError`:
+    422 for a link that is not http(s) or a request that names neither, 404 for one not saved or whose save has no page
+    of its own to keep."""
     from api.services import saved_why
 
+    if entity.strip() and not url.strip():
+        episode_id, path = _save_of(memory_path, entity.strip())
+        return episode_id, entity.strip(), path
     try:
         episode_id, page_id, path = saved_why.find_episode(memory_path, url)
     except saved_why.SavedWhyError as e:
@@ -63,11 +68,22 @@ def _find(memory_path: Path, url: str) -> tuple[str, str, Path]:
     return episode_id, page_id, path
 
 
-def facts(memory_path: Path, page_id: str) -> tuple[str, tuple[str, ...]]:
+def _save_of(memory_path: Path, page_id: str) -> tuple[str, Path]:
+    """The save (episode) a saved post's page was made from: the oldest one that names the page, so a repeat save of the
+    link never moves the click. 404 when none does."""
+    mine = sorted((f for f in bank_index.files(memory_path, "episodes")
+                   if isinstance(f.frontmatter, dict) and not f.frontmatter.get("source_deleted_at")
+                   and str(f.frontmatter.get(quiet_pages.SAVE_KEY) or "") == page_id), key=lambda f: f.stem)
+    if not mine or not (Path(memory_path) / "entities" / f"{page_id}.md").is_file():
+        raise KeepError(404, "That save has no page to keep.")
+    return mine[0].stem, Path(mine[0].path)
+
+
+def facts(memory_path: Path, page_id: str, verdict: "saved_posts.Verdict | None" = None) -> tuple[str, tuple[str, ...]]:
     """``(state, other signs)`` of one page by the one predicate, whatever the flip says: ``none`` for a page that is no
     post (a work keeps its page, there is nothing to keep), else ``row``/``kept``/``page`` by its signs, and the signs
-    other than the person's own click."""
-    v = saved_posts.verdict(memory_path)
+    other than the person's own click. A caller asking for many rows passes the one ``verdict`` it already holds."""
+    v = verdict if verdict is not None else saved_posts.verdict(memory_path)
     if page_id not in v.state.posts:
         return "none", ()
     signs = v.signs.get(page_id, frozenset())
@@ -83,7 +99,7 @@ def _view(memory_path: Path, episode_id: str, page_id: str) -> dict:
             "episode_id": episode_id, "media_entity_id": page_id}
 
 
-def offer(memory_path: Path, url: str) -> dict:
+def offer(memory_path: Path, url: str = "", entity: str = "") -> dict:
     """What the app may draw for this link (``GET``): the real state while ``HIDE_POSTS`` is on, ``none`` otherwise —
     until the flip every post is a page and there is nothing to keep. A link that is not saved, or has no page, is
     ``none`` too: a read never fails a card."""
@@ -91,7 +107,7 @@ def offer(memory_path: Path, url: str) -> dict:
     if not saved_posts.HIDE_POSTS:
         return empty
     try:
-        episode_id, page_id, _ = _find(memory_path, url)
+        episode_id, page_id, _ = _find(memory_path, url, entity)
     except KeepError:
         return empty
     return _view(memory_path, episode_id, page_id)
@@ -125,13 +141,13 @@ def _stamped_saves(memory_path: Path, page_id: str) -> list[Path]:
             and str(f.frontmatter.get(quiet_pages.SAVE_KEY) or "") == page_id]
 
 
-def keep(memory_path: Path, *, url: str, kept: bool = True, at: str | None = None) -> dict:
+def keep(memory_path: Path, *, url: str = "", kept: bool = True, at: str | None = None, entity: str = "") -> dict:
     """Keep the saved post as a page (``kept``) or send it back to a row. Returns the wire dict (``status`` is
     ``kept``, ``undone`` or ``unchanged``, plus the state after) and the memory-relative ``paths`` the caller commits.
     The caller admits it and commits (inside its write admission). :class:`KeepError` for a link not saved (404), a
     save with no page (404) and a way back refused because something else earned the page (409)."""
     memory_path = Path(memory_path)
-    episode_id, page_id, path = _find(memory_path, url)
+    episode_id, page_id, path = _find(memory_path, url, entity)
     state, others = facts(memory_path, page_id)
     if state == "none":
         # A work keeps its page already; there is nothing to keep and nothing to undo.

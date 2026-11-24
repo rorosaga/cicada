@@ -52,6 +52,7 @@ from api.services import (
     reading_settings,
     saved_at,
     saved_lists,
+    saved_posts,
     save_folders,
     source_overview,
     substack_lists,
@@ -820,12 +821,22 @@ def build(memory_path: Path, *, channels: list[dict], connectors_connected: dict
     rows = {c["id"]: c for c in channels}
     connected = connectors_connected or {}
     mem, eps = members(memory_path), episodes(memory_path)
+    from api.services import list_pages
+
+    pages = list_pages.stream_pages(memory_path)   # G246: the page that stands for a list ({} until the posts-as-rows flip)
     out = []
     for group in _groups_for(rows, memory_path, eps):
         origins = _site_origins([s for s in group.specs if s.counts == "members"], group.id)
         streams = []
         for spec in group.specs:
             stream = _stream(spec, memory_path, rows, connected, mem, eps, origins, now, feed_fetch_allowed)
+            if (held := pages.get(spec.id)) is not None:
+                # Additive and only when there is one, so a stream's body (and the route's ETag) is what it was until a page
+                # exists, and moves only when the answer does: ``page`` the list's own page, ``folderPages`` each folder's.
+                if held["page"]:
+                    stream["page"] = held["page"]
+                if held["folders"]:
+                    stream["folderPages"] = dict(sorted(held["folders"].items()))
             if spec.counts == "conversations":
                 stream["count"] = eps.harnesses.get(spec.note, 0)
                 stream["state"] = "on"
@@ -961,6 +972,16 @@ def _list_display_names() -> dict[tuple[str, str], str]:
     return out
 
 
+def _keep_word(memory_path: Path, page_id: str, verdict) -> str | None:
+    """What "Keep as a page" may offer on this row (G246): ``row`` (a post drawn under its list) or ``kept`` (the person's
+    own click holds its page and nothing else does, so the way back is open); None for every other row. Read from the one
+    predicate (``keep_as_page.facts``), so a row and the card agree."""
+    from api.services import keep_as_page
+
+    state, others = keep_as_page.facts(memory_path, page_id, verdict)
+    return "row" if state == "row" else "kept" if state == "kept" and not others else None
+
+
 def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], posted: Callable[[dict], str | None]) -> dict[str, dict]:
     """The three fields a list row gains (plan 2.2), by row id: ``lists`` (the labels of the lists the item is on),
     ``folders`` (the site's own folder names), ``depth`` and ``posted`` (the post's own day, when the list showed one).
@@ -969,7 +990,8 @@ def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], post
     honoured now) · ``read`` (Sleep read it, or an agent read its page) · ``empty`` (it holds a title and a link only:
     nothing to read yet) · ``record`` (another service's record: kept, never read) · ``kept`` (not read yet: waiting for
     Sleep's next run or its turn in the older pile). The words are the app's (``Copy.Streams``). Built from maps computed
-    once per request; only a media row of a list origin gets any."""
+    once per request; only a media row of a list origin gets any. A fifth field, ``keep`` (G246, ruling 81), is there only
+    once ``saved_posts.HIDE_POSTS`` is on: ``row`` or ``kept``, so a row can offer Keep as a page with no call of its own."""
     from api.services import mention_asks
 
     eps = episodes(memory_path)
@@ -977,6 +999,7 @@ def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], post
     streams_of = members(memory_path).streams_of
     asked = mention_asks.waiting_hashes(memory_path)
     names = _list_display_names()
+    verdict = saved_posts.verdict(memory_path) if saved_posts.HIDE_POSTS and rows else None   # once per request
     out: dict[str, dict] = {}
     for row in rows:
         if row.get("kind") != "media":
@@ -998,6 +1021,8 @@ def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], post
         depth = "watched" if h and h in eps.agent_watched else "asked" if h and h in asked else \
             "read" if read else "empty" if state == "no-words" else "record" if state == "record" else "kept"
         fields: dict[str, Any] = {"depth": depth}
+        if verdict is not None and (word := _keep_word(memory_path, row["id"], verdict)):
+            fields["keep"] = word
         if lists:
             fields["lists"] = lists
         if folders:

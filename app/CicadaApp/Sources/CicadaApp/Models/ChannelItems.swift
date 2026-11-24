@@ -62,6 +62,10 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
     /// Who wrote the post, when the list showed one (the item card leads its footer with it). The backend sends none
     /// today; a row without one simply says less.
     var author: String? = nil
+    /// G246 (ruling 81) — what "Keep as a page" may offer on this row: `row` (a post drawn under its list) or `kept` (the
+    /// person's own click holds its page). Nil for every other row, from an older backend and while the posts-as-rows
+    /// switch is off — so a row draws no control it was not told to.
+    var keep: String? = nil
 
     /// A.4 (G245) — a Notes row's one-line preview (the first line of its text after the title; nothing for a note of one
     /// line) and the instant Notes last modified it (aware ISO), which the list is ordered by. Nil elsewhere and from an
@@ -71,7 +75,7 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case kind, id, title, day, left, host, site, why, chat, videos, sittings, video, received, messages, group
-        case ticked, pinned, book, cover, place, lists, folders, depth, posted, author, snippet, modifiedAt
+        case ticked, pinned, book, cover, place, lists, folders, depth, posted, author, keep, snippet, modifiedAt
         case lastAt = "last_at"
         case syncedAt = "synced_at"
         case durationS = "duration_s"
@@ -116,6 +120,7 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         depth = try? c.decodeIfPresent(String.self, forKey: .depth)
         posted = try? c.decodeIfPresent(String.self, forKey: .posted)
         author = try? c.decodeIfPresent(String.self, forKey: .author)
+        keep = try? c.decodeIfPresent(String.self, forKey: .keep)
         snippet = try? c.decodeIfPresent(String.self, forKey: .snippet)
         modifiedAt = try? c.decodeIfPresent(String.self, forKey: .modifiedAt)
     }
@@ -156,6 +161,7 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         try c.encodeIfPresent(depth, forKey: .depth)
         try c.encodeIfPresent(posted, forKey: .posted)
         try c.encodeIfPresent(author, forKey: .author)
+        try c.encodeIfPresent(keep, forKey: .keep)
         try c.encodeIfPresent(snippet, forKey: .snippet)
         try c.encodeIfPresent(modifiedAt, forKey: .modifiedAt)
     }

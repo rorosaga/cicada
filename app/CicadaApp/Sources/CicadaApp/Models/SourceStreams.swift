@@ -156,15 +156,22 @@ struct SourceStream: Equatable, Identifiable, Sendable {
     var switchRef: StreamSwitch?
     /// One sentence, only when unavailable.
     var why: String?
+    /// G246 (ruling 81) — the page that stands for this list of saved posts (`GET /sources/streams` `page`), and for each
+    /// of its folders (`folderPages`, by the folder's name as the site shows it). Absent until the page exists, and every
+    /// time while the posts-as-rows switch is off: no link is drawn for what is not there.
+    var page: String?
+    var folderPages: [String: String]
 
     init(id: String, label: String, kind: StreamKind = .saved, how: StreamHow = .browser, owner: StreamOwner = .backend,
          control: StreamControl = .switch, state: StreamState = .off, health: StreamHealth? = nil,
          lastReadAt: Date? = nil, pausedUntil: Date? = nil, checkRequestedAt: Date? = nil, count: Int? = nil,
-         folderCount: Int = 0, depth: StreamDepth = .index, switchRef: StreamSwitch? = nil, why: String? = nil) {
+         folderCount: Int = 0, depth: StreamDepth = .index, switchRef: StreamSwitch? = nil, why: String? = nil,
+         page: String? = nil, folderPages: [String: String] = [:]) {
         self.id = id; self.label = label; self.kind = kind; self.how = how; self.owner = owner; self.control = control
         self.state = state; self.health = health; self.lastReadAt = lastReadAt; self.pausedUntil = pausedUntil
         self.checkRequestedAt = checkRequestedAt; self.count = count; self.folderCount = folderCount
         self.depth = depth; self.switchRef = switchRef; self.why = why
+        self.page = page; self.folderPages = folderPages
     }
 
     /// The part of the id after the source's: `x.bookmarks` is `bookmarks`.
@@ -179,7 +186,7 @@ struct SourceStream: Equatable, Identifiable, Sendable {
 extension SourceStream: Decodable {
     private enum CodingKeys: String, CodingKey {
         case id, label, kind, how, owner, control, state, health, lastReadAt, pausedUntil, checkRequestedAt, count
-        case folderCount, depth, `switch`, why
+        case folderCount, depth, `switch`, why, page, folderPages
     }
 
     private struct Switch: Decodable {
@@ -212,6 +219,9 @@ extension SourceStream: Decodable {
             switchRef = nil
         }
         why = c.lenient(.why)
+        let page: String? = c.lenient(.page)
+        self.page = page.flatMap { $0.isEmpty ? nil : $0 }
+        folderPages = (c.lenient(.folderPages) as [String: String]?)?.filter { !$0.key.isEmpty && !$0.value.isEmpty } ?? [:]
     }
 }
 
