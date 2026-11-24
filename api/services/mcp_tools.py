@@ -7017,11 +7017,12 @@ def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = 
         kind = str(fm.get("kind", fm.get("type", "")) or "")
         ename = fm.get("entity_name", fm.get("entity_mention", "Unknown"))
         body = _readable_body(kind, body, cause, today, raw_excerpts=ctx.raw_excerpts)
+        asked = _asked_line(fm, today, kind)
         if fm.get("question"):
             # The question's own words are data; the check and resolve lines are Cicada's directions (own).
             results.append([
                 ("data", f"**{(kind or 'Item').title()}** `{filepath.stem}`: {ename}\n"
-                 + render_question(fm, body, cause=cause, recommended_key=rec, raw_excerpts=ctx.raw_excerpts)),
+                 + render_question(fm, body, cause=cause, recommended_key=rec, raw_excerpts=ctx.raw_excerpts) + asked),
                 ("own", "".join("\n" + line for line in check_lines(ctx, memory_path, filepath.stem, fm,
                                                                      index=check_index, path=filepath))
                  + f"\n  Resolve with cicada_resolve_inbox(id=\"{filepath.stem}\", option_key=…)"),
@@ -7030,10 +7031,10 @@ def check_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = 
             not kind and fm.get("uncertainty_type")
         ):
             results.append([("data", f"**Clarification** `{filepath.stem}`: {ename} — "
-                                     f"{fm.get('uncertainty_type', '')}\n  {body[:200]}")])
+                                     f"{fm.get('uncertainty_type', '')}\n  {body[:200]}{asked}")])
         else:
             title = fm.get("title", fm.get("short_description", ""))
-            results.append([("data", f"**{kind or 'Item'}** `{filepath.stem}`: {ename} — {title}\n  {body[:200]}")])
+            results.append([("data", f"**{kind or 'Item'}** `{filepath.stem}`: {ename} — {title}\n  {body[:200]}{asked}")])
         ids.append(filepath.stem)
 
     if not results:
@@ -7121,6 +7122,8 @@ def ask_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = No
         if said is not None:
             lines.append(f"  Ask it like: {said.question}")
             lines.append(f"  The reason, if you ask it: {said.reason}")
+        if asked := _asked_line(fm, today, str(fm.get("kind") or "")):
+            lines.append(asked.strip())
         if options:
             lines.append("  Possible answers: " + "; ".join(
                 f"{o.get('label')} (option_key={o.get('key')})" for o in options))
@@ -7144,6 +7147,19 @@ def ask_nudges(ctx: ToolContext, topic: str | None, entity_ids: list | None = No
         segments.append(("own", "\n\n"))
         segments.extend(block)
     return Reply.framed(segments)
+
+
+def _asked_line(fm: dict, today: str, kind: str = "") -> str:
+    """``"\n  Asked 13 days ago by Sleep's duplicate check (a rule found it; no model read anything for it)."`` — who
+    raised the question and when, so an agent can say "this was asked two weeks ago by a rule" in its own words
+    (`question_origin`, derived from the question's own file; nothing when the day is unknown). Never raises."""
+    try:
+        from api.services import question_origin
+
+        said = question_origin.line(fm, today, kind)
+        return f"\n  {said}" if said else ""
+    except Exception:  # noqa: BLE001 — the question still reads without it
+        return ""
 
 
 def _readable_body(kind: str, body: str, cause: dict | None, today: str, *, raw_excerpts: bool = True) -> str:
