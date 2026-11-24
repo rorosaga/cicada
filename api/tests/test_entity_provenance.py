@@ -243,6 +243,7 @@ def test_fifty_claims_across_twenty_episodes_stay_in_budget(tmp_path, monkeypatc
     _bench.within(cpu, elapsed, 1.0, "provenance")  # smoke bound in CPU time; the 150 ms design budget is the bench's
 
 
+@pytest.mark.slow
 def test_the_demo_bank_answers_with_an_exact_quote(tmp_path):
     bank = demo(tmp_path, index=False, showcase=True, today=None)   # `populate` with every step, on the real day
     counts, truncated = asyncio.run(git_service.entity_commit_authors(bank, "alpha-project"))

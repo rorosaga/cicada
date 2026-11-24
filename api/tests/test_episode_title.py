@@ -81,7 +81,9 @@ def test_a_long_line_is_clipped_and_never_empty():
 def test_a_16k_adversarial_message_titles_in_linear_time(message):
     started = time.perf_counter()
     title = title_from_text(message)
-    assert (time.perf_counter() - started) < 0.05
+    # Quadratic work on 16k characters takes seconds; a busy CI runner took 0.33 s on linear work (2026-11-24), so
+    # the bound is 1 s: it still tells the two apart and never fails on a stall.
+    assert (time.perf_counter() - started) < 1.0
     assert title is None or not episode_title.is_wrapper_title(title)
 
 

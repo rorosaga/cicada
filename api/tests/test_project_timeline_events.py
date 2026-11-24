@@ -39,6 +39,7 @@ def _ctx(bank, *, remote_scopes=None):
     return mcp_tools.ToolContext(memory_path=lambda: bank, session_id="ses_test", harness="claude-code", **kw)
 
 
+@pytest.mark.slow
 def test_now_holds_both_open_threads_and_the_last_done_happening(bank):
     tl = project_timeline.build(bank, "rover-arm-project", tz_name="UTC")
     threads = tl.now.threads

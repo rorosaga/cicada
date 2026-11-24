@@ -8,6 +8,7 @@ be tested against a wire the server no longer sends. Synthetic only: demo fictio
 
 After a deliberate wire change, rewrite it: `CICADA_WRITE_APP_FIXTURE=1 python -m pytest <this file>`.
 """
+import pytest
 import json
 import os
 import re
@@ -47,6 +48,7 @@ def _wire(tmp_path, monkeypatch, *, showcase: bool = False) -> dict:
         config.get_settings.cache_clear()
 
 
+@pytest.mark.slow
 def test_the_app_fixture_is_the_demo_wire(tmp_path, monkeypatch):
     text = json.dumps(_wire(tmp_path, monkeypatch), indent=1, sort_keys=True, ensure_ascii=False) + "\n"
     if os.environ.get("CICADA_WRITE_APP_FIXTURE") == "1":
@@ -56,6 +58,7 @@ def test_the_app_fixture_is_the_demo_wire(tmp_path, monkeypatch):
         "the app's fixture drifted from the demo wire — rerun with CICADA_WRITE_APP_FIXTURE=1 after a deliberate change")
 
 
+@pytest.mark.slow
 def test_the_showcase_leaves_the_projects_wire_alone(tmp_path, monkeypatch):
     """Round 4 (T-Demo): the showcase is written into the same demo, so the fixture is only the demo's wire if the
     showcase never touches it — nothing it writes names the scenario's projects or their people. If this fails, change
