@@ -186,6 +186,7 @@ def main(argv=None) -> int:
     ap.add_argument("--repeats", type=int, default=20)
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--key-file", default="~/.cicada/secrets.env")
+    ap.add_argument("--only", default="", help="substring of the case's name (default: every case)")
     engines.add_argument(ap)
     args = ap.parse_args(argv)
     os.environ["CICADA_HOME"] = tempfile.mkdtemp(prefix="scope-home-")
@@ -202,7 +203,8 @@ def main(argv=None) -> int:
     engines.arm(args.engine)
     with engines.tally() as counted:
         judge = value_alignment.judge_for(engines.settings(args.engine, Path(tempfile.mkdtemp()), model=args.model, judge=args.model))
-        jobs = [(c, i) for c in CASES for i in range(args.repeats)]
+        cases = [c for c in CASES if args.only in c[0]]
+        jobs = [(c, i) for c in cases for i in range(args.repeats)]
 
         def one(job):
             case, _i = job
@@ -213,7 +215,7 @@ def main(argv=None) -> int:
         with ThreadPoolExecutor(8 if args.engine == "key" else 3) as pool:
             results = list(pool.map(one, jobs))
         wrong = 0
-        for case in CASES:
+        for case in cases:
             closed = sum(1 for c, did in results if c is case and did)
             bad = (args.repeats - closed) if case[1] else closed
             wrong += bad
