@@ -779,11 +779,13 @@ def _fresh_query_vector_cache():
 
 
 def pytest_configure(config):
-    # Also declared in api/pyproject.toml beside the `-m 'not bench'` addopts; kept here for a run from another rootdir.
+    # Also declared in api/pyproject.toml beside the `-m 'not bench and not slow'` addopts; kept here for a run from another rootdir.
     config.addinivalue_line(
         "markers", "crucial: guards a CLAUDE.md rail; the daily tier (`make test-crucial`, listed in crucial.txt)")
     config.addinivalue_line(
         "markers", "bench: a wall-clock budget or a benchmark run; `make test-bench` and `make test`, never the default run")
+    config.addinivalue_line(
+        "markers", "slow: takes 5 s or more (several backends, a demo bank); CI's shards, `make test-slow` and `make test`")
     config.addinivalue_line(
         "markers", "shipped_engine_default: a bare Settings() keeps the shipped llm_mode (auto) instead of the suite's key")
 

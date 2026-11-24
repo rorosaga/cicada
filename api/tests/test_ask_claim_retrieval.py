@@ -14,6 +14,7 @@ exercised directly so the claim→entity mapping is covered.
 
 from __future__ import annotations
 
+import pytest
 import json
 
 import numpy as np
@@ -55,6 +56,7 @@ def _claim(cid, subject, text, **kw):
     return Claim(id=cid, text=text, subject=subject, **kw)
 
 
+@pytest.mark.slow
 def test_claim_first_retrieval_grounds_on_claims(tmp_path):
     entities_dir = tmp_path / "entities"
     entities_dir.mkdir()

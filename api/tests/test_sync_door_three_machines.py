@@ -126,6 +126,7 @@ def trio(tmp_path):
             w.stop()
 
 
+@pytest.mark.slow
 def test_the_door_is_preferred_carries_everything_and_survives_a_network_switch(trio):
     alpha, bravo, charlie, wires, tokens = trio
     devices_before = len(alpha.call("GET", "/devices")[1]["devices"])
@@ -214,6 +215,7 @@ def test_the_door_is_preferred_carries_everything_and_survives_a_network_switch(
     assert any(r.get("kind") == "sync_route" and r["refs"]["side"] == "door" for r in served)
 
 
+@pytest.mark.slow
 def test_a_revoked_copy_is_refused_at_the_door(trio):
     alpha, bravo, _charlie, wires, tokens = trio
     assert _found(bravo, wires["door_a"]) == 1

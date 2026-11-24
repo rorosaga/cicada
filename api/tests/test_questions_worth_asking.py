@@ -7,6 +7,7 @@ names that look alike with nothing to read, and a skill got a page on one note. 
 """
 from __future__ import annotations
 
+import pytest
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
@@ -44,6 +45,7 @@ def _page(page_id: str, name: str, page_type: str = "company") -> dict:
     return {"id": page_id, "frontmatter": {"name": name, "type": page_type, "confidence": 0.9}, "body": f"{name}."}
 
 
+@pytest.mark.slow
 def test_a_low_confidence_alone_asks_nothing_and_the_name_waits(tmp_path):
     memory = _bank(tmp_path)
     asyncio.run(entity_resolver.resolve(_extracted(_name("Bob")), [], _settings(memory)))

@@ -246,6 +246,7 @@ def test_what_a_source_is_comes_from_its_record(doc, fm, kind):
     assert source_spans.kind_of(doc, fm) == kind
 
 
+@pytest.mark.slow
 def test_the_demo_cites_every_kind_to_its_words(tmp_path):
     """The proof bank: a note, a meeting, a book, a save, a chat and a fetched page, plus one stale and one held."""
     source_spans.forget()

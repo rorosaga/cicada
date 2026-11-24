@@ -437,6 +437,7 @@ _POLLS = ["_poll_connectors_safely", "_poll_feeds_and_calendars_safely", "_backf
           "_resolve_papers_safely", "_replay_wispr_todos_safely"]
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("is_demo", [False, True], ids=["real", "demo"])
 def test_the_tail_asks_after_expiry_and_before_the_poll_in_its_own_commit(bank, monkeypatch, is_demo):
     """On a real bank the follow-up commit lands between expiry and the polls; on

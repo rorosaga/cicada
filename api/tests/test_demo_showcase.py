@@ -49,6 +49,7 @@ def test_the_pictures_are_drawn_in_code_and_kept_as_uploads():
     assert entity_picture.validate_upload(m) == "png" and len(m) < entity_picture.MAX_UPLOAD_BYTES
 
 
+@pytest.mark.slow
 def test_people_and_a_company_have_pictures_the_app_can_load(bank, client):
     nodes = {n["id"]: n for n in client.get("/graph").json()["nodes"]}
     for eid in ("leo-example", "paula-example", "maria-example", "nina-example", "acme-example"):
@@ -158,6 +159,7 @@ def test_every_url_is_example_com_or_a_licensed_public_item(bank):
     assert all(len(why) > 40 for why in demo_showcase.PUBLIC_URLS.values()), "each carries its licence"
 
 
+@pytest.mark.slow
 def test_the_showcase_is_deterministic(tmp_path):
     a, b = build(tmp_path / "a", index=False, showcase=True), build(tmp_path / "b", index=False, showcase=True)
     for sub in ("entities", "episodes", "inbox", "assets/pictures"):

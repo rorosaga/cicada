@@ -115,6 +115,7 @@ def _mcp_env(replica: Machine) -> dict:
             "CICADA_REPLICA_OF": replica.extra["CICADA_REPLICA_OF"], "CICADA_MEMORY_PATH": str(replica.memory)}
 
 
+@pytest.mark.slow
 def test_a_computer_keeps_a_copy_reads_it_and_writes_through_the_home(pair):
     home, replica, made, other, other_head = pair
     state = _caught_up(home, replica)
@@ -183,6 +184,7 @@ def test_a_computer_keeps_a_copy_reads_it_and_writes_through_the_home(pair):
         mcp.proc.wait(timeout=10)
 
 
+@pytest.mark.slow
 def test_the_person_keeps_a_copy_with_a_pairing_code_and_a_restart(tmp_path):
     """The app's path: on the home, "Pair a device" (a computer's code); on the other computer, the home's address and
     that code (`PUT /sync/replica`), then a restart of its own backend — which comes back as a replica and copies."""
