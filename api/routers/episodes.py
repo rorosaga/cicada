@@ -116,7 +116,7 @@ async def get_episode_text(
     rail), 422 for a half or out-of-range pair. Engine-free: one parse.
     """
     memory_path = settings.memory_path
-    etag = sync_service.etag_for(
+    etag = await sync_service.etag_for_async(
         memory_path, "episodes", "entities",
         extra=f"text|{episode_id}|{start}|{end}|{hash or ''}|{focus or ''}|{git_service.AUTHOR_SHAPE}|meeting1|src1|device1|site2|chg1|extras1|recv1|note1|{video_state.VIDEO_SHAPE}|{source_spans.SHAPE}",
     )
@@ -149,7 +149,7 @@ async def get_episode_citations(
     """
     memory_path = settings.memory_path
     from api.services import claims
-    etag = sync_service.etag_for(
+    etag = await sync_service.etag_for_async(
         memory_path, "episodes", "entities",
         extra=f"citations|{episode_id}|{git_service.AUTHOR_SHAPE}|{video_state.VIDEO_SHAPE}|validity2|{claims.current_day()}|{source_spans.SHAPE}",
     )
@@ -174,8 +174,8 @@ async def get_source_spans(
     from api.services import claims
 
     memory_path = settings.memory_path
-    etag = sync_service.etag_for(memory_path, "episodes", "entities",
-                                 extra=f"spans|{episode_id}|{source_spans.SHAPE}|{claims.current_day()}")
+    etag = await sync_service.etag_for_async(memory_path, "episodes", "entities",
+                                             extra=f"spans|{episode_id}|{source_spans.SHAPE}|{claims.current_day()}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     result = await run_in_threadpool(source_spans.for_source, memory_path, episode_id)

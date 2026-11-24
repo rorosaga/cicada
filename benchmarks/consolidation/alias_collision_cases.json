@@ -1,0 +1,268 @@
+[
+ {
+  "id": "abbrev_full_name",
+  "kind": "same",
+  "listed": "both",
+  "a": {
+   "id": "qap",
+   "name": "QAP",
+   "type": "tool",
+   "body": "QAP is the analytics platform the team uses for dashboards over the sales warehouse.",
+   "aliases": [
+    "Quill Analytics Platform"
+   ]
+  },
+  "b": {
+   "id": "quill-analytics-platform",
+   "name": "Quill Analytics Platform",
+   "type": "tool",
+   "body": "Quill Analytics Platform is a dashboard and reporting tool; the owner builds sales dashboards in it every week.",
+   "aliases": [
+    "QAP"
+   ]
+  }
+ },
+ {
+  "id": "vendor_suffix",
+  "kind": "same",
+  "listed": "a",
+  "a": {
+   "id": "northgate-ledger-by-northgate-software",
+   "name": "Northgate Ledger by Northgate Software",
+   "type": "tool",
+   "body": "Northgate Ledger is the double-entry bookkeeping tool the owner uses for the household accounts.",
+   "aliases": [
+    "Northgate Ledger"
+   ]
+  },
+  "b": {
+   "id": "northgate-ledger",
+   "name": "Northgate Ledger",
+   "type": "tool",
+   "body": "Northgate Ledger: bookkeeping tool the owner exports monthly statements from."
+  }
+ },
+ {
+  "id": "company_inc",
+  "kind": "same",
+  "listed": "a",
+  "a": {
+   "id": "kestrel-robotics-inc",
+   "name": "Kestrel Robotics Inc",
+   "type": "company",
+   "body": "Kestrel Robotics Inc builds warehouse picking robots; the owner interviewed there in March.",
+   "aliases": [
+    "Kestrel Robotics"
+   ]
+  },
+  "b": {
+   "id": "kestrel-robotics",
+   "name": "Kestrel Robotics",
+   "type": "company",
+   "body": "Kestrel Robotics makes picking robots for warehouses; the owner applied for a robotics role there."
+  }
+ },
+ {
+  "id": "concept_spelling",
+  "kind": "same",
+  "listed": "both",
+  "a": {
+   "id": "spaced-repetition",
+   "name": "Spaced repetition",
+   "type": "concept",
+   "body": "Spaced repetition: reviewing flashcards at growing intervals; the owner uses it for vocabulary.",
+   "aliases": [
+    "Spaced-repetition learning"
+   ]
+  },
+  "b": {
+   "id": "spaced-repetition-learning",
+   "name": "Spaced-repetition learning",
+   "type": "concept",
+   "body": "Spaced-repetition learning, the technique of reviewing material at increasing intervals, which the owner uses for languages.",
+   "aliases": [
+    "Spaced repetition"
+   ]
+  }
+ },
+ {
+  "id": "project_two_names",
+  "kind": "same",
+  "listed": "a",
+  "a": {
+   "id": "harbor-mobile-app",
+   "name": "Harbor mobile app",
+   "type": "project",
+   "body": "The Harbor mobile app is the owner's side project: a tide-table app for sailors.",
+   "aliases": [
+    "Harbor App"
+   ]
+  },
+  "b": {
+   "id": "harbor-app",
+   "name": "Harbor App",
+   "type": "project",
+   "body": "Harbor App: the owner's tide-table app for sailors, built in React Native."
+  }
+ },
+ {
+  "id": "service_platform",
+  "kind": "two",
+  "listed": "a",
+  "a": {
+   "id": "orchard-search",
+   "name": "Orchard Search",
+   "type": "tool",
+   "body": "Orchard Search is the search service of the Orchard cloud; the owner uses it to index documents.",
+   "aliases": [
+    "Orchard Cloud"
+   ]
+  },
+  "b": {
+   "id": "orchard-cloud",
+   "name": "Orchard Cloud",
+   "type": "tool",
+   "body": "Orchard Cloud is a cloud platform with storage, queues, search and functions; the owner hosts a project on it."
+  }
+ },
+ {
+  "id": "company_product",
+  "kind": "two",
+  "listed": "a",
+  "a": {
+   "id": "zephyr-labs",
+   "name": "Zephyr Labs",
+   "type": "company",
+   "body": "Zephyr Labs is a small software company in Rotterdam that makes writing tools.",
+   "aliases": [
+    "Zephyr Editor"
+   ]
+  },
+  "b": {
+   "id": "zephyr-editor",
+   "name": "Zephyr Editor",
+   "type": "tool",
+   "body": "Zephyr Editor is a Markdown editor the owner writes notes in every day."
+  }
+ },
+ {
+  "id": "library_language",
+  "kind": "two",
+  "listed": "a",
+  "a": {
+   "id": "tinyparse",
+   "name": "Tinyparse",
+   "type": "tool",
+   "body": "Tinyparse is a small parsing library written in Valkyrie; the owner used it for a config format.",
+   "aliases": [
+    "Valkyrie"
+   ]
+  },
+  "b": {
+   "id": "valkyrie",
+   "name": "Valkyrie",
+   "type": "concept",
+   "body": "Valkyrie is a statically typed programming language the owner is learning on weekends."
+  }
+ },
+ {
+  "id": "studio_game",
+  "kind": "two",
+  "listed": "a",
+  "a": {
+   "id": "corvid-studios",
+   "name": "Corvid Studios",
+   "type": "company",
+   "body": "Corvid Studios is an indie game studio the owner follows; it is based in Lisbon.",
+   "aliases": [
+    "Corvid Siege"
+   ]
+  },
+  "b": {
+   "id": "corvid-siege",
+   "name": "Corvid Siege",
+   "type": "concept",
+   "body": "Corvid Siege is a tower-defence video game released in 2024 that the owner played over the holidays."
+  }
+ },
+ {
+  "id": "org_carries_other_org",
+  "kind": "two",
+  "listed": "a",
+  "a": {
+   "id": "lakeside-institute",
+   "name": "Lakeside Institute",
+   "type": "company",
+   "body": "Lakeside Institute is a research organisation on marine ecology; the owner attended its public lecture.",
+   "aliases": [
+    "Cedar University"
+   ]
+  },
+  "b": {
+   "id": "cedar-university",
+   "name": "Cedar University",
+   "type": "company",
+   "body": "Cedar University is where the owner did a master's degree in computer science."
+  }
+ },
+ {
+  "id": "shared_short_name",
+  "kind": "two",
+  "listed": "a",
+  "a": {
+   "id": "atlas-mapping-service",
+   "name": "Atlas Mapping Service",
+   "type": "tool",
+   "body": "Atlas Mapping Service is a web map provider the owner used for a delivery route planner.",
+   "aliases": [
+    "AMS"
+   ]
+  },
+  "b": {
+   "id": "ams",
+   "name": "AMS",
+   "type": "company",
+   "body": "AMS is the Applied Mechanics Society, a professional body whose newsletter the owner reads."
+  }
+ },
+ {
+  "id": "same_word_other_thing",
+  "kind": "two",
+  "listed": "a",
+  "a": {
+   "id": "pioneer-foods",
+   "name": "Pioneer Foods",
+   "type": "company",
+   "body": "Pioneer Foods is a food manufacturer; the owner was offered an internship there.",
+   "aliases": [
+    "Pioneer"
+   ]
+  },
+  "b": {
+   "id": "pioneer",
+   "name": "Pioneer",
+   "type": "concept",
+   "body": "Pioneer was a series of 1970s space probes; the owner read about the Pioneer plaque."
+  }
+ },
+ {
+  "id": "tool_tool_unrelated",
+  "kind": "two",
+  "listed": "a",
+  "a": {
+   "id": "glide-scheduler",
+   "name": "Glide Scheduler",
+   "type": "tool",
+   "body": "Glide Scheduler is a calendar app the owner uses to plan the week.",
+   "aliases": [
+    "Glide"
+   ]
+  },
+  "b": {
+   "id": "glide",
+   "name": "Glide",
+   "type": "tool",
+   "body": "Glide is a JavaScript library for image carousels the owner used on the portfolio site."
+  }
+ }
+]

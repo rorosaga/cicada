@@ -1223,8 +1223,8 @@ async def list_sources(
     # `SHAPE` moves the tag once when the payload gains a field (`preview`), so a client holding the older body
     # re-reads it instead of keeping a 304'd copy without the field.
     # G191 v3: `captures` too — a new site capture gives a bookmark row its thumbnail.
-    etag = sync_service.etag_for(memory_path, "sources", "episodes", "entities", "reading", "captures",
-                                 extra=f"{sort}|{SHAPE}")
+    etag = await sync_service.etag_for_async(memory_path, "sources", "episodes", "entities", "reading", "captures",
+                                             extra=f"{sort}|{SHAPE}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     memo_key = (str(memory_path), sort)
@@ -1493,7 +1493,7 @@ async def sources_where_to_check(
     from api.services import source_roster
 
     memory_path = settings.memory_path
-    etag = sync_service.etag_for(memory_path, "entities", extra=source_roster.SHAPE)
+    etag = await sync_service.etag_for_async(memory_path, "entities", extra=source_roster.SHAPE)
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     rows = await run_in_threadpool(source_roster.roster, memory_path)
@@ -1535,7 +1535,7 @@ async def sources_overview(
 
     # Source page speed (2026-10-29): the ETag and the build share one listing per directory (`request_scans`).
     with sync_ticker.request_scans(memory_path):
-        etag = sync_service.etag_for(
+        etag = await sync_service.etag_for_async(
             memory_path, "sources", "episodes", "entities", "photos", "siteIcons",
             extra=(f"{source_overview.SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}"
                    f"|feeds:{feed_fetch}"),
@@ -1572,7 +1572,7 @@ async def list_source_channels(
     # The feed gate is an env fact too: a feed row is connected only while feeds are fetched (2026-10-23).
     feed_fetch = feed_registry.fetch_allowed()
     with sync_ticker.request_scans(memory_path):   # one listing per directory for ETag and build (2026-10-29)
-        etag = sync_service.etag_for(
+        etag = await sync_service.etag_for_async(
             memory_path, "sources", "episodes", "entities",
             extra=(f"{channel_registry.CHANNELS_SHAPE}|telegram:{settings.telegram_enabled}"
                    f"|connectors:{connector_tag}|feeds:{feed_fetch}"),
@@ -1749,7 +1749,7 @@ async def list_channel_items(
     # this context) — the SSE walk's when its gate allows (`request_scans`), so a list reads only its own source's files.
     with sync_ticker.request_scans(memory_path):
         # Sources v4 (review of #358): `photos` too — a Messages row carries its chat photo's hash.
-        etag = sync_service.etag_for(
+        etag = await sync_service.etag_for_async(
             memory_path, "sources", "episodes", "entities", "photos",
             extra=(f"{channel_items.SHAPE}|{channel_id}|{offset}|{limit}|{q or ''}|{collection or ''}"
                    f"|{stream or ''}|{folder or ''}|{mention_asks.stamp(memory_path)}"),
@@ -1799,8 +1799,8 @@ async def list_channel_collections(
     with sync_ticker.request_scans(memory_path):
         # RSS counts media pages; `sources` holds `feeds.yaml` (the polls' results) and the url index (the stamps).
         pages = ("entities",) if channel_id in channel_items.FEED_CHANNELS else ()
-        etag = sync_service.etag_for(memory_path, "sources", "episodes", *pages,
-                                     extra=f"{channel_items.SHAPE}|collections|{channel_id}|{digest}")
+        etag = await sync_service.etag_for_async(memory_path, "sources", "episodes", *pages,
+                                                 extra=f"{channel_items.SHAPE}|collections|{channel_id}|{digest}")
         if (early := sync_service.conditional(request, response, etag)) is not None:
             return early
         tree = await run_in_threadpool(channel_items.collections, memory_path, channel_id)
@@ -1882,8 +1882,8 @@ async def get_watched_day(episode_id: str, request: Request, response: Response,
     the app keeps it in memory and revalidates with this ETag (`episodes` for the day, `sources`+`entities` for which
     videos are also saved)."""
     memory_path = settings.memory_path
-    etag = sync_service.etag_for(memory_path, "sources", "episodes", "entities",
-                                 extra=f"{channel_items.SHAPE}|day|{episode_id}")
+    etag = await sync_service.etag_for_async(memory_path, "sources", "episodes", "entities",
+                                             extra=f"{channel_items.SHAPE}|day|{episode_id}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     day = await run_in_threadpool(channel_items.watched_day, memory_path, episode_id)
@@ -1961,8 +1961,8 @@ async def get_messages_chat_sittings(conversation: str, request: Request, respon
     the app keeps it in memory and revalidates with this ETag. 2026-11-03: an unticked chat lists none (G179's
     ticked-only rail on the chat page's panel), so the ETag rides `sources` too, where the chat settings' ticks move."""
     memory_path = settings.memory_path
-    etag = sync_service.etag_for(memory_path, "sources", "episodes",
-                                 extra=f"{channel_items.SHAPE}|sittings|{conversation}")
+    etag = await sync_service.etag_for_async(memory_path, "sources", "episodes",
+                                             extra=f"{channel_items.SHAPE}|sittings|{conversation}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     page = await run_in_threadpool(channel_items.chat_sittings, memory_path, conversation)
