@@ -138,6 +138,9 @@ def cmd_plan(args) -> int:
     vrows = _rows(out / "values.jsonl")
     (out / "review.txt").write_text(
         value_sweep.GUIDE + "\nVALUES\n\n" + value_sweep.review_text(vrows) + "\nNAMES (no model: nobody is joined)\n\n"
+        "A held person written \"Name (qualifier)\" becomes the shape Sleep writes today: a second person held in doubt under the\n"
+        "bare name, the written name kept as an alias, its claims on its own key. Whether two are one person is Sleep's later\n"
+        "decision, on located evidence, with an undo. Strike a line (--skip-line NAME) to leave it exactly as it is.\n\n"
         + name_sweep.review_text(nrows), encoding="utf-8")
     if not args.judge:
         print(json.dumps(summary, indent=1))
@@ -199,7 +202,7 @@ def cmd_apply(args) -> int:
                     head = f"One-time sweep: {n_closed} doubled value(s) closed, {n_lines} held person line(s) re-shaped"
                     body = [*value_sweep.commit_message(vres)[1], *name_sweep.commit_message(nres)[1]]
                     git_service.commit_paths_sync(bank, git_service.build_commit_message(head, body, authors=["cicada"]), paths)
-                    committed = True
+                    committed = vres.committed = True
             except BaseException:
                 undo.restore(bank)   # exactly the files written, still under the lock
                 raise

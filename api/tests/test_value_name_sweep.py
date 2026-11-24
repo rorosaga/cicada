@@ -679,9 +679,10 @@ def test_the_next_sleep_does_not_hand_the_claims_to_a_page_that_answers_to_the_n
 
 
 def test_a_following_mention_of_the_bare_name_meets_the_held_person_through_the_same_name_placement(tmp_path, monkeypatch):
-    """The held person is an identity the placement compares a new "Nico" with, as one Stage 2 wrote itself would be: the
-    scripted judge says the new mention is that person, and it lands on that line by key, never on the page."""
+    """The held person is an identity the placement compares a new "Nico" with, as one Stage 2 wrote itself would be: a
+    scripted judge that reads the new mention as the finance lead puts it on that line, by key, never on the page."""
     import asyncio
+    import re
     from types import SimpleNamespace
 
     from api.services import entity_resolver as er
@@ -689,16 +690,17 @@ def test_a_following_mention_of_the_bare_name_meets_the_held_person_through_the_
     _apply_names(bank, _rows(bank))
     seen = []
 
-    async def judge(system, prompt):
+    async def judge(settings, system, prompt):
         seen.append(prompt)
-        letters = [ln.strip()[1] for ln in prompt.splitlines() if ln.strip().startswith("(") and ln.strip()[2:3] == ")"]
-        return {"people": [{"conversations": letters[:1], "reason": "the new mention is the finance lead"},
-                           {"conversations": letters[1:], "reason": "the cousin"}],
-                "pairs": [{"people": [1, 2], "verdict": "different", "here": "finance lead at Brightwell", "there": "a nurse who lives in Lyon",
-                           "reason": "r"}]} if len(letters) > 1 else {"people": [{"conversations": letters, "reason": "same"}], "pairs": []}
-    monkeypatch.setattr(er, "_same_name_ask", lambda settings, system, prompt: judge(system, prompt))
-    page = {"id": "nico", "frontmatter": markdown_parser.parse(bank / "entities" / "nico.md").frontmatter,
-            "body": markdown_parser.parse(bank / "entities" / "nico.md").body}
+        entries = re.findall(r"^\s*\(([A-Z])\)\s*(.*)$", prompt, re.M)
+        finance = [letter for letter, text in entries if "finance lead" in text.lower() or "budget slides" in text.lower()]
+        other = [letter for letter, _ in entries if letter not in finance]
+        return {"people": [{"conversations": finance, "reason": "the finance lead"}, {"conversations": other, "reason": "the cousin"}],
+                "pairs": [{"people": [1, 2], "verdict": "different", "here": "finance lead at Brightwell",
+                           "there": "a nurse who lives in Lyon", "reason": "r"}]}
+    monkeypatch.setattr(er, "_same_name_ask", judge)
+    parsed = markdown_parser.parse(bank / "entities" / "nico.md")
+    page = {"id": "nico", "frontmatter": parsed.frontmatter, "body": parsed.body}
     extracted = [{"episode_id": "ep_2026-11-25_001", "origin": "claude-code", "relationships": [], "values": [],
                   "entities": [{"name": "Nico", "type": "person", "confidence": 0.8, "source_episode": "ep_2026-11-25_001",
                                 "summary": "Nico, the finance lead at Brightwell, sent next quarter's budget slides to the speaker on Monday.",
@@ -706,9 +708,8 @@ def test_a_following_mention_of_the_bare_name_meets_the_held_person_through_the_
     moves, compared, _ = asyncio.run(er._plan_same_name_people(
         extracted, [page], {"nico": [page]}, _settings(bank), refs=SimpleNamespace(is_speaker=lambda *a, **k: False),
         owner_page_id="mira-kolar"))
-    assert seen, "the placement asked about the name"
-    assert "nico-2" in compared["nico"] and "nico" in compared["nico"]    # the held person is one of the people compared
-    assert "finance lead" in seen[0].lower()                              # and the judge read its own words
+    assert seen and compared["nico"] == frozenset({"nico", "nico-2"})       # the held person was one of those compared
+    assert moves == {("ep_2026-11-25_001", "nico"): er.same_name_people.Destination("line", "nico-2")}
 
 
 def test_a_revert_stops_being_clean_once_a_sleep_has_rewritten_the_line_it_changed(tmp_path):

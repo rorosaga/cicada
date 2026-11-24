@@ -4568,39 +4568,73 @@ is about, who did it, and never say one thing twice. Four mechanisms, each engin
   a value pair the small judge refused is read once more by the main model when the NEWER value arrives (#840,
   `value_alignment.align(reread=)`; a pair refused earlier is never looked at again), and a person written
   `Name (qualifier)` is a mention of the bare name (#846; a line already held under the qualified title stays so). One tool,
-  two passes (`--pass values|names|both`), the heal's two steps: **plan** with a judge writes nothing to the bank, **apply**
-  makes no model call. Never run by Sleep, never by an agent on the person's memory.
-  - **Values.** For each page with two or more open values, every value that has an OLDER one of its slot, worded
-    differently and saying a different thing, is shown as NEW to the main model through the live module's own second-reading
-    prompt, proposals and check (`value_alignment.REREAD`, `proposals`, `confirmed`): a join needs both answers, as live. Before
-    the check, code refuses what the live path's rails refuse and the row says which: the newer is not dated later, one
-    conversation stated both, a person's own edit, an open inbox question names one, both say the same thing, the person's
-    own words would be closed in favour of a machine claim (`inbox_tend.may_close`), the trust table would not let the newer
-    close the older (`trust_decision`). Apply gives the newer the older's predicate and CLOSES the older
-    (`claim_reconciler._close`: `valid_to`, `superseded_by`) — kept, never deleted; two real values of one attribute stay two
-    because only the judge's two yeses join them.
-  - **Names.** Each held person line titled `Name (qualifier)` is placed by the live module itself
-    (`same_name_people._plan`, the small judge then the main model's second reading, on the bank's own pages and lines as Stage 2
-    builds them): to a page or a held line the reader put it with, to a person of its own held in doubt, or — nobody else of the
-    name — to the bare name. **A line the reader placed nowhere stays as it is** (`plan` is not used: it sends such a line to the
-    bare name, which is a join on the name alone, ruling 74); so does one whose own conversation also names the bare name's
-    person, and one that would join a page the reading says already holds two people. A handle the record paired, the owner's
-    first name, a two-word name, a correspondent, a line the person said is not a page, and a non-person are never touched.
-    Apply renames the line (the page's id, the bare name, or a free `<name>-2` titled with the bare name and recorded in doubt
-    against the others), keeps the written name as an alias, re-points its held claims (`pending_store._repoint`) and folds
-    its facts into the line it joins (`pending_store._carry`); the next Sleep releases a held claim onto a page that bears its
-    line's name as it does for every held name. **A page titled with a qualifier is counted and listed, never changed** (moving a
-    page is the page join's, which has its own undo).
-  - **Commands, in order.** `plan --bank <copy or bank> --out <dir outside both>` (counts only, no call) → `plan ... --judge
-    --max-calls N` (`--model sonnet` reads values and a name's second reading, `--small-model haiku` a name first; writes
-    `values.jsonl`, `names.jsonl`, `review.txt`: every pair or line, what would change, the reader's own words; resumable;
-    exit 5 on an engine stop) → read `review.txt`, strike a row (delete it, `"strike": true`, `--skip-page`, `--skip-group
-    <page>#<n>`, `--skip-line <name>`) → `apply --bank <bank> --plan <dir> --check` → `apply ...` (one `cicada` commit of only
-    its paths, `git revert` undoes it byte for byte; refused while Sleep runs, exit 3, and on a demo bank, exit 4; a row whose
-    claims or line changed since the plan, a page dirty in git, a rail that no longer passes — skipped and counted).
-    The name judge is asked under its own stage label: on the Claude plan the engine forces the `disambiguation` stage into
-    the one-pair `{decision, reason}` schema, and the same-name judge's `people`/`pairs` answer is jammed into `reason`
-    (observed 2026-11-24); a stage with no schema answers in the shape asked for.
+  two passes (`--pass values|names|both`), the heal's two steps: **plan** writes nothing to the bank, **apply** makes no
+  model call. Never run by Sleep, never by an agent on the person's memory. **Neither pass joins two people, and the names
+  pass never calls a model.** Reviewed 2026-11-24 by an independent run with a judge rigged to always join; every case it
+  found is a test (`api/tests/test_value_name_sweep.py`).
+  - **Values** (`--judge`, the main model, at most `--max-calls` calls). For each page with two or more open values, every
+    value that has an OLDER one of its slot, worded differently and saying a different thing, is shown as NEW to the main model
+    through the live module's own second-reading prompt, proposals and check (`value_alignment.REREAD`, `proposals`,
+    `confirmed`): a join needs both answers, as live. Before the check, code refuses what the live path's rails refuse and the
+    row says which: a value's date less precise than a day (a month sorts before a day in it, so which is newer cannot be
+    told); the newer not dated later; **the dates and the days the values were said disagree** (the day is the conversation's
+    own, from its `ep_YYYY-MM-DD_NNN` id; a value dated 2025-06-01 but said on 2026-11-28 is never closed in favour of one
+    dated and said 2026-11-01); one conversation stated both; a person's own edit; an open inbox question names one (read as
+    the inbox reads it: `claim_id`, `claim_ids`, `covered_claims`, either side of a conflict, an option's claim; a deferred
+    question is open); both say the same thing; the person's own words would be closed in favour of a machine claim
+    (`inbox_tend.may_close`); the trust table would not let the newer close the older (`trust_decision`). **A page whose claims
+    do not all parse (`parse_claims(strict=True)`, as every read-modify-write path) is left alone whole**, in the plan and again in
+    apply. **A page whose call failed is not finished**: it is listed in `review.txt` as not read and the same command reads it
+    again (a page over its own call limit is final). Apply gives the newer the older's predicate and CLOSES the older
+    (`claim_reconciler._close`: `valid_to`, `superseded_by`) — kept, never deleted. It changes those two claims' lines **and
+    may re-serialise the page's frontmatter** as every page writer does (a YAML comment, an unquoted date), so the commit
+    can show more than the two lines; the claims' meaning and the prose are untouched. Two real values of one attribute
+    stay two because only the judge's two yeses join them. **The review opens with what to strike**, in plain words: a later
+    line that only restates the earlier one more vaguely (the earlier, more specific value would stop being current), and two
+    values that are both true at once. Each value shows its `valid_from`, the day it was said and the conversation.
+  - **Names** (no model, so `plan` writes every row without `--judge`). A held person line written `Name (qualifier)` is
+    turned into the shape #846 writes today and **Sleep decides later** (`same_name_people`, `same_name_tend`, ruling 74a:
+    located evidence, two reads, undoable): it becomes **a second person held in doubt** under the bare name — a free
+    `<name>-2` key (`same_name_people.free_id`), the bare name its `title`, the written name kept as an alias, its held claims
+    kept on its own key (`pending_store._repoint`) — with a doubt recorded against every page and every other held line that
+    answers to the bare name **by name or alias**, the bare name's own key included, through the live writer
+    (`entity_resolver._record_doubt_pairs`, which also flags the pair for Sleep's tail). **Only when nothing else in the bank
+    answers to the bare name** is the line renamed to the bare name, as Stage 2 sends a lone qualified mention. Two qualified
+    lines of one name become two second people, held against each other. It never renames a line onto a page's id, never
+    merges two lines, never moves a page. Every exclusion Stage 2 applies before it reads a qualified name as a mention of the
+    bare name is Stage 2's own function (`entity_resolver.same_name_skip`, extracted from `_plan_same_name_people` and called by
+    both): a handle the record paired, a self-reference, the owner's first name (the sweep also folds accents, which Stage 2
+    does not), a name that is not one bare word, a non-person, a correspondent. A line the person said is not a page, and one an
+    open question names, are left as they are. A page whose id the bare name holds but that is not a person, and the owner's, a
+    nickname's or a relation's page, leave the line alone. **A page titled with a qualifier is counted and listed, never
+    changed** (moving a page is the page join's, which has its own undo). The review shows, for a line, its own words, what it
+    will be titled, and each page or line it will be held against with that page's first summary sentence and status.
+    Apply derives the plan again from the bank as it is now and writes a row only when it comes out the same — a hash over the
+    line AND everything it is held against (a page's name, aliases, type, status and first sentence; a line's name, title,
+    aliases and conversations): anything that changed since the plan is skipped and counted. It refuses (exit 3, nothing written)
+    a bank where `pending_entities.jsonl` or `_same_name_doubts.yaml` has uncommitted changes, and a bank with no git.
+    - **What the next Sleep does** (`test_the_next_sleep_keeps_the_lines_claims_on_its_own_id…`): the release
+      (`claim_pipeline.run_claim_pipeline`, Stage 5.56) finds no page of the line's own key, so its claims stay held on it, and
+      a page of the bare name — or one that answers to it by an alias — receives none of them. A following mention of the bare
+      name meets the line as one of the people compared (`_same_name_identities`), and a judge that reads it as that person
+      puts it on that line by key. Measured on copies of six scratch banks that held qualified lines: after apply and the
+      release, every swept line kept its claims (0 released, all waiting), and a second plan found nothing.
+    - **When `git revert` of the sweep's commit stops being a clean undo.** Straight after apply, one `git revert` restores the
+      bank byte for byte (tested, and run on copies of scratch banks). Once a Sleep has committed a change to the same lines of
+      `pending_entities.jsonl` (it released or added a held claim on the swept line, or folded a mention into it) the revert
+      conflicts on that file (`test_a_revert_stops_being_clean…`; the reviewer reproduced it), and `git revert --abort` leaves the
+      bank as it was. The person then has two ways: leave the line as it is (it is the shape Sleep itself writes, and the doubt
+      is Sleep's to settle, undoably, with the person's word standing), or edit the line back by hand — set its `name` to the
+      alias the sweep kept (the written name), clear its `title`, point its held claims' `subject` back at that name's key, and remove its pairs from
+      `_same_name_doubts.yaml`. Nothing the
+      sweep wrote loses a claim either way: they stay on the line's own key. Apply's own output says this too.
+  - **Commands, in order.** `plan --bank <copy or bank> --out <dir outside both>` (counts only, and every name row; no model)
+    → `plan ... --judge --max-calls N` (`--model sonnet` reads the values; writes `values.jsonl`, `names.jsonl`,
+    `review.txt`; resumable; exit 5 on an engine stop) → read `review.txt`, strike a row (delete it, `"strike": true`,
+    `--skip-page`, `--skip-group <page>#<n>`, `--skip-line <name>`) → `apply --bank <bank> --plan <dir> --check` → `apply ...`
+    (one `cicada` commit of only its paths; refused while Sleep runs, exit 3, in a bank with no git, exit 3, and on a demo
+    bank, exit 4; a row whose claims or line changed since the plan, a page dirty in git, a rail that no longer passes —
+    skipped and counted; a failure after the first write puts every written file back).
 - **Who said it, who did it.** A claim resting only on the other side's words is theirs (`entity_extractor
   .assistant_observer`): a texted agent's (G179), and now a harness session's agent (`external:<harness>`) and a chat
   export's assistant (`external:chatgpt|claude|gemini`); a relayed episode (`evidence_kind`) keeps its own rail. Such
