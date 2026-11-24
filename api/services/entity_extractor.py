@@ -300,6 +300,8 @@ EXTRACTION GUIDELINES:
 - Relationships are critical — capture every meaningful connection between entities with a specific
   verb phrase in the active voice, source first (e.g. "works at", "built with", "supervised by", "depends on",
   "evaluated against", "dropped", "due"). Use short verb phrases, not full sentences or generic "related to".
+  What the user's own line says they did with a named thing (read, saw, visited, bought, took), said in passing in a
+  conversation about something else, is one too, from the user to that thing — never only a key_fact.
 - WHO SOMEONE IS TO THE USER ("my partner X", "my cousin X") is a relationship of its own ("partner of", "cousin of"),
   whatever the conversation is about; an act they share ("travels with") is never a substitute.
 - A ROLE IN A LABEL BELONGS TO THE SOURCE. "<source> <label> <target>" must read as a true sentence, so a label that

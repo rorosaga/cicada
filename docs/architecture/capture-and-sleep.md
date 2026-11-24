@@ -2466,6 +2466,24 @@ said in both directions, and a relation not stated. About $0.012 an extraction o
 again with no model. A case names the holder, the other side, the role in its language and the role the other side holds
 back (the gold of the case, not a product rule). The benchmark's `gold.roles` check now also guards the hierarchy (R3).
 
+**What the person says in passing is a relationship, not only a key fact (2026-11-24).** The benchmark's one gold fact that
+is sometimes not a claim, "has read <a book>" (P18), was never dropped: stored banks show Stage 1 wrote it on the book's
+page and the person's own as a key fact ("<user> read <title> and loved it"), and wrote only "<author> author of <title>"
+as a relationship, so Sleep had no claim to keep (the book rails' `book_said` still carried the status, on the episode, which
+the scorer does not read). Cause: nothing in the prompt said the person's own act on a named thing is a relationship; "who
+someone is to the user" is, and "capture every meaningful connection" left the act to the model. Measured by replaying the
+product's own Stage 1 (`benchmarks/consolidation/dropped_battery.py`, `dropped_cases.json`; engine-free tests in
+`test_dropped_battery.py`) over invented conversations where the person mentions a book, film, trip, course, purchase, race,
+doctor's visit or decision inside a conversation about something else (English, Spanish, French), and over counter-cases that
+must not become the person's act (the assistant's suggestion, a thing only asked about, a plan, someone else's act): on the
+benchmark's own conversation 15 of 40 runs had no claim (the dev code), on the other 21 conversations (104 runs) 1 of 104
+(one French book), none in the other kinds. The fix is one sentence in the relationships paragraph of the prompt: what the
+user's own line says they did with a named thing, said in passing, is a relationship from the user to it, never only a key
+fact. After: 164 of 164 passing facts a claim (40 of 40 on the benchmark's conversation), every one that states a day on that day (16 of 16), 0 of 67 counter-cases written as the person's act; a plan or a doubt is still written as a plan or a doubt ("considering
+watching", "plans to visit"). The harness counts a fact as `claim` (a relationship between the owner and the thing, or a value
+on either), `status` (only the book rails' mark), `prose` or `dropped`; `rescore` judges saved answers with no model. A call is
+under a cent on Sonnet.
+
 **Pick the page (G227, owner ruling 2026-10-29).** A mention that could be any of two or more same-titled pages is ONE
 question for the mention — never one per pair: `ClarificationManager.create` finds an open question about the same
 mention through any of its `same_title` pages before writing a second, and stores "Which <name> is this?". The question
