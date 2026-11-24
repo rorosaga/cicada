@@ -439,6 +439,7 @@ async def sleep_queue(
             title=(str(fm["title"]) if fm.get("title") else None), state=st, reason=reason,
             attempts=attempts,
             batch=ds.live.index if (ds is not None and ep_id in in_batch) else None,
+            device=str(fm.get("device") or "") or None,
         ))
     rows.sort(key=lambda r: _episode_sort_key({"timestamp": r.timestamp, "id": r.id}))
     return SleepQueueResponse(total=len(rows), offset=offset, items=rows[offset:offset + limit], kept=kept)
@@ -492,6 +493,7 @@ def _episode_items(mp, window) -> list[EpisodeQueueItem]:
         fm = ep["frontmatter"]
         kind, value = episode_copy.copy_target(fm, body, roots)
         opens = episode_copy.open_target(fm, body, roots)
+        facets = episode_copy.row_facets(fm)
         items.append(
             EpisodeQueueItem(
                 id=ep["id"],
@@ -506,13 +508,13 @@ def _episode_items(mp, window) -> list[EpisodeQueueItem]:
                 copy_kind=kind,
                 copy_value=value or ep["id"],
                 changed_at=episode_copy.changed_at(fm) or ep["timestamp"],
-                site=reading_hosts.mark_key(url) if (url := channel_items.saved_episode_url(fm)) else None,
-                device=str(fm.get("device") or "") or None,
+                site=facets["site"],
+                device=facets["device"],
                 open_kind=opens[0] if opens else None,
                 open_value=opens[1] if opens else None,
                 change=episode_revision.waiting_state(fm),
                 chat=EpisodeChat(**chat) if (chat := episode_copy.chat_of(fm)) else None,
-                meeting=EpisodeMeetingBrief(**brief) if (brief := meeting_transcripts.queue_brief(fm)) else None,
+                meeting=EpisodeMeetingBrief(**facets["meeting"]) if facets["meeting"] else None,
             )
         )
     return items

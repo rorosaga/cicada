@@ -187,3 +187,248 @@ def test_sleeps_own_settles_during_the_run_are_its_settled_questions(tmp_path, m
     commit = sleep_consolidated.run_commits(memory, "sleep_card")[0]
     cycle = _client(cfg).get(f"/sleep/history/{commit}/items").json()
     assert [q["id"] for q in cycle["questionsSettled"]] == ["inbox-901"], "a plain cycle reads the same window"
+
+
+# --- items-5 (owner 2026-11-24): the pages affected per source -----------------------------------------------------
+
+
+def _commit(memory, subject, *, date=None):
+    import os
+    import subprocess
+
+    git(memory, "add", "-A")
+    env = {**os.environ, **({"GIT_COMMITTER_DATE": date, "GIT_AUTHOR_DATE": date} if date else {})}
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", subject], cwd=memory, check=True, env=env)
+    return git(memory, "rev-parse", "HEAD").strip()
+
+
+def _put(memory, kind, name, fm, body="Body."):
+    from api.services import markdown_parser
+
+    markdown_parser.write(memory / kind / f"{name}.md", fm, body)
+
+
+def _page(memory, eid, *, status="active", sources=(), name=None, typ="concept"):
+    _put(memory, "entities", eid, {"id": eid, "name": name or eid.replace("-", " ").title(), "type": typ,
+                                   "status": status, "confidence": 0.8, "source_episodes": list(sources)})
+
+
+def _processed(memory, ep):
+    from api.services import markdown_parser
+
+    fm = markdown_parser.parse(memory / "episodes" / f"{ep}.md").frontmatter
+    _put(memory, "episodes", ep, {**fm, "processed": True}, "Body.")
+
+
+def _set_status(memory, eid, status):
+    page = memory / "entities" / f"{eid}.md"
+    page.write_text(page.read_text(encoding="utf-8").replace("status: active", f"status: {status}")
+                    .replace("status: archived", f"status: {status}"), encoding="utf-8")
+
+
+def synthetic_run(tmp_path, *, tie_decay=True):
+    """A bank whose run read four conversations (two origins, a device, a saved link, a meeting) and made two
+    batches: pages created, updated, archived (by the batch's own commit and by its decay commit), removed (deleted),
+    one fed by two conversations and one with no conversation of this run behind it. Returns ``(memory, commits)``."""
+    memory = seed_bank(tmp_path, [])
+    for ep, fm in {
+        "ep_2026-10-01_000": {"source": "mcp", "session_id": "ses_a"},
+        "ep_2026-10-01_001": {"source": "mcp", "session_id": "ses_b", "device": "device-a"},
+        "ep_2026-10-01_002": {"origin": "chrome-bookmark", "url": "https://docs.example.com/guide/alpha-project"},
+        "ep_2026-10-01_003": {"origin": "folder", "folder_kind": "meetings", "folder_id": "f1",
+                              "meeting": {"recorder": "hex", "app": "call-app", "duration_s": 1800,
+                                          "attendees": ["bob-example", "alice-example"]}},
+    }.items():
+        _put(memory, "episodes", ep, {"id": ep, "processed": False, "timestamp": f"2026-10-01T10:{ep[-1]}0:00",
+                                      "title": f"Conversation {int(ep[-1]) + 1}", **fm}, "Body.")
+    a, b, c, d = ("ep_2026-10-01_00" + i for i in "0123")
+    for eid in ("upd-one", "solo-two", "arch-batch", "arch-decay", "restored", "gone-one", "gone-two"):
+        _page(memory, eid, sources=["ep_2026-08-01_000"], typ="person" if eid.startswith("gone") else "concept")
+    _commit(memory, "base")
+    # the decay commit comes first (arithmetic only), then the batch commit
+    _set_status(memory, "arch-decay", "archived")
+    _set_status(memory, "restored", "archived")
+    first_decay = _commit(memory, "Sleep cycle 2026-10-01 (decay)")
+    for ep in (a, b):   # batch 1: it reads a and b
+        _processed(memory, ep)
+    _page(memory, "new-one", sources=[a])
+    _page(memory, "new-two", sources=[a, b])                      # fed by two conversations
+    _page(memory, "upd-one", sources=["ep_2026-08-01_000", b])    # updated by b
+    _page(memory, "solo-two", sources=["ep_2026-08-01_000"], name="Solo Two Edited")  # no conversation of this run
+    _set_status(memory, "arch-batch", "archived")                 # a correction archives it in the batch commit
+    (memory / "entities" / "gone-one.md").unlink()                # merged away
+    _page(memory, "made-then-archived", sources=[c])
+    one = _commit(memory, "Sleep cycle 2026-10-01 (batch 1 of 2)")
+    # batch 2: reads c and d; restores a page the decay archived; archives what batch 1 created; removes another
+    for ep in (c, d):
+        _processed(memory, ep)
+    _set_status(memory, "restored", "active")
+    _set_status(memory, "made-then-archived", "archived")
+    (memory / "entities" / "gone-two.md").unlink()
+    _page(memory, "new-three", sources=[d])
+    two = _commit(memory, "Sleep cycle 2026-10-01 (batch 2 of 2)")
+    return memory, [one, two], first_decay
+
+
+def _by_id(rows):
+    return {r.id: r for r in rows}
+
+
+def test_every_page_is_in_one_list_with_its_change_and_the_conversations_that_fed_it(tmp_path):
+    memory, commits, _decay = synthetic_run(tmp_path)
+    out = asyncio.run(sleep_consolidated.build(memory, commits))
+    assert sleep_consolidated.SHAPE == "items-5"
+    assert [p.id for p in out.created] == ["new-one", "new-two", "new-three"], "made-then-archived is archived, not new"
+    assert sorted(p.id for p in out.updated) == ["restored", "solo-two", "upd-one"]
+    assert sorted(p.id for p in out.archived) == ["arch-batch", "arch-decay", "made-then-archived"]
+    assert sorted(p.id for p in out.removed) == ["gone-one", "gone-two"]
+    listed = [p.id for rows in (out.created, out.updated, out.archived, out.removed) for p in rows]
+    assert len(listed) == len(set(listed)), "a page is in exactly one list"
+    assert {p.change for p in out.created} == {"created"} and {p.change for p in out.removed} == {"removed"}
+    assert {p.change for p in out.archived} == {"archived"} and {p.change for p in out.updated} == {"updated"}
+    assert out.counts["created"] == 3 and out.counts["updated"] == 3
+    assert out.counts["archived"] == 3 and out.counts["removed"] == 2
+
+
+def test_a_page_says_which_of_this_runs_conversations_fed_it_and_never_another_runs(tmp_path):
+    memory, commits, _decay = synthetic_run(tmp_path)
+    out = asyncio.run(sleep_consolidated.build(memory, commits))
+    a, b, c, d = ("ep_2026-10-01_00" + i for i in "0123")
+    pages = {**_by_id(out.created), **_by_id(out.updated), **_by_id(out.archived), **_by_id(out.removed)}
+    assert pages["new-one"].episodes == [a]
+    assert pages["new-two"].episodes == [a, b], "one page fed by two conversations"
+    assert pages["upd-one"].episodes == [b], "the earlier run's conversation is not listed"
+    assert pages["solo-two"].episodes == [], "no conversation of this run is behind it"
+    assert pages["made-then-archived"].episodes == [c]
+    convs = _by_id(out.conversations)
+    assert convs[a].pages == ["new-one", "new-two"]
+    assert convs[b].pages == ["new-two", "upd-one"]
+    assert convs[c].pages == ["made-then-archived"] and convs[d].pages == ["new-three"]
+    assert all(p in pages for conv in out.conversations for p in conv.pages), "every id resolves in a list"
+
+
+def test_a_conversation_carries_the_facts_the_waiting_row_carries(tmp_path):
+    from api.routers.sleep import _episode_items
+    from api.services import sleep_cycle as sc
+
+    memory, commits, _decay = synthetic_run(tmp_path)
+    out = asyncio.run(sleep_consolidated.build(memory, commits))
+    convs = _by_id(out.conversations)
+    a, b, c, d = ("ep_2026-10-01_00" + i for i in "0123")
+    assert convs[a].device is None and convs[b].device == "device-a", "none is the home itself"
+    assert convs[c].site == "docs.example.com" and convs[a].site is None
+    assert convs[d].meeting.app == "call-app" and convs[d].meeting.duration_s == 1800 and convs[d].meeting.attendees == 2
+    assert convs[a].meeting is None
+    assert convs[d].origin == "hex" and convs[c].origin == "chrome-bookmark" and convs[a].origin != convs[c].origin
+    # the same helper as the queue's rows: for every episode the two doors agree (a row of the Waiting list is built
+    # from the same header). Re-open one as waiting and compare.
+    rows = {r.id: r for r in _episode_items(memory, sc.episode_headers(memory))}
+    for cid, conv in convs.items():
+        assert (rows[cid].device, rows[cid].site) == (conv.device, conv.site), cid
+        assert (rows[cid].meeting.model_dump() if rows[cid].meeting else None) == \
+               (conv.meeting.model_dump() if conv.meeting else None), cid
+
+
+def test_a_removed_page_keeps_its_name_and_type_from_git_and_is_gone(tmp_path):
+    memory, commits, _decay = synthetic_run(tmp_path)
+    out = asyncio.run(sleep_consolidated.build(memory, commits))
+    rm = _by_id(out.removed)
+    assert rm["gone-one"].gone is True and rm["gone-one"].name == "Gone One" and rm["gone-one"].type == "person"
+    assert rm["gone-one"].commits == [commits[0]] and rm["gone-two"].commits == [commits[1]]
+
+
+def test_archived_is_read_from_git_in_the_batch_commit_and_in_its_decay_commit(tmp_path):
+    memory, commits, decay = synthetic_run(tmp_path)
+    out = asyncio.run(sleep_consolidated.build(memory, commits))
+    arch = _by_id(out.archived)
+    assert arch["arch-batch"].commits == [commits[0]], "a status change inside the run's own commit"
+    assert arch["arch-decay"].commits == [decay], "the batch's own (decay) commit, found right before it"
+    assert "restored" not in arch, "archived by decay, restored by the next batch: its state at the end counts"
+    # the page's status today never decides it: restore the archived page by hand after the run
+    _set_status(memory, "arch-decay", "active")
+    again = asyncio.run(sleep_consolidated.build(memory, commits))
+    assert "arch-decay" in _by_id(again.archived), "read from the commits, not from the page now"
+
+
+def test_a_decay_commit_another_commit_separates_from_its_batch_is_not_tied(tmp_path):
+    memory = seed_bank(tmp_path, [])
+    _page(memory, "slow-fade")
+    _commit(memory, "base")
+    _set_status(memory, "slow-fade", "archived")
+    _commit(memory, "Sleep cycle 2026-10-01 (decay)")
+    (memory / "notes.txt").write_text("a person's commit in between", encoding="utf-8")
+    _commit(memory, "unrelated")
+    batch = _commit(memory, "Sleep cycle 2026-10-01 (batch 1 of 1)")
+    out = asyncio.run(sleep_consolidated.build(memory, [batch]))
+    assert out.archived == [] and out.counts["archived"] == 0, "uncertain: reported nowhere"
+    # nor one made long before the batch
+    memory2 = seed_bank(tmp_path / "two", [])
+    _page(memory2, "old-fade")
+    _commit(memory2, "base")
+    _set_status(memory2, "old-fade", "archived")
+    _commit(memory2, "Sleep cycle 2026-10-01 (decay)", date="2026-10-01T00:00:00+00:00")
+    later = _commit(memory2, "Sleep cycle 2026-10-01 (batch 1 of 1)")
+    assert asyncio.run(sleep_consolidated.build(memory2, [later])).archived == []
+
+
+def test_the_state_snapshot_between_decay_and_batch_still_ties(tmp_path):
+    memory = seed_bank(tmp_path, [])
+    _page(memory, "fade")
+    _commit(memory, "base")
+    _set_status(memory, "fade", "archived")
+    _commit(memory, "Sleep cycle 2026-10-01 (decay)")
+    (memory / "_state.md").write_text("state", encoding="utf-8")
+    _commit(memory, "State snapshot 2026-10-01")
+    batch = _commit(memory, "Sleep cycle 2026-10-01 (batch 1 of 1)")
+    assert [p.id for p in asyncio.run(sleep_consolidated.build(memory, [batch])).archived] == ["fade"]
+
+
+def test_the_cap_and_whole_counts_hold_for_the_new_lists(tmp_path, monkeypatch):
+    memory = seed_bank(tmp_path, [])
+    for i in range(5):
+        _page(memory, f"rm-{i}", typ="person")
+    _commit(memory, "base")
+    for i in range(5):
+        (memory / "entities" / f"rm-{i}.md").unlink()
+    batch = _commit(memory, "Sleep cycle 2026-10-01 (batch 1 of 1)")
+    monkeypatch.setattr(sleep_consolidated, "CAP", 2)
+    out = asyncio.run(sleep_consolidated.build(memory, [batch]))
+    assert len(out.removed) == 2 and out.counts["removed"] == 5 and out.truncated is True
+
+
+def test_the_git_cost_is_a_few_calls_per_commit_plus_one_per_removed_page(tmp_path, monkeypatch):
+    from api.services import git_service
+
+    memory, commits, _decay = synthetic_run(tmp_path)
+    real, calls = git_service._run_git, []
+
+    async def counting(mp, *args):
+        calls.append(args[0])
+        return await real(mp, *args)
+
+    monkeypatch.setattr(git_service, "_run_git", counting)
+    out = asyncio.run(sleep_consolidated.build(memory, commits))
+    assert calls.count("show") == len(out.removed) == 2
+    assert len(calls) <= 4 * len(commits) + len(out.removed), calls
+
+
+def test_the_items_route_answers_the_new_shape(tmp_path, monkeypatch):
+    memory, cfg, ids = _run(tmp_path, monkeypatch, n=2, cap=5)
+    body = _client(cfg).get("/sleep/runs/sleep_card/items").json()
+    assert body["archived"] == [] and body["removed"] == [] and body["counts"]["archived"] == 0
+    assert {"device", "site", "meeting", "pages"} <= set(body["conversations"][0])
+    assert body["conversations"][0]["pages"] == [f"e-{ids[0]}"]
+    assert body["created"][0]["change"] == "created" and body["created"][0]["episodes"] == [ids[0]]
+
+
+def test_a_page_merged_away_beside_a_look_alike_new_page_still_reads_as_removed(tmp_path):
+    """git pairs a deleted file with a similar new one as a rename; the source is a page the run removed."""
+    memory = seed_bank(tmp_path, [])
+    body = "A long shared paragraph about alpha-project. " * 30
+    _put(memory, "entities", "twin-old", {"id": "twin-old", "name": "Twin", "type": "concept", "status": "active"}, body)
+    _commit(memory, "base")
+    (memory / "entities" / "twin-old.md").unlink()
+    _put(memory, "entities", "twin-new", {"id": "twin-new", "name": "Twin", "type": "concept", "status": "active"}, body)
+    batch = _commit(memory, "Sleep cycle 2026-10-01 (batch 1 of 1)")
+    out = asyncio.run(sleep_consolidated.build(memory, [batch]))
+    assert [p.id for p in out.removed] == ["twin-old"] and [p.id for p in out.created] == ["twin-new"]

@@ -3983,6 +3983,14 @@ class SleepConsolidatedConversation(CamelModel):
     title: Optional[str] = None
     origin: str = "unknown"
     timestamp: Optional[str] = None
+    #: items-5 (owner 2026-11-24, "the pages affected per source"): the same facts the Waiting list's row carries
+    #: (`episode_copy.row_facets`) — the device that posted it (`None` is the home itself), a saved link's own site
+    #: key (the icon it draws), a meeting's call app / length / invitees — and the ids of THIS run's pages this
+    #: conversation fed (each one is in a list below). Additive.
+    device: Optional[str] = None
+    site: Optional[str] = None
+    meeting: Optional["EpisodeMeetingBrief"] = None
+    pages: list[str] = Field(default_factory=list)
 
 
 class SleepConsolidatedPage(CamelModel):
@@ -3998,6 +4006,10 @@ class SleepConsolidatedPage(CamelModel):
     #: changed this page, oldest first — the app diffs the first one's parent to the last (`?since=` on the page's
     #: commit diff route) to show what the night did to it. Additive.
     commits: list[str] = Field(default_factory=list)
+    #: items-5: what the consolidation did to this page — `created`, `updated`, `archived` or `removed` — and the
+    #: ids of THIS run's conversations that fed it (never another run's). Additive.
+    change: str = "updated"
+    episodes: list[str] = Field(default_factory=list)
 
 
 class SleepConsolidatedQuestion(CamelModel):
@@ -4016,6 +4028,9 @@ class SleepConsolidated(CamelModel):
     conversations: list[SleepConsolidatedConversation] = Field(default_factory=list)
     created: list[SleepConsolidatedPage] = Field(default_factory=list)
     updated: list[SleepConsolidatedPage] = Field(default_factory=list)
+    #: items-5: a page is in exactly one of the four lists (removed > archived > created > updated). Additive.
+    archived: list[SleepConsolidatedPage] = Field(default_factory=list)
+    removed: list[SleepConsolidatedPage] = Field(default_factory=list)
     questions_raised: list[SleepConsolidatedQuestion] = Field(default_factory=list)
     questions_settled: list[SleepConsolidatedQuestion] = Field(default_factory=list)
     counts: dict[str, int] = Field(default_factory=dict)
@@ -4038,6 +4053,9 @@ class EpisodeMeetingBrief(CamelModel):
     app: Optional[str] = None
     duration_s: Optional[int] = None
     attendees: Optional[int] = None
+
+
+SleepConsolidatedConversation.model_rebuild()
 
 
 class EpisodeQueueItem(CamelModel):
@@ -4386,6 +4404,7 @@ class SleepQueueItem(CamelModel):
     reason: Optional[str] = None    # empty_answer | timed_out | unparseable | refused | other
     attempts: int = 0
     batch: Optional[int] = None
+    device: Optional[str] = None    # the machine it came from (an episode's `device`); None = this server
 
 
 class SleepKeptSource(CamelModel):

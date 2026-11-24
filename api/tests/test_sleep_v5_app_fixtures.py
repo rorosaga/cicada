@@ -202,14 +202,11 @@ def test_the_run_card_fixtures_are_the_servers_wire(tmp_path, monkeypatch):
     memory, cfg, ids = _paused_run(tmp_path, monkeypatch)
     main.app.dependency_overrides[get_settings] = lambda: cfg
     client = TestClient(main.app)
-    items = client.get("/sleep/runs/sleep_leg1/items").json()
-    assert [c["id"] for c in items["conversations"]] == ids
-    items["commits"] = ["0" * 40 for _ in items["commits"]]
-    for row in items["created"] + items["updated"]:   # items-3: a page row carries the commits that changed it
-        row["commits"] = ["0" * 40 for _ in row["commits"]]
-    for i, c in enumerate(items["conversations"]):
-        c["title"], c["timestamp"] = f"Conversation {i + 1}", "2026-09-01T10:00:00"
-    _write_or_compare("sleep-run-items.json", items)
+    live = client.get("/sleep/runs/sleep_leg1/items").json()
+    assert [c["id"] for c in live["conversations"]] == ids
+    assert {"device", "site", "meeting", "pages"} <= set(live["conversations"][0]), "items-5 on the real run too"
+    _write_or_compare("sleep-run-items.json", _items5_wire(tmp_path / "items5", monkeypatch))
+    main.app.dependency_overrides[get_settings] = lambda: cfg   # `_items5_wire` pointed the route at its own bank
     entry = next(r for r in client.get("/sleep/history", params={"limit": 15}).json() if r.get("drainId"))
     entry["commitHash"], entry["date"], entry["durationMs"] = "0" * 40, "2026-09-30T17:05:00+00:00", 660_000
     entry["message"] = "Sleep cycle 2026-09-30 (batch 3 of 3)"
@@ -218,6 +215,36 @@ def test_the_run_card_fixtures_are_the_servers_wire(tmp_path, monkeypatch):
     run["readMs"], run["pausedMs"] = 8_040_000, 16_620_000
     assert run["created"] == len(ids) and run["models"] == ["model-a", "model-b"]
     _write_or_compare("sleep-history-run.json", entry)
+
+
+def _items5_wire(tmp_path, monkeypatch) -> dict:
+    """``GET /sleep/runs/{id}/items`` (items-5) over a synthetic bank that exercises every field: four conversations
+    (two origins, one from a device, a saved link with a site, a meeting), a created, an updated, an archived and a
+    removed page, one page fed by two conversations and one with no conversation of the run behind it. The route
+    is real; only the run's commit list (the ledger's) is handed to it."""
+    from test_sleep_consolidated import synthetic_run
+
+    from api.services import sleep_consolidated
+
+    tmp_path.mkdir()
+    memory, commits, decay = synthetic_run(tmp_path)
+    monkeypatch.setattr(sleep_consolidated, "run_commits", lambda _mp, _drain: list(commits))
+    monkeypatch.setattr(sleep_consolidated, "run_window", lambda _mp, _drain: (None, None))
+    main.app.dependency_overrides[get_settings] = lambda: settings(memory)
+    body = TestClient(main.app).get("/sleep/runs/sleep_items5/items").json()
+    pinned = {*commits, decay}
+
+    def pin(node):
+        if isinstance(node, dict):
+            return {k: pin(v) for k, v in node.items()}
+        if isinstance(node, list):
+            return [pin(v) for v in node]
+        return "0" * 40 if node in pinned else node
+
+    body = pin(body)
+    assert body["counts"]["archived"] == 3 and body["counts"]["removed"] == 2
+    assert any(len(p["episodes"]) == 2 for p in body["created"]) and any(not p["episodes"] for p in body["updated"])
+    return body
 
 
 def test_the_reading_options_fixture_is_the_servers_wire(tmp_path):

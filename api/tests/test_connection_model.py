@@ -472,3 +472,71 @@ def test_a_device_token_reads_the_status_but_still_cannot_mint(env, monkeypatch)
     assert client.post("/devices", json={"name": "x"}, headers=headers).status_code == 403
     assert client.get("/devices/status").status_code == 401
     assert auth._master_only("/devices/status", "DELETE")
+
+
+def test_the_machines_add_up_to_the_waiting_tab_and_the_headline(env, monkeypatch):
+    """The Sleep page filters its queue by machine, so every waiting conversation belongs to exactly one row:
+    revoked and removed devices keep a row while conversations still wait, a parked conversation is waiting (it is
+    on the Waiting tab), a read, index-only or retired locked one is not. sum(queue) == the Waiting tab's total ==
+    the headline's `unprocessed_count`; minus the parked it is the headline's `readable_count`."""
+    import asyncio
+
+    from api.services import sleep_debt, sleep_parked
+
+    monkeypatch.setattr(device_status, "_NAME", "studio-example")
+    memory = env["memory"]
+    laptop, _ = device_tokens.store().create("laptop-example")
+    gone, _ = device_tokens.store().create("old-example")
+    _episode(memory, "2026-10-22-001")                                  # this server
+    _episode(memory, "2026-10-22-002", device=laptop.id)
+    _episode(memory, "2026-10-22-003", device=laptop.id)                # will be parked
+    _episode(memory, "2026-10-22-004", device=gone.id)                  # its device is revoked below
+    _episode(memory, "2026-10-22-005", device="zzzzzzzz")               # a device the store never knew
+    _episode(memory, "2026-10-22-006", device=laptop.id, processed=True)
+    markdown_parser.write(memory / "episodes" / "2026-10-22-007.md",
+                          {"id": "2026-10-22-007", "timestamp": "2026-10-22T10:00:00Z", "processed": False,
+                           "source": "claude-code", "locked_note": True}, "retired\n")
+    device_tokens.store().revoke(gone.id)
+    sleep_parked.park(memory, "2026-10-22-003", "timed_out", 2)
+
+    body = TestClient(main.app).get("/devices/status").json()
+    rows = body["devices"]
+    by_name = {r["name"]: r for r in rows}
+    assert rows[0]["role"] == "server" and rows[0]["queue"] == 1
+    assert by_name["laptop-example"]["queue"] == 2 and by_name["laptop-example"]["parked"] == 1
+    assert by_name["old-example"]["queue"] == 1 and by_name["old-example"]["revoked"] is True
+    assert by_name["old-example"]["connected"] is False
+    assert by_name["Removed device"]["queue"] == 1 and by_name["Removed device"]["id"] == "zzzzzzzz"
+
+    total = sum(r["queue"] for r in rows)
+    waiting_tab = TestClient(main.app).get("/sleep/episodes", params={"processed": "false"})
+    debt = asyncio.run(sleep_debt.compute(memory))
+    assert total == 5 == int(waiting_tab.headers["X-Total-Count"]) == debt.unprocessed_count
+    assert total - sum(r["parked"] for r in rows) == debt.readable_count == 4
+    queue = TestClient(main.app).get("/sleep/queue").json()
+    assert queue["total"] == total
+    assert {i["id"]: i["device"] for i in queue["items"]} == {
+        "2026-10-22-001": None, "2026-10-22-002": laptop.id, "2026-10-22-003": laptop.id,
+        "2026-10-22-004": gone.id, "2026-10-22-005": "zzzzzzzz"}      # a filter by machine needs the row's device
+
+
+def test_with_nothing_shared_the_server_row_is_the_home_and_the_rest_are_not(env):
+    laptop, _ = device_tokens.store().create("laptop-example")
+    rows = device_status.snapshot(env["memory"])["devices"]
+    server, other = rows
+    assert (server["home"], server["keepsCopy"], server["behind"], server["revoked"]) == (True, True, None, False)
+    assert (other["home"], other["keepsCopy"], other["behind"], other["revoked"]) == (False, False, None, False)
+    assert all(isinstance(r["queue"], int) and isinstance(r["parked"], int) for r in rows)
+
+
+def test_a_copy_is_connected_for_two_minutes_and_a_sender_for_ten(env):
+    """The windows a row's `connected` is judged by, said in the answer (the rule itself: ``is_connected``)."""
+    laptop, _ = device_tokens.store().create("laptop-example")
+    device_tokens.store().announce(laptop.id, bank_id="b" * 32, seq=1)
+    t0 = datetime.now(timezone.utc)
+    body = device_status.snapshot(env["memory"], now=t0)
+    assert (body["connectedWithinSeconds"], body["copyConnectedWithinSeconds"]) == (600, 120)
+    assert device_status.is_connected(t0 - timedelta(seconds=100), True, t0)
+    assert not device_status.is_connected(t0 - timedelta(seconds=300), True, t0)
+    assert device_status.is_connected(t0 - timedelta(seconds=300), False, t0)
+    assert not device_status.is_connected(None, False, t0)

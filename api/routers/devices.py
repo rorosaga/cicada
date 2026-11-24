@@ -41,7 +41,10 @@ async def devices_status(request: Request, settings: Settings = Depends(get_sett
     """G212: this server and each active device, by its own name — connected or not, how it connects (local, SSH,
     Tailscale, LAN; read from its requests), when it was last seen, and how many of its conversations wait for Sleep.
     One list for the Sleep page's strip and Settings → Devices. Readable by a device token too (``current`` marks the
-    asking device). Not a Store domain, no ETag: a small body that changes by the minute; poll it while visible."""
+    asking device). Each row also says ``home`` (the machine that runs Sleep), ``keepsCopy``, ``behind`` and ``revoked``
+    (a removed device whose conversations still wait); the rows' ``queue`` add up to the Waiting tab's total, and
+    ``connected`` is the same rule ``GET /sync/home`` uses (``device_status.is_connected``). Not a Store domain, no
+    ETag: a small body that changes by the minute; poll it while visible."""
     from api.services import device_status
 
     asking = getattr(request.state, "device", None)

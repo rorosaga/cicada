@@ -95,8 +95,9 @@ def peer_after_offline_s() -> float:
 PEER_TIMEOUT_S = 3.0
 #: ``/sync/keys`` pages one pull reads at most (5,000 keys a page): 8 days of a busy group's writes.
 KEYS_PAGES_MAX = 64
-#: A device counts as online when it reached the home this recently.
-ONLINE_WITHIN_S = 120.0
+#: A device that keeps a copy counts as online when it reached the home this recently. The one rule lives in
+#: ``device_status.is_connected`` (the Sleep page's two routes both ask it); this is its copy window, kept by name.
+from api.services.device_status import COPY_ONLINE_WITHIN_S as ONLINE_WITHIN_S  # noqa: E402
 #: A move's refusal stays on the Sleep page this long.
 REFUSAL_SHOWN_S = 300.0
 #: A home that recorded a move whose target has not taken over after this long may take its memory back.
@@ -1734,11 +1735,12 @@ def _offers(memory_path: Path, theirs, fork: str, old: str, head_ref: str, *, wa
 
 # --- the Sleep page ------------------------------------------------------------------------------------------------------
 
-def overview(memory_path: Path) -> dict:
-    """``GET /sync/home``: the device that runs consolidation (the home) with its state, every other device with
-    whether it is online and how far behind its copy is, and what a move or a take-over would say. One computer that
-    shares nothing gets ``{"shared": false}`` and the Sleep page shows nothing new."""
-    from api.services import demo_guard, device_status, replica, sync_log
+def group(memory_path: Path, now: datetime | None = None) -> dict:
+    """The facts of the group as this computer knows them, asked once by ``GET /sync/home`` (:func:`overview`) and by
+    ``GET /devices/status`` (``device_status.snapshot``) so the two routes never compute them two ways: the role, the
+    home's id, its seq, the registry rows and the pin. One computer that shares nothing (or a demo bank) is
+    ``{"shared": False, "role": ...}``."""
+    from api.services import demo_guard, replica, sync_log
 
     me_role = role(memory_path)
     if me_role == "local" or demo_guard.is_demo(memory_path):
@@ -1747,7 +1749,6 @@ def overview(memory_path: Path) -> dict:
     rec = record(memory_path)
     me = my_device_id() if me_role != "home" else ensure_own_identity()
     rows = registry(memory_path)
-    now = datetime.now(timezone.utc)
     if me_role == "replica":
         state = replica.state()
         home_seq = state.get("homeSeq") if isinstance(state.get("homeSeq"), int) else state.get("seq")
@@ -1759,19 +1760,46 @@ def overview(memory_path: Path) -> dict:
         home_id = (rec.to if me_role in CLOSED_ROLES and rec is not None and rec.to != me else me)
         home_online = me_role == "home"
         home_sleep = None
+    return {"shared": True, "role": me_role, "pin": pin, "rec": rec, "me": me, "rows": rows, "home_seq": home_seq,
+            "home_id": home_id, "home_online": home_online, "home_sleep": home_sleep,
+            "now": now or datetime.now(timezone.utc)}
+
+
+def copy_facts(r: dict, pin, home_seq) -> tuple[bool, int | None]:
+    """Does this registry row keep a copy of THIS memory, and how many changes behind the home is it (``None`` when
+    unknown or not a copy)."""
+    keeps = bool(r.get("copy_bank_id")) and (pin is None or r.get("copy_bank_id") == pin.id)
+    behind = None
+    if keeps and isinstance(home_seq, int) and isinstance(r.get("copy_seq"), int):
+        behind = max(0, home_seq - r["copy_seq"])
+    return keeps, behind
+
+
+def overview(memory_path: Path, now: datetime | None = None) -> dict:
+    """``GET /sync/home``: the device that runs consolidation (the home) with its state, every other device with
+    whether it is online and how far behind its copy is, and what a move or a take-over would say. One computer that
+    shares nothing gets ``{"shared": false}`` and the Sleep page shows nothing new. A device's ``online`` is
+    ``device_status.is_connected`` — the same answer ``GET /devices/status`` gives for it."""
+    from api.services import agent_seen, device_status, replica
+
+    g = group(memory_path, now)
+    if not g["shared"]:
+        return g
+    me_role, pin, rec, me, rows = g["role"], g["pin"], g["rec"], g["me"], g["rows"]
+    home_seq, home_id, home_online, home_sleep, now = (g["home_seq"], g["home_id"], g["home_online"],
+                                                      g["home_sleep"], g["now"])
     home_row = row(rows, home_id) or {}
+    sightings = agent_seen.devices()
     devices = []
     for r in rows:
         if r.get("revoked_at") or r.get("kind") not in (None, "full") or r.get("id") == home_id:
             continue
         if r.get("copy_bank_id") and pin is not None and r.get("copy_bank_id") != pin.id:
             continue
-        keeps = bool(r.get("copy_bank_id"))
-        seen = _parse(r.get("copy_at")) or _parse(r.get("last_used_at"))
-        online = bool(seen and (now - seen).total_seconds() <= ONLINE_WITHIN_S)
-        behind = None
-        if keeps and isinstance(home_seq, int) and isinstance(r.get("copy_seq"), int):
-            behind = max(0, home_seq - r["copy_seq"])
+        keeps, behind = copy_facts(r, pin, home_seq)
+        seen = device_status.last_seen(r.get("copy_at"), r.get("last_used_at"),
+                                       (sightings.get(r.get("id")) or {}).get("lastSeen"))
+        online = device_status.is_connected(seen, keeps, now)
         if r.get("id") == me and me_role == "replica":
             state = replica.state()
             behind, online = state.get("behind"), True

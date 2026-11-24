@@ -155,3 +155,19 @@ def folder_roots(memory_path: Path) -> Callable[[str], Optional[str]]:
         return cache[folder_id]
 
     return root
+
+
+def row_facets(fm: Mapping[str, Any]) -> dict[str, Any]:
+    """What a conversation's row shows beside its title, from its header alone: ``site`` (a saved link's own site key,
+    the icon it draws), ``device`` (the device id that posted it; ``None`` is the home itself) and ``meeting`` (the
+    call app, length and invitee count as a plain dict, or ``None``). The ONE helper behind the Waiting list's rows
+    (``GET /sleep/episodes``) and a past run's conversations (``GET /sleep/runs/{id}/items``, items-5), so a row
+    carries the same facts before and after Sleep reads it."""
+    from api.services import channel_items, meeting_transcripts, reading_hosts
+
+    url = channel_items.saved_episode_url(dict(fm))
+    return {
+        "site": reading_hosts.mark_key(url) if url else None,
+        "device": str(fm.get("device") or "") or None,
+        "meeting": meeting_transcripts.queue_brief(dict(fm)),
+    }
