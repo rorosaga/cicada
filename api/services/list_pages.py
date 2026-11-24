@@ -30,10 +30,11 @@ nothing in it is not drawn and not counted (derived on read), so a renamed folde
 archived or dropped keeps its key and is never made again; turning a list off keeps its page; **removing a source retires
 its pages undoably** (:func:`retire_source`: status ``archived`` in one commit, git keeps the rest).
 
-**Ships dark.** While ``saved_posts.HIDE_POSTS`` is ``False`` this module **writes nothing**: no list page file is born, so
-there is nothing for any reader of the pages folder — the status count, the search index, a hub, the graph — to show, and
-nothing a person sees changes. The first sync after the flip makes every list's page at once. (The graph, Clusters and
-find draw nothing of a list page that is not in :func:`state`, which is empty while dark.)
+**On since the flip (2026-11-25).** While ``saved_posts.HIDE_POSTS`` is ``False`` this module **writes nothing**: no list
+page file is born, so there is nothing for any reader of the pages folder — the status count, the search index, a hub, the
+graph — to show. The first sync after the flip made every list's page at once. (The graph, Clusters and find draw nothing
+of a list page that is not in :func:`state`, which is empty while the switch is off; a page written while it was on stays on
+disk and recall and a direct open still find it.)
 
 **Rails.** The writer runs only on the home (a replica refuses), never into a demo bank, inside ``write_admission`` and the
 page lock, one commit per batch under ``cicada``, and a bank Sleep holds is tried again (``media_pages.RETRY_S``). The page

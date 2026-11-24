@@ -31,6 +31,13 @@ def _reset():
     graph_builder.reset_cache()
 
 
+@pytest.fixture(autouse=True)
+def _setting_pinned(monkeypatch):
+    """The shipped setting is on (ruling 81, `saved_posts.HIDE_POSTS`); this file pins its own: off, unless a test asks
+    for `on`. Never the default, which is not what these tests assert."""
+    monkeypatch.setattr(saved_posts, "HIDE_POSTS", False)
+
+
 @pytest.fixture
 def on(monkeypatch):
     monkeypatch.setattr(saved_posts, "HIDE_POSTS", True)
@@ -707,3 +714,9 @@ def test_a_row_still_counts_toward_a_shared_title(bank, monkeypatch):
         graph(bank)
         held[flag] = same_name._CACHE[str(bank.root)][2]
     assert held[True] == held[False] and sorted(held[True]["thing"]) == ["media-row", "thing-tool"]
+
+
+def test_the_switch_ships_on():
+    """Ruling 81: the one constant is True in the source (the tests pin their own setting, so read the source)."""
+    source = (Path(__file__).resolve().parents[1] / "services/saved_posts.py").read_text()
+    assert re.search(r"^HIDE_POSTS = True$", source, re.MULTILINE)

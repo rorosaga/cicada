@@ -62,6 +62,13 @@ def bank(tmp_path):
     return DigestBank(tmp_path / "bank")
 
 
+@pytest.fixture(autouse=True)
+def _setting_pinned(monkeypatch):
+    """The shipped setting is on (ruling 81, `saved_posts.HIDE_POSTS`); this file pins its own: off, unless a test asks
+    for `on`. Never the default, which is not what these tests assert."""
+    monkeypatch.setattr(saved_posts, "HIDE_POSTS", False)
+
+
 @pytest.fixture
 def on(monkeypatch):
     monkeypatch.setattr(saved_posts, "HIDE_POSTS", True)

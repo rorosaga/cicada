@@ -90,7 +90,7 @@ nothing.
 
 **A list of saved posts has one small page of its own (G246, ruling 81, owner 2026-11-24: "maybe a small entity page that has all
 the saved posts would be good … i want to somehow see saved things somewhere even if i haven't referred to them yet";
-`list_pages`, behind `saved_posts.HIDE_POSTS`, off).** This amends the paragraph above only to the extent that a list of *posts*
+`list_pages`, behind `saved_posts.HIDE_POSTS`, on since the flip, 2026-11-25).** This amends the paragraph above only to the extent that a list of *posts*
 (a site's bookmarks, likes, reposts, saved posts — X, Instagram, LinkedIn, Reddit, Pinterest, TikTok) and each folder, collection
 or board such a site files saves into (`save_folders`) may have a page about the list itself; the page is no tag, no `member of`
 edge and no hub, and a list of works (a YouTube playlist, a Substack list) and a browser's own bookmark folder get none.
@@ -107,8 +107,8 @@ holds its key and is never made again or woken). It is never a stream member, a 
 (`source_overview.is_files_media` reads its origin), quiet, merged (`entity_merge` and `page_join` refuse), asked about
 (`inbox_service._subject_quiet`) or given facts by Sleep (`entity_resolver` treats it as a file page: its name is no one's). The
 writer runs only on the home (a replica refuses), never into a demo bank, inside write admission and the page lock, one commit per
-batch under `cicada` (`sync/list_pages`), retried while Sleep holds the pages. **Dark, it writes nothing**: no file is born while
-`HIDE_POSTS` is off, so no reader of the pages folder can show one; the first sync after the flip makes every list's page. Its
+batch under `cicada` (`sync/list_pages`), retried while Sleep holds the pages. **On since the flip (2026-11-25); with the switch off it writes nothing**: no file is born while
+`HIDE_POSTS` is off, so no reader of the pages folder can show one; the first sync after the flip made every list's page. Its
 triggers are the backend's start, a read of `GET /sources/streams`, a list read recorded (`cicada_record_saved_list`, after its own commit, only when
 it saved something), a save noticed in a site (`POST /sources/site-save`, after the save is stored) and the end of a Sleep run (beside the file
 pages' writer, after the write flag is down): each asks `list_pages.start_sync` with a short settle, so a burst is one run, in the writer's own

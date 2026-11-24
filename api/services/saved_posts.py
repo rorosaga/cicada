@@ -8,10 +8,9 @@ to, it is not drawn as a page of its own: not a node in the graph, not a line in
 hub, not a "Related" entry that opens nothing. **All of it is decided on read.** No file is rewritten, moved or deleted,
 and no pass over an old bank exists: the same page is a row today and a page again the moment he talks about it.
 
-**Ships dark.** :data:`HIDE_POSTS` is ``False``: every reader below returns what it returned before this module existed.
-The coordinator sets it to ``True`` after reading a dry run on the real memory
-(``python -m api.scripts.saved_posts_dry_run --bank <path>``, counts only) and after every door puts a post on a list —
-the same pattern as ``connector_text.REPAIR``.
+**On since the flip (2026-11-25).** :data:`HIDE_POSTS` is ``True``; set ``False`` every reader below returns what it
+returned before this module existed (the pages and stamps written while it was on stay on disk, unread by the graph,
+Clusters and Sources). ``python -m api.scripts.saved_posts_dry_run --bank <path>`` counts a memory, counts only.
 
 **The rule (:func:`is_post`) is a pure function of the page's own saved link**, never of the door it came through: the
 same status bookmarked in a browser, saved from a click in the site, pasted, or read from the site's list gets the same
@@ -55,9 +54,9 @@ from api.services import (bank_index, derived_store, episode_time, history_index
                           video_urls)
 from api.version import __version__
 
-#: **The flip.** ``False``: nothing a person sees changes — every reader returns what it did before this module. The
-#: coordinator sets it to ``True`` after reading a dry run on the real memory (``api/scripts/saved_posts_dry_run.py``).
-HIDE_POSTS = False
+#: **The flip** (2026-11-25, ruling 81). ``True``: a short saved post is a row under its list. ``False``: nothing a person
+#: sees changes — every reader returns what it did before this module (``api/scripts/saved_posts_dry_run.py`` counts a memory).
+HIDE_POSTS = True
 
 #: Question 2 of the plan, in one line. How a link saved from a browser's own bookmarks is judged. ``by-link``: like
 #: every other door, by the link alone (an X status is a post, an ordinary web page a work). ``pages``: a bookmarked

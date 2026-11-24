@@ -3764,7 +3764,7 @@ in the save.
 - **Quiet.** A page whose only evidence is saves is quiet (`quiet_pages`, derived); a tab group holds no page link, so
   `episode_kind` now calls `source: tab-group` an import too, which makes its page quiet and keeps a group out of the
   conversation rungs (Contacts card, connection) that asked for one. **A saved post that earned its page (G246,
-  `saved_posts`, behind `HIDE_POSTS`, off) is not dimmed and the inbox may ask about it** (`quiet_pages.page_is_dimmed`: the
+  `saved_posts`, behind `HIDE_POSTS`, on since the flip, 2026-11-25) is not dimmed and the inbox may ask about it** (`quiet_pages.page_is_dimmed`: the
   node's `quiet`, the card's and the inbox's); the mention readers keep `page_is_quiet`, so a note he gave a post still never
   counts as a conversation that lit its page. A list's own page (`media.kind: list`) is never quiet.
 - **A link from a save's page** (`inject_media_edges`, amends ruling 56 for this edge only): the media page's `about` edge to a

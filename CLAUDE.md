@@ -308,8 +308,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   project with no page gets, over this rule counted across the spellings the judge joins (the person's own located words
   clear it, a repository alone never), one `concept` page recording what Sleep read, which a start makes the project in
   place (`capture-and-sleep.md`). What is said about a
-  name with no page yet is held (`pending_store`), never lost. A page only an import made, a book with nothing marked included (ruling 64), is quiet — dimmed, never
-  asked about — until the person mentions it, derived on read (`quiet_pages`).
+  name with no page yet is held (`pending_store`), never lost. A page only an import made (a book with no marks too, ruling 64) is dimmed, never asked about, until
+  mentioned, derived on read (`quiet_pages`); a saved post is a row, ruling 81.
   **Ruling 42 (owner 2026-10-27):** one conversation is enough for a specific event, program or application the person
   — or a harness agent, for them — acted on (applied, registered, filled its form), measured on the conversation; the
   application lives on that page, the owner's keeps only the link (`application_page`, `capture-and-sleep.md`).
