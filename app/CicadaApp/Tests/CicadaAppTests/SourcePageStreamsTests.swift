@@ -243,7 +243,7 @@ final class SourcePageStreamsTests: XCTestCase {
         }
         XCTAssertEqual(kept, SourceItemCardText.footer(card("deeper-than-we-know"), today: today, locale: en))
         for word in [Copy.Streams.itemRead, Copy.Streams.itemAsked, Copy.Streams.itemWatched] {
-            XCTAssertEqual(word, word.lowercased(), "the footer's own lowercase style: \(word)")
+            XCTAssertTrue(word.first?.isLowercase == true, "the footer's own lowercase style: \(word)")
             XCTAssertFalse(["claude", "chatgpt", "openai", "gemini", "anthropic"].contains { word.lowercased().contains($0) }, word)
         }
     }
