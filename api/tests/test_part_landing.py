@@ -101,3 +101,26 @@ def test_a_part_verdict_beside_a_same_match_writes_no_includes_claim_when_refuse
     assert len(asked) == 1
     assert [c["id"] for c in out["changes"] if c["action"] == "update"] == ["river-barge"]
     assert not [r for r in out["relations"] if r["source_page"] == "cedar-canoe"]
+
+
+def test_a_judge_that_reads_the_pair_backwards_is_corrected_by_the_reading(tmp_path, monkeypatch):
+    """Measured on a benchmark's key runs (2026-11-24): the small judge answered `has_part` (the page is a part of the
+    name) for a trip's flights, so the part was never asked about, stayed its own held line, and the trip's page was
+    written "part-of" the flights. The reading is asked the same question once; its "part" lands the name."""
+    out, asked = _resolve(tmp_path, monkeypatch, second="part", judged="related:has_part")
+    assert len(asked) == 1
+    assert [c["id"] for c in out["changes"] if c["action"] == "update"] == ["cedar-canoe"]
+    assert not out.get("relations"), "the backwards relation is not written for a name that landed on the page"
+
+
+def test_a_backwards_verdict_the_reading_refuses_stays_the_judges_relation(tmp_path, monkeypatch):
+    """The reading answers one direction only: its "no" is not an overrule of `has_part` (a whole named after its part)."""
+    out, asked = _resolve(tmp_path, monkeypatch, second="no", judged="related:has_part")
+    assert len(asked) == 1
+    assert not [c for c in out["changes"] if c["action"] == "update" and c["id"] == "cedar-canoe"]
+    assert [r["label"] for r in out["relations"]] == ["part-of"], "the judge's own relation is kept"
+
+
+def test_a_backwards_verdict_beside_a_same_match_costs_no_second_reading(tmp_path, monkeypatch):
+    out, asked = _resolve(tmp_path, monkeypatch, second="part", judged="related:has_part", also_same=True)
+    assert asked == []

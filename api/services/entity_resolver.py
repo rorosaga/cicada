@@ -2685,8 +2685,13 @@ async def _settle_unborn(
         # 2026-11-24 (G148): one small-model answer is not enough to join a part onto a page for good, nor to write that
         # page an "includes" claim: the engine's main model reads the part's own conversations beside the page first
         # (`part_landing`). With a match already (same or unsure) the part verdicts are only scrubbed, never landed.
-        for page in _parts_of_pages(judged, u.name):
-            if await _part_confirmed(u, page, cache, settings, memory_path):
+        # A judge that reads the pair backwards ("the page is a part of the name", `has_part`) is asked the same
+        # question, once, when nothing else matched: the reading decides the direction, never the small model.
+        asked = [(page, False) for page in _parts_of_pages(judged, u.name)]
+        if match is None:
+            asked += [(page, True) for page in _wholes_called_parts(judged, u.name)]
+        for page, backwards in asked:
+            if await _part_confirmed(u, page, cache, settings, memory_path, backwards=backwards):
                 if match is None:
                     whole = page
                     break
@@ -2802,16 +2807,23 @@ async def _settle_unborn(
     return False
 
 
-async def _part_confirmed(u: _Unborn, whole: dict, cache: dict, settings: Settings, memory_path: Path) -> bool:
+async def _part_confirmed(u: _Unborn, whole: dict, cache: dict, settings: Settings, memory_path: Path, *,
+                          backwards: bool = False) -> bool:
     """Whether the engine's main model agrees ``u`` is a part of the page ``whole`` (`part_landing.confirms`). A part it
     does not confirm is its own name again, and the judge's verdict is no relation either: the cache says ``different``,
-    so `_judged_relations` writes no "includes" claim for a pair a second reading refused."""
+    so `_judged_relations` writes no "includes" claim for a pair a second reading refused.
+
+    ``backwards``: the judge said the PAGE is a part of the name (``has_part``). A "part" from the reading corrects that
+    (the cache then says what landed); a "no" leaves the judge's relation as it was — the reading was asked about one
+    direction only, so it does not overrule the other."""
     from api.services import part_landing
 
     confirmed = await part_landing.confirms(
         u.name, _effective_summary(u.entity), sorted(u.episodes()), _candidate_display_name(whole),
         _candidate_description(whole), settings, memory_path=memory_path)
-    if not confirmed:
+    if confirmed and backwards:
+        cache[(u.name.lower(), str(whole["id"]))] = entity_relations.verdict("part_of")
+    elif not confirmed and not backwards:
         cache[(u.name.lower(), str(whole["id"]))] = "different"
     return confirmed
 
@@ -2830,6 +2842,14 @@ def _parts_of_pages(judged: list[tuple[dict, str]], name: str) -> list[dict]:
     whose own name carries the mention's whole name (the direction guard, `entity_relations.plausible`)."""
     return [c for c, decision in judged
             if entity_relations.relation_of(decision) == "part_of" and c.get("source") in ("existing", "created")
+            and entity_relations.plausible("part_of", name, _candidate_display_name(c))]
+
+
+def _wholes_called_parts(judged: list[tuple[dict, str]], name: str) -> list[dict]:
+    """The pages the judge called a part OF the name (``has_part``, the pair read the other way round), with the same
+    direction guard as `_parts_of_pages`."""
+    return [c for c, decision in judged
+            if entity_relations.relation_of(decision) == "has_part" and c.get("source") in ("existing", "created")
             and entity_relations.plausible("part_of", name, _candidate_display_name(c))]
 
 
