@@ -15,8 +15,6 @@ Synthetic names and words only.
 """
 from __future__ import annotations
 
-import hashlib
-import inspect
 import json
 import shutil
 import subprocess
@@ -416,15 +414,58 @@ def test_forgetting_a_bank_removes_what_was_stored_for_it(bank, tmp_path):
     assert derived_store.path_of(other.root, "saved_posts").is_file()          # another bank's stays
 
 
-def test_the_rule_is_pinned_to_the_record_version(bank):
-    """A stored record outlives a process: when what a record holds or the rule that makes it changes, bump
-    `RECORD_VERSION`, or a stored digest of the old rule would be read as the new one's. Update the pin with the bump."""
-    source = "".join(inspect.getsource(fn) for fn in (
-        saved_posts.is_post, saved_posts.post_site.__wrapped__, saved_posts.site_of, saved_posts.episode_signs,
-        saved_posts._entity_record, saved_posts._episode_record, saved_posts._claim_facts, saved_posts._tied,
-        saved_posts._taken_sources, saved_posts._resolve))
-    digest = hashlib.sha1(source.encode()).hexdigest()[:12]
-    assert (saved_posts.RECORD_VERSION, digest) == (1, "59132ae94d5b"), f"bump RECORD_VERSION and pin ({digest})"
+def test_a_new_release_or_an_edited_rule_makes_every_stored_record_again(bank, on, monkeypatch):
+    """A stored record outlives a release, and an unmoved file keeps its record indefinitely, so the tag must move with
+    whatever a record is made from. The case: a source counts as Cicada's own reading in the next release; the stored
+    record still calls its episode a conversation, and the post it names stays earned."""
+    reading = "reading-example"
+    reading_episode = "ep_2026-11-22_001"
+    bank.episode(reading_episode, {"source": reading}, "user: words\n")
+    pid = bank.post("media-read", url=status(61), episodes=[reading_episode])
+    assert saved_posts.verdict(bank.root).signs[pid] == {"conversation"}
+    saved_posts.persist_now(bank.root)
+    saved_posts.forget(bank.root, stored=False)                 # a new process
+    monkeypatch.setattr(quiet_pages, "CHECK_SOURCES", quiet_pages.CHECK_SOURCES | {reading})
+    bank_index.invalidate()
+    want = oracle(bank.root)                                    # what the new rule says
+    assert want[pid] == set()
+    bank_index.invalidate()
+    saved_posts.forget(bank.root, stored=False)
+    # Control: with the tag unmoved the old store answers, and is wrong. That is what the tag exists to prevent.
+    assert saved_posts.verdict(bank.root).signs[pid] == {"conversation"}
+    saved_posts.forget(bank.root, stored=False)
+    bank_index.invalidate()
+    monkeypatch.setattr(saved_posts, "_source_stamp", lambda: "a-later-release")   # editing the constant moves this
+    before = bank_index.parse_count
+    assert pid not in saved_posts.verdict(bank.root).earned
+    assert digest_signs(bank.root) == want
+    assert bank_index.parse_count > before                      # read from the bank: the old store was ignored
+
+
+def test_the_tag_moves_with_the_release_and_with_every_module_a_record_is_made_with(tmp_path, monkeypatch):
+    base = saved_posts._tag()
+    monkeypatch.setattr(saved_posts, "__version__", "9.9.9")
+    assert saved_posts._tag() != base                           # a new release rebuilds once
+    monkeypatch.undo()
+    files = [tmp_path / "rule_a.py", tmp_path / "rule_b.py"]
+    for f in files:
+        f.write_text("A = 1\n")
+    monkeypatch.setattr(saved_posts, "_source_files", lambda: files)
+    saved_posts._source_stamp.cache_clear()
+    first = saved_posts._source_stamp()
+    files[1].write_text("A = 2\n")                             # an edit of any one of them
+    saved_posts._source_stamp.cache_clear()
+    assert saved_posts._source_stamp() != first
+    saved_posts._source_stamp.cache_clear()
+
+
+def test_the_modules_a_record_is_made_with_are_all_named_and_found():
+    """Every module the record functions reach is in the list, and each is found as a source file in a checkout."""
+    named = {"quiet_pages", "save_folders", "promotion", "video_urls", "saved_lists", "episode_time", "project_ownership",
+             "fact_sources", "connector_text", "history_index", "claims", "saved_posts"}
+    assert named <= set(saved_posts.RECORD_MODULES)
+    found = {p.stem for p in saved_posts._source_files()}
+    assert found == set(saved_posts.RECORD_MODULES)
 
 
 # ------------------------------------------------------------------------------------------------ dark

@@ -2748,9 +2748,9 @@ its key; ~13k / ~16 MB on the 8k-page synthetic bank).
 `derived_store` keeps one read model's per-file records at `$CICADA_HOME/derived/<bank name>-<8 hex of its resolved path's hash>/<name>.json`
 (0700 folder, 0600 file, written to a temporary file and renamed): **derived and disposable**, outside every bank and git, never served
 by a route or tool, and keyed by the bank it was made from three ways: the folder name, the resolved path the file repeats, and a `tag`
-(the record version and every constant a record depends on). A file that is missing, truncated, not JSON, of another format, another tag
+(the record version, the release, and a hash of the source of every module a record is made with, so a new release or an edited rule makes each record again once and nothing has to remember to bump a number). A file that is missing, truncated, not JSON, of another format, another tag
 or another bank is "nothing stored": the caller derives from the bank and writes again, and nothing raises into a read. The first user is
-`saved_posts` (`saved_posts.json`: `(mtime_ns, size, record)` per page and episode, plus the edge rows a claim backs), so the graph's change
+`saved_posts` (`saved_posts.json`: `(mtime_ns, size, record)` per page and episode, plus the edge rows a claim backs; ids, origins and the person's own folder names, no word of a page or a save), so the graph's change
 check does not parse 19,000 headers in a fresh process; `features.md`, "The check stays cheap on a cold start". A bank moved to the trash
 takes its records with it.
 

@@ -53,6 +53,7 @@ from loguru import logger
 
 from api.services import (bank_index, derived_store, episode_time, history_index, promotion, quiet_pages, saved_lists,
                           video_urls)
+from api.version import __version__
 
 #: **The flip.** ``False``: nothing a person sees changes — every reader returns what it did before this module. The
 #: coordinator sets it to ``True`` after reading a dry run on the real memory (``api/scripts/saved_posts_dry_run.py``).
@@ -247,8 +248,8 @@ def _fold(name) -> str:
 #   an episode  ``[kind C|I|K, the page it names or None, its signs, the folders it is filed in]`` (the last only when
 #               it is filed in one); ``0`` for a conversation naming no page and filed nowhere.
 
-#: Bump when what a record holds or the rule behind it changes (``is_post``, ``episode_signs``, the signs): a stored
-#: record of another version is ignored and made again. ``test_saved_posts_digest`` pins the rule's source to this number.
+#: Bump when the shape of a stored record changes in a way no source edit shows. Everything else a record depends on is in
+#: :func:`_tag` already: the release, and the source of this module and of every module a record is made with.
 RECORD_VERSION = 1
 #: A stored digest is rewritten at most this often once one exists, or at once after this many files changed.
 PERSIST_EVERY_S = 30.0
@@ -262,9 +263,49 @@ _KIND = {"C": quiet_pages.CONVERSATION, "I": quiet_pages.IMPORT, "K": quiet_page
 _KIND_CODE = {v: k for k, v in _KIND.items()}
 
 
+#: The modules a record is made with besides this one: the page and save kinds, the folders a save is filed in, the claim
+#: and evidence reading, the video and list rules, the feed test, the project and source ties, the connector's old shape,
+#: the sign keys, and the readers of a file's header. A change to any of them makes a stored record untrustworthy.
+RECORD_MODULES = ("saved_posts", "quiet_pages", "save_folders", "promotion", "video_urls", "saved_lists", "episode_time",
+                  "project_ownership", "fact_sources", "connector_text", "saved_reading", "history_index", "claims",
+                  "bank_index", "markdown_parser")
+
+
+def _source_files() -> list[Path]:
+    """The source file of each module in :data:`RECORD_MODULES`, found without importing it (a frozen build with no
+    ``.py`` on disk has none: the release then stands alone in the tag)."""
+    from importlib import util
+
+    out: list[Path] = []
+    for name in RECORD_MODULES:
+        try:
+            spec = util.find_spec(f"api.services.{name}")
+        except (ImportError, ValueError):
+            continue
+        if spec is not None and spec.origin and spec.origin.endswith(".py"):
+            out.append(Path(spec.origin))
+    return out
+
+
+@lru_cache(maxsize=1)
+def _source_stamp() -> str:
+    """A short hash of the source of every module a record is made with. A new release, a branch switch or an edit of any of
+    them changes it, so a record made by older code is made again once; nothing has to remember to bump a number. A file
+    that cannot be read stamps its name only."""
+    digest = hashlib.sha1()
+    for path in _source_files():
+        digest.update(path.name.encode())
+        try:
+            digest.update(path.read_bytes())
+        except OSError:
+            digest.update(b"?")
+    return digest.hexdigest()[:12]
+
+
 def _tag() -> str:
-    """What every stored record depends on besides the files: the record version and the bookmark knob (``is_post``)."""
-    return f"{RECORD_VERSION}:{BOOKMARKED_LINKS}"
+    """What every stored record depends on besides the files: the record version, the bookmark knob (``is_post``), the
+    release and the source of every module a record is made with (:data:`RECORD_MODULES`)."""
+    return f"{RECORD_VERSION}:{BOOKMARKED_LINKS}:{__version__}:{_source_stamp()}"
 
 
 def _claim_facts(entry):

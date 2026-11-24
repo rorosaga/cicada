@@ -8,7 +8,7 @@ What lives here is **derived and disposable** — the rails every caller keeps:
   committed, never synced to another computer, never served by a route or tool, and holds only what the bank's own files
   say (no query, no new fact).
 * **Keyed by the bank it was made from.** The folder name carries a hash of the bank's resolved path and the file repeats
-  the resolved path and a ``tag`` (the caller's record version and every constant its records depend on); a file that names
+  the resolved path and a ``tag`` (the caller's record version, the release, and the source of every module its records are made with); a file that names
   another bank, another tag or another store format is ignored, never read as an answer. A second bank, a bank switch or a
   bank restored at another path therefore can never read this bank's records.
 * **Rebuilt silently.** A missing, unreadable, truncated or stale file is "nothing stored": :func:`load` returns ``None``
