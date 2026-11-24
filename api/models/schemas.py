@@ -5493,6 +5493,10 @@ class NotesSyncRequest(CamelModel):
     # names), and every folder the app listed in Notes' own order (`[{account, path}]`) — beside the dump so an older
     # backend ignores both. A locked note has no entry; a folder is a filing label, never a note's words.
     note_folder_paths: Optional[dict[str, list[str]]] = Field(default=None, max_length=100_000)
+    # G245 (arrival join): each unlocked note's CREATION moment by note id, Notes' locale-free local ISO time (read with the
+    # dump record's own UTC offset), beside the dump so an older backend ignores it. Absent from an older app: such a note
+    # has no creation day and is never dated by its last edit (`arrival_join`).
+    note_created: Optional[dict[str, str]] = Field(default=None, max_length=100_000)
     note_folders: Optional[list[dict]] = Field(default=None, max_length=5_000)
 
 

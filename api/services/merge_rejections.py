@@ -27,6 +27,13 @@ def _pair(a: str, b: str) -> tuple[str, str]:
 SPLIT_KEY = "split"
 
 
+#: G245 (arrival join, 2026-11-24): the person said "Not them" to a first name joined to someone who had no page. The pair
+#: cannot be two pages, so it is keyed by the holder page and a HASH of the folded full name (never the name):
+#: ``[{holder, key, on}]``. Kept beside the page pairs, read by `arrival_join`, and promoted into ``rejected`` the night a page
+#: of that full name exists (`arrival_join_write.promote_refusals`), so every other joiner — ruling 74's, 74a's, 74b's — holds.
+ARRIVAL_KEY = "arrival_joins"
+
+
 def _read(memory_path: Path) -> dict:
     p = Path(memory_path) / FILE
     if not p.exists():
@@ -57,6 +64,48 @@ def _write(memory_path: Path, data: dict) -> Path:
             out[key] = value
     p.write_text(yaml.safe_dump(out, allow_unicode=True, sort_keys=False), encoding="utf-8")
     return p
+
+
+def arrival_refusals(memory_path: Path) -> list[dict]:
+    """Every "Not them" the person said to an arrival join whose full-name side had no page: ``[{holder, key, on}]``."""
+    out: list[dict] = []
+    for row in _read(memory_path).get(ARRIVAL_KEY) or []:
+        if isinstance(row, dict) and row.get("holder") and row.get("key"):
+            out.append({"holder": str(row["holder"]), "key": str(row["key"]), "on": str(row.get("on") or "")})
+    return out
+
+
+def add_arrival_refusal(memory_path: Path, holder: str, key: str, *, on: str) -> Path:
+    data = _read(memory_path)
+    rows = arrival_refusals(memory_path)
+    if not any(r["holder"] == holder and r["key"] == key for r in rows):
+        rows.append({"holder": holder, "key": key, "on": on})
+    data[ARRIVAL_KEY] = rows
+    return _write(memory_path, data)
+
+
+def drop_arrival_refusal(memory_path: Path, holder: str, key: str) -> bool:
+    """The person joined them after all, or the refusal became a page pair: it leaves the list."""
+    data = _read(memory_path)
+    rows = arrival_refusals(memory_path)
+    kept = [r for r in rows if not (r["holder"] == holder and r["key"] == key)]
+    if len(kept) == len(rows):
+        return False
+    if kept:
+        data[ARRIVAL_KEY] = kept
+    else:
+        data.pop(ARRIVAL_KEY, None)
+    _write(memory_path, data)
+    return True
+
+
+def refused_by_name(memory_path: Path, holder: str, full_name: str) -> bool:
+    """Did the person say a first name page (``holder``) is NOT the person called ``full_name``? The public reader every
+    joiner may ask before it proposes or settles that pair, whether or not a page of that name exists yet."""
+    from api.services import arrival_join, people_directory
+
+    key = arrival_join.key_hash(people_directory.fold(full_name))
+    return any(r["holder"] == holder and r["key"] == key for r in arrival_refusals(memory_path))
 
 
 def load_rejected(memory_path: Path) -> set[tuple[str, str]]:
