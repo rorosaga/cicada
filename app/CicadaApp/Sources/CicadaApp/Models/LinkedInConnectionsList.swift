@@ -19,13 +19,41 @@ struct LinkedInConnection: Decodable, Hashable, Identifiable, Sendable {
     var day: String?
     var precision: Precision = .day
     var page: String?
+    /// G245 (arrival join): Sleep joined a first-name page to this connection (the same first name, new the same week). The
+    /// row says so and offers "Not them". Nil from an older backend and for any row nothing stands on.
+    var joined: Join?
 
-    enum CodingKeys: String, CodingKey { case id, name, headline, url, day, precision, page }
+    /// The first-name page a connection was joined to: its id and title, the day of the join and the days between the two
+    /// first-seen days.
+    struct Join: Decodable, Hashable, Sendable {
+        let page: String
+        var name: String = ""
+        var on: String?
+        var delta: Int?
+        var holderDay: String?
+
+        enum CodingKeys: String, CodingKey { case page, name, on, delta, holderDay }
+
+        init(page: String, name: String = "", on: String? = nil, delta: Int? = nil, holderDay: String? = nil) {
+            self.page = page; self.name = name; self.on = on; self.delta = delta; self.holderDay = holderDay
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            page = try c.decode(String.self, forKey: .page)
+            name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+            on = try? c.decodeIfPresent(String.self, forKey: .on)
+            delta = try? c.decodeIfPresent(Int.self, forKey: .delta)
+            holderDay = try? c.decodeIfPresent(String.self, forKey: .holderDay)
+        }
+    }
+
+    enum CodingKeys: String, CodingKey { case id, name, headline, url, day, precision, page, joined }
 
     init(id: String, name: String, headline: String = "", url: String? = nil, day: String? = nil,
-         precision: Precision = .day, page: String? = nil) {
+         precision: Precision = .day, page: String? = nil, joined: Join? = nil) {
         self.id = id; self.name = name; self.headline = headline; self.url = url; self.day = day
-        self.precision = precision; self.page = page
+        self.precision = precision; self.page = page; self.joined = joined
     }
 
     init(from decoder: Decoder) throws {
@@ -37,6 +65,7 @@ struct LinkedInConnection: Decodable, Hashable, Identifiable, Sendable {
         day = try? c.decodeIfPresent(String.self, forKey: .day)
         precision = (try? c.decodeIfPresent(String.self, forKey: .precision)).flatMap(Precision.init) ?? .day
         page = try? c.decodeIfPresent(String.self, forKey: .page)
+        joined = (try? c.decodeIfPresent(Join.self, forKey: .joined)) ?? nil
     }
 }
 

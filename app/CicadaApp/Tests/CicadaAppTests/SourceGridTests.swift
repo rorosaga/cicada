@@ -63,6 +63,18 @@ final class SourceGridTests: XCTestCase {
         XCTAssertEqual(all.first { $0.id == "x" }?.status, .waitingForAgent)
         XCTAssertEqual(section("x", in: all), .needsYou)
         XCTAssertEqual(SourceCatalog.connectedCount(all), 0)
+        XCTAssertEqual(SourceCatalog.onCount(all), 1, "but it is on: the header says so, the card says it waits")
+        XCTAssertEqual(Copy.Catalog.eyebrow(SourceCatalog.onCount(all)), "1 on")
+    }
+
+    /// Seen live (2026-11-24): the notch's Yes turned X on, its card read "On · waits for your agent" and the header
+    /// read "0 connected". One list on, nothing read: the header counts it.
+    func testTheHeaderCountsASourceTheMomentItIsTurnedOn() {
+        let off = rows()
+        XCTAssertEqual(SourceCatalog.onCount(off), 0)
+        let waiting = rows(savedLists: ["x"])
+        XCTAssertEqual(SourceCatalog.onCount(waiting), 1)
+        XCTAssertEqual(waiting.first { $0.id == "x" }?.word, Copy.Catalog.waitingForAgent, "its own card says it waits")
     }
 
     /// #619 — the Connected section and the eyebrow can never disagree, however many rows read one reader.
@@ -114,6 +126,7 @@ final class SourceGridTests: XCTestCase {
         XCTAssertEqual(row.tone, .attention)
         XCTAssertEqual(row.help, Copy.sourceNeedsAccess)
         XCTAssertEqual(SourceCatalog.connectedCount(all), 0, "a blocked reader reads nothing")
+        XCTAssertEqual(SourceCatalog.onCount(all), 1, "though the person has it on")
         let page = SourcePageStatus.of(row: row.status, run: .problem(Copy.sourceNeedsAccess), latest: nil)
         XCTAssertEqual(page, .needsYou(Copy.SourcePage.allowAccess))
     }

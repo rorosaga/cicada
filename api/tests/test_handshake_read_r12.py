@@ -88,7 +88,8 @@ def test_every_argument_the_reading_remote_primer_names_is_in_its_schema(scopes)
 
 def test_every_prompt_and_the_hook_line_names_only_real_arguments():
     schemas = _schemas()
-    for text in (reading_prompt.queue_prompt(), reading_prompt.ask_prompt("https://blog.bob-example.org/a"),
+    for text in (reading_prompt.queue_prompt(), reading_prompt.daily_prompt(),
+                 reading_prompt.ask_prompt("https://blog.bob-example.org/a"),
                  recall_text.reading_line(1), recall_text.reading_line(3),
                  recall_text.reading_line(2, record=False)):
         assert CALL.findall(text), text

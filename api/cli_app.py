@@ -864,6 +864,19 @@ def cmd_index_install(boot, args) -> Result:
 
 # --- sources and imports -----------------------------------------------------------------------------------
 
+def cmd_read_daily(boot, args) -> Result:
+    """G245 (owner 2026-11-24, answer 6): the one shell line the person puts in their own scheduler. Nothing here starts,
+    schedules or times anything; their AI app runs with its own tools and flags, and says so in the line's note."""
+    from api.services import reading_prompt
+
+    prompt = reading_prompt.daily_prompt()
+    line = reading_prompt.daily_command(getattr(args, "program", None))
+    data = {"prompt": prompt, "command": line}
+    if getattr(args, "prompt", False):
+        return Result(text=prompt, data=data, warnings=_warn(boot))
+    return Result(text=line, data=data, warnings=_warn(boot))
+
+
 def cmd_feed_list(boot, args) -> Result:
     from api.services import feed_registry
 
@@ -1902,7 +1915,7 @@ COMMANDS = {
     "index install": cmd_index_install,
     "projects new": cmd_projects_new,
     "source-edit": cmd_source_edit,
-    "feed list": cmd_feed_list, "feed add": cmd_feed_add, "feed remove": cmd_feed_remove, "feed poll": cmd_feed_poll,
+    "read daily": cmd_read_daily, "feed list": cmd_feed_list, "feed add": cmd_feed_add, "feed remove": cmd_feed_remove, "feed poll": cmd_feed_poll,
     "connector list": cmd_connector_list, "connector connect": cmd_connector_connect,
     "connector disconnect": cmd_connector_disconnect, "connector sync": cmd_connector_sync,
     "funnel status": cmd_funnel_status, "funnel on": cmd_funnel_on, "funnel off": cmd_funnel_off,

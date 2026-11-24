@@ -92,7 +92,7 @@ final class SourcesRootRenderTests: XCTestCase {
         let (rows, streams) = try scene()
         let cards = SourcesRoot.cards(rows: rows, streams: streams)
         let bare = SourcesRoot.cards(rows: rows, streams: ResolvedStreams())
-        let connected = SourceCatalog.connectedCount(rows)
+        let connected = SourceCatalog.onCount(rows)
         let env = env()
         CicadaTheme.uiScale = 1.0
         let held = CicadaTheme.mode

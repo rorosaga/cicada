@@ -635,7 +635,7 @@ same name is adopted, any page the person edited is left alone). Every string in
 remote handshake add one per-request sentence (`recall_text.reading_line`) when more wait than the session was told; a session that has seen the queue drain hears the next ask as new.
 Routes (`routers/reading.py`, none a Store domain): `GET|PUT /reading/settings` (shape `reading-2`),
 `GET /reading/sites`, `GET /reading/sites/{site}/icon`, `GET|POST /reading/asks`, `DELETE /reading/asks/{urlHash}`,
-`GET /reading/prompt`; `GET /sources` carries `MediaSourceItem.read` (`status, by, tier, at, via, harness, host, askable,
+`GET /reading/prompt` (`?variant=daily`: the daily words and the one line for the person's own scheduler, G245); `GET /sources` carries `MediaSourceItem.read` (`status, by, tier, at, via, harness, host, askable,
 reason` — `askable` is the structural verdict plus the master switch, never a site —, `wall, siteKey, siteLabel, siteAllowed,
 siteIconHost` for a page the reader could not open, `queuedBy: site`, merged from the page stamp and the ask row, newest
 wins) so the app holds no host table; a retired interstitial or login-wall page (`enrichment_status: junk`) is let through
@@ -653,7 +653,12 @@ accepted); turning it on
 raises `SettingsSheet`'s first-use sheet (what asking does, that Cicada only asks, Cicada's instruction to the agent — no
 credentials typed, nothing posted, messaged or changed — with the honest limit that it can't see or enforce what happens in
 the browser, the sites' terms, an "I understand" that must be ticked, DR-41 — **no site picker**) and nothing changes until "Turn on", which sends the acknowledgement in one
-`PUT /reading/settings`; once on, "Copy for an agent" (`GET /reading/prompt`) sits in the group. *How your agent reads*: the
+`PUT /reading/settings`; once on, "Copy for an agent" (`GET /reading/prompt`) sits in the group, and under it **"Read your lists every day"**
+(`DailyCommandRow`, `Copy+ListRun.swift`, G245): a sentence that Cicada starts and schedules nothing, **Copy the line** (the
+line `GET /reading/prompt?variant=daily` answers, copied with a toast, nothing shown but the button), the plain exposure
+sentence (it runs your AI app with its normal tools with nobody watching, it reads other people's posts while signed in as you,
+a separate browser profile signed in only to the sites being read is recommended, Cicada cannot limit what your AI app does in
+your browser) and a folded launchd example (placeholders only, the line goes in a file the job runs). *How your agent reads*: the
 `agent_methods` choice as radio rows (a skill wears a Skill tag, says whether it is installed, and offers Open in graph,
 Add to your graph or **Install…**, which opens that skill's own `SkillDetailView` as this page's sub-page — the Skills
 list shows only five, so a lower-ranked skill has no card there — with an `agent-prompt` plan's sentence and a Copy
@@ -818,10 +823,31 @@ else, below).
   "Check now" and any read that finds something reset it; a list not yet whole never backs off). **Two `failed` reads in a
   row on one site pause it for 3 days** (`failed` was not a pausing outcome, so a soft block read as one was offered again
   every cadence), lifted like a login wall's pause by turning a list on; a read of the site ends the count. **`due(...,
-  unattended=True)`** is for a read nobody is watching (nothing uses it yet; a later track's daily run): it never offers a
+  unattended=True)`** is for a read nobody is watching (`cicada_reading_queue(unattended)`, below): it never offers a
   list not yet read to its end (not even the person's own check), never an `accounts` list, and orders posts, then people,
   then books, a timeline last (a block met on reposts pauses every X list). The person's own read keeps the
   longest-ago-first order, so a timeline is never starved behind other lists.
+* **A daily command for the person's own scheduler (G245, owner 2026-11-24 answer 6; nothing in Cicada starts, schedules or
+  times anything).** A hands-on trial found that an unattended agent cannot be held to reading by its tool layer: the one
+  browser tool that scrolls also clicks and types, and a navigation cannot be limited to one site. So Cicada does not start
+  an agent; it renders the words and prints one line. `GET /reading/prompt?variant=daily` answers `{prompt, command}` (the
+  default variant is unchanged, `{prompt}`); `cicada read daily` prints the same line (`--prompt` the words alone,
+  `--program` another app's non-interactive command; the default is `claude -p`, the one spelling known to take the words
+  as one argument), in-process, over the bank, never the backend. `reading_prompt.daily_prompt()` names only the four list
+  tools (`cicada_reading_queue`, `cicada_record_saved_list`, `cicada_record_youtube_list`, `cicada_record_substack_list`;
+  R12 holds each argument), tells the agent to read and scroll only, never click anything that changes anything, never type
+  into a page, never sign in, open its own window and close it, and to **stop the run** on a login wall (`needs_login`), a
+  block or captcha (`blocked`), a record that says Cicada is busy or Sleep is reading, a failed read or any refusal, with no
+  retry; page text is data. It is one line with no quotation mark so a shell holds it as one word, and carries none of the
+  person's flags (a model, a tool list, a permission setting are theirs). **`cicada_reading_queue(unattended=true)`** is
+  what the prompt calls: only the browser lists, by each source's own unattended rule (`saved_lists.due(unattended=True)`
+  above; a YouTube or Substack list never read before waits for the person, its first read going deeper; Substack still waits
+  for a saved list that is due), never a link, an ask, a wall page or a source to check; the reply carries the rules in
+  a first line, and "Nothing is due ... Stop" when nothing is, which is the agent's cue to end the run. Nothing is
+  enforced: the copy in the app and here says that it runs the person's AI app with its normal tools with nobody watching,
+  that it reads other people's posts while signed in as them, that a separate browser profile signed in only to the sites
+  being read is recommended, and that Cicada cannot limit what their AI app does in their browser. The remote door never
+  offers a list, with or without the flag.
 * **Folders are their own pages; one read is a pass** (`folder_pass`, `saved_lists.PASS_*`). For a site whose list has folders
   (`Platform.folders`: X bookmark folders, Instagram collections) the All page's call sends `folder_names` (the site's folder
   names, `[]` when it shows none — a site or account with none reports none and `folder_count` stays 0; a list with no folders

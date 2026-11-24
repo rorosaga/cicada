@@ -17,7 +17,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import CamelModel
-from api.services import git_service, page_join, page_lock, write_admission
+from api.services import arrival_join_write, git_service, page_join, page_lock, write_admission
 from api.services.sleep_refusal import SleepWriting
 
 router = APIRouter()
@@ -144,3 +144,20 @@ async def undo_join(entity_id: str, commit_hash: str, settings: Settings = Depen
         settings.memory_path, commit_hash, before=before))
     return JoinResult(kind="undo", entity_id=entity_id, commit=out["commit"], restored=out["restored"],
                       removed=out["removed"])
+
+
+@router.post("/entities/{entity_id}/arrival-join/undo", response_model=JoinResult)
+@write_admission.route(refuse=lambda: SleepWriting(BUSY))
+async def undo_arrival_join(entity_id: str, settings: Settings = Depends(get_settings)):
+    """"Not them" (G245, the arrival join): take back the name Sleep joined to this first-name page (`arrival_join_write.undo`) —
+    the name leaves, its LinkedIn link and Contacts entries and the facts they wrote go, and the pair is refused for every later
+    joiner. 404: no page, or no join on it; 409: already taken back, or you changed the name or a link since (nothing written;
+    the sentence says what is still there)."""
+    def go(before):
+        try:
+            return arrival_join_write.undo(settings.memory_path, entity_id, before=before)
+        except arrival_join_write.UndoError as exc:
+            raise HTTPException(exc.status, str(exc)) from exc
+
+    out = await run_in_threadpool(_run, settings.memory_path, go)
+    return JoinResult(kind="arrival-undo", entity_id=entity_id, commit=out["commit"])

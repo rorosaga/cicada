@@ -189,12 +189,14 @@ def last(memory_path: Path, name: str) -> dict:
     return entry if isinstance(entry, dict) else {}
 
 
-def due(memory_path: Path, now: datetime | None = None) -> list[str]:
+def due(memory_path: Path, now: datetime | None = None, *, unattended: bool = False) -> list[str]:
     """The Substack list to offer the person's agent now — at most one, and only when no other site's saved list is
-    due and the day's shared reads are not spent (G206's bounds)."""
+    due and the day's shared reads are not spent (G206's bounds). ``unattended`` (a read nobody watches): "due" is
+    what an unattended read of the saved lists would be offered, and a list never read before is the person's to
+    start."""
     if saved_lists.reads_today(memory_path, now) >= saved_lists.DAILY_READS or paused_until(now) is not None:
         return []
-    if saved_lists.due(memory_path, now):
+    if saved_lists.due(memory_path, now, unattended=unattended):
         return []
     moment = _now(now)
     floor = datetime.min.replace(tzinfo=timezone.utc)
@@ -205,6 +207,8 @@ def due(memory_path: Path, now: datetime | None = None) -> list[str]:
         entry = last(memory_path, name)
         at = _parse(entry.get("read_at"))
         asked = _parse(entry.get("check_requested_at"))
+        if unattended and at is None:
+            continue
         if asked is None and at is not None and moment - at < spec.cadence:
             continue
         # G245: a list the person asked to check first (never past the day's bound or a pause), then the one read
@@ -273,9 +277,10 @@ def resume() -> None:
 # --- the offer ------------------------------------------------------------------------------------
 
 
-def queue_lines(memory_path: Path, *, can_record: bool, now: datetime | None = None) -> list[str]:
+def queue_lines(memory_path: Path, *, can_record: bool, now: datetime | None = None,
+                unattended: bool = False) -> list[str]:
     """The reading queue's lines for the Substack list that is due — empty when none is (or agent reading is off)."""
-    names = due(memory_path, now)
+    names = due(memory_path, now, unattended=unattended)
     if not names:
         return []
     spec = LISTS[names[0]]

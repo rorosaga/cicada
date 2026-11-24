@@ -3647,7 +3647,16 @@ a relation saying so is dropped (no claim, no question), here, in a landing and 
 feature, stage, task or pull request of a page is that page's mention, as the owner's canoe rule says ("a canoe, its
 hull, the hull build — is one thing"), its own other names never the page's aliases — never "Is <feature> the same as
 <project>?", never a page competing with it (measured 2026-10-29 on a copy of the owner's bank: 74 of 160 open
-duplicate questions were a project name with no birth asked against a page). **An organisation/tool alias lead** (G209,
+duplicate questions were a project name with no birth asked against a page). **A part and its whole named in one batch are one page (2026-11-24, G148;
+`_related_unborn`):** when the pair judge calls a name with no page a part of another such name this batch (or of a line an
+earlier batch parked), or the whole of it, the two are one group. Before this a relation between two names with neither on
+disk had nowhere to be written (`_judged_relations` skips such a pair), so they became two pages with nothing between them
+and the part's later progress ("the hull is fully stripped") never reached the canoe's page. The page is named for the whole:
+a part never names it, and a part's own names are never its aliases (`_Unborn.part`). A part the pair judge reads as
+`different` for lack of evidence (an "onboarding flow" that names no app) is still its own name: a placement over the whole
+list of the person's things was measured and dropped, because it also joined a restoration with another restoration and one
+kitchen with another's (a wrong join is worse than a missed one). `benchmarks/consolidation/reference_by_part.py` is the measure: its two
+fixtures (stories and counter-stories) and the one-story `reference_by_part_canoe.json` this case was measured on (later progress on the whole's page in 1 of 6 real Sleeps before, 6 of 6 after). **An organisation/tool alias lead** (G209,
 2026-10-27: a page that lists another page's name as an alias) now meets the judge once before it is asked; only `same`
 or `unsure` asks, a relation is written as above. Any other verdict (a relation, `different`, a rejected or related pair)
 also proposes removing the alias behind the lead (`wrong_aliases`, a `page_edit` the person applies or leaves —
@@ -4046,6 +4055,89 @@ listed as an alias. Four gaps caused it, each closed:
   "Is the <name> in your group chat the same <name> you talked to Claude about?" (`inbox_wording`). A model's trailing
   note on the name ("<name> (unnamed surname)") is ignored for this. Seen on haiku through the real doors
   (`/sources/messages/sync`, `/capture/turn`, Sleep, `GET /inbox`), synthetic chat and session, 2026-10-29.
+
+**A first name joined to the person who newly appeared the same week (G245, owner 2026-11-24: "yes ofc join. and this should
+happen accross sources (even chats, conversations, etc)"). Sleep decides and reports; it writes nothing yet.** He met people at
+an event, connected with some that week and wrote a few first names in a note. A page titled by one first name
+("<given-a>") and the one person who newly appeared the same week ("<given-a> <family-a>", a LinkedIn connection or a
+waiting Contacts card) are tied together by Sleep itself, undoably, on two independent kinds of evidence: the NAME (the first
+name is the given name of the full name) and the TIME (both first seen within seven days of each other). Name alone never
+joins (ruling 74); time alone never does. The code is `arrival_join` (the decision, pure, and the nightly step) and
+`arrival_join_write` (what it would write, its record and "Not them"); the step runs in the engine-independent tail after
+74a's review and 74b's join and before the catch-up proposers, the write (when it is live) is its own `cicada` commit before
+the rematches attach, and a last step records which commits it caused after both rematches.
+**It ships `arrival_join.LIVE = False`: every rule runs every night, nothing is written to the bank, and the reading is left
+outside every bank for the coordinator** (`$CICADA_HOME/people/<bank>/arrival-join-report.json`; the command
+`python -m api.scripts.arrival_join_report --bank <memory> [--run] [--names]` prints it per item: page id, both days, the gap,
+each directory's freshness stamp, every namesake row counted by hash, the conflict and veto answers, the decision and its
+reason). A one-line change flips the constant, only on the coordinator's reading of the real bank: the rules are checked on
+a synthetic battery (`benchmarks/consolidation/arrival_join_battery.py`, a regression net, not a measure) and on the real tail
+(`arrival_join_e2e.py`, `LIVE` forced on in the test only), but a rule written with its own test scenes measures only the
+author's picture of the world.
+
+*When it joins* (`arrival_join.decide`, in order; the first failure is the counted reason, never a name):
+1. not a demo bank, the tree readable, the page not dirty (the step's);
+2. the holder is a person page titled by ONE word of three letters or more, not archived, not the owner's, not titled by a
+   relation (`role_people`), not a second person of one name (`sam-2`);
+3. the given name matches by token equality, never a nickname, a sound, a spelling or an alias; a compound given name is a miss;
+4. exactly one holder: no other person page or held line carries the word as its name, an alias or the start of one;
+5. exactly one arrival, counting namesakes. Rows of both directories collapse by folded full name (a card and a connection of
+   one name are ONE lead); exactly one lead has a day within seven days of the holder's (inclusive: day 7 joins, day 8 does
+   not), and no OTHER lead carries a day within 30 days of the holder's, a `week` or `month` precision whose range reaches that
+   band, or no day at all with a profile link or a same-name ambiguity (`Connection.dup`). A dormant old namesake with no overlap
+   does not block; any plausible same-season one does;
+6. the arrival is waiting: no page holds its full name (in practice rule 4 refuses first);
+7. no same-name doubt (`same_name_doubts`) and no history: a pair the person called two, an alias or a source they removed that
+   names this arrival, their own "Not them" on this pair;
+8. nothing already points elsewhere: no full-name alias on the page, no other profile, not in a candidate pair of
+   `person_duplicates`;
+9. the directory is fresh: looked at on or after the holder's day plus seven (the connections' freshness is the later of the
+   export day and the last successful read of the list; the Contacts' is the last sync), else the join waits;
+10. the conflict screen (no model): the page's current employer against the row's company, no significant word in common
+    refuses (`fact_conflict`). A role that contradicts needs a reader of words and is the veto's, never a word list's;
+11. the two-read veto, through the engine door 74a and 74b read through (`same_name_tend.main_engine`,
+    `full_name_join.ask_main`, so a scheduled run reaches a plan only through the person's switch, a plan limit is a pause and
+    the sensitive hold applies): two differently phrased reads each given the page's facts, the person's own words naming the
+    first name and the row's company, position and headline (never its name, link or e-mail) must each find nothing that fails
+    to fit one person; one doubt, one "unsure" or an unreadable answer is no join. An answer is cached outside the bank by the
+    digest of what it read, so a bank costs one read pair per candidate, not one a night; at most six candidates a night.
+
+*What "newly appeared" means, per source.* A LinkedIn connection: its `connected_on` day at `day` precision only (a `week` or
+`month` row is never THE arrival, and blocks when its range reaches the band). A Contacts card: the day the app first saw it
+WAITING (`contacts_local.first_seen`, kept outside every bank beside the waiting cards): the first sync marks everything seen
+with no day; a later sync stamps a new card only when the previous sync was at most three days earlier and at most five cards were
+new in it (a phone restore, an iCloud merge or a vCard import adds hundreds: none of them is stamped); a card that ever matched a
+page is never stamped, so one that returns to waiting after a split, an archive or an undo is not new. An unstamped card is
+dormant, never an arrival and never a blocker. The first-name side's day is the earliest day of the page's own conversations that
+count as time (`episode_time`, never a save, a feed, a tab group or a calendar entry), by the conversation's own `timestamp`
+day, never the day it was received or read. **A note** is dated by its CREATED day (`created_at` on its episode, sent by the app
+beside the dump as `noteCreated`, Notes' locale-free local ISO time; an older app sends none, so a note it kept has no day) and
+only when it was not kept alive past a week: a note's `timestamp` is its last edit, so a line added today to an old note never
+makes the note look new. **A file of a watched folder** that is not a meeting gets no day either (its `timestamp` is the file's
+modified time when first read and no revision moves it); a meeting is dated by its own day and the report says `meeting`. A page
+with no day never joins.
+
+*What it writes when it is live.* The join IS the alias: the arrival's full name is added to the page's `aliases` (one `cicada`
+commit, trigger `sleep/arrival-join`, its own path only, restored if it fails; the title stays, no claim moves, no page is
+made). The existing rematches then attach: an alias-only LinkedIn match writes the link with `match: alias`, never confident,
+so no photo request leaves the Mac until the person takes it (`person_photo.is_own_account`); a card's sources and photo attach
+through the Contacts rematch. The commit message and the record carry page ids, both days and the gap, never a directory row's
+name, company, headline, link or e-mail. The page's frontmatter keeps `arrival_joins: [{id, alias_key (a hash of the folded
+name), refs (the rows' hashes), days, delta, state, commits, claims, sources (a hash of each link)}]`, so a handed-over or moved
+bank keeps its undo.
+
+*"Not them"* (`POST /entities/{id}/arrival-join/undo`, on the connection's row and on the page's History row): in one commit
+set the name leaves through the removed-alias record (`aliases_removed`, so no automatic writer adds it back), the LinkedIn
+link through its tombstone (`sources_removed`) and the claims it wrote are closed by id, the Contacts entries leave through the
+refusal rows (`_contacts_rejected.yaml`) with the face, and the pair is refused: against the page of that name when one exists,
+else by the holder and a hash of the name in `_merge_rejected.yaml` (`merge_rejections.arrival_refusals`, `refused_by_name`).
+The commit carries `Undoes: <sha>` for every commit the record lists. If the person changed the name or took a link since, it
+writes nothing and says which name, link and claims remain, each by id. The nightly refusals step (before the same-name
+review) turns each refusal whose name now belongs to a page into a refused pair of pages, which every other joiner already
+honours. The count of `undone` records is the live false-join measure.
+
+*Out of scope here* (later tracks): a first name held below the promotion bar with no page (born under the full name), two
+pages (ruling 74's machinery gaining time as a third kind), nicknames, and chats and meetings as the full-name side.
 
 **What a question between two people rests on (owner 2026-11-04, `pair_evidence`).** "Is <handle> the same as <owner>?"
 reached the inbox at "Cicada's guess 0.90" with a chat with someone else, naming neither, as its evidence ("why tf would

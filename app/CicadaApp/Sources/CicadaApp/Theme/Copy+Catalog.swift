@@ -103,7 +103,9 @@ extension Copy {
         static let importChatsOrFiles = "Import chats or files"
         static let dropHint = "A chat export from ChatGPT, Claude or Gemini, a bookmarks file or another export. "
             + "You can also drop one anywhere on the window."
-        static func eyebrow(_ connected: Int) -> String { "\(connected) connected" }
+        /// The Sources header: how many sources are on (G245, owner 2026-11-24). A source that is on and waiting for
+        /// its first read is on, and says so on its own card; "connected" would claim a read that has not happened.
+        static func eyebrow(_ on: Int) -> String { "\(on) on" }
         /// `channel_registry.FEED_FETCH_OFF`, for a poll the person asked for.
         static let feedsNotChecked =
             "Feeds and calendar links aren't being checked: turn on Keep memory working in Settings → General."

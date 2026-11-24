@@ -101,6 +101,13 @@ class NoteRecord:
     #: A.4 (G245, 2026-11-24): the folder's whole path in the account, outermost first, ending in ``folder``; empty from
     #: an older app (which sends the leaf only) and for a note whose path the app could not name.
     folder_path: list[str] = field(default_factory=list)
+    #: The Mac's UTC offset in seconds, as the record carried it (`_DATED_FIELDS`): what the creation moment is read with.
+    offset: str = ""
+    #: G245 (arrival join, 2026-11-24): when the note was CREATED, aware ISO-8601; '' when the app did not send it. The
+    #: human ``created`` string is a locale's own words and is never parsed; this one comes beside the dump
+    #: (``note_created``) as Notes' locale-free ISO local time, like ``modified_at``. A note's ``timestamp`` is its LAST
+    #: modification, so only this says when a note was begun.
+    created_at: str = ""
 
 
 def parse_notes_dump(raw: str) -> list[NoteRecord]:
@@ -134,6 +141,7 @@ def parse_notes_dump(raw: str) -> list[NoteRecord]:
             folder=folder.strip(),
             modified_at=modified_at,
             account=account,
+            offset=fields[_EXPECTED_FIELDS + 1].strip() if len(fields) >= _DATED_FIELDS else "",
         ))
     return records
 
@@ -150,6 +158,17 @@ def _aware(local_iso: str, offset_seconds: str) -> str:
         return ""
     moment = naive.replace(tzinfo=timezone(offset)).astimezone(timezone.utc)
     return moment.isoformat() if moment <= datetime.now(timezone.utc) else ""
+
+
+#: G245 (arrival join): the episode's frontmatter key for when its note was begun (aware ISO). Frontmatter alone, outside the
+#: body and the hash, like a folder path: a note an earlier sync kept gains it without a new episode or a re-read.
+CREATED_KEY = "created_at"
+
+
+def _aware_created(iso, offset) -> str:
+    """The note's creation moment from the app's locale-free local ISO and the record's own UTC offset (`_aware`); ''
+    when either is unreadable or the moment lies in the future."""
+    return _aware(str(iso or ""), str(offset or "")) if iso and offset not in (None, "") else ""
 
 
 #: A folder's path is at most this deep and each name at most this long: Notes allows no more than a person draws.
@@ -299,6 +318,8 @@ def _draft(note: NoteRecord, pinned: bool = False) -> episode_staging.EpisodeDra
         extra[FOLDER_PATH_KEY] = list(note.folder_path)
     if pinned:
         extra[episode_staging.PINNED_KEY] = True   # ROR-15: outside the content hash; see `_apply_pin`
+    if note.created_at:
+        extra[CREATED_KEY] = note.created_at
     return episode_staging.EpisodeDraft(
         title=note.name or "Untitled note", source_id=source_id(note),
         source_updated_at=note.modified_at or note.modified or None,
@@ -582,6 +603,27 @@ def _apply_path(memory_path: Path, existing: dict, path: list[str] | None) -> No
         logger.warning(f"Notes: could not record a folder path: {type(exc).__name__}")
 
 
+def _apply_created(memory_path: Path, existing: dict, created_at: str) -> bool:
+    """G245: the app now says when this note was begun and its latest episode does not carry it yet. The episode's
+    frontmatter takes it alone (`episode_staging.amend_frontmatter`): body, hash and queue untouched, nothing re-read.
+    Written once — a note's creation moment never moves. Metadata: it never fails a sync."""
+    ep = _episode_path(memory_path, str(existing.get("episode_id") or ""))
+    if ep is None:
+        return False
+
+    def edit(fm: dict) -> bool:
+        if fm.get(CREATED_KEY):
+            return False
+        fm[CREATED_KEY] = created_at
+        return True
+
+    try:
+        return bool(episode_staging.amend_frontmatter(ep, edit))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Notes: could not record a creation date: {type(exc).__name__}")
+        return False
+
+
 def _episode_path(memory_path: Path, episode_id: str) -> Path | None:
     if not episode_id or "/" in episode_id or "\\" in episode_id or ".." in episode_id:
         return None
@@ -628,7 +670,7 @@ def _stage(memory_path: Path, pending: list[tuple[NoteRecord, dict | None, bool]
 async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] | None = None,
                      locked_ids: list[str] | None = None, locked_keys: list[str] | None = None,
                      pinned_ids: list[str] | None = None, folder_paths: dict[str, list[str]] | None = None,
-                     folders: list[dict] | None = None) -> dict[str, Any]:
+                     folders: list[dict] | None = None, created: dict[str, str] | None = None) -> dict[str, Any]:
     """Parse ``dump`` and stage one episode per note, through the stager (`episode_staging`, G104).
 
     A brand-new note id -> a new episode. A previously-seen note whose ``modified`` changed -> **its one episode is
@@ -655,6 +697,11 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
     metadata beside the leaf the body already names: it enters the index and the episode's frontmatter, never the body or
     the hash, so no existing note is re-staged or doubled — an unchanged note is only *placed* (:func:`_apply_path`). A
     note of a locked id gets none. A folder is a filing label, never evidence.
+
+    G245 (arrival join): ``created`` (note id -> Notes' locale-free local ISO creation time, read with the record's own UTC
+    offset) travels beside the dump the same way. A note's ``created_at`` is frontmatter beside the folder path — never the
+    body or the hash — and a note an earlier sync kept takes it without a new episode (:func:`_apply_created`); an older
+    app sends none, and a note without it simply has no creation day (`arrival_join` never dates a note by its last edit).
 
     Folder exclusion: ``CICADA_NOTES_EXCLUDE_FOLDERS`` (comma-separated,
     case-insensitive folder names, default empty) drops matching notes
@@ -695,6 +742,8 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
             note.account = " ".join(str(named).split())[:120]
         if folder_paths and note.note_id not in flagged and not note.folder_path:
             note.folder_path = clean_path(folder_paths.get(note.note_id), note.folder)
+        if created and note.note_id not in flagged and (when := created.get(note.note_id)):
+            note.created_at = _aware_created(str(when).strip()[:40], note.offset)
     excluded_folders = excluded_folder_names()
     excluded_count = 0
     if excluded_folders:
@@ -730,6 +779,8 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
                 skipped_count += 1
                 if _apply_pin(memory_path, existing, pinned):
                     pins_moved += 1
+                if note.created_at and _apply_created(memory_path, existing, note.created_at):
+                    placed += 1   # frontmatter only, like a placement: nothing Sleep reads changed
                 # 2026-11-04 — where a note lives (its account and folder) is kept current in the index alone: a note moved
                 # to another folder, or kept by a sync from before accounts were sent, is placed without a new episode
                 # (nothing Sleep reads changed).

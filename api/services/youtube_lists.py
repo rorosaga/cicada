@@ -156,10 +156,12 @@ def last(memory_path: Path, name: str) -> dict:
     return entry if isinstance(entry, dict) else {}
 
 
-def due(memory_path: Path, now: datetime | None = None) -> list[str]:
+def due(memory_path: Path, now: datetime | None = None, *, unattended: bool = False) -> list[str]:
     """The lists to offer the person's agent now: allowed, not paused, and either asked for (:func:`request_check`, G245 —
     whatever the cadence) or not read in ``CADENCE``. Requested lists come first, the oldest request first; then the
-    list read longest ago, a list never read before any; ties keep table order."""
+    list read longest ago, a list never read before any; ties keep table order. ``unattended`` (a read nobody watches)
+    never offers a list that has never been read: its first read goes deeper (:func:`screens_words`) and is the
+    person's to start."""
     if paused_until(now) is not None:
         return []
     moment = _now(now)
@@ -171,6 +173,8 @@ def due(memory_path: Path, now: datetime | None = None) -> list[str]:
         entry = last(memory_path, name)
         at = _parse(entry.get("read_at"))
         asked = _parse(entry.get("check_requested_at"))
+        if unattended and at is None:
+            continue
         if asked is None and at is not None and moment - at < CADENCE:
             continue
         ranked.append((0 if asked is not None else 1, asked or at or floor, order, name))
@@ -272,9 +276,10 @@ def screens_words(memory_path: Path, name: str) -> str:
             "screens: the reply says when you have reached them.")
 
 
-def queue_lines(memory_path: Path, *, can_record: bool, now: datetime | None = None) -> list[str]:
+def queue_lines(memory_path: Path, *, can_record: bool, now: datetime | None = None,
+                unattended: bool = False) -> list[str]:
     """The reading queue's lines for the lists that are due — empty when none is (or agent reading is off)."""
-    names = due(memory_path, now)
+    names = due(memory_path, now, unattended=unattended)
     if not names:
         return []
     lines = []

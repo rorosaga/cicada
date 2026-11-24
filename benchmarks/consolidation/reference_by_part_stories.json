@@ -1,0 +1,578 @@
+{
+ "about": "Invented. A thing is named in two conversations and, weeks later, spoken of only by a part or a plain noun (chapter 3, the kitchen, the frame, the manuscript, the onboarding flow, el techo, der Motor, the boat). The later progress must be on the named thing's page or reachable from it.",
+ "owner": "Dario Kessel",
+ "conversations": [
+  {
+   "id": "t1",
+   "phase": 1,
+   "day": -68,
+   "title": "Planning the master's thesis",
+   "turns": [
+    "I'm starting my master's thesis on tidal energy in Norwegian fjords. My supervisor is Prof. Haldane and the deadline is the end of March.",
+    "That is a rich topic. Do you already have a structure in mind?",
+    "Five chapters: introduction, literature review, methods, results and discussion. I want a first draft of everything by January."
+   ]
+  },
+  {
+   "id": "t2",
+   "phase": 1,
+   "day": -60,
+   "title": "Thesis reading list",
+   "turns": [
+    "Spent the weekend reading papers for the thesis, mostly on turbine array spacing. I have about forty on the list.",
+    "Organising them by theme helps a lot. Are you using a reference manager?",
+    "Zotero. The thesis will need a proper bibliography, so I am tagging papers as I go."
+   ]
+  },
+  {
+   "id": "t3",
+   "phase": 2,
+   "day": -22,
+   "title": "Methods rewrite",
+   "turns": [
+    "Chapter 3 is finally done, all 38 pages. The committee wants the methods section reworked around the ADCP data before I move on.",
+    "Reworking it around the measured data sounds sensible. Which part is hardest?",
+    "Justifying the grid resolution. I will rewrite that section this week."
+   ]
+  },
+  {
+   "id": "t4",
+   "phase": 3,
+   "day": -6,
+   "title": "Chapter 3 feedback",
+   "turns": [
+    "Prof. Haldane read chapter 3 and said the methods are solid now, but the results chapter needs two more figures before the end of the month.",
+    "Good news on the methods. Do you know which figures?",
+    "A power-density map and a comparison table. I will start on them tomorrow."
+   ]
+  },
+  {
+   "id": "f1",
+   "phase": 1,
+   "day": -66,
+   "title": "The flat on Rosenweg",
+   "turns": [
+    "We closed on the flat on Rosenweg last week, 74 square metres, and we are renovating it before moving in. The budget is 40k.",
+    "Congratulations! What is the plan?",
+    "New kitchen, repaint everything and sand the floors. The contractor starts in November."
+   ]
+  },
+  {
+   "id": "f2",
+   "phase": 1,
+   "day": -55,
+   "title": "Renovation quotes",
+   "turns": [
+    "Went through the renovation quotes for the Rosenweg flat. The contractor, Ellis Brandt, quoted 31k for labour and I will buy materials separately.",
+    "That leaves around 9k for materials, which is tight.",
+    "Yes, so I am hunting for a cheap worktop."
+   ]
+  },
+  {
+   "id": "f3",
+   "phase": 2,
+   "day": -18,
+   "title": "Cabinets arriving",
+   "turns": [
+    "The kitchen cabinets arrive on the 14th and the electrician finished the wiring behind them yesterday.",
+    "Good timing. Did you choose the fronts?",
+    "Yes, matte green fronts, and the worktop is oak."
+   ]
+  },
+  {
+   "id": "f4",
+   "phase": 3,
+   "day": -5,
+   "title": "Wrong tiles",
+   "turns": [
+    "The backsplash tiles were delivered wrong, zellige instead of the square white ones. I am sending them back, which delays the kitchen by a week.",
+    "Annoying. Is the rest on schedule?",
+    "More or less. The tiler comes back on the 3rd."
+   ]
+  },
+  {
+   "id": "b1",
+   "phase": 1,
+   "day": -64,
+   "title": "Gravel bike build",
+   "turns": [
+    "I am building up a gravel bike from scratch: a steel frame from a small builder in Wales, a 1x12 drivetrain, and I want to ride it on a bikepacking trip in June.",
+    "Sounds like a great project. How long is the frame wait?",
+    "Eight weeks. I will source the wheels and groupset meanwhile."
+   ]
+  },
+  {
+   "id": "b2",
+   "phase": 1,
+   "day": -52,
+   "title": "Groupset and wheels",
+   "turns": [
+    "Ordered the groupset for the gravel bike, a mid-range 1x12, and hand-built 29 inch wheels from a local wheelbuilder.",
+    "How long will the wheelbuilder take?",
+    "Three weeks. He is very particular about spoke tension."
+   ]
+  },
+  {
+   "id": "b3",
+   "phase": 2,
+   "day": -20,
+   "title": "The frame arrived",
+   "turns": [
+    "The frame arrived from Wales yesterday, dark teal, and it is beautiful. I weighed it: 2.1 kilos.",
+    "That is light for steel. Anything to do first?",
+    "The paint needs a week to fully cure, so I will fit the headset first."
+   ]
+  },
+  {
+   "id": "b4",
+   "phase": 3,
+   "day": -8,
+   "title": "Headset and fork",
+   "turns": [
+    "Pressed the headset into the frame and fitted the fork, all good. The frame took the bottom bracket without any facing.",
+    "Nice. What is next?",
+    "Cables. It should be rideable by early May."
+   ]
+  },
+  {
+   "id": "n1",
+   "phase": 1,
+   "day": -62,
+   "title": "Starting the novel",
+   "turns": [
+    "I am writing a novel, a sea-faring mystery called The Salt Ledger. It is set in a Baltic port in 1923 and the protagonist is a customs clerk.",
+    "Intriguing. How long do you want it to be?",
+    "About 90,000 words, with a first draft by the summer."
+   ]
+  },
+  {
+   "id": "n2",
+   "phase": 1,
+   "day": -50,
+   "title": "Salt Ledger outline",
+   "turns": [
+    "Worked out the outline for The Salt Ledger, three acts, and the ending finally works: the clerk burns the ledger.",
+    "A strong ending. How is the writing going?",
+    "I wrote 12,000 words in the first two weeks."
+   ]
+  },
+  {
+   "id": "n3",
+   "phase": 2,
+   "day": -19,
+   "title": "Word count",
+   "turns": [
+    "The manuscript passed 60,000 words today. I am a little ahead of schedule.",
+    "That is great progress. What is your routine?",
+    "Writing every morning from six to eight. It works."
+   ]
+  },
+  {
+   "id": "n4",
+   "phase": 3,
+   "day": -7,
+   "title": "A beta reader",
+   "turns": [
+    "Sent the first three chapters of the manuscript to a beta reader, my friend Ottilie, who reads a lot of historical fiction. She will reply in two weeks.",
+    "Exciting. Nervous?",
+    "A bit. I will start revising the middle section meanwhile."
+   ]
+  },
+  {
+   "id": "a1",
+   "phase": 1,
+   "day": -60,
+   "title": "Habit app idea",
+   "turns": [
+    "I am building a habit tracker app called Tendril, in React Native, solo, for an app store launch in spring.",
+    "What makes it different?",
+    "Streaks that forgive missed days."
+   ]
+  },
+  {
+   "id": "a2",
+   "phase": 1,
+   "day": -48,
+   "title": "Tendril data model",
+   "turns": [
+    "Sketched Tendril's data model today: habits, check-ins and a grace day rule. I am using SQLite on the device.",
+    "Do you need sync?",
+    "Not for version one."
+   ]
+  },
+  {
+   "id": "a3",
+   "phase": 2,
+   "day": -17,
+   "title": "Onboarding tests",
+   "turns": [
+    "Redesigned the onboarding flow and ran it with five testers. The drop-off fell from 40 percent to 15 percent.",
+    "That is a big improvement. What changed?",
+    "I cut it from six screens to three."
+   ]
+  },
+  {
+   "id": "a4",
+   "phase": 3,
+   "day": -6,
+   "title": "Onboarding copy",
+   "turns": [
+    "The onboarding flow's copy is still clunky. I am rewriting the welcome screen and moving the notification permission to the end.",
+    "Good idea, asking for permission late usually converts better.",
+    "That is what I read too. It should be done by Friday."
+   ]
+  },
+  {
+   "id": "c1",
+   "phase": 1,
+   "day": -61,
+   "title": "Casa del árbol",
+   "turns": [
+    "Estoy construyendo una casa del árbol para mis hijos en el roble del jardín, con una plataforma a tres metros y un presupuesto de 600 euros.",
+    "¡Qué buen proyecto! ¿Ya tienes los planos?",
+    "Sí, los dibujé yo mismo. Quiero terminarla antes del verano."
+   ],
+   "lang": "es"
+  },
+  {
+   "id": "c2",
+   "phase": 1,
+   "day": -49,
+   "title": "Madera para la casa del árbol",
+   "turns": [
+    "Compré la madera para la casa del árbol: tablones de pino tratado y cuatro vigas. El proveedor la entrega el sábado.",
+    "¿Necesitas ayuda para subir las vigas?",
+    "Sí, mi vecino Anselmo me ayudará con el polipasto."
+   ],
+   "lang": "es"
+  },
+  {
+   "id": "c3",
+   "phase": 2,
+   "day": -16,
+   "title": "El techo",
+   "turns": [
+    "Ya terminé el techo, lo cubrí con tejas de madera y quedó impermeable.",
+    "¡Genial! ¿Qué falta?",
+    "Falta la escalera, la haré con peldaños de cuerda y madera."
+   ],
+   "lang": "es"
+  },
+  {
+   "id": "c4",
+   "phase": 3,
+   "day": -5,
+   "title": "La escalera",
+   "turns": [
+    "La escalera ya está montada, pero los peldaños de abajo son resbaladizos. Voy a ponerles una tira antideslizante.",
+    "Buena idea por seguridad.",
+    "Los niños ya quieren subir, pero esperaremos a la revisión final del domingo."
+   ],
+   "lang": "es"
+  },
+  {
+   "id": "d1",
+   "phase": 1,
+   "day": -63,
+   "title": "Fiat 500 Restaurierung",
+   "turns": [
+    "Ich restauriere einen Fiat 500 von 1969, den ich von meinem Onkel geerbt habe. Der Fiat 500 steht in der Garage und ich will ihn bis zum Sommer fahrbereit haben.",
+    "Ein schönes Projekt! Hast du ein Budget?",
+    "Etwa 3000 Euro."
+   ],
+   "lang": "de"
+  },
+  {
+   "id": "d2",
+   "phase": 1,
+   "day": -51,
+   "title": "Ersatzteile für den Fiat",
+   "turns": [
+    "Ich habe Ersatzteile für den Fiat 500 bestellt: Zündkerzen, Vergaserdichtungen und einen neuen Auspuff. Der Händler sitzt in Turin.",
+    "Wie lange dauert die Lieferung?",
+    "Zwei Wochen, sagt er."
+   ],
+   "lang": "de"
+  },
+  {
+   "id": "d3",
+   "phase": 2,
+   "day": -15,
+   "title": "Der Motor läuft",
+   "turns": [
+    "Der Motor läuft wieder! Nach dem Wechsel der Vergaserdichtungen springt er beim ersten Versuch an.",
+    "Herzlichen Glückwunsch! Was kommt als Nächstes?",
+    "Der Lack. Ich will ihn in Creme neu lackieren lassen."
+   ],
+   "lang": "de"
+  },
+  {
+   "id": "d4",
+   "phase": 3,
+   "day": -4,
+   "title": "Lackierung",
+   "turns": [
+    "Der Lackierer hat mir ein Angebot gemacht: 1800 Euro für die komplette Lackierung in Creme. Der Termin ist im Mai.",
+    "Das klingt fair.",
+    "Ja, ich nehme es an."
+   ],
+   "lang": "de"
+  },
+  {
+   "id": "s1",
+   "phase": 1,
+   "day": -58,
+   "title": "Restoring Wren",
+   "turns": [
+    "I am restoring a 1974 Contessa 26 sailboat called Wren. I bought her cheap and she is on the hard at the marina.",
+    "What is the plan?",
+    "Fix whatever the surveyor finds, then sail her in the spring."
+   ]
+  },
+  {
+   "id": "s2",
+   "phase": 1,
+   "day": -47,
+   "title": "Wren survey",
+   "turns": [
+    "The surveyor looked at Wren today. The keel bolts are fine but the rudder bearing is worn.",
+    "That sounds fixable.",
+    "Yes, the bearing is about 120 euros."
+   ]
+  },
+  {
+   "id": "s3",
+   "phase": 2,
+   "day": -14,
+   "title": "Back in the water",
+   "turns": [
+    "The boat went back in the water on Saturday and she floats level, no leaks around the keel.",
+    "Great! What is left?",
+    "The new rudder bearing is in. The rigging check is next week."
+   ]
+  },
+  {
+   "id": "s4",
+   "phase": 3,
+   "day": -3,
+   "title": "Rigging check",
+   "turns": [
+    "The rigger checked everything: the standing rigging needs replacing, 1400 euros.",
+    "That is a big bill.",
+    "It is, but it is the safe thing to do."
+   ]
+  }
+ ],
+ "gold": {
+  "points": [],
+  "updates": [],
+  "forbid": [],
+  "people": {
+   "same": [],
+   "apart": [],
+   "apart_facts": [],
+   "one": []
+  },
+  "pages": {
+   "expected": [],
+   "not_expected": []
+  },
+  "dated": [],
+  "secret": "",
+  "apart_values": [],
+  "roles": [],
+  "fading": []
+ },
+ "expect": {
+  "stories": [
+   {
+    "id": "thesis",
+    "whole": "thesis",
+    "facts": [
+     "ADCP",
+     "power-density"
+    ],
+    "others": [],
+    "ask": {
+     "q": "Where does my master's thesis stand?",
+     "must": [
+      [
+       "chapter 3"
+      ],
+      [
+       "methods",
+       "ADCP",
+       "figures"
+      ]
+     ]
+    },
+    "why": ""
+   },
+   {
+    "id": "flat",
+    "whole": "rosenweg",
+    "facts": [
+     "matte green|worktop",
+     "backsplash|tiler|zellige"
+    ],
+    "others": [],
+    "ask": {
+     "q": "Where does the renovation of the Rosenweg flat stand?",
+     "must": [
+      [
+       "kitchen"
+      ],
+      [
+       "cabinets",
+       "tiles",
+       "tiler",
+       "worktop"
+      ]
+     ]
+    },
+    "why": ""
+   },
+   {
+    "id": "bike",
+    "whole": "gravel|bike",
+    "facts": [
+     "teal|2\\.1 ?k",
+     "headset|bottom bracket"
+    ],
+    "others": [],
+    "ask": {
+     "q": "Where does the gravel bike build stand?",
+     "must": [
+      [
+       "frame"
+      ],
+      [
+       "headset",
+       "fork",
+       "bottom bracket",
+       "early May"
+      ]
+     ]
+    },
+    "why": ""
+   },
+   {
+    "id": "novel",
+    "whole": "salt ledger|novel",
+    "facts": [
+     "60,000",
+     "beta reader|Ottilie"
+    ],
+    "others": [],
+    "ask": {
+     "q": "Where does my novel stand?",
+     "must": [
+      [
+       "60,000"
+      ],
+      [
+       "beta reader",
+       "Ottilie"
+      ]
+     ]
+    },
+    "why": ""
+   },
+   {
+    "id": "app",
+    "whole": "tendril",
+    "facts": [
+     "15 percent",
+     "welcome screen|notification permission"
+    ],
+    "others": [],
+    "ask": {
+     "q": "Where does the Tendril app stand?",
+     "must": [
+      [
+       "onboarding"
+      ],
+      [
+       "15 percent",
+       "three screens",
+       "welcome screen"
+      ]
+     ]
+    },
+    "why": ""
+   },
+   {
+    "id": "treehouse",
+    "whole": "casa del árbol|treehouse|tree house",
+    "facts": [
+     "roof|shingle|techo|tejas",
+     "\\bstairs?\\b|\\bladder\\b|escalera|antideslizante|non-slip|anti-slip"
+    ],
+    "others": [],
+    "ask": {
+     "q": "¿En qué punto está la casa del árbol?",
+     "must": [
+      [
+       "techo",
+       "roof",
+       "tejas"
+      ],
+      [
+       "escalera",
+       "stair",
+       "ladder"
+      ]
+     ]
+    },
+    "why": ""
+   },
+   {
+    "id": "fiat",
+    "whole": "fiat",
+    "facts": [
+     "first (try|attempt)|springt|runs again|running again|läuft|starts",
+     "1800"
+    ],
+    "others": [],
+    "ask": {
+     "q": "Wie weit ist die Restaurierung des Fiat 500?",
+     "must": [
+      [
+       "Motor",
+       "engine"
+      ],
+      [
+       "Lack",
+       "paint",
+       "1800"
+      ]
+     ]
+    },
+    "why": ""
+   },
+   {
+    "id": "sailboat",
+    "whole": "wren|contessa",
+    "facts": [
+     "afloat|in the water|floats|launched|relaunched",
+     "1400|standing rigging"
+    ],
+    "others": [],
+    "ask": {
+     "q": "Where does the restoration of Wren stand?",
+     "must": [
+      [
+       "water",
+       "afloat",
+       "launched"
+      ],
+      [
+       "rigging"
+      ]
+     ]
+    },
+    "why": ""
+   }
+  ]
+ }
+}

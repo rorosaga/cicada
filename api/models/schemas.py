@@ -164,6 +164,9 @@ class EntityHistoryEntry(CamelModel):
     # else None; ``undoable`` — a merge or split the History tab offers to take back (none later in the rows read).
     join: Optional[str] = None
     undoable: bool = False
+    # G245 (arrival join): for a join of ``arrival`` kind, the full name Sleep joined to the page — read from the page's own alias and
+    # record, never from the commit (which names no one). The History row says "Joined to <name>"; ``Not them`` takes it back.
+    joined_as: Optional[str] = None
     # Commit-level provenance (M3 / backlog A2). ``author`` is the model id that
     # wrote this commit (e.g. "gpt-5.4-mini") or "user" for manual/companion-app
     # writes, parsed from the commit's ``Cicada-Author:`` trailer; "unknown" for
@@ -5493,6 +5496,10 @@ class NotesSyncRequest(CamelModel):
     # names), and every folder the app listed in Notes' own order (`[{account, path}]`) — beside the dump so an older
     # backend ignores both. A locked note has no entry; a folder is a filing label, never a note's words.
     note_folder_paths: Optional[dict[str, list[str]]] = Field(default=None, max_length=100_000)
+    # G245 (arrival join): each unlocked note's CREATION moment by note id, Notes' locale-free local ISO time (read with the
+    # dump record's own UTC offset), beside the dump so an older backend ignores it. Absent from an older app: such a note
+    # has no creation day and is never dated by its last edit (`arrival_join`).
+    note_created: Optional[dict[str, str]] = Field(default=None, max_length=100_000)
     note_folders: Optional[list[dict]] = Field(default=None, max_length=5_000)
 
 
@@ -6195,6 +6202,19 @@ class LinkedInConnectionRow(CamelModel):
     precision: str | None = None
     #: The one person page this connection is, when there is exactly one.
     page: str | None = None
+    #: G245 (arrival join): Sleep joined a first-name page to this connection — the page's id, the day it was joined, the
+    #: days between the two first-seen days and the first-name page's own day. The person's "Not them" is
+    #: ``POST /entities/{page}/arrival-join/undo``. ``None`` when nothing stands on this row.
+    joined: Optional["LinkedInConnectionJoin"] = None
+
+
+class LinkedInConnectionJoin(CamelModel):
+    page: str
+    #: The first-name page's own title (a word the person wrote), for the row's line.
+    name: Optional[str] = None
+    on: Optional[str] = None
+    delta: Optional[int] = None
+    holder_day: Optional[str] = None
 
 
 class LinkedInConnectionsList(CamelModel):
