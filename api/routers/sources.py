@@ -1546,7 +1546,7 @@ async def sources_overview(
         etag = await sync_service.etag_for_async(
             memory_path, "sources", "episodes", "entities", "photos", "siteIcons",
             extra=(f"{source_overview.SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}"
-                   f"|feeds:{feed_fetch}"),
+                   f"|feeds:{feed_fetch}" + ("|another-way" if saved_posts.HIDE_POSTS else "")),   # G246 Track 3
         )
         if (early := sync_service.conditional(request, response, etag)) is not None:
             return early
