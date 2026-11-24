@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -569,6 +570,98 @@ def _spawn(memory_path: Path, args: tuple[str, ...]) -> subprocess.CompletedProc
     return subprocess.run(["git", *args], cwd=str(memory_path), capture_output=True)
 
 
+# --- Commands too big for an argv (G85, G181) ------------------------------------------------------------------------
+# A Sleep commit's message carries one manifest line per file (about 90 bytes each) and a path-scoped commit also names
+# every path, so a run that touches ~1,500 pages has a message past Linux's per-argument limit (MAX_ARG_STRLEN, 128 KiB
+# — `execve` answers E2BIG for ONE string longer than that) and one that touches ~10,000 pages passes macOS's whole
+# argv + environment limit (1 MiB; Linux's is about 2 MiB). The bounds below are what `_spawn` is ever handed; they sit
+# under both limits with room for the environment, and a command inside them is spawned exactly as it always was.
+#: The longest one argument `_spawn` may be handed (Linux: 131,072; this leaves a quarter of it free).
+ARG_BYTES_MAX = 96 * 1024
+#: The longest whole argv (each string's bytes + its NUL + its pointer): a quarter of macOS's 1 MiB, which the
+#: environment shares.
+ARGV_BYTES_MAX = 256 * 1024
+#: Subcommands whose trailing ``-- <paths>`` git can read from a file instead (``--pathspec-from-file``, git 2.25):
+#: the same single command, so the same atomicity — a refusal half-way leaves the index as the argv form would.
+_PATHSPEC_FILE_COMMANDS = frozenset({"add", "commit", "reset", "restore", "rm", "checkout"})
+#: Read-only listings whose output for a set of paths is the concatenation of its output for any split of them.
+_CHUNKED_READS = frozenset({"ls-files", "ls-tree", "status"})
+#: A listing whose chunks may name one entry twice (overlapping pathspecs) — git names each entry once.
+_DEDUPED_READS = frozenset({"ls-files", "ls-tree"})
+
+
+def _argv_bytes(args) -> int:
+    return sum(len(os.fsencode(a)) + 1 + 8 for a in ("git", *args))
+
+
+def _oversized(args) -> bool:
+    return (any(len(a) > ARG_BYTES_MAX // 4 and len(os.fsencode(a)) > ARG_BYTES_MAX for a in args)
+            or _argv_bytes(args) > ARGV_BYTES_MAX)
+
+
+def _describe(args) -> str:
+    """The command as an error names it: a message or a path list is never repeated whole."""
+    return " ".join(a if len(a) <= 2000 else f"{a[:200]}…[{len(a)} characters]" for a in args)
+
+
+@contextlib.contextmanager
+def _fitted(args: tuple[str, ...]):
+    """``args`` as an equivalent command no longer than the bounds, or ``None`` when git has no such form.
+
+    The message goes in a file (``commit -F``, ``commit-tree -F``; the same bytes `-m` would carry, ending in the
+    newline `-m` adds — a commit object is identical either way) and the trailing paths in a NUL-separated file
+    (``--pathspec-from-file`` with ``--pathspec-file-nul``, so no path is ever quoted or split). The files live in a
+    private folder outside the bank, removed on the way out."""
+    sub = args[0] if args else ""
+    head, paths = list(args), None
+    if "--" in head and sub in _PATHSPEC_FILE_COMMANDS:
+        cut = head.index("--")
+        head, paths = head[:cut], head[cut + 1:]
+    msg_at = head.index("-m") if sub in ("commit", "commit-tree") and "-m" in head[:-1] else -1
+    if msg_at < 0 and paths is None:
+        yield None
+        return
+    folder = tempfile.mkdtemp(prefix="cicada-git-")
+    try:
+        if msg_at >= 0:
+            body = os.fsencode(head[msg_at + 1])
+            note = Path(folder) / "message"
+            note.write_bytes(body if body.endswith(b"\n") else body + b"\n")
+            head[msg_at:msg_at + 2] = ["-F", str(note)]
+        if paths is not None:
+            listing = Path(folder) / "paths"
+            listing.write_bytes(b"".join(os.fsencode(p) + b"\0" for p in paths))
+            head += [f"--pathspec-from-file={listing}", "--pathspec-file-nul"]
+        yield None if _oversized(head) else tuple(head)
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def _git_chunked(memory_path: Path, args: tuple[str, ...]) -> str | None:
+    """A read listing too many paths for one argv, run as several and joined; ``None`` when it cannot be split."""
+    if args[0] not in _CHUNKED_READS or "--" not in args:
+        return None
+    cut = args.index("--")
+    head, paths = args[:cut + 1], args[cut + 1:]
+    room = ARGV_BYTES_MAX - _argv_bytes(head)
+    chunks: list[list[str]] = [[]]
+    used = 0
+    for p in paths:
+        size = len(os.fsencode(p)) + 1 + 8
+        if chunks[-1] and used + size > room:
+            chunks.append([])
+            used = 0
+        chunks[-1].append(p)
+        used += size
+    if any(_oversized((*head, *c)) for c in chunks):
+        return None   # one path alone is past the bound: nothing to split
+    out = "".join(_git_sync(memory_path, *head, *c) for c in chunks)
+    if args[0] in _DEDUPED_READS:
+        sep = "\0" if "-z" in args else "\n"
+        out = sep.join(dict.fromkeys(out.split(sep)))
+    return out
+
+
 #: G132 phase 3b (review of #569): the commits this context made, in order, while a caller asked to know them
 #: (``recording_commits``) — so a publishing home journals the commit a write itself produced as its ``headAfter``,
 #: never a HEAD another writer moved in between. None (the default): nothing is noted and nothing is spawned.
@@ -608,20 +701,28 @@ def _git_sync(memory_path: Path, *args: str) -> str:
 
         if replica_guard.blocks():
             raise _replica_refusal()
+    if _oversized(args):
+        # A message or a path list past the bounds (above): the same command through files, or a read in pieces.
+        joined = _git_chunked(memory_path, args)
+        if joined is not None:
+            return joined
+        with _fitted(args) as short:
+            if short is not None:
+                return _git_sync(memory_path, *short)
     for delay in (*INDEX_LOCK_BACKOFF_S, None):
         try:
             proc = _spawn(memory_path, args)
         except OSError as exc:
-            raise GitError(f"git {' '.join(args)} failed: {exc}") from exc
+            raise GitError(f"git {_describe(args)} failed: {exc}") from exc
         if proc.returncode == 0:
             _note_commit(memory_path, args)
             return proc.stdout.decode(errors="replace")
         stderr = proc.stderr.decode(errors="replace")
         if delay is None or not _index_lock_busy(stderr):
-            raise GitError(f"git {' '.join(args)} failed: {stderr}")
+            raise GitError(f"git {_describe(args)} failed: {stderr}")
         logger.info(f"git {args[0]}: another git process holds this bank's index — retrying in {delay}s")
         _sleep(delay)
-    raise GitError(f"git {' '.join(args)} failed")  # unreachable: the last try has no delay
+    raise GitError(f"git {_describe(args)} failed")  # unreachable: the last try has no delay
 
 
 def run_git_write_sync(memory_path, *args: str) -> str:
@@ -797,12 +898,16 @@ def _git_env_sync(memory_path: Path, env: dict, *args: str) -> str:
 
     if replica_guard.blocks():
         raise _replica_refusal()
+    if _oversized(args):
+        with _fitted(args) as short:   # `commit-tree -m <a Sleep-sized message>` becomes `-F <file>`
+            if short is not None:
+                return _git_env_sync(memory_path, env, *short)
     try:
         proc = subprocess.run(["git", *args], cwd=str(memory_path), capture_output=True, env=env)
     except OSError as exc:
-        raise GitError(f"git {' '.join(args)} failed: {exc}") from exc
+        raise GitError(f"git {_describe(args)} failed: {exc}") from exc
     if proc.returncode != 0:
-        raise GitError(f"git {' '.join(args)} failed: {proc.stderr.decode(errors='replace')}")
+        raise GitError(f"git {_describe(args)} failed: {proc.stderr.decode(errors='replace')}")
     return proc.stdout.decode(errors="replace")
 
 

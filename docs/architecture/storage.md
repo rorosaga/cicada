@@ -2967,6 +2967,20 @@ in the bank's own git dir (a worktree's, never the shared common dir), says so o
 lands on that writer's next run — or at the start of the next Sleep cycle, before any stage writes —
 under its own author (R-B5).
 
+**A git command never outgrows its argv (G181, 2026-11-24).** A Sleep commit's message has one manifest line per
+file (~90 bytes), and a path-scoped commit also names every path: ~1,500 pages pass Linux's one-argument limit
+(`MAX_ARG_STRLEN`, 128 KiB) and ~9,000 pass macOS's argv-plus-environment limit (1 MiB). `git_service` keeps what
+`_spawn` is handed under `ARG_BYTES_MAX` (96 KiB one argument) and `ARGV_BYTES_MAX` (256 KiB whole argv, each string's
+bytes + NUL + pointer): a command inside them is spawned exactly as before; one past them is rewritten by `_fitted`
+into the same single git command with the message in `-F <file>` (the bytes `-m` carries and its final newline: the
+commit object is identical, a test pins it) and the trailing `-- <paths>` in `--pathspec-from-file=<file>
+--pathspec-file-nul` (`add`, `commit`, `reset`, `restore`, `rm`, `checkout`; git 2.25), so a refusal leaves the index as
+the argv form does and a path-scoped commit still commits only its paths. The files live in a private folder outside
+the bank, removed on the way out. A read listing too many paths (`ls-files`, `ls-tree`, `status`) runs in pieces and
+joins them (an entry listed once). The same rewrite covers `commit-tree` in the kept-apart and capture commits. An error
+names a long argument by its first 200 characters and its length, never whole. The message itself is unchanged
+(`build_commit_message`), so every `git log` reader, `_note_commit` and blame see what they always saw.
+
 **One page writer at a time (audit 2026-10-05 P1-2).** A claim write is read → reconcile → write; atomic replacement
 keeps one write whole but not two (both reported `written`, one survived). `page_lock.page_lock(bank)` — the same
 cross-process, re-entrant `flock` as `episode_lock` (`episode_ids.dir_lock`), on the bank directory itself — is held
