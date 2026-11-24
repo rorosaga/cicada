@@ -79,6 +79,8 @@ struct SettingsRowID: RawRepresentable, Hashable, Codable, Sendable {
     // Reading the web (G166): the master switch, the hand-off prompt, how the agent reads, the sites that need a browser
     static let readingAgent = SettingsRowID("readingAgent")
     static let readingPrompt = SettingsRowID("reading:prompt")
+    /// G245 (2026-11-24): the one shell line for the person's own scheduler.
+    static let readingDaily = SettingsRowID("reading:daily")
     // G166 exploring (D2 amended): explore in the signed-in session, or a private context
     static let readingExploreSignedIn = SettingsRowID("readingExploreSignedIn")
     static let readingNeverExplore = SettingsRowID("readingNeverExplore")

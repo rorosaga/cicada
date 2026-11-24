@@ -4180,6 +4180,14 @@ actor APIClient {
         return reply.prompt
     }
 
+    /// `GET /reading/prompt?variant=daily` — the one shell line for the person's own scheduler (G245). Cicada starts
+    /// nothing: the line is only printed, here and by `cicada read daily`.
+    func fetchReadingDailyCommand() async throws -> String {
+        struct Reply: Decodable { let command: String }
+        let reply: Reply = try await get("/reading/prompt?variant=daily")
+        return reply.command
+    }
+
     /// `POST /reading/asks` — "Ask an agent" on one link. 409 while the switch (or the link's site) is off, 422 for a
     /// link an agent is never offered; both carry a sentence written for the person.
     func askAgentToRead(url: String) async throws -> ReadingAskResponse {

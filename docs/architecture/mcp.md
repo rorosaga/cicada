@@ -653,7 +653,12 @@ accepted); turning it on
 raises `SettingsSheet`'s first-use sheet (what asking does, that Cicada only asks, Cicada's instruction to the agent — no
 credentials typed, nothing posted, messaged or changed — with the honest limit that it can't see or enforce what happens in
 the browser, the sites' terms, an "I understand" that must be ticked, DR-41 — **no site picker**) and nothing changes until "Turn on", which sends the acknowledgement in one
-`PUT /reading/settings`; once on, "Copy for an agent" (`GET /reading/prompt`) sits in the group. *How your agent reads*: the
+`PUT /reading/settings`; once on, "Copy for an agent" (`GET /reading/prompt`) sits in the group, and under it **"Read your lists every day"**
+(`DailyCommandRow`, `Copy+ListRun.swift`, G245): a sentence that Cicada starts and schedules nothing, **Copy the line** (the
+line `GET /reading/prompt?variant=daily` answers, copied with a toast, nothing shown but the button), the plain exposure
+sentence (it runs your AI app with its normal tools with nobody watching, it reads other people's posts while signed in as you,
+a separate browser profile signed in only to the sites being read is recommended, Cicada cannot limit what your AI app does in
+your browser) and a folded launchd example (placeholders only, the line goes in a file the job runs). *How your agent reads*: the
 `agent_methods` choice as radio rows (a skill wears a Skill tag, says whether it is installed, and offers Open in graph,
 Add to your graph or **Install…**, which opens that skill's own `SkillDetailView` as this page's sub-page — the Skills
 list shows only five, so a lower-ranked skill has no card there — with an `agent-prompt` plan's sentence and a Copy
