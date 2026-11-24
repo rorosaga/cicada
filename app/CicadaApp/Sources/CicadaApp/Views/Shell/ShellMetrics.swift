@@ -14,6 +14,10 @@ enum ShellMetrics {
     /// The extra space between two groups of pages, never a line (DR-11): the groups sit this far apart.
     static let groupGap: CGFloat = 12
     static let railInset: CGFloat = 10         // (56 − 36) / 2
+    /// Owner 2026-11-24 — the icon tile each page wears, in the sidebar and in the rail's 36 pt cell (`NavTilePalette`).
+    static let navTile: CGFloat = 24
+    /// The gap between a labelled row's tile and its name.
+    static let navTileGap: CGFloat = 10
     static let commandBarWidth: CGFloat = 520
     static let commandBarHeight: CGFloat = 32
 

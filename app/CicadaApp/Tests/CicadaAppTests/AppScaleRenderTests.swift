@@ -130,7 +130,7 @@ final class AppScaleRenderTests: XCTestCase {
                 let view = VStack(alignment: .leading, spacing: CicadaTheme.spacingCard) {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(article.rows.prefix(open ? 3 : 9)) { row in
-                            WikiRowView(row: row, onSource: { _ in })
+                            WikiRowView(row: row)
                                 .padding(.top, row.id == 0 ? 0 : WikiRowView.gap(above: row, after: article.rows[row.id - 1]))
                         }
                     }

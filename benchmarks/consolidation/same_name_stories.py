@@ -77,7 +77,6 @@ class World:
     questions: int = 0
     review_pages: set[str] = field(default_factory=set)
     review_pairs: set[tuple[str, str]] = field(default_factory=set)
-    review_all: bool = False
     calls: int = 0
     review_calls: int = 0
 
@@ -132,6 +131,8 @@ async def step(world: World, batch: list[Conv], judge, ep_n: list[int], strong=N
                 for other in compared | ({world.slug} if world.slug in world.persons else set()):
                     if other in world.persons or True:
                         (world.doubts if doubt else world.apart).add(pair(news[dest.ref], other))
+                        if doubt:   # a doubt just recorded is flagged for the tail (`entity_resolver._record_doubt_pairs`)
+                            world.review_pairs.add(pair(news[dest.ref], other))
             target = news[dest.ref]
         else:
             target = dest.ref
@@ -139,10 +140,8 @@ async def step(world: World, batch: list[Conv], judge, ep_n: list[int], strong=N
     # a new person's pairs with others that do not exist (an unseen plain) are dropped
     world.doubts = {p for p in world.doubts if p[0] in world.persons and p[1] in world.persons}
     world.apart = {p for p in world.apart if p[0] in world.persons and p[1] in world.persons}
-    if getattr(result, "review", False):
-        world.review_pages |= result.review_pages
-        world.review_pairs |= result.review_pairs
-        world.review_all = True
+    world.review_pages |= result.review_pages
+    world.review_pairs |= result.review_pairs
 
 
 def merge_persons(world: World, loser: str, winner: str) -> None:
@@ -158,9 +157,9 @@ async def tend(world: World, judge) -> None:
     contrast keeps the pair apart for good; a located link two reads agree on joins the two (ruling 74a); a pair that
     reads like two people waits apart and nobody is asked; one that reads like one person, or like nothing, is asked
     once (with the link, when one read found it); a read that could not be stood on asks nothing."""
-    if not world.review_all:
-        return
-    for ref in sorted(world.review_pages):
+    flagged_pages, flagged_pairs = sorted(world.review_pages), sorted(world.review_pairs)
+    world.review_pages, world.review_pairs = set(), set()   # a flag is looked at once (`same_name_doubts.clear_flags`)
+    for ref in flagged_pages:
         person = world.persons.get(ref)
         if person is None or not person.page:
             continue
@@ -173,7 +172,9 @@ async def tend(world: World, judge) -> None:
             person.convs = [c for c in person.convs if c.ep not in split.episodes]
             world.persons[new] = Person(new, moved)
             world.apart.add(pair(ref, new))
-    for a, b in sorted(world.doubts):
+    for a, b in flagged_pairs:   # only what Stage 2 flagged, as the product: a doubt nobody flagged is never read
+        if pair(a, b) not in world.doubts:
+            continue
         pa, pb = world.persons.get(a), world.persons.get(b)
         if pa is None or pb is None or not (pa.page and pb.page) or pair(a, b) in world.apart:
             continue
@@ -235,9 +236,9 @@ async def replay(story: dict, judge, review_judge, n: int = 0) -> dict:
 
     for seeded in story.get("seed", []):
         world.persons[seeded["id"]] = Person(seeded["id"], [conv(c) for c in seeded["convs"]])
-    for batch in story["batches"]:
+    for batch in story["batches"]:   # each batch is a night: the tail review runs after it, on what it flagged
         await step(world, [conv(c) for c in batch], judge, ep, review_judge)
-    await tend(world, review_judge)
+        await tend(world, review_judge)
     return score(world, story)
 
 

@@ -354,10 +354,12 @@ enum ProjectsModel {
         return nil
     }
 
-    /// A mark's hover words: the sentence's first six words.
-    static func firstWords(_ text: String, count: Int = 6) -> String {
-        let words = text.split(separator: " ")
-        return words.count > count ? words.prefix(count).joined(separator: " ") + "…" : text
+    /// A mark's hover words: the sentence's first six words, read through `PageLine` first so a link is counted and
+    /// shown as its page's name, never as brackets a cut could leave half of.
+    static func firstWords(_ text: String, count: Int = 6, links: PageLinkIndex = .empty) -> String {
+        let line = PageLine.plain(text, links: links)
+        let words = line.split(separator: " ")
+        return words.count > count ? words.prefix(count).joined(separator: " ") + "…" : line
     }
 
     /// R-PP24 — a ⌘K entity row lands in Projects when its node is a project.

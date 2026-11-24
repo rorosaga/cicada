@@ -1,0 +1,211 @@
+{
+ "about": "Invented. A doubt a later conversation links (a cousin who turns out to be the new colleague): Sleep joins the two itself. A pair never linked (an aunt and a climbing partner) stays two with no question. One person whose life moves on stays one.",
+ "owner": "Mira Kolar",
+ "conversations": [
+  {
+   "id": "j01",
+   "phase": 1,
+   "day": -50,
+   "title": "Grandma's garden",
+   "turns": [
+    "My cousin Ilse and I spent Saturday weeding grandma's garden in Tulln, she drove us both there.",
+    "That sounds like a full day.",
+    "It was. Ilse grew up two streets from me, we were in the same primary school class."
+   ]
+  },
+  {
+   "id": "j02",
+   "phase": 1,
+   "day": -46,
+   "title": "Family lunch",
+   "turns": [
+    "Ilse is hosting the family lunch at Easter this year, her mother, my aunt Greta, is bringing the ham.",
+    "A big family gathering then.",
+    "Twelve of us. Ilse has asked me to bring dessert."
+   ]
+  },
+  {
+   "id": "j03",
+   "phase": 1,
+   "day": -48,
+   "title": "Lemon cake",
+   "turns": [
+    "My aunt Sara sent me her lemon cake recipe, I'm baking it for Sunday.",
+    "Sounds lovely. Any secret ingredient?",
+    "She always adds a bit of cardamom, that's her trick. She has baked it for every family birthday since I was little."
+   ]
+  },
+  {
+   "id": "j04",
+   "phase": 1,
+   "day": -47,
+   "title": "Flatmate",
+   "turns": [
+    "My flatmate Olek works nights at the bakery on Linden Street, so we barely see each other during the week.",
+    "That must make sharing a flat easy.",
+    "It does, and he brings home bread."
+   ]
+  },
+  {
+   "id": "j05",
+   "phase": 2,
+   "day": -20,
+   "title": "New designer",
+   "turns": [
+    "Ilse, the new designer, started on our team at Brightwell on Monday, she sits at the desk next to mine.",
+    "How is she settling in?",
+    "Fine. She is redoing the onboarding screens first and already found three bugs in the old ones."
+   ]
+  },
+  {
+   "id": "j06",
+   "phase": 2,
+   "day": -17,
+   "title": "Design review",
+   "turns": [
+    "Ilse presented her onboarding designs at the review today and the product lead approved them.",
+    "A good first week for her.",
+    "Yes. She used to work at an agency in Linz before joining us."
+   ]
+  },
+  {
+   "id": "j07",
+   "phase": 2,
+   "day": -18,
+   "title": "Rope",
+   "turns": [
+    "Sara lent me her rope at the climbing gym yesterday, mine is too short for the new wall.",
+    "Nice of her. Is the new wall hard?",
+    "Very. She is training for a bouldering competition in March and climbs four times a week."
+   ]
+  },
+  {
+   "id": "j08",
+   "phase": 2,
+   "day": -15,
+   "title": "Saturday climb",
+   "turns": [
+    "Climbing with Sara again on Saturday, she wants to try the overhang route.",
+    "Sounds like a good session.",
+    "She works as a physiotherapist so she also fixes my shoulder afterwards."
+   ]
+  },
+  {
+   "id": "j09",
+   "phase": 2,
+   "day": -16,
+   "title": "Croissants",
+   "turns": [
+    "Olek brought home leftover croissants from the bakery again, the freezer is full.",
+    "A good problem to have.",
+    "He says the night shift is wearing him down though."
+   ]
+  },
+  {
+   "id": "j10",
+   "phase": 3,
+   "day": -5,
+   "title": "Cousin at work",
+   "turns": [
+    "It still feels funny having my cousin Ilse at the next desk. Since she joined Brightwell as our designer we have lunch together every day, and grandma keeps asking how the two of us are getting on in one office.",
+    "Working with family can be nice.",
+    "It is. She drove me to Tulln on Sunday to see grandma and we talked about the onboarding screens the whole way."
+   ]
+  },
+  {
+   "id": "j11",
+   "phase": 3,
+   "day": -6,
+   "title": "Tomatoes",
+   "turns": [
+    "Aunt Sara's garden in Graz is full of tomatoes this year, she gave me two bags when I visited her last weekend.",
+    "What will you do with them all?",
+    "Sauce, mostly. She is retired now so the garden is her whole day."
+   ]
+  },
+  {
+   "id": "j12",
+   "phase": 3,
+   "day": -4,
+   "title": "Shoulder",
+   "turns": [
+    "Sara had a look at my shoulder after climbing on Saturday and gave me two exercises to do every morning.",
+    "Handy to climb with a physiotherapist.",
+    "Very. She says it should be fine before her competition in March."
+   ]
+  },
+  {
+   "id": "j13",
+   "phase": 3,
+   "day": -3,
+   "title": "Olek's new job",
+   "turns": [
+    "Olek quit the bakery. He starts as a junior analyst at a bank in Vienna in January and is moving out at the end of the month.",
+    "Big change. Will you look for a new flatmate?",
+    "Yes, I'll post the room next week."
+   ]
+  }
+ ],
+ "gold": {
+  "points": [],
+  "updates": [],
+  "forbid": [],
+  "people": {
+   "same": [],
+   "apart": [],
+   "apart_facts": [
+    {
+     "id": "S1",
+     "why": "aunt Sara and Sara at the climbing gym",
+     "a": [
+      [
+       "graz",
+       "cardamom",
+       "retired"
+      ]
+     ],
+     "b": [
+      [
+       "physiotherapist",
+       "bouldering"
+      ]
+     ]
+    }
+   ],
+   "one": [
+    {
+     "id": "O1",
+     "names": [
+      "ilse"
+     ],
+     "why": "the cousin is the new designer"
+    },
+    {
+     "id": "O2",
+     "names": [
+      "olek"
+     ],
+     "why": "one flatmate"
+    }
+   ]
+  },
+  "pages": {
+   "expected": [],
+   "not_expected": []
+  },
+  "dated": [],
+  "secret": "",
+  "apart_values": [],
+  "roles": [],
+  "fading": []
+ },
+ "expect": {
+  "one": [
+   "ilse",
+   "olek"
+  ],
+  "two": [
+   "sara"
+  ]
+ }
+}

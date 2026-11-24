@@ -1,11 +1,5 @@
 import Foundation
 
-extension PageInline {
-    /// Bench and test switch: `false` draws every line as one `Text`, the way a page was drawn before chips. Never
-    /// changed by the app.
-    nonisolated(unsafe) static var flowEnabled = true
-}
-
 /// A Related list item as a card (owner 2026-11-23, the Superwhisper look on this page only): the page it names, its
 /// picture, and under its name the quiet words that say how it is related ("works at"). A rolled-up line ("people: 120
 /// pages — latest …") names no page and stays a plain bullet.

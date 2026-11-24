@@ -326,6 +326,7 @@ near-copy left, to be pointed at `softCard` when its hover fill may change.
 
 **Navigation (Direction D, DS-1).** A 56 pt icon rail (`Views/Shell/NavRail.swift`): Home, Graph, Clusters, Skills,
 Sleep, Sources, Projects, Agents at ⌘1–5 and ⌘7–9 in `AppTab.allCases` order (`RailItem`; a page switch is instant). The pages sit in three groups told apart by a 12 pt gap, never a line — Home, Graph, Clusters · Skills, Sleep, Sources · Projects, Agents, Traces (`ShellMetrics.navGroups`, contiguous runs of the ⌘ order, so no digit moves); the labelled sidebar's rows are 40 pt with a soft `cornerRadius` selected fill, the icon rail's cells stay 36 pt (2026-11-23).
+**Icon tiles (owner 2026-11-24, DR-82, DESIGN_RULES §3.9).** Each page's symbol is white (13 pt medium) on a flat 24 pt rounded tile of that page's own hue, in the labelled row (tile, 10 pt gap, name) and in the rail's 36 pt cell alike: `NavRailCell.glyph` draws it with `CicadaTheme.navTile(tab, increasedContrast:)`. The nine hues are `Theme/NavTilePalette.swift`'s tokens (`tileHome` … `tileTraces`), each with a dark and a light value, separate from the accent and the data hues; the Inbox, which draws no cell, wears Home's. The tile and its glyph scale with the text size (`ShellMetrics.navTile`, `scaled`), the radius (`radiusTile`, 6) does not. State never touches a tile: selection is `bgSelected` and a primary label, hover `bgRailHover`; a badge stays beside the row or off the rail cell's corner; Sleep's tile holds a white spinner while a cycle runs; Increase Contrast draws the same hue 25 % deeper. `NavTilePaletteTests` holds the contrast and colour-vision floors.
 **The Inbox left the rail (ruling 48 (2), owner 2026-10-28):** its questions live on Home and on each page, and the
 full grouped list is Home's sub-view — `AppTab.inbox` stays a destination (⌘K, the menu bar, a notification, Home's
 *All N questions*) but draws no cell (`AppTab.onRail`), Home's cell reads as selected while it shows (`railCell`), its
@@ -1608,19 +1609,43 @@ Measured on the owner's Chrome and built in: a control can be far smaller to mac
 in a ~35 pt circle — `nearestButton`, 14 pt halo); Chromium's first answer about a fresh point is often a neighbour
 and the second is exact (`settledRead`); on GitHub's lists the answer stays the whole page (`buttonByFrames` walks
 down by frames); Instagram and TikTok nest the button the pointer is on inside the control (the outer one is used).
-It asks a Chromium browser for its page tree (`AXManualAccessibility`) only once a site is connected — the tree
-costs the browser work — and until then reads nothing but the front tab's address from the window itself
-(`frontSite`, `AXDocument`), for the offer.
+It asks a Chromium browser for its page tree (`AXManualAccessibility`) only once a site is connected, or the front tab
+is on a candidate (77b, below) — the tree costs the browser work — and until then reads nothing but the front tab's
+address from the window itself (`frontSite`, `AXDocument`), for the offer.
 
 *The watcher (`SiteSaveWatcher`).* One monitor (mouse moves and mouse-downs) while a supported browser is in front,
-only when Accessibility is already granted and only for sites the person connected. The state before a click is read
+only when Accessibility is already granted and only for sites the person connected (and the candidate below, ruling
+77b). The state before a click is read
 when the pointer rests on a save control (70 ms), kept in memory only, and a click within 24 pt and 60 s of it is
 compared with the row at 0.6, 1.2 and 2.0 s. A save goes to `SaveWhyCenter.siteSaved`: stored first through
 `POST /sources/site-save` (`api.md`; the site's own origin, index-only until a reason — ruling 62), then asked about
-through the ordinary confirmed path, so the Ask-why switch, "Don't ask for this site" and one-save-one-question apply
+through the ordinary confirmed path, so "Don't ask for this site" and one-save-one-question apply (the bookmark
+question's own switch does not gate a site save, 2026-11-24)
 and the answer is posted with `via` the site's origin. An unsave goes to `POST /sources/site-unsave`: never asked
 about, the save stays and shows "no longer on …" (`leftBrowser`). Logs (`site-save`) hold an outcome word, what
 settled it and milliseconds, never a link or a label.
+
+*A save on a site that is not connected (ruling 77b, owner 2026-11-24).* Before 77b nothing was read until the
+connection, so the first saves on a site passed unseen (found live: three in one evening). Now the watcher also reads
+the **candidate**: the one site the front tab was on at the pointer's last rest, when it is not connected and a save click there could still bring
+its offer (`ConnectSuggestPolicy.listens`: the offer switch on, the site not answered No or Yes, not shown its last
+time, not inside a wait a save click cannot pass). It is read exactly as a connected site is (the rest, the click, the
+menu), and the page tree is asked for the first time the pointer rests on such a page. A click that saved, or changed
+the control in a direction nothing settled, becomes a `SiteSaveCandidate` — the post, the outcome, the post's words,
+the list, and what the click would have taught (`Lesson`) — handed to `ConnectSuggestCenter.offer(saved:)`; a click
+that changed nothing is dropped, and an unsave only makes an open offer let go of that post (it never shows one). **Nothing is written before Yes:** no label learned, no post hash kept, no
+request sent. The offer shows at that moment (or, when that site's offer is already up, takes the save), holds up to
+eight saves in memory and says "Yes keeps this save" when one of them is a save. Yes connects the site at the press
+(`onYes`, then `SiteSaveSwitches.changed`), and when the panel's confirmation has shown, `onHeld` keeps each lesson
+(`SiteSavePrefs.keep`) and sends each save through `SaveWhyCenter.siteSaved`, as on a connected site. Not now, No, the
+timeout, leaving the browser or the ask-why question taking the notch all drop what was held. **When a save click may
+offer:** it passes a wait once (`Trigger.saveClick`: when the last offer was not itself brought by a save click,
+`saveShown`), and after such an offer the ladder's wait holds for saves too; No, the six shows and every other rule
+are the offer's own. Two rules of the offer changed with it: a refusal about the moment (`Skip.passes`: another panel
+up, Cicada's first minute, the memory not loaded) no longer spends the visit, so the next rest on the same page asks
+again; and the offer asks whether the ask-why question **is showing** (`isShowing`), not whether its state exists (the
+last state stays after it closes, which had silenced every offer for the rest of a session). A site save is asked
+about whatever the bookmark question's switch says: connecting the site is its switch.
 
 *A save kept in a menu (`SaveWhy/SiteMenuSave.swift`, ruling 77a, 2026-11-23).* Reddit and YouTube have no save
 button in a post's row, so their table rows carry a `Menu` rule instead of a slot, again structure only: DOM ids and
@@ -2400,11 +2425,38 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   **Links are chips (2026-11-23):** a wikilink or web link in a paragraph, item or quote is a `PageLinkChip` wearing the
   resolved page's own name and picture (`PageLinkIndex`, memoised per graph snapshot as `Store.linkIndex`: an id, else
   exactly one page by name or alias; anything else keeps its written words) or the site's bundled mark
-  (`PageChipMark`) — **the first mention of a page in a passage is the chip, later ones a quiet link** (`PageQuietWordView`: the
-  name in body ink, a hover fill, the same click; an ambiguous ref is one too, so no link on the page is blue); a line with a
-  chip, quiet link or cluster is cut into `PageInline` pieces and laid out by `InlineFlowLayout` (baseline-aligned, a
-  touching piece never starts a line, the cluster glued to the last word only, a glued run wider than the column broken
-  between its pieces), a line of only words stays one `Text`. **Related** list items are `RelatedCard`s (picture, the page's name, the words after the dash); the tab bar's
+  (`PageChipMark`) — **the first mention of a page in a passage is the chip, later ones a quiet link** (a quiet link: the
+  name in body ink, a hover fill, the same click; an ambiguous ref is one too, so no link on the page is blue).
+  **One text engine (2026-11-23, "ok rebuild"):** consecutive text rows (headings, paragraphs, list items, quotes — never a
+  Related card, code block, rule, image, embed or link block; at most `PageBlock.maxRows` = 40 rows or 24,000 characters)
+  are ONE `NSAttributedString` in one TextKit 2 `NSTextView` (`PageTextView`, drawn by `PageRun`), so a drag selects across
+  words, chips, quiet links and the cluster and from one paragraph, heading or item into the next; double and triple
+  click, shift-click, ⌘C, Look Up and Services are the system's. A chip and the cluster are `NSTextAttachment`s
+  (`PageInlineAttachment`) whose views are the same `PageLinkChip` and `SourceCluster` hosted in an `NSHostingView`; the
+  environment they cannot inherit (`Store`, `ProvenanceRouter`, `openURL`) is carried by `PageAttachmentContext`. A page
+  chip is measured from its parts (no view), the cluster and a web chip by their view, cached by content; a hosted
+  view that changes size (a picture arrives) re-lays the text out. A quiet link is text with a link attribute and a
+  group (the words of one link light together on hover); a touching piece is joined by U+2060 so a full stop never
+  starts a line and the cluster is never alone on one. **A copy is prose** (`PageText.plainKey`): a chip or quiet link
+  its page's name, the cluster and joiners nothing, a bullet "- ", one line break per paragraph; `writeSelection(to:)`
+  gives the same to Services. A line with web links keeps its 🔗 button and right-click view choices (`PageRun`: the
+  button follows the row's frame, the menu is an `NSMenu` built from the same `LinkCardModel`; the button is SwiftUI drawn
+  over the text view, so the text view's `hitTest` answers nil over it and its click is the button's). A selection leaves
+  when the person selects in another run. **The stack of runs is laid out at a whole point of width** (`WholePointWidth`
+  around the article's `LazyVStack`, 2026-11-24): without it a rich page (Key Facts, prose and Related cards) drew a blank
+  Content tab at 130 % and a blank band above the first line at 80 % (the owner's size), because the lazy stack's content
+  sat hundreds of points below the top; 100 % and 120 % drew. It stays lazy. A heading's links are quiet, never chips. `PageBeliefSentences` uses the same
+  engine. **The keyboard (verified 2026-11-24):** the key-view loop does not reach a view that lives inside text (a SwiftUI
+  `.focusable()` chip was never a Tab stop), so the text view owns Tab for what is in it — `PageStop`s in reading order,
+  chips, quiet links and clusters: arriving by Tab lands on the first (Shift-Tab, the last), Tab and Shift-Tab move
+  between them and past the last leave for the next control, ⏎ opens a chip or quiet link (the page's `openURL`) and
+  the cluster's popover (`PageKeyFocus.activation`). A chip and the cluster draw focus as they draw hover (the view is
+  told, `PageAttachmentRoot`); a quiet link's hover and focus fill is one soft rounded shape drawn under the text by the
+  text view (a group is unique across the run's rows). A run with nothing to land on is not a Tab stop. **Accessibility:**
+  the views inside the text are the run's accessibility children, in reading order — a chip reads as a link ("Opens the
+  page"), the cluster as a button ("6 sources") — beside the text's own links. The header's Summary draws its links in the
+  text's ink, no underline (`MarkdownBody.inlineAttributed(quietLinks:)`). What is not here: a drag stops at a Related
+  card, code block, image or the 40-row cut.
   **A link never shows as brackets anywhere in the app (2026-11-23):** page text shown as a plain line — a search row's
   title, detail and passage, an Ask citation and gap, a question and its options, Home's lead question, the catch-up
   bar, a list row's one line (Clusters), the hover card, a history line, a belief, a project sentence, the Reader's title,
@@ -2417,7 +2469,10 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   deletes a link's brackets and ref half only (`MarkupScan.links`), never inserts. Fixed in the app, not the API: a snippet's
   offsets and the page names are known only here, and the MCP tools, CLI and `/v1` return page text as stored. A lint
   (`PageLineLintTests`) fails a view that draws a registered page-text field without the door; a new field is one line in
-  its list. `PageQuestionsStrip` (the entity page's own text path) is its one known gap. `PageLineTests`.
+  its list. No known gap since 2026-11-24: the entity page's question strip, a fact under one of the page's sources
+  and a project's band labels, hover words and thread lines (`BandLayout.make(links:)`,
+  `ProjectsModel.firstWords(_:links:)`) take the door too. `PageLineTests`.
+  **Related** list items are `RelatedCard`s (picture, the page's name, the words after the dash); the tab bar's
   scroll view fades what has scrolled under it over 16 pt (`fadedTopEdge`; nothing at rest, so a page's first line is whole). A page whose prose cites nothing yet draws its beliefs as one paragraph of sentences
   (`PageBeliefSentences`): an inference worded "It seems that …", an ended one "(until March 2025)"; past twelve, "N
   more in Perspectives". **Gone from the page:** the beliefs list, *Where this came from*, the person's *How you know*

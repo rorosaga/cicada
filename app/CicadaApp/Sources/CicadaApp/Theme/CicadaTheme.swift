@@ -550,14 +550,15 @@ enum CicadaTheme {
     // MARK: - Icons (DR-53)
     enum IconRole {
         /// `disclosure` — every fold's chevron (DR-39/DR-53, 2026-10-20): 10 pt, semibold so it holds at that size.
-        case rail, railFoot, titlebar, sidebar, list, commandBar, inline, badge, disclosure
+        /// `navTile` — the symbol on a sidebar icon tile (owner 2026-11-24, `NavTilePalette`): 13 pt medium, white.
+        case rail, railFoot, titlebar, sidebar, list, commandBar, inline, badge, disclosure, navTile
         var points: CGFloat {
             switch self {
             case .rail: 18
             case .railFoot: 17
             case .titlebar, .sidebar: 16
             case .list: 14
-            case .commandBar: 13
+            case .commandBar, .navTile: 13
             case .inline: 12
             case .badge, .disclosure: 10
             }
@@ -567,7 +568,7 @@ enum CicadaTheme {
         switch role {
         case .disclosure: font(size: role.points, weight: .semibold)
         // ROR-118 — the page glyphs are medium, not regular: thin strokes read as unlabelled decoration.
-        case .rail, .railFoot: font(size: role.points, weight: .medium)
+        case .rail, .railFoot, .navTile: font(size: role.points, weight: .medium)
         default: font(size: role.points)
         }
     }
@@ -588,6 +589,7 @@ enum CicadaTheme {
     static let cornerRadius: CGFloat = 10          // the command bar, menus, popovers, the palette, grouped blocks
     static let cornerRadiusSmall: CGFloat = 8      // rows, option rows, buttons, rail cells, tabs, fields
     static let radiusXS: CGFloat = 4               // keycaps, the span wash
+    static let radiusTile: CGFloat = 6             // the sidebar's 24 pt icon tiles (owner 2026-11-24)
     static let radiusLarge: CGFloat = 16           // the focus card, the Settings panel, error and empty cards
 
     /// The page panel's rounded top-leading corner, where it meets the rail and the titlebar band (owner 2026-10-06;

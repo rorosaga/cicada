@@ -53,7 +53,7 @@ final class WikiPageBenchTests: XCTestCase {
         _ = cache.article(key)
         let drawn = layout("article first screen, lazy", ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(full.rows) { WikiRowView(row: $0, onSource: { _ in }) }
+                ForEach(full.rows) { WikiRowView(row: $0) }
             }
         })
         // Generous for a debug build on a loaded machine; `MarkdownBody` took ~2 s here (the opt-in bench).
@@ -82,7 +82,7 @@ final class WikiPageBenchTests: XCTestCase {
         _ = layout("old MarkdownBody, every line", ScrollView { MarkdownBody(text: prose) })
         _ = layout("new article, lazy", ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(full.rows) { WikiRowView(row: $0, onSource: { _ in }) }
+                ForEach(full.rows) { WikiRowView(row: $0) }
             }
         })
         _ = layout("new article, inside the card's VStack", ScrollView {
@@ -90,7 +90,7 @@ final class WikiPageBenchTests: XCTestCase {
                 Text("toolbar")
                 VStack(alignment: .leading) {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(full.rows) { WikiRowView(row: $0, onSource: { _ in }) }
+                        ForEach(full.rows) { WikiRowView(row: $0) }
                     }
                 }
                 Text("sections")
