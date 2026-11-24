@@ -1390,7 +1390,7 @@ So watch history and list saves are a record to look up, never a conversation to
 - **What is index-only — one predicate, `history_index.kind`.** A watched day (`source: watch-history`), a month's
   summary (`source: watch-history-month`), and a save from a platform's saved list: origin `youtube-playlist` (a
   Takeout playlist, Watch later included, or the agent's read of Watch later), `instagram-saved`, `tiktok-saved`,
-  `x-likes`, `linkedin-saved`, and `reddit-saved` / `x-bookmarks` only under the folder the export reader names
+  `x-likes`, `x-reposts` (the browser read of the person's own reposts, `mcp.md`), `linkedin-saved`, and `reddit-saved` / `x-bookmarks` only under the folder the export reader names
   (`Saved posts`/`Saved comments`/`Upvoted`, `Bookmarks`) — the Reddit and X connectors share those origins under other
   folders. G245's browser lists write under the same labels (`x-likes`/`Likes`, `instagram-saved`/`Liked posts`,
   `reddit-saved`/`Upvoted`, `youtube-playlist`/`Liked videos` or the playlist's name), so an export's row and the browser's

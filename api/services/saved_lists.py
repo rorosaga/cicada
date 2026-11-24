@@ -83,7 +83,31 @@ class Platform:
     folders: bool = False
     #: What the agent reads of each post, when the list shows less or more than words (Instagram's grid).
     reads: str = "its author as the page shows it, and the words the post shows"
+    #: What the list holds (:data:`LIST_KINDS`). The record tool and the queue branch on this, never on a key.
+    kind: str = "posts"
+    #: How often this list is offered again; ``None``: :data:`CADENCE`. :func:`cadence_of` backs it off further after
+    #: reads that found nothing new.
+    cadence: timedelta | None = None
+    #: A list with no end (the person's own profile timeline, where reposts are mixed in with everything else) is read
+    #: only this many screens deep: the first read stops there and says so, a later read stops at known ground. ``0``: the
+    #: list has an end, and :func:`whole` is the read that reached it. See :attr:`bounded`.
+    max_screens: int = 0
 
+    def __post_init__(self) -> None:
+        if self.kind not in LIST_KINDS:
+            raise ValueError(f"list kind must be one of {', '.join(LIST_KINDS)}, not {self.kind!r}")
+
+    @property
+    def bounded(self) -> bool:
+        """Is this list read only to a screens bound (:attr:`max_screens`)? It is then a timeline, so a row the person
+        wrote themselves can be among its rows (``mcp_tools.record_saved_list`` drops those)."""
+        return self.max_screens > 0
+
+
+#: What a list holds (:attr:`Platform.kind`): ``posts`` (links kept as saves), ``people`` (a directory outside every bank
+#: that never makes a page), ``accounts`` (the accounts the person follows: never offered to an unattended read) or ``books``
+#: (shelves held for the person's choice).
+LIST_KINDS = ("posts", "people", "accounts", "books")
 
 PLATFORMS: dict[str, Platform] = {
     # Measured 2026-11-24: X now files Bookmarks under History, so this address lands on ``/i/history`` (tabs Bookmarks
@@ -94,13 +118,27 @@ PLATFORMS: dict[str, Platform] = {
     # G245 (ruling 78b, owner 2026-11-24): the person's own Likes tab — a page that holds only that list. Files under the
     # X archive's like.js origin and label, so a like the archive brought in and the same like read here are one row;
     # a post already kept from Bookmarks gains "Likes" on its page's `collections:` instead of a second page. Off until
-    # the person turns it on. Reposts are mixed into the profile timeline, which no list page covers: not read.
+    # the person turns it on.
     # Measured 2026-11-24: History's Likes tab is ``/i/history/likes``, a page of its own; the profile's Likes tab is
     # the way in where that address does not open.
     "x-likes": Platform("x-likes", "X", "Likes", "https://x.com/i/history/likes",
                         " (History, Likes tab; if that address does not open, the person's own profile, then its Likes "
                         "tab: the page that holds only their likes)",
                         "x-likes", "Likes", "x.com", "to read your likes", ("x.com", "twitter.com"), base="x"),
+    # G245 (owner 2026-11-24, "Should reposts be kept as their own list?": "1. yes?"): the posts the person reposted. X has
+    # no page that holds only those: they are rows of the person's OWN profile timeline, between their own posts, so this is
+    # the one list that reads a timeline (ruling 79 amends "never a feed or timeline" for that page and those rows alone).
+    # A timeline has no end: the first read stops at ``max_screens`` and never claims the end; a row the person wrote
+    # themselves is dropped by their handle (``mcp_tools.record_saved_list``). Files under its own origin and label, which
+    # ``history_index.LIST_ORIGINS`` makes index-only; a post also bookmarked or liked stays one page that gains "Reposts".
+    # Off until turned on, read after every other list, and slower than the rest. One line to undo: delete this row (and its
+    # key in ``reading_settings.SAVED_LISTS`` and the tool's enum); what was kept stays kept.
+    "x-reposts": Platform(
+        "x-reposts", "X", "Reposts", "https://x.com/",
+        " (the person's own profile, Posts tab: it mixes their own posts with the posts they reposted)", "x-reposts",
+        "Reposts", "x.com", "to read your reposts", ("x.com", "twitter.com"), base="x",
+        reads="the original post's author as the page shows it, and the words the post shows",
+        cadence=timedelta(days=3), max_screens=folder_pass.FIRST_READ_SCREENS),
     "instagram": Platform("instagram", "Instagram", "Saved", "https://www.instagram.com/",
                           " — open the person's profile, then Saved, then All posts", "instagram-saved", "Saved",
                           "instagram.com", "to read your saved posts", ("instagram.com",), folders=True,
@@ -130,7 +168,7 @@ PLATFORMS: dict[str, Platform] = {
     "linkedin-connections": Platform(
         "linkedin-connections", "LinkedIn", "Connections", "https://www.linkedin.com/mynetwork/invite-connect/connections/",
         " (sorted by Recently added)", "", "", "linkedin.com", "to read your connections", ("linkedin.com",),
-        base="linkedin"),
+        base="linkedin", kind="people"),
     # G232 (owner 2026-11-04: "offer the website connection through browser harness, just like a toggle switch …
     # Same for TikTok, same for Pinterest, same for Reddit"). Each files under its export's own origin and folder, so
     # a post the export (or Reddit's connector) brought in is the same row, and every one is index-only (ruling 30).
@@ -154,10 +192,20 @@ PLATFORMS: dict[str, Platform] = {
                         " — open Your Library, then Liked Songs, then each playlist, album and podcast listed",
                         "spotify-saved", "Library", "spotify.com", "to read your library", ("spotify.com",)),
     "goodreads": Platform("goodreads", "Goodreads", "shelves", "https://www.goodreads.com/review/list", "",
-                          "goodreads", "", "goodreads.com", "to read your shelves", ("goodreads.com",)),
+                          "goodreads", "", "goodreads.com", "to read your shelves", ("goodreads.com",), kind="books"),
 }
-#: A list is offered again this long after its last read (the youtube lists' cadence).
+#: A list is offered again this long after its last read (the youtube lists' cadence), unless it names its own
+#: (:attr:`Platform.cadence`).
 CADENCE = timedelta(hours=20)
+#: A whole list whose reads keep finding nothing new is offered less and less often: after this many reads in a row that
+#: found nothing new, no sooner than this (never faster than the list's own cadence). The person's own "Check now" clears
+#: the count (:func:`request_check`), and so does a read that finds something.
+BACKOFF = ((2, timedelta(days=3)), (4, timedelta(days=7)))
+#: Two reads of one site's lists in a row that failed (a page that would not read, not a login wall) pause the site this
+#: long. ``failed`` is not a pausing outcome by itself (a soft block can look like one): without this a site that fails
+#: would be offered again every cadence, for ever.
+FAILED_PAUSE_AFTER = 2
+FAILED_PAUSE = timedelta(days=3)
 #: ``needs_login`` / ``blocked`` pause that site's list this long (the reading queue's own week).
 PAUSE = timedelta(days=7)
 PAUSING = ("needs_login", "blocked")
@@ -309,39 +357,68 @@ def reads_today(memory_path: Path, now: datetime | None = None) -> int:
     return int(day.get(_now(now).date().isoformat()) or 0) if isinstance(day, dict) else 0
 
 
-def due(memory_path: Path, now: datetime | None = None) -> list[str]:
+def cadence_of(memory_path: Path, key: str) -> timedelta:
+    """How long after a read ``key``'s list is offered again: its own cadence (:attr:`Platform.cadence`, else
+    :data:`CADENCE`), pushed out by :data:`BACKOFF` once reads of the whole list keep finding nothing new. Only a list read
+    to its end (or its bound) backs off: a first read that found nothing new may only have started."""
+    base = PLATFORMS[key].cadence or CADENCE
+    entry = last(memory_path, key)
+    if entry.get("whole") is not True:
+        return base
+    empty = int(entry.get("empty_reads") or 0)
+    return max([base] + [after for reads, after in BACKOFF if empty >= reads])
+
+
+#: Where a list stands in a read nobody is watching: what the person cares about most first. A list with a screens bound
+#: (a timeline) is last whatever its kind. Only :func:`due`'s ``unattended`` mode ranks by it.
+_UNATTENDED_ORDER = {"posts": 0, "people": 1, "books": 2}
+
+
+def due(memory_path: Path, now: datetime | None = None, *, unattended: bool = False) -> list[str]:
     """The site whose list to offer the person's agent now — at most one (G206: one site's list at a time): allowed, not
-    paused, and the day's reads not spent. A list the person asked to check (:func:`request_check`) goes first, whatever
-    its cadence (the oldest request first); then the list read longest ago, a list never read before any (G245: the first
-    key in table order no longer always wins, so a later list is not starved). Ties keep table order. A check never lifts
-    a pause, and never goes past :data:`DAILY_READS`."""
+    paused, past its own cadence (:func:`cadence_of`), and the day's reads not spent. A list the person asked to check
+    (:func:`request_check`) goes first, whatever its cadence (the oldest request first); then the list read longest ago, a
+    list never read before any (G245: the first key in table order no longer always wins, so a later list is not
+    starved). Ties keep table order. A check never lifts a pause, and never goes past :data:`DAILY_READS`.
+
+    ``unattended`` is for a read nobody is watching (a later track's daily run; nothing uses it yet): it never offers a
+    list that has not been read to its end (:func:`whole`: a first read takes many screens and minutes), never an
+    ``accounts`` list, and orders posts, then people, then books, a timeline last (reposts share their site's pause, so a
+    block met reading them must never come before bookmarks). The person's own read keeps the fair order above: with more
+    lists on than a day's reads, a timeline last of all would never be read."""
     if reads_today(memory_path, now) >= DAILY_READS:
         return []
     moment = _now(now)
     floor = datetime.min.replace(tzinfo=timezone.utc)
     ranked = []
     for order, key in enumerate(PLATFORMS):
+        p = PLATFORMS[key]
         if not allowed(key) or paused_until(key, now) is not None:
+            continue
+        if unattended and (p.kind == "accounts" or not whole(memory_path, key)):
             continue
         entry = last(memory_path, key)
         at = _parse(entry.get("read_at"))
         asked = _parse(entry.get("check_requested_at"))
-        if asked is None and at is not None and moment - at < CADENCE:
+        if asked is None and at is not None and moment - at < cadence_of(memory_path, key):
             continue
-        ranked.append((0 if asked is not None else 1, asked or at or floor, order, key))
-    return [min(ranked)[3]] if ranked else []
+        rank = (_UNATTENDED_ORDER.get(p.kind, 9) + (10 if p.bounded else 0)) if unattended else 0
+        ranked.append((0 if asked is not None else 1, rank, asked or at or floor, order, key))
+    return [min(ranked)[4]] if ranked else []
 
 
 def request_check(memory_path: Path, key: str, now: datetime | None = None) -> bool:
     """The person asked to check this list now (G245, ``POST /sources/streams/check``): stamp it so :func:`due` offers it
     first. Cicada opens no browser, so this is all a check can do for a list the person's own agent reads. Stamps only a
     list that is on and not paused — a pause is lifted only by the person's "I signed in" or Try again — and says whether
-    it did. The next recorded attempt clears the stamp."""
+    it did. The next recorded attempt clears the stamp. The person's own click is also what ends a back-off
+    (:data:`BACKOFF`): the list starts counting empty reads again from nothing."""
     if not allowed(key) or paused_until(key, now) is not None:
         return False
     with _locked() as data:
         entry = data.setdefault("banks", {}).setdefault(_bank_key(memory_path), {}).setdefault(key, {})
         entry["check_requested_at"] = _now(now).isoformat()
+        entry.pop("empty_reads", None)
     return True
 
 
@@ -413,15 +490,16 @@ def whole(memory_path: Path, key: str) -> bool:
 
 
 def pass_calls(memory_path: Path, key: str) -> int:
-    """The calls one pass of ``key``'s list may take: far more while the list has not been read to its end."""
-    return PASS_CALLS if whole(memory_path, key) else WHOLE_PASS_CALLS
+    """The calls one pass of ``key``'s list may take: far more while the list has not been read to its end — never for a
+    list with a screens bound, whose read cannot grow past it."""
+    return PASS_CALLS if whole(memory_path, key) or PLATFORMS[key].bounded else WHOLE_PASS_CALLS
 
 
 def pass_open(memory_path: Path, key: str, now: datetime | None = None) -> bool:
     """Is a pass of ``key``'s list open — a read whose first call was counted, whose last was within
     :data:`PASS_WINDOW`, with calls to spare? Only such a pass can be continued (G245)."""
     entry = last(memory_path, key)
-    return _pass_open(entry.get("pass"), _now(now), entry.get("whole") is True)
+    return _pass_open(entry.get("pass"), _now(now), entry.get("whole") is True or PLATFORMS[key].bounded)
 
 
 def _pass_open(held, moment: datetime, is_whole: bool = True) -> bool:
@@ -434,7 +512,7 @@ def _pass_open(held, moment: datetime, is_whole: bool = True) -> bool:
 
 def note(memory_path: Path, key: str, outcome: str, *, items: int = 0, handle: str | None = None,
          profile_url: str | None = None, continues: bool = False, reached_end: bool = False,
-         now: datetime | None = None) -> bool:
+         new: int | None = None, now: datetime | None = None) -> bool:
     """Record an outcome. A read counts toward the day and clears that site's pause (the agent was signed in);
     ``needs_login``/``blocked`` start one. ``handle`` and ``profile_url`` (already cleaned) are kept beside it, in this
     machine state and never a bank; one not given leaves the last one standing.
@@ -444,7 +522,15 @@ def note(memory_path: Path, key: str, outcome: str, *, items: int = 0, handle: s
     was counted against the day.
 
     ``reached_end``: this read got to the end of the list (the page stopped growing), so the whole list is in memory
-    from now on (:func:`whole`); kept until the list's entry is gone."""
+    from now on (:func:`whole`); kept until the list's entry is gone. For a list with a screens bound
+    (:attr:`Platform.bounded`) it says the read went as deep as the bound, which is as far as that list is ever read.
+
+    ``new`` (a ``read``): how many things this call kept that were not in memory (a new post, a post that gained this
+    list, a person). A pass that kept none is an empty read; :data:`BACKOFF` counts empty reads in a row, per list.
+    ``None`` leaves the count alone.
+
+    ``failed``: the second in a row on one site pauses it (:data:`FAILED_PAUSE`), the way a login wall does; any read of
+    the site, or the person's turning a list on, ends the count."""
     moment = _now(now)
     counted = False
     with _locked() as data:
@@ -459,24 +545,39 @@ def note(memory_path: Path, key: str, outcome: str, *, items: int = 0, handle: s
             entry["profile_url"] = profile_url
         base = pause_key(key)
         pauses = data.setdefault("paused_until", {})
+        failures = data.setdefault("failed_streak", {})
         if outcome == "read":
             held_pass = entry.get("pass")
-            if continues and _pass_open(held_pass, moment, entry.get("whole") is True):
-                entry["pass"] = {"at": moment.isoformat(), "calls": int(held_pass.get("calls") or 0) + 1}
+            roomy = entry.get("whole") is True or PLATFORMS[key].bounded
+            if continues and _pass_open(held_pass, moment, roomy):
+                entry["pass"] = {**held_pass, "at": moment.isoformat(), "calls": int(held_pass.get("calls") or 0) + 1}
                 items = int(entry.get("items") or 0) + int(items)
             else:
-                entry["pass"] = {"at": moment.isoformat(), "calls": 1}
+                entry["pass"] = {"at": moment.isoformat(), "calls": 1, "empty_before": int(entry.get("empty_reads") or 0)}
                 _count(data, bank, moment)
                 counted = True
+            if new is not None:
+                entry["pass"]["new"] = int(entry["pass"].get("new") or 0) + max(0, int(new))
+                entry["empty_reads"] = 0 if entry["pass"]["new"] else int(entry["pass"].get("empty_before") or 0) + 1
             entry.update(read_at=moment.isoformat(), items=int(items))
             if reached_end:
                 entry["whole"] = True
             pauses.pop(base, None)
+            failures.pop(base, None)
         elif outcome in PAUSING:
             pauses[base] = (moment + PAUSE).isoformat()
             entry.pop("pass", None)
+            failures.pop(base, None)
+        elif outcome == "failed":
+            failures[base] = int(failures.get(base) or 0) + 1
+            if failures[base] >= FAILED_PAUSE_AFTER:
+                pauses[base] = (moment + FAILED_PAUSE).isoformat()
+                entry.pop("pass", None)
+                failures.pop(base, None)
         if not pauses:
             data.pop("paused_until", None)
+        if not failures:
+            data.pop("failed_streak", None)
     return counted
 
 
@@ -549,10 +650,14 @@ def resume(keys) -> None:
         return
     with _locked() as data:
         pauses = data.get("paused_until") or {}
+        failures = data.get("failed_streak") or {}
         for key in keys:
             pauses.pop(pause_key(key), None)
+            failures.pop(pause_key(key), None)
         if not pauses:
             data.pop("paused_until", None)
+        if not failures:
+            data.pop("failed_streak", None)
 
 
 def resume_site(site: str) -> None:
@@ -655,12 +760,31 @@ def canonical(key: str, url) -> tuple[str, tuple[str, ...]] | None:
     return None
 
 
+def is_own_post(url: str, author: str, handle: str) -> bool:
+    """Is this X row one the person wrote themselves — the link's own user, or failing that the row's author, is their
+    ``handle`` (compared as the page shows it, any case, without ``@``)? ``url`` is :func:`canonical`'s: an X status link
+    names its author unless it is the generic ``/i/web/status/`` form, for which only the row's author can tell."""
+    me = str(handle or "").strip().lstrip("@").lower()
+    if not me:
+        return False
+    found = _X_STATUS.match(urlparse(url).path or "")
+    user = (found.group("user") if found else None) or str(author or "").strip().lstrip("@")
+    return user.lower() == me
+
+
 # --- the offer ------------------------------------------------------------------------------------
 
 
 def screens_words(memory_path: Path, key: str) -> str:
     """How far this read goes, in the words the agent gets (G245): the first read of a list catches up; a later one stops
-    where the list reaches what is already kept."""
+    where the list reaches what is already kept. A list with a screens bound (a timeline has no end) is never asked to
+    reach one: its first read stops at the bound."""
+    p = PLATFORMS[key]
+    if p.bounded and not whole(memory_path, key):
+        return (f"This is a timeline: it has no end, so never look for one. Scroll at most {p.max_screens} screens, "
+                "recording as you go in calls of up to 200 posts, newest first, and stop there even if posts keep coming. "
+                f"On the last call set `reached_end=true`: here it only says you went {p.max_screens} screens deep (or the "
+                "page really ran out sooner), and the reply never calls the list complete.")
     if not whole(memory_path, key):
         return ("This list has not been read to its end yet, so read all of it this time: keep scrolling until the list "
                 "stops growing (a few more tries bring no new post), however long it is, recording as you go in calls "
@@ -677,10 +801,12 @@ def queue_lines(memory_path: Path, *, can_record: bool, now: datetime | None = N
     if not keys:
         return []
     p = PLATFORMS[keys[0]]
-    if p.key == "goodreads":
-        return _goodreads_lines(can_record)
-    if p.key == "linkedin-connections":
-        return _connections_lines(memory_path, can_record)
+    if p.kind == "books":
+        return _goodreads_lines(p, can_record)
+    if p.kind == "people":
+        return _connections_lines(memory_path, p, can_record)
+    if p.bounded:
+        return _timeline_lines(memory_path, p, can_record)
     lines = [f"- The person's {p.name} {p.label}: {p.url}{p.how} — read each post's link, {p.reads}."]
     lines.append(f"{screens_words(memory_path, p.key)} Add `posted` (YYYY-MM-DD) to a row only when the page shows the "
                  "post's own date as a day; leave it out for \"3 days ago\" or nothing.")
@@ -704,15 +830,36 @@ def queue_lines(memory_path: Path, *, can_record: bool, now: datetime | None = N
             "reply)."] + lines + [tail]
 
 
+def _timeline_lines(memory_path: Path, p: Platform, can_record: bool) -> list[str]:
+    """A list that is rows of the person's own profile timeline (X reposts), never a list page of its own. The one page and
+    the one kind of row a read may take from a timeline: only what the page marks as the person's own repost, and nothing
+    of their own posts, replies, quotes, anyone else's profile, their feed or messages (ruling 79)."""
+    profile = last(memory_path, p.key).get("profile_url")
+    where = (f"{profile} (their own profile)" if profile else f"{p.url}{p.how}")
+    tail = (f"Record it with `cicada_record_saved_list(platform, outcome, items=[{{url, author, text}}], handle, "
+            f"profile_url, via)` (platform `{p.key}`); always send the person's own `handle` (one word, as the page shows "
+            "it) and `profile_url`: without their handle Cicada cannot tell a repost from their own post and keeps "
+            f"nothing. If {p.name} asks you to sign in, do not sign in or type credentials: record `needs_login` and stop."
+            if can_record else
+            f"If {p.name} asks you to sign in, do not sign in or type credentials: stop and tell the person.")
+    return [f"The person asked their agent to keep their {p.name} {p.label.lower()} current in Cicada. Open their own "
+            "profile in their own signed-in browser session. This is the one page where a timeline may be read, and only "
+            "for the rows the page marks as the person's own repost (\"<name> reposted\"): never their own posts, "
+            "replies, quotes or pinned post, never anyone else's profile, their feed or messages, and never click "
+            "anything that changes anything (no unrepost, like, follow or reply).",
+            f"- The person's {p.name} {p.label}: {where} — for each reposted row, its link (the ORIGINAL post's, not "
+            f"the repost's), {p.reads}. Leave out a row whose author is the person.",
+            screens_words(memory_path, p.key) + " Add nothing to a row you cannot see on the page.", tail]
+
+
 def _what(p: Platform) -> str:
     """What the list is called in a sentence: the saved posts of a site's first list, the list's own name for a second."""
     return f"{p.label.lower()}" if p.base else "saved posts"
 
 
-def _connections_lines(memory_path: Path, can_record: bool) -> list[str]:
+def _connections_lines(memory_path: Path, p: Platform, can_record: bool) -> list[str]:
     """LinkedIn's connections page: who the person connected with, and when (G245, ruling 78 (c)). People, not posts —
     kept outside every bank in the people directory, never read by a model."""
-    p = PLATFORMS["linkedin-connections"]
     tail = ("Record it with `cicada_record_saved_list(platform=\"linkedin-connections\", outcome, items=[{name, "
             "profile_url, headline, connected}], via)`: `profile_url` is the member's own `/in/` link (a row with none is "
             "left out), `headline` the line under the name as shown, `connected` the date the page shows for that row — "
@@ -729,9 +876,8 @@ def _connections_lines(memory_path: Path, can_record: bool) -> list[str]:
             screens_words(memory_path, p.key) + " Rows already kept are no reason to stop on a first read.", tail]
 
 
-def _goodreads_lines(can_record: bool) -> list[str]:
+def _goodreads_lines(p: Platform, can_record: bool) -> list[str]:
     """Goodreads' shelves are books, not posts: what to read per book, and where it goes (held for the person's pick)."""
-    p = PLATFORMS["goodreads"]
     tail = ("Record it with `cicada_record_saved_list(platform=\"goodreads\", outcome, items=[{id, title, author, shelf, "
             "rating, date_read, date_added, review}], via)`: `id` is the number in the book's link "
             "(`/book/show/<id>`), `shelf` is `read`, `currently-reading` or `to-read`, dates are YYYY-MM-DD. Nothing "

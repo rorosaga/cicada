@@ -1866,6 +1866,10 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     ``saved_lists.FOLDERS_PER_PASS``, least recently read first). A row's ``posted`` is the post's own day when the page
     showed one. The reply says when the call reached posts already in memory, so a later read stops there.
 
+    ``x-reposts`` is read off the person's own profile timeline (owner 2026-11-24): their handle is required (a row whose
+    link or author is it is their own post, dropped and counted, never filed), and a list with a screens bound
+    (``Platform.max_screens``) has no end, so ``reached_end`` there only says the read went that deep.
+
     Ruling 78 as amended 2026-11-24: **a list is read to its end once.** Until a call says ``reached_end`` (the list's
     own page stopped growing; a folder's page never counts), the pass may take ``saved_lists.WHOLE_PASS_CALLS`` calls
     and the reply never says to stop at posts already in memory."""
@@ -1916,6 +1920,10 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
                 "signs in and says so in Cicada." + unkept)
     if outcome == "failed":
         saved_lists.note(memory_path, key, outcome, **who)
+        if saved_lists.paused_until(key) is not None:
+            return (f"Recorded: the read failed, the second time in a row. Nothing was written. {p.name}'s lists are paused "
+                    f"for {saved_lists.FAILED_PAUSE.days} days, or until the person turns one on again in Cicada. Stop: do "
+                    "not retry." + unkept)
         return "Recorded: the read failed. Nothing was written; the list is offered again later." + unkept
 
     def folders_said() -> str:
@@ -1936,7 +1944,7 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     if isinstance(items, list) and not items:
         # The list is there and has nothing in it: a read of an empty list, not a failed page (sources-truth).
         # An empty list has no further end to reach.
-        saved_lists.note(memory_path, key, "read", items=0, continues=continuing, reached_end=not folder_name, **who)
+        saved_lists.note(memory_path, key, "read", items=0, new=0, continues=continuing, reached_end=not folder_name, **who)
         if folder_name:
             saved_lists.stamp_folder(memory_path, key, folder_name)
         return (f"Recorded: the person's {p.name} {p.label} is empty"
@@ -1953,28 +1961,37 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     if not continuing and saved_lists.reads_today(memory_path) >= saved_lists.DAILY_READS:
         return Reply(f"Not recorded: {saved_lists.DAILY_READS} saved-list reads have been recorded today, the most "
                      "Cicada takes in a day. Nothing was saved; the list is offered again tomorrow.", code="refused")
-    if key == "goodreads":
+    if p.kind == "books":
         # ROR-128: shelves are books, not posts. They wait outside the bank for the person's pick (nothing is written
         # into memory, so Sleep running is no reason to refuse); choosing stages them like a file's rows.
         from api.services import goodreads_waiting
 
         out = goodreads_waiting.hold(memory_path, rows)
-        saved_lists.note(memory_path, key, "read", items=out["held"] + out["known"], continues=continuing, **who)
+        saved_lists.note(memory_path, key, "read", items=out["held"] + out["known"], new=out["held"],
+                         continues=continuing, **who)
         left = (f" {out['dropped']} row(s) were not books (no id or title) and were left out." if out["dropped"] else "") + (
             f" {out['full']} more book(s) did not fit; the rest are offered after the person chooses." if out["full"] else "")
         return (f"Recorded the person's Goodreads shelves. {out['held']} new book(s) wait for the person to choose which "
                 f"to add; {out['known']} were already in memory or left out. Nothing is in memory until they choose "
                 f"(Sources → Goodreads).{left}{unkept}")
-    if key == "linkedin-connections":
+    if p.kind == "people":
         # G245 (ruling 78 (c)): people, not posts. The rows merge into the people directory outside every bank
         # (`linkedin_people.record_read`): nothing is written into the bank, so Sleep running is no reason to refuse; the
         # tail (or a page's birth) attaches a match to a person's page — a connection never makes one.
         return _record_connections(memory_path, rows, p, continuing=continuing, at_end=at_end, was_whole=was_whole,
                                    who=who, unkept=unkept, started=started)
+    # A list read off the person's own timeline (X reposts) has their own posts among its rows, shaped like a repost's link:
+    # only their handle tells the two apart, so with none on record nothing is kept.
+    me = ((who["handle"] or saved_lists.last(memory_path, key).get("handle") or "").lower()) if p.bounded else ""
+    if p.bounded and not me:
+        return Reply(f"Not recorded: {p.name} {p.label} are rows of the person's own profile, between their own posts, and "
+                     "without their handle Cicada cannot tell which are theirs. Open their profile, read its handle, and "
+                     "record again with `handle` (one word, without @) and `profile_url`. Nothing was saved.",
+                     code="invalid_arguments")
     if ctx.sleep_answer:
         return SAVED_LIST_SLEEPING
     idx = media_ingestor.load_url_index(memory_path)
-    created = duplicates = listed = dropped = refiled = dated = named = 0
+    created = duplicates = listed = dropped = refiled = dated = named = own = 0
     seen: set[str] = set()
     known: list[bool] = []
     paths: list[str] = []
@@ -1987,9 +2004,12 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
         url, aliases = found
         if url in seen:
             continue
+        author = _one_line(row.get("author"), 60)
+        if me and saved_lists.is_own_post(url, author, me):
+            own += 1   # the person's own post on their own timeline, never a repost: counted, never filed
+            continue
         seen.add(url)
         text = _one_line(row.get("text"), SAVED_TEXT_MAX)
-        author = _one_line(row.get("author"), 60)
         if p.site == "x.com" and author and not author.startswith("@") and " " not in author:
             author = "@" + author
         title = (_one_line(text, SAVED_TITLE_MAX) if text
@@ -2043,13 +2063,14 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
         index_changed = (index_file.read_bytes() if index_file.is_file() else None) != before_index
     if index_changed:
         paths.append("sources/url_index.json")
-    if dropped and not seen:
+    if dropped and not seen and not own:
         # Every row was something else (a feed, a profile, a login page): the agent was not on the list. Calling that a
         # read would show the source healthy, count against the day and clear a pause, with nothing kept.
         saved_lists.note(memory_path, key, "failed", **who)
         return (f"Recorded: the read failed. None of the {dropped} row(s) were {p.name} posts, so nothing was written; "
                 f"the list is offered again later. Open {p.name}'s {p.label} page and read that list." + unkept)
-    saved_lists.note(memory_path, key, "read", items=len(seen), continues=continuing, reached_end=at_end, **who)
+    saved_lists.note(memory_path, key, "read", items=len(seen), new=created + listed + refiled, continues=continuing,
+                     reached_end=at_end, **who)
     if folder_name:
         saved_lists.stamp_folder(memory_path, key, folder_name)
     if paths:
@@ -2061,9 +2082,17 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
             [f"{named} saved post(s) given who posted them (trigger: {ctx.trigger})"] if named else [])
         agent_commits.commit_write(memory_path, subject=ctx.commit_subject, lines=lines, paths=paths,
                                    author=ctx.author, session=ctx.session_id)
-    extra = f" {dropped} row(s) were not {p.name} posts and were left out." if dropped else ""
+    extra = (f" {dropped} row(s) were not {p.name} posts and were left out." if dropped else "") + (
+        f" {own} row(s) were the person's own posts and were left out: only a post they reposted is kept." if own else "")
     stop = ""
-    if at_end:
+    if p.bounded and at_end:
+        # A timeline has no end: this is how deep it is read, never "the whole list".
+        stop = (f" That is as deep as this timeline is read ({p.max_screens} screens): it has no end, so it is not "
+                "claimed to be complete. Later reads stop at posts already in memory.")
+    elif p.bounded and not was_whole:
+        stop = (f" Keep within {p.max_screens} screens, and set `reached_end=true` on the last call to say you went that "
+                "deep.")
+    elif at_end:
         stop = " The whole list is in memory now; later reads only look for what is new."
     elif not was_whole and not folder_name:
         # The list has never been read to its end: posts already kept are where an earlier read stopped, not the end.
@@ -2091,7 +2120,8 @@ def _record_connections(memory_path: Path, rows: list, p, *, continuing: bool, a
         saved_lists.note(memory_path, p.key, "failed", **who)
         return ("Recorded: the read failed. None of the rows had a member profile link and a name, so nothing was "
                 "kept; the list is offered again later. Open LinkedIn's connections page and read that list." + unkept)
-    saved_lists.note(memory_path, p.key, "read", items=out.seen, continues=continuing, reached_end=at_end, **who)
+    saved_lists.note(memory_path, p.key, "read", items=out.seen, new=out.added, continues=continuing, reached_end=at_end,
+                     **who)
     stop = ""
     if at_end:
         stop = " The whole list is kept now; later reads only look for what is new."

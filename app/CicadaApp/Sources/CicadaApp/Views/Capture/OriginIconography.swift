@@ -34,7 +34,7 @@ enum OriginIconography {
         "chrome-bookmark", "safari-bookmark", "safari-tab", "apple-notes",
         "telegram", "rss", "calendar", "share-sheet", "bookmark", "saved-link",
         "instagram-saved", "youtube-playlist", "pinterest", "reddit-saved", "reddit",
-        "x-bookmarks", "x-likes", "x", "linkedin-saved", "tiktok-saved", "tiktok-history", "unknown",
+        "x-bookmarks", "x-likes", "x-reposts", "x", "linkedin-saved", "tiktok-saved", "tiktok-history", "unknown",
         // G71 (2026-10-16): YouTube watch history — one episode per day (`watch_history.ORIGINS`).
         "youtube-history",
         // G133 / G134 — a watched folder's episodes and Wispr Flow's.
@@ -144,6 +144,7 @@ enum OriginIconography {
         case "reddit-saved": "Reddit Saved"
         case "x-bookmarks": "X Bookmarks"
         case "x-likes": "X Likes"
+        case "x-reposts": "X Reposts"
         case "linkedin-saved": "LinkedIn Saved"
         case "tiktok-saved": "TikTok Saved"
         case "spotify-saved", "spotify-history": "Spotify"
@@ -241,7 +242,7 @@ enum OriginIconography {
         case "youtube-history": "clock.arrow.circlepath"
         case "pinterest": "pin.fill"
         case "reddit-saved", "reddit": "bubble.left.and.text.bubble.right.fill"
-        case "x-bookmarks", "x-likes", "x": "x.circle"
+        case "x-bookmarks", "x-likes", "x-reposts", "x": "x.circle"
         case "linkedin-saved": "briefcase.fill"
         case "tiktok-saved": "music.note"
         case "spotify-saved", "spotify-history": "music.note"
@@ -296,7 +297,7 @@ enum OriginIconography {
         case "youtube-playlist", "youtube-history": Color(hex: 0xFF0000)
         case "pinterest": Color(hex: 0xE60023)
         case "reddit-saved", "reddit": Color(hex: 0xFF4500)
-        case "x-bookmarks", "x-likes", "x": Color(hex: 0x14171A)
+        case "x-bookmarks", "x-likes", "x-reposts", "x": Color(hex: 0x14171A)
         case "linkedin-saved": Color(hex: 0x0A66C2)
         case "tiktok-saved", "tiktok-history": Color(hex: 0xFE2C55)
         case "spotify-saved", "spotify-history": Color(hex: 0x1DB954)
@@ -369,7 +370,7 @@ enum OriginIconography {
         case "comet-bookmark": "comet"
         case "pinterest": "pinterest"
         case "reddit-saved", "reddit": "reddit"
-        case "x-bookmarks", "x-likes", "x": "x"
+        case "x-bookmarks", "x-likes", "x-reposts", "x": "x"
         case "linkedin-saved": "linkedin"
         case "tiktok-saved", "tiktok-history": "tiktok"
         case "spotify-saved", "spotify-history": "spotify"

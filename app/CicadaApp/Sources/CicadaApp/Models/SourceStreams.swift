@@ -7,13 +7,14 @@ import Foundation
 
 /// What a stream holds. The wire's own words; a kind this build does not know is kept as `other` and is never a list.
 enum StreamKind: RawRepresentable, Hashable, Sendable {
-    case saved, liked, history, later, playlists, connections, notes, pages, chats, events, tasks, code, books, feed, files
+    case saved, liked, reposted, history, later, playlists, connections, notes, pages, chats, events, tasks, code, books, feed, files
     case other(String)
 
     init(rawValue: String) {
         switch rawValue {
         case "saved": self = .saved
         case "liked": self = .liked
+        case "reposted": self = .reposted
         case "history": self = .history
         case "later": self = .later
         case "playlists": self = .playlists
@@ -35,6 +36,7 @@ enum StreamKind: RawRepresentable, Hashable, Sendable {
         switch self {
         case .saved: "saved"
         case .liked: "liked"
+        case .reposted: "reposted"
         case .history: "history"
         case .later: "later"
         case .playlists: "playlists"
@@ -52,11 +54,11 @@ enum StreamKind: RawRepresentable, Hashable, Sendable {
         }
     }
 
-    /// The kinds a source's page lists as item cards under tabs (plan 3.2, item 3): saved, liked, history, later,
+    /// The kinds a source's page lists as item cards under tabs (plan 3.2, item 3): saved, liked, reposted, history, later,
     /// playlists. Every other kind keeps the source's own content slot.
     var isList: Bool {
         switch self {
-        case .saved, .liked, .history, .later, .playlists: true
+        case .saved, .liked, .reposted, .history, .later, .playlists: true
         default: false
         }
     }

@@ -59,7 +59,7 @@ final class SourceConnectTests: XCTestCase {
         for id in ["x", "instagram", "reddit", "linkedin"] {
             guard case .start(let steps, _) = try plan(id) else { return XCTFail(id) }
             let keys = steps.compactMap { step -> String? in if case .list(_, let key, _) = step { key } else { nil } }
-            XCTAssertEqual(keys, [id], "\(id): its own list, never x-likes or linkedin-connections")
+            XCTAssertEqual(keys, [id], "\(id): its own list, never x-likes, x-reposts or linkedin-connections")
         }
     }
 
