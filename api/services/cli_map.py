@@ -252,8 +252,15 @@ ROWS: tuple[Row, ...] = (
     Row(("source", "refresh-record"), "cicada_record_refresh", "Record what a tracked source says now.",
         (_p("entity_id"), _p("source"), _p("lease_token"), _p("outcome"), _f("predicate"), _f("value"),
          _f("ended", "json"), _f("quotes", "json"), _f("captured_at"), _f("summary"), _f("via")), mutates=True),
-    Row(("read", "queue"), "cicada_reading_queue", "Pages the person asked to have read.", (_f("limit", "int"),),
-        replica="home"),
+    Row(("read", "queue"), "cicada_reading_queue", "Pages the person asked to have read.",
+        (_f("limit", "int"), _f("unattended", "bool")), replica="home"),
+    # G245 (owner 2026-11-24, answer 6): the one shell line for the person's own scheduler. Prints; starts nothing.
+    _app(("read", "daily"), "Print one shell line that runs your AI app on the lists that are due (for your own "
+                            "cron or launchd); --prompt prints the words alone, --program names another app's command. "
+                            "Cicada starts and schedules nothing.",
+         options=(Option("--prompt", "bool", "Print the words alone, for an app that takes them another way."),
+                  Option("--program", "str", "The command that takes the words as its one argument (default: "
+                                             "claude -p)."))),
     # G71 (2026-10-16): a proposed spelling, not exposed — the agent reads the lists in the person's browser.
     Row(("read", "youtube"), "cicada_record_youtube_list", "Record what the person's YouTube list showed.",
         (_p("list"), _p("outcome"), _f("videos", "json"), _f("via"), _f("playlist_names", "list")), mutates=True),
