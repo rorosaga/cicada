@@ -155,10 +155,17 @@ struct SourceCatalogRowView: View {
                     }
                 }
                 .frame(maxWidth: CicadaTheme.scaled(ColumnLayout.textMaxWidth), alignment: .leading)   // DR-36
+                // The name outranks the word: a long state word ("On · waits for your agent") truncated "Instagram" to
+                // "Insta…" in the narrow list beside an open source (found in the real app).
+                .layoutPriority(2)
                 Spacer(minLength: CicadaTheme.spacingSM)
                 // Its heading already says Connected; the word only cost the name its room.
                 if (style == .wide || (style == .triage && !row.isConnectedHere)) && (row.status != .off || row.waitingOn != nil || row.notInstalled) {
-                    StatusWord(word: row.word, tone: row.tone).layoutPriority(1)
+                    // Whole or not at all: a word cut to a bare dot says nothing (the group's heading and the page do).
+                    ViewThatFits(in: .horizontal) {
+                        StatusWord(word: row.word, tone: row.tone).fixedSize()
+                        Color.clear.frame(width: 0, height: 0)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)

@@ -241,6 +241,31 @@ final class SourcesRootTests: XCTestCase {
         XCTAssertNil(SourcesRoot.moved(1, in: [], cursor: nil))
     }
 
+    func testTheFirstArrowFromRestLightsTheFirstCardAndASearchStepsFromItsBest() throws {
+        let cards = SourcesRoot.cards(rows: rows(), streams: ResolvedStreams())
+        var state = SourcesRoot.State()
+        let order = ids(state.visible(cards))
+        XCTAssertNil(state.lit(cards), "a page nobody has touched shows no selection")
+        state.walk(1, in: cards)
+        XCTAssertEqual(state.lit(cards), order.first, "the first ↓ lights the first card, it does not skip it")
+        state.walk(1, in: cards)
+        XCTAssertEqual(state.lit(cards), order[1])
+        var found = SourcesRoot.State(text: "google", cursor: nil)
+        let hits = ids(found.visible(cards))
+        if hits.count > 1 {
+            found.walk(1, in: cards)
+            XCTAssertEqual(found.lit(cards), hits[1], "while searching the best result is lit, so ↓ moves to the next")
+        }
+    }
+
+    func testTheRootKeepsItsPlaceByTheFirstCardWholeInView() {
+        XCTAssertNil(SourcesRootScroll.topCard([:]))
+        XCTAssertNil(SourcesRootScroll.topCard(["a": 96, "b": 196]), "nothing scrolled past the edge: the root returns to the top")
+        XCTAssertEqual(SourcesRootScroll.topCard(["a": -420, "b": -300, "c": -40, "d": 60, "e": 160]), "d",
+                       "the first card whole in view, not the one the edge cuts")
+        XCTAssertEqual(SourcesRootScroll.topCard(["a": -500, "b": -80]), "b", "one tall card cut by the edge: that one")
+    }
+
     func testTheNarrowListIsTheRootsOrderWithNoTabOrFind() throws {
         let all = rows(channels: [channel("reddit", lastSync: "2026-11-20T10:00:00Z")])
         let resolved = try streams()

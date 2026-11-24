@@ -12,6 +12,29 @@ enum SourcesRootLayout {
     static func headerWidth(gutter: CGFloat) -> CGFloat { columnWidth + 2 * gutter }
 }
 
+/// Where each root card's top sits in the root's scroll view (a viewport-relative y), so the page can keep its place while
+/// a source is open and the root is gone (found in the real app: closing a source returned to the top).
+struct SourceCardTops: PreferenceKey {
+    static var defaultValue: [String: CGFloat] = [:]
+    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
+enum SourcesRootScroll {
+    static let space = "sourcesRootScroll"
+
+    /// The card to keep the place by: the first one whole in view below the top edge (a restore puts its top at the edge,
+    /// so a card cut by the edge would move the page by most of its height). Nil while no card has scrolled past the edge
+    /// (the controls above the cards are still in view, so there is nothing to keep).
+    static func topCard(_ tops: [String: CGFloat]) -> String? {
+        guard tops.values.contains(where: { $0 < 0 }) else { return nil }
+        let whole = tops.filter { $0.value >= -1 }
+        if let first = whole.min(by: { $0.value < $1.value }) { return first.key }
+        return tops.max { $0.value < $1.value }?.key
+    }
+}
+
 /// One source as a card. Line one: the mark, the name, and at the trailing edge its state and when it last read. Line two,
 /// quiet: the streams it reads ("Bookmarks 214 · Likes 1,032 · 3 folders"), or, for a source not connected, what it
 /// could read, in the tertiary ink. The whole card opens the source; the one button on it (Connect, or the fix a
@@ -66,6 +89,10 @@ struct SourceRootCard: View {
         .frame(minHeight: CicadaTheme.scaled(RowMetrics.sourceCardContent))
         .softCardRow(ground: .page, selected: highlighted)
         .id(SourcesSelection.entry(card.id))
+        .background(GeometryReader { geo in
+            Color.clear.preference(key: SourceCardTops.self,
+                                   value: [card.id: geo.frame(in: .named(SourcesRootScroll.space)).minY])
+        })
     }
 
     /// The state and, once it has read, when: the word in its colour, the age beside it in the tertiary ink.

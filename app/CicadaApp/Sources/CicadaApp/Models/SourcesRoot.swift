@@ -139,6 +139,9 @@ enum SourcesRoot {
         mutating func walk(_ delta: Int, in cards: [Card]) {
             let shown = visible(cards)
             guard !shown.isEmpty else { return }
+            // At rest nothing is lit (`lit`), so the first arrow lights the first card; stepping from it would skip it
+            // (found in the real app: the first ↓ landed on the second card).
+            if cursor == nil, !searching { cursor = shown.first?.id; return }
             cursor = SourcesRoot.moved(delta, in: shown, cursor: cursor)
         }
 

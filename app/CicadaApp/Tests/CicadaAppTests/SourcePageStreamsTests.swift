@@ -34,6 +34,17 @@ final class SourcePageStreamsTests: XCTestCase {
             .contains("your AI app"), "no app connected here: the line names none")
     }
 
+    /// Found in the real app: "...by Another agent, about once a day, Noticed when you save" — the generic "Another agent"
+    /// row is not a name, and a phrase after the first is part of one sentence.
+    func testTheHeadLineNeverNamesTheGenericAgentAndIsOneSentence() throws {
+        XCTAssertNil(SourceHeadLine.app(rows: [AgentLiveRow(id: "other", connected: true)]),
+                     "the generic row names no app: the line says your AI app")
+        for source in ["x", "youtube", "instagram", "reddit", "github", "notes"] {
+            guard let line = SourceHeadLine.text(account: nil, streams: try streams(source), app: nil) else { continue }
+            XCTAssertNil(line.range(of: ", [A-Z]", options: .regularExpression), "\(source): \(line)")
+        }
+    }
+
     func testTheBrowserFactsAreTheLinesHoverNotAStandingText() throws {
         let help = try XCTUnwrap(SourceHeadLine.help(entryId: "x", streams: try streams("x"), app: "Claude Code"))
         for fact in ["your own sign-in", "never sees your password", "Claude Code's company sees what it reads",

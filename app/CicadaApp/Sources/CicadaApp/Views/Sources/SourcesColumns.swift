@@ -115,6 +115,11 @@ struct SourcesOverviewColumn: View {
     var busy: Set<String> = []
     /// The clock the ages are read against; nil is the live one (a render pins it to its fixture).
     var clock: Date? = nil
+    /// The card at the top edge of the scrolled root, kept by the page: the root is not drawn while a source is open, and
+    /// comes back at the same place (Esc and the close button return to where the person was).
+    var topCard: Binding<String?> = .constant(nil)
+    /// Whether the scroll position may be reported: not before the saved place is restored.
+    @State private var tracking = false
 
     @Environment(UsageViewModel.self) private var usageVM
     @Environment(ExploreCache.self) private var exploreCache
@@ -139,6 +144,19 @@ struct SourcesOverviewColumn: View {
                 .padding(.top, CicadaTheme.spacingXS)
                 .padding(.bottom, CicadaTheme.scaled(72))
                 .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .coordinateSpace(name: SourcesRootScroll.space)
+            .onPreferenceChange(SourceCardTops.self) { tops in
+                guard tracking else { return }
+                let top = SourcesRootScroll.topCard(tops)
+                if top != topCard.wrappedValue { topCard.wrappedValue = top }
+            }
+            .onAppear {
+                guard let saved = topCard.wrappedValue else { tracking = true; return }
+                DispatchQueue.main.async {
+                    Instant.run { proxy.scrollTo(SourcesSelection.entry(saved), anchor: .top) }
+                    DispatchQueue.main.async { tracking = true }
+                }
             }
             .onChange(of: state.wrappedValue.cursor) { _, cursor in
                 guard let cursor else { return }
@@ -229,6 +247,12 @@ struct SourcesListColumn: View {
             .onChange(of: selection) { _, s in
                 guard let s else { return }
                 Instant.run { proxy.scrollTo(s) }
+            }
+            // A source opened from far down the root: its row is in view in the list beside it (the list is built with
+            // the selection already set, which `onChange` never sees).
+            .onAppear {
+                guard let selection else { return }
+                DispatchQueue.main.async { Instant.run { proxy.scrollTo(selection) } }
             }
         }
         .listKeys(move: move, enter: { false }, escape: escape)

@@ -43,6 +43,8 @@ struct SourcesPageView: View {
     /// whole, so a hand-off (the palette, the notch's Yes, Sleep's *Open in Sources*) and the rows beside an open source
     /// reach every source, whatever was typed.
     @State private var rootState = SourcesRoot.State()
+    /// The card at the top edge of the root's scroll view, so the root returns where it was when a source closes.
+    @State private var rootTopCard: String?
     /// Off sources whose app is on this Mac (`SourceGrid.suggested`): one Launch Services pass per appearance.
     @State private var suggested: Set<String> = []
     /// G245 — `GET /sources/streams` (in memory; a 404 is "no streams yet", and every card is the catalogue row's).
@@ -161,7 +163,7 @@ struct SourcesPageView: View {
                                       hasLoaded: store.sourcesOverview.value != nil || store.channels.value != nil,
                                       onOpen: { select($0) }, onSelectEntity: onSelectEntity, state: $rootState,
                                       onOpenByKey: { openByKey($0) }, onAct: { act($0, catalog: catalog) },
-                                      busy: working)
+                                      busy: working, topCard: $rootTopCard)
                     .focused($focus, equals: .list)
             } else {
                 SourcesListColumn(cards: narrow, style: plan.listStyle,

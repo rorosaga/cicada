@@ -16,7 +16,13 @@ enum SourceHeadLine {
             parts.append(handle.hasPrefix("@") ? handle : "@" + handle)
         }
         let ways = ways(streams)
-        if !ways.isEmpty { parts.append(ways.map { phrase($0, app: app) }.joined(separator: ", ")) }
+        // One sentence of phrases: a phrase after the first is joined by a comma, so it starts in lower case.
+        if !ways.isEmpty {
+            parts.append(ways.enumerated().map { index, how in
+                let words = phrase(how, app: app)
+                return index == 0 ? words : words.prefix(1).lowercased() + words.dropFirst()
+            }.joined(separator: ", "))
+        }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
@@ -70,7 +76,9 @@ enum SourceHeadLine {
         let local = Set(rows.filter(\.connectedLocally).map(\.id))
         guard !local.isEmpty else { return nil }
         return AgentCatalog.all.first { entry in
+            // "Another agent" is the generic row, not a name: the line says "your AI app" for it (found in the real app).
             if case .remote = entry.kind { return false }
+            if entry.id == "other" { return false }
             return local.contains(entry.id) || !local.isDisjoint(with: entry.setupHarnesses)
         }
     }
