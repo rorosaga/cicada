@@ -134,7 +134,12 @@ enum MachinesStrip {
     /// The machine's name for an episode that came from it, or nil when the episode is this computer's (so a card
     /// says another machine's name and never this one's) or when there is one machine only.
     static func originName(of episode: EpisodeQueueItem, in machines: [MachineStatus]) -> String? {
-        guard machines.count > 1, let owner = machines.first(where: { $0.owns(episode) }), !owner.current else { return nil }
+        deviceName(episode.device, in: machines)
+    }
+
+    /// The same for a device id (a consolidated conversation's `device`; nil is this server's).
+    static func deviceName(_ device: String?, in machines: [MachineStatus]) -> String? {
+        guard machines.count > 1, let owner = machines.first(where: { $0.deviceId == device }), !owner.current else { return nil }
         return displayName(owner)
     }
 

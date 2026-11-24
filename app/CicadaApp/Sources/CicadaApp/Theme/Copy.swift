@@ -183,16 +183,6 @@ enum Copy {
         "Volume \(volumePct)% · age \(agePct)% of the way to a full backlog"
     }
 
-    /// R-A14/P18 — every `—` on this page carries a hover reason naming why
-    /// the number is unknowable. A cycle's duration is joined from the
-    /// `sleep_run` telemetry ledger by commit hash; with telemetry off (or a
-    /// cycle older than the ledger) there is no row to join, and G107's
-    /// ruling forbids showing a guess in its place.
-    static let noTimingRecorded = "No timing was recorded for that cycle."
-    static let bankListNotLoaded = "The bank list hasn't loaded yet."
-    static let sourceOverviewNotLoaded = "The source overview hasn't loaded yet."
-
-
     // MARK: Sleep engine (G74(a))
 
     /// The engine id the backend reports, in the user's words.

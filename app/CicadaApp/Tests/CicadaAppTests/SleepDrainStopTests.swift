@@ -240,9 +240,6 @@ final class SleepDrainStopTests: XCTestCase {
                                     status: status, usageLine: "12 calls", usageIsOneBatch: true, drain: drain,
                                     locale: en)
         XCTAssertEqual(one.last?.title, Copy.SleepUsage.lastBatchTitle)
-        let took = readoutRows(entityCount: 1, sourceCount: 1, lastDurationMs: 1000, lastEngine: nil, engineDetail: nil,
-                               lastIsOneBatch: true, locale: en).first { $0.id == "lastCycle" }
-        XCTAssertEqual(took?.key, "Last batch took")
     }
 
     func test_theProjectWritesGateStillKeysOffRunningAndSaysSo() {

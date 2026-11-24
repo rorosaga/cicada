@@ -79,11 +79,8 @@ final class LastCycleFiguresTests: XCTestCase {
         XCTAssertTrue(line.hasPrefix("Claude plan"), line)
         XCTAssertTrue(line.contains("31%"), "the run's window, first batch to last: \(line)")
         XCTAssertFalse(line.contains("$"), "a plan run shows no price: \(line)")
-        let rows = readoutRows(entityCount: 1, sourceCount: 1, lastDurationMs: f.durationMs, lastEngine: f.engine,
-                               engineDetail: nil, lastIsOneBatch: f.isOneBatch, locale: en)
-        XCTAssertEqual(rows.first { $0.id == "lastCycle" }?.key, Copy.SleepDetailsWords.lastCycleTook)
-        XCTAssertEqual(rows.first { $0.id == "lastCycle" }?.value, "24 m")
-        XCTAssertEqual(rows.first { $0.id == "engine" }?.value, Copy.engineLabel("claude-cli"))
+        XCTAssertEqual(f.durationMs, 1_440_000, "the whole run's reading time, which the run card's head says")
+        XCTAssertFalse(f.isOneBatch)
     }
 
     /// `null` is the backend saying there is none; only then does the dash say so.
@@ -91,10 +88,6 @@ final class LastCycleFiguresTests: XCTestCase {
         let live = try history([row("p1", engine: "claude-cli", batchCost: planBatch, drain: "plan-run",
                                     run: runRef("plan-run", readMs: 60_000, state: "paused", cost: nil))])
         XCTAssertNil(LastCycleFigures.resolve(status: try status(lastFinished: "null"), history: live))
-        let rows = readoutRows(entityCount: 1, sourceCount: 1, lastDurationMs: nil, lastEngine: nil, engineDetail: nil,
-                               hasFinishedCycle: false, locale: en)
-        XCTAssertEqual(rows.first { $0.id == "lastCycle" }?.reason, Copy.SleepDetailsWords.noFinishedCycle)
-        XCTAssertEqual(rows.first { $0.id == "engine" }?.reason, Copy.SleepDetailsWords.noFinishedCycle)
     }
 
     /// An older backend sends no `lastFinishedCycle`: the newest batch's own figures, titled as one batch.

@@ -154,11 +154,13 @@ enum SleepHistoryPresentation {
     }
 }
 
-/// "PAST NIGHTS" (G125 R4/R12) — the Sleep page's history, newest first, one card per consolidation (owner
-/// 2026-10-26: "Just say: this consolidation ran at this time and it included this thing, with a dropdown"). A run that
-/// read in batches is one card (`PastNightItem.group`), a plain cycle one card; a decay pass and an inbox resolution
-/// are not consolidations and get none (`RunCardModel.cards`). Opening a card asks the caller (`onToggle`) to flip its
-/// open state and fetch its items, and its run's or commit's detail — this view never fetches on its own.
+/// Past sleeps (G125 R4/R12) — the Sleep page's history, newest first, one card per consolidation (owner 2026-10-26:
+/// "Just say: this consolidation ran at this time and it included this thing, with a dropdown"), in the Queue's column
+/// and its source-card chrome (owner 2026-11-24). A run that read in batches is one card (`PastNightItem.group`), a plain
+/// cycle one card; a decay pass and an inbox resolution are not consolidations and get none (`RunCardModel.cards`).
+/// Opening a card asks the caller (`onToggle`) to flip its open state and fetch its items, and its run's or commit's
+/// detail — this view never fetches on its own. With a machine selected only the runs that read something from it are
+/// listed (their items decide, so every card's items are asked for once while the filter is on).
 struct ConsolidationHistoryCard: View {
     let entries: [SleepHistoryEntry]
     let details: [String: SleepCycleDetail]
@@ -170,32 +172,64 @@ struct ConsolidationHistoryCard: View {
     var itemsFailed: Set<SleepConsolidatedKey> = []
     let onToggle: (RunCardModel) -> Void
     var onSelectEntity: ((String) -> Void)?
-    /// A card on screen asks for its items once (`SleepViewModel.loadConsolidated`): they carry its question count.
+    /// A card on screen asks for its items once (`SleepViewModel.loadConsolidated`): they carry its marks and pages.
     var onLoadItems: (SleepConsolidatedKey) -> Void = { _ in }
+    /// The machine the page is narrowed to (`MachineStatus.id`; "server" is this server's own), its name, and every
+    /// machine; nil for every machine.
+    var machineId: String? = nil
+    var machineName: String? = nil
+    var machines: [MachineStatus] = []
+    /// Renders seed the open card's filter and open page.
+    var initialFilter: SleepConsolidated.Change? = nil
+    var initiallyOpenPage: String? = nil
 
     var body: some View {
         let cards = RunCardModel.cards(entries, details: runDetails)
-        // Say it once (owner 2026-10-19): what no card recorded is said on the section's label, not on every card.
+        let listed = Self.listed(cards, items: items, machineId: machineId)
+        // Say it once (owner 2026-10-19): what no card recorded is not said on every card.
         let layout = PastNightsLayout(entries)
-        SleepDetailsSection(title: layout.title) {
+        Group {
             if cards.isEmpty {
-                Text("Nothing consolidated yet.")
+                Text(Copy.RunCard.nothingYet)
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .padding(.horizontal, CicadaTheme.scaled(10))
                     .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
+            } else if listed.isEmpty, let machineName, cards.allSatisfy({ items[$0.key] != nil || itemsFailed.contains($0.key) }) {
+                Text(Copy.RunCard.nothingFrom(machineName))
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .padding(.horizontal, CicadaTheme.scaled(10))
+                    .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
             } else {
-                LazyVStack(alignment: .leading, spacing: CicadaTheme.scaled(10)) {
-                    ForEach(cards) { card in
+                LazyVStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+                    ForEach(listed) { card in
                         RunCardView(card: card, isOpen: isOpen(card), items: items[card.key],
                                     itemsFailed: itemsFailed.contains(card.key), runDetail: runDetail(card),
                                     cycleDetail: details[card.members[0].commitHash],
                                     showsUsage: !layout.usageSaidOnce,
                                     onToggle: { onToggle(card) }, onSelectEntity: onSelectEntity,
-                                    onAppear: { if items[card.key] == nil { onLoadItems(card.key) } })
+                                    onAppear: { if items[card.key] == nil { onLoadItems(card.key) } },
+                                    machineId: machineId, machines: machines,
+                                    initialFilter: initialFilter, initiallyOpenPage: initiallyOpenPage)
                     }
                 }
             }
+        }
+        // A filter needs every card's items to decide whether it read from the machine: ask once per filter, never per row.
+        .task(id: machineId) {
+            guard machineId != nil else { return }
+            for card in cards where items[card.key] == nil { onLoadItems(card.key) }
+        }
+    }
+
+    /// The cards to draw: all of them, or with a machine selected those whose items say they read from it (a card whose
+    /// items have not arrived is not listed yet, and none that failed is).
+    static func listed(_ cards: [RunCardModel], items: [SleepConsolidatedKey: SleepConsolidated], machineId: String?)
+        -> [RunCardModel] {
+        guard machineId != nil else { return cards }
+        return cards.filter { card in
+            items[card.key].map { RunItemsModel.hasConversations($0, machineId: machineId) } ?? false
         }
     }
 
@@ -294,10 +328,9 @@ struct CycleUsageBlock: View {
     }
 }
 
-/// Say it once (owner 2026-10-19) — what Past nights draws once instead of on every row: the day on its first row
-/// only (the rows under it are the same day), and, when no row recorded its usage or its time, one note on the
-/// section's label ("Past nights · usage and time not recorded") instead of "Usage not recorded" and "—" on each.
-/// Pure, so the rule is tested without a view.
+/// Say it once (owner 2026-10-19) — what Past sleeps draws once instead of on every row: the day on its first row
+/// only, and, when no row recorded its usage or its time, no "Usage not recorded" and "—" on each card (the section's
+/// label that used to say it once left the page, 2026-11-24). Pure, so the rule is tested without a view.
 struct PastNightsLayout {
     let items: [PastNightItem]
     /// The items that draw their day: the first of each day, newest first.
@@ -326,14 +359,5 @@ struct PastNightsLayout {
         let cycles = entries.filter { $0.kind == "sleep" }
         usageSaidOnce = cycles.count > 1 && cycles.allSatisfy { $0.usageSummary == nil }
         durationSaidOnce = cycles.count > 1 && cycles.allSatisfy { $0.durationMs == nil }
-    }
-
-    var title: String {
-        switch (usageSaidOnce, durationSaidOnce) {
-        case (true, true): Eyebrow.text(Copy.SleepUsage.pastNights, Copy.SleepUsage.usageAndTimeNotRecorded)
-        case (true, false): Eyebrow.text(Copy.SleepUsage.pastNights, Copy.SleepUsage.usageNotRecordedNote)
-        case (false, true): Eyebrow.text(Copy.SleepUsage.pastNights, Copy.SleepUsage.timeNotRecordedNote)
-        case (false, false): Copy.SleepUsage.pastNights
-        }
     }
 }

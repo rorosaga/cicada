@@ -95,14 +95,29 @@ final class SayItOnceTests: XCTestCase {
         XCTAssertEqual(layout.datedIds, ["a", "c"], "the day on the first row of each day")
         XCTAssertTrue(layout.usageSaidOnce)
         XCTAssertTrue(layout.durationSaidOnce)
-        XCTAssertEqual(layout.title, "Past nights · usage and time not recorded")
 
         let mixed = PastNightsLayout(try history([row("a", "2026-10-19T22:34:00+00:00", ms: 4_000),
                                                   row("b", "2026-10-18T21:00:00+00:00")]))
         XCTAssertFalse(mixed.durationSaidOnce, "one row has a time: each row says its own")
-        XCTAssertEqual(mixed.title, "Past nights · usage not recorded")
-        XCTAssertEqual(PastNightsLayout(try history([row("a", "2026-10-19T22:34:00+00:00")])).title, "Past nights",
-                       "one row says its own")
+        XCTAssertTrue(mixed.usageSaidOnce)
+        let one = PastNightsLayout(try history([row("a", "2026-10-19T22:34:00+00:00")]))
+        XCTAssertFalse(one.usageSaidOnce, "one row says its own")
+        XCTAssertFalse(one.durationSaidOnce)
+    }
+
+    /// Owner 2026-11-24: the Readout block and the "Past nights · …" label left the page — the cards say it, once.
+    func testPastSleepsHasNoReadoutBlockAndNoSectionLabel() throws {
+        func code(_ path: String) throws -> String {
+            try source(path).split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+        }
+        let page = try code("Views/Sleep/SleepDetails.swift")
+        XCTAssertFalse(page.contains("SleepReadoutView"), "the Readout block is gone")
+        XCTAssertFalse(page.contains("Past nights"))
+        let history = try code("Views/Sleep/ConsolidationHistoryCard.swift")
+        XCTAssertFalse(history.contains("SleepDetailsSection(title:"), "the cards carry no section label")
+        XCTAssertFalse(history.contains("Past nights"))
+        XCTAssertFalse(history.contains("usageAndTimeNotRecorded"), "no 'usage and time not recorded' label")
     }
 
     /// A run's batch with usage beside bare cycles: the label never claims "not recorded", and the batch keeps its line
@@ -115,18 +130,7 @@ final class SayItOnceTests: XCTestCase {
         let layout = PastNightsLayout(entries)
         XCTAssertTrue(layout.items.contains { if case .run = $0 { return true } else { return false } })
         XCTAssertFalse(layout.usageSaidOnce, "one batch recorded usage: every row says its own")
-        XCTAssertEqual(layout.title, "Past nights · time not recorded")
-    }
-
-    func testTheReadoutLeavesTheEngineToPastNightsUnlessItHasAReason() {
-        let shown = readoutRows(entityCount: 74, sourceCount: 8, lastDurationMs: nil, lastEngine: "litellm",
-                                engineDetail: nil, engineShownBelow: true)
-        XCTAssertFalse(shown.contains { $0.id == "engine" })
-        let reason = readoutRows(entityCount: 74, sourceCount: 8, lastDurationMs: nil, lastEngine: "litellm",
-                                 engineDetail: "the key was missing", engineShownBelow: true)
-        XCTAssertTrue(reason.contains { $0.id == "engine" }, "a reason only the readout can say keeps the row")
-        XCTAssertTrue(readoutRows(entityCount: 74, sourceCount: 8, lastDurationMs: nil, lastEngine: "litellm",
-                                  engineDetail: nil).contains { $0.id == "engine" })
+        XCTAssertTrue(layout.durationSaidOnce)
     }
 
     // MARK: Inbox — the page's name once

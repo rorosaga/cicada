@@ -648,6 +648,13 @@ final class SleepViewModel {
         }
     }
 
+    /// What a consolidation changed on one page (a click on its chip on a Past sleeps card): one diff from before the
+    /// consolidation's first commit that touched the page (`since`) to after its last (`until`).
+    func pageDiff(id: String, until: String, since: String?) async throws -> EntityDiff {
+        if let since { try await APIClient.shared.fetchEntityCommitDiff(id: id, commitHash: until, since: since) }
+        else { try await APIClient.shared.fetchEntityCommitDiff(id: id, commitHash: until) }
+    }
+
     /// The freshness key a live or paused run's detail is fetched under (`loadRunDetail`): whatever moves when the
     /// run's numbers do. Pure, so `SleepV5DetailsTests` holds it.
     nonisolated static func runDetailFreshness(drain: SleepDrainInfo?, paused: SleepPausedRun?) -> String {

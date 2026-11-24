@@ -607,9 +607,13 @@ struct SleepView: View {
                            onToggleRun: toggleRun,
                            items: sleepVM.consolidated, itemsFailed: sleepVM.consolidatedFailed,
                            onLoadItems: { key in Task { @MainActor in await sleepVM.loadConsolidated(key) } },
-                           machineId: selectedMachine?.id)
-                // DR-36 — key–value rows and prose keep the 760 pt text column.
-                .frame(maxWidth: SleepLayout.contentWidth, alignment: .leading)
+                           machineId: selectedMachine?.id, machineName: selectedMachine.map(MachinesStrip.displayName),
+                           machines: sleepVM.machines)
+                // What a click on a page's chip loads: the read's change on that page (the page never calls the API).
+                .environment(\.runPageDiffLoader, { id, until, since in
+                    try await sleepVM.pageDiff(id: id, until: until, since: since)
+                })
+                // The Queue's column: the cards line up with its source cards (owner 2026-11-24).
                 .padding(.horizontal, plan.gutter)
                 .padding(.top, CicadaTheme.spacingSM)
         }
