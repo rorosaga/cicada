@@ -70,6 +70,9 @@ extension Copy {
         static let lineApp = "On this Mac"
         static let lineAccount = "With your sign-in"
         static let lineClick = "When you save, on this Mac"
+        /// G245 (plan 7.1 item 8) — the state of the piece in words, where it is not obvious: on, and Accessibility lets
+        /// Cicada see the save, so each one asks why.
+        static let lineClickAsks = "Asks why when you save, on this Mac"
         /// A connections stream's purpose, when its name does not say: they are kept outside memory, matched by name.
         static let connectionsFor = "Matched to people you already have pages for"
         static let depthIndex = "kept and findable"

@@ -21,11 +21,16 @@ enum ConnectSuggestApps {
         /// only once the person has already given Cicada the Accessibility permission — the page's address is read
         /// when the pointer rests, kept nowhere, and used for nothing but this offer.
         case saves
+        /// G245 — a site that is a source but keeps no save control Cicada can read (LinkedIn, Pinterest, Substack,
+        /// Spotify, Goodreads): offered the same way, and a Yes turns on only its saved list.
+        case savedList
     }
 
     /// The memory key of a site's offer (`site-save:x`): one answer per site, beside the apps' own.
     static let sitePrefix = "site-save:"
-    static func site(_ key: String) -> Target { Target(entryId: sitePrefix + key, kind: .saves) }
+    static func site(_ key: String) -> Target {
+        Target(entryId: sitePrefix + key, kind: SiteSaveSite.named(key) != nil ? .saves : .savedList)
+    }
     static func siteKey(entryId: String) -> String? {
         entryId.hasPrefix(sitePrefix) ? String(entryId.dropFirst(sitePrefix.count)) : nil
     }
@@ -96,19 +101,37 @@ enum ConnectSuggestApps {
         return .source(entryId)
     }
 
+    /// The catalogue entry a target is: the entry id itself for an app, the site's key for a site (`site-save:x` is the
+    /// entry `x`). Every supported browser and Wispr Flow (while on offer) are entries: the app in front is running, so it
+    /// is here — Hex too (`hexPresent`), whose status is its meeting folders' (#579). Nil when the catalogue has no such
+    /// entry.
+    static func entry(of entryId: String, overview: [SourceOverview],
+                      meetingFolders: [FolderRegistration] = []) -> SourceCatalogEntry? {
+        let id = siteKey(entryId: entryId) ?? entryId
+        return SourceCatalog.entries(browsers: BrowserInventory.catalog.filter(\.supported),
+                                     wisprPresent: SourceCatalog.wisprOffered,
+                                     hexPresent: true, meetingFolders: meetingFolders, overview: overview)
+            .first { $0.id == id }
+    }
+
+    /// What the reading model knows about the person's lists (`ReadingAgentModel`), as values: the catalogue reads a
+    /// list that is on, or a site the person's agent may open, as the source's own state, and the notch must read the
+    /// same (found 2026-11-24: it read them as Off and offered a source the page showed as set up).
+    struct Reading: Equatable, Sendable {
+        var readableSites: Set<String> = []
+        var savedListsOn: Set<String> = []
+        var savedListsRead: Set<String>?
+    }
+
     /// The source's status in the active memory — the Sources catalogue's own (`SourceCatalog.status`), so the notch
-    /// and the source's row never disagree. Every supported browser and Wispr Flow (while on offer) are entries: the app
-    /// in front is running, so it is here — Hex too (`hexPresent`), whose status is its meeting folders' (#579), so a Hex
-    /// already set up never reads Off. Nil when the catalogue has no such entry.
+    /// and the source's row never disagree. Nil when the catalogue has no such entry.
     static func status(of entryId: String, channels: [SourceChannel], overview: [SourceOverview],
-                       localReaders: [String: Bool],
+                       localReaders: [String: Bool], reading: Reading = Reading(),
                        meetingFolders: [FolderRegistration] = []) -> SourceCatalogStatus? {
-        let entries = SourceCatalog.entries(browsers: BrowserInventory.catalog.filter(\.supported),
-                                            wisprPresent: SourceCatalog.wisprOffered,
-                                            hexPresent: true, meetingFolders: meetingFolders, overview: overview)
-        guard let entry = entries.first(where: { $0.id == entryId }) else { return nil }
-        return SourceCatalog.status(for: entry, channels: channels, overview: overview, readableSites: [],
-                                    localReaders: localReaders)
+        guard let entry = entry(of: entryId, overview: overview, meetingFolders: meetingFolders) else { return nil }
+        return SourceCatalog.status(for: entry, channels: channels, overview: overview,
+                                    readableSites: reading.readableSites, localReaders: localReaders,
+                                    savedListsOn: reading.savedListsOn, savedListsRead: reading.savedListsRead)
     }
 }
 
@@ -193,8 +216,14 @@ enum ConnectSuggestPolicy {
     static let timeout: TimeInterval = SaveWhyPolicy.askTimeout
     /// A click on the panel this soon after it shows was aimed at what was beneath it (`SaveWhyPolicy.armDelay`).
     static let armDelay: TimeInterval = SaveWhyPolicy.armDelay
-    /// G221 — how long a site's panel stays after Yes, showing that it is connected (the ring, then the check).
+    /// G221 — how long the panel stays after Yes once it is turned on, showing so (the ring, then the check).
     static let confirmShow: TimeInterval = 1.6
+    /// G245 — how long it stays when it has something to say that the person may need to act on: a refusal, or the
+    /// Accessibility a site's saves need (with the button that opens the setting). The pointer resting on it holds it.
+    static let noteShow: TimeInterval = 7
+    /// G245 — the longest a Yes waits for what it started (a reader's first read, macOS's own prompt) before the panel
+    /// goes. What it started goes on; the source's page tells the rest.
+    static let connectBound: TimeInterval = 60
 
     struct Context: Equatable {
         var now: Date
@@ -323,6 +352,27 @@ enum ConnectSuggestPolicy {
     }
 }
 
+/// What a Yes came to (G245, plan section 7). The write returns before anything is confirmed, so the words are "Turned
+/// on", never "Connected" — the page says Connected once a read is dated.
+enum ConnectSuggestResult: Equatable, Sendable {
+    /// Something was turned on and every write returned. `asksWhy`: the site will really ask on a save (a save control,
+    /// its noticing on, Accessibility granted). `needsAccessibility`: noticing saves is on but cannot see them yet.
+    case turnedOn(asksWhy: Bool, needsAccessibility: Bool)
+    /// The source's page was opened (a choice, a sign-in, a permission, the first-use sheet): the page says the rest.
+    case openedPage
+    /// A write was refused: the backend's own sentence, or nil for the generic one.
+    case failed(String?)
+
+    var isFailure: Bool { if case .failed = self { true } else { false } }
+    /// Said until the person has read it (and may press the setting's button), not for a beat.
+    var needsReading: Bool {
+        switch self {
+        case .failed, .turnedOn(_, needsAccessibility: true): true
+        default: false
+        }
+    }
+}
+
 /// How an open suggestion closes, and what each way records. Pure, with the clock passed in, so the timeout, the
 /// hover hold and the arm delay are tested as values.
 struct ConnectSuggestPanelState: Equatable {
@@ -336,6 +386,8 @@ struct ConnectSuggestPanelState: Equatable {
         case superseded
         /// A tick of the clock.
         case tick
+        /// The one button a result may carry: the setting its words name (Accessibility). Closes the panel.
+        case openSetting
     }
 
     enum Outcome: Equatable {
@@ -374,9 +426,12 @@ struct ConnectSuggestPanelState: Equatable {
     private(set) var hovering = false
     /// When the untouched-panel clock started: at showing, and again whenever the pointer leaves.
     private(set) var clockFrom: TimeInterval
-    /// G221 — a site's Yes is the whole connection (there is no page to send the person to), so the panel stays a
-    /// moment to say so: a ring around the worm, then a check. When it was pressed, on the same clock; nil otherwise.
+    /// When Yes was pressed, on the same clock; nil before. From then on the buttons are gone and the panel says what
+    /// the Yes is doing (`result` nil: still turning on) and what it came to.
     private(set) var confirmedAt: TimeInterval?
+    /// What the Yes came to, once it has (`finish`); and when.
+    private(set) var result: ConnectSuggestResult?
+    private(set) var finishedAt: TimeInterval?
     /// G221 — the offer holds a save the person just made on this site, which Yes keeps (the line under the title
     /// says so).
     var keepsSave = false
@@ -389,29 +444,59 @@ struct ConnectSuggestPanelState: Equatable {
         self.clockFrom = shownAt
     }
 
+    /// Whether the Yes has been pressed and is not yet answered.
+    var isConnecting: Bool { confirmedAt != nil && result == nil }
+
+    /// What Yes came to: opening the page leaves at once (the page is the answer); anything else is said first. Returns
+    /// the outcome when the panel is done now.
+    mutating func finish(_ result: ConnectSuggestResult, at now: TimeInterval) -> Outcome? {
+        guard confirmedAt != nil, self.result == nil else { return nil }
+        self.result = result
+        finishedAt = now
+        return result == .openedPage ? .yes : nil
+    }
+
     /// The outcome an input ends the panel with, or nil while it stays. A button pressed within the arm delay is
     /// ignored (the hand was on its way to the app beneath). `now` is uptime seconds.
     mutating func handle(_ input: Input, at now: TimeInterval) -> Outcome? {
         switch input {
         case .yes, .no, .notNow:
             guard confirmedAt == nil, now - shownAt >= ConnectSuggestPolicy.armDelay else { return nil }
-            if input == .yes, target.kind == .saves {
+            if input == .yes {
                 confirmedAt = now
                 return nil
             }
-            return input == .yes ? .yes : input == .no ? .no : .notNow
+            return input == .no ? .no : .notNow
+        case .openSetting:
+            guard let result, result.needsReading else { return nil }
+            return .yes
         case .hover(let inside):
             hovering = inside
             if !inside { clockFrom = now }
             return nil
         case .appChanged:
-            return confirmedAt == nil ? .leftApp : .yes     // the person already said yes: leaving keeps it
+            return left(.leftApp)
         case .superseded:
-            return confirmedAt == nil ? .superseded : .yes
+            return left(.superseded)
         case .tick:
-            if let confirmedAt { return now - confirmedAt >= ConnectSuggestPolicy.confirmShow ? .yes : nil }
+            if let confirmedAt {
+                guard let result, let finishedAt else {
+                    return now - confirmedAt >= ConnectSuggestPolicy.connectBound ? .timedOut : nil
+                }
+                let stay = result.needsReading ? ConnectSuggestPolicy.noteShow : ConnectSuggestPolicy.confirmShow
+                if result.needsReading, hovering { return nil }
+                guard now - finishedAt >= stay else { return nil }
+                return result.isFailure ? .notNow : .yes
+            }
             guard !hovering, now - clockFrom >= ConnectSuggestPolicy.timeout else { return nil }
             return .timedOut
         }
+    }
+
+    /// The person left, or the ask-why question took the notch: before a Yes that is Not now; after one the Yes stands
+    /// (what it started goes on), unless it was refused.
+    private func left(_ before: Outcome) -> Outcome {
+        guard confirmedAt != nil else { return before }
+        return result?.isFailure == true ? .notNow : .yes
     }
 }

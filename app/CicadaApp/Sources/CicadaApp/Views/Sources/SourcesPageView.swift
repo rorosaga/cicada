@@ -457,19 +457,17 @@ struct SourcesPageView: View {
             let state = SourceConnect.State(row: row, reading: reading,
                                             siteSavesOn: Set(SiteSavePrefs().connected.map(\.key)),
                                             readersOn: localReaders, permissions: permissions)
-            var plan = SourceConnect.plan(row.entry, state)
-            // The Mac readers share no protocol, so a card cannot start one yet: it opens the page, where that reader's own
-            // Connect is (macOS's prompt follows from there).
-            if case .start(let steps, _) = plan, steps.contains(where: { if case .startReader = $0 { true } else { false } }) {
-                plan = .openPage
-            }
+            let plan = SourceConnect.plan(row.entry, state)
+            // A reader one click starts is started here, the way its own page's Connect does (macOS's prompt follows).
+            let starter = ReaderStarter(calendar: calendarReader, contacts: contactsReader, notes: notesWatcher,
+                                        voiceMemos: voiceMemosReader, books: appleBooksReader, browsers: browserWatcher)
             let deps = SourceConnect.Deps.live(
                 reading: reading, router: router,
                 noticeSaves: { site in
                     SiteSavePrefs().setConnected(site, true)
                     NotificationCenter.default.post(name: SiteSaveSwitches.changed, object: nil)
                 },
-                startReader: { _ in false })
+                startReader: { await starter.start($0) })
             let outcome = await SourceConnect.run(plan, entry: row.id, deps: deps)
             if case .turnedOn = outcome { await reading.load(); await sourceStreams.refresh() }
         }

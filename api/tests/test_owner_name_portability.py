@@ -157,6 +157,9 @@ _PROMPT_PROPER_NOUNS = frozenset(
         "Cicada",
         # the product's own consolidation step, named in the Ask prompt's rule on conversations "not yet read by Sleep"
         "Sleep",
+        # a sentence opener the scan cannot see: the same-name judge's prompt puts a `{speaker}` placeholder (a line or
+        # nothing) before "The record has kept them apart ..." — grammar, never a name
+        "The",
     }
 )
 

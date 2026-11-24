@@ -25,6 +25,8 @@ struct BrowserWays: View {
     @State private var flips = 0
     /// Sites the ask-why question was muted on (`SaveWhyPrefs.mutedHosts`), read when the page shows.
     @State private var muted = 0
+    /// Chrome's profile in use is one Cicada does not read (`ChromeProfile`), read when the page shows.
+    @State private var otherProfile = false
 
     private var channel: String { spec.bookmarksChannel ?? spec.id }
 
@@ -35,9 +37,19 @@ struct BrowserWays: View {
                 FullDiskAccessHint(error: error)
             }
             SourceConnectArea(ways: ways)
+            // G245 — the state of asking why on this browser, said in words (plan 7.1 item 8).
+            if spec.bookmarksChannel != nil {
+                ForEach(BrowserAskWhyLine.lines(name: spec.name, askWhy: askWhy, watched: watcher.isEnabled(channel),
+                                                otherProfile: otherProfile), id: \.text) {
+                    SourceConnectLine(text: $0.text, isAttention: $0.isAttention)
+                }
+            }
             if spec.id == WatchHistoryWatcher.browser { WatchHistoryState() }
         }
-        .onAppear { muted = SaveWhyPrefs(defaults: .standard).mutedHosts.count }
+        .onAppear {
+            muted = SaveWhyPrefs(defaults: .standard).mutedHosts.count
+            otherProfile = spec.id == "chrome" && !ChromeProfile.isRead(ChromeProfile.inUse())
+        }
     }
 
     private var ways: [SourceWayIn] {
@@ -65,8 +77,20 @@ struct BrowserWays: View {
             out.append(SourceWayIn(id: "ask-why", icon: .symbol("questionmark.bubble"), title: Copy.SaveWhy.switchTitle,
                                    control: .toggle(askWhy) { on in
                                        let prefs = SaveWhyPrefs(defaults: .standard)
-                                       if on { SaveWhySetup.turnOn(prefs: prefs, inventory: inventory, watcher: watcher) }
-                                       else { prefs.enabled = false }
+                                       if on {
+                                           // One switch, every supported browser on this Mac (the row says so): not only
+                                           // the one whose page this is (found 2026-11-24). This page's own browser first.
+                                           prefs.enabled = true
+                                           if let own = spec.bookmarksChannel { watcher.enable(own) }
+                                           Task { @MainActor in
+                                               let installed = await Task.detached(priority: .userInitiated) {
+                                                   BrowserInventory.live()
+                                               }.value
+                                               SaveWhySetup.turnOn(prefs: prefs, inventory: installed, watcher: watcher)
+                                               flips += 1
+                                           }
+                                       } else { prefs.enabled = false }
+                                       flips += 1
                                    }, help: Copy.SaveWhy.switchDetail))
         }
         // Review of #593: the sites the question was muted on could only be unmuted from Settings' old row. One quiet
@@ -577,6 +601,10 @@ struct ConnectorSlot: View {
     /// ROR-118 round 4 — when a site's own way in (its list read through the person's AI app) leads, that is the one
     /// primary and the account connection becomes a way below it.
     var primaryOverride: SourcePrimaryAction? = nil
+    /// G245 (owner 2026-11-23: "default routes must cost the user nothing") — the source is already read for free, through
+    /// the person's browser. The account (X's paid API) is then a second way: one quiet action in the footer, never the
+    /// page's primary button.
+    var hasFreeRoute = false
 
     @Environment(Store.self) private var store
     @Environment(LocalSourceWatcher.self) private var localSources
@@ -598,6 +626,8 @@ struct ConnectorSlot: View {
                                     title: Copy.SourceLayout.useAccount(title),
                                     control: .button(Copy.SourceLayout.connectShort) { showPanel = true }),
                     ] + ways)
+                } else if !channel.connected, hasFreeRoute {
+                    if !ways.isEmpty { SourceConnectArea(ways: ways) }
                 } else if !channel.connected {
                     SourceConnectArea(primary: SourcePrimaryAction(title: Copy.SourceLayout.connect(title)) {
                         showPanel = true
@@ -617,6 +647,11 @@ struct ConnectorSlot: View {
                         .refresh(isDisabled: busy) { refresh() },
                         .disconnect(title) { disconnect() },
                     ], note: note)
+                } else if hasFreeRoute {
+                    SourcePageFooter(actions: [
+                        SourceFooterAction(id: "own-api", title: Copy.SourceLayout.useOwnAPI(title),
+                                           help: Copy.SourceLayout.useOwnAPIHelp) { showPanel = true },
+                    ], note: nil)
                 }
             }
         }

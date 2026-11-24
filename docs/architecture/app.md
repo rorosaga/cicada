@@ -1041,8 +1041,18 @@ stat; Chrome rewrites History on most page loads, so no FSEvents watch); and the
 yet (Arc, Firefox, Edge, Opera) named once in the header, never as a row. Safari's source page groups its items as
 Recently saved · Favorites · Other bookmarks. Under the browsers, **Ask why when I bookmark something** (G191, `saveWhy`,
 off by default; `cicada.saveWhy.enabled`, per Mac like the watch's consent flags) — one switch that works: turning it
-on also turns on the bookmark watch of every installed browser Cicada can sync (`SaveWhySetup`), named under the switch
-before the flip — see *Ask why* below.
+on also turns on the bookmark watch of every installed browser Cicada can sync (`SaveWhySetup`), whichever browser's page
+the switch is flipped on (G245: it used to turn on only that page's browser while reading "on" everywhere), named under the switch
+before the flip — see *Ask why* below. Each browser's page says the state in one quiet line (`BrowserAskWhyLine`): ask-why off,
+on and asking in this browser, or on while this browser's own bookmarks are not watched (the one thing to fix). **Chrome's profile (G245):**
+only the Default profile's file is read (R-SR1), so when Chrome's `Local State` names another profile as the one last used
+(`ChromeProfile`, no permission) the bookmark bubble opens no question — nothing could confirm it — and the page says only
+Default is read. **Safari (G245):** it dates no bookmark, so a bookmark that synced in from another device looked like a
+save made now; with no instant to check, a bookmark is asked about only when its browser was the app in front when the
+file changed (`SaveWhyPolicy` `witnessed`). **Connector as a second way (G245, owner 2026-11-23: "default routes must
+cost the user nothing"):** a source read for free through the person's browser (a saved list) shows its account — X's paid API
+among them — as one quiet footer action, "Use X's own API instead…" (`ConnectorSlot.hasFreeRoute`), never the page's
+primary button.
 **Calendars, contacts & feeds** offers Calendar on this Mac and
 Contacts (G154), both app-owned rows. (Ruling 55, behind its switch: the sync hashes a card's numbers with `PhoneNumberKeys`,
 under a key `GET /people/numbers/match-key` gives only while the feature is on; `storage.md`, "Phone numbers".)
@@ -1621,7 +1631,10 @@ compared with the row at 0.6, 1.2 and 2.0 s. A save goes to `SaveWhyCenter.siteS
 `POST /sources/site-save` (`api.md`; the site's own origin, index-only until a reason — ruling 62), then asked about
 through the ordinary confirmed path, so "Don't ask for this site" and one-save-one-question apply (the bookmark
 question's own switch does not gate a site save, 2026-11-24)
-and the answer is posted with `via` the site's origin. An unsave goes to `POST /sources/site-unsave`: never asked
+and the answer is posted with `via` the site's origin. **A save made while Sleep holds the pages (or the backend is away)
+is held** (`SiteSaveOutbox`, per Mac, one per post, outside every bank, up to a day), stored when the writing flag goes false
+(`retryHeld`) and asked about only if its moment is still within five minutes — a stale one is stored and never asked
+late; taking the post off again before it landed drops it. An unsave goes to `POST /sources/site-unsave`: never asked
 about, the save stays and shows "no longer on …" (`leftBrowser`). Logs (`site-save`) hold an outcome word, what
 settled it and milliseconds, never a link or a label.
 
@@ -1635,9 +1648,9 @@ the control in a direction nothing settled, becomes a `SiteSaveCandidate` — th
 the list, and what the click would have taught (`Lesson`) — handed to `ConnectSuggestCenter.offer(saved:)`; a click
 that changed nothing is dropped, and an unsave only makes an open offer let go of that post (it never shows one). **Nothing is written before Yes:** no label learned, no post hash kept, no
 request sent. The offer shows at that moment (or, when that site's offer is already up, takes the save), holds up to
-eight saves in memory and says "Yes keeps this save" when one of them is a save. Yes connects the site at the press
-(`onYes`, then `SiteSaveSwitches.changed`), and when the panel's confirmation has shown, `onHeld` keeps each lesson
-(`SiteSavePrefs.keep`) and sends each save through `SaveWhyCenter.siteSaved`, as on a connected site. Not now, No, the
+eight saves in memory and says "Yes keeps this save" when one of them is a save. Yes runs the one connect plan (below) and, once what it turned on has returned and did not fail, `onHeld` keeps each
+lesson (`SiteSavePrefs.keep`) and sends each save through `SaveWhyCenter.siteSaved`, as on a connected site (a panel that left before
+the Yes returned still keeps them when it does; a refused Yes keeps nothing). Not now, No, the
 timeout, leaving the browser or the ask-why question taking the notch all drop what was held. **When a save click may
 offer:** it passes a wait once (`Trigger.saveClick`: when the last offer was not itself brought by a save click,
 `saveShown`), and after such an offer the ladder's wait holds for saves too; No, the six shows and every other rule
@@ -1670,15 +1683,32 @@ Mac passes unasked. The menu is read when the pointer rests on an item (kept fiv
 the same row) and again at the click; an answer about a neighbouring item is refused by the item's own frame. Checked
 with the app's own reader on the live pages (English); the rules are unit-tested in English, Spanish and Japanese.
 
-*Connecting a site.* Nothing is watched until the person connects a site, per Mac (`SiteSavePrefs`): on the Sources page → Browsers, under the bookmark question ("Also ask when I save a post on", one tick per site, with the
-Accessibility permission named and one click to its pane when missing — never a prompt), or from the notch: when the
-pointer rests on a page of a site not yet connected, the connect offer (G231's panel and rules: its switch, No is kept and listed in Settings, Not now waits two hours and
-then longer; the one-a-day cap between sources does not hold a site's offer, since that site's saves do nothing until
-it is connected) asks "Connect X to Cicada?" with the site's mark. A site's Yes
-is the whole connection, so the panel stays 1.6 s to say so — a ring closing around the worm, then a check
-(`ConnectedRing`, `CicadaMotion.connectRing`/`connectCheck`) — and closes. **This is the one case where the page in
-the front tab triggers an offer** (owner 2026-11-23, amending the 2026-10-19 note in `ConnectSuggestApps`): only with
-Accessibility already granted and the offer switch on; the address is compared and kept nowhere.
+*Connecting a site (G245, ruling 78 section 7, 2026-11-24).* Nothing is watched until the person connects a site, per
+Mac (`SiteSavePrefs`), from the notch's offer or from the source's own page: its **Saves you make** row (the stream whose switch is
+`SiteSavePrefs`, with Accessibility named in one line and one click to its pane when missing — never a prompt). When
+the pointer rests on a page of a site that is a source and is not set up, the connect offer (G231's panel and rules:
+its switch, No is kept and listed in Settings, Not now waits two hours and then longer; the one-a-day cap between
+sources does not hold a site's offer) asks "Connect X to Cicada?" with the site's mark. **This is the one case where the
+page in the front tab triggers an offer** (owner 2026-11-23, amending the 2026-10-19 note in `ConnectSuggestApps`): only
+with Accessibility already granted and the offer switch on; the address is compared and kept nowhere. The offer covers
+the sites with a save control (`SiteSaveSite.all`) and the sites that are only sources — LinkedIn, Pinterest, Substack,
+Spotify, Goodreads (`SiteSaveSite.offerOnly`, matched by address alone, never read for a save). **One truth:** a source
+is offered only while the catalogue's own word for it is Off (`ConnectSuggestApps.status`, which reads the lists the
+person turned on and the sites their agent may open like the page does) — never because a per-Mac flag is unset, and a
+source the page shows as set up is neither offered nor listened to. **One path:** Yes is `NotchConnector`, which is
+`SourceConnect.plan` and `run` (the page's switch and the root card use the same): a site's Yes turns on its existing
+saved list (with agent reading on and a current acknowledgement) and, where the site has a save control, noticing saves
+on this Mac; without the acknowledgement it turns on only noticing saves and opens the source's page with the
+acknowledgement sheet raised (`AppRouter.pendingConsent`); GitHub notices saves and opens its page for the sign-in; a Mac
+app's Yes starts its reader when one click can (`ReaderStarter`: browsers' bookmarks, Calendar, Contacts, Notes, Voice
+Memos, Apple Books — macOS's own prompt follows from the reader's own call) and opens its page only when a choice is
+needed (chats, folders, a sign-in, a key), or Settings' permission row when Full Disk Access is missing. **Honest words:**
+the write returns before anything is confirmed, so the panel says "Turning on…" while the plan runs, then **"Turned on"**,
+never "Connected" (the page says Connected once a read is dated); "Saving on X will ask why." is said only when the site has
+a save control, its noticing is on and Accessibility is granted — without Accessibility it says "Seeing saves on X needs
+Accessibility." with one button, Open Settings (a link to the pane); a refused write says so and keeps nothing (the answer is
+Not now, held saves are dropped); a Yes that opens a page leaves at once. A site's ring and check (`ConnectedRing`) show
+only for a turned-on source.
 
 **Not built:** LinkedIn (its feed exposes no link or id for a post, so a save there cannot be tied to one; it stays on
 the saved-list read); YouTube's one-click "save to Watch later" item in a card's menu and Shorts; Reddit's menus on
@@ -1698,10 +1728,8 @@ that passes through is not entering it). *Apps* (`ConnectSuggestApps`, bundle id
 Messages, Notes, Calendar, Reminders, Contacts, every browser Cicada reads bookmarks from (`BrowserInventory.catalog`,
 `supported` only — Arc, Firefox, Edge and Opera never), Wispr Flow (`com.electron.wispr-flow`, only while `SourceCatalog.wisprOffered`), Notion (`notion.id`) and
 Hex (`anomaly.hex` → `hex`, the meeting recorders' entry, read with the app's meeting folders so a Hex whose own
-folder is connected never reads Off). Readwise is gone. **A website
-in the front tab is not a trigger:** the only permission-free tab read is the star-click prefill (owner ruling
-2026-10-19), and reading the tab on every activation would be watching browsing without the person's act — activity
-traces' ground (G218). *Connected* is the catalogue's own word for that entry (`ConnectSuggestApps.status` →
+folder is connected never reads Off). Readwise is gone. **An app coming to the front is the trigger here; a
+website in the front tab is one only for the sites above (G221, ruling 77), never for browsing in general.** *Connected* is the catalogue's own word for that entry (`ConnectSuggestApps.status` →
 `SourceCatalog.status`, the Store's `channels` and `sourcesOverview` with this Mac's readers): only `off` is offered;
 connected, needs sign-in and waiting for an agent never are, and an entry not read yet or absent here is never guessed.
 *Respect* (`ConnectSuggestPolicy`, pure, clock injected): on by default (Settings → General → **Suggest connecting apps**;
@@ -1733,14 +1761,15 @@ Reading List; iCloud tabs only if you import them.", any other "Only your bookma
 shape takes the click; owner 2026-11-23, who also removed the chips of what Cicada does with it).
 It **never takes the keyboard**: `ConnectSuggestNSPanel.canBecomeKey` is always false (there is no field), its buttons
 answer the first click (`ConnectSuggestHostingView.acceptsFirstMouse`), it is shown with `orderFrontRegardless`, and a
-button pressed within `armDelay` (0.5 s) of it showing is ignored. *Yes* opens Sources on that entry
+button pressed within `armDelay` (0.5 s) of it showing is ignored. *Yes* runs the connect plan (`NotchConnector` → `SourceConnect`, "Connecting a site" above): Notes, Calendar, Contacts, a
+browser's bookmarks, Voice Memos and Apple Books start their reader (macOS asks its own prompt from that call); a source
+that needs a choice or a sign-in (chats, folders, GitHub, Notion, a feed address, a key) opens Sources on that entry
 (`AppRouter.routeToCatalogEntry` → `SourcesPageView.openPendingEntry`, held until a browser's entry is in the list,
-dropped when the page goes) — the same detail a click on its row opens, with its own connect control; for Messages,
-WhatsApp and Safari while Full Disk Access is missing (a preflight, `LiveMacPermissionProbe`), it lands instead on
-that permission's row in Settings → Privacy & data → Permissions, the onboarding step's own rows with the drag helper
-(`ConnectSuggestApps.landing`); Contacts, Calendar, Reminders and Notes ask macOS's prompt from their own Connect, so
-they go straight to the source. Nothing is connected or asked by the Yes itself. *Log:* `com.cicada.app`, category `connect-suggest`,
-the entry id and the decision or outcome enum only; no telemetry ledger event. Tested in `ConnectSuggestTests` (25: every
+dropped when the page goes); for Messages, WhatsApp and Safari while Full Disk Access is missing (a preflight,
+`LiveMacPermissionProbe`), it lands on that permission's row in Settings → Privacy & data → Permissions, the onboarding
+step's own rows with the drag helper (`ConnectSuggestApps.landing`). The panel says "Turned on" once it has, never
+"Connected". *Log:* `com.cicada.app`, category `connect-suggest`,
+the entry id and the decision or outcome enum only; no telemetry ledger event. Tested in `ConnectSuggestTests` and `NotchConnectTests` (every
 respect rule against a fake clock, the panel's clock, the apps, the catalogue status, the copy, the center end to end with
 a fake presenter and front app, and a source guard that the panel never makes itself key or asks a permission).
 Shots (a scratch, separately identified app copy, Notes brought forward on the verify Mac; window-only captures):

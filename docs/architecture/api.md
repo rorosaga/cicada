@@ -572,7 +572,7 @@ static table in `source_streams._static_specs`, its state from the channel rows 
 use: a connector the person connected (X, Reddit, Pinterest) makes the same stream `account`. **`count` is list
 membership** (`id_utils.page_lists`: a post bookmarked first and liked later counts on both), from one pass over the media
 pages kept under `bank_index.derived`, never a scan per request; a history's is its days, LinkedIn's connections' the
-kept directory's size. `folderCount` counts the site's own folders (`save_folders`; a playlist is one). The route
+kept directory's size. **A count of zero with no last read is `null`** (unknown: nobody has read it; a read that found nothing records its day, so "read and empty" stays `0`) — the app draws no number for it. `folderCount` counts the site's own folders (`save_folders`; a playlist is one). The route
 writes nothing and is a plain read on a copy.
 **`GET /sources/linkedin-connections/list` (G245, ruling 78 (c), owner 2026-11-24).** The person's LinkedIn connections in the
 order they were made — `query` (words of a name or headline), `since`, `until` (days, inclusive; an undated row is outside any

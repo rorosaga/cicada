@@ -1,0 +1,85 @@
+{
+ "about": "Invented. Three stories of one first name held by two people on one page: what a split leaves on the old page, and where a thin mention goes. Markers are words only that person's facts carry.",
+ "stories": [
+  {
+   "id": "dani", "name": "Dani", "owner": "Mira Kolar",
+   "people": {"x": {"label": "neighbour", "markers": ["biscoito", "quince", "jam", "retired", "downstairs", "stairs"]},
+              "y": {"label": "architect", "markers": ["halden", "bergen", "facade", "timber", "cost table", "kids"]}},
+   "thin": "d03", "thin_belongs": "y",
+   "conversations": [
+    {"id": "d01", "phase": 1, "day": -50, "title": "Morning dog", "turns": [
+      "My neighbour Dani in Porto walks her dog Biscoito every morning at seven, she is retired and says the stairs are getting harder.",
+      "A good routine for both of them.", "Yes, she has had Biscoito for nine years and talks about him all day."]},
+    {"id": "d02", "phase": 1, "day": -44, "title": "Quince jam", "turns": [
+      "Dani, the neighbour downstairs, gave me a jar of quince jam, she makes it every autumn from her sister's tree.",
+      "That sounds lovely.", "It is the best jam I know, and she refuses to share the recipe."]},
+    {"id": "d03", "phase": 2, "day": -20, "title": "Drawings", "turns": [
+      "Dani is sending the revised drawings tonight so I can mark them up before tomorrow.",
+      "Good idea to mark them up early.", "Yes, the review meeting is at nine."]},
+    {"id": "d04", "phase": 2, "day": -16, "title": "Facade options", "turns": [
+      "Dani from the architecture studio Halden is our client lead on the Bergen housing project, she wants the facade options by Friday.",
+      "That is a tight deadline.", "It is, but she is fair about it, and she has two kids so she never works weekends."]},
+    {"id": "d05", "phase": 2, "day": -12, "title": "Timber facade", "turns": [
+      "Dani approved the timber facade for the Bergen housing project and asked for the cost table by the end of the month.",
+      "Good news for the project.", "Yes, now it is all about the cost table."]},
+    {"id": "d06", "phase": 3, "day": -5, "title": "Two Danis", "turns": [
+      "Funny evening: Dani the architect finally met my neighbour Dani at the courtyard party. Dani the architect leads the Bergen project at Halden. My neighbour Dani is the retired woman with the dog. They talked about gardens for an hour.",
+      "Two Danis at one party!",
+      "The drawings Dani sent me last week were from the architect, obviously, not from my neighbour."]}
+   ]
+  },
+  {
+   "id": "lucia", "name": "Lucía", "owner": "Mira Kolar",
+   "people": {"x": {"label": "prima", "markers": ["medicina", "sevilla", "anatomía", "abuela", "estudiante", "exámenes"]},
+              "y": {"label": "compras", "markers": ["aldana", "compras", "facturas", "valencia", "embalajes", "hijos"]}},
+   "thin": "l03", "thin_belongs": "y",
+   "conversations": [
+    {"id": "l01", "phase": 1, "day": -50, "title": "Exámenes", "turns": [
+      "Mi prima Lucía estudia segundo de medicina en Sevilla y tiene exámenes de anatomía la semana que viene, está muy nerviosa.",
+      "Es una época dura. ¿Cómo lo lleva?", "Tiene veinte años y es su primera gran temporada de exámenes, así que la llamo casi todas las noches."]},
+    {"id": "l02", "phase": 1, "day": -44, "title": "Cumpleaños de la abuela", "turns": [
+      "Lucía viene en tren desde Sevilla para el cumpleaños de la abuela el domingo, la recojo en la estación.",
+      "Será un buen día en familia.", "Sí, prometió traer sus apuntes de anatomía para que le haga preguntas en el coche."]},
+    {"id": "l03", "phase": 2, "day": -20, "title": "Contrato", "turns": [
+      "Lucía me manda el contrato esta noche para que lo revise antes de mañana.",
+      "Buena idea revisarlo primero.", "Sí, la reunión de firma es a las nueve."]},
+    {"id": "l04", "phase": 2, "day": -16, "title": "Presupuesto de embalajes", "turns": [
+      "Lucía, la directora de compras de Grupo Aldana, aprobó esta mañana el presupuesto del proveedor de embalajes.",
+      "Buena noticia para el proyecto.", "Sí, y quiere las facturas del trimestre antes de fin de mes."]},
+    {"id": "l05", "phase": 2, "day": -12, "title": "Viernes en Valencia", "turns": [
+      "Lucía de compras trabaja desde Valencia los viernes y tiene dos hijos, por eso no hace reuniones por la tarde.",
+      "Es una buena organización.", "Sí, en Grupo Aldana todos lo respetan."]},
+    {"id": "l06", "phase": 3, "day": -5, "title": "Dos Lucías", "turns": [
+      "Anoche mi prima Lucía conoció a Lucía, la directora de compras de Grupo Aldana, en la cena de mi cumpleaños. Mi prima es la estudiante de medicina de Sevilla; la otra Lucía lleva las compras en Grupo Aldana. Hablaron de perros una hora.",
+      "¡Dos Lucías en una mesa!",
+      "El contrato que me mandó Lucía la semana pasada era de la directora de compras, claro, no de mi prima."]}
+   ]
+  },
+  {
+   "id": "tom", "name": "Tom", "owner": "Mira Kolar",
+   "people": {"x": {"label": "plumber", "markers": ["plumber", "boiler", "radiator", "leeds", "van"]},
+              "y": {"label": "marathon friend", "markers": ["marathon", "cork", "berlin", "training", "dublin"]}},
+   "thin": "t03", "thin_belongs": "unknown",
+   "conversations": [
+    {"id": "t01", "phase": 1, "day": -50, "title": "Boiler", "turns": [
+      "Tom came this morning and fixed the boiler in the flat in Leeds; he charged ninety pounds and said the pressure valve was worn.",
+      "Good that it is fixed before winter.", "Yes, he is a plumber who works alone out of a van and he was gone in an hour."]},
+    {"id": "t02", "phase": 1, "day": -44, "title": "Radiator", "turns": [
+      "I called Tom again about the radiator in the hall; he can come on Thursday.",
+      "Hopefully it is a quick fix.", "He thinks it just needs bleeding, he said it should take twenty minutes."]},
+    {"id": "t03", "phase": 2, "day": -30, "title": "Call back", "turns": [
+      "Tom says he will call me back tomorrow about Saturday.",
+      "Do you know what it is about?", "Not yet, I will find out when he calls."]},
+    {"id": "t04", "phase": 2, "day": -26, "title": "Marathon plan", "turns": [
+      "My friend Tom from Cork is running the Dublin marathon in October and has been training six days a week since June.",
+      "That is a serious plan.", "He says the long runs on Sunday are the hardest part."]},
+    {"id": "t05", "phase": 2, "day": -14, "title": "Marathon done", "turns": [
+      "Tom, my friend in Cork, finished the marathon in four hours ten, and he has already signed up for the one in Berlin.",
+      "Impressive.", "He wants to beat three hours fifty in Berlin."]},
+    {"id": "t06", "phase": 3, "day": -5, "title": "Visit", "turns": [
+      "Tom from Cork is visiting for a weekend in November, he wants to join the Saturday park run.",
+      "That will be fun.", "Yes, and he will stay on the sofa."]}
+   ]
+  }
+ ]
+}

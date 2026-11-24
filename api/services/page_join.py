@@ -403,27 +403,266 @@ def _take_sentences(prose: str, picked: set[int]) -> tuple[str, list[tuple[str, 
     return text, moved
 
 
+#: The sections a machine page writes as bullets: moved lines go back as bullets, never run together as prose.
+_BULLET_SECTIONS = ("Key Facts", "History", "Related", "Open Questions")
+
+
 def _new_body(moved: list[tuple[str, str]]) -> str:
-    """The new page's prose: the moved sentences under the headings they sat under, a Summary first."""
+    """The new page's prose: the moved sentences under the headings they sat under, a Summary first. A section the old page
+    wrote as bullets stays bullets; a group that becomes the Summary reads as sentences (each one ends where it ends)."""
+    from api.services import entity_body
+
     groups: dict[str, list[str]] = {}
     for section, text in moved:
         groups.setdefault(section or "Summary", []).append(text)
+    promoted = ""
     if "Summary" not in groups and groups:
-        first = next(iter(groups))
-        groups = {"Summary": groups[first], **{k: v for k, v in groups.items() if k != first}}
-    return "\n\n".join(f"## {sec}\n{' '.join(texts)}" for sec, texts in groups.items())
+        promoted = next(iter(groups))
+        groups = {"Summary": groups[promoted], **{k: v for k, v in groups.items() if k != promoted}}
+    order = {title: n for n, title in enumerate(entity_body.CANONICAL_SECTIONS)}
+    groups = dict(sorted(groups.items(), key=lambda kv: order.get(kv[0], len(order))))   # the writer's own order
+    out = []
+    for sec, texts in groups.items():
+        if sec in _BULLET_SECTIONS:
+            out.append(f"## {sec}\n" + "\n".join(f"- {t}" for t in texts))
+        elif sec == "Summary" and promoted:
+            out.append(f"## {sec}\n" + " ".join(entity_body.summary_line(t) for t in texts))
+        else:
+            out.append(f"## {sec}\n{' '.join(texts)}")
+    return "\n\n".join(out)
+
+
+TAGS_SECTION = "tags"
+
+
+_DASHES = "—–-"
+_EDGE_LEAD = re.compile(r"^(?:[;,:]|[—–-](?=\s))\s*")
+_EDGE_TRAIL = re.compile(r"\s*(?:[;,:]|(?<=\s)[—–-])$")
+
+
+def _tidy_cut(content: str, original: str, at_start: bool) -> str:
+    """A line with a stretch cut out of it, mended: no doubled space, no dangling clause punctuation (a dash only when it
+    stands apart, never the hyphen inside a word), its closing full stop kept, a capital where the cut took the line's
+    start. Changes no word."""
+    out = re.sub(r"\s{2,}", " ", content).strip()
+    while True:
+        mended = _EDGE_TRAIL.sub("", _EDGE_LEAD.sub("", out)).strip()
+        if mended == out:
+            break
+        out = mended
+    if out and original.rstrip()[-1:] in ".!?" and out[-1:] not in ".!?":
+        out += original.rstrip()[-1:]
+    if out and at_start and out[0].islower():
+        out = out[0].upper() + out[1:]
+    return out
+
+
+def _bracket_spans(line: str) -> list[tuple[int, int]]:
+    """``(open, close)`` of every matched ``[...]`` and ``(...)`` of a line (a ``[[link]]`` is two nested ``[]``, a markdown
+    link a ``[]`` and a ``()``). An unmatched bracket ("1) first") encloses nothing."""
+    spans: list[tuple[int, int]] = []
+    stack: list[tuple[str, int]] = []
+    pair = {"]": "[", ")": "("}
+    for i, ch in enumerate(line):
+        if ch in "[(":
+            stack.append((ch, i))
+        elif ch in pair:
+            for k in range(len(stack) - 1, -1, -1):
+                if stack[k][0] == pair[ch]:
+                    spans.append((stack[k][1], i))
+                    del stack[k:]
+                    break
+    return spans
+
+
+def inside_brackets(line: str, start: int, end: int) -> bool:
+    """A cut ``line[start:end]`` that starts or ends strictly inside a ``[...]``, ``(...)`` or ``[[...]]``."""
+    return any(o < start <= c or o < end <= c for o, c in _bracket_spans(line))
+
+
+def cut_edges_clean(line: str, start: int, end: int) -> bool:
+    """``line[start:end]`` starts and ends at a clause edge: the line's own ends, or a ``; , : .`` followed or preceded by
+    a space (never a comma in a number, a stop in "e.g."), or a dash with a space on both sides (never the hyphen of a
+    word); and neither end is inside a ``[...]``, ``(...)`` or ``[[...]]``, so no link or aside is torn."""
+    if not 0 <= start < end <= len(line) or inside_brackets(line, start, end):
+        return False
+    before = line[:start].rstrip()
+    gap = line[len(before):start]
+    if before:
+        last = before[-1]
+        spaced_dash = last in _DASHES and (len(before) < 2 or before[-2].isspace())
+        if not (gap and (last in ";,:" or spaced_dash)):
+            return False
+    after_raw = line[end:]
+    after = after_raw.lstrip()
+    if after:
+        first = after[0]
+        lead_gap = len(after_raw) - len(after)
+        nxt = after[1:2]
+        if first in ";,:.!?":
+            if nxt and not nxt.isspace():
+                return False
+        elif first in _DASHES:
+            if not (lead_gap and nxt.isspace()):
+                return False
+        else:
+            return False
+    return True
+
+
+_WIKILINK = re.compile(r"\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]")
+
+
+def _linked(prose: str, claims) -> set[str]:
+    """The page ids a stretch of prose and a set of beliefs point at (a ``[[link]]``, a belief's node object)."""
+    from api.services.id_utils import sanitize_id
+
+    out = {sanitize_id(m.group(1).strip()) for m in _WIKILINK.finditer(prose or "")}
+    out |= {str(c.object) for c in claims if getattr(c, "object_kind", "") == "node" and c.object}
+    return out
+
+
+def _related_that_leave(related, moved_claims, moved_sentences, kept_claims, kept_prose: str) -> list[str]:
+    """The old page's ``related`` entries that only what moved points at: the other person's pages, which stay on the
+    old page's list otherwise (nothing else on it says why they are there). One a staying belief or line still points
+    at stays."""
+    kept = _linked(kept_prose, kept_claims)
+    gone = _linked(" ".join(text for _sec, text in moved_sentences), moved_claims)
+    return [str(r) for r in related or [] if str(r) in gone and str(r) not in kept]
+
+
+def _span_with_connector(content: str, start: int, end: int) -> tuple[int, int]:
+    """A cut's span widened to take one clause connector with it, so what is left reads as it did: the ``;`` or ``,``
+    before it, else the one after it. Never a hyphen inside a word."""
+    b = start
+    while b > 0 and content[b - 1].isspace():
+        b -= 1
+    if b > 0 and b < start and (content[b - 1] in ";,:" or (content[b - 1] in _DASHES and (b < 2 or content[b - 2].isspace()))):
+        return b - 1, end
+    a = end
+    while a < len(content) and content[a].isspace():
+        a += 1
+    if start == 0 or not content[:start].strip():
+        if a < len(content) and (content[a] in ";,:" or (content[a] in _DASHES and a > end)):
+            return start, a + 1
+    return start, end
+
+
+def _place_cut(rows: list[tuple[int, str, str]], section: str, cut: tuple) -> tuple[int, int, int] | None:
+    """``(row, start, end)`` where ``cut`` lies, or ``None`` when it cannot be placed exactly once. A cut with the sentence
+    the judge saw and its offset in it is placed at that offset of that sentence, which must occur once in the section;
+    a short sourced cut (no sentence) is a whole line that occurs once in the section."""
+    text = str(cut[1])
+    here = [(i, content) for i, sec, content in rows if sec == section]
+    if len(cut) >= 4 and str(cut[2]):
+        sentence, at = str(cut[2]), int(cut[3])
+        found = [(i, content, m) for i, content in here for m in _all_at(content, sentence)]
+        if len(found) != 1 or not (0 <= at and sentence[at:at + len(text)] == text):
+            return None
+        i, content, base = found[0]
+        start = base + at
+        whole = text == sentence
+        if content[start:start + len(text)] != text or inside_brackets(content, start, start + len(text)):
+            return None
+        if not whole and not cut_edges_clean(sentence, at, at + len(text)):
+            return None
+        if section == "History" and content.strip() != text.strip():
+            return None   # a split may move a History bullet whole, never cut inside one
+        return i, start, start + len(text)
+    lines = [(i, content) for i, content in here if " ".join(content.split()) == " ".join(text.split())]
+    if len(lines) != 1:
+        return None
+    i, content = lines[0]
+    return i, len(content) - len(content.lstrip()), len(content.rstrip())
+
+
+def _all_at(content: str, needle: str) -> list[int]:
+    out, at = [], content.find(needle)
+    while at >= 0 and needle:
+        out.append(at)
+        at = content.find(needle, at + 1)
+    return out
+
+
+def _apply_cuts(prose: str, cuts: list[tuple]) -> tuple[str, list[tuple[str, str]]]:
+    """``prose`` without each cut, and the ``[(section, text)]`` that were found, in reading order. A cut is
+    ``(section, text, sentence, at)``: ``text`` is the stretch at offset ``at`` of ``sentence``, the sentence the judge
+    saw, under the heading ``section`` (or ``(section, text)``, a whole short line); it is applied at exactly that place,
+    which must hold once in the section as it is now and start and end at a clause edge, and otherwise is not applied,
+    never at the first matching text. A line left with nothing is dropped, and a heading whose section is left empty goes
+    with it."""
+    wanted = [tuple(c) for c in cuts if str(c[0]) != TAGS_SECTION and str(c[1]).strip()]
+    lines = prose.splitlines()
+    rows: list[tuple[int, str, str]] = []
+    markers: dict[int, str] = {}
+    section, in_fence = "", False
+    for i, raw in enumerate(lines):
+        line = raw.strip()
+        if line.startswith("```"):
+            in_fence = not in_fence
+        elif in_fence or not line:
+            pass
+        elif line.startswith("#"):
+            section = line.lstrip("#").strip()
+        else:
+            marker = re.match(r"^(\s*(?:(?:[-*+]|\d+[.)])\s+)?)", raw).group(1)
+            markers[i] = marker
+            rows.append((i, section, raw[len(marker):]))
+    spans: dict[int, list[tuple[int, int, tuple]]] = {}
+    for cut in wanted:
+        where = _place_cut(rows, str(cut[0]), cut)
+        if where is None:
+            continue
+        i, start, end = where
+        if any(s < end and start < e for s, e, _c in spans.get(i, [])):
+            continue   # two cuts over the same words: the second is not applied
+        spans.setdefault(i, []).append((start, end, cut))
+    out_lines: list[str] = []
+    moved: list[tuple[str, str]] = []
+    contents = {i: content for i, _sec, content in rows}
+    for i, raw in enumerate(lines):
+        if i not in spans:
+            out_lines.append(raw)
+            continue
+        content = contents[i]
+        mended = content
+        first = min(s for s, _e, _c in spans[i])
+        for start, end, cut in sorted(spans[i], reverse=True):
+            a, b = _span_with_connector(mended, start, end)
+            mended = mended[:a] + mended[b:]
+        for start, end, cut in sorted(spans[i]):
+            moved.append((str(cut[0]), str(cut[1])))
+        mended = _tidy_cut(mended, content, not content[:first].strip())
+        if re.search(r"\w", mended):
+            out_lines.append(markers[i] + mended)
+    moved_sections = {sec for sec, _t in moved}
+    cleaned: list[str] = []
+    for i, raw in enumerate(out_lines):
+        if raw.strip().startswith("#") and raw.strip().lstrip("#").strip() in moved_sections:
+            nxt = next((r for r in out_lines[i + 1:] if r.strip()), "")
+            if not nxt or nxt.strip().startswith("#"):
+                continue
+        cleaned.append(raw)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(cleaned)).strip(), moved
 
 
 def split(memory_path, page_id: str, *, sentences=(), claims=(), sources=(), episodes=(), references=None,
           name: str | None = None, entity_type: str | None = None, author: str | list[str] = "user",
           trigger: str = TRIGGER_APP, reason: str | None = None, session: str | None = None, before=None,
-          extra_paths=(), extra_lines=()) -> dict:
+          extra_paths=(), extra_lines=(), cuts=(), related_follows: bool = False) -> dict:
     """Move what the person picked from ``page_id`` to a new page and commit it alone.
 
     ``sentences``: numbers from :func:`split_plan`; ``claims``: claim ids; ``sources``: source refs; ``episodes``:
     conversation ids; ``references``: ``{other page id: "new" | "stay"}`` — a page not named is re-pointed only when
     its evidence says the new page (:func:`reference_choice`), never otherwise. Refused, nothing written (400): nothing
-    picked, an id the page does not hold, a type outside the closed set."""
+    picked, an id the page does not hold, a type outside the closed set.
+
+    ``cuts``: ``[(section, text, sentence, at)]`` stretches of the page's prose (``section`` ``tags`` for a tag) that move with the
+    rest, each ``text`` at offset ``at`` of the one ``sentence`` the judge saw under its heading, or ``(section, text)``, a whole short
+    line (`same_name_leftovers`); applied only where that holds exactly once as the page is when the split runs: what Sleep's split moves besides the
+    sentences it numbered. They ride in this same commit, so :func:`undo` takes them back with it. ``related_follows``:
+    the old page's ``related`` entries that only what moved points at go with it (Sleep's split; the person's own split
+    sheet keeps its list as it was)."""
     from api.services import decay_policy, entity_merge, entity_types, fact_sources, merge_rejections, same_name_split
     from api.services.claims import MalformedClaimsBlockError, parse_claims, strip_claims_block, write_claims
 
@@ -470,6 +709,24 @@ def split(memory_path, page_id: str, *, sentences=(), claims=(), sources=(), epi
 
     # The page that stays.
     kept_prose, moved_sentences = _take_sentences(strip_claims_block(parsed.body), picked_n)
+    cut_list = [(str(c[0]), str(c[1]), str(c[2]), int(c[3])) if len(c) >= 4 else (str(c[0]), str(c[1])) for c in cuts or ()]
+    if cut_list:
+        from api.services import same_name_leftovers
+
+        # Re-read inside the lock, against the page as it is now: a line a person or an agent has since written or pinned,
+        # or a sentence that no longer holds exactly once, is not cut.
+        cut_list = same_name_leftovers.still_placeable(memory_path, pid, cut_list)
+        kept_prose, cut_moved = _apply_cuts(kept_prose, cut_list)
+        moved_sentences += cut_moved
+    own_tags = [str(t) for t in fm.get("tags") or []]
+    moved_tags = [c[1] for c in cut_list if c[0] == TAGS_SECTION and c[1] in own_tags]
+    if moved_tags:
+        fm["tags"] = [t for t in own_tags if t not in moved_tags]
+    moved_claims_now = [c for c in all_claims if c.id in claim_ids]
+    moved_related = _related_that_leave(fm.get("related"), moved_claims_now, moved_sentences,
+                                        [c for c in all_claims if c.id not in claim_ids], kept_prose) if (cut_list or related_follows) else []
+    if moved_related:
+        fm["related"] = [r for r in fm.get("related") or [] if r not in moved_related]
     moved_claims = [c for c in all_claims if c.id in claim_ids]
     kept_claims = [c for c in all_claims if c.id not in claim_ids]
     fm["source_episodes"] = [e for e in page_eps if e not in ep_ids]
@@ -499,7 +756,7 @@ def split(memory_path, page_id: str, *, sentences=(), claims=(), sources=(), epi
            {k: fm[k] for k in ("decay_class", "decay_rate") if k in fm}),
         "source_episodes": [e for e in page_eps if e in ep_ids],
         **({"sources": moved_sources} if moved_sources else {}),
-        "tags": [], "related": [], "version": 1, "layout_version": 2,
+        "tags": moved_tags, "related": moved_related, "version": 1, "layout_version": 2,
     }
     nbody = _new_body(moved_sentences) or f"## Summary\n{new_name}."
     if moved_claims:

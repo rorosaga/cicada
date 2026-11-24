@@ -4204,6 +4204,9 @@ def write_claim(
         # the person's own observer; stdio passes None/False (unchanged).
         origin=ctx.claim_origin,
         forbid_owner_observer=ctx.is_remote,
+        # G245 follow-up: a remote caller's first claim about a new person never attaches a kept connection at once — the
+        # page's making would tell it whether a guessed name is one of the person's connections; Sleep's tail still does.
+        attach_connection=not ctx.is_remote,
         expected_end=expected_end,
         # Round 4 C2: the second it landed, for the turn join (R4B-5).
         recorded_ts=_now_ts(),

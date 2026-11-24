@@ -233,7 +233,9 @@ fact stopped: `"X" — superseded on <day> by "Y"`, `ended on <day> (its stated 
 `closed on <day>`;
 `cicada_get_perspective(history=true)` lists every earlier claim. **`cicada_timeline(since)`**
 answers "what changed" from the commit manifests on demand — ids and counts only, nothing stored,
-`read` scope remotely. **`cicada_record_watch`** records what an agent's own tools saw in a saved
+`read` scope remotely. A Sleep row names eight new pages (2026-11-24, `change_timeline._most_cited_first`): the things
+the most conversations cite first, a skill page after them, ties in git's order — never the first eight by file name,
+which on a first Sleep of two months left the main project in the "+N more". **`cicada_record_watch`** records what an agent's own tools saw in a saved
 video — a summary and ≤ 12 timestamped quotes as `media` spans; Cicada never downloads or watches a
 video, and never keeps a transcript. **`cicada_project(project, since?, tz?)`** (G141 PJ-2, `read`
 scope remotely) answers where a project stands — next milestones, what passed with no word, the Sleep
