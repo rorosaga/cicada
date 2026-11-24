@@ -438,9 +438,13 @@ async def _poll_connectors_safely(memory_path: Path) -> None:
     edit, silently stops connectors from polling on every idle night).
     """
     try:
+        from api.services import source_polls
         from api.services.connectors import ADAPTERS
     except Exception as e:
         logger.warning(f"connector poll unavailable: {type(e).__name__}: {e}")
+        return
+    if source_polls.polled_lately(memory_path, source_polls.CONNECTORS):
+        logger.info("connector poll skipped: the backend's own poll job ran lately")   # G245
         return
 
     for adapter in ADAPTERS.values():
@@ -490,21 +494,24 @@ async def _poll_feeds_and_calendars_safely(memory_path: Path) -> None:
     away from a half-written cycle.
     """
     try:
-        from api.services import calendar_registry, feed_registry
+        from api.services import calendar_registry, feed_registry, source_polls
     except Exception as e:
         logger.warning(f"feed/calendar poll unavailable: {type(e).__name__}: {e}")
         return
 
     slots = (
-        ("Feed", "feed", "item", feed_registry.list_feeds, feed_registry.poll_feeds),
+        ("Feed", "feed", "item", feed_registry.list_feeds, feed_registry.poll_feeds, source_polls.FEEDS),
         (
             "Calendar", "calendar", "event",
-            calendar_registry.list_calendars, calendar_registry.poll_calendars,
+            calendar_registry.list_calendars, calendar_registry.poll_calendars, source_polls.CALENDARS,
         ),
     )
-    for label, noun, unit, list_fn, poll_fn in slots:
+    for label, noun, unit, list_fn, poll_fn, kind in slots:
         try:
             if not list_fn(memory_path):
+                continue
+            if source_polls.polled_lately(memory_path, kind):
+                logger.info(f"{label} poll skipped: the backend's own poll job ran lately")   # G245
                 continue
             result = await poll_fn(memory_path)
             if result.get("skipped_no_network"):
@@ -1653,7 +1660,7 @@ async def _sensitive_review_safely(memory_path: Path) -> None:
 
 async def _run_engine_independent_tail(
     memory_path: Path, settings: Settings, outcome: _StageOutcome, *, user_triggered: bool = True,
-    skip_links: bool = False,
+    skip_links: bool = False, engine_free: bool = False,
 ) -> None:
     """The work that never needed an LLM — on EVERY exit path.
 
@@ -1718,7 +1725,14 @@ async def _run_engine_independent_tail(
     G141 capture-side track (R-CS16): on a demo bank the outside-world steps
     are skipped; expiry, the follow-up proposer, the state refresh, logos and
     the question refresh still run.
+
+    ``engine_free`` (G245, track C1): a scheduled night with nothing readable — every step that would ask a model
+    (the same-name review, In short, a recording's read, the web check and light context, the link backfill, the
+    books' model read) is skipped like a run stopped at its limit, so no engine starts and no plan is spent;
+    expiry, the state refresh, the polls and the rest of the engine-free work run.
     """
+    no_model = skip_links or engine_free
+    why = "the run stopped at its limit" if skip_links else "nothing was read, so no engine started"
     await _refresh_state_safely(memory_path, settings)
     if outcome.committed or not _state.write_started or await _tree_is_clean(memory_path):
         # Final-review H1 is preserved: on the happy path this still runs
@@ -1733,8 +1747,8 @@ async def _run_engine_independent_tail(
         await _propose_followups_safely(memory_path)
         # 2026-11-23: the people who share a first name that tonight's batches flagged, looked at again — before the
         # catch-up proposers (a pair joined here is never asked about there) and any poll's `git add -A`.
-        if skip_links:
-            logger.info("Same-name review skipped: the run stopped at its limit")
+        if no_model:
+            logger.info(f"Same-name review skipped: {why}")
         else:
             await _same_name_review_safely(memory_path, settings, user_triggered=user_triggered)
         # Vision item 10: "still?" and same-person questions for the catch-up, one shared budget per drain.
@@ -1752,8 +1766,8 @@ async def _run_engine_independent_tail(
         await _sensitive_review_safely(memory_path)
         # Ruling 48 part 5: In short for long, busy pages — a model call on the bank alone (nothing from outside), so a
         # demo bank gets it too; never past a run that stopped at the plan's limit.
-        if skip_links:
-            logger.info("In short skipped: the run stopped at its limit")
+        if no_model:
+            logger.info(f"In short skipped: {why}")
         else:
             await _in_short_safely(memory_path, settings, user_triggered=user_triggered)
             # ROR-117 / ruling 68: an added recording's words read once for its page's Summary and Why it matters.
@@ -1772,21 +1786,21 @@ async def _run_engine_independent_tail(
             # G61, ruling 26: tracked sources re-checked (public pages only), before any poll's `git add -A`.
             await _source_refresh_safely(memory_path)
             # Owner ruling 2026-10-16: public-thing questions looked up and settled, before any poll's `git add -A`.
-            if skip_links:
-                logger.info("web check and light context skipped: the run stopped at its limit")
+            if no_model:
+                logger.info(f"web check and light context skipped: {why}")
             else:
                 await _web_check_safely(memory_path, settings, user_triggered=user_triggered)
                 # Owner ruling 44 (G121): public pages' world facts looked up and kept current, same slot.
                 await _web_context_safely(memory_path, settings, user_triggered=user_triggered)
             await _poll_connectors_safely(memory_path)
             await _poll_feeds_and_calendars_safely(memory_path)
-            if skip_links:
+            if no_model:
                 # A drain that stopped on the plan's limit, or passed the person's own: the backfill would meet the same one.
-                logger.info("link backfill skipped: the run stopped at its limit")
+                logger.info(f"link backfill skipped: {why}")
             else:
                 await _backfill_links_safely(memory_path, settings, user_triggered=user_triggered)
             await _resolve_papers_safely(memory_path)
-            await _resolve_books_safely(memory_path, None if skip_links else settings)
+            await _resolve_books_safely(memory_path, None if no_model else settings)
             await _replay_wispr_todos_safely(memory_path)
     else:
         logger.warning(
@@ -1937,7 +1951,7 @@ def _hold_awake_if_chosen(settings: Settings, cycle_id: str) -> None:
 
 async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True, drain: bool = False,
               continue_from: dict | None = None, only_ids: list[str] | None = None,
-              tail_only: bool = False, catch_up_for: str | None = None) -> None:
+              tail_only: bool = False, catch_up_for: str | None = None, engine_free: bool = False) -> None:
     """Execute the 5-stage Sleep cycle pipeline.
 
     ``catch_up_for`` (owner 2026-10-19): only ``sleep_catch_up`` passes it — the scheduled time the Mac slept or was
@@ -1947,6 +1961,11 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
     the person's to continue or end — but still run the engine-free tail (the state refresh,
     claim expiry, follow-ups, the polls, the link backfill), so a pause never stops them.
     The paused run's in-memory state (``_state.drain``) is left as it was.
+
+    ``engine_free`` (G245, track C1; only ``sleep_catch_up`` passes it): a scheduled time with nothing readable still
+    gets the tail, so the polls and the upkeep never wait on a night with something to read. It implies
+    ``tail_only`` (nothing is read, no run is recorded) and skips every tail step that would ask a model, so no
+    engine starts and no plan is spent.
 
     ``continue_from`` (Sleep page v5): a paused run's record (``sleep_paused``) — the
     drain resumes it under the same run id with its counters carried. ``only_ids``:
@@ -1974,6 +1993,8 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
     spec §7's trigger scope, and what `Copy.sleepEngineExplainer` promises.
     """
     global _state
+
+    tail_only = tail_only or engine_free
 
     # G181 phase 3: a client's click may start this run inside its request; nothing Sleep writes is that device's.
     from api.services import device_context
@@ -2133,6 +2154,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
                     # Only a drain stopped at the plan's limit passes this; the call
                     # stays the plain one otherwise, exactly as before.
                     **({"skip_links": True} if outcome.skip_links else {}),
+                    **({"engine_free": True} if engine_free else {}),
                 )
         finally:
             keep_awake.release(cycle_id)  # G243: after the tail, on every exit path; it also dies with this process

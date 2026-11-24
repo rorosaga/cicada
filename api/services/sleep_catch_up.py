@@ -33,8 +33,10 @@ means the Mac slept (or the process just started), and the settle starts again.
 **Rails.** A catch-up is a scheduled run: ``user_triggered=False`` (ruling 4/4b — a plan only through the person's
 switch, never flipped here); it reads everything waiting (ruling 16, ``_scheduled_drain``); it never stacks on a
 running cycle (it looks again next probe); a paused run gets the engine-free upkeep only, exactly as the cron's
-``_run_if_idle``; it resolves the bank active when it fires (``bank_registry.unpin``, G183(d)); and it runs only when
-something readable waits (a parked conversation or index-only history is not readable). The run's summary carries
+``_run_if_idle``; it resolves the bank active when it fires (``bank_registry.unpin``, G183(d)); and it *reads* only
+when something readable waits (a parked conversation or index-only history is not readable). A missed time with
+nothing readable runs the engine-free tail alone (G245, ``run(tail_only=True, engine_free=True)``): the polls, expiry
+and the state refresh happen, no engine starts, no plan is spent and no run is recorded. The run's summary carries
 ``catch_up_for`` — the missed time — so Past nights can say "Missed 03:00 — caught up at 08:12".
 """
 from __future__ import annotations
@@ -264,7 +266,10 @@ async def probe(settings) -> None:
         readable = getattr(debt, "unprocessed_count", 0)
     note_handled(memory_path, now=now)   # before reading: a run that fails is tried once, not on every wake
     if not readable:
-        logger.info(f"Scheduled sleep catch-up: nothing to read for the missed {_local_hhmm(due)} run")
+        # G245 (track C1): nothing to read is no reason to skip the upkeep — the polls, expiry and the state refresh
+        # run, with no engine and no run recorded, so a quiet night never leaves a source stale.
+        logger.info(f"Scheduled sleep catch-up: nothing to read for the missed {_local_hhmm(due)} run — upkeep only")
+        await sleep_cycle.run(settings, cycle_id, user_triggered=False, tail_only=True, engine_free=True)
         return
     if sleep_cycle.get_sleep_state().status == "running":
         return                           # a run began while the queue was counted: it reads what waits

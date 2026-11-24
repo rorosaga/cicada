@@ -1107,6 +1107,15 @@ same way.
   part is counted only when the bank's page cache is warm (a cold cache counts the asks and warms in the background), so
   the hook's 300 ms budget never meets a bank parse. One sentence beside the page note (its 400-token budget is the page note's own), per request,
   never stored, dropped from a captured transcript like every "From Cicada" note.
+  **A list that is due is named (G245, track C1):** "your X Bookmarks is due to be read in the person's own signed-in
+  browser" — a site and a list's name from `reading_queue.lists_due` (never an item, handle or count), said in place of
+  counting the list as a link. **Only to a harness that has recorded a list read before** (`saved_lists.readers`, the
+  harness name and a time kept beside the lists' status, outside every bank): Cicada has no table of which harness can drive
+  a browser and cannot see an agent's tools (ruling 14), so a recorded `cicada_record_saved_list` / `_youtube_list` /
+  `_substack_list` read of `read` is the one thing it knows. A harness with none hears only about links the person asked
+  about, as before, so the first list read of a harness comes from the person's own "Check now" or hand-off. A list that
+  stays due repeats on a later prompt of the same session only after `READING_SEEN.LIST_REPEAT_S` (15 minutes); a different
+  list newly due is said at once; a list that was read or paused is forgotten so the next one counts as new.
 - **Remote.** Remote connectors have no hooks.
 
 **Continuity (G110 slice 1a plus 1b A1/A2/B2, owner ruling 2026-10-07).** A session started (`source`

@@ -67,17 +67,35 @@ def question_line(name: str, item_id: str, entity_id: str, question: str) -> str
 READING_HEADER = INJECTION_PREFIX + " by Cicada's hook, not typed by them) — a reading request:"
 
 
-def reading_line(waiting: int, *, record: bool = False) -> str:
+def _list_phrase(lists) -> str:
+    """``your X Bookmarks``, ``your X Bookmarks and your Instagram Saved``: a site and a list's name, never an item."""
+    names = [f"your {name}" for name in lists]
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def reading_line(waiting: int, *, record: bool = False, lists=()) -> str:
     """One sentence, per request and never stored: how many links are waiting in
     Cicada's reading queue for an agent to read — ones the person asked about, and
     pages from sites they allowed. A statement, not a command (see the module's
     note on hook wording). ``record`` names ``cicada_record_read`` for a remote connection
-    that holds it; elsewhere the queue's reply names it (R12, ``tool_offer``)."""
-    noun = "link" if waiting == 1 else "links"
+    that holds it; elsewhere the queue's reply names it (R12, ``tool_offer``).
+
+    ``lists`` (G245, track C1): the person's lists that are due to be read, by site and name ("X Bookmarks") — said
+    only to a harness known to have read one in a browser, in the person's own terms, ahead of any links."""
     tail = (" and `cicada_record_read(url, outcome, summary)` records what was read" if record else "")
-    return (f"{waiting} {noun} {'is' if waiting == 1 else 'are'} waiting in Cicada's reading queue for an agent "
-            "to read (ones the person asked about, and pages from sites they allowed). Once their own request is "
-            f"done (or if it is about those links), `cicada_reading_queue(limit)` lists what is waiting{tail}.")
+    if not lists:
+        noun = "link" if waiting == 1 else "links"
+        return (f"{waiting} {noun} {'is' if waiting == 1 else 'are'} waiting in Cicada's reading queue for an agent "
+                "to read (ones the person asked about, and pages from sites they allowed). Once their own request is "
+                f"done (or if it is about those links), `cicada_reading_queue(limit)` lists what is waiting{tail}.")
+    due = f"{_list_phrase(lists)} {'is' if len(lists) == 1 else 'are'} due to be read in the person's own signed-in browser"
+    if waiting <= 0:
+        return (f"{due} (they turned that on in Cicada). Once their own request is done, "
+                f"`cicada_reading_queue(limit)` lists what to open{tail}.")
+    noun = "link" if waiting == 1 else "links"
+    return (f"{due}, and {waiting} {noun} {'is' if waiting == 1 else 'are'} waiting in Cicada's reading queue for an "
+            "agent to read (ones the person asked about, and pages from sites they allowed). Once their own request "
+            f"is done, `cicada_reading_queue(limit)` lists what is waiting{tail}.")
 
 
 def refresh_line(due: int) -> str:

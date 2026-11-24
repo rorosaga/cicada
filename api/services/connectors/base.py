@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import inspect
 import os
 import re
@@ -161,6 +162,14 @@ async def call_http(http_fn: HttpFn, method: str, url: str, **kwargs) -> dict:
 # caller would then have to handle specially.
 _sync_lock = asyncio.Lock()
 
+#: Set by the backend's own poll job (``source_polls``) around a scheduled poll: this sync was started by a timer, not
+#: the person, so its ingest and commit run through this (an admitted transaction that yields to a Sleep that is
+#: writing). Every other caller (a click, the Sleep tail, which already holds the window) leaves it ``None``.
+INGEST_ADMISSION: contextvars.ContextVar[Callable[[Path, Callable[[], Awaitable[dict]]], Awaitable[dict | None]] | None] = (
+    contextvars.ContextVar("connector_ingest_admission", default=None))
+#: What a poll that waited for Sleep records on the channel's row.
+WAITED_FOR_SLEEP = "Sleep was reading your memory, so nothing was saved this time; the next poll picks it up."
+
 
 async def run_sync(
     channel_id: str,
@@ -231,58 +240,77 @@ async def _run_sync_locked(
         sync_state.record_error(memory_path, channel_id, message, kind=kind)
         return {"status": "error", "reason": None, **empty, "error": message}
 
-    # Final-review H3: chunk in MAX_BATCH-sized slices until every fetched
-    # item is ingested, instead of a single `items[:MAX_BATCH]` call that
-    # silently dropped the tail of a >MAX_BATCH pull (Pinterest, with enough
-    # boards, routinely exceeds it) while still reporting `count`/`seen` as
-    # if nothing was lost and advancing the connector's own cursor past the
-    # dropped items forever. Each connector's own fetch caps (PAGE_SIZE x
-    # MAX_PAGES) still bound the total, so this loop runs a small, known
-    # number of times, not an unbounded one.
-    created = 0
-    failed = 0
+    async def ingest_and_record() -> dict:
+        # Final-review H3: chunk in MAX_BATCH-sized slices until every fetched
+        # item is ingested, instead of a single `items[:MAX_BATCH]` call that
+        # silently dropped the tail of a >MAX_BATCH pull (Pinterest, with enough
+        # boards, routinely exceeds it) while still reporting `count`/`seen` as
+        # if nothing was lost and advancing the connector's own cursor past the
+        # dropped items forever. Each connector's own fetch caps (PAGE_SIZE x
+        # MAX_PAGES) still bound the total, so this loop runs a small, known
+        # number of times, not an unbounded one.
+        created = 0
+        failed = 0
+        try:
+            for start in range(0, len(items), media_ingestor.MAX_BATCH):
+                chunk = items[start : start + media_ingestor.MAX_BATCH]
+                chunk_created, chunk_duplicates = await media_ingestor.ingest_batch(
+                    chunk, memory_path, from_bookmark_file=False,
+                )
+                created += chunk_created
+                # Devin round-1, finding 2: `ingest_batch`'s own worker
+                # SUPPRESSES a per-item `ingest_one` failure (catches, logs a
+                # warning, returns — never raises past `ingest_batch` or the
+                # `asyncio.gather` inside it), so an item that failed to ingest
+                # is invisible to both of `ingest_batch`'s two return values
+                # UNLESS accounted for by elimination: every item in `chunk` is
+                # either freshly created, already a duplicate (`chunk_duplicates`
+                # — pre-existing in url_index, or a same-batch dup, or url-less),
+                # or silently dropped by a raised exception — there is no fourth
+                # outcome, so whatever is left over after subtracting the first
+                # two from the chunk size failed.
+                failed += len(chunk) - chunk_created - chunk_duplicates
+        except Exception as e:
+            message, kind = describe_failure(e, _label_of(channel_id))
+            logger.warning(f"{channel_id} sync failed: {type(e).__name__}")
+            sync_state.record_error(memory_path, channel_id, message, kind=kind)
+            return {"status": "error", "reason": None, "new": created, "seen": 0, "error": message}
+
+        if failed:
+            # A chunk that lost items to a suppressed failure must NOT advance
+            # the cursor (`extra`, computed by the connector's `fetch()` from the
+            # FULL fetched list): the failed item was never re-fetched, so a
+            # cursor that jumped past it would lose it permanently. Skip
+            # `record_sync` entirely — the stored cursor stays exactly where it
+            # was, so next run re-fetches everything from there; the items that
+            # DID succeed this run are safe from being re-created on that retry
+            # (url_index dedup), only the failed one(s) actually re-ingest.
+            message = (f"{failed} item(s) couldn't be saved this time. The next sync tries them again; nothing already "
+                       "saved is lost.")
+            logger.warning(f"{channel_id} sync: {failed} item(s) failed to ingest")
+            sync_state.record_error(memory_path, channel_id, message, kind="other")
+            return {"status": "error", "reason": None, "new": created, "seen": len(items), "error": message}
+
+        sync_state.record_sync(memory_path, channel_id, count=len(items), extra=extra)
+        return {"status": "ok", "reason": None, "new": created, "seen": len(items), "error": None}
+
+    admit = INGEST_ADMISSION.get()
+    if admit is None:
+        return await ingest_and_record()
+    # G245 (track C1): the backend's own timer fetched above holding nothing; what it ingests and commits runs as one
+    # admitted transaction (``source_polls.admitted_ingest``, tier2's shape). ``None`` back = Sleep holds the pages:
+    # nothing saved, the cursor stays where it was and the next poll reads the same items again.
     try:
-        for start in range(0, len(items), media_ingestor.MAX_BATCH):
-            chunk = items[start : start + media_ingestor.MAX_BATCH]
-            chunk_created, chunk_duplicates = await media_ingestor.ingest_batch(
-                chunk, memory_path, from_bookmark_file=False,
-            )
-            created += chunk_created
-            # Devin round-1, finding 2: `ingest_batch`'s own worker
-            # SUPPRESSES a per-item `ingest_one` failure (catches, logs a
-            # warning, returns — never raises past `ingest_batch` or the
-            # `asyncio.gather` inside it), so an item that failed to ingest
-            # is invisible to both of `ingest_batch`'s two return values
-            # UNLESS accounted for by elimination: every item in `chunk` is
-            # either freshly created, already a duplicate (`chunk_duplicates`
-            # — pre-existing in url_index, or a same-batch dup, or url-less),
-            # or silently dropped by a raised exception — there is no fourth
-            # outcome, so whatever is left over after subtracting the first
-            # two from the chunk size failed.
-            failed += len(chunk) - chunk_created - chunk_duplicates
-    except Exception as e:
+        done = await admit(memory_path, ingest_and_record)
+    except Exception as e:  # noqa: BLE001 — a sync never raises
         message, kind = describe_failure(e, _label_of(channel_id))
         logger.warning(f"{channel_id} sync failed: {type(e).__name__}")
         sync_state.record_error(memory_path, channel_id, message, kind=kind)
-        return {"status": "error", "reason": None, "new": created, "seen": 0, "error": message}
-
-    if failed:
-        # A chunk that lost items to a suppressed failure must NOT advance
-        # the cursor (`extra`, computed by the connector's `fetch()` from the
-        # FULL fetched list): the failed item was never re-fetched, so a
-        # cursor that jumped past it would lose it permanently. Skip
-        # `record_sync` entirely — the stored cursor stays exactly where it
-        # was, so next run re-fetches everything from there; the items that
-        # DID succeed this run are safe from being re-created on that retry
-        # (url_index dedup), only the failed one(s) actually re-ingest.
-        message = (f"{failed} item(s) couldn't be saved this time. The next sync tries them again; nothing already "
-                   "saved is lost.")
-        logger.warning(f"{channel_id} sync: {failed} item(s) failed to ingest")
-        sync_state.record_error(memory_path, channel_id, message, kind="other")
-        return {"status": "error", "reason": None, "new": created, "seen": len(items), "error": message}
-
-    sync_state.record_sync(memory_path, channel_id, count=len(items), extra=extra)
-    return {"status": "ok", "reason": None, "new": created, "seen": len(items), "error": None}
+        return {"status": "error", "reason": None, **empty, "error": message}
+    if done is None:
+        sync_state.record_skip(memory_path, channel_id, WAITED_FOR_SLEEP)
+        return {"status": "skipped", "reason": "sleep is reading", **empty}
+    return done
 
 
 def forget(secret_names: tuple[str, ...]) -> None:

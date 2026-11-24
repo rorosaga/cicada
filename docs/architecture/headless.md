@@ -163,7 +163,9 @@ The same layout as on a Mac, created by the backend and the CLI. The ones that m
 ## Sleep on a server
 
 The schedule runs inside the backend (APScheduler, `sleep_scheduler`), from the bank's `sleep_schedule.yaml`, so it
-needs no app and no timer unit. A run the person starts (`cicada sleep start`, or a client's click) may use a plan.
+needs no app and no timer unit — and neither does the 3-hourly poll of feeds, calendar feeds and the tier-1 connectors
+(`source_polls`, G245; `network.md`), which runs on the home only (a replica or a moving home skips it) and, on a server, needs
+`CICADA_ALLOW_FEED_FETCH=1` in the service's environment for the feeds. A run the person starts (`cicada sleep start`, or a client's click) may use a plan.
 **A scheduled run uses a plan only when the person said so** (TODO ruling 4b, owner 2026-10-16: "The server should be
 allowed to use plans too. Just have to set them up somehow"; "Yeah chat too"): the machine's switch — **on unless the
 person turned it off** (ruling 4c, 2026-10-19) — is `cicada sleep schedule --use-plan on|off` here and Settings → Sleep →

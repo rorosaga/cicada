@@ -255,3 +255,122 @@ def test_a_slow_wall_scan_drops_only_the_reading_sentence_and_finishes_in_the_ba
     slow["on"] = False
     assert reading_queue.counts(bank, warm_only=True, deadline=time.monotonic() + 5)[1] == 30, \
         "the background scan judged every page; the next prompt counts them"
+
+
+# --- G245 (track C1): the line names the list that is due, to a harness that has read one, and repeats on a floor -----
+
+
+def _list_on(*keys):
+    reading_settings.update(saved_lists_={k: True for k in keys})
+
+
+def _driver(bank, harness="claude-code"):
+    from api.services import saved_lists
+
+    saved_lists.note_reader(bank, harness)
+
+
+def _prompt(client, session="s-l", harness="claude-code"):
+    return client.post(URL, json=_body("fix the failing test in the parser", session=session, harness=harness)).json()
+
+
+def test_a_due_list_is_named_in_the_persons_terms_to_a_harness_that_read_a_list_before(client, bank):
+    enable()
+    _list_on("x")
+    _driver(bank)
+    start = client.post(URL, json=_body(None, event="session_start", session="s-l")).json()
+    text = start["additionalContext"]
+    assert "your X Bookmarks is due to be read in the person's own signed-in browser" in text
+    assert "links are waiting" not in text and "link is waiting" not in text, "a list is not counted as a link"
+    assert "x.com" not in text, "a site's and a list's name, never an address"
+
+
+def test_a_harness_with_no_recorded_list_read_hears_nothing_of_the_lists(client, bank):
+    enable()
+    _list_on("x")
+    start = client.post(URL, json=_body(None, event="session_start", session="s-l")).json()
+    assert "due to be read" not in (start["additionalContext"] or "")
+    assert "waiting in Cicada's reading queue" not in (start["additionalContext"] or "")
+    _driver(bank, "codex")           # another harness recorded one: the line is for that harness only
+    assert "due to be read" not in (_prompt(client, "s-l2")["additionalContext"] or "")
+    assert "your X Bookmarks" in (_prompt(client, "s-l3", harness="codex")["additionalContext"] or "")
+
+
+def test_the_links_a_person_asked_about_still_reach_every_harness(client, bank):
+    enable()
+    _list_on("x")
+    _ask(bank)
+    start = client.post(URL, json=_body(None, event="session_start", session="s-l")).json()
+    assert recall_text.reading_line(1) in start["additionalContext"]
+    assert "due to be read" not in start["additionalContext"]
+
+
+def test_a_list_that_stays_due_repeats_on_a_later_prompt_only_after_the_floor(client, bank, monkeypatch):
+    enable()
+    _list_on("x")
+    _driver(bank)
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(hook_recall, "_mono", lambda: clock["t"])
+    client.post(URL, json=_body(None, event="session_start", session="s-l"))
+    for _ in range(5):                       # prompt after prompt inside the floor: nothing
+        clock["t"] += 60
+        assert _prompt(client)["additionalContext"] is None
+    clock["t"] += hook_recall.READING_SEEN.LIST_REPEAT_S
+    again = _prompt(client)
+    assert "your X Bookmarks" in again["additionalContext"] and again["reason"] == "reading"
+    clock["t"] += 60
+    assert _prompt(client)["additionalContext"] is None, "said again, so the floor starts over"
+
+
+def test_a_list_that_was_read_stops_the_line_and_the_next_one_due_is_said_at_once(client, bank, monkeypatch):
+    from api.services import saved_lists
+
+    enable()
+    _list_on("x", "instagram")
+    _driver(bank)
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(hook_recall, "_mono", lambda: clock["t"])
+    client.post(URL, json=_body(None, event="session_start", session="s-l"))      # X is due first (table order)
+    saved_lists.note(bank, "x", "read", items=3)                                  # read: Instagram is due now
+    clock["t"] += 30
+    nxt = _prompt(client)
+    assert "your Instagram Saved" in nxt["additionalContext"] and "your X Bookmarks" not in nxt["additionalContext"]
+
+
+def test_the_list_line_stays_inside_the_notes_budget_and_is_neutral(client, bank):
+    from api.services import handshake
+
+    enable()
+    _list_on("x")
+    _driver(bank)
+    start = client.post(URL, json=_body(None, event="session_start", session="s-l")).json()
+    assert len(start["additionalContext"]) // 4 <= handshake.MAX_TOKENS
+    for lists in (("X Bookmarks",), ("X Bookmarks", "YouTube Watch later"), ("A", "B", "C")):
+        for waiting in (0, 1, 4):
+            assert len(recall_text.reading_line(waiting, lists=lists)) < 600
+
+
+def test_a_recorded_read_is_what_makes_a_harness_a_driver(bank):
+    from api.services import saved_lists
+
+    assert saved_lists.readers(bank) == frozenset()
+    saved_lists.note_reader(bank, "Claude-Code")
+    saved_lists.note_reader(bank, "a person's name/with slash")   # not a harness name: ignored
+    saved_lists.note_reader(bank, "")
+    assert saved_lists.readers(bank) == frozenset({"claude-code"})
+
+
+def test_an_agents_recorded_list_read_makes_it_a_driver_and_a_refused_one_does_not(bank):
+    from _stdio_server import stdio_server
+    from api.services import saved_lists
+
+    srv = stdio_server()
+    enable()
+    srv.SESSION = srv.SessionIdentity("ses_2026-10-06_c0ffee00", "claude-code", None)
+    srv.get_memory_path = lambda: bank
+    refused = srv.handle_tool("cicada_record_saved_list", {"platform": "x", "outcome": "read", "items": []})
+    assert "Not recorded" in refused and saved_lists.readers(bank) == frozenset(), "the list was never turned on"
+    _list_on("x")
+    out = srv.handle_tool("cicada_record_saved_list", {"platform": "x", "outcome": "read", "items": []})
+    assert "empty" in out or "Recorded" in out, out
+    assert "claude-code" in saved_lists.readers(bank)

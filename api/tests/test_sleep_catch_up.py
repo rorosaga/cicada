@@ -158,15 +158,19 @@ def test_a_paused_run_gets_upkeep_only(rig, monkeypatch):
     assert len(rig.calls) == 1, "the upkeep took the missed time's turn"
 
 
-def test_nothing_readable_runs_nothing_and_a_later_capture_does_not_turn_it_into_a_run(rig):
+def test_nothing_readable_runs_the_engine_free_tail_only_and_a_later_capture_does_not_turn_it_into_a_run(rig):
     rig.readable["n"] = 0          # only parked or index-only conversations wait
     _seed(rig, since=_local(2026, 10, 1, 12), handled=_local(2026, 10, 18, 3))
     _settle_and_probe(rig)
-    assert rig.calls == []
+    # G245: the polls and the upkeep run (the tail), reading nothing, starting no engine, recording no run
+    assert len(rig.calls) == 1
+    assert rig.calls[0]["tail_only"] is True and rig.calls[0]["engine_free"] is True
+    assert rig.calls[0]["user_triggered"] is False and "drain" not in rig.calls[0]
+    assert "catch_up_for" not in rig.calls[0]
     rig.readable["n"] = 2          # something arrives at 10:00: it waits for tomorrow's 03:00, as on any day
     rig.clock.advance(hours=2)
     _settle_and_probe(rig)
-    assert rig.calls == []
+    assert len(rig.calls) == 1
 
 
 def test_a_running_cycle_is_never_stacked_on(rig):

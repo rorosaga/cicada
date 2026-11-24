@@ -470,6 +470,25 @@ def counts(memory_path: Path, *, warm_only: bool = False, include_words_origin: 
         return asks, None
 
 
+def lists_due(memory_path: Path) -> list[str]:
+    """The person's lists due to be read by their own agent, in their own terms (G245, track C1) — ``"X Bookmarks"``,
+    ``"YouTube Watch later"``: the site and the list's name, never an item, a handle or a count. The same lists
+    :func:`counts` includes in its asks (one entry each), so a caller that names them subtracts ``len`` of this from
+    the asks. Empty while agent reading is off. Engine-free: three small machine-state files, no bank read."""
+    if not reading_settings.agent_enabled():
+        return []
+    from api.services import saved_lists, substack_lists
+
+    memory_path = Path(memory_path)
+    named = [f"{saved_lists.PLATFORMS[k].name} {saved_lists.PLATFORMS[k].label}" for k in saved_lists.due(memory_path)
+             if k in saved_lists.PLATFORMS]
+    named += [f"YouTube {youtube_lists.LISTS[n]['label']}" for n in youtube_lists.due(memory_path)
+              if n in youtube_lists.LISTS]
+    named += [f"Substack {substack_lists.LISTS[n].label}" for n in substack_lists.due(memory_path)
+              if n in substack_lists.LISTS]
+    return named
+
+
 def count_waiting(memory_path: Path, *, warm_only: bool = False, include_words_origin: bool = True) -> int:
     a, s = counts(memory_path, warm_only=warm_only, include_words_origin=include_words_origin)
     return a + (s or 0)
