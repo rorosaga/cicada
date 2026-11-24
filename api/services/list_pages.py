@@ -272,10 +272,10 @@ def block(memory_path: Path, entity_id: str, fm: dict | None) -> dict | None:
 
 
 #: The one sentence every agent write to a list's own page is refused with, on every door (the stdio tools, the remote
-#: connection, the command line, the agent API): the page stands for the list, so it takes no belief, edit, merge, split or
-#: link. No name in it: a folder's name is the person's own word.
+#: connection, the command line, the agent API): the page stands for the list, so it takes no belief, edit, merge, split, link or
+#: look. No name in it: a folder's name is the person's own word.
 AGENT_REFUSAL = ("That page is a list of saved posts, read from the person's saves each time, so it takes no fact, edit, "
-                 "merge, split or link and nothing was changed; record a fact on the page of the thing a post is about "
+                 "merge, split, link or look and nothing was changed; record a fact on the page of the thing a post is about "
                  "instead.")
 
 

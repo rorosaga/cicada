@@ -3328,7 +3328,7 @@ def _list_line(memory_path: Path, entity_id: str, *, rows: bool = False) -> dict
 
 
 def _list_page_refusal(memory_path: Path, *refs) -> "Reply | None":
-    """G246 (ruling 81): an agent's write to a list of saved posts' own page — a fact, an edit, a merge, a split, a link — is
+    """G246 (ruling 81): an agent's write to a list of saved posts' own page — a fact, an edit, a merge, a split, a link, a look — is
     refused with one sentence, whichever door it came by (every door runs this body). One check (``list_pages.is_list``) over
     each page a reference names, by id or by name; None when none is a list's page."""
     from api.services import bank_index, list_pages
@@ -7642,6 +7642,11 @@ def save_design(ctx: ToolContext, url=None, note=None, image_path=None, image_ba
 
     memory_path = ctx.memory_path()
     if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    # G246 (ruling 81): a list of saved posts' own page is no page a look may be written onto (its "## Looks" section is
+    # a write to the page), so the same one check that holds a claim, an edit, a merge or a link holds a look — before
+    # the picture is read, on both doors (each runs this body).
+    if (refusal := _list_page_refusal(memory_path, subject)) is not None:
         return refusal
     data = _design_image(ctx, memory_path, image_path, image_base64)
     if isinstance(data, str):
