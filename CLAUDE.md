@@ -173,7 +173,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   from a copy, YouTube video pages only; watch history is one episode per day, never a save (G71, `capture-and-sleep.md`),
   indexed and never read by a model (ruling 30), as are records the person did not save and, as coded, feed items. **Ruling 80 (owner
   2026-11-24, "if i save it already has a reason"; withdraws 62's index-only rule and 30's saved-list half):** every save
-  (bookmark, tab group, link, like, upvote, repost, list post) is read by Sleep after their conversations,
+  (bookmark, tab group, link, like, upvote, repost, list post) is read by Sleep after conversations,
   its words the author's, never theirs, and no page or mention from saves alone (`capture-and-sleep.md`). **Built (G246):** a single save waits
   for tonight; bulk, late and already-kept saves wait in a pile, 100 released a day (amends 13, 16; pending).
 - **Books (G39, G233):** a scanned ISBN (`/capture/isbn`) resolves at the home behind the connector
