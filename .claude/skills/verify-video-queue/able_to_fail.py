@@ -81,8 +81,8 @@ BREAKS = {
         f"{QUEUE_TESTS}::test_a_lapse_with_a_newer_satisfying_record_closes_the_entry_as_done"),
     "claim_takes_failed": (
         "claim",
-        '        queued = sorted((r for r in rows if r["state"] == "queued" and r["key"] in saved)',
-        '        queued = sorted((r for r in rows if r["state"] in ("queued", "failed") and r["key"] in saved)',
+        '        queued = sorted((r for r in _honoured(rows) if r["state"] == "queued" and r["key"] in saved)',
+        '        queued = sorted((r for r in _honoured(rows) if r["state"] in ("queued", "failed") and r["key"] in saved)',
         f"{FORMAL_TESTS}::test_p11_a_failed_video_waits_for_the_person"),
     "put_restarts_claimed": (
         "_upsert",
