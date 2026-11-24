@@ -454,6 +454,29 @@ def test_an_agents_first_claim_about_a_new_person_births_the_page_with_the_conne
     assert not _sources(stage2, "zed-nobody"), "no connection, nothing attached"
 
 
+def _tool_write(bank, subject, *, connector_id):
+    from api.services import mcp_tools
+
+    ctx = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="ses_follow", harness="claude-code",
+                                connector_id=connector_id, client_name="claude-code" if connector_id is None else None)
+    return mcp_tools.write_claim(ctx, subject, "works-with", "Acme Robotics", "agent", 0.6, None, None)
+
+
+def test_a_remote_callers_first_claim_never_attaches_a_connection_but_the_tail_still_does_and_a_local_door_attaches(stage2):
+    """A remote caller must not learn, from a page's making, that a guessed name is one of the person's connections."""
+    out = _tool_write(stage2, "Finn Sample", connector_id="conn_x")
+    assert "NOT written" not in str(out) and "Could not" not in str(out)
+    assert (stage2 / "entities" / "finn-sample.md").exists()
+    assert not _sources(stage2, "finn-sample") and not _li(stage2, "finn-sample"), "remote: nothing attached at birth"
+    # the night's tail attaches it
+    assert linkedin_people.rematch(stage2).matched >= 1
+    assert [s["ref"] for s in _sources(stage2, "finn-sample") if s.get("predicate") == "linkedin"] == [f"{LI}/finn-sample"]
+    # the local door (stdio / CLI / a device token) attaches at once
+    out = _tool_write(stage2, "Erin Example", connector_id=None)
+    assert "Could not" not in str(out)
+    assert [s["ref"] for s in _sources(stage2, "erin-example") if s.get("predicate") == "linkedin"] == [f"{LI}/erin-example"]
+
+
 # --- never the wrong person ----------------------------------------------------------------------------------------
 
 
