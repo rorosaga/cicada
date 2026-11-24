@@ -3597,6 +3597,8 @@ async def _run_stages(
             decided_names=resolved_result.get("decided_names"),
             # G148: a value said again in other words is shown to the small judge, one call a page (`value_alignment`).
             value_judge=value_alignment.judge_for(settings),
+            # 2026-11-24: a refused new value is read once more by the cycle's main model (`value_alignment.align`).
+            value_reread=value_alignment.judge_for(settings, main=True),
             **({"revisions": revisions_read} if revisions_read else {}),
             **decay_kw,
         )

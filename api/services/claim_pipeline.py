@@ -467,6 +467,7 @@ def run_claim_pipeline(
     decided_names: list[str] | None = None,
     revisions: dict | None = None,
     value_judge: Callable[[str], dict] | None = None,
+    value_reread: Callable[[str], dict] | None = None,
 ) -> dict:
     """Emit → release → reconcile → write → hold claims over the live entity pages (additive).
 
@@ -494,6 +495,8 @@ def run_claim_pipeline(
         value_judge: Sleep's small judge as ``prompt -> dict`` (`value_alignment.judge_for`); ``None`` makes no call.
             A new value whose attribute no value on its page is worded like is shown to it once per page, so a value
             said again in other words (another language included) replaces the old one (G148, 2026-11-23).
+        value_reread: the cycle's main model as ``prompt -> dict`` (`value_alignment.judge_for(main=True)`): a page whose
+            new value the small judge left alone is read once more by it (2026-11-24); ``None`` makes no second call.
 
     Returns a dict: ``{"nudges": [...], "audit": [...], "claims_written": int,
     "subjects_written": int, "subjects_skipped": int, "claims_page_less": int,
@@ -578,7 +581,8 @@ def run_claim_pipeline(
 
     # G148 (2026-11-23): a value worded unlike every value on its page is shown to the judge, one call a page, and takes
     # the predicate of the one it restates; Stage 3 then closes the older as it does for any same-attribute value.
-    routed.extend(value_alignment.align(incoming, existing_by_subject, value_judge, memory_path))
+    routed.extend(value_alignment.align(incoming, existing_by_subject, value_judge, memory_path,
+                                         reread=value_reread))
 
     # G148 (2026-11-23): a value that names what a conversation dropped ("Python with Pillow", after "dropped Python"),
     # asked once beside that ending's own words; Stage 3 closes the ones the judge says it made out of date.

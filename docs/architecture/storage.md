@@ -575,9 +575,9 @@ prompts it got before: the note about the words is added only when some line has
 more than the 40 listed lines. The words are shown to help read what a value is of, and the prompts say they never make
 two lines one attribute (two things raised the same way — the rent and the deposit — stay two; the check still decides).
 Nothing added per batch: same one call per page, same one check per proposal, same bounds, same door
-(`providers.resolve_llm_fn`, where the sensitive hold lives). A later re-ask of a refused pair was weighed and not built:
-every pair of unlike values on every page is a candidate, nearly all of them truly different, so it would multiply calls
-for a rare gain once the first read carries the evidence. **Each
+(`providers.resolve_llm_fn`, where the sensitive hold lives). A re-ask of every pair of unlike values on every
+page was weighed and not built (nearly all of them are truly different, so it would multiply calls); the second reading
+below asks only about the lines this call itself just refused. **Each
 join it proposes is then checked once more, alone** ("is the later a correction of the earlier, or can both be true?"):
 a join needs both answers, since a study's start date was once joined to its readout date on one wrong answer and the
 newer value closed the older. A new value in a confirmed group takes the predicate of the group's existing line (the
@@ -589,6 +589,36 @@ checks a batch, inside Sleep's spend line (`value_match`, `sleep_spend.LINE_STAG
 batch its joins and nothing else (`value_aligned` in the audit; the capture path calls no model). A relationship and a
 value that say one fact (`lives-in` Grenoble beside `value-of-city-of-residence`: Grenoble) are not joined here: that
 needs a value to be recognised as a restatement of a relationship's object, a different write than a rename.
+**A refused value is read once more (2026-11-24; `value_alignment.align(reread=)`, `refused`, `REREAD`).** A pair the
+join refuses is never seen again: only a NEW attribute is asked about, and once the newer value is on the page the next
+restatement is worded like it, so the older one is never judged against anything again (both stayed current: two prices,
+two budgets, two languages). On 43 invented true pairs replayed 9 times the first reading and its check missed 23 of 387
+(5.9%), 19 of them at the **check**, which sampled "different" on pairs the first reading had proposed (budget / spending
+limit 4 of 9, job title / role 4 of 9); the first reading itself missed 4. So after the first reading and its check, a
+page that still holds a NEW line no join took gets **one more call** (`REREAD`, the cycle's main model: `judge_for(main=
+True)`; "a first reading found no other line, look again", the same lines, the same person's words, the same rails),
+and each join it proposes is checked **by the same reader**, alone; a join needs its yes to both. The newer value is then
+no longer new, so no later batch asks about the pair again: a pair is read twice at most, ever, and nothing is stored to
+know it. A value joined by it carries `"reading": "second"` in the audit. Bounds per batch: `MAX_REREADS` 24 pages and
+`MAX_REREAD_CHECKS` 24 checks, never a call for a page the first reading left nothing on, none inside the write window,
+the same spend line (`value_match`), a failed call costs the second reading and nothing else; no second reader (no
+engine) is exactly the first reading. **Measured** (`benchmarks/consolidation/value_join_battery.py`, 119 invented pairs
++ 4 pages, the small judge first, the person's own words behind each value): true joins 364 of 387 before; with the main
+model as second reader 375 of 387; with the small judge as second reader 209 of 215; false joins 0 of 576 (main), 0 of
+320 (small), and 0 of 608 more on 12 added look-alikes (home and office speed, daughter's and son's age, outbound and
+return flight, current and original mortgage, a ticket with and without fees; main) and 0 of 608 (small). Every miss left
+but one is the same pair, "preferred editor" beside "daily editor", which both readers refuse for a stated reason (a
+preference and what is in use are two things, so it stays two). The small judge as second reader rejoined as many as the
+main model (consistent with most first-check refusals being sampling noise, which a second sample passes), so the main model is not shown
+better at joining; it is chosen because its errors are independent of the first reading's, which is what a wrong join
+needs to be rare (the owner, 2026-11-24: "performance over price"). **On the real pipeline** (`consolidation` benchmark, 3 runs, 2026-11-24): updates correct 12 / 13 / 13 of 13 (the
+2026-11-23 baseline 12 / 13 / 12), the second reading ran on 1 to 4 pages a batch, joined 2 values in 3 runs (the log
+names the page, not the claim; the only chains closed there that the first reading plausibly missed are a planned study
+replaced by a later one, the older closed on the day the newer was said), cost $0.71 a run against $0.68
+and 177 model calls against 168. A small story (four plain values said again in other words, `value_join_battery`'s
+cousin) went through real Sleeps: a blog's old host stayed current beside the new one before, and was closed after.
+A pair that was doubled before this stays doubled:
+nothing sweeps the bank for them (a heal would be a one-time step the person runs, like `fact_fold_heal`).
 **A value that names what a conversation dropped (2026-11-23; `value_ended`):** the join above compares two values, and
 "core language: TypeScript" beside "implementation language: Python with Pillow" reads, fairly, as a part against a whole
 (40 replays of that pair: 24 refused, every reason "scope"; the benchmark's U3, 4 of 12 runs). What settles it is on the
