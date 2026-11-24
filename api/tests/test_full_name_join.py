@@ -758,3 +758,19 @@ def test_a_short_name_that_is_a_common_word_must_be_written_as_the_record_writes
     assert report.joined == 0 and judge.calls == [] and report.skipped.get("no_turn_names_both") == 1
     assert full_name_join.names_both(["teodor brandt"], ["teo"], "Teodor Brandt (Téo)", frozenset({"Teo"}))
     assert not full_name_join.names_both(["teodor brandt"], ["teo"], "Teodor Brandt (TEO)", frozenset({"Teo"}))
+
+
+def test_nothing_holds_the_page_lock_or_the_write_admission_across_a_model_call(memory):
+    """The rail: never held across a model call. The reads run with the page lock and the admission both free (the tail
+    runs inside Sleep's own window, which is its flag, not a hold of this step)."""
+    from api.services import page_lock, write_admission
+
+    _world(memory)
+    seen: list[tuple[bool, bool]] = []
+
+    async def judge(system, prompt):
+        seen.append((page_lock.held(memory), write_admission._bank(write_admission._key(memory)).holders > 0))
+        return _one()
+
+    assert _tend(memory, judge).joined == 1
+    assert seen == [(False, False), (False, False)]

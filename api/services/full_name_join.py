@@ -10,42 +10,57 @@ one**, read twice, as one commit the person can undo.
 
 **What decides, and who.** The code finds the person's own messages (``kind: user`` turns, never an agent's or another
 speaker's) that carry both names, and everything that can speak against a join (below). The main model only reads those
-messages with what the record holds about each side and, when it says "one", copies the words that show it; the code
-checks that the words are there, exactly (`inbox_tend.persons_span`: exact, then whitespace, then case, never fuzzy), in
-one of the person's own turns, and carry both names. A second read, framed to look for a reason they are two, must agree
-with its own located words. No list of words of any language decides anything: "my old", an apposition's comma and a
-parenthesis are the model's to read.
+messages with what the record holds about each side and, when it says "one", copies the words that show it. The code then
+locates those words itself (`evidence.locate`: exact, whitespace, case, never fuzzy) **inside one turn of the person**
+(a quote that runs on into an assistant's or another speaker's line is refused), reads the located words back from the
+turn, and checks **those** carry both names, never what the model returned; a quote longer than `evidence.MAX_QUOTE_CHARS`
+or touching a line the person quoted (a ``>`` block) is refused. A second read, framed to look for a reason they are two,
+must agree with its own located words. No list of words of any language decides anything: "my old", an apposition's comma
+and a parenthesis are the model's to read.
 
 **When it joins** (every one must hold; anything less is today's question, untouched):
 
 1. The question is an open "Is <A> the same as <B>?" between a name with **no page** and a person page, raised for a
    held name: not a doubt between two same-name people, not a page question (`fold_page`), not one the person put off or
-   whose Sleep settle they took back (`inbox_tend.UNDONE_KEY`), and `inbox_tend.policy` still says only the person
-   settles it (so the owner's page, a pair no conversation names together and the two-signals join keep their own rules).
+   whose Sleep settle they took back, and `inbox_tend.policy` still says only the person settles it (so the owner's page,
+   a pair no conversation names together and the two-signals join keep their own rules).
 2. A is held on a line in the pending store (`pending_store`): a person, named in full (two words or more), carrying no
    `title` (the mark of a second person of one name), not held against a page, and the person has not said it is not
    this page (`pending_store.apart_of`); no page answers to A's name or its aliases.
 3. B is a person page titled by one word, the short name; not the owner's, not archived or dropped, not titled by a
    relation (`role_people`), not in a same-name doubt, a pair the person called two (`merge_rejections`), or one Sleep
-   split.
-4. **Exactly one** person page answers to B's short name (its name or an alias), and no other person page or held person
-   could be whom it means: none has a word that is, or begins with, the short name.
-5. At least one of the person's own turns, in a conversation the held line was heard in, names both A (its name or a
-   multi-word alias) and a short name of B, as whole words.
-6. The main model, given every such turn with what the record holds about each side, answers "one" and copies words
-   that are located exactly in one of those user turns and carry both names; it answers "two" or "cannot tell" for two
-   people named together (a relative, two colleagues, a list, "the other one"), for words the person only passes on
-   from someone else, and for anything on record that cannot hold of one person.
+   split; and it carries **no name of two words or more but A's own** (a page that is already someone in full is never a
+   join for Sleep, so a second full name never joins a page the first one joined).
+4. **Exactly one page, of any type,** answers to B's short name (its name or an alias), and no other person page or held
+   person could be whom it means: none has a word that is, or begins with, the short name.
+5. At least one of the person's own turns, in a conversation **the held line was heard in** (never the question's source
+   when the line was not), names both A (its name or a multi-word alias) and, outside A's words, a short name of B as the
+   record writes it (case kept: "Will" the page is not "will" the verb), as whole words. **Every** such turn is shown to
+   the model, whole; more than `MAX_TURNS`, a turn over `TURN_CHARS`, or a line heard in more than `MAX_EPISODES`
+   conversations is no join (a counted skip), never a silent cut that could hide a denial.
+6. The main model, given every such turn with what the record holds about each side (the page's names among it), answers
+   "one" and copies words that are located as above; it answers "two" or "cannot tell" for two people named together (a
+   relative, two colleagues, a list, "the other one"), for words the person only passes on from someone else, and for
+   anything on record that cannot hold of one person.
 7. A **second**, differently framed read of the same material answers "one" too, on words located and carrying both
    names.
-8. Nothing changed since: the question, the page and the held line are as they were read (`inbox_tend.apply` re-checks),
-   and conditions 1 to 4 still hold inside the settle.
+8. Nothing changed since the reads began: the question's bytes and the hashes of B's page and the pending store are taken
+   **before the first read**, and `inbox_tend.apply` re-checks them, and conditions 1 to 4 (`still_holds`), inside the
+   settle. A settle that cannot apply is tried again, twice at most, like a read that could not be made.
 
 **How it joins.** Through the one writer the person's own answer uses (`inbox_tend.apply`, `inbox_service`'s merge
-resolver) with Sleep as the actor: the held line's claims, history and sources land on B's page with their evidence,
-A becomes a name of B, and the commit is Sleep's, listed under "Settled by Sleep" with rule ``full_name_one`` and a
-reason that quotes the person's words. Undoing it (`inbox_tend.undo`) puts the question back marked so Sleep never settles
-or joins it again (`inbox_tend.UNDONE_KEY`); the person answers it themselves.
+resolver) with Sleep as the actor: the held line's claims land on B's page with their evidence, **and its own words**
+(summary as a Key Fact, key facts, history, links, open questions: `inbox_service._land_held_prose`, through the one page
+writer `conflict_resolver.apply_changes`, deterministic, additive on a page a person edited, never over a pinned passage,
+each item with the source rows the line kept; the person's own tap does the same), A becomes a name of B, and the commit
+is Sleep's, listed under "Settled by Sleep" with rule ``full_name_one`` and a reason that quotes the person's words; its
+author is the model the engine's replies say answered (both reads the same), else ``cicada``.
+
+**Undoing it is the person saying they are two** (74a's rule). `inbox_tend.undo` restores the pages and the store byte for
+byte and does not bring the question back: the pair is kept apart by the writer the person's own "No, different" uses
+(`inbox_service.reject_effects`: the held mention's pending line marked apart, else the pair in `_merge_rejected.yaml`), in
+the same one commit, so no question is raised or settled again (`entity_resolver._said_different`). Other rules' undo is
+unchanged.
 
 Engine-free apart from the injected ``judge(system, prompt)``, the main model's call (`same_name_tend.main_tier`).
 """
