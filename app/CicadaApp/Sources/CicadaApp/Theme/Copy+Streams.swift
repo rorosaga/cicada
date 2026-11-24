@@ -70,6 +70,8 @@ extension Copy {
         static let lineApp = "On this Mac"
         static let lineAccount = "With your sign-in"
         static let lineClick = "When you save, on this Mac"
+        /// A connections stream's purpose, when its name does not say: they are kept outside memory, matched by name.
+        static let connectionsFor = "Matched to people you already have pages for"
         static let depthIndex = "kept and findable"
         static let depthRead = "read by Sleep"
 

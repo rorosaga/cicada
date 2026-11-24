@@ -189,7 +189,10 @@ enum SourcesRoot {
     static func card(_ row: SourceCatalogRow, streams: [ResolvedStream]) -> Card {
         let group: Group = row.needsYou ? .needsYou : (row.isConnectedHere ? .connected : .notConnected)
         let read = ([row.lastSync] + streams.map(\.stream.lastReadAt)).compactMap { $0 }.max()
-        return Card(row: row, group: group, streams: streams, line: line(streams), lastRead: read)
+        // A source not connected lists what it can read, names only, whatever the streams say: counts and "on" belong to
+        // a source that is read, and the catalogue (one truth) says it is not.
+        let second = group == .notConnected ? readable(streams) : line(streams)
+        return Card(row: row, group: group, streams: streams, line: second, lastRead: read)
     }
 
     /// The streams that are on, with their counts; with none on, what the source could read, as names only. A stream the
@@ -200,9 +203,14 @@ enum SourcesRoot {
             return StreamsLine(ink: .on, parts: on.map { .init(label: $0.stream.label, count: $0.stream.count) },
                                folders: on.reduce(0) { $0 + $1.stream.folderCount })
         }
-        let readable = streams.filter { $0.stream.state == .off }
-        guard !readable.isEmpty else { return nil }
-        return StreamsLine(ink: .available, parts: readable.map { .init(label: $0.stream.label, count: nil) }, folders: 0)
+        return readable(streams)
+    }
+
+    /// What a source could read: its streams by name (counts and folders left out), tertiary ink; nil with none.
+    static func readable(_ streams: [ResolvedStream]) -> StreamsLine? {
+        let names = streams.filter { $0.stream.state == .off || $0.stream.state == .on }
+        guard !names.isEmpty else { return nil }
+        return StreamsLine(ink: .available, parts: names.map { .init(label: $0.stream.label, count: nil) }, folders: 0)
     }
 
     // MARK: - Tabs

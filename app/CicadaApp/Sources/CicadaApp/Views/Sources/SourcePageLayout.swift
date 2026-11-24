@@ -339,7 +339,8 @@ struct SourceSection<Rows: View>: View {
 
 // MARK: - Footer
 
-/// Refresh and Disconnect, quiet and last: text buttons (DR-40) flush with the column's edge; a destructive one asks
+/// Refresh and Disconnect, quiet and last: one row of inline-size text buttons (DR-40) flush with the column's edge,
+/// the same size and edge as a list's "All N"; a destructive one asks
 /// first in a confirmation whose button carries the danger role. `note` is what the last action said, one line.
 struct SourcePageFooter: View {
     var actions: [SourceFooterAction]
@@ -359,7 +360,7 @@ struct SourcePageFooter: View {
                 }
                 HStack(spacing: CicadaTheme.spacingXS) {
                     ForEach(actions) { item in
-                        TextButton(title: item.title, help: item.help ?? item.title) {
+                        TextButton(title: item.title, help: item.help ?? item.title, inline: true) {
                             if item.confirm != nil { confirming = item.id } else { item.action() }
                         }
                         .disabled(item.isDisabled)
@@ -367,7 +368,7 @@ struct SourcePageFooter: View {
                     }
                     Spacer(minLength: 0)
                 }
-                .padding(.leading, -TextButton.inset(inline: false))
+                .padding(.leading, -TextButton.inset(inline: true))
             }
             .confirmationDialog(confirmed?.confirm?.title ?? "",
                                 isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),

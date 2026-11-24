@@ -76,12 +76,38 @@ enum SiteIconLayout {
     /// The site keys of the families whose mark ships in the app (`Resources/logos`), by the file it draws from.
     static let familyMarks: [String: String] = [
         "linkedin": "linkedin", "x": "x", "instagram": "instagram", "tiktok": "tiktok", "reddit": "reddit",
+        "youtube": "youtube", "github": "github",
     ]
+
+    /// Every domain a family answers to, the twin of the backend's `reading_hosts.WALLED_DOMAINS` (`lnkd.in` and
+    /// `twitter.com` fold into `linkedin` and `x`), plus the two open families whose mark ships.
+    private static let familyDomains: [(family: String, domains: [String])] = [
+        ("linkedin", ["linkedin.com", "lnkd.in"]), ("x", ["x.com", "twitter.com"]),
+        ("instagram", ["instagram.com"]), ("tiktok", ["tiktok.com"]), ("reddit", ["reddit.com", "redd.it"]),
+        ("youtube", ["youtube.com", "youtu.be"]), ("github", ["github.com"]),
+    ]
+
+    /// The family a site belongs to, from either spelling the app holds: the family's own key (`linkedin`, what the
+    /// backend's `mark_key` sends for a walled site) or a host (`linkedin.com`, `www.x.com`, `m.youtube.com`, what
+    /// `SourceSite.key` and a card's `host` send), or a URL. Nil for any other site. One fold, so a host never draws
+    /// a monogram where the family's own mark ships (the person page's "Sites and links", an item card's footer).
+    static func family(of site: String) -> String? {
+        var host = site.trimmingCharacters(in: .whitespaces).lowercased()
+        if let scheme = host.range(of: "://") { host = String(host[scheme.upperBound...]) }
+        host = host.split(separator: "/", maxSplits: 1).first.map(String.init) ?? host
+        host = host.split(separator: ":", maxSplits: 1).first.map(String.init) ?? host
+        if familyDomains.contains(where: { $0.family == host }) { return host }
+        if host == "twitter" { return "x" }
+        for entry in familyDomains {
+            for domain in entry.domains where host == domain || host.hasSuffix("." + domain) { return entry.family }
+        }
+        return nil
+    }
 
     /// The favicon, else the family's bundled mark when one ships, else the monogram.
     static func rung(favicon: Bool, site: String, markExists: (String) -> Bool = LogoImage.exists(name:)) -> Rung {
         if favicon { return .favicon }
-        if let name = familyMarks[site.lowercased()], markExists(name) { return .bundled(name) }
+        if let family = family(of: site), let name = familyMarks[family], markExists(name) { return .bundled(name) }
         return .monogram
     }
 }

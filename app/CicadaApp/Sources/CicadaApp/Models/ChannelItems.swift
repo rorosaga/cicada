@@ -59,10 +59,13 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
     var folders: [String]? = nil
     var depth: String? = nil
     var posted: String? = nil
+    /// Who wrote the post, when the list showed one (the item card leads its footer with it). The backend sends none
+    /// today; a row without one simply says less.
+    var author: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case kind, id, title, day, left, host, site, why, chat, videos, sittings, video, received, messages, group
-        case ticked, pinned, book, cover, place, lists, folders, depth, posted
+        case ticked, pinned, book, cover, place, lists, folders, depth, posted, author
         case lastAt = "last_at"
         case syncedAt = "synced_at"
         case durationS = "duration_s"
@@ -106,6 +109,7 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         folders = Self.words(try? c.decodeIfPresent([String].self, forKey: .folders))
         depth = try? c.decodeIfPresent(String.self, forKey: .depth)
         posted = try? c.decodeIfPresent(String.self, forKey: .posted)
+        author = try? c.decodeIfPresent(String.self, forKey: .author)
     }
 
     /// A list of words with the blanks and repeats dropped; nil when nothing is left (a row that names no list).
@@ -143,6 +147,7 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         try c.encodeIfPresent(folders, forKey: .folders)
         try c.encodeIfPresent(depth, forKey: .depth)
         try c.encodeIfPresent(posted, forKey: .posted)
+        try c.encodeIfPresent(author, forKey: .author)
     }
 }
 

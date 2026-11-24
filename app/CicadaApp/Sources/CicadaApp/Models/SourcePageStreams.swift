@@ -43,9 +43,11 @@ enum SourceHeadLine {
     }
 
     /// The ways in use: those of the streams that are on, else those a source could read (browser first).
-    static func ways(_ streams: [ResolvedStream]) -> [StreamHow] {
-        let on = streams.filter { $0.stream.state == .on }
-        let chosen = (on.isEmpty ? streams.filter { $0.stream.state == .off } : on).map(\.stream.how)
+    static func ways(_ streams: [ResolvedStream]) -> [StreamHow] { ways(streams.map(\.stream)) }
+
+    static func ways(_ streams: [SourceStream]) -> [StreamHow] {
+        let on = streams.filter { $0.state == .on }
+        let chosen = (on.isEmpty ? streams.filter { $0.state == .off } : on).map(\.how)
         var seen = Set<StreamHow>()
         let unique = chosen.filter { seen.insert($0).inserted }
         let order: [StreamHow] = [.browser, .account, .app, .click]
@@ -99,20 +101,42 @@ enum SourceStreamRow {
         return .toggle(on: pending ?? (stream.state == .on))
     }
 
-    /// The quiet line under the name: how it is read, how deep its items go ("In your browser, by your AI app · kept
-    /// and findable"). An unavailable stream says why instead.
-    static func line(_ stream: SourceStream) -> String {
+    /// The quiet line under the name, only what is specific to THIS stream (DR-38: the head already says how the source
+    /// is read, so a row never repeats it): its folders, the click stream's own way ("When you save, on this Mac"), how it
+    /// is read when that differs from the head's, what it is for when its name does not say (connections), and how deep
+    /// it goes when the source's streams differ in that. Nil says nothing; an unavailable stream says why instead.
+    static func line(_ stream: SourceStream, among streams: [SourceStream] = []) -> String? {
         if stream.state == .unavailable, let why = stream.why, !why.isEmpty { return why }
         var parts: [String] = []
-        switch stream.how {
-        case .browser: parts.append(Copy.Streams.lineBrowser)
-        case .app: parts.append(Copy.Streams.lineApp)
-        case .account: parts.append(Copy.Streams.lineAccount)
-        case .click: parts.append(Copy.Streams.lineClick)
-        case .other: break
+        if stream.folderCount > 0 { parts.append(Copy.Streams.folders(stream.folderCount)) }
+        if stream.how == .click {
+            parts.append(Copy.Streams.lineClick)
+        } else if let word = howWord(stream, among: streams) {
+            parts.append(word)
         }
-        parts.append(stream.depth == .read ? Copy.Streams.depthRead : Copy.Streams.depthIndex)
-        return parts.joined(separator: " · ")
+        if stream.kind == .connections { parts.append(Copy.Streams.connectionsFor) }
+        if let depth = depthWord(stream, among: streams) { parts.append(depth) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// How the stream is read, when the head's line does not already say it: the ways of the streams that are on (else
+    /// those a source could read), as `SourceHeadLine.ways` counts them.
+    private static func howWord(_ stream: SourceStream, among streams: [SourceStream]) -> String? {
+        let headWays = SourceHeadLine.ways(streams)
+        guard !headWays.isEmpty, !headWays.contains(stream.how) else { return nil }
+        switch stream.how {
+        case .browser: return Copy.Streams.lineBrowser
+        case .app: return Copy.Streams.lineApp
+        case .account: return Copy.Streams.lineAccount
+        case .click, .other: return nil
+        }
+    }
+
+    /// "read by Sleep" / "kept and findable", only where a source's streams go to different depths; a source whose
+    /// streams all go to one says it nowhere (it is the same on every row).
+    private static func depthWord(_ stream: SourceStream, among streams: [SourceStream]) -> String? {
+        guard Set(streams.map(\.depth)).count > 1 else { return nil }
+        return stream.depth == .read ? Copy.Streams.depthRead : Copy.Streams.depthIndex
     }
 
     /// The hover: that the newest are read, that older ones come with the site's export (the window's drop), and that
@@ -218,7 +242,7 @@ enum SourceStreamItems {
 }
 
 /// An item card's words (plan 3.2 item 3): two lines of the person's own words, and the footer
-/// `[mark] site · kept 2d · Bookmarks · Likes · read` — kept age, the lists it is on, the depth word (nothing for kept).
+/// `author · posted Sunday · Bookmarks · Likes · read` — one date, the lists it is on, the depth word (nothing for kept).
 enum SourceItemCardText {
     /// The depth word: nothing for `kept`; B3 adds `asked` and `watched`.
     static func depth(_ item: ChannelItem) -> String? {
@@ -230,14 +254,20 @@ enum SourceItemCardText {
         }
     }
 
-    /// The footer's words after the mark, in order. The row's own day stays "kept on"; `posted` is the post's own day.
-    static func footer(_ item: ChannelItem, today: ISODay, locale: Locale = .autoupdatingCurrent) -> [String] {
+    /// The footer's words, in order: the author when the row has one, ONE date (the post's own day when the list showed
+    /// it, else when Cicada kept it), the lists it is on, and the depth word (nothing for `kept`). `showsSite` is for a
+    /// card away from its source's own page: on the page every item is from that site, so the site and its mark are left
+    /// out there (DR-38) and put first here.
+    static func footer(_ item: ChannelItem, today: ISODay, showsSite: Bool = false,
+                       locale: Locale = .autoupdatingCurrent) -> [String] {
         var parts: [String] = []
-        if let host = item.host, !host.isEmpty { parts.append(host) }
+        if showsSite, let host = item.host, !host.isEmpty { parts.append(host) }
+        if let author = item.author?.trimmingCharacters(in: .whitespacesAndNewlines), !author.isEmpty { parts.append(author) }
         if let posted = ISODay(item.posted) {
             parts.append(Copy.Streams.posted(RelativeDay.phrase(posted, today: today, locale: locale)))
+        } else if let age = CapturedItems.age(item, today: today, locale: locale) {
+            parts.append(Copy.Streams.kept(age.text))
         }
-        if let age = CapturedItems.age(item, today: today, locale: locale) { parts.append(Copy.Streams.kept(age.text)) }
         if let lists = item.lists, !lists.isEmpty { parts.append(lists.joined(separator: " · ")) }
         if let depth = depth(item) { parts.append(depth) }
         return parts

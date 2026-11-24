@@ -33,7 +33,7 @@ struct SourceReadsBlock: View {
                 VStack(spacing: 0) {
                     ForEach(Array(streams.enumerated()), id: \.element.id) { index, resolved in
                         if index > 0 { rowDivider }
-                        SourceReadsRow(resolved: resolved, result: results[resolved.id],
+                        SourceReadsRow(resolved: resolved, siblings: streams.map(\.stream), result: results[resolved.id],
                                        checking: checking.contains(resolved.id), pending: pending[resolved.id], now: now,
                                        onToggle: { onToggle(resolved, $0) }, onFix: onFix)
                     }
@@ -71,9 +71,11 @@ struct SourceReadsBlock: View {
     }
 }
 
-/// One stream of a source: name and quiet line, then what it holds and how the last read went, then its control.
+/// One stream of a source: name and, when it has something of its own to say, a quiet line, then what it holds and how the last read went, then its control.
 struct SourceReadsRow: View {
     let resolved: ResolvedStream
+    /// Every stream of the source: a row's quiet line says only what differs from the others and from the head.
+    var siblings: [SourceStream] = []
     var result: SourceStreamCheckModel.Result?
     var checking = false
     var pending: Bool?
@@ -93,11 +95,13 @@ struct SourceReadsRow: View {
                         .font(CicadaTheme.rowFont)
                         .foregroundStyle(stream.state == .unavailable ? CicadaTheme.textTertiary : CicadaTheme.textPrimary)
                         .lineLimit(1)
-                    Text(quietLine)
-                        .font(CicadaTheme.metaFont)
-                        .foregroundStyle(resolved.word == .needsAccess ? CicadaTheme.warning : CicadaTheme.textTertiary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    if let quietLine {
+                        Text(quietLine)
+                            .font(CicadaTheme.metaFont)
+                            .foregroundStyle(resolved.word == .needsAccess ? CicadaTheme.warning : CicadaTheme.textTertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                 }
                 Spacer(minLength: CicadaTheme.spacingSM)
                 trailingView(trailing)
@@ -121,14 +125,14 @@ struct SourceReadsRow: View {
         .padding(.horizontal, CicadaTheme.scaled(14))
         .padding(.vertical, CicadaTheme.scaled(10))
         .frame(minHeight: CicadaTheme.scaled(RowMetrics.twoLine))
-        .help(SourceStreamRow.help(stream) ?? quietLine)
+        .help(SourceStreamRow.help(stream) ?? quietLine ?? stream.label)
         .accessibilityElement(children: .contain)
     }
 
     /// The line says why when the stream is waiting on a permission (the one hint, never a prompt), else how it is read.
-    private var quietLine: String {
+    private var quietLine: String? {
         if resolved.word == .needsAccess, let why = stream.why, !why.isEmpty { return why }
-        return SourceStreamRow.line(stream)
+        return SourceStreamRow.line(stream, among: siblings)
     }
 
     @ViewBuilder

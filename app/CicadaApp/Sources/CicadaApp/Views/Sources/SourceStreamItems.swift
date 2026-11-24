@@ -2,7 +2,7 @@ import SwiftUI
 
 // G245 (ruling 78, plan 3.2 item 3) — a list source's Items: `TextTabs` per stream that holds items (All first), a folder
 // menu beside the tabs when the stream keeps folders, then item cards in the queue card's layout — the title, two lines
-// of the person's own words, and the footer `[mark] site · kept 2d · Bookmarks · Likes · read`. Five by default, then
+// of the person's own words, and the footer `author · posted Sunday · Bookmarks · Likes · read`. Five by default, then
 // "All N" opens the whole list in the page's place (DR-81). A row the backend sends no `lists`, `folders` or `depth` for
 // (it ships apart from this build) simply says less.
 //
@@ -13,6 +13,9 @@ import SwiftUI
 /// One item as a card. The whole card is one button; where it opens is the same hand-off as every captured list.
 struct SourceItemCard: View {
     let item: ChannelItem
+    /// Whether the card names its site (a mark and the host): only away from the source's own page, where every item is
+    /// from that site and saying so again is noise (DR-38). Never a letter: `SiteIcon` draws the family's real mark.
+    var showsSite = false
     let today: ISODay
     let route: CapturedItemRoute?
     let open: (CapturedItemRoute) -> Void
@@ -54,10 +57,10 @@ struct SourceItemCard: View {
 
     private var footer: some View {
         HStack(spacing: CicadaTheme.scaled(6)) {
-            if SavedItemText.stillPath(item) == nil, item.book != true {
+            if showsSite, SavedItemText.stillPath(item) == nil, item.book != true {
                 SavedLinkMark(mark: SavedItemText.mark(item), size: .inline)
             }
-            Text(SourceItemCardText.footer(item, today: today).joined(separator: " · "))
+            Text(SourceItemCardText.footer(item, today: today, showsSite: showsSite).joined(separator: " · "))
                 .monospacedDigit()
         }
         .font(CicadaTheme.metaFont)
@@ -67,7 +70,7 @@ struct SourceItemCard: View {
     }
 
     private var spoken: String {
-        ([item.title, SourceItemCardText.words(item)].compactMap { $0 } + SourceItemCardText.footer(item, today: today))
+        ([item.title, SourceItemCardText.words(item)].compactMap { $0 } + SourceItemCardText.footer(item, today: today, showsSite: showsSite))
             .joined(separator: ", ")
     }
 }
@@ -193,11 +196,11 @@ struct SourceStreamCards: View {
     @ViewBuilder
     private func footer(_ list: ChannelItemsList, shown: Int, cache: ChannelItemsCache) -> some View {
         if let cap, list.total > cap {
-            TextButton(title: Copy.SourcePage.all(list.total), help: Copy.SourcePage.allHelp) { onAll(key) }
+            TextButton(title: Copy.SourcePage.all(list.total), help: Copy.SourcePage.allHelp, inline: true, flushLeading: true) { onAll(key) }
         } else if cap == nil, list.hasMore {
             let loading = cache.isLoadingMore(key, query: query)
             HStack(spacing: CicadaTheme.spacingSM) {
-                TextButton(title: loading ? Copy.capturedLoadingMore : Copy.capturedShowMore) {
+                TextButton(title: loading ? Copy.capturedLoadingMore : Copy.capturedShowMore, inline: true, flushLeading: true) {
                     Task { await cache.loadMore(key, query: query) }
                 }
                 .disabled(loading)

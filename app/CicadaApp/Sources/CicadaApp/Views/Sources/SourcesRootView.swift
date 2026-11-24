@@ -61,6 +61,9 @@ struct SourceRootCard: View {
             .help(card.row.help)
             button
         }
+        // One height for every card, a one-line card (nothing specific to say under its name) centred in it like its
+        // two-line neighbours.
+        .frame(minHeight: CicadaTheme.scaled(RowMetrics.twoLine))
         .softCardRow(ground: .page, selected: highlighted)
         .id(SourcesSelection.entry(card.id))
     }
