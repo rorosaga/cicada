@@ -3997,7 +3997,7 @@ A whole row moves to DONE only after its remaining implementation and required a
    list. **This amends, for that one page, the rail "never a feed, a timeline"** (`mcp.md`, "X reposts"). A repost is a save like
    any other: what is done with it after it is kept is ruling 80's. To undo: delete the `x-reposts` row from `PLATFORMS` (kept
    reposts stay kept). **Revisit** on a read past its bound, or the person's own posts filed as reposts (counted).
-   **(b) The accounts he follows (2, "yes") — built for X (PR in review, `feat/follows-directory`; the live look at X's Following page is not yet made).** A directory outside every bank, the way LinkedIn connections
+   **(b) The accounts he follows (2, "yes") — built for X (PR #874; the live look at X's Following page is not yet made).** A directory outside every bank, the way LinkedIn connections
    are: name, handle, link, first and last seen, never a bio, count or avatar; X first, Instagram after a look at its dialog. It
    never makes a page, a mention, a promotion or a question. It attaches only to a page the bank already has (that profile as a
    source and one dated "followed on" claim; a name-only match is a proposed source, never a trusted one), and a follow's name and
