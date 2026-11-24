@@ -477,6 +477,53 @@ def test_a_remote_callers_first_claim_never_attaches_a_connection_but_the_tail_s
     assert [s["ref"] for s in _sources(stage2, "erin-example") if s.get("predicate") == "linkedin"] == [f"{LI}/erin-example"]
 
 
+def _csv(*rows):
+    head = "First Name,Last Name,URL,Email Address,Company,Position,Connected On\n"
+    return (head + "".join(",".join(r) + "\n" for r in rows)).encode()
+
+
+def test_rows_with_no_profile_link_and_one_name_stay_two_connections_across_a_reimport_and_the_refusal_holds(stage2):
+    csv = _csv(("Gale", "Twin", "", "", "Acme", "Designer", "03 Nov 2026"),
+               ("Gale", "Twin", "", "", "Beta", "Founder", "05 Nov 2026"))
+    for _ in range(2):   # a re-import of the same export changes nothing
+        linkedin_people.save_directory(stage2.name, linkedin_people.parse(csv).connections, "2026-11-10")
+        held = _held(stage2)["connections"]
+        gales = [c for c in held if c["first"] == "Gale"]
+        assert len(gales) == 2 and len({c["id"] for c in gales}) == 2, "two same-name rows with no link stay two"
+    _entity(stage2, "gale-twin", type="person", name="Gale Twin")
+    bank_index.invalidate()
+    a = _attacher(stage2)
+    fm, _ = a.attach(_born_fm("Gale Twin"), "## Summary\nGale.\n", "gale-twin-new")
+    assert "sources" not in fm and a.report.matched == 0, "two connections of one name: neither is theirs"
+    assert linkedin_people.rematch(stage2).matched == 0 and not _sources(stage2, "gale-twin")
+
+
+def test_an_export_row_with_no_link_and_a_read_of_one_person_with_one_are_one_connection_only_when_it_can_be_told(stage2):
+    # Told safely: the one name in the directory, the same day to the day, the read is the agent's.
+    linkedin_people.record_read(stage2.name, [_row("Hana Sample", "hana-sample", "2026-11-03")], TODAY)
+    linkedin_people.save_directory(stage2.name, linkedin_people.parse(
+        _csv(("Hana", "Sample", "", "", "Acme", "Designer", "03 Nov 2026"))).connections, "2026-11-10")
+    held = [c for c in _held(stage2)["connections"] if c["first"] == "Hana"]
+    assert len(held) == 1 and held[0]["url"] == f"{LI}/hana-sample" and held[0]["company"] == "Acme"
+    # Not safe: another day, or a second row of the name — kept apart.
+    linkedin_people.save_directory(stage2.name, linkedin_people.parse(
+        _csv(("Hana", "Sample", "", "", "Acme", "Designer", "04 Nov 2026"))).connections, "2026-11-11")
+    assert len([c for c in _held(stage2)["connections"] if c["first"] == "Hana"]) == 2
+    linkedin_people.record_read(stage2.name, [_row("Ivo Sample", "ivo-sample", "2026-11-03"),
+                                              _row("Ivo Sample", "ivo-sample-2", "2026-11-03")], TODAY)
+    linkedin_people.save_directory(stage2.name, linkedin_people.parse(
+        _csv(("Ivo", "Sample", "", "", "", "", "03 Nov 2026"))).connections, "2026-11-12")
+    assert len([c for c in _held(stage2)["connections"] if c["first"] == "Ivo"]) == 3
+
+
+def test_a_read_after_an_export_row_with_no_link_joins_them_under_the_same_rule(stage2):
+    linkedin_people.save_directory(stage2.name, linkedin_people.parse(
+        _csv(("Jun", "Sample", "", "", "Acme", "Designer", "03 Nov 2026"))).connections, "2026-11-10")
+    linkedin_people.record_read(stage2.name, [_row("Jun Sample", "jun-sample", "2026-11-03")], TODAY)
+    held = [c for c in _held(stage2)["connections"] if c["first"] == "Jun"]
+    assert len(held) == 1 and held[0]["url"] == f"{LI}/jun-sample" and held[0]["position"] == "Designer"
+
+
 # --- never the wrong person ----------------------------------------------------------------------------------------
 
 
