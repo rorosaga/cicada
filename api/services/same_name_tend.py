@@ -331,6 +331,17 @@ async def _commit_store(memory_path: Path, rest: list[str], before0) -> None:
         logger.warning(f"same-name review commit failed: {type(exc).__name__}")
 
 
+def _speaker(memory_path: Path) -> str | None:
+    """The owner's name as the pages write it, for the judge's prompt: the descriptions name the owner, and a judge that
+    does not know whose conversations these are reads that name as someone two people share (2026-11-24)."""
+    try:
+        from api.services import owner_identity
+
+        return owner_identity.owner_name(memory_path)
+    except Exception:  # noqa: BLE001 - no name is the prompt as it was
+        return None
+
+
 async def tend(memory_path: Path, judge, *, today: date | None = None,
                max_questions: int = MAX_QUESTIONS) -> Report:
     """Look again at what Stage 2 flagged. ``judge(system, prompt)`` is the main model's call. A split or a join commits
@@ -353,6 +364,7 @@ async def tend(memory_path: Path, judge, *, today: date | None = None,
             report.skipped["split_taken_back"] = took_back["one"]
         pages, flagged_pairs = same_name_doubts.flagged(memory_path)
         held = same_name_doubts.pairs(memory_path)
+        speaker = await asyncio.to_thread(_speaker, memory_path) if (pages or flagged_pairs) else None
         looks = 0
         for ref in sorted(pages):
             if looks >= MAX_LOOKS:
@@ -372,7 +384,7 @@ async def tend(memory_path: Path, judge, *, today: date | None = None,
             looks += 1
             report.looked += 1
             name = str(page_conversations(memory_path, ref)[0])
-            split = await snr.holds_two(name, page, judge)   # an engine failure leaves the flag for the next run
+            split = await snr.holds_two(name, page, judge, speaker)   # an engine failure leaves the flag for the next run
             same_name_doubts.clear_flags(memory_path, pages=[ref])
             if not split.episodes:
                 continue
@@ -404,13 +416,13 @@ async def tend(memory_path: Path, judge, *, today: date | None = None,
             report.looked += 1
             pa, pb = page_of(memory_path, a), page_of(memory_path, b)
             name = page_conversations(memory_path, a)[0]
-            verdict = await snr.settle_pair(name, pa or snr.Page(a, ()), pb or snr.Page(b, ()), judge)
+            verdict = await snr.settle_pair(name, pa or snr.Page(a, ()), pb or snr.Page(b, ()), judge, speaker)
             now = same_name_doubts.pairs(memory_path)
             busy = sum(1 for x, y in now if a in (x, y)) > 1 or sum(1 for x, y in now if b in (x, y)) > 1
             if verdict.verdict == "same" and not busy:
                 # Owner 2026-11-23 (ruling 74a): Cicada joins them itself. A join is the costly thing to get wrong, so
                 # the record is read a second time and both reads must find a located link.
-                again = await snr.settle_pair(name, pa or snr.Page(a, ()), pb or snr.Page(b, ()), judge)
+                again = await snr.settle_pair(name, pa or snr.Page(a, ()), pb or snr.Page(b, ()), judge, speaker)
                 if again.verdict == "same":
                     from api.services.id_utils import sanitize_id
 
