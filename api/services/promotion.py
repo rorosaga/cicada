@@ -174,6 +174,12 @@ def claim_cites_person(claim, *, located: bool = True) -> bool:
 AGENT_MEMORY_SOURCE = "agent-memory"
 
 
+#: Ruling 80 (G245): every save the person said nothing about is ONE source for the 2+ rung, however many there are —
+#: ten posts about a topic are what the saved list held, not ten conversations. A save with a reason, a why-answer, a
+#: note or a folder reason of theirs (``saved_reading.no_words_of_his``) keeps its own key and counts as a conversation.
+SAVES_KEY = "saves"
+
+
 def conversation_keys(episode_ids, memory_path=None) -> set[str]:
     """The distinct conversations among ``episode_ids``, for the "2+ conversations" rung.
 
@@ -182,10 +188,12 @@ def conversation_keys(episode_ids, memory_path=None) -> set[str]:
     session, or a note and its project's index never make two — and a note with no session counts as nothing. An
     agent's saved note (ruling 50, ``authorship.agent_saved``) is the same: its session's key, else nothing — three
     notes one agent saved in one session are one conversation, never three. Every other id is its own conversation,
-    as before; an id with no readable episode (an older pending line's) too."""
+    as before; an id with no readable episode (an older pending line's) too. **Saves with no words of the person's are
+    one conversation together** (:data:`SAVES_KEY`): a name only saves carry never reaches the bar by their number, and
+    one save plus one conversation do."""
     from pathlib import Path
 
-    from api.services import bank_index
+    from api.services import bank_index, saved_reading
 
     def header(eid: str) -> dict | None:
         if memory_path is None or not eid.startswith("ep_"):
@@ -211,6 +219,8 @@ def conversation_keys(episode_ids, memory_path=None) -> set[str]:
             return f"session:{sid}"
         if authorship.agent_saved(fm):
             return f"session:{sid}" if sid else None
+        if saved_reading.no_words_of_his(fm):
+            return SAVES_KEY
         return eid
 
     out: set[str] = set()

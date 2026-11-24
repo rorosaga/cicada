@@ -13,7 +13,8 @@ The rule. A page is quiet when
 
 1. it has **import evidence** on the page itself: it is a saved page (``media:`` frontmatter, written only by the
    save, playlist and paper writers — Stage 1 never extracts ``media``), or one of its own ``source_episodes`` is a
-   save (an episode carrying ``media_entity_id``: a saved link, video or playlist item, or a note on one) or a watch
+   save (an episode carrying ``media_entity_id``: a saved link, video or playlist item, or a note on one; or a tab
+   group, which holds no page link: G245) or a watch
    (a recorded watch, a day or month of watch history); and
 2. it has **no conversation evidence**: none of its episodes, and no episode its claims cite, is anything else, and no
    claim on it cites the words of a person (``user`` / ``speaker`` evidence, :data:`promotion.PERSON_KINDS`).
@@ -41,6 +42,10 @@ SAVE_KEY = "media_entity_id"
 #: A watch: a recorded watch (``watch_record.SOURCE``), a day and a month of watch history
 #: (``watch_history.SOURCE``, ``history_index.MONTH_SOURCE``).
 WATCH_SOURCES = frozenset({"video-watch", "watch-history", "watch-history-month"})
+#: A tab group (``tab_groups``, ``history_index.SAVE_SOURCES``) is one record of the tabs the person kept together: a
+#: save with no page of its own, so it carries no ``media_entity_id``. It is an import all the same — a page only a tab
+#: group named is quiet, and the group is no conversation for the 2+ rule or a person's own words (G245).
+TAB_GROUP_SOURCES = frozenset({"tab-group"})
 #: Cicada's own reading, or an agent's on the person's behalf — never the person mentioning anything:
 #: ``check_record.SOURCE``, ``source_refresh.ORIGIN``, ``web_settle.SOURCE``, ``linkedin_people.PROFILE_SOURCE``.
 CHECK_SOURCES = frozenset({"source-check", "source-refresh", "web-check", "profile-read"})
@@ -66,6 +71,8 @@ def episode_kind(fm: dict | None) -> str | None:
     if fm.get(SAVE_KEY):
         return IMPORT
     source = str(fm.get("source") or "")
+    if source in TAB_GROUP_SOURCES:
+        return IMPORT   # a saved group of tabs holds no page link (ruling 80, G245), but it is a save all the same
     if source in WATCH_SOURCES:
         return IMPORT
     if source in CHECK_SOURCES:
