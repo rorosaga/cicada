@@ -1404,7 +1404,13 @@ writes every save index-only, `take_turns` releases nothing, `retire` retires a 
   what is "read" for it is that page. A save with words costs about two calls (`docs/plans/2026-11-24-saves-are-read.md` 3.6).
 - **Talking about a save** (`saved_mentions`): of one still waiting, it stamps `read_asked` (first among saves, no flip) and
   leaves the ask for his own agent (`mention_asks`, ruling 78 (e)); of one in the pile, it wakes it as before; of one already read,
-  or with nothing to read, it leaves only the ask. The ask no longer depends on the save being unread.
+  or with nothing to read, it leaves only the ask. The ask no longer depends on the save being unread. **The mark (G246 Track M,
+  ruling 81):** the same located words also stamp `named: {why, at}` on the save whatever state it is in (`history_index.mark_named`;
+  frontmatter only under the episode lock, so `processed`, the queue and the order are untouched and no model is called; the first
+  mark stays; a record another service keeps, a removed source and an episode that is no save are never marked). A re-stage pops
+  `read_asked` once the read is done but never `named`, which is what lets a post he talked about after Sleep read it keep its page
+  (`saved_posts`, `features.md`). It is written inside the batch that read the conversation and commits with it; only his own turns
+  count, so an agent's words, a relayed app's and a note an agent saved never mark one, and no route, tool or read path calls it.
 - **Scripts** (counts and enums only): `api/scripts/history_index_dry_run.py` gains a `saves` block (saves by state, what would
   leave the pile tonight by origin at the day's number, what holds nothing to read, nights for the pile);
   `api/scripts/saves_night_report.py --bank --day` prints one row per save in a night (ids, origin, state, how it reached the queue,
