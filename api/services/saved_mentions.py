@@ -1,7 +1,10 @@
 """The way back from the lean pass (ruling 62, owner 2026-11-04): when a bare save gets its one real read.
 
 A bookmark, a tab group, a saved link with no reason is indexed and read by no model (``history_index.kind`` ``saved``).
-It gets a real read, once, when the person talks about it. Three things count, each by the record, never by a guess:
+It gets a real read, once, when the person talks about it. Three things count, each by the record, never by a guess.
+**Ruling 78 (e), owner 2026-11-24:** a save from a platform's list (``kind`` ``list``) wakes the same way for the first
+two things only (the person's own words, never a lit page), and the same mention leaves an ask for the person's own
+agent to go deeper (:mod:`mention_asks`):
 
 * **Their own words name it** (:func:`wake_mentioned`, after a batch of conversations is read): one of the person's own
   turns holds the save's link, or says its whole title (three content words or more). Another speaker's line, an agent's
@@ -41,10 +44,16 @@ _TAB_GROUP_PREFIX = "tab group "
 
 @dataclass
 class _Saves:
-    """The bank's bare saves, by what the person could say of them."""
+    """The bank's saves the person could talk about: bare ones and, since ruling 78 (e), those from a platform's list."""
 
     by_link: dict[str, str] = field(default_factory=dict)        # url hash -> episode id
     by_first_word: dict[str, list[tuple[tuple[str, ...], str]]] = field(default_factory=dict)  # word -> (title, id)
+    #: Episode id -> the list save's own record (``url``, ``origin``, ``folder``), for the saves from a platform's list
+    #: only: what :mod:`mention_asks` needs to leave its ask. Includes a list save woken before (it is never woken twice
+    #: but an ask is still owed when the first mention could not leave one).
+    lists: dict[str, dict[str, str]] = field(default_factory=dict)
+    #: The episodes a mention may wake now (the rest are in ``lists`` only to be asked about).
+    wakeable: set[str] = field(default_factory=set)
 
     def __bool__(self) -> bool:
         return bool(self.by_link or self.by_first_word)
@@ -64,9 +73,20 @@ def _saves(memory_path: Path) -> _Saves:
     out = _Saves()
     for f in bank_index.files(memory_path, "episodes"):
         fm = f.frontmatter or {}
-        if history_index.kind(fm) != "saved" or fm.get("source_deleted_at"):
+        if fm.get("source_deleted_at"):
+            continue
+        kind = history_index.kind(fm)
+        woken_list = kind is None and bool(fm.get(history_index.WOKEN_KEY)) and history_index.is_list_origin(fm)
+        if kind not in ("saved", "list") and not woken_list:
+            continue
+        if kind == "list" and not history_index.mentionable(fm):
             continue
         episode = str(fm.get("id") or f.stem)
+        if kind != "saved":
+            out.lists[episode] = {"url": str(fm.get("url") or "").strip(), "origin": str(fm.get("origin") or ""),
+                                  "folder": str(fm.get("folder") or "")}
+        if kind in ("saved", "list"):
+            out.wakeable.add(episode)
         url = str(fm.get("url") or "").strip()
         if url:
             out.by_link.setdefault(media_ingestor.url_hash(url), episode)
@@ -126,8 +146,9 @@ def mentioned(episode: dict, saves: _Saves) -> dict[str, str]:
 
 
 def wake_mentioned(memory_path: Path, episodes: list[dict], *, at: str) -> list[str]:
-    """After a batch: wake each bare save its conversations named. The paths written, to commit with the batch. Never
-    raises: a save not woken tonight is still found, and a later mention wakes it."""
+    """After a batch: wake each save its conversations named, and (ruling 78 (e)) leave the person's own agent an ask
+    for each one from a platform's list. The paths written, to commit with the batch. Never raises: a save not woken
+    tonight is still found, and a later mention wakes it."""
     memory_path = Path(memory_path)
     paths: list[str] = []
     try:
@@ -139,9 +160,15 @@ def wake_mentioned(memory_path: Path, episodes: list[dict], *, at: str) -> list[
             for hit, why in mentioned(episode, saves).items():
                 woken.setdefault(hit, why)
         for hit, why in woken.items():
-            path = history_index.wake(memory_path, hit, why, at)
-            if path:
-                paths.append(path)
+            if hit in saves.wakeable:
+                path = history_index.wake(memory_path, hit, why, at)
+                if path:
+                    paths.append(path)
+        asked = {hit: saves.lists[hit] for hit in woken if hit in saves.lists}
+        if asked:
+            from api.services import mention_asks
+
+            mention_asks.offer(memory_path, asked)
     except Exception as exc:  # noqa: BLE001 — never the reason a batch fails
         logger.warning(f"Saved mentions skipped: {type(exc).__name__}")
     return paths

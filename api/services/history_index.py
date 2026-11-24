@@ -131,6 +131,10 @@ def kind(fm: dict | None) -> str | None:
     origin = str(fm.get("origin") or "")
     if any(fm.get(key) for key in PERSON_KEYS):
         return None
+    if fm.get(WOKEN_KEY):
+        # Ruling 78 (e): the person talked about this save, so its one real read is owed or done, whatever list it
+        # came from. (A bare save is judged the same way in `_is_bare_save`.)
+        return None
     if origin in LIST_ORIGINS:
         return "list"
     folders = LIST_FOLDERS.get(origin)
@@ -150,6 +154,35 @@ def _is_bare_save(fm: dict, origin: str, source: str) -> bool:
     if source in SAVE_SOURCES or origin.endswith(SAVE_SUFFIXES):
         return True
     return bool(fm.get("media_entity_id") and fm.get("url"))
+
+
+#: Ruling 78 (e): the list saves a mention does NOT wake — a repository the person owns is a record GitHub keeps
+#: (ruling 53), and a joined community is a follow: neither is something they could be talking about as a save.
+NOT_MENTIONABLE_ORIGINS = frozenset({"github-owned"})
+NOT_MENTIONABLE_FOLDERS = {"reddit-saved": frozenset({"Joined communities"})}
+
+
+def mentionable(fm: dict | None) -> bool:
+    """Ruling 78 (e): may the person's own words about this save wake it for one real read? A bare save (ruling 62), or a
+    save from a platform's list other than the two records above."""
+    k = kind(fm)
+    if k == "saved":
+        return True
+    if k != "list":
+        return False
+    origin = str((fm or {}).get("origin") or "")
+    return origin not in NOT_MENTIONABLE_ORIGINS \
+        and str((fm or {}).get("folder") or "") not in NOT_MENTIONABLE_FOLDERS.get(origin, ())
+
+
+def is_list_origin(fm: dict | None) -> bool:
+    """Does this record's own origin (and folder) say it came from a platform's list? True whether or not it has since
+    been woken or given a reason (which take it out of :func:`kind`)."""
+    origin = str((fm or {}).get("origin") or "")
+    if origin in LIST_ORIGINS:
+        return True
+    folders = LIST_FOLDERS.get(origin)
+    return folders is not None and str((fm or {}).get("folder") or "") in folders
 
 
 def is_index_only(fm: dict | None) -> bool:
@@ -193,11 +226,11 @@ def mark_person_words(fm: dict) -> bool:
 
 
 def wake(memory_path: Path, episode_id: str, why: str, at: str) -> str | None:
-    """Ruling 62: a bare save gets its one real read, because the person mentioned it. Stamps :data:`WOKEN_KEY` and
-    queues it for the next run, under the episode lock, re-checked. The memory-relative path, or ``None`` when it is no
-    longer a bare save (read meanwhile, removed from its source). Only ``saved_mentions`` calls this: a retrieval hit
-    never does."""
-    from api.services import episode_ids, markdown_parser
+    """Ruling 62: a bare save gets its one real read, because the person mentioned it (ruling 78 (e): a save from a
+    platform's list too, :func:`mentionable`). Stamps :data:`WOKEN_KEY` and queues it for the next run, under the episode
+    lock, re-checked. The memory-relative path, or ``None`` when it is no longer such a save (read meanwhile, removed
+    from its source). Only ``saved_mentions`` calls this: a retrieval hit never does."""
+    from api.services import episode_ids, markdown_parser, saved_mentions
 
     episodes_dir = Path(memory_path) / "episodes"
     path = episodes_dir / f"{episode_id}.md"
@@ -207,8 +240,10 @@ def wake(memory_path: Path, episode_id: str, why: str, at: str) -> str | None:
         except Exception:  # noqa: BLE001 — a missing or malformed file wakes nothing
             return None
         fm = dict(parsed.frontmatter)
-        if kind(fm) != "saved" or fm.get("source_deleted_at"):
+        if not mentionable(fm) or fm.get("source_deleted_at"):
             return None
+        if kind(fm) == "list" and why not in (saved_mentions.WHY_LINK, saved_mentions.WHY_TITLE):
+            return None   # ruling 78 (e): a list save wakes only for the person's own located words, never a lit page
         fm[WOKEN_KEY] = {"why": why, "at": at}
         fm["processed"] = False
         fm.pop("processed_by", None)   # G114 R6: written only beside processed: true

@@ -37,7 +37,7 @@ from pydantic import BaseModel
 from api.config import Settings, get_settings
 from api.routers.capture import refuse_capture_into_demo
 from api.services import (
-    list_defaults, logo_service, media_ingestor, reading_asks, reading_hosts, reading_prompt, reading_queue,
+    list_defaults, logo_service, media_ingestor, mention_asks, reading_asks, reading_hosts, reading_prompt, reading_queue,
     reading_service, reading_settings, saved_lists, substack_lists, sync_service, youtube_lists,
 )
 
@@ -127,6 +127,10 @@ async def put_reading_settings(update: SettingsUpdate, settings: Settings = Depe
         saved_lists.resume([k for k, on in update.savedLists.items() if on])
     if update.substackLists and any(update.substackLists.values()):
         substack_lists.resume()
+    if update.agentEnabled is False or any(on is False for on in (update.savedLists or {}).values()) \
+            or any(on is False for on in (update.youtubeLists or {}).values()):
+        # Ruling 78 (e): a mention ask leaves with the switch that let it be honoured (reads already hide it).
+        await asyncio.to_thread(mention_asks.sweep, memory_path)
     return _settings_body(memory_path)
 
 
@@ -208,7 +212,7 @@ async def list_reading_asks(request: Request, response: Response, settings: Sett
         return early
     idx = media_ingestor.load_url_index(memory_path)
     try:
-        rows = reading_asks.all_rows(memory_path)
+        rows = reading_queue.honoured_rows(reading_asks.all_rows(memory_path))   # ruling 78 (e): a mention ask only while on
     except ValueError:
         rows = []
     asks = []

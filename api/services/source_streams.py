@@ -479,6 +479,8 @@ class Episodes:
     #: media page ids whose save a model read, and the url hashes an agent read or watched.
     read_pages: frozenset[str]
     agent_read: frozenset[str]
+    #: the url hashes an agent recorded a WATCH of (``video-watch``): the deepest a save goes (``depth: watched``).
+    agent_watched: frozenset[str]
     #: source key -> episodes, for the agents' conversations (``harness:<name>``).
     harnesses: Counter
     harness_last: dict[str, str]
@@ -493,6 +495,7 @@ def _build_episodes(entries) -> Episodes:
     days: Counter = Counter()
     read_pages: set[str] = set()
     agent_read: set[str] = set()
+    agent_watched: set[str] = set()
     harnesses: Counter = Counter()
     last: dict[str, str] = {}
     posted_of: dict[str, str] = {}
@@ -507,6 +510,8 @@ def _build_episodes(entries) -> Episodes:
             days[origin] += 1
         if fm.get("source") in ("page-read", "video-watch") and fm.get("url"):
             agent_read.add(media_ingestor.url_hash(str(fm["url"])))
+            if fm.get("source") == "video-watch":
+                agent_watched.add(media_ingestor.url_hash(str(fm["url"])))
         if (page := str(fm.get("media_entity_id") or "")) and fm.get("processed") \
                 and fm.get("processed_by") != history_index.INDEXED_BY \
                 and fm.get("source") not in history_index.NOT_A_SAVE:
@@ -526,7 +531,8 @@ def _build_episodes(entries) -> Episodes:
             stamp = str(fm.get("timestamp") or "")
             if stamp > last.get(key, ""):
                 last[key] = stamp
-    return Episodes(folders_of, folder_names, days, frozenset(read_pages), frozenset(agent_read), harnesses, last, posted_of)
+    return Episodes(folders_of, folder_names, days, frozenset(read_pages), frozenset(agent_read),
+                    frozenset(agent_watched), harnesses, last, posted_of)
 
 
 def episodes(memory_path: Path) -> Episodes:
@@ -881,11 +887,16 @@ def folder_matches(memory_path: Path, rows: list[dict], pages: dict[str, dict], 
 
 def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], posted: Callable[[dict], str | None]) -> dict[str, dict]:
     """The three fields a list row gains (plan 2.2), by row id: ``lists`` (the labels of the lists the item is on),
-    ``folders`` (the site's own folder names), ``depth`` (``kept``: indexed, no model has read it · ``read``: Sleep or
-    the person's own agent did) and ``posted`` (the post's own day, when the list showed one). Built from maps computed
-    once per request; only a media row of a list origin gets any."""
+    ``folders`` (the site's own folder names), ``depth`` and ``posted`` (the post's own day, when the list showed one).
+    ``depth`` (ruling 78 (e)), deepest first: ``watched`` (the person's own agent recorded a watch) · ``asked`` (the person
+    talked about it and an ask waits on a queue for their agent, honoured now) · ``read`` (Sleep read it, or an agent read
+    its page) · ``kept`` (indexed, no model has read it). Built from maps computed once per request; only a media row of a
+    list origin gets any."""
+    from api.services import mention_asks
+
     eps = episodes(memory_path)
     origins = list_origins()
+    asked = mention_asks.waiting_hashes(memory_path)
     out: dict[str, dict] = {}
     for row in rows:
         if row.get("kind") != "media":
@@ -896,9 +907,11 @@ def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], post
         lists = id_utils.page_lists(fm)
         held = {_cf(n) for n in lists}
         folders = [n for n in eps.folders_of.get(str(row.get("_episode") or ""), ()) if _cf(n) not in held]
-        read = row.get("id") in eps.read_pages or (
-            bool(row.get("_url")) and media_ingestor.url_hash(str(row["_url"])) in eps.agent_read)
-        fields: dict[str, Any] = {"depth": "read" if read else "kept"}
+        h = media_ingestor.url_hash(str(row["_url"])) if row.get("_url") else ""
+        read = row.get("id") in eps.read_pages or (bool(h) and h in eps.agent_read)
+        depth = "watched" if h and h in eps.agent_watched else "asked" if h and h in asked else \
+            "read" if read else "kept"
+        fields: dict[str, Any] = {"depth": depth}
         if lists:
             fields["lists"] = lists
         if folders:
