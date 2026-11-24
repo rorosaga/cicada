@@ -23,6 +23,7 @@ from api.services.clarification_manager import (
     ClarificationManager,
 )
 from api.services.id_utils import sanitize_id
+from api.services import part_placement
 from api.services.vector_index import PendingEntity, SqliteVecIndexer
 
 #: The loop a judge call belongs on when Stage 2 runs on its worker thread (`resolve_off_loop`): the engine's clients,
@@ -2626,6 +2627,28 @@ async def _settle_unborn(
         match = _pick_match(u.name, judged)
         # Review of #545 (B2): only when nothing came back same or unsure — "unsure" about one page holds and asks.
         whole = _part_of_page(judged, u.name) if match is None else None
+        placed = None
+        if match is None and whole is None:
+            # 2026-11-24 (G148): a name the pair judge left with no page — each pair taken alone read "different" — is
+            # asked once over the whole list of the person's things: one of them, or none (`part_placement`).
+            placed = _related_unborn(judged) or await _placed_in_list(u, candidates, settings, cancel_check)
+            if cancel_check is not None and cancel_check():
+                return True
+        if placed is not None:
+            candidate, relation = placed
+            if candidate["source"] in ("existing", "created"):
+                u.part = True
+                on_page.setdefault(candidate["id"], (candidate, []))[1].append(u)
+            else:   # a name with no page yet: the two are one group, and the part is never the page's name nor its alias
+                if candidate["source"] == "unborn":
+                    members = groups[candidate["index"]]
+                else:   # a line an earlier batch parked
+                    members = [stored.pop(candidate["line"])]
+                    groups.append(members)
+                for m in (u,) if relation == "part_of" else tuple(members):
+                    m.part = True
+                members.append(u)
+            continue
         if whole is not None:
             # 2026-10-29, the owner's 2026-10-23 rule ("a canoe, its hull, the hull build — is one thing"): a name the
             # judge calls a part, feature, stage, task or pull request of a page lands on that page as a mention of it
@@ -2686,7 +2709,7 @@ async def _settle_unborn(
                 if not m.stored:
                     hold(m.name, m.entity, m.siblings, False)
             continue
-        rep = max(members, key=lambda m: (len(m.heard), not m.stored, _specificity_key(m.entity)))
+        rep = max(members, key=lambda m: (not m.part, len(m.heard), not m.stored, _specificity_key(m.entity)))
         entity_id = sanitize_id(rep.name)
         if entity_id in existing_ids or entity_id in resolved_creates:
             for m in members:   # that id is another page's: never folded into by its spelling
@@ -2702,7 +2725,7 @@ async def _settle_unborn(
             credit(change, m, entity_id)
         # The page keeps the name it was heard by most (a merge would take the longest spelling, "Hull build project");
         # every other spelling the judge joined is an alias, so the next one is brought to the judge by it.
-        others = [m.name for m in members if m is not rep]
+        others = [m.name for m in members if m is not rep and not m.part]   # a part's name is never an alias of its whole
         change["entity"] = {**change["entity"], "name": rep.name,
                             "aliases": _union_text(change["entity"].get("aliases"), others)}
         change[project_birth.PROPOSED_KEY] = "project"
@@ -2714,6 +2737,34 @@ async def _settle_unborn(
     logger.info(f"Stage 2: {len(unborn)} project name(s) with no page → {len(groups)} group(s), {made} fallback "
                 f"page(s), {sum(len(m) for _, m in on_page.values())} onto existing pages")   # counts, never names
     return False
+
+
+def _related_unborn(judged: list[tuple[dict, str]]) -> tuple[dict, str] | None:
+    """The first name with no page of its own (this batch's, or a parked line) the pair judge called a part of the name
+    or the name a part of — one thing said under two names, the owner's canoe rule, decided in one batch where neither
+    has a page to hold a relation (`_judged_relations` skips such a pair, which left them two pages with nothing between)."""
+    return next(((c, entity_relations.relation_of(decision)) for c, decision in judged
+                 if c.get("source") in ("unborn", "held")
+                 and entity_relations.relation_of(decision) in ("part_of", "has_part")), None)
+
+
+async def _placed_in_list(u: _Unborn, candidates: list[dict], settings: Settings,
+                          cancel_check: Callable[[], bool] | None) -> tuple[dict, str] | None:
+    """The candidate a name with no page is a part of, asked over the whole list in one call (`part_placement`): a
+    page or a name with no page yet, never a direction that makes the name the whole of a page (`has_part` on a page
+    keeps the relation the pair judge records)."""
+    if not candidates or (cancel_check is not None and cancel_check()):
+        return None
+    summary = " ".join(dict.fromkeys(s for e in (u.entity, *u.siblings) for s in _effective_summaries(e) if s))
+    things = [(_candidate_display_name(c), _candidate_description(c)) for c in candidates]
+    chosen = await part_placement.place(u.name, summary, things, settings, ask=_same_name_ask)
+    if chosen is None:
+        return None
+    candidate, relation = candidates[chosen[0]], chosen[1]
+    if relation == "has_part" and candidate["source"] in ("existing", "created"):
+        return None
+    logger.info("Stage 2: a name with no page placed in the list (part_placement)")   # a count, never a name
+    return candidate, relation
 
 
 def _part_of_page(judged: list[tuple[dict, str]], name: str) -> dict | None:

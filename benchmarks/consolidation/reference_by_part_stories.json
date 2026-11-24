@@ -506,7 +506,7 @@
     "whole": "casa del árbol|treehouse|tree house",
     "facts": [
      "roof|shingle|techo|tejas",
-     "stair|ladder|rung|escalera|antideslizante|non-slip|anti-slip"
+     "\\bstairs?\\b|\\bladder\\b|escalera|antideslizante|non-slip|anti-slip"
     ],
     "others": [],
     "ask": {
