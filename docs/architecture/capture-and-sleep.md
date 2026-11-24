@@ -1311,6 +1311,13 @@ the folder, and `covers` claims from the title's own words. Recall found the sam
   that carries the page's link (`video-watch`, `page-read`) and Cicada's own checks; a conversation; a save anyone already
   read. **A save read before the ruling stays exactly as it was:** `processed: true` under any writer but `index` is never
   `saved`, so its claims, pages and every reader's view of it are untouched.
+- **A connector's post is no note of the person's (G245, owner 2026-11-24).** The X and Pinterest connectors used to pass a
+  post's text as `RawItem.note`, so it landed under `## User note` with `has_note` and a Sleep read took it as the person's
+  own words (the one place a stranger's words could reach the owner's page). It now rides `RawItem.preview` — the page's
+  description, kept beside the linked page's own when there is one — so such a save is a bare save like every other
+  (index-only, `kind` `saved`), and the X request asks for `created_at`, the post's `posted` day. How a save is read when it
+  is read (author's observer, post day, owner guard, 8 entities, no question) is in `storage.md`, "A save a model reads is
+  read as its author's".
 - **What it costs: nothing.** Capture writes it read (`processed_by: index`, `media_ingestor.write_media_episode`; a tab group's
   stager draft); an edit to a group spends nothing. No model call, no claim, no page minted (the media page is the save's
   own, written at capture, link views and all), no question: Stage 5.57, the tail's link backfill and recon pass over its page

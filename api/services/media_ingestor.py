@@ -30,8 +30,8 @@ from urllib.parse import parse_qs, urljoin, urlparse
 from loguru import logger
 
 from api.services import (
-    bank_index, decay_policy, episode_ids, episode_scrub, episode_time, history_index, markdown_parser, net_guard,
-    saved_at, video_chapters, video_urls,
+    bank_index, decay_policy, episode_ids, episode_scrub, episode_time, evidence, history_index, markdown_parser,
+    net_guard, saved_at, saved_reading, video_chapters, video_urls,
 )
 from api.services.id_utils import folder_tags, page_lists, sanitize_id
 
@@ -2116,7 +2116,10 @@ def _episode_body(
     if content_saved_at and content_saved_at != saved_date:
         lines.append(f"**Originally saved:** {content_saved_at}")
     if meta.description:
-        lines += ["", "## Description", meta.description]
+        # A line of a page's text that reads like a turn marker ("user: ...") is quoted, so it can never read as the
+        # person's own words (`evidence.quote_markers`, the attachment rule).
+        quoted = evidence.quote_markers(meta.description)
+        lines += ["", "## Description", quoted if quoted != "\n".join(meta.description.splitlines()) else meta.description]
     if reason:
         lines += ["", "## Saved because", reason]
     if note:
@@ -2637,6 +2640,11 @@ async def prepare_one(item: RawItem, memory_path: Path, client, idx: dict,
     # no description of its own — enrichment's words always win.
     if item.preview and not (meta.description or "").strip():
         meta.description = item.preview
+    elif item.preview and (item.origin or "") in saved_reading.CONNECTOR_TEXT_ORIGINS \
+            and item.preview.strip() not in meta.description:
+        # G245: a connector's post text (a pin's own description) is the post's words, kept beside what the linked page
+        # says of itself — never dropped for it, and never the person's note (`saved_reading`).
+        meta.description = f"{item.preview.strip()}\n\n{meta.description.strip()}"
     return PreparedItem(item, meta, from_bookmark_file)
 
 

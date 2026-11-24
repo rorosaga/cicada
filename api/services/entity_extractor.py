@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 from api.config import Settings
 from api.services import (act_object, meeting_speakers, authorship, book_marks, contact_identity, turn_signals, correspondents, decay_policy, engine_errors, entity_types, episode_time,
-                          episode_revision, evidence, fact_policy, participation, phone_numbers, project_birth, promotion, section_provenance,
+                          episode_revision, evidence, fact_policy, participation, phone_numbers, project_birth, promotion, saved_reading, section_provenance,
                           sensitive_flags, source_dates)
 from api.services.json_parse import parse_json_object
 
@@ -1144,10 +1144,19 @@ async def extract(
         # "Facts yes, activity no" (owner 2026-10-08): a memory export entry's date is the summary's, not a
         # mention's — its pages keep the facts and the source, never its date as when the thing came up.
         untimed = not episode_time.counts_as_activity(episode)
+        # G245 (owner 2026-11-24): a saved item is the author's text, dated by when it was posted — never the day the
+        # person saved it, or Cicada took it in (`saved_reading`).
+        saved = saved_reading.applies(episode)
+        post_day = saved_reading.post_day(episode) if saved else None
+        if post_day is not None and post_day > today:
+            post_day = None   # a post "from the future" is no date
+        person_ranges = saved_reading.person_ranges(content) if saved else []
         # Ruling 39: a feed item is untimed too (no mention by the person), but its date is its publisher's, so the
         # model is told when it was published rather than that it is an assistant's summary.
         if episode_time.is_feed_item(episode):
             date_note = source_dates.feed_note(ep_day, today)
+        elif saved:
+            date_note = source_dates.saved_note(post_day, today)
         elif untimed:
             date_note = source_dates.summary_note(ep_day, today)
         else:
@@ -1155,7 +1164,7 @@ async def extract(
         # G179: a message conversation says who its other side is, before every chunk.
         # A harness session says whose its assistant lines are, and that their acts are not the person's.
         source_note = (correspondent_note(episode.get("correspondent")) or agent_session_note(episode)
-                       or agent_save_note(episode) or meeting_note(episode)
+                       or agent_save_note(episode) or saved_reading.note(episode, content) or meeting_note(episode)
                        or linear_note(episode)
                        or book_marks.note(episode, themes=book_themes() if book else (),
                                           shown=(book_plan[1], book_plan[2]) if book_plan else None))
@@ -1279,6 +1288,11 @@ async def extract(
                 # G235: a value is taken back out of what the model answered, whatever it was shown; a page never
                 # repeats it. After the spans above: a quote is consumed there and never stored.
                 all_entities, all_relationships, all_values = guard.clean(all_entities, all_relationships, all_values)
+                if saved:
+                    # G245: nothing a post says lands on the owner's page or as an alias on a person's; a save asks
+                    # nothing (nobody talked about it) and yields at most `MAX_ENTITIES` entities.
+                    all_entities, all_relationships, all_values = saved_reading.clean(
+                        all_entities, all_relationships, all_values, content, owner=owner)
                 # What the model was given counts as said: the conversation, the owner's name and the source note.
                 given = "\n".join(t for t in (masked, owner or "", source_note or "") if t)
                 if plan_ids and engine_identity.scrub_extraction(all_entities, all_relationships, all_values,
@@ -1334,7 +1348,8 @@ async def extract(
                     entity["source_episode_timestamp"] = None if untimed else episode.get("timestamp")
                     # G194 fix 1: the day the date note gave (timestamp, else the id's date) rides along for Stage
                     # 3's prompts only — never written, so no stored timestamp is invented from an id.
-                    entity["source_episode_day"] = ep_day.isoformat() if ep_day and not untimed else None
+                    entity["source_episode_day"] = (post_day or ep_day).isoformat() if (post_day or ep_day) and not untimed \
+                        else None
                     if untimed:
                         entity["untimed"] = True
                     entity["origin"] = ep_origin
@@ -1344,9 +1359,11 @@ async def extract(
                 if narration:
                     # "X was mentioned in a conversation": the page's sources already say so.
                     logger.debug(f"  {ep_id}: {narration} fact(s) that only said the thing came up were left out")
+                # A saved item's claims are dated by its post day when it has one (`_claim_date` reads this stamp).
+                claim_stamp = post_day.isoformat() if post_day is not None else episode.get("timestamp")
                 for rel in all_relationships:
                     rel["source_episode"] = ep_id
-                    rel["source_episode_timestamp"] = episode.get("timestamp")
+                    rel["source_episode_timestamp"] = claim_stamp
                     rel["origin"] = ep_origin
                     # The observer is never the model's to set; G179: a claim resting only on the other side's
                     # words is theirs (`external:<name>`), never the person's and never Cicada's own reading —
@@ -1354,16 +1371,18 @@ async def extract(
                     rel.pop("observer", None)
                     if signals:
                         _weigh_reaction(rel, episode, content, ep_id)
-                    if (observer := _observer_for(rel, their_observer, members, content, group=in_group)) is not None:
+                    if (observer := (saved_reading.observer_for(rel, episode, content, person_ranges) if saved else None)
+                            or _observer_for(rel, their_observer, members, content, group=in_group)) is not None:
                         rel["observer"] = observer
                 for value in all_values:
                     value["source_episode"] = ep_id
-                    value["source_episode_timestamp"] = episode.get("timestamp")
+                    value["source_episode_timestamp"] = claim_stamp
                     value["origin"] = ep_origin
                     value.pop("observer", None)
                     if signals:
                         _weigh_reaction(value, episode, content, ep_id)
-                    if (observer := _observer_for(value, their_observer, members, content, group=in_group)) is not None:
+                    if (observer := (saved_reading.observer_for(value, episode, content, person_ranges) if saved else None)
+                            or _observer_for(value, their_observer, members, content, group=in_group)) is not None:
                         value["observer"] = observer
                 for value, by_agent in app_values:
                     value["source_episode"] = ep_id

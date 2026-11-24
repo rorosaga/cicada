@@ -1845,6 +1845,10 @@ async def _index_without_model_safely(memory_path: Path) -> None:
         except Exception as exc:
             logger.warning(f"Indexing without a model skipped: tree status unreadable ({type(exc).__name__})")
             return
+    # G245: a connector post written as the person's own words (`connector_text`) put right, in a commit of its own
+    # BEFORE anything else this run writes, so HEAD holds the healed body and no later wake reads it as a revision.
+    # Report-only while `connector_text.REPAIR` is off: it counts, logs and changes nothing.
+    await _heal_connector_text_safely(memory_path, skip, has_git)
     try:
         retired = await asyncio.to_thread(history_index.retire, memory_path, skip=skip)
         months = await asyncio.to_thread(watch_history.rollup, memory_path, bank=memory_path.name)
@@ -1880,6 +1884,34 @@ async def _index_without_model_safely(memory_path: Path) -> None:
         except Exception as exc:
             rest = [p for c in chunks[n - 1:] for p in c]
             logger.warning(f"Indexing commit failed — restoring {len(rest)} file(s): {type(exc).__name__}: {exc}")
+            await asyncio.to_thread(history_index.restore, memory_path, rest)
+            return
+
+
+async def _heal_connector_text_safely(memory_path: Path, skip: frozenset[str], has_git: bool) -> None:
+    """The step above: ``connector_text.repair`` and its own commit. Never raises; a failed commit restores the files."""
+    from api.services import connector_text, history_index
+
+    try:
+        fixed = await asyncio.to_thread(connector_text.repair, memory_path, skip=skip)
+    except Exception as exc:  # noqa: BLE001 - the repair is a courtesy; the run goes on without it
+        logger.warning(f"Connector text repair failed: {type(exc).__name__}")
+        return
+    if fixed.paths:
+        logger.info(f"Connector posts written as the person's words: {fixed.counts()}")
+    if not fixed.changed or not has_git:
+        return
+    today = date.today().isoformat()
+    step = max(1, history_index.COMMIT_STEP)
+    chunks = [fixed.changed[i:i + step] for i in range(0, len(fixed.changed), step)]
+    for n, chunk in enumerate(chunks, start=1):
+        try:
+            async with _lock:
+                await git_service.commit_paths(
+                    memory_path, connector_text.commit_message(chunk, today, part=n, parts=len(chunks)), chunk)
+        except Exception as exc:  # noqa: BLE001
+            rest = [p for c in chunks[n - 1:] for p in c]
+            logger.warning(f"Connector text commit failed — restoring {len(rest)} file(s): {type(exc).__name__}")
             await asyncio.to_thread(history_index.restore, memory_path, rest)
             return
 
@@ -4046,6 +4078,10 @@ def _get_unprocessed_episodes(
             "timestamp": str(fm.get("timestamp", "") or ""),
             # Ruling 39: a feed item's published moment — it makes the episode no time signal (`episode_time`).
             **({"published_at": str(fm["published_at"])} if fm.get("published_at") else {}),
+            # G245: a saved item's own post day (when a list showed one) and its link — what a model reading it is told
+            # it was posted, and whose site it is (`saved_reading`); the save's own day stays `timestamp`.
+            **({"posted": str(fm["posted"])} if fm.get("posted") else {}),
+            **({"url": str(fm["url"])} if fm.get("url") else {}),
             "filepath": f.path,
             # G48: which conversation produced this episode. `session_id` is
             # stamped by the MCP seam at capture; `source_id` is G20's
