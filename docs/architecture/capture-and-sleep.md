@@ -1744,6 +1744,24 @@ extractor keeps crosses the wire:
   the turns after it), so the episode keeps their order; Cursor's prompt hook
   never flushes (it holds the person's message). Bounded at 2,000 entries / 128 MiB, oldest dropped and counted in
   the log. The recall hooks read the same base and token; they do not spool (a read).
+  **What a second machine's captures need to reach the home (B3, 2026-11-24).** (1) *A 202 is not a write*: a
+  session post the server answered `202 accepted` (`routers/capture.py::answer_within`) stays in the spool marked
+  `accepted_at` and is sent again after `hook_spool.ACCEPT_CONFIRM_S` (30 s); only an answer with the finished write
+  (200/201) drops it, so a write that failed after the 202, or a home that restarted between the two, loses nothing (a
+  resend is `unchanged` when it had landed). The same on the home's own loopback path (`_flush_local`). (2) *Nothing
+  waits for the next firing*: a plain client (`CICADA_API_BASE`, no process of its own) starts one detached retrier
+  when a post did not land (`capture.retry_spool`, one at a time by a lock in the spool folder, backing off 20 s to
+  5 min, gone when nothing waits for the server or after 2 h; the child that reads a session over 16 MB starts one too —
+  the retrier's own marker is `CICADA_HOOK_RETRIER`, never the long-read child's `CICADA_HOOK_DETACHED`); a machine that keeps a copy has its backend's follower
+  send the spool through the same transport as every other request to the home (`replica._flush_hook_spool`, session
+  and turn routes only; an entry whose target names the bank the copy follows goes whatever address it was captured for,
+  and a computer that becomes the home drains its own bank's entries into itself, `home_move.drain_own_spool`).
+  Marking an entry (accepted, held) or removing it re-checks, under one short spool-wide `flock` that `put` also takes
+  around its rename (`.mark.lock`, never held across a post, a hook never waits past 1 s), that the file is still the
+  one that was sent (`hook_spool.signature`: mtime + inode), so a newer snapshot of the session is never overwritten
+  and a dropped entry never comes back — in `_flush_local` too. (3) *Said, not silent*: the spool counts what was refused for good or dropped by its bounds
+  (`.counters`), and every session post carries `unsent` (`{waiting, held, rejected}`, counts only). (4) A hook that
+  posts a path to a copy's own backend is answered by `replica_gateway` instead of `409 replica_read_only` (`headless.md`).
 
 **After capture: the awake read (G207, ruling 36 D2, 2026-10-22).** A captured conversation is usable before Sleep
 reads it, through a separate job that never runs inside the capture write. `/capture/transcript`, `/capture/session`

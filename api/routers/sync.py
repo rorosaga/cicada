@@ -430,6 +430,8 @@ class AnnounceBody(BaseModel):
     seq: int | None = None
     head: str | None = Field(None, max_length=64)
     door: dict | None = None
+    #: B3, additive: what this device still holds and has not sent — ``{waiting, held, rejected}``, counts only.
+    unsent: dict | None = None
 
 
 def _refused_move(exc) -> JSONResponse:
@@ -547,6 +549,13 @@ async def post_sync_devices_me(body: AnnounceBody, request: Request, settings: S
         raise HTTPException(status_code=404, detail="No such device.") from None
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
+    if body.unsent is not None:
+        from api.services import device_unsent
+
+        try:
+            await run_in_threadpool(device_unsent.record, device.id, body.unsent)
+        except Exception:  # noqa: BLE001 — a count is never worth a refused announcement
+            pass
     rows = await run_in_threadpool(home_move.registry, settings.memory_path)
     return {"ok": True, "term": await run_in_threadpool(home_move.term, settings.memory_path),
             "registry": home_move.registry_digest(rows)}

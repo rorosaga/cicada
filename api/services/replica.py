@@ -485,11 +485,29 @@ def _after(mp: Path, seq: int) -> None:
 
 _ANNOUNCED: list = [None, 0.0]
 ANNOUNCE_EVERY_S = 60.0
+#: The counts of what this computer holds and has not sent, as the home last heard them (B3).
+_ANNOUNCED_UNSENT: list = [None]
+
+
+def _unsent() -> dict:
+    """What this computer still holds for the home — its transactions and the captures its hooks could not deliver —
+    as ``{waiting, held, rejected}``: counts only (``device_unsent`` keeps them at the home)."""
+    from api.hooks import hook_client
+    from api.services import runtime_layout, tx_outbox
+
+    tx = tx_outbox.counts()
+    hooks = hook_client.spool_module().counts(runtime_layout.cicada_home())
+    return {k: int(tx.get(k) or 0) + int(hooks.get(k) or 0) for k in ("waiting", "held", "rejected")}
 
 
 def _announce(seq: int | None, *, force: bool = False) -> None:
     now = time.monotonic()
-    if not force and _ANNOUNCED[0] == seq and now - _ANNOUNCED[1] < ANNOUNCE_EVERY_S:
+    try:
+        unsent = _unsent()
+    except Exception:  # noqa: BLE001 — a count is never worth a missed announcement
+        unsent = None
+    if (not force and _ANNOUNCED[0] == seq and now - _ANNOUNCED[1] < ANNOUNCE_EVERY_S
+            and unsent == _ANNOUNCED_UNSENT[0]):
         return
     mp = copy_path()
     if mp is None:
@@ -498,12 +516,15 @@ def _announce(seq: int | None, *, force: bool = False) -> None:
 
     try:
         body = home_move.announce_body(mp, seq)
+        if unsent is not None:
+            body["unsent"] = unsent
         status, _h, answer = request("POST", "/sync/devices/me", body=json.dumps(body).encode("utf-8"),
                                      headers={"Content-Type": "application/json"}, timeout=10)
     except (NoDeviceToken, Exception):  # noqa: BLE001 — told again on the next catch-up
         return
     if status is not None and 200 <= status < 300:
         _ANNOUNCED[0], _ANNOUNCED[1] = seq, now
+        _ANNOUNCED_UNSENT[0] = unsent
         digest = (answer or {}).get("registry") if isinstance(answer, dict) else None
         if digest and digest != home_move.registry_digest(home_move.load_mirror(mp)):
             home_move._refresh_mirror(mp)   # noqa: SLF001 — a device joined, moved or registered its key
@@ -765,6 +786,8 @@ def _follower() -> None:
             notified = _NOTIFIED[0]
             timings = apply_once()
             _flush_outbox()
+            _flush_hook_spool()
+            _announce(seq())      # what is left (or that nothing is) is said to the home at once (B3)
             if timings and notified is not None:
                 timings["sinceNoticeMs"] = round((time.perf_counter() - notified) * 1000, 1)
                 _NOTIFIED[0] = None
@@ -838,6 +861,63 @@ def _flush_outbox() -> None:
             tx_outbox.flush(send, deadline_s=20.0)
     except Exception as exc:  # noqa: BLE001 — a flush is retried on the next contact
         logger.info(f"replica: outbox flush skipped ({type(exc).__name__})")
+
+
+#: The routes a copy's follower sends from the hooks' spool: a session and a per-turn post. A local capture's path
+#: (``/capture/transcript``, written before this computer kept a copy) names a file the home cannot read.
+HOOK_SPOOL_ROUTES = frozenset({"/capture/session", "/capture/turn"})
+
+
+def _flush_hook_spool(*, base: str | None = None, banks=(), environ=None) -> None:
+    """The home answered: the captures the hooks on this computer could not deliver go now (B3, 2026-11-24) — through
+    this backend's own transport (direct to the home, its door or the relay, ``request``), not the hook's one direct
+    request, and without waiting for another session to end here. ``hook_spool``'s rules: oldest first, a post the home
+    only accepted waits for its write's confirmation, a refusal for good is counted (never silent).
+
+    **A session follows its bank, not the address** it was captured for: an entry goes when its target is this home's
+    address, or names the bank this copy follows (the home moved), and one for another bank waits for its own
+    server. ``base`` / ``banks`` / ``environ`` are for the computer that has just become the home
+    (``home_move.drain_own_spool``): the same entries for its own bank go to its own backend."""
+    from api.hooks import hook_client
+    from api.services import runtime_layout
+
+    env = os.environ if environ is None else environ
+    try:
+        spool = hook_client.spool_module()
+        home = runtime_layout.cicada_home(env)
+        if not spool.pending(home):
+            return
+
+        def one(route: str, body: dict):
+            status, _h, answer = request("POST", route, body=json.dumps(hook_client.with_unsent(home, body)).encode(
+                "utf-8"), headers={"Content-Type": "application/json"}, timeout=20, environ=env)
+            if status is None:
+                return None, ""
+            return status, json.dumps(answer) if isinstance(answer, (dict, list)) else ""
+
+        def size_of(path, fallback: int) -> int:
+            try:
+                return Path(path or "").stat().st_size
+            except (OSError, ValueError):
+                return fallback
+
+        # Only what was kept for THIS computer's home goes: a session kept while this machine pointed at another
+        # server waits for that one (D1, G202), as it does when a hook flushes — unless it was kept for this bank.
+        if base is None:
+            try:
+                base = runtime_layout.replica_of(env)
+            except ValueError:
+                base = None
+            followed = _STATE.bank_id
+            if not followed and (mp := copy_path()) is not None:
+                followed = (read_marker(mp) or {}).get("bankId")
+            banks = (followed,) if isinstance(followed, str) and followed else ()
+        spool.flush(home, one, deadline=time.monotonic() + 25.0, keep=hook_client.keep, size_of=size_of, base=base,
+                    only_routes=HOOK_SPOOL_ROUTES, banks=tuple(banks))
+    except NoDeviceToken:
+        _set(status="no_token")
+    except Exception as exc:  # noqa: BLE001 — a flush is retried on the next contact
+        logger.info(f"replica: capture spool flush skipped ({type(exc).__name__})")
 
 
 def start() -> None:

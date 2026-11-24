@@ -199,9 +199,22 @@ def test_the_session_s_own_landed_firing_drops_its_waiting_entry(tmp_path):
     line, home = _fire(tmp_path, PAYLOAD, refused)
     assert "no answer (ConnectionRefusedError: Connection refused)" in line
     sent: list[str] = []
-    _fire(tmp_path, PAYLOAD, lambda url, body, tok, t: sent.append(json.loads(body)["session_id"]) or (202, '{"status":"accepted"}'))
+    _fire(tmp_path, PAYLOAD, lambda url, body, tok, t: sent.append(json.loads(body)["session_id"]) or (200, '{"status":"updated"}'))
     assert sent == [SID]                      # the newer firing replaced the waiting one: sent once
     assert list((home / "spool" / "capture").glob("s-*.json")) == []
+
+
+def test_a_202_is_kept_until_a_finished_write_confirms_it(tmp_path):
+    """B3: "accepted" is not "written" — the backend may fail the write after its 202, or restart; the request stays
+    (marked accepted) and is sent again after ``ACCEPT_CONFIRM_S``, and only an answer with the write drops it."""
+    def refused(url, body, tok, timeout):
+        raise ConnectionRefusedError("Connection refused")
+
+    _line, home = _fire(tmp_path, PAYLOAD, refused)
+    line, _home = _fire(tmp_path, PAYLOAD, lambda url, body, tok, t: (202, '{"status":"accepted"}'))
+    assert "kept until the write is confirmed" in line
+    entries = list((home / "spool" / "capture").glob("s-*.json"))
+    assert len(entries) == 1 and "accepted_at" in json.loads(entries[0].read_text())
 
 
 def test_a_landed_capture_makes_no_spool_folder(tmp_path):

@@ -340,6 +340,9 @@ class SessionCaptureRequest(BaseModel):
     bank_id: str | None = Field(None, max_length=128)
     #: G228, additive: the app that launched the harness on the client (an unknown value is dropped).
     host: str | None = Field(None, max_length=32)
+    #: B3, additive: what else this device still holds and has not sent (``{waiting, held, rejected}``, counts only),
+    #: said with every post it makes so the home can tell a quiet machine from one that cannot reach it.
+    unsent: dict | None = None
 
 
 def _filed_in(settings: Settings, target, claimed: str | None) -> str | None:
@@ -369,6 +372,13 @@ async def capture_session_endpoint(req: SessionCaptureRequest, request: Request,
     filed = _filed_in(settings, target, req.bank_id)
     memory_path = target.path if target is not None else settings.memory_path
     device = getattr(request.state, "device", None)
+    if device is not None and req.unsent is not None:
+        from api.services import device_unsent
+
+        try:
+            await asyncio.to_thread(device_unsent.record, device.id, req.unsent)
+        except Exception as exc:  # noqa: BLE001 — a count is never worth a refused capture
+            logger.info(f"capture: unsent counts not kept ({type(exc).__name__})")
 
     def _capture():
         return capture_posted(

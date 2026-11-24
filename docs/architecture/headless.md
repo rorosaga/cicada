@@ -286,7 +286,9 @@ two memories: a hook's capture waiting offline was delivered to whichever server
 
 - Each hook spool entry names its **target** — the address (`runtime_layout.api_base`) and, once heard, the bank id the
   server's capture answer gave (`bankId`, kept per address in `spool/capture/.servers`). A flush sends only the entries
-  for the address in use; a resend carries `bank_id`, and `/capture/session` and `/capture/turn` refuse it with 409
+  for the address in use — and, on a computer that keeps a copy, those whose target names the bank it follows, so a
+  session follows its bank when the home moves (an entry for another bank, or for no known bank at another address,
+  still waits for its own server); a resend carries `bank_id`, and `/capture/session` and `/capture/turn` refuse it with 409
   `bank_mismatch` only when no bank of that server's memory has the id — the address now leads to another memory. A
   bank switch on the server itself files the resend where a live capture of the same session goes (a session is never
   split between two banks of one memory). Entries for another server wait, never dropped; the hook's log line says how
@@ -514,7 +516,21 @@ head that does not descend stops it (`home_rewritten`, `diverged`) and says so; 
   computer's own token is accepted. A home that publishes adds `X-Cicada-Seq` to every write's answer, so a forwarded
   write waits for the copy to catch up too. `test_replica_routes_inventory.py` fails on a route the table misses.
 - **The hooks.** On a copy, capture goes to the home the way a client's does (`hook_client.captures_elsewhere`,
-  the existing spool and its targets); recall reads this computer's own backend, the copy.
+  the existing spool and its targets); recall reads this computer's own backend, the copy. **What waits is sent by the
+  backend, not by the next firing** (B3, 2026-11-24): after every catch-up the follower sends the hooks' spool to the
+  home through `replica.request` — the same transport as the outbox and the follower itself (direct, the door, the
+  relay) — session and turn entries only, in order, and tells the home what is left. **A hook that does not know it is
+  on a copy** (its `$CICADA_HOME` is not the folder holding `replica_of`, or the copy was set in the backend's
+  environment alone) posts a transcript path to this backend; `replica_forward` hands that to `replica_gateway`, which
+  reads the one transcript under the harness root and keeps the session in the same spool (`200 queued`) instead of the
+  old `409 replica_read_only`, which the hook logged and let go. `test_machine_capture_sync.py` pins both, on a copy and
+  on a plain client: one waiting episode at the home, `device` the capturing machine's, exactly once, after a home that
+  was away, a 202 whose write then failed, and a home that restarted after its 202.
+- **What a device says it holds (`unsent`).** A copy adds `unsent` (`{waiting, held, rejected}`: its outbox and its
+  hooks' spool, counts only) to `POST /sync/devices/me` whenever the numbers change; a plain client adds it to each
+  `/capture/session` post (the others it still holds, not the one being sent). The home keeps it beside the device rows
+  (`device_unsent`, `$CICADA_HOME/sync/device_unsent.json`, outside every bank) and `GET /devices/status` serves it per
+  device as `unsent` (waiting + held; `null` = that machine never reported, always for the server's own row).
 
 The outbox keeps hook_spool's rules: no answer, 401/403, `sleep_writing` and 5xx wait (and stop the flush, so order
 holds); 400/404/405/413/422 are dropped and counted; 409 `bank_mismatch` is held aside and retried every 10 minutes;
@@ -637,7 +653,9 @@ this memory, has an address, and answers `/sync/peer` with the home's own token.
    and **promotes** itself: `promote.json` first, then the registry taken into its own store, its copy made its own
    bank (`replica: false`, the marker removed), publishing on, the old home's schedule adopted (Sleep moves with the
    home), `replica_of` removed — and it starts again in place (`os.execv`), as the home. What it queued in its own
-   outbox while the old home was closed is then applied here, in order, through its own doors (each keyed once).
+   outbox while the old home was closed is then applied here, in order, through its own doors (each keyed once), and
+   the hooks' `/capture/session` and `/capture/turn` entries naming its own bank go the same way
+   (`home_move.drain_own_spool`, at start, whether or not `spool/tx` exists); another bank's entries wait.
 8. The old home, once the target answers `/sync/peer` as the home of that term, **demotes** itself: `demote.json`
    first, then its own token as `device_token`, its bank marked a copy (in place, with a marker), publishing off,
    `replica_of` = the new home's address — and it starts again in place, following it.

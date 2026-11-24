@@ -11,8 +11,10 @@ that evidence is written down before the step that depends on it:
 
 1. **The move, on the old home** (:func:`start_move`): ``handoff.json`` ``leaving`` first (fsynced) — from that
    instant every bank writer is refused here (``replica_guard.blocks``), the app's writes and the tool door answer
-   503 ``home_moving`` (a device's outbox and the hooks' spool keep them; they re-target to the new home by
-   themselves, since they carry the bank's id, not an address); a running Sleep is parked (cancelled at its next safe
+   503 ``home_moving`` (a device's outbox and the hooks' spool keep them; a queued session goes to the new home
+   by itself, since its entry names the bank's id as well as an address: a copy's follower sends an entry that names the
+   bank it follows wherever its home is now, and a computer that becomes the home drains its own into itself,
+   :func:`drain_own_spool`); a running Sleep is parked (cancelled at its next safe
    point; what it filed stays filed, the rest waits); writers already admitted are waited out (``write_admission``);
    what is still uncommitted here is carried in one commit of its own, with no author; then the signed record naming
    the target is committed **alone, as the last commit this home makes**, and ``handoff.json`` says ``left``.
@@ -1200,28 +1202,71 @@ def at_start(memory_path: Path) -> None:
     admitted_log.prune(memory_path)
     from api.services import runtime_layout
 
-    if (runtime_layout.cicada_home() / "spool" / "tx").is_dir():
+    home = runtime_layout.cicada_home()
+    if (home / "spool" / "tx").is_dir() or _spool_holds_sessions(home):
         threading.Thread(target=_flush_own_outbox, name="cicada-home-own-outbox", daemon=True).start()
+
+
+def _spool_holds_sessions(home: Path) -> bool:
+    """The hooks' spool holds a session or a turn post (never a read of a body)."""
+    from api.hooks import hook_client
+
+    try:
+        spool = hook_client.spool_module()
+        return any((spool._read(p) or {}).get("route") in {"/capture/session", "/capture/turn"}   # noqa: SLF001
+                   for p in spool.entries(home))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _own_env() -> tuple[str, dict]:
+    """``(this backend's loopback address, the environment that makes ``replica.request`` send to it)``: the same
+    device token and the same transport a copy sends to its home with, aimed at this computer's own door."""
+    from api.services import runtime_layout
+
+    base = runtime_layout.local_backend_url()
+    return base, {"CICADA_REPLICA_OF": base, "CICADA_HOME": str(runtime_layout.cicada_home())}
+
+
+def drain_own_spool(environ: dict | None = None) -> None:
+    """A computer that just became the home (a hand-off or a take-over) may hold sessions the hooks queued while it was
+    a copy, for the home it had: they follow the bank, not the address. The `/capture/session` and `/capture/turn`
+    entries naming this computer's own bank (and none that name another) are sent to its own backend, through the
+    follower's own sender (``replica._flush_hook_spool``), each landing once and then removed; with no device token
+    of its own nothing is sent and the entries wait."""
+    from api.services import bank_registry, replica, runtime_layout
+
+    base, env = _own_env() if environ is None else (environ["CICADA_REPLICA_OF"], environ)
+    if not runtime_layout.replica_token(env):
+        return
+    bank_id = bank_registry._active_record(Path(_settings().memory_root))[2]   # noqa: SLF001
+    if not bank_id:
+        return
+    replica._flush_hook_spool(base=base, banks=(bank_id,), environ=env)   # noqa: SLF001
 
 
 def _flush_own_outbox() -> None:
     """A computer that just became the home may still hold writes it queued while it was a copy (its home was closed
     to move them): they are applied here now, in order, through this computer's own doors, each keyed once — sent with
-    its own device token to its own loopback backend, as a copy sends to its home."""
+    its own device token to its own loopback backend, as a copy sends to its home. The sessions its hooks queued go
+    the same way (:func:`drain_own_spool`)."""
     import urllib.request
 
     from api.services import replica, runtime_layout, tx_outbox
 
-    if not tx_outbox.entries():
-        return
-    base = runtime_layout.local_backend_url()
+    base, env = _own_env()
     for _ in range(60):                      # the backend is starting: wait until it answers
         try:
             with urllib.request.urlopen(f"{base}/healthz", timeout=2):
                 break
         except Exception:  # noqa: BLE001
             time.sleep(0.5)
-    env = {"CICADA_REPLICA_OF": base, "CICADA_HOME": str(runtime_layout.cicada_home())}
+    try:
+        drain_own_spool(env)
+    except Exception as exc:  # noqa: BLE001 — tried again at the next start
+        logger.info(f"home move: own capture spool drain skipped ({type(exc).__name__})")
+    if not tx_outbox.entries():
+        return
 
     def here(entry):
         try:
