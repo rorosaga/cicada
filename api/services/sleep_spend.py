@@ -23,6 +23,11 @@ The owner, 2026-11-04: "from cicada you can put a limit on spending." It amends 
 * **A model with no known price stops the run: never tokens counted, never a guess.** A limit in dollars cannot hold on
   a price nobody knows, and a run that spends past it silently is the one thing this exists to prevent. Told before the
   first read when the model is known up front, else at the first call that reports no price.
+* **A run may read on two models** (ruling 80, ``light_reads``): the person's own, and the lightest model of the same key for
+  old bulk saves, in batches of their own after every other save. Each call is added at its own model's price (the ledger's
+  figure), both models need a known price before the run starts, and a line reached with only such saves left ends the run
+  rather than pausing it. The first lighter batch is sized by what the dearer model cost each, so it never holds more than
+  the allowance buys; it is then sized by its own.
 * **Metered engines only.** A plan's limits are the plan's, and a local model costs nothing.
 """
 from __future__ import annotations
@@ -147,9 +152,10 @@ def _cost(model: str, input_tokens: int, output_tokens: int) -> float | None:
     return pricing.estimate_cost(model, input_tokens, output_tokens)
 
 
-def guard_for(resolved, limit_usd: float | None) -> SpendGuard | None:
+def guard_for(resolved, limit_usd: float | None, *, also: tuple[str, ...] = ()) -> SpendGuard | None:
     """The guard for a run on ``resolved``, or ``None`` when no limit applies: none set, or an engine that is not charged
-    per use. A model whose price cannot be read at all waits for the first call to say so."""
+    per use. A model whose price cannot be read at all waits for the first call to say so. ``also``: other models the run
+    reads on (the lighter model of old bulk saves, ruling 80): each needs a price too, or the run stops before it starts."""
     from api.services import telemetry
 
     main = str(getattr(resolved, "litellm_model", "") or "")
@@ -159,7 +165,7 @@ def guard_for(resolved, limit_usd: float | None) -> SpendGuard | None:
     with contextlib.suppress(Exception):   # no first estimate only makes the first batch the person's own
         guard.read_cap_usd = _cost(main, 0, READ_OUTPUT_TOKENS)
     models = {main, str(getattr(resolved, "effective_consolidation_model", "") or ""),
-              str(getattr(resolved, "litellm_disambiguation_model", "") or "")}
+              str(getattr(resolved, "litellm_disambiguation_model", "") or ""), *also}
     try:
         if not all(_cost(m, 1, 1) is not None for m in models if m):
             guard.observe(None)

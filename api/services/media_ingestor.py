@@ -148,6 +148,11 @@ class RawItem:
     # G245: the post's OWN day, when a saved list showed one beside it (the person's agent reads it off the page); the
     # save's own day stays ``added``. Written to the episode as ``posted`` (a bare ``YYYY-MM-DD``), never guessed.
     posted: str | None = None
+    # Ruling 80 (G246): the door a save came through when it is one that says so — ``file``: a bookmarks, export or archive
+    # FILE the person gave (``parse_upload`` stamps it on every item it returns). Written to the episode as ``arrived_by``
+    # and read by one reader (``light_reads``: old bulk material is read on the engine's lightest model); a sync, a list
+    # read by the person's agent, a connector and a single save carry none.
+    arrived_by: str | None = None
 
 
 @dataclass
@@ -1676,7 +1681,29 @@ _NOT_SAVES = {
 }
 
 
+#: ``RawItem.arrived_by`` of a save that came out of a file the person gave (a bookmarks file, an export, an archive).
+FILE_DOOR = "file"
+
+
 def parse_upload(
+    content: bytes,
+    filename: str,
+    *,
+    include_history: bool = False,
+    warnings: list[str] | None = None,
+    stats: dict | None = None,
+) -> tuple[list[RawItem], str, bool]:
+    """:func:`_parse_upload`, every item stamped as one that arrived by a file (ruling 80, ``light_reads``). A feed's
+    items are no saves and are left as they were."""
+    items, label, from_bookmark_file = _parse_upload(
+        content, filename, include_history=include_history, warnings=warnings, stats=stats)
+    if label != "RSS Feed":
+        for item in items:
+            item.arrived_by = item.arrived_by or FILE_DOOR
+    return items, label, from_bookmark_file
+
+
+def _parse_upload(
     content: bytes,
     filename: str,
     *,
@@ -2288,6 +2315,8 @@ def write_media_episode(
         frontmatter["posted"] = posted
     if item.origin:
         frontmatter["origin"] = item.origin
+    if item.arrived_by:
+        frontmatter["arrived_by"] = item.arrived_by
     if item.session_id:
         frontmatter["session_id"] = item.session_id
         if item.harness and item.harness != "unknown":

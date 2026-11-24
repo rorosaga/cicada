@@ -123,6 +123,14 @@ class DrainState:
     #: Ruling 80 (G246): the frozen ids that are background saves (``saved_order``) — read after everything else, and the
     #: only ones whose being left over a line the person set finishes the run instead of pausing it. Private.
     background_ids: frozenset = frozenset()
+    #: Ruling 80 (G246): of those, the old bulk material read on the engine's lighter model (``light_reads``), and that model
+    #: as the engine names it; empty and ``None`` when the option is off or the engine has no lighter model. Private ids.
+    light_ids: frozenset = frozenset()
+    light_model: str | None = None
+    #: The person's option, snapshotted when the run starts (``sleep_run_prefs.light_old_saves``); the run's engine copy for
+    #: those batches (``light_reads.Lighter``). Private.
+    light_reads_on: bool = False
+    lighter: object | None = None
     #: The background saves a finished run left unread: back to the pile (``history_index.return_to_pile``).
     returned_saves: list = field(default_factory=list)
     #: The bank this run is pinned to (a status read hides a lingering drain of another).
@@ -274,27 +282,41 @@ def _fill(ordered: list[str], size: int, sizes: dict[str, int] | None, max_bytes
     return out
 
 
-def batches_left(ids: list[str], size: int, sizes: dict[str, int] | None, max_bytes: int = BATCH_BYTES) -> int:
+def _one_model(ordered: list[str], light: frozenset[str]) -> list[str]:
+    """The head of ``ordered`` that one model reads (ruling 80): the leading run of ids that are all on the lighter model or
+    all off it, so a batch never holds both. With no lighter model in play, all of it."""
+    if not light or not ordered:
+        return ordered
+    first = ordered[0] in light
+    for n, i in enumerate(ordered):
+        if (i in light) != first:
+            return ordered[:n]
+    return ordered
+
+
+def batches_left(ids: list[str], size: int, sizes: dict[str, int] | None, max_bytes: int = BATCH_BYTES,
+                 light: frozenset[str] = frozenset()) -> int:
     """How many batches these ids make, read in this order. An estimate of the same rule, for "Batch 3 of 7"."""
     rest, n = list(ids), 0
     while rest:
-        rest = rest[len(_fill(rest, size, sizes, max_bytes)):]
+        rest = rest[len(_fill(_one_model(rest, light), size, sizes, max_bytes)):]
         n += 1
     return n
 
 
 def next_batch_retrying(frozen_ids: list[str], waiting: set[str], settled: set[str], size: int,
                         attempts: dict[str, int], *, sizes: dict[str, int] | None = None,
-                        max_bytes: int = BATCH_BYTES) -> tuple[list[str], int]:
+                        max_bytes: int = BATCH_BYTES, light: frozenset[str] = frozenset()) -> tuple[list[str], int]:
     """``next_batch`` with the retry rule: a conversation that failed for its own
     reasons goes first in the very next batch (its one more try), then the oldest
     frozen ids in queue order. ``sizes`` (episode file sizes by id): the batch is bounded by what it holds too
-    (:data:`BATCH_BYTES`); without them, by count alone."""
+    (:data:`BATCH_BYTES`); without them, by count alone. ``light`` (ruling 80): the ids read on the engine's lighter
+    model; a batch is read by one model, so it ends where the model changes."""
     todo = [i for i in frozen_ids if i not in settled and i in waiting]
     retries = [i for i in todo if attempts.get(i, 0) >= 1]
     rest = [i for i in todo if attempts.get(i, 0) < 1]
     ordered = retries + rest
-    batch = _fill(ordered, size, sizes, max_bytes)
+    batch = _fill(_one_model(ordered, light), size, sizes, max_bytes)
     return batch, len(ordered) - len(batch)
 
 

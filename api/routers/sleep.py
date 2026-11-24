@@ -579,6 +579,7 @@ def _run_options_response(settings: Settings) -> SleepRunOptions:
         spend_limit_usd=opts.spend_limit_usd,
         spend_limit_choices=list(sleep_spend.CHOICES),
         keep_awake=opts.keep_awake,
+        light_old_saves=opts.light_old_saves,
     )
 
 
@@ -620,6 +621,10 @@ async def put_run_options(body: SleepRunOptionsUpdate, settings: Settings = Depe
         if body.keep_awake is None:
             raise HTTPException(status_code=422, detail="keepAwake must be true or false")
         changes["keep_awake"] = body.keep_awake
+    if "light_old_saves" in sent:
+        if body.light_old_saves is None:
+            raise HTTPException(status_code=422, detail="lightOldSaves must be true or false")
+        changes["light_old_saves"] = body.light_old_saves
     if changes:
         sleep_run_prefs.write(get_registry(settings), **changes)
     return _run_options_response(settings)

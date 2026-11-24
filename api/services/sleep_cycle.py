@@ -862,6 +862,9 @@ class BatchPlan:
     decay_only: bool = False
     #: The drain this batch belongs to (its live counters, attempts and reserve guard).
     ds: "sleep_drain.DrainState | None" = None
+    #: Ruling 80 (G246): this batch is old bulk material read on the engine's lighter model (``resolved`` is its copy). A batch
+    #: is read by one model, so it is all of one kind (``sleep_drain.next_batch_retrying``).
+    lighter: bool = False
 
 
 def _words_taken(rev) -> frozenset[str]:
@@ -2672,6 +2675,7 @@ async def _drain(
         registry = None
     opts = sleep_run_prefs.load(registry) if registry is not None else sleep_run_prefs.RunOptions()
     size = sleep_run_prefs.effective_batch_size(opts, settings)
+    old_last = bool(opts.light_old_saves)   # ruling 80: old bulk material after every other save, read by its own model
 
     # Every read of the run's start walks the bank (9,500 headers on the owner's): off the event loop.
     parked_map = await asyncio.to_thread(sleep_parked.valid, memory_path)
@@ -2685,13 +2689,14 @@ async def _drain(
         background = await asyncio.to_thread(saved_order.background_ids, memory_path, ids)
     elif only_ids is not None:
         want = set(only_ids)
-        ids, background = await asyncio.to_thread(saved_order.order, memory_path, [i for i in queue if i in want])
+        ids, background = await asyncio.to_thread(
+            saved_order.order, memory_path, [i for i in queue if i in want], old_bulk_last=old_last)
         remaining = ids
     else:
         # Ruling 80 (G246): his conversations first, then the saves he talked about, then the rest of the saves, grouped by
         # origin, newest first. Nothing is cut: the run still reads everything waiting at this moment (ruling 13).
         ids, background = await asyncio.to_thread(
-            saved_order.order, memory_path, [i for i in queue if i not in parked_now])
+            saved_order.order, memory_path, [i for i in queue if i not in parked_now], old_bulk_last=old_last)
         remaining = ids
     if user_triggered and not continue_from:
         # A fresh run replaces any paused one (no-body trigger); the replaced run is ended in
@@ -2713,6 +2718,7 @@ async def _drain(
     )
     ds.catch_up_for = catch_up_for if not user_triggered else None
     ds.background_ids = background
+    ds.light_reads_on = old_last
     ds.memory_path = memory_path
     ds.origin_of = await asyncio.to_thread(sleep_progress.origin_of_ids, memory_path, ids)
     ds.parked = {i: str((parked_map.get(i) or {}).get("reason") or "other") for i in ids if i in parked_now}
@@ -2800,8 +2806,14 @@ async def _drain(
                 pass
     else:
         ds.reserve_pct = None
+    # Ruling 80 (G246): old bulk material is read on the lightest model of this very engine, in batches of its own. Settled
+    # once, from the engine the run is pinned to (after the reserve line's copy above), so a Continue and a run agree.
+    await asyncio.to_thread(_settle_lighter, ds, memory_path, resolved)
+    if ds.light_ids:
+        ds.batches = ds.batch + sleep_drain.batches_left(remaining, size, sizes, light=ds.light_ids)
     if engine_lbl == "litellm":   # ROR-102: a key's run stops at the person's figure
-        ds.spend = sleep_spend.guard_for(resolved[0], opts.spend_limit_usd)
+        ds.spend = sleep_spend.guard_for(
+            resolved[0], opts.spend_limit_usd, also=(ds.light_model,) if ds.light_model else ())
     _write_run_record(ds, memory_path, phase="running", engine_label=engine_lbl)
     _record_leg(ds, memory_path, "running")
     try:
@@ -2874,7 +2886,8 @@ async def _drain(
         ds.skipped_ids |= gone
         ds.settled |= gone
         batch_ids, more = sleep_drain.next_batch_retrying(
-            ids, waiting, ds.settled, ds.spend.batch_size(size) if ds.spend else size, ds.attempts, sizes=sizes)
+            ids, waiting, ds.settled, ds.spend.batch_size(size) if ds.spend else size, ds.attempts, sizes=sizes,
+            light=ds.light_ids)
         if not batch_ids:
             ds.finished = True   # a cancel that came too late has nothing left to stop
             break
@@ -2895,7 +2908,7 @@ async def _drain(
         ds.batch += 1
         taken = set(batch_ids)
         ds.batches = ds.batch + sleep_drain.batches_left(
-            [i for i in ids if i not in ds.settled and i in waiting and i not in taken], size, sizes)
+            [i for i in ids if i not in ds.settled and i in waiting and i not in taken], size, sizes, light=ds.light_ids)
         is_last = more == 0
         # Decay and the page reads (once per run) come with the batch that leaves only background saves behind it: a night
         # that stops anywhere in the saves has already decayed (ruling 80, saves part last).
@@ -2906,10 +2919,14 @@ async def _drain(
         ds.batch_counted = False
         ds.live = sleep_drain.BatchLive(index=ds.batch, total=len(batch_ids), ids=list(batch_ids))
         _state.episodes_total = min(ds.frozen, ds.filed + ds.requeued + ds.skipped + len(batch_ids))
+        # Ruling 80: a batch is one model's. Old bulk material is read on the engine's lighter model (the same engine, sign-in
+        # and key), everything else on the person's own.
+        on_lighter = bool(ds.lighter is not None and batch_ids[0] in ds.light_ids)
         plan = BatchPlan(
             # The once-per-drain work runs in the batch that empties the queue — and only once,
-            # even when a retry batch follows a last batch that had failures.
-            only_ids=batch_ids, resolved=resolved, decay=foreground_done and not ds.decay_ran,
+            # even when a retry batch follows a last batch that had failed.
+            only_ids=batch_ids, resolved=(ds.lighter.settings, resolved[1]) if on_lighter else resolved,
+            lighter=on_lighter, decay=foreground_done and not ds.decay_ran,
             links=foreground_done and not ds.links_ran,
             keep_cancel=not is_last,
             label=f"Batch {ds.batch} of {ds.batches} · " if ds.batches > 1 else "",
@@ -3246,6 +3263,27 @@ def _only_background_left(ds: "sleep_drain.DrainState", ids: list[str], waiting:
     return bool(left) and all(i in ds.background_ids for i in left)
 
 
+def _settle_lighter(ds: "sleep_drain.DrainState", memory_path: Path, resolved: tuple) -> None:
+    """Which of the run's background saves are read on the engine's lighter model, and that engine copy (ruling 80,
+    ``light_reads``). Nothing when the person's option is off, the engine has no lighter model Cicada knows, or none of the
+    background saves is old bulk material. Never raises: the person's own model reads whatever this cannot settle."""
+    from api.services import light_reads
+
+    ds.light_ids, ds.light_model, ds.lighter = frozenset(), None, None
+    if not ds.light_reads_on or not ds.background_ids:
+        return
+    try:
+        old = light_reads.old_bulk_ids(memory_path, ds.background_ids)
+        found = light_reads.lighter(resolved[0]) if old else None
+    except Exception as e:  # noqa: BLE001 - a lighter model is a saving, never a reason a run cannot start
+        logger.warning(f"lighter model not settled: {type(e).__name__}: {e}")
+        return
+    if found is None:
+        return
+    ds.light_ids, ds.light_model, ds.lighter = old, found.model, found
+    logger.info(f"Drain {ds.drain_id}: {len(old)} old saves read on {found.model}, the rest on the chosen model")
+
+
 def _promote_talked_saves(ds: "sleep_drain.DrainState", memory_path: Path, ids: list[str]) -> None:
     """A conversation this run just read named a save that is still waiting its turn in the frozen list: it moves ahead
     of the other saves (ruling 80, "a save he talked about is read first") and leaves the background class. Reorders the
@@ -3264,9 +3302,12 @@ def _promote_talked_saves(ds: "sleep_drain.DrainState", memory_path: Path, ids: 
     if not moved:
         return
     done = [i for i in ids if i in ds.settled]
-    todo, background = saved_order.order(memory_path, [i for i in ids if i not in ds.settled])
+    todo, background = saved_order.order(memory_path, [i for i in ids if i not in ds.settled],
+                                         old_bulk_last=ds.light_reads_on)
     ids[:] = done + todo
     ds.background_ids = background | (ds.background_ids & ds.settled)
+    if ds.light_ids:   # a save he has since talked about is read on his model, whatever it was
+        ds.light_ids = frozenset(i for i in ds.light_ids if i in ds.background_ids)
 
 
 def _line_stop(line) -> "sleep_drain.DrainStop":
@@ -4269,6 +4310,7 @@ async def _run_stages(
         sessions=_collect_session_ids(processed_episodes),
         episode_sessions=_episode_session_map(processed_episodes),
         corrections=_state.corrections_batch,
+        lighter=bool(batch is not None and batch.lighter),
         **({} if batch is None else {
             "drain": (batch.drain_id, batch.index, batch.of),
             "subject_suffix": (" (finishing)" if decay_only else
@@ -4692,8 +4734,13 @@ async def _finalize(
     drain: tuple[str, int, int] | None = None,
     subject_suffix: str = "",
     corrections: dict | None = None,
+    lighter: bool = False,
 ) -> None:
     """Commit all changes from the sleep cycle with a structured message.
+
+    ``lighter`` (ruling 80): this batch was old bulk material read on the engine's lighter model. The commit's trailers name
+    the models that wrote it (``authors``), so they already say which; the ``sleep_run`` row carries the flag beside its model
+    so the run's detail can say what the lighter model read.
 
     ``drain`` / ``subject_suffix`` (a drain's batch, ``sleep_drain``): ``(drain
     id, batch, batches)`` becomes three ids-only refs on the ``sleep_run`` row so
@@ -4987,6 +5034,7 @@ async def _finalize(
             cycle_usage.TAGGED_REF: True,
             **({"plan": plan_block} if plan_block else {}),
             **({"drain_id": drain[0], "batch": drain[1], "batches": drain[2]} if drain else {}),
+            **({"lighter": True} if lighter else {}),
             "episodes_processed": _state.episodes_processed,
             "episodes_requeued": _state.episodes_requeued,
             "entities_created": _state.entities_created,

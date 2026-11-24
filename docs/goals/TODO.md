@@ -4097,6 +4097,18 @@ A whole row moves to DONE only after its remaining implementation and required a
    save at a time. Designed with it: every non-save is read before any save; his talked-about saves are first among saves; a spending
    or plan line reached while only background saves remain finishes the run and does not pause it (so tomorrow's run is not
    blocked), and decay runs after his conversations. Revert: one constant restores today's behaviour.
+   **(d2) The cost answer, BUILT in the same held PR (2026-11-24).** His Sleep runs on a metered key with a mid-size model. Shown
+   the measured cost and three options, with one recommended (his model for new saves and the saves from his lists, the smallest
+   model for old bookmarks, with a separate model setting for the pile), he answered "ok go ahead with your recommendations". So:
+   **old bulk material released from the pile is read on the lightest model of the engine he chose**, in batches of its own after
+   every other save (`light_reads`; the table of which saves, the model per engine, the option and the record are in
+   `capture-and-sleep.md`). Old bulk is a browser's bookmarks taken in by a sync or an import and a save out of an export or archive
+   file; a list his agent read in his browser, a connector's saves, a save made singly and a save he talked about read on his own
+   model as before. It never crosses to another provider, sign-in, key or billing path; where Cicada knows no lighter model (the
+   ChatGPT plan, Cursor, OpenCode and Grok, a local model, a router, most other providers' keys) his model reads and nothing fails.
+   One option, on, `lightOldSaves` (route and `cicada sleep options`), no app control. **Still held:** the merge waits for his
+   confirmation of the allowance (d) above, and the first nights say whether the lighter model's facts are good enough (the
+   saves benchmark, `benchmarks/consolidation/saves_battery.py`, run on a lighter model), which is the revisit trigger for this paragraph.
    **(e) The coordinator's readings, built as stated, one line to undo each, not the owner's words:** (i) watch history and
    records he did not save (his own repositories, joined communities, open tabs on other devices) stay indexed and unread, and a
    feed item stays as the code reads it today (the publisher's words, no mention); follows are a directory no model reads. (ii) A

@@ -1351,7 +1351,46 @@ writes every save index-only, `take_turns` releases nothing, `retire` retires a 
   `return_to_pile` is the revert (and what a night that ended at its line does); `released_unread(day)` lists a day's.
 - **The order** (`saved_order`, one call at the freeze): every non-save first, oldest first; then saves he talked about
   (`read_asked`) or wrote words on, newest first; then the other saves grouped by origin, the origin with the newest save first.
-  A conversation read in this run that names a save still waiting moves it up after the batch (`_promote_talked_saves`).
+  A conversation read in this run that names a save still waiting moves it up after the batch (`_promote_talked_saves`). With
+  the option below on, the old bulk material among the other saves comes after all of them, in the same grouping.
+- **Old bulk material is read on the engine's lightest model (ruling 80, owner 2026-11-24: his own answer to the cost, "ok go
+  ahead with your recommendations"; `light_reads`, `sleep_run_prefs.light_old_saves`).** A save released from the pile
+  (`turn_released_on` is set) that is old bulk material is read on the lightest model of the engine he chose; everything else is
+  read on the model he chose, exactly as before: conversations, a save made singly (never in the pile), a save he talked about or
+  gave a reason, and a pile save from a saved list he turned on and his agent read in his browser or a connector he connected.
+  - **The table** (`light_reads.why`, the one place). *Old bulk:* `browser` — a browser's bookmark taken in by a sync or an import:
+    origin `<browser>-bookmark` for each of `bookmark_sync.CHANNEL_BY_ORIGIN` (Chrome, Brave, Vivaldi, Comet, Dia, Safari), or
+    `source: bookmark` with no origin (a bookmarks file imported before the door was stamped); `file` — a save that arrived out of a
+    file he gave, any platform's export or archive (`arrived_by: file`, stamped by `media_ingestor.parse_upload` on every item of
+    the file; a feed is no save and is not stamped). *His model:* every list origin read by his agent in his browser (X
+    bookmarks, likes and reposts, Instagram, LinkedIn, Reddit, Pinterest, TikTok, YouTube lists, Substack, Spotify), a connector's
+    saves (the X, Reddit and GitHub polls, Pinterest), a tab group and a single save. **The same origin is on both sides**, told
+    apart by the door only: an Instagram save out of an export file is old bulk, the same Instagram save his agent read is not.
+    A save kept before the stamp existed carries none, so a list save already in a bank reads on his model: when in doubt, his.
+  - **The lightest model** (`light_reads.lighter`): the same engine, sign-in, key and billing, never another. The Claude plan:
+    `haiku`, its small model (a choice already of that line is left alone). A Claude key: the newest active Haiku of the key's own
+    list that has a price row (`anthropic_models.active`, `price_supplement`), if it costs less than his on a read of the measured
+    size. An OpenAI key: `gpt-5.4-nano`; a Gemini key: `gemini-flash-lite-latest` (`LIGHTEST_KEY`, each priced and structured-output
+    capable, held by a test), only for that provider's own model ids. **No lighter model is known** for the ChatGPT plan, the
+    Cursor, OpenCode and Grok plans, a local model, a router (OpenRouter), the open-model hosts, Groq, Mistral and xAI, so those
+    read on the chosen model and nothing fails; a model with no known price gets none, and a chosen model with no price still stops
+    a metered run (`sleep_spend`), as before. The lighter model must also be priced when the run starts (`guard_for(also=...)`).
+  - **A batch is read by one model.** `sleep_drain.next_batch_retrying` ends a batch where the model changes (a retry too), so the
+    lighter saves form their own batches, after every other save, on an engine copy (`BatchPlan.lighter`) that carries the lighter
+    model in its main fields (and a later-stage override follows it). The person's own main model is kept on that copy
+    (`Settings.kept_main_models`) for the one call that must not get cheaper: the same-name second look
+    (`same_name_tend.main_tier`), accuracy over price on a person. The spending line adds each call at its own model's price (the
+    ledger's figure); the first lighter batch is sized by what the dearer model cost each, so it never holds more than the allowance
+    buys. The reserve, and "a line reached with only background saves left ends the run" (`ds.background_ids`), are unchanged: a
+    lighter save is a background save. A save he talks about during the run leaves the lighter class (`_promote_talked_saves`).
+  - **The option** (`light_old_saves`, on unless he turned it off): `GET/PUT /sleep/run-options` (`lightOldSaves`) and
+    `cicada sleep options --light-old-saves on|off`, snapshotted when a run starts; no app control. Off: everything is read on his
+    model and the order is as it was.
+  - **The record.** A lighter batch's `sleep_run` ledger row carries `refs.lighter`, and the run detail (`GET /sleep/runs/{id}`,
+    `SHAPE = lighter-1`) says per batch the model that wrote it and whether it was lighter beside how many it filed, on top of
+    the per-model calls and stages it already had, so a night that read 80 old bookmarks on the lighter model and 20 posts on his
+    is legible. The commit's `Cicada-Author` names the models the engine reported (a plan engine records each reply's), else
+    those of the batch's own settings, so a lighter batch names the model that wrote it.
 - **A night never blocks the next.** Decay and the page reads run in the batch that leaves only background saves behind it
   (not the last batch). A spending line, a reserve, a plan window or a key limit reached while only background saves are left is
   a **finished** run: no paused record (so `schedule_may_replace` is moot), no page read, the unread released saves returned to
