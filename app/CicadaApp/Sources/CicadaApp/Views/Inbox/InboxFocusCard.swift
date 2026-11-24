@@ -1,9 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// §5.3 STATE 1 — C's focus card (DR-42, DR-43): the header, the question stated once, the quote
-/// hero, where it came from in a person's words, the extractor's guess, the answers, the hint and
-/// Not now. Every kind renders here (`FocusCardVariant`, R-DI15). It never sends anything: an
+/// §5.3 STATE 1 — C's focus card (DR-42, DR-43): the header, the question stated once, the evidence
+/// (`QuestionEvidenceView`: the quote, or the conversation as bubbles, and where it came from in a person's
+/// words), the extractor's guess where it still says something, the answers, the hint and Not now. Every kind renders here (`FocusCardVariant`, R-DI15). It never sends anything: an
 /// answer goes to `onAnswer`, and the Store holds it for its Undo window (R-DI2). The page keys it
 /// by `item.id`, so a swap is a fresh card whose seeded state never animates on mount (DR-65).
 struct InboxFocusCard: View {
@@ -22,7 +22,6 @@ struct InboxFocusCard: View {
 
     enum Field: Hashable { case other, answer, merge }
 
-    @Environment(ProvenanceRouter.self) private var provenance: ProvenanceRouter?
     @Environment(Store.self) private var store
     @Environment(InboxViewModel.self) private var inboxVM: InboxViewModel?
     @State private var selection: QuestionSelection
@@ -59,9 +58,11 @@ struct InboxFocusCard: View {
                 .foregroundStyle(CicadaTheme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
-            quote
-            sourceLine
-            if let guess = InboxGuess.text(item) {
+            QuestionEvidenceView(item: item)
+            legacyBody
+            // DR-38 — a same-one question's guess is the Merge button's own help; a card that asks for a choice keeps
+            // the extractor's line, which says how sure the proposal behind its first row is.
+            if variant != .merge, let guess = InboxGuess.text(item) {
                 Label(guess, systemImage: "sparkles")
                     .labelStyle(.titleAndIcon)
                     .font(CicadaTheme.metaFont)
@@ -166,23 +167,11 @@ struct InboxFocusCard: View {
         .padding(.bottom, CicadaTheme.spacingSM)
     }
 
-    // MARK: The quote hero (DR-18, R-DI11, R-DI22)
+    // MARK: The legacy body — the evidence above it is `QuestionEvidenceView` (DR-18, DR-54, R-DI11, R-DI22)
 
     @ViewBuilder
-    private var quote: some View {
-        if let segments = QuoteSegments.of(item, links: store.linkIndex) {
-            // Selectable and washed: a selectable `Text` never reaches the span renderer, so the washes ride `CitedPassage`.
-            RevealingPassage(segments: segments)
-                .quoteBlock()
-                .padding(.top, CicadaTheme.scaled(20))
-            if QuoteSegments.isDerived(item) {
-                Text(Copy.Provenance.derivedCaption)
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .padding(.top, CicadaTheme.spacingXS)
-            }
-        }
-        if InboxBodyPreview.shows(item, hasQuote: QuoteSegments.of(item, links: store.linkIndex) != nil) {
+    private var legacyBody: some View {
+        if InboxBodyPreview.shows(item, hasQuote: QuestionEvidence.of(item, links: store.linkIndex) != .none) {
             // Owner defect 2 (2026-09-03) survives: a long legacy body shows three lines and "Show all N".
             // Cleaned line by line: `clean` joins lines with a space, which would fold the three kept
             // lines back into the one run-on paragraph the collapse exists to prevent.
@@ -201,39 +190,6 @@ struct InboxFocusCard: View {
                 .padding(.leading, -CicadaTheme.scaled(10))
             }
         }
-    }
-
-    // MARK: The source line (DR-54) and "Show in conversation ›"
-
-    private var sourceLine: some View {
-        HStack(spacing: CicadaTheme.spacingSM) {
-            if let origin = InboxSourceLine.markOrigin(item) {
-                OriginMark(origin: origin, size: CicadaTheme.scaled(14)).markHover()
-            }
-            Text(InboxSourceLine.full(item))
-                .font(CicadaTheme.metaFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: CicadaTheme.spacingSM)
-            if let provenance,
-               let target = item.cause?.readerTarget(subjectId: item.entityId.isEmpty ? nil : item.entityId) {
-                let showing = provenance.isPresented && provenance.current?.episode == target.episode
-                Button { showing ? provenance.close() : provenance.open(target) } label: {
-                    HStack(spacing: CicadaTheme.scaled(3)) {
-                        Text(showing ? Copy.Inbox.hideConversation : Copy.Provenance.showInConversation)
-                        Image(systemName: showing ? "chevron.left" : "chevron.right").font(CicadaTheme.icon(.inline))
-                    }
-                }
-                .buttonStyle(.cicadaPlain)
-                .font(CicadaTheme.metaMediumFont)
-                .foregroundStyle(CicadaTheme.accentText)
-                .help(showing ? Copy.Inbox.hideConversationHelp : Copy.Inbox.showConversationHelp)
-            }
-        }
-        .frame(minHeight: CicadaTheme.scaled(22))
-        .help(InboxSourceLine.help(item) ?? "")
-        .padding(.top, CicadaTheme.scaled(QuoteSegments.of(item, links: store.linkIndex) == nil ? 10 : 12))
     }
 
     // MARK: The answers

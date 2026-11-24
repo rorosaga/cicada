@@ -64,6 +64,26 @@ struct MergePair: Equatable {
     /// The existing side is the page the person typed under "Something else", not Sleep's suggestion.
     var existingIsTyped = false
 
+    /// The graph carries a page's summary clipped at 200 characters (`graph_builder.summarize`), often inside a word.
+    /// A summary that long ends at its last whole sentence, else its last whole word, with "…" — never mid-word
+    /// (owner 2026-11-24: "a summary cut off mid-word"). A shorter one is whole and unchanged.
+    static func wholeWords(_ summary: String?, clippedAt limit: Int = 200) -> String? {
+        guard let summary else { return nil }
+        let text = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        let scalars = Array(text.unicodeScalars)
+        guard scalars.count >= limit else { return text.isEmpty ? nil : text }
+        var cut = scalars.count
+        if let stop = scalars.indices.last(where: { i in
+            ".!?".unicodeScalars.contains(scalars[i]) && i + 1 < scalars.count && scalars[i + 1] == " " && i > 40
+        }) {
+            cut = stop + 1
+            return String(String.UnicodeScalarView(scalars[..<cut]))
+        }
+        if let space = scalars.lastIndex(of: " ") { cut = space }
+        let head = String(String.UnicodeScalarView(scalars[..<cut])).trimmingCharacters(in: .whitespaces)
+        return head + "…"
+    }
+
     /// Whether the card can offer Merge at once: it knows which existing page the name would join.
     var canMerge: Bool { !existing.id.isEmpty }
 

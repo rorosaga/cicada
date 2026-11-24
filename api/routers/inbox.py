@@ -7,7 +7,7 @@ from loguru import logger
 from api.config import Settings, get_settings
 from api.models.schemas import (CatchupRecordRequest, CatchupTurnRequest, CheckCensus, InboxItem,
                                 InboxResolveRequest, SettledCheck)
-from api.services import (inbox_service, inbox_wording, question_order, same_name, same_name_pick, source_check,
+from api.services import (evidence_window, inbox_service, inbox_wording, question_order, same_name, same_name_pick, source_check,
                           sync_service, sync_ticker)
 
 router = APIRouter()
@@ -47,7 +47,9 @@ async def list_inbox(
                                      extra=f"{kind or ''}|{_served_day()}|{same_name.SHAPE}|{same_name_pick.SHAPE}|{inbox_wording.SHAPE}"
                                            # Ruling 70: the order's one non-bank input, the day-cut read counts (today's
                                            # reads count from tomorrow, so it moves at most with the day), and the wire shape.
-                                           f"|{question_order.SHAPE}|{question_order.stamp(settings.memory_path)}")
+                                           f"|{question_order.SHAPE}|{question_order.stamp(settings.memory_path)}"
+                                           # 2026-11-24: the cause carries a conversation's turns and a quote's cuts.
+                                           f"|{evidence_window.SHAPE}")
         if (early := sync_service.conditional(request, response, etag)) is not None:
             return early
         # Off the event loop (inbox lag, 2026-10-17): the read parses every inbox file and the pages they name, and a

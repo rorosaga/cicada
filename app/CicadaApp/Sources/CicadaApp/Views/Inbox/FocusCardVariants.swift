@@ -128,10 +128,12 @@ struct NameBody: View {
     }
 }
 
-/// A possible duplicate. Inbox v2 (owner 2026-10-26: "I don't really get … possible duplicates"): the two sides stand
-/// side by side — the name a conversation used and the existing page, each with its picture, its type and its
-/// one-line summary (or "No page yet" for a name below the promotion bar) — then what each answer does, in words, and
-/// the answers: Merge (the one neutral button, DR-40), Keep separate and Skip (quieter text buttons). The rarer moves —
+/// A possible duplicate. Inbox v2 (owner 2026-10-26: "I don't really get … possible duplicates"), cut down on
+/// 2026-11-24 ("the ui for the question is extremely confusing", DESIGN_RULES §9, DR-38): the question names both
+/// sides and the evidence above marks the name where it was said, so what is left here is who the existing page is —
+/// its picture, name, type and what it says it is, one line, no tiles — then the answers: Merge (the one neutral
+/// button, DR-40; what it does and how sure Cicada was are its hover), Keep separate and Skip (quieter text buttons).
+/// What each answer does is no longer three lines under the question: the buttons say it. The rarer moves —
 /// describing it instead, merging with a different page, keeping the other name — wait under "Something else", one
 /// fold (DR-39), open from the start when Sleep named no page. What is sent is unchanged: the existing page is the
 /// merge's DATA source (it owns the real frontmatter and history), seeded from `mergeTargetHint`; the survivor picker
@@ -165,26 +167,16 @@ struct MergeBody: View {
     var body: some View {
         let pair = pair
         VStack(alignment: .leading, spacing: CicadaTheme.scaled(20)) {
-            // DR-31 — two tiles side by side while they fit; stacked in a narrow column or at 1.4×.
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: CicadaTheme.spacingSM) {
-                    tile(pair.mention, caption: Copy.Inbox.Duplicate.newName)
-                    existingTile(pair)
-                }
-                VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-                    tile(pair.mention, caption: Copy.Inbox.Duplicate.newName)
-                    existingTile(pair)
-                }
+            // The question names the two sides and the evidence above marks the name where it was said, so the only thing
+            // left to show is who the existing page is (owner 2026-11-24, DR-38): one line, never a pair of tiles.
+            if pair.canMerge {
+                existingSide(pair)
+            } else {
+                Text(Copy.Inbox.Duplicate.noTarget)
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                Text(pair.canMerge ? pair.mergeWords : Copy.Inbox.Duplicate.noTarget)
-                Text(Copy.Inbox.Duplicate.keepWords)
-                Text(Copy.Inbox.Duplicate.undoWords).foregroundStyle(CicadaTheme.textTertiary)
-            }
-            .font(CicadaTheme.metaFont)
-            .foregroundStyle(CicadaTheme.textSecondary)
-            .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: CicadaTheme.spacingSM) {
                 mergeButton
@@ -213,58 +205,49 @@ struct MergeBody: View {
     }
 
     private var mergeButton: some View {
-        NeutralButton(title: Copy.Inbox.merge, isDisabled: mergeText.trimmed.isEmpty,
-                      help: Copy.Inbox.Duplicate.mergeHelp, disabledHelp: Copy.Inbox.mergeNeedsTarget) {
+        // What Merge does, in words, and how sure Cicada was — said on hover, not as lines the buttons repeat (DR-38).
+        let words = [pair.canMerge ? pair.mergeWords : Copy.Inbox.Duplicate.mergeHelp, InboxGuess.text(item)]
+            .compactMap { $0 }.joined(separator: "\n")
+        return NeutralButton(title: Copy.Inbox.merge, isDisabled: mergeText.trimmed.isEmpty,
+                      help: words, disabledHelp: Copy.Inbox.mergeNeedsTarget) {
             // The data source is always the existing target; the survivor is the chosen name.
             let keep = survivor == .mention ? mentionName : existingName
             onAnswer(QuestionResolution(action: "merge", mergeTarget: mergeText.trimmed, mergeSurvivor: keep))
         }
     }
 
-    /// The existing side: Sleep's page, or the page the person typed — then named as theirs.
-    private func existingTile(_ pair: MergePair) -> some View {
-        tile(pair.existing,
-             caption: pair.existingIsTyped ? Copy.Inbox.Duplicate.typedPage : Copy.Inbox.Duplicate.existingPage,
-             missing: pair.existingIsTyped ? Copy.Inbox.Duplicate.noSuchPage : Copy.Inbox.Duplicate.noPageYet)
-    }
-
-    /// One side: what it is, its picture, name and type, and its summary in a line or three.
-    private func tile(_ side: MergePair.Side, caption: String,
-                      missing: String = Copy.Inbox.Duplicate.noPageYet) -> some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            Text(caption)
-                .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
-            HStack(spacing: CicadaTheme.scaled(10)) {
-                if side.hasPage {
-                    EntityPicture(id: side.id, name: side.name, type: side.type ?? .unknown, size: 32)
-                } else {
-                    Image(systemName: "text.quote")
-                        .font(CicadaTheme.icon(.list))
-                        .foregroundStyle(CicadaTheme.textTertiary)
-                        .frame(width: CicadaTheme.scaled(32), height: CicadaTheme.scaled(32))
-                        .accessibilityHidden(true)
-                }
-                VStack(alignment: .leading, spacing: CicadaTheme.scaled(1)) {
+    /// The existing side — Sleep's page, or the page the person typed (said as theirs when it is): its picture, name and
+    /// type, and what the page says it is, in whole words. No ring and no fill: it is the answer's context, not a choice.
+    private func existingSide(_ pair: MergePair) -> some View {
+        let side = pair.existing
+        return HStack(alignment: .top, spacing: CicadaTheme.scaled(10)) {
+            if side.hasPage {
+                EntityPicture(id: side.id, name: side.name, type: side.type ?? .unknown, size: 28)
+            }
+            VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingXS) {
                     PageLineText(side.name.isEmpty ? "—" : names.display(side.name))
                         .font(CicadaTheme.font(size: 14, weight: .medium))
                         .foregroundStyle(CicadaTheme.textPrimary)
-                        .lineLimit(2)
-                    if let type = side.type, type != .unknown {
+                        .lineLimit(1)
+                    if pair.existingIsTyped {
+                        Text(Copy.Inbox.Duplicate.typedPage)
+                            .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
+                    } else if let type = side.type, type != .unknown {
                         Text(type.label)
                             .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                     }
                 }
+                PageLineText(MergePair.wholeWords(side.summary)
+                             ?? (side.hasPage ? Copy.Inbox.Duplicate.noSummary
+                                 : pair.existingIsTyped ? Copy.Inbox.Duplicate.noSuchPage : Copy.Inbox.Duplicate.noPageYet))
+                    .font(CicadaTheme.metaFont)
+                    .foregroundStyle(side.summary == nil ? CicadaTheme.textTertiary : CicadaTheme.textSecondary)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            PageLineText(side.summary ?? (side.hasPage ? Copy.Inbox.Duplicate.noSummary : missing))
-                .font(CicadaTheme.metaFont)
-                .foregroundStyle(side.summary == nil ? CicadaTheme.textTertiary : CicadaTheme.textSecondary)
-                .lineLimit(3)
-                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(CicadaTheme.scaled(14))
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgOption))
-        .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadiusSmall))
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 

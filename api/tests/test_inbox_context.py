@@ -300,3 +300,122 @@ def test_inbox_etag_moves_when_an_episode_or_entity_changes(client, memory):
     r2 = client.get("/inbox", headers={"If-None-Match": etag})
     assert r2.status_code == 200 and r2.headers["etag"] != etag
     assert r2.json()[0]["cause"]["excerpt"]
+
+
+# ---------- a conversation reads as one, a note as whole sentences (owner 2026-11-24) ----------
+
+
+def test_a_chat_cause_carries_its_turns_and_a_merge_marks_both_names(memory):
+    body = (
+        "user: Then do you think Samuel Example could join the lab trip?\n"
+        "assistant: I am not sure. Is Sam Example the same person as Samuel Example?\n"
+        "user: No idea, ask me later.\n"
+    )
+    _episode(memory, "ep_2026-08-20_002", body, correspondent={"name": "Agent Example"})
+    _entity(memory, "samuel-example", "Samuel Example", episodes=[], etype="person")
+    _entity(memory, "sam-example", "Sam Example", episodes=[], etype="person")
+    _item(memory, "inbox-002", {"kind": "merge_suggestion", "entity_id": "sam-example", "entity_name": "Sam Example",
+                                 "merge_target_hint": "samuel-example", "title": "Same person?",
+                                 "source_episode": "ep_2026-08-20_002", "suggested_classification": "person"})
+    [item] = inbox_service.load_inbox(memory)
+    cause = item.cause
+    assert [t.role for t in cause.turns] == ["user", "assistant", "user"]
+    assert cause.correspondent == "Agent Example"
+    marked = [cause.excerpt[a:b] for a, b in cause.mention_offsets]
+    assert marked[0] == "Sam Example" and marked.count("Samuel Example") == 2
+    assert cause.focus == [body.index("Sam Example"), body.index("Sam Example") + len("Sam Example")]
+    assert cause.start is None and not cause.cut_before and not cause.cut_after
+    mid = cause.turns[1]
+    assert cause.excerpt[mid.content_start:mid.end].startswith("I am not sure.")
+
+
+def test_a_note_cause_is_whole_sentences_and_a_cut_is_said(memory):
+    filler = "The weekly notes cover plans for the quarter and the budget. " * 12
+    note = filler + "Alpha Project moved to the second milestone. Bob Example approved it." + filler
+    _episode(memory, "ep_2026-08-20_003", note, harness=None, origin="notes")
+    _entity(memory, "alpha-project", "Alpha Project", episodes=[])
+    _item(memory, "inbox-003", {"kind": "clarification", "entity_id": "alpha-project",
+                                 "entity_name": "Alpha Project", "title": "Who is Alpha Project?",
+                                 "source_episode": "ep_2026-08-20_003", "uncertainty_type": "unclear"})
+    [item] = inbox_service.load_inbox(memory)
+    cause = item.cause
+    assert cause.turns == [] and cause.cut_before and cause.cut_after
+    assert cause.excerpt.startswith("The weekly notes") and cause.excerpt.endswith(".")
+    s, e = cause.mention_offsets[0]
+    assert cause.excerpt[s:e] == "Alpha Project"
+    assert note[cause.start:cause.start + len(cause.excerpt)] == cause.excerpt
+    assert cause.focus == [s + cause.start, e + cause.start]
+
+
+# ---------- the card says what the Reader says for the same turn (relay, meeting; owner 2026-11-24) ----------
+
+
+def _merge_item(memory: Path, ep: str, name: str = "Sam Example"):
+    _entity(memory, "samuel-example", "Samuel Example", episodes=[], etype="person")
+    _entity(memory, "sam-example", name, episodes=[], etype="person")
+    _item(memory, "inbox-009", {"kind": "merge_suggestion", "entity_id": "sam-example", "entity_name": name,
+                                 "merge_target_hint": "samuel-example", "title": "Same person?",
+                                 "source_episode": ep, "suggested_classification": "person"})
+    [item] = inbox_service.load_inbox(memory)
+    return item
+
+
+def test_a_relayed_conversations_cause_carries_its_relay_as_the_reader_does(memory):
+    from api.services import provenance
+
+    body = ("user: Is Sam Example the same person as Samuel Example?\n"
+            "assistant: I cannot tell from here.\n"
+            "user: Then ask me later.\n")
+    fm = {"harness": "chatgpt", "origin": "chatgpt", "evidence_kind": "assistant", "relay": {"app": "chatgpt"}}
+    _episode(memory, "ep_2026-08-20_009", body, **fm)
+    cause = _merge_item(memory, "ep_2026-08-20_009").cause
+    assert cause.turns and cause.relay is not None
+    assert cause.relay.app == "chatgpt" and cause.relay.label == "ChatGPT"
+    # The Reader's own record for the same episode says the same.
+    reader = provenance._relay(markdown_parser.parse(memory / "episodes" / "ep_2026-08-20_009.md").frontmatter)
+    assert (cause.relay.app, cause.relay.label) == (reader.app, reader.label)
+    # An export upgraded it: the words are the person's own and the Reader no longer calls it a relay.
+    _episode(memory, "ep_2026-08-20_009", body, **{**fm, "relay": {"app": "chatgpt", "upgraded_at": "2026-08-21"}})
+    bank_index.invalidate()
+    assert inbox_service.load_inbox(memory)[0].cause.relay is None
+
+
+def test_a_meetings_cause_carries_its_facts_and_never_draws_the_summary_as_a_bubble(memory):
+    body = ("assistant: Summary (written by Hex)\n- Sam Example joined late.\n"
+            "speaker:ana-example: Is Sam Example the same person as Samuel Example?\n"
+            "user: I think so.\n"
+            "speaker:ana-example: Then let us write it down.\n")
+    meeting = {"recorder": "hex", "app": "zoom", "speakers": ["Ana Example"], "attendees": ["Ana Example", "Bo Example"]}
+    _episode(memory, "ep_2026-08-20_010", body, folder_kind="meetings", meeting=meeting, harness=None, origin="hex")
+    cause = _merge_item(memory, "ep_2026-08-20_010").cause
+    # The mention is in the recorder's summary first: no bubble window, a plain quote instead.
+    assert cause.turns == [] and "Sam Example" in cause.excerpt
+    body2 = body.replace("- Sam Example joined late.", "- It was a short call.")
+    _episode(memory, "ep_2026-08-20_010", body2, folder_kind="meetings", meeting=meeting, harness=None, origin="hex")
+    bank_index.invalidate()
+    cause = inbox_service.load_inbox(memory)[0].cause
+    assert cause.meeting is not None and cause.meeting.summary_turn == 1 and cause.meeting.app == "zoom"
+    assert cause.meeting.summary_turn not in [t.index for t in cause.turns], "the summary is the header card, never a neighbour"
+    assert [t.speaker for t in cause.turns if t.role == "speaker"] == ["Ana Example", "Ana Example"]
+
+
+def test_a_chat_that_cannot_be_windowed_falls_back_to_the_quote_and_the_question_stays(memory, monkeypatch):
+    _episode(memory, "ep_2026-08-20_011", EPISODE_BODY.replace("Bob Example", "Sam Example"))
+
+    def boom(*a, **k):
+        raise ValueError("an odd episode")
+
+    monkeypatch.setattr(inbox_context.evidence_window, "chat", boom)
+    cause = _merge_item(memory, "ep_2026-08-20_011").cause
+    assert cause.turns == [] and "Sam Example" in cause.excerpt and cause.start is not None
+
+
+def test_a_held_secret_is_never_in_the_quote_the_fallback_serves_either(memory, monkeypatch):
+    body = "Sam Example wrote down the vault phrase hunter2 last week. We spoke about Sam Example after lunch."
+    _episode(memory, "ep_2026-08-20_012", body, harness=None, origin="notes")
+    secret = body.index("hunter2")
+    from api.services import source_spans
+
+    monkeypatch.setattr(source_spans, "held_ranges", lambda *a, **k: ((secret, secret + 7),))
+    cause = _merge_item(memory, "ep_2026-08-20_012").cause
+    assert "hunter2" not in cause.excerpt

@@ -210,6 +210,7 @@ enum ReaderText {
             case .focus: .current
             case .other: .other
             case .mention: .mention
+            case .found: .found
             case .changed: .changed
             }
             out.append(.init(text: text.slice(wash.range.lowerBound, wash.range.upperBound), mark: mark))
@@ -230,13 +231,16 @@ struct ReaderWash: Hashable {
         case mention
         /// Another span the same entity cites: the soft wash, no underline (P4).
         case other
+        /// A name found by searching, drawn washed and semibold with no underline (the question card, owner 2026-11-24:
+        /// "a real highlight, not only bold"; DESIGN_RULES §9). The Reader keeps `.mention`.
+        case found
         /// A stretch that changed since Sleep last read the source (owner 2026-11-23): `washChanged`.
         case changed
 
         /// At one offset the cited span wins over a soft one, and both over a changed stretch.
         var rank: Int {
             switch self {
-            case .focus, .mention: 0
+            case .focus, .mention, .found: 0
             case .other: 1
             case .changed: 2
             }
@@ -277,7 +281,7 @@ struct ReaderBlock: Hashable, Identifiable {
     /// rotor; the rest read on as the same turn.
     var startsTurn: Bool { chunk == 0 }
     /// The block the landing and the cited-passages rotor belong to.
-    var holdsFocus: Bool { washes.contains { $0.style == .focus || $0.style == .mention } }
+    var holdsFocus: Bool { washes.contains { $0.style == .focus || $0.style == .mention || $0.style == .found } }
 }
 
 enum ReaderLayout {
@@ -298,7 +302,8 @@ enum ReaderLayout {
     /// split into one wash per block (§4.4). Offsets past a truncated text
     /// are dropped.
     static func blocks(doc: EpisodeText, scalars: ScalarText, focus: Range<Int>?,
-                       focusStyle: ReaderWash.Style, others: [Range<Int>] = [], changed: [Range<Int>] = [],
+                       focusStyle: ReaderWash.Style, others: [Range<Int>] = [], othersStyle: ReaderWash.Style = .other,
+                       changed: [Range<Int>] = [],
                        locale: Locale = .autoupdatingCurrent,
                        timeZone: TimeZone = .autoupdatingCurrent) -> [ReaderBlock] {
         doc.turns.flatMap { turn -> [ReaderBlock] in
@@ -322,7 +327,7 @@ enum ReaderLayout {
                     washes.append(ReaderWash(range: (lo - piece.lowerBound)..<(hi - piece.lowerBound), style: style))
                 }
                 if let focus { add(focus, focusStyle) }
-                for other in others where other != focus { add(other, .other) }
+                for other in others where other != focus { add(other, othersStyle) }
                 // What changed is drawn around the cited spans, never over them (a wash inside another is skipped).
                 for stretch in ReaderChanges.minus(changed, cutting: others + [focus].compactMap { $0 }) {
                     add(stretch, .changed)

@@ -594,8 +594,19 @@ The ETag already moves with `entities` and `episodes`, so no client mapping chan
 
 **Cause (G115 Phase 1, delivers G97).** Every item carries its `cause` — episode, timestamp,
 conversation, harness, excerpt, offsets — resolved **at read** by `api/services/inbox_context.py` in
-three tiers (item → claim → entity), engine-free. The excerpt is ±240 chars around the mention, cut
-on word boundaries, **offsets recomputed on every read and never stored**. Nothing resolves →
+three tiers (item → claim → entity), engine-free. **The excerpt is cut by `evidence_window` (owner 2026-11-24, "chats
+should appear as chat bubbles"):** a conversation (the episode has turns a marker wrote, not a feed or calendar entry) is
+the mention's own turn with the one before and the one after, whole where they fit (a turn over 640 / 360 characters is cut
+at a sentence, around the mention in its own turn, toward it in a neighbour; a thin window grows a second ring, at most 5
+turns), stitched into `excerpt` with `turns` saying where each begins, who spoke (`EpisodeTurn`'s shape plus
+`cutBefore`/`cutAfter`) and `source`/`correspondent` for naming the other side; anything else is the mention's sentence grown
+by whole sentences to about 300 characters, never across a blank line, cut at a word only when one sentence is longer, with
+`cutBefore`/`cutAfter` saying words remain. `mentionOffsets` hold every place the mention's words and, on a same-one
+question, either side's names are said (the first is the question's); `focus` is the mention's place in the episode's own
+text (what "Show in conversation" lands on; a stitched excerpt has no `start`). A turn or sentence overlapping what
+`source_spans` holds as a secret (G235) is left out, and a mention that does is no conversation window; the sentence quote honours the same hold (it shrinks to the mention's own sentence, and is empty when even that reaches a secret). **The card attributes a turn as the Reader does:** the cause carries the episode's `relay` (`provenance._relay`: a relayed person's turn is headed "Relayed by <app>", never the agent's name) and `meeting` (`meeting_transcripts.meeting_wire`: every run named; the recorder's summary turn is never a bubble or a neighbour, and a mention in it is a plain quote), the app puts both on the `EpisodeText` it builds, and the first run of the other side is named beside its mark (`ReaderChat.rows(namesOtherSide:)`, the Reader unchanged). A window that raises falls back to the sentence quote, never losing the question. The wire shape rides
+the inbox ETag (`evidence_window.SHAPE`); a question stored before it has no `turns` and draws as a quote. **Offsets are
+recomputed on every read and never stored**. Nothing resolves →
 `tier: none` and a literal `[ no source recorded ]`, served — never a hidden card.
 
 **Checkability (G61 phase 2 S2).** Every item also carries `check` — `{state:

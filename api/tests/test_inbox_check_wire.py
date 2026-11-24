@@ -101,7 +101,9 @@ def test_the_inbox_etag_recipe_is_unchanged():
     assert 'etag_for(settings.memory_path, "inbox", "entities", "episodes",' in src
     assert """extra=f"{kind or ''}|{_served_day()}|{same_name.SHAPE}|{same_name_pick.SHAPE}|{inbox_wording.SHAPE}\"""" in src   # G227's shapes ride it
     # Ruling 70: the order's wire shape (`orderIndex`) and its one non-bank input, the counter's day-cut digest, join it.
-    assert 'f"|{question_order.SHAPE}|{question_order.stamp(settings.memory_path)}")' in src
+    assert 'f"|{question_order.SHAPE}|{question_order.stamp(settings.memory_path)}"' in src
+    # 2026-11-24: the cause's turns and cuts (`evidence_window.SHAPE`) are a wire shape too.
+    assert 'f"|{evidence_window.SHAPE}")' in src
 
 
 def test_reading_checkability_writes_nothing_fetches_nothing_and_calls_no_model(memory, monkeypatch):

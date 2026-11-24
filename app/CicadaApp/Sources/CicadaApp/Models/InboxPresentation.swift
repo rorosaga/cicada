@@ -249,23 +249,44 @@ extension ExcerptText {
     }
 }
 
-/// §5.3 item 3 / R-DI11 — the focus card's quote: the cause excerpt split at its first mention,
-/// each piece cleaned (DR-56). An asserted G118 span is washed and underlined (DR-18); a mention
-/// found by name is semibold and unwashed (DR-57, G118 §4.9) — the words were found, not quoted.
+/// §5.3 item 3 / R-DI11 — the card's quote of a note, an article or a transcript line: the cause excerpt (whole
+/// sentences, `evidence_window`) split at every mention it marks, each piece cleaned (DR-56). The first mention is the
+/// one the question is about: an asserted G118 span is washed and underlined (DR-18); a name found by searching is
+/// washed and semibold, never underlined (`.found`, owner 2026-11-24) — the words were found, not quoted. A cut edge
+/// reads "…", so the quote never stops without saying so.
 enum QuoteSegments {
     static func of(_ item: InboxItem, links: PageLinkIndex = .empty) -> [CitedSpan.Segment]? {
         guard item.hasCause, let cause = item.cause, !cause.excerpt.isEmpty else { return nil }
-        let raw = QuoteBlock.parts(excerpt: cause.excerpt, mentionOffsets: cause.mentionOffsets)
-        // R-DL2 — markup and role labels leave the WHOLE excerpt first, the mention mapped through the cut, so a
-        // `**` around it is paired and the wash covers exactly the words; `clean` then does wikilinks and spacing.
-        let parts = ExcerptText.quoteParts(before: raw.before, span: raw.span, after: raw.after)
-        let mark: CitedSpan.Mark = cause.spanKind == "asserted" ? .current : .mention
-        let pieces: [(String, CitedSpan.Mark)] = [(parts.before, .plain), (parts.span, mark), (parts.after, .plain)]
-        // Only `before` opens on a real line start; the span and the rest begin mid-line (R-DI22).
-        let segments = pieces.enumerated()
+        // R-DL2 — markup and role labels leave the WHOLE excerpt first, every mention mapped through the cut, so a
+        // `**` around one is paired and the wash covers exactly the words; `clean` then does wikilinks and spacing.
+        let stripped = ExcerptText.stripMarkup(cause.excerpt, keepLines: false)
+        let text = ScalarText(stripped.text)
+        var cursor = 0
+        var pieces: [(String, CitedSpan.Mark)] = []
+        let raw = ScalarText(cause.excerpt).count
+        // The first offset is the mention the question is about; the rest (the same words again, the other side's name)
+        // may come before it in the text, so they are put in reading order here.
+        let marks: [(range: Range<Int>, primary: Bool)] = cause.mentionOffsets.enumerated().compactMap { n, pair in
+            guard pair.count == 2, pair[0] >= 0, pair[0] < pair[1], pair[1] <= raw else { return nil }
+            let r = stripped.map(pair[0]..<pair[1])
+            let range = text.clamped(r.lowerBound, r.upperBound)
+            return range.isEmpty ? nil : (range, n == 0)
+        }.sorted { $0.range.lowerBound < $1.range.lowerBound }
+        for (range, primary) in marks where range.lowerBound >= cursor {
+            pieces.append((text.slice(cursor, range.lowerBound), .plain))
+            pieces.append((text.slice(range.lowerBound, range.upperBound),
+                           primary && cause.spanKind == "asserted" ? .current : .found))
+            cursor = range.upperBound
+        }
+        pieces.append((text.slice(cursor, text.count), .plain))
+        // Only the first piece opens on a real line start; every other begins mid-line (R-DI22).
+        var segments = pieces.enumerated()
             .map { i, piece in CitedSpan.Segment(text: ExcerptText.clean(piece.0, atLineStart: i == 0, links: links), mark: piece.1) }
             .filter { !$0.text.isEmpty }
-        return segments.isEmpty ? nil : segments
+        guard !segments.isEmpty else { return nil }
+        if cause.cutBefore { segments.insert(.init(text: QuoteCut.before, mark: .plain), at: 0) }
+        if cause.cutAfter { segments.append(.init(text: QuoteCut.after, mark: .plain)) }
+        return segments
     }
 
     /// Whether the card says "Found by searching the conversation" under the quote.
