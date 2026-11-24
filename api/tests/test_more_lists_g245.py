@@ -261,24 +261,78 @@ def test_the_queue_asks_for_folders_only_where_the_site_has_them(reading):
     assert "folder_names" not in _queue(server)
 
 
-def test_the_first_read_goes_deeper_and_a_later_one_stops_at_what_is_kept(reading):
+def test_a_list_is_read_to_its_end_once_and_only_then_does_a_read_stop_at_what_is_kept(reading):
+    """Ruling 78 as amended 2026-11-24 (the owner's "all"): measured on a real list, twenty screens kept one post in ten."""
     server, memory = reading
     _on("x")
     first = _queue(server)
-    assert "first read of this list" in first and f"up to {folder_pass.FIRST_READ_SCREENS} screens" in first
-    assert "export" in first
-    _record(server, "x", items=[{"url": POST_A}])
+    assert "read all of it" in first and "stops growing" in first and "`reached_end=true`" in first
+    assert "screens" not in first.split("read all of it")[1].split("Add `posted`")[0]     # no bound in screens
+    assert "export" not in first
+    # A read that stopped early leaves the list unfinished: the next one is asked to go to the end again.
+    out = _record(server, "x", items=[{"url": POST_A}])
+    assert "has not been read to its end yet" in out and not saved_lists.whole(memory, "x")
     later = datetime.now(timezone.utc) + saved_lists.CADENCE + timedelta(minutes=1)
     lines = "\n".join(saved_lists.queue_lines(memory, can_record=True, now=later))
-    assert "first read" not in lines and f"at most {folder_pass.LATER_READ_SCREENS} screens" in lines
+    assert "read all of it" in lines and "no reason to stop" in lines
+    # Posts already kept are where the earlier read stopped, never a reason to stop this one.
+    again = _record(server, "x", items=[{"url": POST_A}, {"url": POST_B}])
+    assert "Known ground" not in again and "keep scrolling" in again
+    done = _record(server, "x", items=[{"url": POST_C}], continues=True, reached_end=True)
+    assert "whole list is in memory now" in done and saved_lists.whole(memory, "x")
+    lines = "\n".join(saved_lists.queue_lines(memory, can_record=True, now=later + saved_lists.CADENCE))
+    assert "read all of it" not in lines and f"at most {folder_pass.LATER_READ_SCREENS} screens" in lines
     assert "already in memory" in lines
+
+
+def test_a_list_not_yet_read_to_its_end_may_take_far_more_calls_in_one_read(reading, monkeypatch):
+    server, memory = reading
+    _on("x")
+    monkeypatch.setattr(saved_lists, "PASS_CALLS", 2)
+    monkeypatch.setattr(saved_lists, "DAILY_READS", 1)
+    _record(server, "x", items=[{"url": POST_A}])
+    for n in range(2, 7):                                    # six calls, one read: the list is long
+        url = f"https://x.com/alice_example/status/10000000000000000{n:02d}"
+        assert "not counted again today" in _record(server, "x", items=[{"url": url}], continues=True)
+    assert saved_lists.reads_today(memory) == 1 and saved_lists.pass_calls(memory, "x") == saved_lists.WHOLE_PASS_CALLS
+    _record(server, "x", items=[{"url": POST_B}], continues=True, reached_end=True)
+    assert saved_lists.pass_calls(memory, "x") == 2          # read to its end: an ordinary pass from now on
+
+
+def test_a_folders_end_is_not_the_lists_end_and_an_empty_list_is_whole(reading):
+    server, memory = reading
+    _on("x", "linkedin")
+    _record(server, "x", items=[{"url": POST_A}], folder_names=["Alpha"])
+    _record(server, "x", items=[{"url": POST_B}], folder="Alpha", reached_end=True)
+    assert not saved_lists.whole(memory, "x")
+    _record(server, "linkedin", items=[])
+    assert saved_lists.whole(memory, "linkedin")
+
+
+def test_what_tonights_live_lists_showed_is_accepted_and_said(reading):
+    """Measured 2026-11-24 on real lists (values redacted): a saved article among LinkedIn's saved posts, results with no
+    link to their post, and X filing Bookmarks and Likes under History."""
+    server, memory = reading
+    article = "https://www.linkedin.com/feed/update/urn:li:article:7000000000000000001/"
+    assert saved_lists.canonical("linkedin", article) == (article, (article.replace("www.", ""),))
+    built = "https://www.linkedin.com/feed/update/urn:li:activity:7000000000000000002/"
+    assert saved_lists.canonical("linkedin", built.rstrip("/"))[0] == built
+    assert saved_lists.canonical("x", POST_A + "?s=20")[0] == POST_A
+    assert saved_lists.canonical("x-likes", POST_A)[0] == POST_A
+    _on("linkedin")
+    out = _queue(server)
+    assert "data-chameleon-result-urn" in out and "https://www.linkedin.com/feed/update/<that urn>/" in out
+    reading_settings.update(saved_lists_={"linkedin": False, "x": True})
+    assert "/i/history" in _queue(server)
+    assert saved_lists.PLATFORMS["x-likes"].url == "https://x.com/i/history/likes"
+    assert (saved_lists.PLATFORMS["x-likes"].origin, saved_lists.PLATFORMS["x-likes"].folder) == ("x-likes", "Likes")
 
 
 def test_a_read_that_reaches_posts_already_kept_says_so_so_the_agent_stops(reading):
     server, memory = reading
     _on("x")
     posts = [POST_A, POST_B, POST_C]
-    _record(server, "x", items=[{"url": u} for u in posts])
+    _record(server, "x", items=[{"url": u} for u in posts], reached_end=True)      # the whole list is in memory
     saved_lists.note(memory, "x", "read", items=1)          # a later read
     out = _record(server, "x", items=[{"url": POST_D}] + [{"url": u} for u in posts])
     assert "Known ground: 3 of these 4" in out and "stop scrolling" in out
@@ -393,10 +447,12 @@ def test_a_pass_ends_after_its_calls_or_its_window(reading, monkeypatch):
     server, memory = reading
     _on("x")
     monkeypatch.setattr(saved_lists, "PASS_CALLS", 2)
+    saved_lists.note(memory, "x", "read", items=0, reached_end=True)               # a list already read to its end
+    before = saved_lists.reads_today(memory)
     _record(server, "x", items=[{"url": POST_A}])
     assert "not counted again" in _record(server, "x", items=[{"url": POST_B}], continues=True)
     out = _record(server, "x", items=[{"url": POST_C}], continues=True)           # the third call: the pass is full
-    assert "none was open" in out and saved_lists.reads_today(memory) == 2
+    assert "none was open" in out and saved_lists.reads_today(memory) == before + 2
     _record(server, "x", items=[{"url": POST_D}])
     later = datetime.now(timezone.utc) + saved_lists.PASS_WINDOW + timedelta(minutes=1)
     assert saved_lists.pass_open(memory, "x") and not saved_lists.pass_open(memory, "x", now=later)
@@ -522,12 +578,12 @@ def test_the_tool_door_passes_the_pass_arguments_through(reading, monkeypatch):
     seen = {}
 
     def fake(ctx, platform, outcome, items=None, via=None, handle=None, profile_url=None, continues=None, folder=None,
-             folder_names=None):
-        seen.update(continues=continues, folder=folder, folder_names=folder_names)
+             folder_names=None, reached_end=None):
+        seen.update(continues=continues, folder=folder, folder_names=folder_names, reached_end=reached_end)
         return "ok"
 
     monkeypatch.setattr(mcp_tools, "record_saved_list", fake)
     tool_door.DISPATCH["cicada_record_saved_list"](None, {"platform": "x", "outcome": "read", "continues": True,
-                                                       "folder": "A", "folder_names": ["A"]})
-    assert seen == {"continues": True, "folder": "A", "folder_names": ["A"]}
+                                                       "folder": "A", "folder_names": ["A"], "reached_end": True})
+    assert seen == {"continues": True, "folder": "A", "folder_names": ["A"], "reached_end": True}
     assert json.dumps(seen)

@@ -787,11 +787,21 @@ page, nothing clicked that changes it, never a feed, timeline, someone else's pr
   round the 10 a day. The day's bound itself is unchanged; a login wall closes the pass. Machine state keeps a short hash of each
   folder name and when it was read, never a name (`folder_pass.folder_hash`; the names the agent sends are echoed back in the
   reply and kept nowhere). The folders' names in the bank are the posts' own `save_folders`, as before.
-* **Catching up.** The queue's words tell the agent how far to go: the **first read** of a list scrolls up to 20 screens,
-  recording as it goes in calls of up to 200 posts (a folder's page: 5); a **later** read scrolls at most 4 and stops where the
+* **Catching up: a list is read to its end once (ruling 78 as amended 2026-11-24).** Measured on a real list of 377 posts:
+  its end was about 190 screens down, so a bound in screens kept a tenth of it. Until a call of a read carries
+  `reached_end=true` (the list's own page stopped growing; a folder's page never counts, an empty list does), the list is
+  **not whole** (`saved_lists.whole`): the queue asks the agent to read all of it, recording as it goes in calls of up to 200
+  posts, the reply never says to stop at posts already kept (they are where an earlier read stopped), and the pass may take
+  500 calls instead of 20 (`WHOLE_PASS_CALLS`). A read that stops early leaves the list not whole and the next one carries on.
+  Once whole, a read scrolls at most 4 screens (a folder's page: 5) and stops where the
   reply says `Known ground` — a run of 3 posts in a row (a short call: all of them) already on that list and, for a folder page,
-  already filed there. Older items than the first read reaches still come only with the site's own export, dropped on the window
-  (the queue says so). Nothing about the lists is claimed to be complete: a post unsaved or unliked on the site stays kept here.
+  already filed there. Nothing about the lists is claimed to be complete: a post unsaved or unliked on the site stays kept here.
+* **What the live lists showed (measured 2026-11-24, values redacted).** X files Bookmarks under History: the old
+  address lands on `/i/history`, whose second tab, Likes, is `/i/history/likes` (the `x-likes` list starts there, the
+  profile's Likes tab its fallback). On LinkedIn's Saved posts, 5 of 76 results showed no link to their post, only the
+  author's profile: the queue tells the agent to build it from the result's own `data-chameleon-result-urn`; 1 of 76 was a
+  saved article (`urn:li:article`), which `canonical` now takes. A refusal while the backend is too busy to answer says so
+  ("consolidating memory right now, or too busy to say"): the stdio probe cannot tell the two apart and fails closed.
 * **A post's own day.** A row may carry `posted` (`YYYY-MM-DD`): written to the episode's frontmatter as `posted` beside the
   save's own day (`saved_at.posted_day`: a bare day in the sane range, never a relative phrase — "3 days ago" is left out), and
   given once, in place, to a post kept before without one (`episode_staging.amend_frontmatter`, committed). The items route
