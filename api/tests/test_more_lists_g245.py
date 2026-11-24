@@ -87,7 +87,7 @@ def _seed(memory, url, *, origin, folder):
 def test_the_new_lists_are_keys_with_a_base_and_none_is_ever_on_by_default():
     assert tuple(saved_lists.PLATFORMS) == reading_settings.SAVED_LISTS
     bases = {k: p.base for k, p in saved_lists.PLATFORMS.items() if p.base}
-    assert bases == {"x-likes": "x", "instagram-likes": "instagram", "linkedin-connections": "linkedin",
+    assert bases == {"x-likes": "x", "x-reposts": "x", "instagram-likes": "instagram", "linkedin-connections": "linkedin",
                      "reddit-upvoted": "reddit"}
     assert not set(bases) & set(reading_settings.DEFAULT_ON_SAVED_LISTS)
     assert not {"playlists", "liked"} & set(reading_settings.DEFAULT_ON_YOUTUBE_LISTS)
@@ -121,7 +121,7 @@ def test_a_second_list_shares_its_sites_address_rules():
 
 
 SAMPLES = {
-    "x": POST_A, "x-likes": POST_B, "instagram": IG_A, "instagram-likes": IG_B,
+    "x": POST_A, "x-likes": POST_B, "x-reposts": POST_C, "instagram": IG_A, "instagram-likes": IG_B,
     "linkedin": "https://www.linkedin.com/feed/update/urn:li:activity:7000000000000000001/",
     "reddit": RD_A, "reddit-upvoted": "https://www.reddit.com/r/alpha_sub/comments/def456/another/",
     "pinterest": "https://www.pinterest.com/pin/1234567890/",
@@ -134,7 +134,7 @@ def test_every_saved_list_label_is_index_only_by_its_own_origin_and_folder():
     """The gate: a list's origin and folder label are what ``history_index.kind`` reads, so a list that forgot to register
     would be read by a model."""
     for key, p in saved_lists.PLATFORMS.items():
-        if key in ("goodreads", "linkedin-connections"):   # books and people, kept outside the bank: no save at all
+        if p.kind in ("books", "people"):   # kept outside the bank: no save at all
             continue
         assert history_index.kind({"origin": p.origin, "folder": p.folder}) == "list", key
     for name, folder in youtube_lists.FOLDERS.items():
@@ -146,7 +146,9 @@ def test_every_saved_list_label_is_index_only_by_its_own_origin_and_folder():
 def test_every_saved_list_read_writes_index_only_saves_never_read_by_a_model(reading, key):
     server, memory = reading
     _on(key)
-    out = _record(server, key, items=[{"url": SAMPLES[key], "author": "alice_example", "text": "Notes on indexes"}])
+    # A list read off the person's own timeline needs their handle to tell their own posts from reposts.
+    who = {"handle": "alex_example"} if saved_lists.PLATFORMS[key].bounded else {}
+    out = _record(server, key, items=[{"url": SAMPLES[key], "author": "alice_example", "text": "Notes on indexes"}], **who)
     assert "1 new post(s) saved" in out, out
     fm = _episode(memory, SAMPLES[key]).frontmatter
     p = saved_lists.PLATFORMS[key]

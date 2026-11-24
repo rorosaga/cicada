@@ -7,7 +7,7 @@ final class BookArtTests: XCTestCase {
     func testKindMapIsTotalAndGivesConversationsWithPeopleTheirOwnColour() {
         let chat = "mcp claude-code claude-desktop cursor codex gemini-cli claude-export chatgpt-export gemini-export claude-web chatgpt perplexity claude-code-remote codex-remote vscode remote-app grok opencode hermes openclaw".split(separator: " ").map(String.init)
         let message = ["imessage", "telegram"]
-        let page = "chrome-bookmark safari-bookmark safari-tab bookmark saved-link share-sheet brave-bookmark vivaldi-bookmark comet-bookmark dia-bookmark chrome-tab-group rss instagram-saved pinterest reddit-saved reddit x-bookmarks x-likes x linkedin-saved".split(separator: " ").map(String.init)
+        let page = "chrome-bookmark safari-bookmark safari-tab bookmark saved-link share-sheet brave-bookmark vivaldi-bookmark comet-bookmark dia-bookmark chrome-tab-group rss instagram-saved pinterest reddit-saved reddit x-bookmarks x-likes x-reposts x linkedin-saved".split(separator: " ").map(String.init)
         let note = ["apple-notes", "wispr-flow", "folder"]
         let video = ["youtube-playlist", "youtube-history", "tiktok-saved", "tiktok-history"]
         for (kind, origins) in [(BookKind.chat, chat), (.message, message), (.page, page), (.note, note), (.video, video),

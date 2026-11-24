@@ -352,6 +352,24 @@ final class SourceViewsTests: XCTestCase {
         XCTAssertNil(SourceStreamCheckModel.cardWord(streams: [a], results: [:], now: now))
     }
 
+    func testARepostedStreamIsATabbedListAndAPostOnAllThreeListsWearsAllThreeMarks() {
+        let streams = [stream("x.bookmarks", "Bookmarks", .saved, count: 214), stream("x.likes", "Likes", .liked, count: 1_032),
+                       stream("x.reposts", "Reposts", .reposted, count: 12)]
+        XCTAssertEqual(SourceStreamItems.tabs(streams).map(\.label), ["All", "Bookmarks", "Likes", "Reposts"])
+        XCTAssertTrue(SourceStreamItems.usesCards(streams))
+        XCTAssertEqual(SourceStreamItems.tabbed([stream("x.reposts", "Reposts", .reposted, count: 0)]).count, 0,
+                       "a stream no read has put an item on has no tab")
+        var item = ChannelItem(kind: .media, id: "m", title: "A post", day: "2026-11-23")
+        item.author = "@alex_example"
+        item.lists = ["Bookmarks", "Likes", "Reposts"]
+        XCTAssertTrue(SourceItemCardText.footer(item, today: today, locale: en).contains("Bookmarks · Likes · Reposts"))
+        XCTAssertEqual(SourceItemCardText.footer(item, today: today, omitting: "Reposts", locale: en).last, "Bookmarks · Likes",
+                       "on the Reposts tab every card is a repost, so it is not said again")
+        XCTAssertEqual(OriginIconography.label(for: "x-reposts"), "X Reposts")
+        XCTAssertEqual(OriginIconography.symbol(for: "x-reposts"), OriginIconography.symbol(for: "x-likes"))
+        XCTAssertEqual(OriginIconography.logoName(for: "x-reposts"), "x")
+    }
+
     func testAnItemCardLeadsWithItsAuthorAndAListUnderItsStreamsName() {
         var item = ChannelItem(kind: .media, id: "m", title: "A post", day: "2026-11-23")
         item.author = "@alex_example"

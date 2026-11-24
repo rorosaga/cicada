@@ -63,8 +63,8 @@ from api.services import (
 SHAPE = "streams-1"
 
 # --- the vocabulary of the wire (plan 2.1) ----------------------------------------------------------------------
-KINDS = ("saved", "liked", "history", "later", "playlists", "connections", "notes", "pages", "chats", "events", "tasks",
-         "code", "books", "feed", "files")
+KINDS = ("saved", "liked", "reposted", "history", "later", "playlists", "connections", "notes", "pages", "chats", "events",
+         "tasks", "code", "books", "feed", "files")
 HOWS = ("browser", "app", "account", "click")
 STATES = ("on", "off", "unavailable")
 HEALTHS = ("read", "not_read", "signed_out", "couldnt_read", "paused")
@@ -144,8 +144,8 @@ _LIST_NAMES: dict[str, tuple[str, str]] = {
     "playlists": ("playlists", "playlists"),
     "subscriptions": ("subscriptions", "feed"),
 }
-_KIND_BY_NAME = {"likes": "liked", "liked": "liked", "upvoted": "liked", "connections": "connections",
-                 "history": "history", "playlists": "playlists", "subscriptions": "feed", "shelves": "books"}
+_KIND_BY_NAME = {"likes": "liked", "liked": "liked", "upvoted": "liked", "reposts": "reposted",
+                 "connections": "connections", "history": "history", "playlists": "playlists", "subscriptions": "feed", "shelves": "books"}
 
 #: The sources a person saves from inside the site itself, whose save click the app notices on this Mac (the plan's
 #: "Saves you make" stream). The state is the app's own switch, which the app writes over this row.
@@ -201,10 +201,11 @@ def _saved_groups() -> dict[str, Group]:
         group.specs.append(Spec(
             id=f"{source}.{name}", source=source, label=platform.label or name.capitalize(), kind=kind, how="browser",
             channel=_items_channel(source),
-            counts="channel" if key == "goodreads" else "directory" if kind == "connections" else "members",
+            counts="channel" if platform.kind == "books" else "directory" if platform.kind in ("people", "accounts")
+            else "members",
             origins=origins, match="label", list_label=platform.folder or None, origin=platform.origin or None,
-            family="saved", key=key, connector=connector, channel_rows=(key,) if key == "goodreads" else (),
-            folders="save_folders" if key == source and key != "goodreads" else None))
+            family="saved", key=key, connector=connector, channel_rows=(key,) if platform.kind == "books" else (),
+            folders="save_folders" if key == source and platform.kind == "posts" else None))
     for group in out.values():
         # The base list leads: the order the site itself shows them is the table's own, base first.
         group.specs.sort(key=lambda s: 0 if s.key == group.id else 1)
@@ -687,11 +688,19 @@ def _depth(spec: Spec) -> str:
     return spec.depth or ("read" if spec.kind in _READ_KINDS else "index")
 
 
+def _directory_count(spec: Spec, memory_path: Path) -> int | None:
+    """How many a directory outside every bank holds, by the list's kind (``Platform.kind``): the people kind is LinkedIn's
+    connections; a kind with no directory yet has no count to claim."""
+    from api.services import linkedin_people
+
+    if saved_lists.PLATFORMS[spec.key].kind == "people":
+        return int(linkedin_people.status(Path(memory_path).name)["connections"] or 0)
+    return None
+
+
 def _count(spec: Spec, mem: Members, eps: Episodes, view: dict, memory_path: Path) -> int | None:
     if spec.counts == "directory":
-        from api.services import linkedin_people
-
-        return int(linkedin_people.status(Path(memory_path).name)["connections"] or 0)
+        return _directory_count(spec, memory_path)
     if spec.counts == "members":
         return len(mem.members.get(spec.id, ()))
     if spec.counts == "origin":

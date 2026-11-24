@@ -22,9 +22,9 @@ def test_the_default_is_off_and_empty():
     assert snap == {"agentEnabled": False, "allowedSites": {}, "ackedAt": None, "ackCurrent": False,
                     "exploreSignedIn": True, "neverExplore": {},
                     "youtubeLists": {"watchLater": False, "history": False, "playlists": False, "liked": False},   # G71: every list off by default
-                    "savedLists": {"x": False, "x-likes": False, "instagram": False, "instagram-likes": False, "linkedin": False, "linkedin-connections": False, "reddit": False, "reddit-upvoted": False, "pinterest": False, "tiktok": False, "spotify": False, "goodreads": False},   # G206: all three off
+                    "savedLists": {"x": False, "x-likes": False, "x-reposts": False, "instagram": False, "instagram-likes": False, "linkedin": False, "linkedin-connections": False, "reddit": False, "reddit-upvoted": False, "pinterest": False, "tiktok": False, "spotify": False, "goodreads": False},   # G206: all three off
                     "youtubeListsOff": {"watchLater": False, "history": False, "playlists": False, "liked": False},   # 2026-10-26: no off on record
-                    "savedListsOff": {"x": False, "x-likes": False, "instagram": False, "instagram-likes": False, "linkedin": False, "linkedin-connections": False, "reddit": False, "reddit-upvoted": False, "pinterest": False, "tiktok": False, "spotify": False, "goodreads": False},
+                    "savedListsOff": {"x": False, "x-likes": False, "x-reposts": False, "instagram": False, "instagram-likes": False, "linkedin": False, "linkedin-connections": False, "reddit": False, "reddit-upvoted": False, "pinterest": False, "tiktok": False, "spotify": False, "goodreads": False},
                     # G89 (2026-11-04): the Substack lists, off until the person turns one on.
                     "substackLists": {"saved": False, "liked": False, "history": False, "subscriptions": False},
                     "substackListsOff": {"saved": False, "liked": False, "history": False, "subscriptions": False}}
@@ -215,7 +215,7 @@ def test_defaults_turn_on_only_detected_accounts_and_only_once_acknowledged():
     assert changed == ["youtube:watch_later", "youtube:history", "saved:x"]
     snap = reading_settings.snapshot()
     assert snap["youtubeLists"] == {"watchLater": True, "history": True, "playlists": False, "liked": False}
-    assert snap["savedLists"] == {**{"x": False, "x-likes": False, "instagram": False, "instagram-likes": False, "linkedin": False, "linkedin-connections": False, "reddit": False, "reddit-upvoted": False, "pinterest": False, "tiktok": False, "spotify": False, "goodreads": False}, "x": True}
+    assert snap["savedLists"] == {**{"x": False, "x-likes": False, "x-reposts": False, "instagram": False, "instagram-likes": False, "linkedin": False, "linkedin-connections": False, "reddit": False, "reddit-upvoted": False, "pinterest": False, "tiktok": False, "spotify": False, "goodreads": False}, "x": True}
     assert reading_settings.saved_list_allowed("x") and reading_settings.youtube_list_allowed("history")
     assert reading_settings.apply_list_defaults(detected={"youtube", "x"}) == [], "decided once"
 

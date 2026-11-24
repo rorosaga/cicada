@@ -14,7 +14,7 @@ func bookKind(for origin: String) -> BookKind {
          "remote-app", "grok", "opencode", "hermes", "openclaw": .chat
     case "chrome-bookmark", "safari-bookmark", "safari-tab", "bookmark", "saved-link", "share-sheet", "brave-bookmark",
          "vivaldi-bookmark", "comet-bookmark", "dia-bookmark", "chrome-tab-group", "rss", "instagram-saved", "pinterest",
-         "reddit-saved", "reddit", "x-bookmarks", "x-likes", "x", "linkedin-saved": .page
+         "reddit-saved", "reddit", "x-bookmarks", "x-likes", "x-reposts", "x", "linkedin-saved": .page
     case "apple-notes", "wispr-flow", "folder": .note
     case "youtube-playlist", "youtube-history", "tiktok-saved", "tiktok-history": .video
     default: .other

@@ -65,7 +65,7 @@ LISTENING_PREFIX = "listening-history:"
 #: they own (a record GitHub keeps, offered as a project, never the person's words).
 #: G232: Pinterest's saved pins, read by the person's agent in their browser.
 #: G89 (2026-11-04): ``substack-saved`` — the posts the person's agent read off their Substack Saved list.
-LIST_ORIGINS = frozenset({"youtube-playlist", "instagram-saved", "tiktok-saved", "x-likes", "linkedin-saved",
+LIST_ORIGINS = frozenset({"youtube-playlist", "instagram-saved", "tiktok-saved", "x-likes", "x-reposts", "linkedin-saved",
                           "spotify-saved", "github-starred", "github-owned", "pinterest-saved", "substack-saved"})
 #: Origins a connector shares with an export: the export's rows are told apart by the folder its reader names
 #: (the Reddit connector files under ``r/<sub>``, the X connector under no folder).
