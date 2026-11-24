@@ -22,6 +22,8 @@ for a counter-case (``polarity: counter``), ``wrong`` (label stems that would ma
 gold of the case, not a rule of the product. A call is under a cent.
 
 Needs ``ANTHROPIC_API_KEY`` in the environment or in ``--key-file`` (never printed). Cost is printed.
+``--engine plan`` runs the same cases through the signed-in Claude plan instead (no key read; Stage 1 on Sonnet, as a new
+user's Sleep does), and prints the replies the engine returned that could not be read (`engines.py`; 2026-11-24).
 """
 from __future__ import annotations
 
@@ -194,15 +196,15 @@ async def replay(cases: list[dict], repeats: int, settings, clock: date) -> list
             for case, ep in zip(owners, episodes)]
 
 
-def run(cases: list[dict], repeats: int, out: Path, key_file: Path, clock: date, model: str = "sonnet") -> list[dict]:
+def run(cases: list[dict], repeats: int, out: Path, key_file: Path, clock: date, model: str = "sonnet", engine: str = "key") -> list[dict]:
     """One bank and owner per distinct owner name (the owner block of the prompt names them), one leg's environment."""
     import os
 
-    from benchmarks.consolidation import run as bench
+    from benchmarks.consolidation import engines, run as bench
     from benchmarks.consolidation.same_name_battery import key_from, spend
-    from benchmarks.engine_parity import _leg_environment, _refuse_real_paths, settings_for
+    from benchmarks.engine_parity import _leg_environment, _refuse_real_paths
 
-    os.environ["ANTHROPIC_API_KEY"] = key_from(key_file)   # inherited by the call, never printed
+    engines.arm(engine, lambda: os.environ.__setitem__("ANTHROPIC_API_KEY", key_from(key_file)))   # inherited by the call, never printed
     out.mkdir(parents=True, exist_ok=True)
     _refuse_real_paths(out)
     home = out / "home"
@@ -211,18 +213,31 @@ def run(cases: list[dict], repeats: int, out: Path, key_file: Path, clock: date,
     by_owner: dict[str, list[dict]] = defaultdict(list)
     for case in cases:
         by_owner[conversation_of(case, clock)[0]].append(case)
-    for n, (owner, group) in enumerate(by_owner.items()):
-        bank = out / f"bank-{n}"
-        with _leg_environment(home, bank):
-            bench.init_bank(bank, owner)
-            settings = settings_for("key", bank, model=bench.engine_model("key", model), judge=bench.engine_model("key", "haiku"))
-            raw += asyncio.run(replay(group, repeats, settings, clock))
+    with engines.tally() as counted:
+        for n, (owner, group) in enumerate(by_owner.items()):
+            bank = out / f"bank-{n}"
+            with _leg_environment(home, bank):
+                bench.init_bank(bank, owner)
+                settings = engines.settings(engine, bank, model=model, judge="haiku")
+                raw += asyncio.run(replay(group, repeats, settings, clock))
+    engines.dump(counted, out / "tally.json")
     (out / "raw.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in raw), encoding="utf-8")
     (out / "spend.json").write_text(json.dumps(spend(home)), encoding="utf-8")
     return raw
 
 
+def _print_tally(out: Path) -> None:
+    """What the engine's replies were (`engines.Tally`), when the run kept it: calls, raised, not a JSON object."""
+    path = out / "tally.json"
+    if path.exists():
+        t = json.loads(path.read_text(encoding="utf-8"))
+        print(f"engine replies: {sum(t['calls'].values())} calls, unusable (raised or not JSON) {t['unusable']}; "
+              f"raised {t['raised']}, not JSON {t['not_json']}")
+
+
 def main(argv: list[str] | None = None) -> int:
+    from benchmarks.consolidation import engines
+
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run")
@@ -233,6 +248,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--model", default="sonnet", help="Stage 1's tier (the benchmark's main model)")
     r.add_argument("--clock", default="2026-11-23")
     r.add_argument("--cases", type=Path, default=CASES)
+    engines.add_argument(r)
     r.add_argument("--key-file", type=Path, default=Path("~/.cicada/secrets.env"))
     r.add_argument("--out", type=Path, required=True)
     s = sub.add_parser("rescore")
@@ -245,13 +261,14 @@ def main(argv: list[str] | None = None) -> int:
     if a.cmd == "run":
         picked = [c for c in cases if a.only in c["id"] and (not a.skip or a.skip not in c["id"])
                   and (not a.polarity or c["polarity"] == a.polarity)]
-        raw = run(picked, a.repeats, a.out.expanduser(), a.key_file, clock, a.model)
+        raw = run(picked, a.repeats, a.out.expanduser(), a.key_file, clock, a.model, a.engine)
         used = json.loads((a.out.expanduser() / "spend.json").read_text())
     else:
         raw = [json.loads(line) for line in (a.out.expanduser() / "raw.jsonl").read_text(encoding="utf-8").splitlines()]
         spent = a.out.expanduser() / "spend.json"
         used = json.loads(spent.read_text()) if spent.exists() else None
     print(report(rows_from_raw(raw, {c["id"]: c for c in cases}, clock), used))
+    _print_tally(a.out.expanduser())
     return 0
 
 
