@@ -124,10 +124,15 @@ def main() -> int:
         os.environ["ANTHROPIC_API_KEY"] = key_from(a.key_file)   # inherited by the engine's call, never printed
     bench.PEOPLE["e2e"] = a.fixture
     a.out.mkdir(parents=True, exist_ok=True)
-    snap = bench.run_leg(a.model, a.out, clock=a.clock, engine=a.engine, judge=a.judge, person="e2e")
+    from benchmarks.consolidation import engines
+
+    with engines.tally() as counted:
+        snap = bench.run_leg(a.model, a.out, clock=a.clock, engine=a.engine, judge=a.judge, person="e2e")
+    engines.dump(counted, a.out / "tally.json")   # replies per stage label: how many a parser could not use (2026-11-24)
     expect = json.loads(a.fixture.read_text(encoding="utf-8")).get("expect") or {}
     result = check(a.out / "bank", expect)
-    result.update(questions=snap.get("questions"), spend=spend(a.out / "home") if a.engine == "key" else {"engine": "plan"})
+    result.update(questions=snap.get("questions"), spend=spend(a.out / "home") if a.engine == "key" else {"engine": "plan"},
+                  replies={"calls": counted.total(), "unusable": counted.unusable(), "by_stage": counted.as_dict()["calls"]})
     (a.out / "e2e.json").write_text(json.dumps(result, ensure_ascii=False, indent=1, default=str))
     print(json.dumps(result, ensure_ascii=False, default=str))
     return 0 if result["ok"] else 1

@@ -81,6 +81,14 @@ class SleepState:
     claims_released: int = 0
     claims_hold_capped: int = 0
     claims_waiting: int = 0
+    # G245 (ruling 80, Track 2c) — what a save's words were kept to (`saves_bounded`): claims folded into the same fact
+    # another author said, older ones closed past a page's twelve, claims a name only saves named was refused past its
+    # three, and names met only in saves held with no page (Stage 2's exact-name rule). Counts only, carried into the
+    # `sleep_run` ledger row.
+    saves_folded: int = 0
+    saves_closed: int = 0
+    saves_held_capped: int = 0
+    saves_names_held: int = 0
     # Decay inbox items (Stage 5): the cycle's cap on NEW "Still tracking X?"
     # questions turned this many entities away (they raise again next cycle),
     # and this many open ones were refreshed instead of duplicated. Counts
@@ -2266,6 +2274,10 @@ def _reset_batch_counters() -> None:
     _state.claims_released = 0
     _state.claims_hold_capped = 0
     _state.claims_waiting = 0
+    _state.saves_folded = 0
+    _state.saves_closed = 0
+    _state.saves_held_capped = 0
+    _state.saves_names_held = 0
     _state.decay_nudges_deferred = 0
     _state.decay_nudges_refreshed = 0
     _state.inbox_settled = 0
@@ -3065,6 +3077,12 @@ def _decide_progress(live: "sleep_drain.BatchLive"):
     return cb
 
 
+
+def _stage2_summary(creates: int, updates: int, relationships: int, saves_names_held: int = 0) -> str:
+    """Stage 2's one log line; the held-name count (G245) is an integer, never a name."""
+    held = f", {saves_names_held} name(s) met only in saves held" if saves_names_held else ""
+    return f"Stage 2 complete: {creates} new entities, {updates} updates, {relationships} relationships{held}"
+
 async def _run_stages(
     settings: Settings, cycle_id: str, memory_path: Path, *, user_triggered: bool = True,
     batch: BatchPlan | None = None,
@@ -3462,7 +3480,8 @@ async def _run_stages(
     episode_cooccurrences = resolved_result.get("episode_cooccurrences", {})
     creates = sum(1 for r in resolved_changes if r.get("action") == "create")
     updates = sum(1 for r in resolved_changes if r.get("action") == "update")
-    logger.info(f"Stage 2 complete: {creates} new entities, {updates} updates, {len(resolved_edges)} relationships")
+    _state.saves_names_held = int(resolved_result.get("saves_names_held", 0) or 0)   # G245, Track 2c
+    logger.info(_stage2_summary(creates, updates, len(resolved_edges), _state.saves_names_held))
     _state.entities_created = creates
     _state.entities_updated = updates
     _state.relationships_created = len(resolved_edges)
@@ -3684,6 +3703,9 @@ async def _run_stages(
         _state.claims_released = int(claim_result.get("claims_released", 0) or 0)
         _state.claims_hold_capped = int(claim_result.get("claims_hold_capped", 0) or 0)
         _state.claims_waiting = int(claim_result.get("claims_waiting", 0) or 0)
+        _state.saves_folded = int(claim_result.get("saves_folded", 0) or 0)
+        _state.saves_closed = int(claim_result.get("saves_closed", 0) or 0)
+        _state.saves_held_capped = int(claim_result.get("saves_held_capped", 0) or 0)
         nudge_result = await asyncio.to_thread(
             write_claim_nudges, claim_result.get("nudges", []), memory_path, decay_budget=decay_budget
         )
@@ -4102,6 +4124,9 @@ def _get_unprocessed_episodes(
             # it was posted, and whose site it is (`saved_reading`); the save's own day stays `timestamp`.
             **({"posted": str(fm["posted"])} if fm.get("posted") else {}),
             **({"url": str(fm["url"])} if fm.get("url") else {}),
+            # Ruling 80 (G245): the marks of the person's own words on a save (a reason, a why-answer, a note, a folder
+            # reason) — a save with none is no mention and one source for the 2+ rule (`saved_reading.no_words_of_his`).
+            **{key: fm[key] for key in history_index.PERSON_KEYS if fm.get(key)},
             "filepath": f.path,
             # G48: which conversation produced this episode. `session_id` is
             # stamped by the MCP seam at capture; `source_id` is G20's
@@ -4699,6 +4724,11 @@ async def _finalize(
             "claims_released": _state.claims_released,
             "claims_hold_capped": _state.claims_hold_capped,
             "claims_waiting": _state.claims_waiting,
+            # G245 (ruling 80, Track 2c): what a save's words were kept to — integers only, never a name.
+            "saves_folded": _state.saves_folded,
+            "saves_closed": _state.saves_closed,
+            "saves_held_capped": _state.saves_held_capped,
+            "saves_names_held": _state.saves_names_held,
             # Decay inbox questions (Stage 5): counts only.
             "decay_nudges_deferred": _state.decay_nudges_deferred,
             "decay_nudges_refreshed": _state.decay_nudges_refreshed,

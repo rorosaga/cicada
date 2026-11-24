@@ -246,7 +246,9 @@ def test_a_2021_posts_fact_is_dated_as_of_its_month_and_its_claims_by_the_post_d
     assert "dated 2020" not in message and "this conversation is dated" not in message   # not the generic framing
     (claim,) = entity_extractor.entities_to_claims([result], None)
     assert claim.valid_from == "2021-03-04"                       # not the day it was saved (2026-11-20)
-    assert result["entities"][0]["source_episode_day"] == "2021-03-04"
+    # A save with no words of the person's is no mention (ruling 80): it gives the page no day to start or refresh a
+    # clock from. Its claims are still dated by the post (above).
+    assert result["entities"][0]["source_episode_day"] is None and result["entities"][0]["untimed"] is True
 
 
 def test_a_post_with_no_date_is_told_not_to_be_written_as_current():

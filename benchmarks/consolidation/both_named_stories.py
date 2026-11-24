@@ -12,6 +12,8 @@ both), **cut** (one person's facts end on two people), **questions**, and **ok**
     api/.venv/bin/python -m benchmarks.consolidation.both_named_stories --raw OUT/raw.jsonl [--legacy]
 
 Needs ``ANTHROPIC_API_KEY`` in the environment or in ``--key-file`` (never printed). Cost is printed.
+``--engine plan`` plays Stage 2's judge on the signed-in Claude plan (no key read) and prints the replies that were not a
+JSON object (`engines.py`; 2026-11-24). The raw answers it replays are whatever ``--raw`` holds.
 """
 from __future__ import annotations
 
@@ -98,8 +100,8 @@ async def play(case: dict, extraction: dict, state: str, seeds: dict, judge, str
     return out
 
 
-async def run(raw: list[dict], cases: dict, seeds: dict, judge_ask, review_ask, legacy: bool, only: set[str], states) -> list[dict]:
-    gate = asyncio.Semaphore(24)
+async def run(raw: list[dict], cases: dict, seeds: dict, judge_ask, review_ask, legacy: bool, only: set[str], states, concurrency: int = 24) -> list[dict]:
+    gate = asyncio.Semaphore(concurrency)
 
     def gated(ask):
         async def call(system: str, prompt: str) -> object:
@@ -159,10 +161,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--limit", type=int, default=0, help="at most this many Stage 1 answers per case")
     p.add_argument("--key-file", type=Path, default=Path("~/.cicada/secrets.env"))
     p.add_argument("--json", type=Path)
+    from benchmarks.consolidation import engines
+
+    engines.add_argument(p)
     a = p.parse_args(argv)
     from benchmarks.engine_parity import _leg_environment
 
-    os.environ["ANTHROPIC_API_KEY"] = battery.key_from(a.key_file)
+    engines.arm(a.engine, lambda: os.environ.__setitem__("ANTHROPIC_API_KEY", battery.key_from(a.key_file)))
     cases = {c["id"]: c for c in b1.load_cases()}
     seeds = json.loads(SEEDS.read_text(encoding="utf-8"))
     raw = [json.loads(line) for line in a.raw.expanduser().read_text(encoding="utf-8").splitlines()]
@@ -179,11 +184,14 @@ def main(argv: list[str] | None = None) -> int:
     home, bank = root / "home", root / "bank"
     home.mkdir(parents=True)
     bank.mkdir(parents=True)
-    with _leg_environment(home, bank):
-        judge = battery.product_ask(a.judge, a.main, home, bank)
-        review = battery.product_ask(a.main, a.main, home, bank)
-        rows = asyncio.run(run(raw, cases, seeds, judge, review, a.legacy, only, a.states.split(",")))
+    with _leg_environment(home, bank), engines.tally() as counted:
+        judge = battery.product_ask(a.judge, a.main, home, bank, a.engine)
+        review = battery.product_ask(a.main, a.main, home, bank, a.engine)
+        rows = asyncio.run(run(raw, cases, seeds, judge, review, a.legacy, only, a.states.split(","),
+                               **({"concurrency": 2} if a.engine == "plan" else {})))
         print(report(rows, battery.spend(home)))
+        if a.engine == "plan":
+            print(counted.report())
     if a.json:
         a.json.write_text(json.dumps(rows, indent=1), encoding="utf-8")
     return 0
