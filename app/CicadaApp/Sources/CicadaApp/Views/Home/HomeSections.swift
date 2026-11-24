@@ -463,6 +463,7 @@ struct LeadQuestionCard: View {
                                 row.reason.map { PageLine.plain($0, links: store.links) }]
         if !row.entityId.isEmpty { lines.append(row.entityName) }
         if row.age != "—" { lines.append(row.ageHelp) }
+        lines.append(row.asked)
         if total > 1 { lines.append(Copy.Catchup.allQuestions(total)) }
         return lines.compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
     }

@@ -7,8 +7,8 @@ from loguru import logger
 from api.config import Settings, get_settings
 from api.models.schemas import (CatchupRecordRequest, CatchupTurnRequest, CheckCensus, InboxItem,
                                 InboxResolveRequest, SettledCheck)
-from api.services import (evidence_window, inbox_service, inbox_wording, question_order, same_name, same_name_pick, source_check,
-                          sync_service, sync_ticker)
+from api.services import (evidence_window, inbox_service, inbox_wording, question_order, question_origin, same_name,
+                          same_name_pick, source_check, sync_service, sync_ticker)
 
 router = APIRouter()
 
@@ -49,7 +49,10 @@ async def list_inbox(
                                                        # reads count from tomorrow, so it moves at most with the day), and the wire shape.
                                                        f"|{question_order.SHAPE}|{question_order.stamp(settings.memory_path)}"
                                                        # 2026-11-24: the cause carries a conversation's turns and a quote's cuts.
-                                                       f"|{evidence_window.SHAPE}")
+                                                       f"|{evidence_window.SHAPE}"
+                                                       # 2026-11-24: who asked each question (`question_origin`), derived from the
+                                                       # question's own file, which `inbox` already covers — the wire shape alone.
+                                                       f"|{question_origin.SHAPE}")
         if (early := sync_service.conditional(request, response, etag)) is not None:
             return early
         # Off the event loop (inbox lag, 2026-10-17): the read parses every inbox file and the pages they name, and a

@@ -609,6 +609,20 @@ the inbox ETag (`evidence_window.SHAPE`); a question stored before it has no `tu
 recomputed on every read and never stored**. Nothing resolves →
 `tier: none` and a literal `[ no source recorded ]`, served — never a hidden card.
 
+**Who asked (owner 2026-11-24, "which agent and when it was asked").** Every served question carries `askedBy` —
+`{step, how, by, agent}` — derived at read by `api/services/question_origin.py` from what the question's own file stamped
+(`detected`, `trigger`, `proposed_by`, `asks`, `origin`, `kind`; one table, `STEPS`), never stored and never read from git: a
+Sleep batch commits every question of the run under every author of the batch, so a per-file author taken from the commit
+would be a guess, and the file already says what wrote it. `step` is the step by what it does (the duplicate check, the
+conflict check, the decay check, a read of a conversation ...), `how` whether a model was called for it (`rule`, `model`,
+`agent`, `check`), `by` the step in plain words (never a provider or a model), `agent` the harness for an agent's proposal.
+The day is `createdDate` (the first asking; `updatedDate` is only "seen again"). A question the record does not name has
+`askedBy: null`: the card says only when, never a guess. `question_origin.SHAPE` rides the inbox ETag's `extra` (the
+field depends on files the `inbox` component already covers, so the client mapping is unchanged), and
+`cicada_check_nudges` ends a question with the same two facts as one line ("Asked 13 days ago by Sleep's duplicate check
+(a rule found it; no model read anything for it)."), in list and ask mode, so an agent can say it in its own words. A new
+writer of inbox questions adds its stamp to `question_origin`'s table (`test_question_origin.py` pins every writer's stamp).
+
 **Checkability (G61 phase 2 S2).** Every item also carries `check` — `{state:
 checkable|needs_source|inform_only|never, reason, locus, targets[], rungs[], settle_eligible}` —
 derived at read by `source_check.for_item` from the item, the subject page's `sources:`, `owner:`
