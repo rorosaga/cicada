@@ -118,6 +118,28 @@ final class SourceViewsTests: XCTestCase {
         XCTAssertEqual(model.phase, .loaded)
     }
 
+    /// "Forget kept connections": the page then says nothing is kept, and the names are gone from the screen at once, even
+    /// when the refetch that follows fails (a failed read used to keep the old rows until the tab was left).
+    @MainActor
+    func testForgottenConnectionsAreGoneFromTheScreenEvenWhenTheRefetchFails() async {
+        let model = LinkedInConnectionsModel()
+        await model.load(query: "", kept: 2, using: { _, _, _ in
+            LinkedInConnectionsPage(rows: [LinkedInConnection(id: "a", name: "Person"), LinkedInConnection(id: "b", name: "Other")],
+                                    total: 2, kept: 2)
+        })
+        XCTAssertEqual(model.rows.count, 2)
+        await model.load(query: "", kept: 0, using: { _, _, _ in throw APIError.serverUnreachable })
+        XCTAssertTrue(model.rows.isEmpty, "forgotten means gone from the screen")
+        XCTAssertEqual(model.kept, 0)
+        XCTAssertEqual(model.total, 0)
+        XCTAssertFalse(model.hasMore)
+        XCTAssertEqual(model.phase, .loaded, "an empty list, not an error about names that are gone")
+        // A read that does fail with names still kept leaves them.
+        await model.load(query: "", kept: 1, using: { _, _, _ in LinkedInConnectionsPage(rows: [LinkedInConnection(id: "c", name: "Third")], total: 1, kept: 1) })
+        await model.load(query: "", kept: 1, using: { _, _, _ in throw APIError.serverUnreachable })
+        XCTAssertEqual(model.rows.map(\.id), ["c"])
+    }
+
     func testTheConnectionsTabsAndTheirDefault() {
         func stream(_ id: String, _ label: String, _ kind: StreamKind, count: Int?, on: Bool = true) -> ResolvedStream {
             ResolvedStream(source: "linkedin", stream: SourceStream(id: id, label: label, kind: kind, state: on ? .on : .off, count: count),
