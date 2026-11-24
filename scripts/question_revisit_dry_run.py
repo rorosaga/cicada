@@ -11,6 +11,7 @@ One stable line per open question the step would look at, in the order it looks 
   inbox-129  name_no_page      would_join     revisit_same     ep_2026-10-03_001:12-61(user)
   inbox-130  name_no_page      would_apart    revisit_apart    ep_2026-10-04_001:3-48(user)
   inbox-131  name_no_page      would_retire   target_faded     -          (no read: the page it asked about has faded)
+  inbox-134  name_no_page      would_retire   name_not_said    -          (no read: the name is in no conversation it came from)
   inbox-132  name_no_page      read:unsure    -
   inbox-133  name_no_page      left:said_apart -
 
@@ -23,7 +24,7 @@ One stable line per open question the step would look at, in the order it looks 
   the reader in pieces around the names (cut marks between). ``would_retire`` (``target_faded``, no model read) retires a question about a page
   that has since been archived when nothing was said about the name after the page's last mention (each conversation by its
   own date): nothing is written, the held lines stay held, undoable. A name said after that last mention is read like any other
-  but is never joined (``read:unsure``): a person's own "yes" would leave the lines on an archived page nobody sees. Questions
+  but is never joined (``read:unsure``): a person's own "yes" would leave the lines on an archived page nobody sees. ``would_retire`` with ``name_not_said`` (no model read) retires a question about a label nobody said: the asked name (and the held line's aliases) located (exact, whitespace, case-insensitive, never fuzzy) in no text, whoever's turn, of the question's own conversation or any its held line cites; nothing is written, the held lines stay held, undoable; ``left:conversation_missing`` when a cited conversation is missing or unreadable; never a person. Questions
   about one page are read together, so the summary prints the model calls per question read.
 
   the id, the kind, what it would do, the rule, and the ids of the evidence (a conversation and the offsets of the located

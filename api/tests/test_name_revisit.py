@@ -851,3 +851,134 @@ def test_the_two_pages_path_still_refuses_a_turn_that_is_too_long(memory):
     a = qr.Side("swift", "Swift", ["Swift"], [], [])
     b = qr.Side("quartzline", "Quartzline", ["Quartzline"], [], [])
     assert qr._turns_for(memory, ["ep_2026-11-14_001"], a, b) == ([], "turn_too_long")
+
+
+# --------------------------------------------------------------------------- a label nobody said (ruling 82 (e), G98)
+
+NOT_SAID = "We rebuilt the scheduling dashboard this week and shipped it on Friday."
+
+
+def _coined(memory: Path, name: str = "Harbor revamp", turn: str = NOT_SAID, assistant: str = "Ok.") -> Path:
+    """A name Stage 1 coined for something: held on a line and asked about, said in no turn of the conversation."""
+    _target(memory)
+    ep = "ep_2026-11-14_001"
+    _episode(memory, ep, f"user: {turn}\nassistant: {assistant}\n")
+    _hold(memory, name, ep, f"{name} is mentioned in a planning call.")
+    path = _ask(memory, name, ep)
+    _commit(memory, "world")
+    return path
+
+
+def test_a_label_nobody_said_is_retired_with_no_read_nothing_written_and_undoable(memory):
+    path = _coined(memory)
+    page, store = (memory / "entities" / "quartzline.md").read_bytes(), pending_store.store_path(memory).read_bytes()
+    calls: list = []
+    report, rows = _look(memory, _judge(_same("x"), calls=calls))
+    assert calls == [] and report.settled == 1 and report.calls == 0                       # no model read
+    assert (memory / "entities" / "quartzline.md").read_bytes() == page and _open(memory) == []
+    assert pending_store.store_path(memory).read_bytes() == store                           # the held lines are exactly as they were
+    assert pending_store.held_line(memory, "Harbor revamp") is not None and _aliases(memory) == []
+    rec = markdown_parser.parse(memory / "inbox" / "settled" / f"{path.stem}.md").frontmatter["settled"]
+    assert rec["rule"] == "name_not_said" and [(r["what"], r["rule"]) for r in rows] == [("retired", "name_not_said")]
+    assert "label Cicada made up" in inbox_tend.RULES["name_not_said"]
+    inbox_tend.undo(memory, path.stem)
+    assert _open(memory) == [path.stem]
+
+
+def test_the_dry_run_prints_which_rule_would_retire_each_and_writes_nothing(memory):
+    _coined(memory)
+    head = _git(memory, "rev-parse", "HEAD")
+    calls: list = []
+    _, rows = _look(memory, _judge(_same("x"), calls=calls), dry_run=True)
+    assert [(r["what"], r["rule"]) for r in rows] == [("would_retire", "name_not_said")] and calls == []
+    assert _git(memory, "rev-parse", "HEAD") == head and len(_open(memory)) == 1
+
+
+def test_the_same_label_with_a_cited_conversation_missing_is_left_with_a_counted_reason(memory):
+    path = _coined(memory)
+    line = pending_store.held_line(memory, "Harbor revamp")
+    line.heard_in = [{"episode": "ep_2026-11-10_001"}]                                      # a conversation the bank no longer has
+    pending_store.upsert(memory, line)
+    _commit(memory, "cited")
+    calls: list = []
+    report, rows = _look(memory, _judge(_same("x"), calls=calls))
+    assert calls == [] and report.settled == 0 and len(_open(memory)) == 1
+    assert [r["what"] for r in rows] == ["left:conversation_missing"] and report.skipped.get("conversation_missing") == 1
+    case, why = name_revisit.name_case(memory, path, dict(markdown_parser.parse(path).frontmatter))
+    assert case is None and why == "conversation_missing"
+
+
+def test_a_label_said_in_a_second_cited_conversation_is_not_retired(memory):
+    _coined(memory)
+    _episode(memory, "ep_2026-11-12_001", "user: The Harbor revamp is next on the board.\nassistant: Ok.\n")
+    line = pending_store.held_line(memory, "Harbor revamp")
+    line.heard_in = [{"episode": "ep_2026-11-12_001"}]
+    pending_store.upsert(memory, line)
+    _commit(memory, "cited")
+    calls: list = []
+    _, rows = _look(memory, _judge({"answers": []}, calls=calls))
+    assert len(calls) == 1 and [r["what"] for r in rows] == ["read:unread"]               # said: it is read like any other
+
+
+def test_a_name_said_only_by_an_assistant_was_said_and_is_not_retired_by_this_rule(memory):
+    _coined(memory, assistant="The Harbor revamp looks done to me.")
+    calls: list = []
+    report, rows = _look(memory, _judge({"answers": [{"name": 1, "verdict": "cannot_tell", "reason": "r"}]}, calls=calls))
+    assert len(calls) == 1 and report.settled == 0 and [r["what"] for r in rows] == ["read:unsure"]
+
+
+@pytest.mark.parametrize("name,said", [
+    ("Harbor revamp", "The HARBOR REVAMP is on the board."),            # case
+    ("Harbor revamp", "The Harbor   revamp is\non the board."),         # spacing
+    ("Tern-4", "We moved to Tern 4 on Friday."),                         # a hyphen
+    ("Café plan", "The Cafe plan is done."),                             # an accent
+])
+def test_a_name_differing_only_by_case_spacing_or_punctuation_was_said(memory, name, said):
+    _coined(memory, name=name, turn=said)
+    calls: list = []
+    report, rows = _look(memory, _judge({"answers": [{"name": 1, "verdict": "cannot_tell", "reason": "r"}]}, calls=calls))
+    assert len(calls) == 1 and report.settled == 0 and [r["what"] for r in rows] == ["read:unsure"]
+
+
+def test_a_rewording_is_not_said(memory):
+    _coined(memory, name="Harbor revamp", turn="The harbour revamp, redone, is on the board.")
+    calls: list = []
+    report, rows = _look(memory, _judge({"answers": []}, calls=calls))
+    assert calls == [] and [r["what"] for r in rows] == ["retired"]            # "harbour" is a different word: never fuzzy
+
+
+def test_a_person_is_never_retired_by_this_rule(memory):
+    _target(memory, type="person")
+    ep = "ep_2026-11-14_001"
+    _episode(memory, ep, f"user: {NOT_SAID}\nassistant: Ok.\n")
+    _hold(memory, "Dana Example", ep, "Dana Example came up in a planning call.", type_="person")
+    path = _ask(memory, "Dana Example", ep, classification="person")
+    _commit(memory, "world")
+    case, why = name_revisit.name_case(memory, path, dict(markdown_parser.parse(path).frontmatter))
+    assert why != "name_not_said"
+
+
+def test_a_question_with_no_conversation_to_read_is_not_retired(memory):
+    path = _coined(memory)
+    fm = dict(markdown_parser.parse(path).frontmatter)
+    assert name_revisit.unsaid(memory, ["Harbor revamp"], []) == ""
+    assert name_revisit.unsaid(memory, ["Harbor revamp"], [fm["source_episode"]]) == "name_not_said"
+    assert name_revisit.unsaid(memory, ["Harbor revamp"], ["ep_2099-01-01_001"]) == "conversation_missing"
+
+
+def test_a_label_asked_apart_or_undone_is_the_persons_and_never_retired(memory):
+    path = _coined(memory)
+    fm = dict(markdown_parser.parse(path).frontmatter)
+    markdown_parser.write(path, {**fm, inbox_tend.UNDONE_KEY: "undone"}, "x")
+    _commit(memory, "undone")
+    report, rows = _look(memory, _judge(_same("x")))
+    assert report.settled == 0 and rows == [] and len(_open(memory)) == 1
+
+
+def test_a_retirement_is_undone_by_the_guard_when_the_name_is_said_since(memory):
+    path = _coined(memory)
+    fm = dict(markdown_parser.parse(path).frontmatter)
+    decision = name_revisit.unsaid_decision(memory, path, fm)
+    _episode(memory, "ep_2026-11-14_001", "user: The Harbor revamp is on the board.\nassistant: Ok.\n")
+    _commit(memory, "said")
+    assert name_revisit.still_holds(memory, decision) is False

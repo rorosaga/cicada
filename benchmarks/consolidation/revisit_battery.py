@@ -18,7 +18,8 @@ scratch bank (invented names) and runs the product's own step on it ``--repeats`
 a name with NO page, whose facts wait on a held line. Per case a scratch bank, the product's own `question_revisit.tend` for
 real (reads, settles, the commits), then the bank says what was done: ``joined`` (an alias and what is held landed; wrong
 if the case is not ``same``), ``closed apart`` (held kept apart; wrong if the case is ``same`` or ``none``), ``retired`` (the page
-it asked about had faded, the name not said since: nothing written; wrong unless the case is ``retire``), or ``left``. A name
+it asked about had faded, the name not said since: nothing written; wrong unless the case is ``retire``), or ``left``; ``retired (label nobody said)`` is the engine-free retirement of a name no turn of the
+conversations it came from says (`name_not_said`: wrong unless the case is ``coined``). A name
 is ``none`` when the person's own turn relates the two in a way that is no statement of identity (a part, a denial, a doubt,
 a question) or says both in one sentence: it must be neither joined nor closed.
 ``--rigged same`` replaces the model by the adversary that answers "same" to every name and quotes the best line it can
@@ -245,13 +246,14 @@ def build_names(root: Path, case: dict) -> tuple[Path, list[str]]:
     asked = []
     for k, item in enumerate(case["names"], 1):
         ep = f"ep_2026-11-{k:02d}_001"
-        _episode(bank, ep, f"user: {item['turn']}\nassistant: Ok.\n")
+        _episode(bank, ep, f"user: {item['turn']}\nassistant: {item.get('assistant') or 'Ok.'}\n")
         if item.get("later"):
             _episode(bank, item["later"]["id"], f"user: {item['later']['text']}\nassistant: Ok.\n")
         text = f"{item['name']} came up in a planning call."
         pending_store.upsert(bank, pending_store.PendingEntity(
             name=item["name"], type=item.get("type", "concept"), description=text, source_episode=ep, confidence=0.4, tags=[],
-            history_entries=[{"date": "2026-11-14", "event": text}], held_claims=[], aliases=[], summary=text, key_facts=[text]))
+            history_entries=[{"date": "2026-11-14", "event": text}], held_claims=[], aliases=[], summary=text, key_facts=[text],
+            heard_in=[{"episode": e} for e in item.get("heard_in", [])]))
         markdown_parser.write(bank / "inbox" / f"inbox-{k:03d}.md", {
             "kind": "merge_suggestion", "required_input": "merge", "status": "pending", "priority": 0.6,
             "entity_id": item["name"].lower().replace(" ", "-"), "entity_name": item["name"],
@@ -294,7 +296,7 @@ async def run_names(case: dict, repeats: int, llm_fn, make_settings) -> dict:
 
     row = {"id": case["id"], "group": case["group"], "runs": repeats, "outcomes": Counter(), "calls": 0, "reads": 0, "questions": 0,
            "same_made": 0, "same_wrong": 0, "apart_made": 0, "apart_wrong": 0, "left": 0, "wanted_same": 0, "wanted_apart": 0,
-           "retire_made": 0, "retire_wrong": 0, "wanted_retire": 0}
+           "retire_made": 0, "retire_wrong": 0, "wanted_retire": 0, "unsaid_made": 0, "unsaid_wrong": 0, "wanted_unsaid": 0}
     expect = {n["name"]: n["expect"] for n in case["names"]}
     for _ in range(repeats):
         with tempfile.TemporaryDirectory(prefix="revisit-names-") as tmp:
@@ -314,10 +316,15 @@ async def run_names(case: dict, repeats: int, llm_fn, make_settings) -> dict:
                 row["wanted_same"] += want == "same"
                 row["wanted_apart"] += want == "different"
                 row["wanted_retire"] += want == "retire"
+                row["wanted_unsaid"] += want == "coined"
                 if rule == "target_faded":
                     row["retire_made"] += 1
                     row["retire_wrong"] += want != "retire"
                     row["outcomes"][f"{name}: retired " + ("right" if want == "retire" else "WRONG")] += 1
+                elif rule == "name_not_said":
+                    row["unsaid_made"] += 1
+                    row["unsaid_wrong"] += want != "coined"
+                    row["outcomes"][f"{name}: retired (label nobody said) " + ("right" if want == "coined" else "WRONG")] += 1
                 elif rule == "revisit_same":
                     row["same_made"] += 1
                     row["same_wrong"] += want != "same"
@@ -339,11 +346,12 @@ def report_names(rows: list[dict]) -> str:
         out.append(f"{r['group']:7} {r['id']:36} [{shown}]  reads {r['reads']} calls {r['calls']}")
     t = {k: sum(r[k] for r in rows) for k in ("questions", "same_made", "same_wrong", "apart_made", "apart_wrong", "left",
                                                "wanted_same", "wanted_apart", "reads", "calls", "retire_made", "retire_wrong",
-                                               "wanted_retire")}
+                                               "wanted_retire", "unsaid_made", "unsaid_wrong", "wanted_unsaid")}
     per = f"model calls {t['calls']} for {t['reads']} questions read ({t['calls'] / t['reads']:.2f} per question)" if t["reads"] else "no question read"
     out.append(f"QUESTIONS {t['questions']}   SAME SETTLES {t['same_made']} (wanted {t['wanted_same']}) WRONG {t['same_wrong']}   "
                f"CLOSED APART {t['apart_made']} (wanted {t['wanted_apart']}) WRONG {t['apart_wrong']}   "
-               f"RETIRED (page faded) {t['retire_made']} (wanted {t['wanted_retire']}) WRONG {t['retire_wrong']}   LEFT {t['left']}   {per}")
+               f"RETIRED (page faded) {t['retire_made']} (wanted {t['wanted_retire']}) WRONG {t['retire_wrong']}   "
+               f"RETIRED (label nobody said) {t['unsaid_made']} (wanted {t['wanted_unsaid']}) WRONG {t['unsaid_wrong']}   LEFT {t['left']}   {per}")
     return "\n".join(out)
 
 
@@ -389,7 +397,7 @@ def main_names(a) -> int:
         print("engine replies:\n" + counted.report())
     if a.json:
         a.json.write_text(json.dumps([{**r, "outcomes": dict(r["outcomes"])} for r in rows], indent=1, ensure_ascii=False))
-    return 0 if not any(r["same_wrong"] or r["apart_wrong"] or r["retire_wrong"] for r in rows) else 1
+    return 0 if not any(r["same_wrong"] or r["apart_wrong"] or r["retire_wrong"] or r["unsaid_wrong"] for r in rows) else 1
 
 
 def report(rows: list[dict]) -> str:

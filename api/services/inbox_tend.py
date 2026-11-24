@@ -145,6 +145,8 @@ RULES: dict[str, str] = {
     "revisit_apart": "Read again against everything on record: it is a different thing; nothing was joined",
     # `name_revisit` (ruling 82): the page it asked about has faded since, and the name was not said after its last mention.
     "target_faded": "The page it asked about has faded, and the name has not come up since; what is held about it is still held",
+    # `name_revisit` (ruling 82 (e)): no conversation it came from says the name: a label Cicada made up for something.
+    "name_not_said": "It asked about a label Cicada made up, not something that was said; what is held about it is still held",
 }
 #: What the settled list says each retired "same as?" question became (owner 2026-11-04, `pair_evidence`).
 RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
@@ -2207,7 +2209,7 @@ def still_holds(memory_path: Path, d: Decision) -> bool:
         from api.services import question_revisit
 
         return question_revisit.still_holds(memory_path, d)
-    if d.rule in ("revisit_same", "revisit_apart", "target_faded"):
+    if d.rule in ("revisit_same", "revisit_apart", "target_faded", "name_not_said"):
         # Ruling 82 (2026-11-24): the same, for a name with no page read against the page it was asked about.
         from api.services import name_revisit
 

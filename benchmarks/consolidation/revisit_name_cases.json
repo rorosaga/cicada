@@ -613,5 +613,108 @@
    }
   ],
   "pages": []
+ },
+ {
+  "id": "coined-label-nobody-said",
+  "group": "coined",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Dashboard revamp",
+    "turn": "We rebuilt the scheduling dashboard this week and shipped it on Friday.",
+    "expect": "coined"
+   },
+   {
+    "name": "Nightly export worker",
+    "turn": "The nightly batch of exports finished late, so I reran it by hand.",
+    "expect": "coined"
+   },
+   {
+    "name": "Daily summary sheet",
+    "turn": "Every morning I get a one-page summary of what Quartzline ran.",
+    "expect": "coined"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "coined-label-a-cited-conversation-is-missing",
+  "group": "coined",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Dashboard revamp",
+    "turn": "We rebuilt the scheduling dashboard this week and shipped it on Friday.",
+    "heard_in": [
+     "ep_2026-10-20_001"
+    ],
+    "expect": "left"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "name-said-only-by-an-assistant",
+  "group": "coined",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Dashboard revamp",
+    "turn": "We rebuilt the scheduling dashboard this week and shipped it on Friday.",
+    "assistant": "The Dashboard revamp looks finished to me.",
+    "expect": "left"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "name-differing-only-by-case-or-spacing",
+  "group": "coined",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Dashboard revamp",
+    "turn": "The DASHBOARD   REVAMP went out on Friday and nobody noticed.",
+    "expect": "either"
+   },
+   {
+    "name": "Tern-4",
+    "turn": "We moved the exports to Tern 4 on Friday.",
+    "expect": "either"
+   }
+  ],
+  "pages": []
  }
 ]

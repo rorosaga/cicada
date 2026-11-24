@@ -74,6 +74,23 @@ any other, but a "same" is never landed: the person's own yes bumps the page's `
 the lines would sit on an archived page nobody sees. A dropped page, a missing page and the owner's page keep their own
 reasons (``target_dropped``, ``target_missing``, ``owner_page``).
 
+**A label nobody said.** Measured on the same bank (real values redacted): in 107 of the 185 the asked name appears in no text of the
+conversation its question was raised from ("<Feature> redesign", "<Project> extraction worker": a label Stage 1 coined for a
+thing), in 64 only outside the person's own turns, in 15 in the person's own turn; 83 of the 115 questions the second look read
+and left "unsure" were of the first kind, and no line can ever be located for a name nobody said, so each was read again every
+time a page changed and could never close. Such a question is retired with no read under ``name_not_said``
+(:func:`unsaid`, :func:`unsaid_decision`): the name is located (`evidence.locate`: exact, then whitespace, then case-insensitive;
+and, only to say MORE was said, the folded-words check of `question_revisit._hits`, so a hyphen, an accent or a case never makes a
+name unsaid; never fuzzy) in NO text, whoever's turn, of the conversation the question was raised from or any conversation the
+held lines cite (their `heard_in`, their held claims' evidence), the conversation's frontmatter included (a title or a source is
+text a label may come from). A rewording is "not said"; a name differing only in case or spacing is said. Nothing is written to
+any page, the held lines stay held exactly as they are (nothing renamed, merged or dropped: ruling 73), undoable. **Guards:** a
+conversation the check should read that is missing or cannot be read leaves the question (``conversation_missing``, counted); a
+question with no conversation to read is not retired; a person (the held name or the page a person) is never retired this way (a
+name may come from a field the text lacks: an attendee list, a sender, a Contacts card, and a coined role for a person is
+`role_people`'s lane); a question the person undid or put off never reaches here (`inbox_tend.policy`, before). The same check
+at Stage 2's raise site is :func:`coined_label` (the question is not raised; the held line is written as today).
+
 A name of the page that another live page also answers to is no name of it here, nor is a one-word alias the conversation
 itself uses straight after a determiner ("the scheduler": a common noun there); the turns that say such a name next to the
 asked name still stop a close.
@@ -103,6 +120,8 @@ RULE_APART = "revisit_apart"
 #: A question about a page that has since faded (archived), the name not said since the page's last mention: retired with
 #: nothing written (`inbox_tend._retire`), the held lines staying held under their own name.
 RULE_FADED = "target_faded"
+#: A question about a label nobody said (:func:`unsaid`): retired the same way, with no read.
+RULE_UNSAID = "name_not_said"
 #: The kind a name-with-no-page question is counted and traced under (the question's own kind is ``merge_suggestion``).
 KIND = "name_no_page"
 #: Names of one page read in one call (one prompt holds the page once). A bigger pile is read in turns.
@@ -517,6 +536,48 @@ def said_after(memory_path: Path, fm: dict, line, tfm: dict) -> bool | None:
     return any(d > last for d in days)
 
 
+def _held_episodes(line) -> list[str]:
+    """Every conversation a held line cites: where it heard the name (`episodes`) and where its held claims' evidence is."""
+    out = list(line.episodes()) if line is not None else []
+    for claim in (line.held_claims if line is not None else []):
+        if not isinstance(claim, dict):
+            continue
+        cited = [*[str(e) for e in (claim.get("source_episodes") or [])],
+                 *[str(ev.get("episode") or "") for ev in (claim.get("evidence") or []) if isinstance(ev, dict)]]
+        out.extend(e for e in cited if e.startswith("ep_") and e not in out)
+    return out
+
+
+def unsaid(memory_path: Path, names: list[str], episodes: list[str]) -> str:
+    """Was the name SAID in any of these conversations? ``""``: it was (or there is nothing to check: no conversation named), so
+    the question is not this rule's. ``"name_not_said"``: every conversation was read and none holds it, in any turn, whoever's,
+    nor in its frontmatter. ``"conversation_missing"``: it is in none that could be read and one could not be (missing, locked, not
+    a conversation): the question is left. Located as the evidence spans are (`evidence.locate`: exact, whitespace, case-insensitive;
+    never fuzzy); the folded-words check only ever says MORE was said (a hyphen, an accent). Reads only."""
+    from api.services import evidence
+
+    names = [n for n in dict.fromkeys(" ".join(str(n or "").split()) for n in names) if n]
+    episodes = [e for e in dict.fromkeys(str(e or "").strip() for e in episodes) if e]
+    if not names or not episodes:
+        return ""
+    missing = False
+    for ep in episodes:
+        doc = evidence.source_document(Path(memory_path), ep) if ep.startswith("ep_") else None
+        if doc is None:
+            missing = True
+            continue
+        fm, body = doc
+        for text in (body, json.dumps(fm, default=str, ensure_ascii=False)):
+            if any(evidence.locate(text, n) is not None or qr._hits([n], [], text)[0] for n in names):
+                return ""
+    return "conversation_missing" if missing else RULE_UNSAID
+
+
+def _unsaid_names(fm: dict, line, name: str) -> list[str]:
+    return [name, str(fm.get("entity_mention") or ""), str(fm.get("entity_name") or ""),
+            *[str(a) for a in (line.aliases if line is not None else [])]]
+
+
 def name_case(memory_path: Path, path: Path, fm: dict, *, today: str | None = None) -> tuple[NameCase | None, str]:
     """``(case, "")`` when every engine-free condition holds for this open question about a name with no page, else
     ``(None, why it is left)``. Reads only."""
@@ -578,6 +639,12 @@ def name_case(memory_path: Path, path: Path, fm: dict, *, today: str | None = No
     if (alias_policy.names_another_page(name, target_id, memory_path / "entities")
             or wrong_aliases.title_of_other_page(memory_path, target_id, name, target_type)):
         return None, "title_of_another_page"
+    if not person:
+        # A label nobody said (:func:`unsaid`): no line can ever be located for it, so no read could close it.
+        said = unsaid(memory_path, _unsaid_names(fm, line, name),
+                      [str(fm.get("source_episode") or ""), *_held_episodes(line)])
+        if said:
+            return None, said
     target_names = _names_of_page(memory_path, target_id, tfm)
     if not target_names:
         return None, "page_name_shared"
@@ -918,11 +985,33 @@ def path_bytes(memory_path: Path, case: NameCase) -> bytes:
         return b""
 
 
-def faded_decision(memory_path: Path, path: Path, fm: dict) -> inbox_tend.Decision:
-    """The retirement of a question whose page has faded (archived) and about whose name nothing was said after the page's last
-    mention (`name_case` answered ``target_faded``): nothing is written to any page, the held lines stay held under their own
-    name (ruling 73: no value is lost), the question leaves the inbox through the tending's own path and its undo puts it back.
-    Engine-free: no read is made."""
+def coined_label(clarifier, entity: dict, candidate: dict) -> bool:
+    """At Stage 2's raise site (`entity_resolver._create_duplicate_clarification`): is the mention's name a label nobody said, so the
+    "same as?" question about it would be one no read could ever close? True only when :func:`unsaid` says so on the conversation
+    the mention came from and the ones its held line already cites; never for a person (the mention or the page); a conversation
+    that cannot be read, or none named, is False (the question is raised as before). The held line is written either way."""
+    memory_path = getattr(clarifier, "memory_path", None)
+    if not isinstance(memory_path, Path) or not isinstance(entity, dict):
+        return False
+    try:
+        from api.services import entity_resolver, pending_store
+
+        name = " ".join(str(entity.get("name") or "").split())
+        if (not name or str(entity.get("type") or "").lower() == "person"
+                or entity_resolver._candidate_type(candidate) == "person"):
+            return False
+        line = pending_store.held_line(memory_path, name)
+        return unsaid(memory_path, [name, *[str(a) for a in (line.aliases if line is not None else [])]],
+                      [str(entity.get("source_episode") or ""), *_held_episodes(line)]) == RULE_UNSAID
+    except Exception as exc:  # noqa: BLE001 - a guard that cannot decide never stops a question being raised
+        logger.debug(f"coined_label undecided: {type(exc).__name__}")
+        return False
+
+
+def retire_decision(memory_path: Path, path: Path, fm: dict, rule: str) -> inbox_tend.Decision:
+    """The engine-free retirement of a question with nothing to read (:data:`RULE_FADED`, :data:`RULE_UNSAID`): nothing is written to
+    any page, the held lines stay held under their own name (ruling 73: no value is lost), the question leaves the inbox through the
+    tending's own path and its undo puts it back."""
     from api.services import pending_store
 
     memory_path = Path(memory_path)
@@ -930,10 +1019,23 @@ def faded_decision(memory_path: Path, path: Path, fm: dict) -> inbox_tend.Decisi
     guard = inbox_tend._guard(memory_path, target_id)
     store = pending_store.store_path(memory_path)
     guard[store.relative_to(memory_path).as_posix()] = inbox_tend._hash(store)
-    return inbox_tend.Decision(
-        path.stem, "merge_suggestion", RULE_FADED, None, answer="Retired", fingerprint=path.read_bytes(), guard=guard,
-        reason="The page it asked about has faded out of memory, and nothing was said about the name after the page's last "
-               "mention; the lines held about the name are still held under its own name.")
+    reason = ("The page it asked about has faded out of memory, and nothing was said about the name after the page's last "
+              "mention; the lines held about the name are still held under its own name." if rule == RULE_FADED else
+              "The name is a label Cicada made up for something, not words anyone said in the conversations it came from; "
+              "nothing was changed and the lines held about it are still held under its own name.")
+    return inbox_tend.Decision(path.stem, "merge_suggestion", rule, None, answer="Retired", fingerprint=path.read_bytes(),
+                               guard=guard, reason=reason)
+
+
+def faded_decision(memory_path: Path, path: Path, fm: dict) -> inbox_tend.Decision:
+    """The retirement of a question whose page has faded (archived) and about whose name nothing was said after the page's last
+    mention (`name_case` answered ``target_faded``). Engine-free: no read is made (`retire_decision`)."""
+    return retire_decision(memory_path, path, fm, RULE_FADED)
+
+
+def unsaid_decision(memory_path: Path, path: Path, fm: dict) -> inbox_tend.Decision:
+    """The retirement of a question about a label nobody said (`name_case` answered ``name_not_said``). Engine-free."""
+    return retire_decision(memory_path, path, fm, RULE_UNSAID)
 
 
 def still_holds(memory_path: Path, d) -> bool:
@@ -948,8 +1050,8 @@ def still_holds(memory_path: Path, d) -> bool:
     except Exception:  # noqa: BLE001
         return False
     case, why = name_case(memory_path, path, fm)
-    if d.rule == RULE_FADED:
-        return case is None and why == "target_faded"
+    if d.rule in (RULE_FADED, RULE_UNSAID):
+        return case is None and why == ("target_faded" if d.rule == RULE_FADED else "name_not_said")
     if case is None or case.b.id != str((d.request or {}).get("merge_target") or ""):
         return False
     if d.rule == RULE_SAME:
@@ -977,13 +1079,13 @@ class Context:
     room: int = 0            # how many more questions the run may read
 
 
-async def _retire_faded(ctx: Context, path: Path, fm: dict) -> None:
-    """The engine-free retirement of a question about a faded page (`faded_decision`): counted, listed, undoable."""
+async def _retire(ctx: Context, path: Path, fm: dict, rule: str) -> None:
+    """The engine-free retirement of a question with nothing to read (`retire_decision`): counted, listed, undoable."""
     report = ctx.report
-    decision = await asyncio.to_thread(faded_decision, ctx.memory_path, path, fm)
+    decision = await asyncio.to_thread(retire_decision, ctx.memory_path, path, fm, rule)
     if ctx.dry_run:
         report.settled += 1
-        ctx.note(path.stem, KIND, "would_retire", RULE_FADED)
+        ctx.note(path.stem, KIND, "would_retire", rule)
         return
     try:
         ok = await inbox_tend.apply(ctx.memory_path, ctx.settings, decision)
@@ -993,7 +1095,7 @@ async def _retire_faded(ctx: Context, path: Path, fm: dict) -> None:
     if ok:
         report.settled += 1
         report.paths.append(f"inbox/settled/{path.stem}.md")
-        ctx.note(path.stem, KIND, "retired", RULE_FADED)
+        ctx.note(path.stem, KIND, "retired", rule)
     else:
         ctx.note(path.stem, KIND, "left:not_applied")
 
@@ -1003,8 +1105,8 @@ async def look(ctx: Context, path: Path, fm: dict, rest: list[tuple[Path, dict]]
     memory_path, report = ctx.memory_path, ctx.report
     item_id = path.stem
     case, why = await asyncio.to_thread(name_case, memory_path, path, fm, today=ctx.today.isoformat())
-    if case is None and why == "target_faded":
-        await _retire_faded(ctx, path, fm)
+    if case is None and why in ("target_faded", RULE_UNSAID):
+        await _retire(ctx, path, fm, RULE_FADED if why == "target_faded" else RULE_UNSAID)
         return
     if case is None:
         report.skip(why)
