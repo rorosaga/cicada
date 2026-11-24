@@ -312,8 +312,10 @@ async def survey(memory_path: Path, commits: list[str], settles: list[str] | Non
                     changed.append(eid)
                 add_step(sv.steps, eid, step_of(eid))
             elif kind == page_change.FADE:
+                # Silence is the cause of a fade, whatever the commit's manifest says: claim-level decay is written
+                # back with a generic trigger (`sleep/extraction`), which would read as "changed while Sleep read".
                 faded.setdefault(eid)
-                add_step(sv.fade_steps, eid, step_of(eid))
+                add_step(sv.fade_steps, eid, "decay")
 
         md_seen: set[str] = set()
         for status, path in cc["files"]:

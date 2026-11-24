@@ -3,9 +3,9 @@ sleeps: a count is a count of real changes, and it stays fast).
 
 ``classify_commit(memory, sha)`` answers, for an entity commit: its subject, its file list, a verdict for every page it
 modified (``page_change``: bookkeeping / fade / substance, plus a ``status:`` move) and the manifest trigger of each
-page line (what the commit's own body says changed it). Three git calls at most — the subject + file list, one ``-U0``
-patch of the modified entity files, and one ``cat-file --batch`` for the few pages whose patch the fast path cannot read
-(prose, lists) or whose ledger file appeared or went. Nothing is parsed for the other 1,900.
+page line (what the commit's own body says changed it). Four git calls at most — the subject + file list, one ``-U0``
+patch of the modified entity files, one ``cat-file --batch`` for where the header ends in the few pages with a stamp-like
+line, and one for the few pages whose patch the fast path cannot read (prose, lists) or whose ledger file appeared or went. Nothing is parsed for the other 1,900.
 
 A commit never changes, so the answer is **derived and disposable**: one JSON file per commit under
 ``$CICADA_HOME/sleep/<bank>/changes/<sha>.json`` — outside every bank and git — read back when present and current
@@ -25,7 +25,7 @@ from loguru import logger
 from api.services import git_service, page_change, sleep_local
 
 #: Bump when the classification rules change: every cached answer is then read as missing.
-VERSION = 1
+VERSION = 2
 
 _HASH = re.compile(r"[0-9a-f]{7,40}")
 _MANIFEST_LINE = git_service._MANIFEST_LINE_RE
@@ -117,6 +117,19 @@ async def versions(memory_path: Path, old_rev: str | None, new_rev: str | None, 
     return tuple(got.get(specs.get(k, ""), None) for k in ("old_md", "new_md", "old_ledger", "new_ledger"))
 
 
+async def commit_versions(memory_path: Path, shas: list[str], entity_id: str) -> list[tuple]:
+    """For each commit of ``shas``, ``(text before, text after, ledger before, ledger after)`` of one page — that
+    commit's own change, whoever else touched the page around it. One ``cat-file --batch`` for them all."""
+    specs: dict[tuple[str, str, str], str] = {}
+    for sha in shas:
+        for tag, rev in (("old", f"{sha}^"), ("new", sha)):
+            specs[(sha, tag, "md")] = f"{rev}:entities/{entity_id}.md"
+            specs[(sha, tag, "ledger")] = f"{rev}:entities/{entity_id}.claims.jsonl"
+    got = await _blobs(Path(memory_path), list(dict.fromkeys(specs.values())))
+    return [tuple(got.get(specs[(sha, tag, kind)]) for tag, kind in
+                  (("old", "md"), ("new", "md"), ("old", "ledger"), ("new", "ledger"))) for sha in shas]
+
+
 def _meta(raw: str) -> tuple[str, str, list[tuple[str, str]]]:
     parts = raw.split("\x1e")
     head = parts[1] if len(parts) > 1 else ""
@@ -139,6 +152,21 @@ def _triggers(body: str) -> dict[str, str]:
             if key.strip() == "trigger":
                 out[found[0]] = value.strip()
     return out
+
+
+async def _read_fences(memory_path: Path, commit: str, ids: list[str], patches: dict) -> None:
+    """Where each of ``ids``' frontmatter ends, before and after the commit (one ``cat-file --batch`` for them all), so
+    the fast path can tell a stamp in the header from a paragraph of prose that reads like one. A page whose fence cannot
+    be read keeps none and is decided by the full comparison."""
+    if not ids:
+        return
+    specs = {f"{tag}:{eid}": f"{rev}:entities/{eid}.md" for eid in ids
+             for tag, rev in (("-", f"{commit}^"), ("+", commit))}
+    got = await _blobs(memory_path, list(specs.values()))
+    for eid in ids:
+        ends = {sign: page_change.frontmatter_end(got.get(specs[f"{sign}:{eid}"])) for sign in ("-", "+")}
+        if all(end is not None for end in ends.values()):
+            patches[eid].fence = {sign: end for sign, end in ends.items() if end is not None}
 
 
 async def classify_commit(memory_path: Path, commit: str) -> dict | None:
@@ -169,6 +197,9 @@ async def classify_commit(memory_path: Path, commit: str) -> dict | None:
         except Exception:  # noqa: BLE001
             return None
         patches = page_change.parse_patch(patch_text)
+        await _read_fences(memory_path, commit, [e for e in sorted(modified)
+                                                  if e not in ledger_moved and e in patches
+                                                  and page_change.wants_fence(patches[e])], patches)
         slow: list[str] = []
         for eid in sorted(modified):
             verdict = None if eid in ledger_moved else (page_change.fast_verdict(patches[eid])

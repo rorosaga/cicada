@@ -7,6 +7,10 @@ the opened card's (``sleep_consolidated.survey``: the same final class, the same
 changed), and its change is its two versions compared (``page_change.compare``): the one before the run's first commit
 that touched it and the one after the last. Nothing here reads a model, a diff of the file, or a claim by its json.
 
+The change is the run's own: each commit of the run that touched the page is compared with its own parent and the
+results composed (``page_change.compose``), never the page's first and last versions — a commit by the person or
+another writer between two batches stays out of it. A page the run made or deleted is its whole text.
+
 * **Facts** are the page's claims — its fence and its ledger — added, withdrawn, or changed in a field a person reads.
   Each is the one claim wire (``transclusion_resolver.claim_to_model``), with what moved (``page_change.CLAIM_FIELDS``)
   and the conversation its own evidence names. A fact whose confidence alone moved is counted in ``faded``, not shown.
@@ -36,18 +40,6 @@ from api.services import bank_index, commit_changes, git_service, page_change, s
 from api.services.claims import Claim
 
 MAX_FACTS = 80
-
-
-async def _oldest_first(memory_path: Path, shas: list[str]) -> list[str]:
-    """``shas`` in the order git made them (one ``rev-list``); as given when git cannot say."""
-    if len(shas) < 2:
-        return list(shas)
-    try:
-        out = await git_service._run_git(Path(memory_path), "rev-list", "--topo-order", "--no-walk", *shas)
-    except Exception:  # noqa: BLE001
-        return list(shas)
-    ordered = [s for s in reversed(out.split()) if s]
-    return ordered if len(ordered) == len(set(shas)) else list(shas)
 
 
 def _text(value) -> str | None:
@@ -82,6 +74,50 @@ def _evidence_conversation(memory_path: Path, entry: dict, run_eps: frozenset[st
     return next((e for e in named if e in run_eps), named[0] if named else None)
 
 
+_NO_PROSE = {"blocks": [], "counts": {"added": 0, "removed": 0, "edited": 0}, "truncated": False}
+
+
+def _compose_prose(raw: list[tuple], per: list[tuple], deltas: list) -> dict:
+    """The prose blocks the run's commits changed. Commits that follow one another with nothing between them (the page
+    at one commit's end is the next one's start) are one stretch and compare as one — a paragraph edited twice reads as
+    one edit; a stretch that ends where it began, though a commit in it changed the words, lists each commit's blocks
+    instead, so the card never says nothing changed. Stretches are joined in order, bounded as a single comparison."""
+    stretches: list[list[int]] = [[0]]
+    for i in range(1, len(raw)):
+        if (raw[i][0], raw[i][2]) == (raw[i - 1][1], raw[i - 1][3]):
+            stretches[-1].append(i)
+        else:
+            stretches.append([i])
+    parts: list[dict] = []
+    for idx in stretches:
+        if not any(deltas[i].prose_changed for i in idx):
+            continue
+        net = page_change.prose_blocks(per[idx[0]][0].prose, per[idx[-1]][1].prose)
+        if any(net["counts"].values()):
+            parts.append(net)
+        else:
+            parts.extend(page_change.prose_blocks(per[i][0].prose, per[i][1].prose) for i in idx
+                         if deltas[i].prose_changed)
+    if not parts:
+        return _NO_PROSE
+    blocks: list[dict] = []
+    counts = {"added": 0, "removed": 0, "edited": 0}
+    truncated = False
+    seen = 0
+    for part in parts:
+        truncated = truncated or part["truncated"]
+        for key in counts:
+            counts[key] += part["counts"][key]
+        for b in part["blocks"]:
+            if b["op"] != "context":
+                seen += 1
+                if seen > page_change.MAX_BLOCKS:
+                    truncated = True
+                    continue
+            blocks.append(b)
+    return {"blocks": blocks, "counts": counts, "truncated": truncated}
+
+
 async def build(memory_path: Path, commits: list[str], settles: list[str], steps: list[tuple[str, str]],
                 entity_id: str) -> SleepPageChange | None:
     """The change of page ``entity_id`` across ``commits`` (and the window's tail ``steps``), or ``None`` when no
@@ -91,12 +127,23 @@ async def build(memory_path: Path, commits: list[str], settles: list[str], steps
     change = sleep_consolidated.change_of(sv, entity_id)
     if change is None:
         return None
-    order = await _oldest_first(memory_path, sv.touched.get(entity_id, []))
-    old_rev = f"{order[0]}^" if order else None
-    new_rev = order[-1] if order else None
-    old_text, new_text, old_ledger, new_ledger = await commit_changes.versions(memory_path, old_rev, new_rev, entity_id)
-    old, new = page_change.read_version(old_text, old_ledger), page_change.read_version(new_text, new_ledger)
-    delta = page_change.compare(old, new)
+    order = sv.touched.get(entity_id, [])   # the run's commits that touched it, in the order git made them
+    whole_page = change in ("created", "removed")
+    if whole_page:
+        old_text, new_text, old_ledger, new_ledger = await commit_changes.versions(
+            memory_path, f"{order[0]}^" if order else None, order[-1] if order else None, entity_id)
+        old, new = page_change.read_version(old_text, old_ledger), page_change.read_version(new_text, new_ledger)
+        delta = page_change.compare(old, new)
+        prose_raw = page_change.prose_blocks(old.prose, new.prose)
+    else:
+        raw = await commit_changes.commit_versions(memory_path, order, entity_id)
+        per = [(page_change.read_version(a, c), page_change.read_version(b, d)) for a, b, c, d in raw]
+        deltas = [page_change.compare(o, n) for o, n in per]
+        for d, (o, n) in zip(deltas, per):
+            if not o.present or not n.present:   # a commit that made or deleted the file: its header is no "change"
+                d.other, d.details, d.prose_changed = [], 0, True
+        old, delta = per[0][0], page_change.compose(deltas)
+        prose_raw = _compose_prose(raw, per, deltas)
 
     from api.services import episode_copy, turn_authorship
 
@@ -141,9 +188,6 @@ async def build(memory_path: Path, commits: list[str], settles: list[str], steps
     facts = SleepChangeFacts(added=added, withdrawn=withdrawn, changed=changed, faded=len(delta.faded), counts=counts,
                              truncated=facts_cut)
 
-    whole_page = change in ("created", "removed")
-    prose_raw = page_change.prose_blocks(old.prose, new.prose) if delta.prose_changed or whole_page else \
-        {"blocks": [], "counts": {"added": 0, "removed": 0, "edited": 0}, "truncated": False}
     prose = SleepChangeProse(
         blocks=[SleepChangeBlock(op=b["op"], markdown=b["markdown"], heading=b["heading"], level=b["level"],
                                  before=b["before"], after=b["after"],

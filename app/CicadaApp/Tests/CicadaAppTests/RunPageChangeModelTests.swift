@@ -282,4 +282,31 @@ final class SleepPageChangeLoadingTests: XCTestCase {
         _ = try await vm.pageChange(.run("sleep_a"), page: "alpha-project")
         XCTAssertEqual(asked.count, 3, "another bank's pages are not this one's")
     }
+
+    /// A run still reading gains a batch: the card's items tag moves, so a reopened chip asks again rather than
+    /// showing the first batch's change beside a card that has moved on.
+    func testAChipOfARunThatMovedOnIsAskedAgain() async throws {
+        let store = Store(cache: SnapshotCache(root: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)), api: FakeSyncAPI())
+        var asked = 0
+        var tags = ["\"t1\"", "\"t1\"", "\"t2\""]
+        let vm = SleepViewModel(
+            store: store, putSchedule: { $0 },
+            fetchConsolidated: { _, _ in
+                Conditional(value: SleepConsolidated(), etag: tags.removeFirst(), notModified: false)
+            },
+            fetchPageChange: { _, page in
+                asked += 1
+                return SleepPageChange(change: "updated", page: .init(id: page))
+            })
+        let key = SleepConsolidatedKey.run("sleep_live")
+        await vm.loadConsolidated(key)
+        _ = try await vm.pageChange(key, page: "alpha-project")
+        await vm.loadConsolidated(key)   // nothing new: the same tag
+        _ = try await vm.pageChange(key, page: "alpha-project")
+        XCTAssertEqual(asked, 1, "the card has not moved, so the answer is still current")
+        await vm.loadConsolidated(key)   // a batch landed: a new tag
+        _ = try await vm.pageChange(key, page: "alpha-project")
+        XCTAssertEqual(asked, 2, "the card moved on, so the chip asks again")
+    }
 }

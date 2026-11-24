@@ -835,10 +835,10 @@ on a claim `decayed_through`, `read_late`, `recorded_at`/`recorded_ts`, `session
 counted nowhere, listed nowhere** (only `counts.bookkeeping`, a diagnostic), **fade** (`confidence` / `faded_by_age` on a
 claim or the page, a page moving between `active` and `decaying`: silence alone — its own quiet list) and **substance**
 (a fact added, withdrawn or changed in a field a person reads; prose; `status` to archived/restored; name, type, aliases,
-tags, sources, decay class; a conversation newly named in `source_episodes`). A page's claims are its fence **plus its
+tags, sources, decay class; a conversation newly named in `source_episodes` **or taken out of it** (a revision cascade, a merge); a change to `related`, `sources_removed`, `aliases_removed` or `aliases_kept`, which the person or a cascade decided; `decay_rate` alone is derived from `decay_class` and stays bookkeeping). A page's claims are its fence **plus its
 ledger file** (`entities/<id>.claims.jsonl`): both patches are read, a claim that moved between them cancels, and a page
 whose ledger appeared or went is compared in full. The fast path reads claim lines (JSON) and `key: value` frontmatter
-lines and parses no page; any other changed line (prose, a list item, a fence marker) sends that one page to
+lines and parses no page — a `key: value` line counts as frontmatter only above the page's closing `---` (one `git cat-file --batch` for the few pages that have such a line; a paragraph reading `version: 2 of the plan` is prose); any other changed line (prose, a list item, a fence marker) sends that one page to
 `page_change.compare`, which parses both versions (`git cat-file --batch`). A page across a run's commits is in exactly one
 list by its final state: removed > archived > created > updated > faded > bookkeeping.
 
@@ -847,7 +847,7 @@ substance only; the body gains `faded` (a list of page rows, ≤ 200, the same `
 `bookkeeping` (whole counts: `created`, `updated`, `archived`, `removed`, `faded` are each their list's whole length).
 *Why*: every page row (all five lists) gains `steps` — the run's commits that changed it named from a closed set, oldest
 first, each once: `reading` (the batch's own manifest trigger `sleep/extraction`, `sleep/promotion`…), `decay`
-(the batch's `(decay)` commit, or `sleep/decay`), `conflict` (`sleep/conflict_resolution`), `settled` (a question Sleep
+(the batch's `(decay)` commit, or `sleep/decay`; **every page in `faded` is `decay`**, whatever its commit's trigger says), `conflict` (`sleep/conflict_resolution`), `settled` (a question Sleep
 settled: `Inbox settled by Sleep`, `Titled by a nickname by Sleep`), `join` (`sleep/dedup`, a same-name review, an arrival
 join, a merge or split, a dedup sweep), `source_check` (`Source refresh`, `Site check`, `Where to check`, `Source links`),
 `link_enrichment`, `summary` (`In short`, `Recording notes`), `web` (`Web check`, `Web context`), `expiry` (`Expiry`,
@@ -865,8 +865,10 @@ resolver tally). Concurrent (3 at a time), a number git cannot give leaves the e
 
 *One page's change*: `GET /sleep/runs/{id}/pages/{entity_id}/change` and `GET /sleep/history/{commit}/pages/{entity_id}/change`
 answer `SleepPageChange` (404 for a page no commit of the run touched, a person's own edit included; an id that is not a
-filename stem is 404 before git). It is the page's version before the run's oldest commit that touched it against its
-version after the newest (`git rev-list --topo-order --no-walk`), compared in full:
+filename stem is 404 before git). It is the run's own commits that touched the page, in the order the run met them, each compared with its own parent and
+composed (`page_change.compose`): a fact the run changed and put back, or made and withdrew, is listed (the card never says
+nothing changed for a page the list calls updated), and a commit by the person or another writer between two batches stays
+out of it. A page the run created or removed is its first version against its last:
 `page` (the opened card's row: `change`, `episodes`, `steps`, `commits`), `change` (`created` | `updated` | `archived` |
 `removed` | `faded` | `bookkeeping`), `conversations` (the conversations named — the run's own first, then any a fact's
 evidence names — each a `SleepConsolidatedConversation` plus `inRun`), `facts` (`added`, `withdrawn`, `changed`: each
@@ -896,7 +898,7 @@ synthetic run of 2,000 touched pages / ~11,000 claim lines (one page with a 5,00
 substance, 285 faded, three fresh processes each: the items body's first call **0.37–0.40 s before, 0.48–0.63 s after**
 (once per commit: the patch is read, 2 pages are parsed, the answer remembered), its repeat **0.13–0.17 s before, 0.008 s
 after**; `figures` warm 3 ms; one page's change 20 ms (0.25 s for the page whose ledger holds 5,000 claims). A cold run is
-three git calls a commit (`test_sleep_page_change` pins the calls and that the bookkeeping pages are never parsed). The app's fixtures `sleep-run-items.json`,
+three to four git calls a commit (`test_sleep_page_change` pins the calls and that the bookkeeping pages are never parsed). The app's fixtures `sleep-run-items.json`,
 `sleep-history-run.json` and `sleep-page-change.json` are these routes' wire (`test_sleep_v5_app_fixtures`).
 
 **Unit tests reach no backend (2026-10-19).** Under XCTest `APIClient.shared` is `APIClient.pointingAtNothing()`: a

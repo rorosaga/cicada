@@ -66,10 +66,15 @@ CLAIM_FADE = frozenset({"confidence", "faded_by_age"})
 CLAIM_FIELDS = ("text", "subject", "predicate", "object", "valid_from", "valid_to", "expected_end", "superseded_by",
                 "supersedes", "status", "target", "context", "source_trust", "observer", "epistemic", "confidence",
                 "sources", "details")
-#: Page-level frontmatter that is a cause (which conversation fed it) or a stamp, never a "change" to show.
+#: Page-level frontmatter that is a cause (which conversation fed it), a stamp or derived plumbing, never a "change" to
+#: show. Decided key by key, never by omission: ``source_episodes`` / ``source_episode`` are the cause (a conversation
+#: ADDED is :attr:`Delta.fed`, one REMOVED is :attr:`Delta.unfed`, both substance); ``created`` and ``id`` never move;
+#: ``archived_by`` rides with the ``status`` move that is shown; ``decay_rate`` is derived from ``decay_class``
+#: (``decay_policy``) and so moves only with it (a class change is shown). What a person or a cascade DECIDED is a
+#: change and is NOT here: ``related`` (a link on the record), ``sources_removed``, ``aliases_removed`` and
+#: ``aliases_kept`` — a change to any of them is counted in ``details``.
 FM_NOT_SHOWN = FM_BOOKKEEPING | FM_FADE | frozenset({
-    "source_episodes", "source_episode", "created", "decay_rate", "archived_by", "sources_removed", "aliases_removed",
-    "aliases_kept", "related", "id",
+    "source_episodes", "source_episode", "created", "decay_rate", "archived_by", "id",
 })
 #: The page changes the app has a sentence for; any other changed key is counted in ``details``, never named.
 OTHER_FIELDS = ("status", "name", "type", "aliases", "tags", "decay_class", "sources")
@@ -134,9 +139,16 @@ def page_of(path: str) -> tuple[str, bool] | None:
 
 @dataclass
 class PagePatch:
-    """Every changed line of one page across its two files: ``(sign, text, in_ledger)`` in patch order."""
+    """Every changed line of one page across its two files: ``(sign, text, in_ledger)`` in patch order.
+
+    ``numbers`` is each line's own line number in the file it belongs to (the old file for ``-``, the new for ``+``).
+    ``fence`` is the line number of each side's closing frontmatter ``---`` (``{"-": n, "+": n}``), set by the caller
+    that read it: a ``key: value`` line is the page's frontmatter only when it sits above that line — a paragraph of
+    prose that happens to read ``version: 1 of the plan`` is prose."""
     lines: list[tuple[str, str, bool]] = field(default_factory=list)
     ledger: bool = False   # the ledger file is in this patch
+    numbers: list[int] = field(default_factory=list)
+    fence: dict[str, int] = field(default_factory=dict)
 
 
 def parse_patch(text: str) -> dict[str, PagePatch]:
@@ -147,6 +159,7 @@ def parse_patch(text: str) -> dict[str, PagePatch]:
     current: PagePatch | None = None
     ledger = False
     in_hunk = False
+    old_no = new_no = 0
     for raw in text.split("\n"):
         if raw.startswith("diff --git "):
             in_hunk = False
@@ -162,11 +175,38 @@ def parse_patch(text: str) -> dict[str, PagePatch]:
             continue
         if raw.startswith("@@"):
             in_hunk = True
+            m = _HUNK.match(raw)
+            old_no, new_no = (int(m.group(1)), int(m.group(2))) if m else (0, 0)
             continue
         if not in_hunk or not raw or raw[0] not in "+-":
             continue
         current.lines.append((raw[0], raw[1:], ledger))
+        if raw[0] == "-":
+            current.numbers.append(old_no)
+            old_no += 1
+        else:
+            current.numbers.append(new_no)
+            new_no += 1
     return out
+
+
+_HUNK = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+
+
+def frontmatter_end(text: str | None) -> int | None:
+    """The 1-based line number of the ``---`` that closes ``text``'s frontmatter, ``None`` when it has none."""
+    if not text or not text.startswith("---"):
+        return None
+    first = text.split("\n", 1)[0].rstrip()
+    if first != "---":
+        return None
+    at = 0
+    while (at := text.find("\n---", at)) >= 0:
+        end = text.find("\n", at + 1)
+        if text[at + 1:end if end >= 0 else len(text)].rstrip() == "---":
+            return text.count("\n", 0, at + 1) + 1
+        at += 1
+    return None
 
 
 # --------------------------------------------------------------------------------------------------------------------
@@ -297,14 +337,36 @@ def _kind(substance: bool, fade: bool) -> str:
     return SUBSTANCE if substance else FADE if fade else BOOKKEEPING
 
 
+def _frontmatter_line(patch: PagePatch, at: int) -> bool:
+    """Whether changed line ``at`` of the patch sits in its file's frontmatter (above the closing ``---``, below the
+    opening one). ``False`` when the fence is not known: the caller then leaves the page to :func:`compare`."""
+    sign = patch.lines[at][0]
+    end = patch.fence.get(sign)
+    return end is not None and at < len(patch.numbers) and 1 < patch.numbers[at] < end
+
+
+def wants_fence(patch: PagePatch) -> bool:
+    """Whether :func:`fast_verdict` would need to know where the frontmatter ends: a changed line that reads like a
+    stamp or a ``status``. Pages whose patch is claim lines alone never do."""
+    for sign, text, in_ledger in patch.lines:
+        s = text.rstrip("\r")
+        if not s.strip() or s.startswith("{") or in_ledger:
+            continue
+        m = _FM_LINE.match(s)
+        if (m and m.group("key") in _FM_FAST) or (patch.ledger and _STAMP_LINE.match(s)):
+            return True
+    return False
+
+
 def fast_verdict(patch: PagePatch) -> Verdict | None:
     """The verdict from the patch alone, or ``None`` when some changed line is not a claim line or a frontmatter line
-    this module can read (prose, a list item, a fence marker, a line that is not JSON): then :func:`compare` decides."""
+    this module can read (prose, a list item, a fence marker, a line that is not JSON, a ``key: value`` line not known
+    to sit in the frontmatter, :attr:`PagePatch.fence`): then :func:`compare` decides."""
     removed_raw: list[str] = []
     added_raw: list[str] = []
     status: dict[str, str] = {}
     fade = False
-    for sign, text, in_ledger in patch.lines:
+    for at, (sign, text, in_ledger) in enumerate(patch.lines):
         s = text.rstrip("\r")
         if not s.strip():
             continue
@@ -315,6 +377,8 @@ def fast_verdict(patch: PagePatch) -> Verdict | None:
             return None
         m = _FM_LINE.match(s)
         if m and m.group("key") in _FM_FAST:
+            if not _frontmatter_line(patch, at):
+                return None
             key, value = m.group("key"), (m.group("value") or "").strip(_QUOTES)
             if key == "status":
                 if sign in status:
@@ -324,6 +388,8 @@ def fast_verdict(patch: PagePatch) -> Verdict | None:
                 fade = True
             continue
         if patch.ledger and _STAMP_LINE.match(s):
+            if not _frontmatter_line(patch, at):
+                return None
             continue
         return None
     old, new = status.get("-"), status.get("+")
@@ -458,6 +524,8 @@ class Delta:
     fade_page: bool = False
     #: Conversations the page now names that it did not: a conversation fed it (the cause, not a sentence).
     fed: list[str] = field(default_factory=list)
+    #: Conversations the page no longer names (a revision cascade, a merge): counted in ``details``, never a sentence.
+    unfed: list[str] = field(default_factory=list)
 
 
 def _prose_key(text: str) -> list[str]:
@@ -478,7 +546,11 @@ def compare(old: Version, new: Version) -> Delta:
             d.faded.append((before, after))
     d.other, d.details = other_changes(old.frontmatter, new.frontmatter)
     before_eps = set(_sources(old.frontmatter))
+    after_eps = set(_sources(new.frontmatter))
     d.fed = [e for e in _sources(new.frontmatter) if e not in before_eps]
+    d.unfed = [e for e in _sources(old.frontmatter) if e not in after_eps]
+    if d.unfed:
+        d.details += 1   # a page that lost a conversation changed: the card counts it, no sentence
     d.prose_changed = _prose_key(old.prose) != _prose_key(new.prose)
     b_status, a_status = old.frontmatter.get("status"), new.frontmatter.get("status")
     _sub, fade, d.status = _status_verdict(None if b_status is None else str(b_status),
@@ -490,6 +562,119 @@ def compare(old: Version, new: Version) -> Delta:
     return d
 
 
+def _step_key(entry: dict) -> str:
+    return str(entry.get("id") or "") or _canon(entry)
+
+
+@dataclass
+class _Track:
+    first: dict | None      # the fact before the run's first change to it (``None``: the run made it)
+    last: dict | None       # the fact after the run's last change to it (``None``: the run withdrew it)
+    made: dict | None = None            # what the run first wrote, for a fact the run made and later withdrew
+    step: tuple | None = None           # the first meaningful step ``(before, after, meaningful)``, for a fact put back
+
+
+def _compose_facts(deltas: list[Delta], out: Delta) -> None:
+    tracks: dict[str, _Track] = {}
+    order: list[str] = []
+
+    def track(key: str, first: dict | None) -> _Track:
+        if key not in tracks:
+            tracks[key] = _Track(first=first, last=first)
+            order.append(key)
+        return tracks[key]
+
+    for d in deltas:
+        for entry in d.new:
+            k = _step_key(entry)
+            t = tracks.get(k)
+            if t is None:
+                t = track(k, None)
+                t.made = entry
+            t.last = entry
+        for entry in d.withdrawn:
+            t = tracks.get(_step_key(entry))
+            if t is None:
+                track(_step_key(entry), entry).last = None
+            else:
+                t.last = None
+        for before, after, meaningful in d.changed:
+            t = track(_step_key(after), before)
+            t.last = after
+            if t.step is None:
+                t.step = (before, after, meaningful)
+        for before, after in d.faded:
+            track(_step_key(after), before).last = after
+    for k in order:
+        t = tracks[k]
+        if t.first is None and t.last is not None:
+            out.new.append(t.last)
+        elif t.first is None:                          # made and withdrawn inside the run: it did both
+            out.new.append(t.made)
+            out.withdrawn.append(t.made)
+        elif t.last is None:
+            out.withdrawn.append(t.first)
+        else:
+            meaningful, faded = claim_diff(t.first, t.last)
+            if meaningful:
+                out.changed.append((t.first, t.last, {**meaningful, **({"confidence": faded["confidence"]}
+                                                                        if "confidence" in faded else {})}))
+            elif faded:
+                out.faded.append((t.first, t.last))
+            elif t.step is not None:                   # changed and put back inside the run: the run did change it
+                out.changed.append(t.step)
+
+
+_SCALAR_FIELDS = frozenset({"status", "name", "type", "decay_class"})
+
+
+def _compose_other(deltas: list[Delta]) -> list[OtherChange]:
+    steps: dict[str, list[OtherChange]] = {}
+    for d in deltas:
+        for o in d.other:
+            steps.setdefault(o.field, []).append(o)
+    out: list[OtherChange] = []
+    for name, rows in steps.items():
+        if name in _SCALAR_FIELDS:
+            net = OtherChange(name, before=rows[0].before, after=rows[-1].after)
+            out.append(net if net.before != net.after else rows[0])
+            continue
+        added: list[str] = []
+        removed: list[str] = []
+        for o in rows:
+            for x in o.added:
+                if x in removed:
+                    removed.remove(x)
+                elif x not in added:
+                    added.append(x)
+            for x in o.removed:
+                if x in added:
+                    added.remove(x)
+                elif x not in removed:
+                    removed.append(x)
+        out.append(OtherChange(name, added=added, removed=removed) if added or removed else rows[0])
+    return out
+
+
+def compose(deltas: list[Delta]) -> Delta:
+    """One page's change across the commits of a run, from each commit's own :func:`compare` (oldest first) — never
+    from the page's first and last versions, which would carry whatever another writer did in between. A fact the run
+    changed and the run changed back, or made and withdrew, is still what the run did: it is listed, so a page a list
+    calls updated never opens as nothing."""
+    out = Delta()
+    _compose_facts(deltas, out)
+    out.other = _compose_other(deltas)
+    out.details = sum(d.details for d in deltas)
+    out.prose_changed = any(d.prose_changed for d in deltas)
+    out.fed = list(dict.fromkeys(e for d in deltas for e in d.fed))
+    out.unfed = list(dict.fromkeys(e for d in deltas for e in d.unfed))
+    moves = [d.status for d in deltas if d.status is not None]
+    if moves:
+        out.status = (moves[0][0], moves[-1][1]) if moves[0][0] != moves[-1][1] else moves[0]
+    out.fade_page = any(d.fade_page for d in deltas)
+    return out
+
+
 def _sources(fm: dict) -> list[str]:
     """The conversations a page's header says fed it (``source_episodes``, the last one merged too)."""
     ids = [str(e) for e in (fm.get("source_episodes") or []) if e]
@@ -498,7 +683,7 @@ def _sources(fm: dict) -> list[str]:
 
 
 def delta_verdict(d: Delta) -> Verdict:
-    substance = bool(d.withdrawn or d.new or d.changed or d.other or d.details or d.prose_changed or d.fed)
+    substance = bool(d.withdrawn or d.new or d.changed or d.other or d.details or d.prose_changed or d.fed or d.unfed)
     return Verdict(_kind(substance, bool(d.faded) or d.fade_page), d.status)
 
 

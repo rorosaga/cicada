@@ -71,14 +71,13 @@ def _patch_of(old: dict, new: dict, *, prose_old="Words.", prose_new="Words.", *
 
     a, b = doc(fm_old, body_old), doc(fm_new, body_new)
     slow = page_change.classify(a, b)
-    lines = []
     import difflib
 
-    for line in difflib.unified_diff(a.split("\n"), b.split("\n"), lineterm="", n=0):
-        if line.startswith(("---", "+++", "@@")):
-            continue
-        lines.append((line[0], line[1:], False))
-    return page_change.fast_verdict(page_change.PagePatch(lines=lines)), slow
+    diff = "\n".join(difflib.unified_diff(a.split("\n"), b.split("\n"), lineterm="", n=0))
+    patch = page_change.parse_patch("diff --git a/entities/p.md b/entities/p.md\n" + diff).get("p") \
+        or page_change.PagePatch()
+    patch.fence = {"-": page_change.frontmatter_end(a), "+": page_change.frontmatter_end(b)}
+    return page_change.fast_verdict(patch), slow
 
 
 def test_a_moved_decay_watermark_is_bookkeeping_and_silence_is_fade():
@@ -541,3 +540,163 @@ def test_a_claim_that_will_not_read_is_left_out_never_a_failed_page_and_the_chan
     assert [f["claim"]["id"] for f in res.json()["facts"]["added"]] == ["ragged-c2"]
     assert client.get("/sleep/runs/story/pages/ragged/change",
                       headers={"If-None-Match": res.headers["ETag"]}).status_code == 304
+
+
+# --- review round: what the first build got wrong -------------------------------------------------------------------
+
+SAME_SECOND = "2026-10-02T10:00:00+00:00"
+
+
+def _facts(body):
+    return {k: sorted(f["claim"]["id"] for f in body["facts"][k]) for k in ("added", "withdrawn", "changed")}
+
+
+def test_commits_made_in_one_second_keep_their_order_and_the_page_opens_with_both_changes(tmp_path, monkeypatch):
+    """Two batches (and the decay commit before them) can share a commit-second; the page's change is built from the
+    run's own commits in the order the run met them, never from a sort git leaves to its tie-break."""
+    memory = seed_bank(tmp_path, [])
+    write_page(memory, "tie-page", [claim_entry("tie-page", 0)])
+    _commit(memory, "base", date="2026-10-01T10:00:00+00:00")
+    write_page(memory, "tie-page", [claim_entry("tie-page", 0), claim_entry("tie-page", 1)])
+    first = _commit(memory, _message("Sleep cycle 2026-10-02 (batch 1 of 2)", ["entities/tie-page.md"]), date=SAME_SECOND)
+    write_page(memory, "tie-page", [claim_entry("tie-page", 0), claim_entry("tie-page", 1), claim_entry("tie-page", 2)])
+    second = _commit(memory, _message("Sleep cycle 2026-10-02 (batch 2 of 2)", ["entities/tie-page.md"]), date=SAME_SECOND)
+    client = _run_of(memory, [first, second], monkeypatch)
+    body = client.get("/sleep/runs/x/pages/tie-page/change").json()
+    assert body["change"] == "updated" and body["empty"] is False
+    assert _facts(body)["added"] == ["tie-page-c1", "tie-page-c2"]
+
+
+def test_a_faded_page_is_told_silence_whatever_trigger_its_commit_names(tmp_path, monkeypatch):
+    """Claim-level decay is written back with a generic trigger (`sleep/extraction`); that must not read as "changed
+    while Sleep read"."""
+    memory = seed_bank(tmp_path, [])
+    write_page(memory, "quiet-page", [claim_entry("quiet-page", 0)])
+    _commit(memory, "base")
+    write_page(memory, "quiet-page", [claim_entry("quiet-page", 0, decayed=DAY, confidence=0.4)], decayed_through=DAY,
+               confidence=0.4)
+    batch = _commit(memory, _message("Sleep cycle 2026-10-02 (batch 1 of 1)", ["entities/quiet-page.md"],
+                                     trigger="sleep/extraction"))
+    sv = asyncio.run(sleep_consolidated.survey(memory, [batch]))
+    assert sv.faded == ["quiet-page"] and sv.fade_steps == {"quiet-page": ["decay"]}
+    out = asyncio.run(sleep_consolidated.build(memory, [batch]))
+    assert [(p.id, p.steps) for p in out.faded] == [("quiet-page", ["decay"])]
+
+
+def _page_doc(fm: dict, body: str = "Words.\n") -> str:
+    import yaml
+
+    return "---\n" + yaml.dump(fm, default_flow_style=False, sort_keys=False) + "---\n\n" + body
+
+
+def test_a_page_that_lost_a_conversation_or_whose_links_moved_is_a_change_but_derived_plumbing_is_not():
+    base = {"id": "p", "name": "P", "type": "concept", "status": "active", "source_episodes": ["ep_1", "ep_2"],
+            "related": [], "decay_rate": 0.1}
+    def kind(**moved):
+        return page_change.classify(_page_doc(base), _page_doc({**base, **moved})).kind
+    assert kind(source_episodes=["ep_1"]) == page_change.SUBSTANCE, "a revision cascade took a conversation away"
+    assert kind(related=["other-page"]) == page_change.SUBSTANCE, "a link on the record"
+    assert kind(aliases_removed=["Old Name"]) == page_change.SUBSTANCE, "the person's removal is a decision"
+    assert kind(sources_removed=["https://example.test/a"]) == page_change.SUBSTANCE
+    assert kind(decay_rate=0.2) == page_change.BOOKKEEPING, "derived from decay_class, which is shown when it moves"
+    assert kind(decay_class="durable") == page_change.SUBSTANCE
+    # the opened card counts it, with no sentence for it
+    d = page_change.compare(page_change.read_version(_page_doc(base)),
+                            page_change.read_version(_page_doc({**base, "source_episodes": ["ep_1"]})))
+    assert d.unfed == ["ep_2"] and d.details == 1 and d.fed == []
+
+
+def test_the_page_a_person_edited_between_two_batches_is_not_the_runs_change(tmp_path, monkeypatch):
+    memory = seed_bank(tmp_path, [])
+    write_page(memory, "shared-page", [claim_entry("shared-page", 0)], prose="Original paragraph.")
+    _commit(memory, "base", date="2026-10-01T10:00:00+00:00")
+    write_page(memory, "shared-page", [claim_entry("shared-page", 0), claim_entry("shared-page", 1)],
+               prose="Original paragraph.")
+    one = _commit(memory, _message("Sleep cycle 2026-10-02 (batch 1 of 2)", ["entities/shared-page.md"]),
+                  date="2026-10-02T10:00:00+00:00")
+    write_page(memory, "shared-page", [claim_entry("shared-page", 0), claim_entry("shared-page", 1)],
+               prose="PERSON REWROTE THIS PARAGRAPH.")
+    _commit(memory, git_service.build_commit_message("Edited by hand", ["entities/shared-page.md: updated"],
+                                                     authors=["user"]), date="2026-10-02T11:00:00+00:00")
+    write_page(memory, "shared-page", [claim_entry("shared-page", 0), claim_entry("shared-page", 1),
+                                       claim_entry("shared-page", 2)], prose="PERSON REWROTE THIS PARAGRAPH.")
+    two = _commit(memory, _message("Sleep cycle 2026-10-02 (batch 2 of 2)", ["entities/shared-page.md"]),
+                  date="2026-10-02T12:00:00+00:00")
+    body = _run_of(memory, [one, two], monkeypatch).get("/sleep/runs/x/pages/shared-page/change").json()
+    assert _facts(body)["added"] == ["shared-page-c1", "shared-page-c2"]
+    assert body["prose"]["blocks"] == [] and body["prose"]["counts"] == {"added": 0, "removed": 0, "edited": 0}, \
+        "the person's rewrite is theirs, not the run's"
+
+
+def test_a_page_listed_as_updated_never_opens_as_nothing_though_the_run_took_a_fact_back(tmp_path, monkeypatch):
+    memory = seed_bank(tmp_path, [])
+    write_page(memory, "undo-page", [claim_entry("undo-page", 0)])
+    _commit(memory, "base", date="2026-10-01T10:00:00+00:00")
+    write_page(memory, "undo-page", [claim_entry("undo-page", 0), claim_entry("undo-page", 1)])
+    one = _commit(memory, _message("Sleep cycle 2026-10-02 (batch 1 of 2)", ["entities/undo-page.md"]),
+                  date="2026-10-02T10:00:00+00:00")
+    write_page(memory, "undo-page", [claim_entry("undo-page", 0)])
+    two = _commit(memory, _message("Sleep cycle 2026-10-02 (batch 2 of 2)", ["entities/undo-page.md"]),
+                  date="2026-10-02T11:00:00+00:00")
+    client = _run_of(memory, [one, two], monkeypatch)
+    assert [p["id"] for p in client.get("/sleep/runs/x/items").json()["updated"]] == ["undo-page"]
+    body = client.get("/sleep/runs/x/pages/undo-page/change").json()
+    assert body["empty"] is False, "the run made the fact and withdrew it: it did both, and says so"
+    assert _facts(body)["added"] == ["undo-page-c1"] and _facts(body)["withdrawn"] == ["undo-page-c1"]
+
+
+def test_an_edit_made_and_put_back_still_lists_what_the_run_changed(tmp_path, monkeypatch):
+    memory = seed_bank(tmp_path, [])
+    write_page(memory, "flip-page", [claim_entry("flip-page", 0)], prose="First wording.")
+    _commit(memory, "base", date="2026-10-01T10:00:00+00:00")
+    write_page(memory, "flip-page", [claim_entry("flip-page", 0, valid_to="2026-09-30")], prose="Second wording.")
+    one = _commit(memory, _message("Sleep cycle 2026-10-02 (batch 1 of 2)", ["entities/flip-page.md"]),
+                  date="2026-10-02T10:00:00+00:00")
+    write_page(memory, "flip-page", [claim_entry("flip-page", 0)], prose="First wording.")
+    two = _commit(memory, _message("Sleep cycle 2026-10-02 (batch 2 of 2)", ["entities/flip-page.md"]),
+                  date="2026-10-02T11:00:00+00:00")
+    body = _run_of(memory, [one, two], monkeypatch).get("/sleep/runs/x/pages/flip-page/change").json()
+    assert body["empty"] is False
+    assert _facts(body)["changed"] == ["flip-page-c0"] and body["prose"]["blocks"]
+
+
+def test_a_paragraph_that_reads_like_a_stamp_is_prose_not_bookkeeping(tmp_path):
+    """`version: 2 of the plan` in the body is a paragraph. Only a line above the frontmatter's closing fence is a
+    stamp; the fast path asks git where that is, and a line below it goes to the full comparison."""
+    memory = seed_bank(tmp_path, [])
+
+    def put(body):
+        markdown_parser.write(memory / "entities" / "plan-page.md",
+                              {"id": "plan-page", "name": "Plan Page", "type": "concept", "status": "active",
+                               "version": 1}, body)
+
+    put("Notes.\n\nversion: 1 of the plan\nconfidence: low\n")
+    _commit(memory, "base")
+    put("Notes.\n\nversion: 2 of the plan\nconfidence: high\n")
+    one = _commit(memory, _message("Sleep cycle 2026-10-02 (batch 1 of 2)", ["entities/plan-page.md"]))
+    put("Notes.\n\nversion: 3 of the plan\nconfidence: high\n")
+    two = _commit(memory, _message("Sleep cycle 2026-10-02 (batch 2 of 2)", ["entities/plan-page.md"]))
+    for sha in (one, two):
+        assert asyncio.run(commit_changes.classify_commit(memory, sha))["pages"]["plan-page"][0] == page_change.SUBSTANCE
+    # the same keys in the header are still bookkeeping and silence, without parsing the page
+    markdown_parser.write(memory / "entities" / "plan-page.md",
+                          {"id": "plan-page", "name": "Plan Page", "type": "concept", "status": "active",
+                           "version": 2}, "Notes.\n\nversion: 3 of the plan\nconfidence: high\n")
+    stamp = _commit(memory, _message("Sleep cycle 2026-10-03 (batch 1 of 1)", ["entities/plan-page.md"], trigger="sleep/decay"))
+    assert asyncio.run(commit_changes.classify_commit(memory, stamp))["pages"]["plan-page"][0] == page_change.BOOKKEEPING
+
+
+def test_the_frontmatter_fence_is_found_and_a_line_below_it_is_not_a_stamp():
+    text = "---\nid: p\nversion: 1\n---\n\nversion: 2 of the plan\n\n---\n\nAfter the rule.\n"
+    assert page_change.frontmatter_end(text) == 4
+    assert page_change.frontmatter_end("no header\n") is None and page_change.frontmatter_end(None) is None
+    patch = page_change.parse_patch(
+        "diff --git a/entities/p.md b/entities/p.md\n--- a/entities/p.md\n+++ b/entities/p.md\n"
+        "@@ -3 +3 @@\n-version: 1\n+version: 2\n@@ -6 +6 @@\n-version: 1 of the plan\n+version: 2 of the plan\n")["p"]
+    assert patch.numbers == [3, 3, 6, 6]
+    patch.fence = {"-": 4, "+": 4}
+    assert page_change.fast_verdict(patch) is None, "the second pair sits below the fence"
+    patch.lines, patch.numbers = patch.lines[:2], patch.numbers[:2]
+    assert page_change.fast_verdict(patch).kind == page_change.BOOKKEEPING
+    patch.fence = {}
+    assert page_change.fast_verdict(patch) is None, "no fence known: the full comparison decides"

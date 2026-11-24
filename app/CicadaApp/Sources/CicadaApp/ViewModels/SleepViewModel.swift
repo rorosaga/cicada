@@ -192,9 +192,10 @@ final class SleepViewModel {
     private(set) var consolidated: [SleepConsolidatedKey: SleepConsolidated] = [:]
     private(set) var consolidatedFailed: Set<SleepConsolidatedKey> = []
     private var consolidatedETags: [SleepConsolidatedKey: String] = [:]
-    /// What each opened page chip loaded (`pageChange`); a finished run's commits never change.
+    /// What each opened page chip loaded (`pageChange`), with the items tag the card held then: a finished run's
+    /// commits never change, but a live or paused run's do, and so does its tag.
     private struct PageChangeKey: Hashable { let key: SleepConsolidatedKey; let page: String }
-    private var pageChanges: [PageChangeKey: SleepPageChange] = [:]
+    private var pageChanges: [PageChangeKey: (etag: String?, change: SleepPageChange)] = [:]
     private let fetchPageChange: (SleepConsolidatedKey, String) async throws -> SleepPageChange
     private let fetchConsolidated: (SleepConsolidatedKey, String?) async throws -> Conditional<SleepConsolidated>
 
@@ -657,14 +658,17 @@ final class SleepViewModel {
     }
 
     /// What a consolidation changed on one page (a click on its chip on a Past sleeps card), ready to draw: why, its
-    /// facts, its text in blocks. A commit is immutable, so an answer is kept for the session and a reopened chip
-    /// never asks again; a bank switch drops them with the rest.
+    /// facts, its text in blocks. A commit is immutable, so a finished run's answer is kept for the session and a
+    /// reopened chip never asks again — but a run still reading or paused gains commits, and its items tag moves with
+    /// each one: an answer is kept only while the card's own tag is the one it was read under, so a chip never shows
+    /// a batch the card above has moved past. A bank switch drops them with the rest.
     func pageChange(_ key: SleepConsolidatedKey, page: String) async throws -> SleepPageChange {
         let held = PageChangeKey(key: key, page: page)
-        if let kept = pageChanges[held] { return kept }
+        let tag = consolidatedETags[key]
+        if let kept = pageChanges[held], kept.etag == tag { return kept.change }
         let token = loadToken
         let change = try await fetchPageChange(key, page)
-        if token == loadToken { pageChanges[held] = change }
+        if token == loadToken { pageChanges[held] = (tag, change) }
         return change
     }
 
