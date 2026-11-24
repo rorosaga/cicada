@@ -22,6 +22,7 @@ struct SensitiveReviewCard: View {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
                 PageLineText(item.questionText)
                     .font(CicadaTheme.metaMediumFont).foregroundStyle(CicadaTheme.textPrimary)
+                AskedByLine(item: item, wraps: true)
                 Text(Copy.Sensitive.effect)
                     .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)

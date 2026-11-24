@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import CicadaApp
 
@@ -78,10 +79,38 @@ final class InboxAskedByTests: XCTestCase {
         XCTAssertNil(Copy.Inbox.AskedBy.how("a-step-from-a-newer-server"))
     }
 
-    func testHomesLeadQuestionSaysItInItsHoverRow() throws {
+    func testHomesLeadQuestionCarriesTheLineAndItsHover() throws {
         let asked = try item(#","askedBy":{"how":"rule","by":"Sleep's duplicate check"},"entityId":"alpha","entityName":"Alpha","mergeTargetHint":"beta""#)
         let now = Date(timeIntervalSince1970: 1_795_000_000)   // 2026-11-18 in every zone
         let figures = HomeQuestions.figures([asked], now: now)
         XCTAssertEqual(figures.rows.first?.asked, InboxAskedLine.text(asked, today: .today(now: now)))
+        XCTAssertEqual(figures.rows.first?.askedHelp, InboxAskedLine.help(asked))
+        // No day, no line: the row carries nothing for the card to draw.
+        let undated = try item(#","askedBy":{"how":"rule","by":"Sleep's duplicate check"},"entityId":"alpha","entityName":"Alpha","mergeTargetHint":"beta""#, created: "")
+        XCTAssertNil(HomeQuestions.figures([undated], now: now).rows.first?.asked)
+    }
+
+    /// Owner 2026-11-25: the line a bubble or a lead card draws on its own wraps, never truncates, and never wants more
+    /// width than it is given, at a narrow and a wide column, at both zooms, in both themes.
+    @MainActor
+    func testTheLineOnItsOwnWrapsAndFitsEveryWidthInBothThemes() throws {
+        let words = "Asked 13 days ago by Sleep's check for people with no name, the longest step there is"
+        defer { CicadaTheme.uiScale = 1.0; CicadaTheme.mode = .dark }
+        for mode in [AppColorScheme.dark, .light] {
+            CicadaTheme.mode = mode
+            for scale in [1.0, 1.4] {
+                CicadaTheme.uiScale = scale
+                var heights: [CGFloat] = []
+                for width: CGFloat in [260, 720] {
+                    let proposed = width * CGFloat(scale)
+                    let renderer = ImageRenderer(content: AskedByText(text: words, wraps: true))
+                    renderer.proposedSize = ProposedViewSize(width: proposed, height: nil)
+                    let size = try XCTUnwrap(renderer.nsImage).size
+                    XCTAssertLessThanOrEqual(size.width, proposed + 0.5)
+                    heights.append(size.height)
+                }
+                XCTAssertGreaterThan(heights[0], heights[1], "narrow wraps to more lines instead of truncating")
+            }
+        }
     }
 }
