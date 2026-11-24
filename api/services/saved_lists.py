@@ -11,8 +11,9 @@ person's own agent in their signed-in browser (``youtube_lists``, owner 2026-10-
 * **LinkedIn** — Saved posts (``https://www.linkedin.com/my-items/saved-posts/``), origin ``linkedin-saved``, folder
   ``Saved Items``.
 
-All three origins are a platform's saved LIST (``history_index.kind``): each item is saved where saved links go,
-**indexed, never read by a model** (ruling 30) — found by lookup, read by a model only if the person asks about one.
+All three origins are a platform's saved LIST (``history_index.save_shaped``): each item is saved where saved links go
+and **read by Sleep** a few a night, newest first, as the post author's words (ruling 80, owner 2026-11-24: saving is
+already a reason; ruling 30 had it indexed and never read by a model).
 An item is a link the agent saw; dedup is by URL (``url_index``, with the other spellings of the same post as
 aliases), and the platform's own ids are never asked for.
 

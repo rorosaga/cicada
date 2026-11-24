@@ -45,6 +45,7 @@ from api.services import (
     last_cycle,
     meeting_transcripts,
     reading_hosts,
+    saved_words,
     sleep_autocontinue,
     sleep_consolidated,
     sleep_debt,
@@ -418,8 +419,9 @@ async def sleep_queue(
         fm = f.frontmatter
         ep_id = str(fm.get("id", f.stem))
         processed = bool(fm.get("processed", False))
-        # Ruling 62: a save kept for lookup is no row and waits for nothing; the page's one line counts it.
-        if history_index.kind(fm) == "saved" and not fm.get("source_deleted_at"):
+        # Ruling 80: a save in the older pile waits its turn, not tonight: no row, and the page's one line counts it ("N
+        # saves not read yet"). A save waiting for tonight is a row like any item; a record another service keeps is neither.
+        if history_index.save_state(fm) == "pile" and not fm.get("source_deleted_at"):
             kept += 1
             continue
         if not processed and not history_index.waits_for_model(fm):
@@ -444,7 +446,8 @@ async def sleep_queue(
             device=episode_copy.wire_device(fm.get("device"), own_device),
         ))
     rows.sort(key=lambda r: _episode_sort_key({"timestamp": r.timestamp, "id": r.id}))
-    return SleepQueueResponse(total=len(rows), offset=offset, items=rows[offset:offset + limit], kept=kept)
+    return SleepQueueResponse(total=len(rows), offset=offset, items=rows[offset:offset + limit], kept=kept,
+                              kept_per_night=saved_words.per_night())
 
 
 #: Bumped when a row of `GET /sleep/episodes` gains a field or changes for the same files (folded into its ETag).
@@ -542,12 +545,12 @@ async def sleep_kept(
     limit: int = Query(30, ge=1, le=100),
     settings: Settings = Depends(get_settings),
 ):
-    """What is kept for lookup (ruling 62), in order (owner 2026-11-23: "it would be nice to see what was kept for
-    lookup in a nice orderly manner"): every save with no reason — found by recall, Ask and the hook, read by no
-    model until the person talks about one. ``sources`` is the whole breakdown, most kept first, each with its newest
-    item's time; with ``origin``, ``items`` is that source's page, newest first (``limit`` ≤ 100) — the same rows the
-    Waiting list draws. The same predicate as ``/sleep/queue``'s ``kept`` count, so the two never disagree. Cached
-    headers; a body is read only for the rows sent. Not a Store domain: ETag over ``episodes``."""
+    """The older saves Sleep has not read yet (ruling 80), in order (owner 2026-11-23: "it would be nice to see what was
+    kept ... in a nice orderly manner"): every save waiting its turn in the pile — Sleep reads about ``keptPerNight`` of
+    them a night, newest first, and one first when the person talks about it. ``sources`` is the whole breakdown, most
+    first, each with its newest item's time; with ``origin``, ``items`` is that source's page, newest first (``limit`` ≤
+    100) — the same rows the Waiting list draws. The same predicate as ``/sleep/queue``'s ``kept`` count, so the two
+    never disagree. Cached headers; a body is read only for the rows sent. Not a Store domain: ETag over ``episodes``."""
     mp = settings.memory_path
     folders = sync_service.file_mtime(folder_source.registry_path(mp))
     etag = await sync_service.etag_for_async(
@@ -560,7 +563,7 @@ async def sleep_kept(
         by_origin: dict[str, list] = {}
         for f in bank_index.files(mp, "episodes"):
             fm = f.frontmatter
-            if history_index.kind(fm) == "saved" and not fm.get("source_deleted_at"):
+            if history_index.save_state(fm) == "pile" and not fm.get("source_deleted_at"):
                 by_origin.setdefault(queue_origin(fm), []).append(f)
 
         def stamp(f) -> tuple[str, str]:

@@ -29,14 +29,15 @@ evidence of anything. Only the *reason the person gave a folder* is theirs, and 
 ``savedWhy`` (which stays the save's own). A save's own reason always wins. The reason is read from the folder's record
 every time, never copied onto the save, so an edit or a clear reaches every member at once.
 
-**What makes a save readable.** An index-only save (ruling 62) is read by no model. A folder's reason is the person's
-reason for everything filed there, so those saves become readable: ``history_index.kind`` sees the stamp
-``readable_by_folder`` (``{at, folders}``, in ``PERSON_KEYS``) and a save the index had read is queued again. That is paid
-model work at the next Sleep, so the stamp is never a silent bulk write: :func:`set_reason` counts the saves it would make
-readable first, answers the count, writes nothing on ``dry_run``, and past :data:`CONFIRM_ABOVE` writes nothing until the
-caller says ``confirm``. Clearing a reason removes the stamp; a save nothing read goes back to index-only at Sleep's next
-retirement (``history_index.retire``), one a model read keeps what it made. A save filed later into a folder that has a
-reason is stamped by the same step that files it.
+**What a folder's reason does to a save (ruling 80, owner 2026-11-24: saving is already a reason, so Sleep reads every save).**
+A folder's reason is the person's reason for everything filed there. A save waiting for tonight just carries it, as
+the folder's words, when it is read; a save in the older pile, or one that held nothing to read, is queued for Sleep's
+next run ahead of the pile (``history_index.save_state`` says which, ``readable_by_folder`` is the stamp, ``{at,
+folders}``, in ``PERSON_KEYS``). That is model work now rather than at the pile's pace, so the stamp is never a silent
+bulk write: :func:`set_reason` counts the saves it would queue first, answers the count, writes nothing on ``dry_run``,
+and past :data:`CONFIRM_ABOVE` writes nothing until the caller says ``confirm``. Clearing a reason removes the stamp; a
+save it queued that no model read yet stays queued and is read without the folder's words, one a model read keeps what
+it made. A save filed later into a folder that has a reason is stamped by the same step that files it.
 
 Rails: no model and no fetch; every writer inside the bank's write admission (the routes and tools own that); the
 episode edits go through ``episode_staging.amend_frontmatter`` under the episode lock.
@@ -246,8 +247,9 @@ def reason_state(memory_path: Path, fm: dict | None) -> str | None:
 
 def reconcile_fm(fm: dict, table: dict, now: str) -> tuple[bool, bool]:
     """Bring one save's stamp in line with its folders and ``table``; mutates ``fm``. ``(changed, newly_readable)``:
-    ``newly_readable`` is true when an index-only save just became one a model will read. A save already readable by
-    its own reason, one a model read, one removed from its source: left as it is."""
+    ``newly_readable`` is true when a save in the older pile, or one with nothing to read, was just queued for Sleep's
+    next run. A save already read, one that carries its own reason or is waiting for tonight, one removed from its
+    source: left as it is."""
     if fm.get("source_deleted_at"):
         return False, False
     hit = [name for _o, name, _r in _reasoned(table, folders_of(fm))]
@@ -281,8 +283,8 @@ def reconcile_fm(fm: dict, table: dict, now: str) -> tuple[bool, bool]:
 class Sweep:
     """What setting or clearing one folder's reason does to the saves filed there."""
     saves: int = 0
-    makes_readable: int = 0      # index-only saves that a model will now read (paid work at the next Sleep)
-    already_readable: int = 0    # filed there but readable already (their own reason, a note, a read)
+    makes_readable: int = 0      # saves in the older pile (or with nothing to read) now queued for the next Sleep run
+    already_readable: int = 0    # filed there but not in the pile already (waiting tonight, their own reason, a read)
     no_longer_readable: int = 0  # stamped saves a clear took the stamp from
     paths: list[str] = field(default_factory=list)   # memory-relative episode files rewritten
 
@@ -380,8 +382,8 @@ def set_reason(memory_path: Path, *, site: str, folder: str, answer: saved_why.A
 
 
 def clear_reason(memory_path: Path, *, site: str, folder: str, now: str | None = None) -> dict:
-    """Take a folder's reason away. Saves it made readable lose the stamp (what no model read goes back to index-only at
-    Sleep's next retirement). 404 for a folder with no reason. Same answer shape as :func:`set_reason`."""
+    """Take a folder's reason away. Saves it queued lose the stamp (one no model read yet stays queued and is read without
+    the folder's words). 404 for a folder with no reason. Same answer shape as :func:`set_reason`."""
     memory_path = Path(memory_path)
     origin, name = resolve(site, folder)
     now = now or episode_ids.utc_now_seconds()
@@ -443,8 +445,9 @@ def file_save(memory_path: Path, episode_id: str, origin: str, *, add=(), remove
 # ---- listing a site's folders ----------------------------------------------------------------------------------------
 
 def list_folders(memory_path: Path, site: str) -> dict:
-    """A site's folders: each with how many saves are filed there, how many of those no model would read yet
-    (``indexOnly``: what a reason would make readable) and its reason when it has one. A folder with a reason and no saves
+    """A site's folders: each with how many saves are filed there, how many of those are in the older pile, not read yet
+    (``indexOnly``, the name kept for older clients: what a reason would queue for the next run) and its reason when it
+    has one. A folder with a reason and no saves
     is listed too. ``unfiled`` counts the site's saves in none."""
     memory_path = Path(memory_path)
     origin = origin_of(site)

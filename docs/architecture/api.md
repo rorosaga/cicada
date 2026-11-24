@@ -1182,11 +1182,18 @@ stamp differs, the older version cannot be committed, or Sleep holds the pages; 
 `{removed, failed, files, committed, left, still_found, stayed}` (`still_found`: files, conversations included, still holding
 what it was to take out: a distinctive value anywhere, any other on a line that speaks of a secret, tied or not; `stayed`: tokens left in other files on purpose, unsure or
 common in the bank). A row in the card's own resolve that could not be done answers 409 and stays.
-**Saves kept for lookup (ruling 62, 2026-11-04).** `GET /sleep/queue` and each row of `GET /sources/overview` carry `kept`:
-the saves indexed with no model read, unread until the person talks about one (`history_index.kind` `saved`,
-`capture-and-sleep.md`, *The lean pass*). `SHAPE` `overview-v17` moves the overview's ETag with the field and the app decodes
-it leniently; `/sleep/queue` has no ETag and is not a Store domain. Neither lists a kept save as waiting, and
-`GET /sleep/episodes?processed=false` no longer lists one a run has not retired yet. The hook's `reason` gains `saved`.
+**The older saves not read yet (ruling 62, 2026-11-04; the meaning of `kept` changed by ruling 80, 2026-11-24).** `GET /sleep/queue`
+and each row of `GET /sources/overview` carry `kept` and **`keptPerNight`** (additive; the fields keep their names for every
+other client): `kept` is the number of saves in the older pile (`history_index.save_state == "pile"`, a post of a saved list
+too, never a record another service keeps) — Sleep reads about `keptPerNight` of them a night, newest first, and one first when
+the person talks about it (`saved_words.pile_line`; `keptPerNight` is `history_index.SAVES_PER_DAY`, the one constant). It
+used to count saves "kept for lookup" and read by no model. A save waiting for tonight is an ordinary row of the queue and of
+`GET /sleep/episodes?processed=false`, not counted in `kept`. `GET /sleep/kept` lists exactly those (same predicate). A row of
+a saved list on `GET /sources/channels/{id}/items` carries `depth`: `read`, `kept` (not read yet), `empty` (nothing to read
+yet: a title and a link), `record` (another service's record, kept and never read), `asked` or `watched`; `kept` used to mean
+"indexed, no model reads it" (no `SHAPE` was renamed). On `GET /sources/streams` a saved list's `depth` is `read`; `index`
+(the wire's word, kept) is a stream Cicada keeps and never reads because the person did not save it (watch history, follows,
+connections, owned repositories, tabs open on another device). The hook's `reason` gains `saved`.
 
 **`GET /contributors` folds only new commits (speed, 2026-11-06).** `git_service.get_contributors` keeps the per-author
 aggregate and the HEAD it was folded at, per bank, in the process; a new HEAD costs `git log <old>..HEAD` (when the old
@@ -1221,8 +1228,8 @@ row: the site's own origin and list label with `saved_lists.canonical`'s link an
 `cicada_record_saved_list` and the site's connector write for the same post, never a second (one Instagram post is
 one row by `/p/`, `/reel/` or `/tv/`); a starred repository is a saved link under `github-starred`, which the GitHub
 connector's next sync makes the repository's page in place. Nothing is fetched and no model runs; like every save
-from a platform's list it is index-only until the person says why (ruling 62), and `POST /sources/saved-why` against
-the returned `url` is what queues it for Sleep. Answers `{status: created|duplicate, url, title, origin, episodeId,
+from a platform's list Sleep reads it (ruling 80), and `POST /sources/saved-why` against the returned `url` adds the
+person's own words to it. Answers `{status: created|duplicate, url, title, origin, episodeId,
 mediaEntityId, addedAt, folders, reason}`. **Unsave** takes the same body and removes nothing: the save's episode
 gains `left_site_at`, served as one more `leftBrowser` entry named for the site, cleared when the post is saved
 again; `{status: marked|unchanged|unknown, url}`. Both: 422 for an unknown site or a link that is not a post of it;

@@ -509,10 +509,10 @@ folders' reasons (`save_folders.inherited`), and every reader says so — `saved
 `inherited_from` names the folders and whose text begins `From its folder "<name>":` (the reading queue, link
 enrichment), the explore plan's `because` says `from: folder`, a Sources channel row's `why` carries `fromFolders`, and
 `GET /sources` serves `saveFolders` and `folderWhy` (always `inherited: true`) while `savedWhy` stays the save's own. A
-save's own answer always wins, on any of its episodes. **What a reason makes readable.** An index-only save (ruling 62)
-is read by no model; a folder's reason is the person's reason for everything filed there, so those saves become readable:
-`history_index.kind` sees the stamp `readable_by_folder` (`{at, folders}`, in `PERSON_KEYS`, written by `save_folders`
-only) and a save the index had read is queued again. That is paid work at the next Sleep, so it is counted first and never
+save's own answer always wins, on any of its episodes. **What a reason does to a save (ruling 80: saving is already a reason, so Sleep reads every save).** A folder's reason is the
+person's reason for everything filed there: a save waiting for tonight carries it when it is read, and one in the older pile
+or holding nothing to read is queued for the next run ahead of the pile. The stamp is `readable_by_folder` (`{at, folders}`,
+in `PERSON_KEYS`, written by `save_folders` only). That is model work now instead of at the pile's pace, so it is counted first and never
 silent: `POST|PUT /sources/save-folder-reason` answers `counts.makesReadable`, `dryRun` writes nothing, and more than 100
 saves write nothing until `confirm` (`needsConfirm`). A save a model already read is never requeued; a save filed later
 into a folder that has a reason is stamped by the step that files it; a clear (`DELETE`) or a removal from the folder takes

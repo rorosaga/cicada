@@ -401,8 +401,11 @@ class SourceOverview(CamelModel):
     # stored) or the site a saved thing came from (`kind: site`, `id` = the saved page the site's mark is asked by) —
     # with how many more there are.
     waiting: int = 0
-    # Ruling 62: this source's saves kept for lookup, unread until the person talks about one (the detail's one line).
+    # Ruling 80 (meaning changed from ruling 62's "kept for lookup"): this source's older saves Sleep has not read yet
+    # (the pile) — Sleep reads ``kept_per_night`` of them a night, newest first, and one first when the person talks
+    # about it (the detail's one line, ``saved_words.pile_line``). 0 when none; the name is unchanged for older clients.
     kept: int = 0
+    kept_per_night: int = 0
     faces: list[SourceFace] = Field(default_factory=list)
     faces_more: int = 0
 
@@ -4456,15 +4459,15 @@ class SleepQueueItem(CamelModel):
 
 
 class SleepKeptSource(CamelModel):
-    """One source's share of what is kept for lookup: how many, and its newest item's time."""
+    """One source's share of the older saves not read yet: how many, and its newest item's time."""
     origin: str
     count: int
     newest: Optional[str] = None
 
 
 class SleepKept(CamelModel):
-    """``GET /sleep/kept`` (owner 2026-11-23): what is kept for lookup (ruling 62) — ``sources`` the whole breakdown,
-    ``items`` one source's page (newest first) when ``origin`` was asked, else empty."""
+    """``GET /sleep/kept`` (owner 2026-11-23; ruling 80 changed what it holds): the older saves Sleep has not read yet —
+    ``sources`` the whole breakdown, ``items`` one source's page (newest first) when ``origin`` was asked, else empty."""
     total: int = 0
     sources: list[SleepKeptSource] = Field(default_factory=list)
     origin: Optional[str] = None
@@ -4476,8 +4479,11 @@ class SleepQueueResponse(CamelModel):
     total: int
     offset: int = 0
     items: list[SleepQueueItem] = Field(default_factory=list)
-    #: Ruling 62: saves kept for lookup, unread until the person talks about one (the Sleep page's one line).
+    #: Ruling 80 (meaning changed from ruling 62's "kept for lookup"): the older saves Sleep has not read yet, waiting
+    #: their turn in the pile; the Sleep page's one line says how many and ``kept_per_night`` (the one constant, how many
+    #: Sleep reads a night, newest first). A save waiting for tonight is a row in ``items``, not counted here.
     kept: int = 0
+    kept_per_night: int = 0
 
 
 class SleepEngineChoice(CamelModel):
@@ -5265,7 +5271,7 @@ class SavedWhyRequest(CamelModel):
 
 class FolderReasonRequest(CamelModel):
     """G221 — give a site's folder ONE reason (or change the one it has): the keys of a save's own answer and/or a few
-    words. `dry_run` writes nothing and says how many saves it would make readable; more than 100 need `confirm`."""
+    words. `dry_run` writes nothing and says how many saves it would queue for the next run; more than 100 need `confirm`."""
 
     model_config = ConfigDict(extra="forbid")
     site: str
@@ -5277,8 +5283,9 @@ class FolderReasonRequest(CamelModel):
 
 
 class FolderReasonCounts(CamelModel):
-    """How many saves filed in the folder: all, made readable by this change (each a model read at the next Sleep),
-    readable already, and, on a clear, no longer readable."""
+    """How many saves filed in the folder: all, queued for Sleep's next run by this change (``makes_readable``: the older
+    pile and the saves with nothing to read, each a model read), not in the pile already, and, on a clear, no longer
+    carrying the folder's reason."""
 
     saves: int = 0
     makes_readable: int = 0
@@ -5300,7 +5307,8 @@ class FolderReasonResponse(CamelModel):
 class SiteFolderRow(CamelModel):
     name: str
     saves: int = 0
-    #: Saves filed here that no model would read yet: what a reason given to this folder would make readable.
+    #: Saves filed here in the older pile, not read yet (ruling 80; the name is kept): what a reason given to this
+    #: folder would queue for the next run.
     index_only: int = 0
     reason: Optional[SavedWhyRecord] = None
 
