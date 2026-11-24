@@ -45,7 +45,11 @@ enum ClustersModel {
     /// `withLooks` (owner 2026-10-20: "we can filter looks inside the entities page") keeps only the pages that show
     /// a look; nil leaves every page in.
     /// ROR-138 — the media kinds in the order the View menu lists them (`media_kinds.KINDS`, the wire ids).
-    static let mediaKindOrder = ["book", "article", "video", "picture", "paper", "repository", "link", "file", "feed"]
+    /// G246 (ruling 81): `post` (a saved post that earned its page) and `list` (a list's own page) follow the server's
+    /// order. Neither names a node until the backend's `saved_posts.HIDE_POSTS` is on, so the chip and the menu row for
+    /// them, drawn only for a kind that holds something, do nothing before it.
+    static let mediaKindOrder = ["book", "article", "video", "picture", "paper", "repository", "link", "file", "feed",
+                                 "post", "list"]
 
     /// ROR-138 (owner 2026-11-06: "only what you saved"): a feed item (published to the person, never saved) the
     /// person has not mentioned stays out of Media unless its kind is chosen. `kinds` empty keeps every other kind.

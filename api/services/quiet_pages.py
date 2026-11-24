@@ -94,7 +94,7 @@ def episode_lookup(memory_path: Path) -> Callable[[str], str | None]:
     return kind
 
 
-def _episode_ids(values: Iterable) -> list[str]:
+def episode_ids(values: Iterable) -> list[str]:
     out: list[str] = []
     for value in values or []:
         text = str(value or "").strip()
@@ -108,8 +108,10 @@ def _imported_and_unmentioned(fm: dict, kind_of: Callable[[str], str | None]) ->
     or one of its own episodes a save or a watch), and none of its own episodes a conversation."""
     if not isinstance(fm, dict) or fm.get("owner") is True:
         return False
+    if isinstance(fm.get("media"), dict) and fm["media"].get("kind") == "list":
+        return False   # a list's own page (G246) is never quiet: it is what a person sees their saves through
     imported = isinstance(fm.get("media"), dict)
-    for episode_id in dict.fromkeys(_episode_ids(fm.get("source_episodes")
+    for episode_id in dict.fromkeys(episode_ids(fm.get("source_episodes")
                                                  if isinstance(fm.get("source_episodes"), list) else [])):
         found = kind_of(episode_id)
         if found == CONVERSATION:
@@ -118,21 +120,39 @@ def _imported_and_unmentioned(fm: dict, kind_of: Callable[[str], str | None]) ->
     return imported
 
 
+def lit_by_episodes(fm: dict, kind_of: Callable[[str], str | None]) -> bool:
+    """A media page one of whose own episodes is a conversation: the first way a page stops being quiet."""
+    return isinstance(fm, dict) and isinstance(fm.get("media"), dict) and not _imported_and_unmentioned(fm, kind_of)
+
+
+def lit_by_claims(claims: Iterable, kind_of: Callable[[str], str | None]) -> bool:
+    """A claim on the page that cites a person's own words or a conversation: the second way. Never someone else's claim
+    (``external:``, a group member's, #499 review)."""
+    for claim in claims or []:
+        # A person's own words wake it — never someone else's claim (`external:`, a group member's, #499 review).
+        if promotion.claim_cites_person(claim, located=False):
+            return True
+        if str(getattr(claim, "observer", "") or "").startswith("external:"):
+            continue
+        for ev in getattr(claim, "evidence", None) or []:
+            if any(kind_of(e) == CONVERSATION for e in episode_ids([getattr(ev, "episode", "")])):
+                return True
+    return False
+
+
 def is_quiet(fm: dict, claims: Iterable, kind_of: Callable[[str], str | None]) -> bool:
     """The rule (module docstring) over one page's frontmatter and claims: the frontmatter half first, then no claim
     citing a person's own words or a conversation."""
     if not _imported_and_unmentioned(fm, kind_of):
         return False
-    for claim in claims or []:
-        # A person's own words wake it — never someone else's claim (`external:`, a group member's, #499 review).
-        if promotion.claim_cites_person(claim, located=False):
-            return False
-        if str(getattr(claim, "observer", "") or "").startswith("external:"):
-            continue
-        for ev in getattr(claim, "evidence", None) or []:
-            if any(kind_of(e) == CONVERSATION for e in _episode_ids([getattr(ev, "episode", "")])):
-                return False
-    return True
+    return not lit_by_claims(claims, kind_of)
+
+
+def dimmed(quiet: bool, entity_id: str, earned: Iterable[str]) -> bool:
+    """What a page's ``quiet`` reads once the person gave a reason to a saved post (G246, ``saved_posts``): a post that
+    earned its page is drawn like any page — never dimmed, asked about like any page. ``earned`` is empty while
+    ``saved_posts.HIDE_POSTS`` is off, so nothing changes until the flip."""
+    return quiet and entity_id not in earned
 
 
 def page_is_quiet(memory_path: Path, entity_id: str, *, kind_of: Callable[[str], str | None] | None = None) -> bool:
@@ -156,6 +176,16 @@ def page_is_quiet(memory_path: Path, entity_id: str, *, kind_of: Callable[[str],
     return is_quiet(entry.frontmatter, claims, kind_of)
 
 
+def page_is_dimmed(memory_path: Path, entity_id: str, *, kind_of: Callable[[str], str | None] | None = None) -> bool:
+    """:func:`page_is_quiet` as a person sees it: a saved post that earned its page (``saved_posts``, G246) is not
+    dimmed and the inbox may ask about it. The mention readers keep :func:`page_is_quiet` — a note a person gave a post
+    is not a conversation that lit its page. Identical to :func:`page_is_quiet` while ``HIDE_POSTS`` is off."""
+    from api.services import saved_posts
+
+    quiet = page_is_quiet(memory_path, entity_id, kind_of=kind_of)
+    return quiet and dimmed(quiet, entity_id, saved_posts.earned_ids(memory_path))
+
+
 def survey(memory_path: Path) -> dict[str, int]:
     """Counts over a bank — how many pages are quiet, of how many carry import evidence — for the measurement the PR
     reports. Ids and counts only, never a title."""
@@ -164,7 +194,7 @@ def survey(memory_path: Path) -> dict[str, int]:
     for entry in bank_index.files(memory_path, "entities"):
         pages += 1
         fm = entry.frontmatter
-        episodes = _episode_ids(fm.get("source_episodes") if isinstance(fm.get("source_episodes"), list) else [])
+        episodes = episode_ids(fm.get("source_episodes") if isinstance(fm.get("source_episodes"), list) else [])
         if isinstance(fm.get("media"), dict) or any(kind_of(e) == IMPORT for e in episodes):
             imported += 1
         if page_is_quiet(memory_path, entry.stem, kind_of=kind_of):

@@ -42,6 +42,25 @@ final class ClustersModelTests: XCTestCase {
         XCTAssertNil(MediaLeadingSlot.markOrigin(person), "only media pages")
     }
 
+    /// G246 (ruling 81) — `post` and `list` are kinds of media after the server's own order. A "Posts" filter picks the
+    /// saved posts that earned a page; while the backend names no node a post (its flip is off) the filter has nothing to
+    /// pick and the menu draws no row for it (a kind is offered only when it holds something).
+    func testPostsAndListsAreMediaKindsAndTheFilterDoesNothingWhileNoNodeHasOne() {
+        XCTAssertEqual(Array(ClustersModel.mediaKindOrder.suffix(2)), ["post", "list"])
+        XCTAssertEqual(Copy.Lists.mediaKind("post"), "Posts")
+        XCTAssertEqual(Copy.Lists.mediaKind("list"), "Lists")
+        var link = e("m1", "An ordinary link", .media)
+        link.mediaKind = "link"
+        var post = e("m2", "A post he talked about", .media)
+        post.mediaKind = "post"
+        let types = Set(EntityType.selectableCases)
+        XCTAssertEqual(Set(ClustersModel.filtered([link, post], types: types, labels: []).map(\.id)), ["m1", "m2"],
+                       "no kind chosen: both pages are drawn, an earned post like any page")
+        XCTAssertEqual(ClustersModel.filtered([link, post], types: types, labels: [], mediaKinds: ["post"]).map(\.id), ["m2"])
+        let offered = ClustersModel.mediaKindOrder.filter { kind in [link].contains { $0.mediaKind == kind } }
+        XCTAssertEqual(offered, ["link"], "with no post among the nodes the chip row offers no Posts")
+    }
+
     /// Owner 2026-10-20 — "we can filter looks inside the entities page": only the pages that show a look.
     func testTheViewMenuNarrowsToThePagesWithLooks() {
         let types = Set(EntityType.selectableCases)
