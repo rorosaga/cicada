@@ -75,6 +75,46 @@ def test_a_day_a_later_read_gives_a_post_kept_before_is_served_too(reading, clie
     assert [r["posted"] for r in rows.values()] == ["2026-11-18"]
 
 
+def test_an_author_the_record_tool_stores_is_what_the_items_route_serves(reading, client):
+    server, memory = reading
+    reading_settings.update(saved_lists_={"x": True})
+    _record(server, "x", [{"url": POST_A, "author": "alice_example", "text": "words"}, {"url": POST_B, "text": "more words"}])
+    rows, body = _rows(client, "x")
+    assert body["total"] == 2
+    by_author = {r.get("author"): r for r in rows.values()}
+    # An X handle wears its @, as the post's title does; a post whose list showed no author says none.
+    assert set(by_author) == {"@alice_example", None}
+    # Nothing but a line is kept: a long or multi-line author is cut to one line.
+    _record(server, "x", [{"url": POST_C, "author": "Carol\nExample " + "x" * 200, "text": "third"}])
+    rows, _ = _rows(client, "x")
+    carol = [r["author"] for r in rows.values() if r.get("author", "").startswith("Carol")]
+    assert carol and "\n" not in carol[0] and len(carol[0]) <= 60
+
+
+def test_an_author_a_later_read_gives_a_post_kept_before_is_served_too(reading, client):
+    server, memory = reading
+    reading_settings.update(saved_lists_={"x": True})
+    _record(server, "x", [{"url": POST_A}])
+    rows, _ = _rows(client, "x")
+    assert all("author" not in r for r in rows.values())
+    _record(server, "x", [{"url": POST_A, "author": "alice_example"}])
+    rows, _ = _rows(client, "x")
+    assert [r["author"] for r in rows.values()] == ["@alice_example"]
+    # Once given it stays: a later read that names someone else does not rewrite it.
+    _record(server, "x", [{"url": POST_A, "author": "bob_example"}])
+    rows, _ = _rows(client, "x")
+    assert [r["author"] for r in rows.values()] == ["@alice_example"]
+
+
+def test_a_linkedin_save_is_listed_under_its_streams_own_name(reading, client):
+    server, memory = reading
+    reading_settings.update(saved_lists_={"linkedin": True})
+    _record(server, "linkedin", [{"url": "https://www.linkedin.com/posts/alice-example_post-activity-1000000000000000001-abcd",
+                                  "author": "Alice Example", "text": "a post"}])
+    rows, _ = _rows(client, "linkedin")
+    assert [r.get("lists") for r in rows.values()] == [["Saved posts"]]
+
+
 # --- every new list is a stream with a switch the settings route accepts -----------------------------------------------------
 
 _SAVED = [("x-likes", "x.likes"), ("instagram-likes", "instagram.likes"), ("reddit-upvoted", "reddit.upvoted")]

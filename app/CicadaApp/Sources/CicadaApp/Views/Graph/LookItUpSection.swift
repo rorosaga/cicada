@@ -111,11 +111,18 @@ struct LookItUpSection: View {
             drawsMark: [.company, .tool].contains(entityType),
             // A Contacts card is the Contacts sync's: it can be removed, never edited or re-linked here.
             isManaged: !source.ref.hasPrefix("addressbook://"),
+            profile: profileChip(source),
             onOpenPage: { if let linked { navigate(linked.id) } },
             onChange: { change in write(change, on: source) },
             onEdit: { mode in editing = SourceEditing(id: source.id, mode: mode) },
             isHighlighted: highlighted == source.id)
             .id(PageSourcesWords.anchor(source.id))
+    }
+
+    /// A person's link to LinkedIn, X, Instagram, GitHub, YouTube, Telegram or WhatsApp wears that site's mark.
+    private func profileChip(_ source: EntitySource) -> (url: URL, name: String)? {
+        guard entityType == .person, let mark = PersonSiteLink.mark(ref: source.ref), let url = URL(string: source.ref) else { return nil }
+        return (url, PersonSiteLink.name(ref: source.ref, label: source.label, mark: mark))
     }
 
     @ViewBuilder
@@ -308,6 +315,9 @@ private struct FactSourceRow: View {
     /// Only a company or tool page draws a mark from its site; on any other page "Use this site" only trusts it.
     let drawsMark: Bool
     let isManaged: Bool
+    /// 2026-11-24 — a person's link to a site people keep a profile on: the page's link chip (the site's bundled real
+    /// mark, the account's name) leads the row in place of the plain title and mark. Nil for every other row.
+    var profile: (url: URL, name: String)? = nil
     let onOpenPage: () -> Void
     let onChange: (SourceChange) -> Void
     let onEdit: (SourceEditing.Mode) -> Void
@@ -317,16 +327,21 @@ private struct FactSourceRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: CicadaTheme.scaled(10)) {
-            mark
+            if profile == nil { mark }
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                Text(title ?? line.ref)
-                    .font(CicadaTheme.rowFont)
-                    .foregroundStyle(line.isLink ? (hovering ? CicadaTheme.textPrimary : CicadaTheme.accentText)
-                                                 : CicadaTheme.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(line.help)
-                if let fullURL, fullURL != title {
+                if let profile {
+                    ProfileLinkChip(url: profile.url, name: profile.name, entityId: entityId)
+                        .padding(.vertical, CicadaTheme.scaled(2))
+                } else {
+                    Text(title ?? line.ref)
+                        .font(CicadaTheme.rowFont)
+                        .foregroundStyle(line.isLink ? (hovering ? CicadaTheme.textPrimary : CicadaTheme.accentText)
+                                                     : CicadaTheme.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(line.help)
+                }
+                if profile == nil, let fullURL, fullURL != title {
                     Text(fullURL)
                         .font(CicadaTheme.metaFont)
                         .foregroundStyle(CicadaTheme.textTertiary)

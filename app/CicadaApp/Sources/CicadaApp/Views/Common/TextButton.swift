@@ -23,7 +23,7 @@ struct TextButton: View {
     private var inset: CGFloat { Self.inset(inline: inline) }
 
     /// The words' inset inside the hover fill — what `flushLeading` pulls back, and what a host that clips (a scroll
-    /// view) reaches out by instead (`WhereToCheckChips`).
+    /// view) reaches out by instead.
     static func inset(inline: Bool) -> CGFloat { CicadaTheme.scaled(inline ? 6 : 10) }
 
     var body: some View {

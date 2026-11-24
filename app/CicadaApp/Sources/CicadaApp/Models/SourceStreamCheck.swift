@@ -170,4 +170,28 @@ final class SourceStreamCheckModel {
         let word = StreamWord.resting(before)
         return word == .read || word == .couldntRead || word == .signedOut ? word : nil
     }
+
+    /// How long a check's word stands on a root card before the card goes back to its resting state.
+    static let cardWordWindow: TimeInterval = 90
+
+    /// The one word a root card shows for what its streams ended a check in, while it is fresh: the one that needs the
+    /// person first (signed out, needs access, couldn't read), then "Your AI app reads it next", then Read. Nil when no
+    /// stream of the card has a result inside the window (the card shows its own state).
+    static func cardWord(streams: [ResolvedStream], results: [String: Result], now: Date,
+                         window: TimeInterval = cardWordWindow) -> (word: StreamWord, how: StreamHow)? {
+        func rank(_ word: StreamWord) -> Int {
+            switch word {
+            case .signedOut, .needsAccess, .couldntRead: 0
+            case .yourAIAppReadsNext: 1
+            case .read: 2
+            default: 3
+            }
+        }
+        let fresh = streams.compactMap { resolved -> (StreamWord, StreamHow)? in
+            guard let result = results[resolved.id], now.timeIntervalSince(result.at) <= window, result.word.isCheckWord else { return nil }
+            return (result.word, resolved.stream.how)
+        }
+        guard let best = fresh.min(by: { rank($0.0) < rank($1.0) }) else { return nil }
+        return (best.0, best.1)
+    }
 }

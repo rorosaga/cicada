@@ -258,3 +258,28 @@ enum SourceBrowserText {
         return String(format: "%d h %02d min", minutes / 60, minutes % 60)
     }
 }
+
+
+/// The two channels whose collections are a tree (G245, plan 5): Apple Notes' folders and Notion's databases and pages.
+enum SourceBrowserTree {
+    static let notesChannel = "notes"
+    static let notionChannel = "notion-api"
+
+    /// How many notes the page's root lists under the tree before "All N".
+    static let recent = 8
+
+    static func isTree(_ channel: String) -> Bool { channel == notesChannel || channel == notionChannel }
+
+    /// The folders directly in `folder`, in the owning app's order (`children`), found in the account that holds it.
+    static func subfolders(of folder: SourceCollection, in account: SourceAccount?) -> [SourceCollection] {
+        guard let account, let children = folder.children, !children.isEmpty else { return [] }
+        let byId = Dictionary(account.collections.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return children.compactMap { byId[$0] }
+    }
+
+    /// Whether the one quiet "pins are not shown" line stands: Notes only, and only when the last read said it could not
+    /// tell (nil is "before any read said": nothing to say yet).
+    static func pinsUnread(channel: String, tree: ChannelCollections?) -> Bool {
+        channel == notesChannel && tree?.pinsRead == false
+    }
+}

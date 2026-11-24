@@ -34,8 +34,9 @@ enum SourcesRoot {
 
         /// "Bookmarks 214 · Likes 1,032 · 3 folders". Counts in the reader's locale (R-S18).
         func text(locale: Locale = .autoupdatingCurrent) -> String {
+            // A count of nothing, or one that is not known, is not said (a name alone is the honest line).
             var out = parts.map { part in
-                part.count.map { "\(part.label) \(UsageFormat.count($0, locale: locale))" } ?? part.label
+                part.count.flatMap { $0 > 0 ? $0 : nil }.map { "\(part.label) \(UsageFormat.count($0, locale: locale))" } ?? part.label
             }
             if folders > 0 { out.append(Copy.Streams.folders(folders)) }
             return out.joined(separator: " · ")

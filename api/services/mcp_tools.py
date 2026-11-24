@@ -1816,9 +1816,10 @@ def _truthy(value) -> bool:
     return value is True or str(value or "").strip().lower() in ("true", "1", "yes")
 
 
-def _give_posted(memory_path: Path, episode_id: str, day: str) -> bool:
+def _give_posted(memory_path: Path, episode_id: str, day: str, author: str | None = None) -> bool:
     """A post kept before its list showed the day it was posted (an export has none) gains that day, in place and once:
-    the episode's frontmatter alone, under its lock (G245). ``True`` when the file changed."""
+    the episode's frontmatter alone, under its lock (G245). The same goes for who wrote it (``post_author``). ``True``
+    when the file changed."""
     from api.services import episode_staging
 
     path = memory_path / "episodes" / f"{episode_id}.md"
@@ -1826,10 +1827,14 @@ def _give_posted(memory_path: Path, episode_id: str, day: str) -> bool:
         return False
 
     def edit(fm: dict) -> bool:
-        if fm.get("posted"):
-            return False
-        fm["posted"] = day
-        return True
+        changed = False
+        if day and not fm.get("posted"):
+            fm["posted"] = day
+            changed = True
+        if author and not fm.get("post_author"):
+            fm["post_author"] = author
+            changed = True
+        return changed
 
     return episode_staging.amend_frontmatter(path, edit)
 
@@ -1994,7 +1999,7 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
         # The list's own origin and folder make the save index-only (`history_index.kind`): no note, no reason —
         # the post's words are the post's, never the person's.
         item = RawItem(url=url, title=title, folder=p.folder, origin=p.origin, aliases=list(aliases),
-                       preview=text or None, defer_enrich=True, posted=posted)
+                       preview=text or None, defer_enrich=True, posted=posted, author=author or None)
         meta = MediaMeta(title=title, description=text, site=media_ingestor._site_of(url),
                          media_type=media_ingestor._classify(url))
         res = media_ingestor.write_prepared(PreparedItem(item, meta), memory_path, idx, append_list=True)
@@ -2007,8 +2012,8 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
             if res.collection_added:
                 listed += 1
                 paths.append(f"entities/{res.media_entity_id}.md")
-            if posted and _give_posted(memory_path, res.episode_id, posted):
-                dated += 1
+            if (posted or author) and _give_posted(memory_path, res.episode_id, posted or "", author or None):
+                dated += int(bool(posted))
                 if f"episodes/{res.episode_id}.md" not in paths:
                     paths.append(f"episodes/{res.episode_id}.md")
         # G221: the site's own folders the row says the post is filed in — on that one save, in place (a post saved

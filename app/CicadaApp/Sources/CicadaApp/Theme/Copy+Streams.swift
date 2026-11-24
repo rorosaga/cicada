@@ -97,6 +97,22 @@ extension Copy {
         static let couldntSwitch = "Couldn't change that. Try again in a moment."
         static let forgetKeptHelp = "People already updated keep what they gained."
         static let noItemsYet = "Nothing kept from this list yet."
+        // LinkedIn's Connections (owner 2026-11-24): who the person connected with, newest first, by month.
+        static let connectionsLabel = "Connections"
+        static let connectionsNoDate = "No date"
+        static func connectionsAround(_ when: String) -> String { "around \(when)" }
+        static func connectionsWeekHelp(_ day: String) -> String { "LinkedIn said about when: around the week of \(day)." }
+        static func connectionsMonthHelp(_ month: String) -> String { "LinkedIn said about when: some time in \(month)." }
+        static func connectionsSearch(_ total: Int?) -> String {
+            total.map { "Search \(UsageFormat.count($0)) connection\($0 == 1 ? "" : "s")" } ?? "Search connections"
+        }
+        static let connectionsOff = "Connections is off. Turn it on above and your AI app reads who you have connected with."
+        static let connectionsWaiting = "Nothing read yet. Your AI app reads it on its next visit."
+        static let connectionsFailed = "Couldn't read the kept connections. Try again in a moment."
+        static let connectionsLoading = "Reading your connections"
+        static let connectionsMatchHelp = "Open this person's page in your memory"
+        static let connectionsPageChip = "Their page"
+        static func connectionsOpenProfile(_ name: String) -> String { "Open \(name)'s LinkedIn profile" }
         static let allFoldersHelp = "Show only the items in one of the site's own folders"
     }
 }

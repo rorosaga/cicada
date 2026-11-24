@@ -41,6 +41,11 @@ struct ThisMacSourceContent: View {
                 // Each of these entries' id is its one channel's.
                 SourceBrowser(channel: entry.id, sourceTitle: entry.title)
             }
+        case "notion":
+            // G245: the workspace's pages as a tree (database or parent page), by last edited.
+            if channels.contains(where: { $0.id == SourceBrowserTree.notionChannel && ($0.count > 0 || $0.connected) }) {
+                SourceBrowser(channel: SourceBrowserTree.notionChannel, sourceTitle: entry.title)
+            }
         case ContactsReader.channel:
             if channels.contains(where: { $0.connected }) { ContactsGrid() }
         case SourceCatalog.hexId, SourceCatalog.meetingFoldersId:
@@ -61,8 +66,15 @@ struct SourceBrowser: View {
 
     @Environment(ChannelItemsCache.self) private var cache: ChannelItemsCache?
     @Environment(Store.self) private var store: Store?
-    @State private var path: [SourceBrowserLevel] = []
+    @State private var path: [SourceBrowserLevel]
     @State private var query = ""
+
+    /// `initialPath` is the level the browser opens on (nil is the first): a render names one.
+    init(channel: String, sourceTitle: String, initialPath: [SourceBrowserLevel] = []) {
+        self.channel = channel
+        self.sourceTitle = sourceTitle
+        _path = State(initialValue: initialPath)
+    }
 
     private var tree: ChannelCollections? { cache?.collections(channel) }
 
@@ -92,6 +104,57 @@ struct SourceBrowser: View {
 
     @ViewBuilder
     private var content: some View {
+        if SourceBrowserTree.isTree(channel) {
+            treeContent
+        } else {
+            flatContent
+        }
+    }
+
+    /// Notes and Notion (G245, plan 5): the folders as a tree, a folder opening in the content's place, the notes in the
+    /// app's own groups. See `NoteTreeViews`.
+    @ViewBuilder
+    private var treeContent: some View {
+        let start = SourceBrowserText.start(tree)
+        switch path.last {
+        case .collection(let collection, let account)?:
+            VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                if !searching {
+                    NoteFolderRows(folders: SourceBrowserTree.subfolders(of: collection, in: account ?? tree?.accounts.first { $0.collections.contains(collection) }),
+                                   channel: channel) { push(.collection($0, account: account)) }
+                }
+                notes(SourceListKey.make(channel, collection: collection.id), cap: nil)
+            }
+        case .all?, .account?:
+            notes(channel, cap: nil)
+        case nil:
+            if searching {
+                notes(channel, cap: nil)
+            } else {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+                    lockedLine
+                    if SourceBrowserTree.pinsUnread(channel: channel, tree: tree) { NotesPinsLine() }
+                    switch start {
+                    case .accounts, .collections:
+                        NoteFolderTree(accounts: tree?.accounts ?? [], channel: channel,
+                                       showsAccountNames: (tree?.accounts.count ?? 0) > 1) { push(.collection($0, account: $1)) }
+                        notes(channel, cap: SourceBrowserTree.recent)
+                    case .items(let collection):
+                        notes(SourceListKey.make(channel, collection: collection.id), cap: nil)
+                    case .flat:
+                        notes(channel, cap: SourceItemsRules.cap)
+                    }
+                }
+            }
+        }
+    }
+
+    private func notes(_ key: String, cap: Int?) -> some View {
+        NotesGroupedList(key: key, query: query, cap: cap) { push(.all) }
+    }
+
+    @ViewBuilder
+    private var flatContent: some View {
         let start = SourceBrowserText.start(tree)
         switch path.last {
         case .collection(let collection, _)?:
@@ -171,7 +234,7 @@ struct SourceBrowser: View {
     private var prompt: String {
         switch path.last {
         case .collection(let collection, _)?:
-            return Copy.SourceBrowser.search(collection.count, channel: channel, in: collection.name)
+            return Copy.SourceBrowser.search(collection.total ?? collection.count, channel: channel, in: collection.name)
         case .account?:
             // An account's search reads the whole source (the backend narrows by collection only), and says so.
             return Copy.SourceBrowser.search(nil, channel: channel)

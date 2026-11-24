@@ -485,6 +485,8 @@ class Episodes:
     #: episode id -> the day the post itself was published, for the saves whose list showed one (``posted`` in the
     #: episode's frontmatter, written by ``cicada_record_saved_list``).
     posted_of: dict[str, str]
+    #: episode id -> who wrote the post, for the saves whose list showed one (``post_author``, same writer).
+    author_of: dict[str, str] = field(default_factory=dict)
 
 
 def _build_episodes(entries) -> Episodes:
@@ -496,6 +498,7 @@ def _build_episodes(entries) -> Episodes:
     harnesses: Counter = Counter()
     last: dict[str, str] = {}
     posted_of: dict[str, str] = {}
+    author_of: dict[str, str] = {}
     for f in entries:
         fm = f.frontmatter or {}
         if fm.get("source_deleted_at"):
@@ -513,6 +516,8 @@ def _build_episodes(entries) -> Episodes:
             read_pages.add(page)
         if day := saved_at.posted_day(fm.get("posted")):
             posted_of[stem] = day
+        if who := " ".join(str(fm.get("post_author") or "").split())[:media_ingestor.POST_AUTHOR_MAX]:
+            author_of[stem] = who
         held = save_folders.folders_of(fm)
         if held:
             names = tuple(dict.fromkeys(n for _o, n in held))
@@ -526,7 +531,7 @@ def _build_episodes(entries) -> Episodes:
             stamp = str(fm.get("timestamp") or "")
             if stamp > last.get(key, ""):
                 last[key] = stamp
-    return Episodes(folders_of, folder_names, days, frozenset(read_pages), frozenset(agent_read), harnesses, last, posted_of)
+    return Episodes(folders_of, folder_names, days, frozenset(read_pages), frozenset(agent_read), harnesses, last, posted_of, author_of)
 
 
 def episodes(memory_path: Path) -> Episodes:
@@ -875,6 +880,18 @@ def folder_matches(memory_path: Path, rows: list[dict], pages: dict[str, dict], 
     return out
 
 
+def _list_display_names() -> dict[tuple[str, str], str]:
+    """``(origin, folded list name)`` -> the label of the stream that list is, for the lists whose stored name is not
+    the stream's own name (``Saved Items`` -> ``Saved posts``); a list that already carries it is not in the map."""
+    out: dict[tuple[str, str], str] = {}
+    for group in groups():
+        for spec in group.specs:
+            if spec.counts == "members" and spec.origin and spec.list_label and spec.label \
+                    and _cf(spec.list_label) != _cf(spec.label):
+                out[(spec.origin, _cf(spec.list_label))] = spec.label
+    return out
+
+
 def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], posted: Callable[[dict], str | None]) -> dict[str, dict]:
     """The three fields a list row gains (plan 2.2), by row id: ``lists`` (the labels of the lists the item is on),
     ``folders`` (the site's own folder names), ``depth`` (``kept``: indexed, no model has read it · ``read``: Sleep or
@@ -891,6 +908,9 @@ def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], post
             continue
         lists = id_utils.page_lists(fm)
         held = {_cf(n) for n in lists}
+        # A list is drawn under the stream's own name (LinkedIn's saved posts were filed under the export's "Saved Items").
+        names = _list_display_names()
+        lists = list(dict.fromkeys(names.get((str(fm.get("origin") or "").strip(), _cf(n)), n) for n in lists))
         folders = [n for n in eps.folders_of.get(str(row.get("_episode") or ""), ()) if _cf(n) not in held]
         read = row.get("id") in eps.read_pages or (
             bool(row.get("_url")) and media_ingestor.url_hash(str(row["_url"])) in eps.agent_read)
@@ -901,5 +921,7 @@ def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], post
             fields["folders"] = folders
         if day := eps.posted_of.get(str(row.get("_episode") or "")) or posted(row):
             fields["posted"] = day
+        if who := eps.author_of.get(str(row.get("_episode") or "")):
+            fields["author"] = who
         out[row["id"]] = fields
     return out

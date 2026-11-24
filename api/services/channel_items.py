@@ -141,7 +141,8 @@ from api.services.channel_registry import CHANNEL_IDS
 #: `g161-24`: A.4 (G245) — a Notes folder is a tree (`collections` gives each folder its `path`, `parent`, `children`, `depth`
 #: and `total`, in Notes' own order, and `pinsRead`), a note's row carries `modifiedAt`, a one-line `snippet` and sorts by its
 #: modified instant, and Notion's live pages are filed by database or parent page and sort by last edited.
-SHAPE = "g161-24"
+#: `g161-25`: G245 — a saved-list row carries `author` when the record tool stored who wrote the post (`post_author`).
+SHAPE = "g161-25"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120

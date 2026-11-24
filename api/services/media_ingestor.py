@@ -47,6 +47,8 @@ _MAX_READ = 1_500_000  # 1.5 MB cap on a fetched page body
 # runaway guard, not accounting.
 _OEMBED_TIMEOUT = 4.0
 _OEMBED_MAX_BYTES = 512_000
+#: G245: the longest author name an episode keeps for a saved post (``MediaItem.author``).
+POST_AUTHOR_MAX = 60
 DESCRIPTION_LIMIT = 5000  # G140 Q-R12: a description is kept, cut here — a field, not a document
 MAX_BATCH = 2000
 #: The most items one upload may hold (a whole platform archive of likes runs
@@ -146,6 +148,9 @@ class RawItem:
     # G245: the post's OWN day, when a saved list showed one beside it (the person's agent reads it off the page); the
     # save's own day stays ``added``. Written to the episode as ``posted`` (a bare ``YYYY-MM-DD``), never guessed.
     posted: str | None = None
+    # G245: who wrote the post, as the list showed it (a handle or a name, one line). Written to the episode as
+    # ``post_author`` — the item card leads its footer with it. Never the person's own words, never a page or a claim.
+    author: str | None = None
 
 
 @dataclass
@@ -2236,6 +2241,8 @@ def write_media_episode(
         frontmatter[episode_time.PUBLISHED_KEY] = published
     if posted := saved_at.posted_day(item.posted):
         frontmatter["posted"] = posted
+    if author := " ".join(str(item.author or "").split())[:POST_AUTHOR_MAX]:
+        frontmatter["post_author"] = author
     if item.origin:
         frontmatter["origin"] = item.origin
     if item.session_id:

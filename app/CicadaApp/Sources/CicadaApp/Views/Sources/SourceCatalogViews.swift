@@ -270,6 +270,8 @@ struct SourceCatalogDetail: View {
     @AppStorage(TracesPageVisibility.key) private var tracesPage = false
     /// source-page-v3 — the page's one search, and which of its lists fills the column instead of the page.
     @State private var query = ""
+    /// The people tab chosen on a page that has a connections stream (nil is the page's own default).
+    @State private var peopleTab: String?
     @State private var drill: SourceDrill?
     @Environment(ChannelItemsCache.self) private var itemsCache: ChannelItemsCache?
     @Environment(BrowserWatcher.self) private var watcher
@@ -790,6 +792,8 @@ struct SourceCatalogDetail: View {
         switch row.entry.id {
         case _ where ThisMacSourceContent.handles(row.entry):
             thisMacContent
+        case "notion" where mine.contains(where: { $0.id == SourceBrowserTree.notionChannel }):
+            ThisMacSourceContent(entry: row.entry, channels: mine)
         case "folders":
             if !mine.isEmpty {
                 SourceSection(title: Copy.SourceLayout.folders) {
@@ -801,8 +805,32 @@ struct SourceCatalogDetail: View {
             }
             cameIn
         default:
-            cameIn
+            if let people = SourceStreamItems.connections(pageStreams) {
+                peopleContent(people)
+            } else {
+                cameIn
+            }
             if row.entry.id == TabGroupWatcher.channel { TabGroupsOpenNow() }
+        }
+    }
+
+    /// LinkedIn: the saved posts and the connections are two tabs of one page; Connections is by date (plan 4).
+    @ViewBuilder
+    private func peopleContent(_ people: ResolvedStream) -> some View {
+        let streams = pageStreams
+        let selected = SourceStreamItems.peopleSelection(peopleTab ?? startTab, streams: streams)
+        VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            let tabs = SourceStreamItems.peopleTabs(streams)
+            if tabs.count > 1 {
+                TextTabs(tabs: tabs, selection: Binding(get: { selected }, set: { chosen in
+                    Instant.run { peopleTab = chosen }
+                }))
+            }
+            if selected == people.id {
+                LinkedInConnectionsSection(streamOn: people.stream.state == .on, kept: people.stream.count ?? 0)
+            } else {
+                cameIn
+            }
         }
     }
 
@@ -866,7 +894,8 @@ struct SourceCatalogDetail: View {
             out.append(SourceFooterAction(id: "agents", title: Copy.Catalog.openAgents) { router.routeToAgents() })
         }
         // LinkedIn: the connections a past export left are kept for matching; forgetting them is a removal, not an import.
-        if row.entry.id == "linkedin" {
+        // Shown only while something is kept (the connections stream's count is the kept directory's size).
+        if row.entry.id == "linkedin", (SourceStreamItems.connections(pageStreams)?.stream.count ?? 0) > 0 {
             out.append(SourceFooterAction(id: "forget", title: LinkedInConnectionsWords.forget,
                                           confirm: (LinkedInConnectionsWords.forget, LinkedInConnectionsWords.forget,
                                                     Copy.Streams.forgetKeptHelp)) { forgetKeptConnections() })
@@ -878,6 +907,7 @@ struct SourceCatalogDetail: View {
         Task {
             do {
                 feedNote = LinkedInConnectionsWords.forgotten(try await APIClient.shared.forgetLinkedInConnections())
+                await sourceStreams?.refresh()
             } catch {
                 feedNote = AddSourceSheet.friendlyError(error)
             }
@@ -961,11 +991,11 @@ struct SourceCatalogDetail: View {
                 SourceSearchHeader(query: $query, prompt: searchPrompt)
                 if let cards = cardChannel {
                     // G245 — a list source's saves are cards under one tab per stream (plan 3.2 item 3).
-                    SourceStreamItemsSection(channel: cards, streams: pageStreams, query: query, startTab: startTab) {
-                        drill = .all(channel: $0)
-                    }
+                    SourceStreamItemsSection(channel: cards, streams: pageStreams, query: query, startTab: startTab,
+                                             historyChannel: historyChannel, onAll: { drill = .all(channel: $0) },
+                                             onDrill: { drill = $0 })
                 }
-                ForEach(listChannels.filter { $0.id != cardChannel }, id: \.id) { list in
+                ForEach(listChannels.filter { $0.id != cardChannel && $0.id != historyChannel }, id: \.id) { list in
                     // 2026-11-03 — a chat source's chats are the page: all of them, paged, never "All N" (the apps
                     // list every chat; a person keeps a few dozen, where a feed keeps thousands).
                     if list.id == FeedChannelText.substackChannel, SourceSearch.normalized(query).isEmpty {
@@ -982,6 +1012,12 @@ struct SourceCatalogDetail: View {
                 }
             }
         }
+    }
+
+    /// The channel the watched history's days are listed under, once that history has its own tab (YouTube).
+    private var historyChannel: String? {
+        guard cardChannel != nil, SourceStreamItems.historyStream(pageStreams) != nil else { return nil }
+        return overviewRows.first { $0.isWatchHistory }?.itemsListId
     }
 
     /// The channel whose items are cards: the saved list of a source with a tabbed list stream (plan 3.2 item 3).

@@ -3121,6 +3121,17 @@ actor APIClient {
         try await delete("/sources/contacts-local/book" + query)
     }
 
+    /// `GET /sources/linkedin-connections/list` (G245, ruling 78 (c)) — the person's connections, newest first. The one
+    /// route that names them: local API, answered from this computer's directory, held in memory by the caller only.
+    func fetchLinkedInConnections(query: String, offset: Int, limit: Int) async throws -> LinkedInConnectionsPage {
+        var path = "/sources/linkedin-connections/list?offset=\(max(0, offset))&limit=\(max(1, min(limit, 200)))"
+        let words = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !words.isEmpty {
+            path += "&query=" + (String(words.prefix(120)).addingPercentEncoding(withAllowedCharacters: SourceSearch.queryAllowed) ?? "")
+        }
+        return try await get(path, timeout: Self.refreshTimeout)
+    }
+
     /// `DELETE /sources/linkedin-connections` — forget this memory's kept LinkedIn export; returns how many were kept.
     func forgetLinkedInConnections() async throws -> Int {
         let data = try await delete("/sources/linkedin-connections")
