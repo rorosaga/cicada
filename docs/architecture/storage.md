@@ -3113,3 +3113,20 @@ top; a line still being written waits for its newline); `state_dictionary.refres
 (`shared_scans`). None changes a wire shape. Not done: paging `/claims` (the entity card groups and counts contested
 keys over every claim, so a first-N page would need the card changed too), and the whole-bank payloads (`/graph`
 14.9 MB, `/sleep/episodes` 5.8 MB, `/sources` 4.0 MB — already compressed on the wire).
+
+### The arrival join's state (G245, owner 2026-11-24)
+
+Where the arrival join (`arrival_join`, `arrival_join_write`; `capture-and-sleep.md`) keeps what it knows. **Outside every bank**, in
+`$CICADA_HOME/people/<bank>/` beside the directories it reads, wiped with them and with the bank: `contacts-seen.json` (every
+Contacts card the book has ever shown, by the hash of its id, with the day it was first seen waiting or `null`, the last sync's
+day and how many cards were new in it: ids hashed, never a name), `arrival-join-report.json` (the night's reading, one item per
+first-name page that has a namesake in a directory: page id, both days, the gap, each directory's freshness stamp, each namesake
+row by its hash with the role it played, the conflict and veto answers, the decision and its reason; overwritten nightly) and
+`arrival-join-veto.json` (each veto's answers by the digest of what it read, so a candidate is read once, not every night). **In
+the bank**, only once a join is live: the first-name page's frontmatter `arrival_joins` (a hash of the folded full name, the
+directory rows' hashes, both days, the gap, the commits the join caused, the claim ids it wrote, a hash of each link it added,
+`state: joined | undone`), the alias itself on the page like any alias, and `_merge_rejected.yaml`'s `arrival_joins` list
+(`[{holder, key, on}]`, a hash of the name, until a page of that name exists and the refusal becomes a refused pair). A note's
+episode gains `created_at` (frontmatter alone, the aware ISO moment the note was begun, sent by the app beside the dump). No
+name, company, headline, link or e-mail of a directory row is in a commit message, a record, a log line or the ledger
+(`test_arrival_join.py`'s privacy test).

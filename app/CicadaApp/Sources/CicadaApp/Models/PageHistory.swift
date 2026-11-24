@@ -120,6 +120,7 @@ enum HistoryRowWords {
         case "merge": return "\(name) \(Copy.Graph.historyMerged)"
         case "split": return "\(name) \(Copy.Graph.historySplit)"
         case "undo": return "\(name) \(Copy.Graph.historyUndidJoin)"
+        case "arrival": return "\(name) \(Copy.Arrivals.historyJoined(e.joinedAs))"   // G245
         default: break
         }
         if e.changeType == .created { return "\(name) \(Copy.Graph.historyWrotePage)" }

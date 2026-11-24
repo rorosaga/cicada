@@ -45,6 +45,11 @@ enum AppleNotesReader {
     /// 2026-11-04 — last, the folder's ACCOUNT ("iCloud", "On My Mac", a mail account's name), so the Sources page
     /// browses account → folder → notes (`notes_sync._ACCOUNT_FIELDS`); never part of a note's dedup key.
     ///
+    /// G245 (arrival join, 2026-11-24) — after the account, the note's CREATION moment as the same locale-free `«class isot»`
+    /// local time: a note's modification date is its last edit, so only this says when a note was begun. It travels beside the
+    /// dump like the account (`noteCreated`, by note id), read by the backend with the record's own UTC offset
+    /// (`notes_sync.CREATED_KEY`); an older backend ignores the key, an older app sends none.
+    ///
     /// G234 (owner: "locked notes must be unavailable to read") — every property of a note is asked through `whose
     /// password protected is false`, evaluated inside Notes, so no event ever names a locked note's `plaintext` or
     /// dates; filtering a bulk read afterwards would still have requested the body. Measured on macOS 27 on one
@@ -110,7 +115,7 @@ enum AppleNotesReader {
                     if idsAfter = noteIds then
                         repeat with i from 1 to count of noteIds
                             try
-                                set end of outList to (item i of noteIds as string) & FS & (item i of noteNames as string) & FS & (item i of noteBodies as string) & FS & (item i of cDates as string) & FS & (item i of mDates as string) & FS & folderName & FS & ((item i of mDates) as «class isot» as string) & FS & utcOffset & FS & accName
+                                set end of outList to (item i of noteIds as string) & FS & (item i of noteNames as string) & FS & (item i of noteBodies as string) & FS & (item i of cDates as string) & FS & (item i of mDates as string) & FS & folderName & FS & ((item i of mDates) as «class isot» as string) & FS & utcOffset & FS & accName & FS & ((item i of cDates) as «class isot» as string)
                                 set end of outList to "\(atMark)" & FS & (item i of noteIds as string) & FS & folderId
                             on error
                                 set waitedFolders to waitedFolders + 1
@@ -177,7 +182,8 @@ enum AppleNotesReader {
         let pinned = await pins(AppleNotesPins.ids(inDump: parts.dump))
         return try await APIClient.shared.syncNotes(dump: parts.dump, accounts: parts.accounts, locked: parts.locked,
                                                     lockedKeys: parts.lockedKeys, pinned: pinned,
-                                                    folderPaths: parts.folderPaths, folders: parts.folders)
+                                                    folderPaths: parts.folderPaths, folders: parts.folders,
+                                                    created: parts.created)
     }
 
     /// 2026-11-04 — the script ends each record with the note's account; it travels BESIDE the dump (`noteAccounts`,
@@ -188,8 +194,9 @@ enum AppleNotesReader {
     /// failed or waiting a locked note retires on the next complete read.
     static func split(_ raw: String) -> (dump: String, accounts: [String: String], locked: [String], lockedKeys: [String],
                                          foldersRead: Int, foldersFailed: Int, folderPaths: [String: [String]],
-                                         folders: [NoteFolder]) {
+                                         folders: [NoteFolder], created: [String: String]) {
         var accounts: [String: String] = [:]
+        var created: [String: String] = [:]
         var folderRows: [(account: String, id: String, parent: String, name: String)] = []
         var held = Set<String>()
         var noteFolder: [String: String] = [:]
@@ -230,7 +237,14 @@ enum AppleNotesReader {
                 return nil
             }
             if fields.count >= 6 { dumpIds.insert(fields[0].trimmingCharacters(in: .whitespacesAndNewlines)) }
-            guard fields.count == 9 else { return record }
+            // G245: a record that ends with the note's creation moment (10 fields) gives it up beside the dump; one without it (9, an
+            // older script) is read as before.
+            guard fields.count == 9 || fields.count == 10 else { return record }
+            if fields.count == 10 {
+                let moment = fields.removeLast().trimmingCharacters(in: .whitespacesAndNewlines)
+                let noteId = fields[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !noteId.isEmpty, !moment.isEmpty { created[noteId] = moment }
+            }
             let account = fields.removeLast().trimmingCharacters(in: .whitespacesAndNewlines)
             let id = fields[0].trimmingCharacters(in: .whitespacesAndNewlines)
             if !id.isEmpty, !account.isEmpty { accounts[id] = account }
@@ -240,7 +254,7 @@ enum AppleNotesReader {
         let structure = folderStructure(rows: folderRows, held: held, noteFolder: noteFolder, noteIds: dumpIds,
                                         lockedIds: Set(locked))
         return (records.joined(separator: recordSeparator), accounts, locked, complete ? lockedKeys : [], foldersRead,
-                foldersFailed, structure.paths, structure.folders)
+                foldersFailed, structure.paths, structure.folders, created)
     }
 
     /// One folder as the backend lists it: its account and its path, outermost first (A.4, G245). Names only.

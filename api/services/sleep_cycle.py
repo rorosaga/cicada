@@ -1186,6 +1186,93 @@ async def _full_name_join_safely(memory_path: Path, settings: Settings, *, user_
                     + (f", skipped {report.skipped}" if report.skipped else ""))
 
 
+async def _arrival_refusals_safely(memory_path: Path) -> None:
+    """G245 (arrival join): each "Not them" the person said to a first name joined to someone who had no page, whose full name
+    now belongs to a page, becomes a refused pair of pages — before the same-name review, so 74 / 74a / 74b hold it the same
+    night. Engine-free, one `cicada` commit of its own file; nothing refused means no read and no commit. Never raises."""
+    from api.services import arrival_join, arrival_join_write, merge_rejections
+
+    if not (memory_path / ".git").exists() or not merge_rejections.arrival_refusals(memory_path):
+        return
+    try:
+        paths = await asyncio.to_thread(arrival_join_write.promote_refusals, memory_path)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Arrival refusals failed: {type(exc).__name__}")
+        return
+    if not paths:
+        return
+    try:
+        async with _lock:
+            await git_service.commit_paths(
+                memory_path, git_service.build_commit_message(
+                    f"Arrival join refusals {date.today().isoformat()}",
+                    [f"{p}: updated (source: n/a, trigger: {arrival_join.TRIGGER})" for p in paths], authors=["cicada"]), paths)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Arrival refusals commit failed: {type(exc).__name__}")
+
+
+async def _arrival_join_safely(memory_path: Path, settings: Settings, *, user_triggered: bool, no_model: bool) -> None:
+    """G245 (arrival join, owner 2026-11-24 "yes ofc join ... accross sources"): a page titled by one first name and the one
+    person who newly appeared the same week (a LinkedIn connection or a Contacts card), decided by `arrival_join` — every rule,
+    a conflict screen and a two-read veto — and reported outside every bank. **It ships deciding only**: while
+    `arrival_join.LIVE` is false nothing is written to the bank, here or anywhere. When live, each join is one `cicada` commit
+    of its own page alone (`arrival_join_write.apply_join`), restored if it fails; the rematches that follow attach. Counts
+    only — never a name. Never raises."""
+    from api.services import arrival_join, arrival_join_write
+
+    try:
+        report = await arrival_join.run_tail(memory_path, settings, user_triggered=user_triggered, no_model=no_model)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Arrival join failed: {type(exc).__name__}")
+        return
+    joined = 0
+    if report.joins and (memory_path / ".git").exists():
+        skip: frozenset[str] = frozenset()
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Arrival join writes skipped: tree status unreadable ({type(exc).__name__})")
+            report.joins = []
+        for decision, _case in report.joins:
+            applied = await asyncio.to_thread(arrival_join_write.apply_join, memory_path, decision, skip=skip)
+            if applied is None:
+                continue
+            try:
+                async with _lock:
+                    await git_service.commit_paths(
+                        memory_path, arrival_join_write.commit_message(applied.page, decision, date.today()), [applied.path])
+                joined += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"Arrival join commit failed — undoing: {type(exc).__name__}")
+                await asyncio.to_thread(arrival_join_write.restore, memory_path, applied.path)
+    if report.looked or report.skipped:
+        logger.info(f"Arrival join: {report.looked} first-name page(s) with a namesake, {report.candidates} to the veto "
+                    f"({report.reads} read), {report.would_join} would join, {joined} joined"
+                    + (f", skipped {report.skipped}" if report.skipped else ""))
+
+
+async def _arrival_record_safely(memory_path: Path) -> None:
+    """G245 (arrival join), after the two rematches: record in the bank which commits a join caused, the claim ids and a hash of
+    each link it wrote — so the person's "Not them" can take it all back. Nothing joined: no read of any page beyond the
+    frontmatter index, no commit. Never raises."""
+    from api.services import arrival_join, arrival_join_write
+
+    if not (memory_path / ".git").exists():
+        return
+    try:
+        paths = await asyncio.to_thread(arrival_join_write.finish, memory_path)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Arrival record failed: {type(exc).__name__}")
+        return
+    if not paths:
+        return
+    try:
+        async with _lock:
+            await git_service.commit_paths(memory_path, arrival_join_write.record_commit_message(paths, date.today()), paths)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Arrival record commit failed: {type(exc).__name__}")
+
+
 async def _catchup_questions_safely(memory_path: Path) -> None:
     """Vision item 10 — the engine-free proposers that feed the catch-up chat: "are you still …?" about a quiet fact on
     the person's own page (`still_questions`) and "are these the same person?" for a nickname and its long form
@@ -1773,6 +1860,8 @@ async def _run_engine_independent_tail(
         await _expire_claims_safely(memory_path)
         # G141 PJ-6: after expiry (the night's ends are visible), before any poll's `git add -A`.
         await _propose_followups_safely(memory_path)
+        # G245: a "Not them" the person said, whose full name now has a page, is a refused pair before 74 / 74a / 74b look.
+        await _arrival_refusals_safely(memory_path)
         # 2026-11-23: the people who share a first name that tonight's batches flagged, looked at again — before the
         # catch-up proposers (a pair joined here is never asked about there) and any poll's `git add -A`.
         if no_model:
@@ -1781,6 +1870,9 @@ async def _run_engine_independent_tail(
             await _same_name_review_safely(memory_path, settings, user_triggered=user_triggered)
             # Ruling 74b (2026-11-24): a name held in full that the person's own words name as one with a short-name page.
             await _full_name_join_safely(memory_path, settings, user_triggered=user_triggered)
+        # G245 (owner 2026-11-24): a first-name page and the person who newly appeared the same week — decided and reported
+        # here (`arrival_join.LIVE` false writes nothing); a write is its own commit, before the rematches attach.
+        await _arrival_join_safely(memory_path, settings, user_triggered=user_triggered, no_model=no_model)
         # Vision item 10: "still?" and same-person questions for the catch-up, one shared budget per drain.
         await _catchup_questions_safely(memory_path)
         # G61 S3-a (D8): exact-match source -> its own page links, before any poll's `git add -A`.
@@ -1789,6 +1881,8 @@ async def _run_engine_independent_tail(
         await _rematch_linkedin_safely(memory_path)
         # Contacts cards waiting outside the bank, matched against tonight's pages (owner ruling 2026-10-20) — the same slot.
         await _rematch_contacts_safely(memory_path)
+        # G245: which commits an arrival join caused, recorded once both rematches have run.
+        await _arrival_record_safely(memory_path)
         # G61 "Where to check" (ruling 36 D5): links already on the record proposed as sources — after the imports
         # above (a link they put on a page is not proposed again), before any poll's `git add -A`.
         await _where_to_check_safely(memory_path)

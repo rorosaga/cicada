@@ -2868,23 +2868,26 @@ actor APIClient {
     /// A.4 (G245): `folderPaths` is each unlocked note's folder path (outermost first) by note id and `folders` every folder
     /// in Notes' own order, both beside the dump so a backend that predates them ignores the keys; a locked note has no
     /// entry. Empty ones are not sent.
+    /// G245 (arrival join): `created` is each note's creation moment by note id (Notes' locale-free local ISO time), beside the
+    /// dump like the account; an older backend ignores the key, and no key is sent when the app read none.
     func syncNotes(dump: String, accounts: [String: String], locked: [String],
                    lockedKeys: [String], pinned: [String]? = nil, folderPaths: [String: [String]] = [:],
-                   folders: [AppleNotesReader.NoteFolder] = []) async throws -> NoteSyncResult {
+                   folders: [AppleNotesReader.NoteFolder] = [], created: [String: String] = [:]) async throws -> NoteSyncResult {
         return try await post("/sources/sync-notes", body: Self.notesSyncBody(
             dump: dump, accounts: accounts, locked: locked, lockedKeys: lockedKeys, pinned: pinned,
-            folderPaths: folderPaths, folders: folders))
+            folderPaths: folderPaths, folders: folders, created: created))
     }
 
     /// The post's body: the dump, and every extra beside it under its own key (pure; tested).
     static func notesSyncBody(dump: String, accounts: [String: String], locked: [String], lockedKeys: [String],
                               pinned: [String]?, folderPaths: [String: [String]],
-                              folders: [AppleNotesReader.NoteFolder]) -> [String: Any] {
+                              folders: [AppleNotesReader.NoteFolder], created: [String: String] = [:]) -> [String: Any] {
         var body: [String: Any] = ["notesDump": dump, "lockedNoteIds": locked, "lockedNoteKeys": lockedKeys]
         if !accounts.isEmpty { body["noteAccounts"] = accounts }
         if let pinned { body["pinnedNoteIds"] = pinned }
         if !folderPaths.isEmpty { body["noteFolderPaths"] = folderPaths }
         if !folders.isEmpty { body["noteFolders"] = folders.map { ["account": $0.account, "path": $0.path] } }
+        if !created.isEmpty { body["noteCreated"] = created }
         return body
     }
 
@@ -5383,6 +5386,12 @@ extension APIClient {
     /// Fold `entityId` into `into` (the page that stays).
     func mergePage(entityId: String, into: String) async throws -> PageJoinAnswer {
         try await post(Self.provenancePath("/entities", entityId, "/merge"), body: ["into": into])
+    }
+
+    /// G245 (arrival join): "Not them" — takes back the name Sleep joined to this first-name page, its links and facts, and
+    /// refuses the pair for good. A refusal's sentence is the server's (what is still on the page, by id).
+    func undoArrivalJoin(entityId: String) async throws -> PageJoinAnswer {
+        try await post(Self.provenancePath("/entities", entityId, "/arrival-join/undo"))
     }
 
     /// Take a merge or split back, from the page's History.

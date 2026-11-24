@@ -584,3 +584,73 @@ def test_sleep_rereads_only_what_an_edit_of_a_note_changed(tmp_path, monkeypatch
     assert ("value-of-design-review-day", "Thursday") in claims
     tokio = claims[("uses", "tokio")]
     assert len(tokio.evidence) == 1 and set(tokio.source_episodes) == {name.removesuffix(".md")}
+
+
+# --- when a note was begun (G245, the arrival join, 2026-11-24) ----------------------------------------------------------
+# A note's `timestamp` is its LAST modification, so a line added this week to an old note makes it look new. The app now sends
+# each note's creation moment beside the dump (`note_created`, Notes' locale-free local ISO time, read with the record's own
+# UTC offset); it is frontmatter only, outside the body and the hash, and a note an earlier sync kept takes it without a new
+# episode. An older app sends none, and such a note simply has no creation day.
+
+
+def _fm(path):
+    from api.services import markdown_parser
+
+    return markdown_parser.parse(path).frontmatter
+
+
+def test_a_note_carries_the_moment_it_was_created_beside_the_one_it_was_last_edited(tmp_path):
+    memory = _memory(tmp_path)
+    record = _dated("n1", "Event", "Friday, November 6, 2026 at 11:30:00 AM", "2026-11-06T11:30:00", "3600")
+    run(notes_sync.sync_notes(memory, dump=record, created={"n1": "2026-11-02T09:00:00"}))
+    (path,) = (memory / "episodes").glob("ep_*.md")
+    fm = _fm(path)
+    assert fm["created_at"] == "2026-11-02T08:00:00+00:00" and fm["timestamp"] == "2026-11-06T10:30:00+00:00"
+
+
+def test_an_older_app_sends_no_creation_moment_and_the_note_has_none(tmp_path):
+    memory = _memory(tmp_path)
+    run(notes_sync.sync_notes(memory, dump=_dated("n1", "Event", "Friday, November 6, 2026 at 11:30:00 AM",
+                                                  "2026-11-06T11:30:00", "3600")))
+    (path,) = (memory / "episodes").glob("ep_*.md")
+    assert "created_at" not in _fm(path)
+
+
+def test_an_unreadable_or_future_creation_moment_is_left_out(tmp_path):
+    memory = _memory(tmp_path)
+    record = _dated("n1", "Event", "Friday, November 6, 2026 at 11:30:00 AM", "2026-11-06T11:30:00", "3600")
+    for bad in ("yesterday", "2999-01-01T00:00:00", ""):
+        run(notes_sync.sync_notes(memory, dump=record, created={"n1": bad}))
+    (path,) = (memory / "episodes").glob("ep_*.md")
+    assert "created_at" not in _fm(path)
+
+
+def test_a_note_an_earlier_sync_kept_takes_its_creation_moment_without_a_new_episode_or_a_re_read(tmp_path):
+    memory = _memory(tmp_path)
+    record = _dated("n1", "Event", "Friday, November 6, 2026 at 11:30:00 AM", "2026-11-06T11:30:00", "3600")
+    run(notes_sync.sync_notes(memory, dump=record))
+    (path,) = (memory / "episodes").glob("ep_*.md")
+    before = _fm(path)
+    run(notes_sync.sync_notes(memory, dump=record, created={"n1": "2026-11-02T09:00:00"}))
+    after = _fm(path)
+    assert len(list((memory / "episodes").glob("ep_*.md"))) == 1
+    assert after["created_at"] == "2026-11-02T08:00:00+00:00"
+    assert {k: v for k, v in after.items() if k != "created_at"} == before        # the hash, the queue, the date: untouched
+
+
+def test_a_creation_moment_once_kept_never_moves(tmp_path):
+    memory = _memory(tmp_path)
+    record = _dated("n1", "Event", "Friday, November 6, 2026 at 11:30:00 AM", "2026-11-06T11:30:00", "3600")
+    run(notes_sync.sync_notes(memory, dump=record, created={"n1": "2026-11-02T09:00:00"}))
+    run(notes_sync.sync_notes(memory, dump=record, created={"n1": "2026-11-04T09:00:00"}))
+    (path,) = (memory / "episodes").glob("ep_*.md")
+    assert _fm(path)["created_at"] == "2026-11-02T08:00:00+00:00"
+
+
+def test_the_creation_moment_travels_beside_the_dump_over_the_route(tmp_path, monkeypatch):
+    client, memory = _make_client(tmp_path, monkeypatch)
+    record = _dated("n1", "Event", "Friday, November 6, 2026 at 11:30:00 AM", "2026-11-06T11:30:00", "3600")
+    r = client.post("/sources/sync-notes", json={"notesDump": record, "noteCreated": {"n1": "2026-11-02T09:00:00"}})
+    assert r.status_code == 200, r.text
+    (path,) = (memory / "episodes").glob("ep_*.md")
+    assert _fm(path)["created_at"] == "2026-11-02T08:00:00+00:00"
