@@ -1,0 +1,374 @@
+[
+ {
+  "id": "true-apposition-lunch",
+  "kind": "one",
+  "why": "the real shape: a nickname, then the full name in apposition",
+  "owner": "Mira Kolar",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "turn": "Had lunch with Teo today. Teodor Brandt, my old teammate from university. He's a product manager at Kestrel Robotics now.",
+  "assistant": "Understood.",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt works at Kestrel Robotics."
+  ],
+  "guard": "shape"
+ },
+ {
+  "id": "true-parenthesis",
+  "kind": "one",
+  "why": "the nickname in a parenthesis",
+  "owner": "Mira Kolar",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "turn": "Ran into Teodor Brandt (Teo) at the station this morning, he is back from Lisbon.",
+  "assistant": "Understood.",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt works at Kestrel Robotics."
+  ],
+  "guard": "shape"
+ },
+ {
+  "id": "true-short-for",
+  "kind": "one",
+  "why": "'short for'",
+  "owner": "Mira Kolar",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "turn": "Teo, short for Teodor Brandt, starts at the Kestrel office on Monday.",
+  "assistant": "Understood.",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt works at Kestrel Robotics."
+  ],
+  "guard": "shape"
+ },
+ {
+  "id": "true-dash",
+  "kind": "one",
+  "why": "a dash",
+  "owner": "Mira Kolar",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "turn": "Teodor Brandt - Teo to everybody who knows him - called me about the Kestrel offer.",
+  "assistant": "Understood.",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt works at Kestrel Robotics."
+  ],
+  "guard": "shape"
+ },
+ {
+  "id": "true-es",
+  "kind": "one",
+  "why": "the same sentence in Spanish",
+  "owner": "Mira Kolar",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "turn": "Comí con Teo hoy. Teodor Brandt, mi antiguo compañero de la universidad. Ahora es gerente de producto en Kestrel Robotics.",
+  "assistant": "Qué bien reencontrarse.",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt works at Kestrel Robotics."
+  ],
+  "guard": "shape"
+ },
+ {
+  "id": "true-fr",
+  "kind": "one",
+  "why": "the same sentence in French",
+  "owner": "Mira Kolar",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "turn": "J'ai déjeuné avec Teo aujourd'hui. Teodor Brandt, mon ancien camarade de fac. Il est chef de produit chez Kestrel Robotics maintenant.",
+  "assistant": "Content que vous vous soyez retrouvés.",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt works at Kestrel Robotics."
+  ],
+  "guard": "shape"
+ },
+ {
+  "id": "true-called",
+  "kind": "one",
+  "why": "'everyone calls him'",
+  "owner": "Mira Kolar",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "turn": "My neighbour Teodor Brandt, everyone calls him Teo, is feeding the cat while I am away.",
+  "assistant": "Understood.",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt works at Kestrel Robotics."
+  ],
+  "guard": "shape"
+ },
+ {
+  "id": "two-father-son",
+  "kind": "two",
+  "why": "a father and a son",
+  "owner": "Mira Kolar",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "turn": "Teo's father, Teodor Brandt, picked us up at the station after the match.",
+  "assistant": "Understood.",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt is Teo's father."
+  ],
+  "guard": "shape"
+ },
+ {
+  "id": "two-colleagues",
+  "kind": "two",
+  "why": "two colleagues named in one sentence",
+  "owner": "Mira Kolar",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "turn": "At the offsite dinner I sat between Teo and Teodor Brandt from finance.",
+  "assistant": "Understood.",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt works in finance."
+  ],
+  "guard": "shape"
+ },
+ {
+  "id": "two-namesake",
+  "kind": "two",
+  "why": "a namesake: 'the other one'",
+  "owner": "Mira Kolar",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "turn": "Not my Teo, the other one, Teodor Brandt, the one who handles our invoices.",
+  "assistant": "Understood.",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt handles invoices."
+  ],
+  "guard": "shape"
+ },
+ {
+  "id": "two-list",
+  "kind": "two",
+  "why": "a list of people",
+  "owner": "Mira Kolar",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "turn": "The people on the call were Teo, Anna, Teodor Brandt and Luis, and we agreed the plan for March.",
+  "assistant": "Understood.",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt was on the March planning call."
+  ],
+  "guard": "shape"
+ },
+ {
+  "id": "two-cousins",
+  "kind": "two",
+  "why": "two cousins",
+  "owner": "Mira Kolar",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "turn": "Teo and Teodor Brandt are cousins, they grew up in the same street and now work two floors apart.",
+  "assistant": "Understood.",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt is a cousin."
+  ],
+  "guard": "shape"
+ },
+ {
+  "id": "two-met-then-absent",
+  "kind": "two",
+  "why": "one present, one absent",
+  "owner": "Mira Kolar",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "turn": "I met Teodor Brandt at the fair today; Teo was supposed to come but his train was cancelled.",
+  "assistant": "Understood.",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt was met at the fair."
+  ],
+  "guard": "shape"
+ },
+ {
+  "id": "two-es",
+  "kind": "two",
+  "why": "a father and a son, in Spanish",
+  "owner": "Mira Kolar",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "turn": "El padre de Teo, Teodor Brandt, nos recogió en la estación después del partido.",
+  "assistant": "Qué amable.",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt es el padre de Teo."
+  ],
+  "guard": "shape"
+ },
+ {
+  "id": "two-fr",
+  "kind": "two",
+  "why": "a father and a son, in French",
+  "owner": "Mira Kolar",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "turn": "Le père de Teo, Teodor Brandt, est venu nous chercher à la gare après le match.",
+  "assistant": "C'est gentil.",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt est le père de Teo."
+  ],
+  "guard": "shape"
+ },
+ {
+  "id": "two-quoted",
+  "kind": "two",
+  "why": "both names in a line quoted from someone else",
+  "owner": "Mira Kolar",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "turn": "Forwarding this from Anna, can you draft a reply? \"Hi Mira, Teo says hello. Please meet Teodor Brandt, our new auditor, on Friday.\"",
+  "assistant": "Understood.",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt is a new auditor."
+  ],
+  "guard": "shape"
+ },
+ {
+  "id": "two-surname-elsewhere",
+  "kind": "two",
+  "why": "the short name's page already carries another surname",
+  "owner": "Mira Kolar",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "turn": "Had lunch with Teo today. Teodor Brandt, my old teammate from university.",
+  "assistant": "Understood.",
+  "page_facts": [
+   "Teo Marchetti is a designer at Kestrel Robotics.",
+   "Teo Marchetti joined in March."
+  ],
+  "held_facts": [
+   "Teodor Brandt works at Kestrel Robotics."
+  ],
+  "guard": "shape"
+ },
+ {
+  "id": "two-other-teo-page",
+  "kind": "two",
+  "why": "a second person page whose name begins with the short name",
+  "owner": "Mira Kolar",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "turn": "Had lunch with Teo today. Teodor Brandt, my old teammate from university.",
+  "assistant": "Understood.",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt works at Kestrel Robotics."
+  ],
+  "guard": "short_name_not_alone",
+  "other_pages": [
+   {
+    "id": "teo-marchetti",
+    "name": "Teo Marchetti"
+   }
+  ]
+ },
+ {
+  "id": "two-other-teo-held",
+  "kind": "two",
+  "why": "a second held name the short name could mean",
+  "owner": "Mira Kolar",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "turn": "Had lunch with Teo today. Teodor Brandt, my old teammate from university.",
+  "assistant": "Understood.",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt works at Kestrel Robotics."
+  ],
+  "guard": "short_name_not_alone",
+  "other_held": [
+   {
+    "name": "Teo Marchetti",
+    "aliases": []
+   }
+  ]
+ },
+ {
+  "id": "two-assistant-only",
+  "kind": "two",
+  "why": "both names only in the assistant's words",
+  "owner": "Mira Kolar",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "turn": "Had lunch with my old university friend today, he is back in town.",
+  "assistant": "Is that Teodor Brandt, who you also call Teo? I seem to remember a Teo from Kestrel Robotics.",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt works at Kestrel Robotics."
+  ],
+  "guard": "no_turn_names_both"
+ }
+]

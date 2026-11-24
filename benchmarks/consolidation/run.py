@@ -510,6 +510,27 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
         one_person.append({"id": row["id"], "why": row["why"], "ok": len(same_name) <= 1 and not titled,
                            "pages": same_name, "held_lines": [ln["name"] for ln in titled]})
 
+    # A full name said once and a nickname with a page are one person (2026-11-24, ruling 74b): the person's own words named
+    # both as one, so Sleep joins them itself. Held apart this is the question "Is <Full Name> the same as <Short>?". The
+    # alias must be on the page, the full name held nowhere else (no page, no waiting line) and the question gone. The
+    # earlier "people" and "one person" checks do not see this: they pass with the page alone.
+    name_joined = []
+    held_names = {norm(ln["name"]) for ln in held_lines(bank)}
+    for row in gold["people"].get("joined", []):
+        alias, page_name = norm(row["alias"]), norm(row["page"])
+        carriers = [p["id"] for p in pages if norm(str(p["name"])) == page_name and alias in {norm(a) for a in p["aliases"]}]
+        own = [p["id"] for p in pages if norm(str(p["name"])) == alias]
+        asked = []
+        for f in sorted((bank / "inbox").glob("inbox-*.md")):   # the open ones: a settled record lives under settled/
+            from api.services import markdown_parser
+
+            fm = markdown_parser.parse(f).frontmatter or {}
+            if (str(fm.get("kind") or "") == "merge_suggestion" and str(fm.get("status") or "pending") == "pending"
+                    and norm(str(fm.get("entity_name") or "")) == alias):
+                asked.append(f.stem)
+        name_joined.append({"id": row["id"], "why": row["why"], "ok": bool(carriers) and not own and alias not in held_names and not asked,
+                            "pages": carriers, "own_page": own, "held": alias in held_names, "open_questions": len(asked)})
+
     def has_page(term) -> list[str]:
         return [p["id"] for p in pages if not p["owner"] and matches(_page_names(p), [term if isinstance(term, list) else [term]])]
 
@@ -583,6 +604,7 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
             "roles_ok": total(roles), "roles": len(roles),
             "people_ok": total(people), "people": len(people),
             "one_person_ok": total(one_person), "one_person": len(one_person),
+            "name_joined_ok": total(name_joined), "name_joined": len(name_joined),
             "pages_ok": total(expected) + total(not_expected), "pages_checks": len(expected) + len(not_expected),
             "dated_ok": total(dated), "dated": len(dated),
             "pages_total": len(pages), "claims_total": len(claims), "questions": len(snap["questions"]),
@@ -591,7 +613,7 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
             **fading["summary"],
         },
         "points": points, "updates": updates, "apart_values": apart, "forbid": forbid, "roles": roles, "people": people,
-        "one_person": one_person,
+        "one_person": one_person, "name_joined": name_joined,
         "pages": {"expected": expected, "not_expected": not_expected}, "dated": dated, "integrity": integrity,
         "fading": fading,
     }
@@ -915,6 +937,7 @@ def report(out: Path) -> str:
             ("roles_ok", f"a role reads true as written /{first.get('roles', '?')}"),
             ("people_ok", f"people joined/kept apart right /{first.get('people', '?')}"),
             ("one_person_ok", f"one person kept as one (no second page, no held second line) /{first.get('one_person', '?')}"),
+            ("name_joined_ok", f"a full name and its nickname's page joined by Sleep /{first.get('name_joined', '?')}"),
             ("pages_ok", f"page made / not made right /{first.get('pages_checks', '?')}"),
             ("dated_ok", f"relative dates right /{first.get('dated', '?')}"),
             ("fade_keeps_ok", f"pages kept coming back to, not fading /{first.get('fade_keeps', '?')}"),
@@ -970,7 +993,7 @@ def compare(out: Path, a: str, b: str) -> str:
     rows = ["| measure | " + a + f" (n={len(ga)}) | " + b + f" (n={len(gb)}) | clear |", "|---|---|---|---|"]
     sa = [json.loads((x / "score.json").read_text(encoding="utf-8"))["summary"] for x in ga]
     sb = [json.loads((x / "score.json").read_text(encoding="utf-8"))["summary"] for x in gb]
-    for key in ("points_claim", "points_held", "points_judged", "updates_correct", "apart_ok", "forbid_ok", "roles_ok", "people_ok", "one_person_ok", "pages_ok", "dated_ok",
+    for key in ("points_claim", "points_held", "points_judged", "updates_correct", "apart_ok", "forbid_ok", "roles_ok", "people_ok", "one_person_ok", "name_joined_ok", "pages_ok", "dated_ok",
                 "claims_total", "pages_total"):
         va = [s[key] for s in sa if s.get(key) is not None]
         vb = [s[key] for s in sb if s.get(key) is not None]
