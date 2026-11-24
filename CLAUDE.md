@@ -270,13 +270,13 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   Sleep sets its flag then waits holders out — past the bound it pauses, never reads; never held across a model call or a fetch. Sleep's bank-wide work runs off the event loop; Stage 2's judge calls alone go back to it (G238).
 - **Sleep tends the inbox (ruling 29):** after each batch's commit it settles questions the person's own words answer
   (spans in their own turns, never a guess) and, per drain, the small stuff by rule, through the person's own resolvers
-  as Sleep's commit (`inbox/<kind>/settled:`), each undoable; never a person's identity without their words, bar rulings 79 (c), 81 (`features.md`).
+  as Sleep's commit (`inbox/<kind>/settled:`), each undoable; never a person's identity without their words, bar rulings 79 (c), 82 (`features.md`).
   **Ruling 73:** no question loses a value; its own counters are never asked. **Ruling 74 (2026-11-07):** two people pages
   join only on two independent kinds of evidence, the name (an alias included, 2026-11-08) counting once (`person_duplicates.joins`), else a question; **79 (c):** time is the second kind for a first name and a same-week arrival, report-only.
   **74a (2026-11-23):** a same-name pair Sleep holds in doubt it joins itself on a located link read twice, undoable; one that reads like two is not asked.
   **74b (2026-11-24):** a name held in full joins its short-name page on the person's own located words naming both as one, read twice; an undo keeps them apart.
   **74c (2026-11-24):** a plain misspelling is assumed, not asked: joined on one located same-fact line per side, read twice, else held quietly (`typo_join`); a question the record already answers is closed (`answered_questions`).
-  **Ruling 81:** the main model re-reads open questions against the record (`question_revisit`): located, read twice, undoable.
+  **Ruling 82:** the main model re-reads open questions against the record (`question_revisit`): located, read twice, undoable.
 - **An edited conversation is a revision of itself (G104, owner 2026-11-03):** diffed against the version Sleep read
   (git), only what changed is read, spans re-anchored never fuzzily; what only removed text said is superseded by the
   same revision's value (no question) or withdrawn by a record, never deleted; still one conversation for every count;

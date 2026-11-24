@@ -1210,7 +1210,7 @@ async def _typo_join_safely(memory_path: Path, settings: Settings, *, user_trigg
 
 
 async def _question_revisit_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
-    """Ruling 81 (2026-11-24, `question_revisit`): the open questions the lanes above left are read again by the engine's
+    """Ruling 82 (2026-11-24, `question_revisit`): the open questions the lanes above left are read again by the engine's
     main model against the whole record, a fixed few per run in the inbox's order; two people the record shows are one
     (a located line, or two kinds of evidence, read twice) are joined, and a conflict, clarification or follow-up the
     person's own newest words answer is settled, each as one undoable Sleep settle ("Settled by Sleep"). Nothing of the
@@ -1990,7 +1990,7 @@ async def _run_engine_independent_tail(
             await _full_name_join_safely(memory_path, settings, user_triggered=user_triggered)
             # Ruling 74c (2026-11-24): a name that is plainly one person's page written two ways.
             await _typo_join_safely(memory_path, settings, user_triggered=user_triggered)
-            # Ruling 81 (2026-11-24): what those lanes left open, read again by the main model against the whole record.
+            # Ruling 82 (2026-11-24): what those lanes left open, read again by the main model against the whole record.
             await _question_revisit_safely(memory_path, settings, user_triggered=user_triggered)
         # G21 (2026-11-24): two pages that go by one name; the engine-free half runs with no model too.
         await _alias_collisions_safely(memory_path, settings, user_triggered=user_triggered, no_model=no_model)

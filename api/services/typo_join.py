@@ -489,7 +489,7 @@ def anchored(memory_path: Path, case: Case, read: Read, speaker: str | None = No
     or a digit in both lines (a place, an employer, a project) anchors; so does one on at most :data:`RARE_PAGES` pages.
     In a bank under :data:`MIN_BANK_PAGES` pages only the named kind anchors. Two lines that both say "is a colleague" share
     nothing specific, so they are not the same fact however a model reads them. ``rare_only`` (Sleep's second look at a pair
-    whose name evidence may be only a first name inside a full name, ruling 81): the capital-in-both branch is off, since a
+    whose name evidence may be only a first name inside a full name, ruling 82): the capital-in-both branch is off, since a
     shared employer or role is true of many people; only a word on at most :data:`RARE_PAGES` pages anchors, and a bank too
     small to count them anchors nothing. Reads only."""
     skip = {w for n in (*case.a.names, *case.b.names, case.a.name, case.b.name, speaker or "") for w in _words(n)}

@@ -1,4 +1,4 @@
-"""Battery for Sleep's second look at open questions (`api/services/question_revisit.py`, ruling 81, 2026-11-24).
+"""Battery for Sleep's second look at open questions (`api/services/question_revisit.py`, ruling 82, 2026-11-24).
 
 Why: Sleep may now close a question the record answers, by itself: two people pages it reads as one person (on a located
 line, or two kinds of evidence, read twice by the engine's main model), and a conflict or "who is it?" the person's own

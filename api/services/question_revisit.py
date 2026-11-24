@@ -1,4 +1,4 @@
-"""Sleep looks at open questions again and closes the ones the record now answers (ruling 81, owner 2026-11-24).
+"""Sleep looks at open questions again and closes the ones the record now answers (ruling 82, owner 2026-11-24).
 
 The owner, on a card asking whether two people pages were one person when each page's own first sentence said so:
 "questions with obvious answers [...] sleep could make sure to see open questions and close them with new information or

@@ -1,4 +1,4 @@
-"""Dry run of Sleep's second look at open questions (`question_revisit`, ruling 81, 2026-11-24). Writes nothing.
+"""Dry run of Sleep's second look at open questions (`question_revisit`, ruling 82, 2026-11-24). Writes nothing.
 
 One stable line per open question the step would look at, in the order it looks (`question_order`):
 

@@ -1,4 +1,4 @@
-"""Sleep looks at open questions again and closes the ones the record answers (ruling 81, owner 2026-11-24).
+"""Sleep looks at open questions again and closes the ones the record answers (ruling 82, owner 2026-11-24).
 
 Synthetic banks only (invented people, a fake judge, real git). The engine is injected; nothing reaches a network."""
 from __future__ import annotations

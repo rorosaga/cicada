@@ -138,7 +138,7 @@ RULES: dict[str, str] = {
     "alias_apart": "Two different things: one no longer lists the other's name as its own",
     "alias_quiet": "A saved link shares the name; it is no question about your memory",
     "alias_doubt": "Sleep could not tell whether they are one thing; nothing was changed",
-    # 2026-11-24 (`question_revisit`, ruling 81): an open question read again, by the main model, against the whole record.
+    # 2026-11-24 (`question_revisit`, ruling 82): an open question read again, by the main model, against the whole record.
     "revisit_one": "Read again against everything on record: it says they are one person",
 }
 #: What the settled list says each retired "same as?" question became (owner 2026-11-04, `pair_evidence`).
@@ -219,7 +219,7 @@ class Decision:
     #: ``source_corrected`` only: the corrected conversation the question rested on (G104 slice 3).
     basis: str = ""
     #: The located words a read rested on, ``{"episode", "start", "end", "kind"}`` (``kind``: whose words they are), ids
-    #: and offsets only: the settled list shows them beside the reason (`question_revisit`, ruling 81).
+    #: and offsets only: the settled list shows them beside the reason (`question_revisit`, ruling 82).
     spans: list = field(default_factory=list)
 
 
@@ -2198,7 +2198,7 @@ def still_holds(memory_path: Path, d: Decision) -> bool:
 
         return typo_join.still_holds(memory_path, d)
     if d.rule == "revisit_one":
-        # Ruling 81 (2026-11-24): the same, for two pages the question revisit read against the whole record.
+        # Ruling 82 (2026-11-24): the same, for two pages the question revisit read against the whole record.
         from api.services import question_revisit
 
         return question_revisit.still_holds(memory_path, d)
