@@ -34,7 +34,7 @@ MAX_CONVERSATIONS = 3
 SYSTEM = ("You decide whether one thing a person talks about is a part of another thing they work on, from the words "
           "you are given, and answer in JSON.")
 
-PROMPT = """A person's knowledge graph holds the things they work on. The name B below was read from the conversation(s) shown and has no page of its own; a quick reading suggested B is a part of the existing thing A (a stage, component, room, chapter, draft, task or aspect of it). If you agree, what the person says about B is written on A's page and B is never a thing of its own. A wrong yes joins two different things for good; a no costs little (B keeps its own name until more is said).
+PROMPT = """A person's knowledge graph holds the things they work on. The name B below was read from the conversation(s) shown and has no page of its own; a quick reading suggested B is a part of the existing thing A (a stage, component, section, task or aspect of it). If you agree, what the person says about B is written on A's page and B is never a thing of its own. A wrong yes joins two different things for good; a no costs little (B keeps its own name until more is said).
 
 B: {name}
 What was read about B:
@@ -51,7 +51,7 @@ Answer "part" only when the words above show what ties B to A: the conversation 
 Answer "no" when any of these holds:
 - B is described as separate from A, or as a job, event or endeavour of its own (its own budget, people, purpose or deadline);
 - B sits in another place, home, organisation or among other people than A's;
-- B is only the same KIND of thing as A, or as a part A also has (two writing projects each have a draft; one tool serves two builds), or it fits another thing the person has as well as A;
+- B is only the same KIND of thing as A, or the kind of part A also has, or it fits another thing the person has as well as A;
 - nothing in these words ties B to A, and the only reason is that such a part usually belongs to such a whole.
 
 Respond with JSON only:
@@ -106,6 +106,6 @@ async def confirms(name: str, summary: str, episodes: list[str], whole: str, bod
     except engine_errors.EngineError:
         raise
     except Exception as e:   # noqa: BLE001 — a reading that fails lands nothing
-        logger.debug(f"Part landing reading failed for {name}: {type(e).__name__}")
+        logger.debug(f"Part landing reading failed: {type(e).__name__}")   # never a name
         return False
     return verdict_of(parsed)
