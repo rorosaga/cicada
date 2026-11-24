@@ -1186,6 +1186,24 @@ async def _full_name_join_safely(memory_path: Path, settings: Settings, *, user_
                     + (f", skipped {report.skipped}" if report.skipped else ""))
 
 
+async def _typo_join_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
+    """Ruling 74c (2026-11-24, `typo_join`): a name that is plainly one person's page written two ways, whose two sides
+    state the same fact (located, read twice by the engine's main model), is joined as one undoable Sleep settle. Nothing
+    of the shape open: no engine and no commit. Counts only. Never raises."""
+    from api.services import typo_join
+
+    if not (memory_path / ".git").exists():
+        return
+    try:
+        report = await typo_join.run_tail(memory_path, settings, user_triggered=user_triggered)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Typo join failed: {type(exc).__name__}")
+        return
+    if report.looked or report.joined:
+        logger.info(f"Typo join: {report.looked} read, {report.joined} joined"
+                    + (f", skipped {report.skipped}" if report.skipped else ""))
+
+
 async def _arrival_refusals_safely(memory_path: Path) -> None:
     """G245 (arrival join): each "Not them" the person said to a first name joined to someone who had no page, whose full name
     now belongs to a page, becomes a refused pair of pages — before the same-name review, so 74 / 74a / 74b hold it the same
@@ -1870,6 +1888,8 @@ async def _run_engine_independent_tail(
             await _same_name_review_safely(memory_path, settings, user_triggered=user_triggered)
             # Ruling 74b (2026-11-24): a name held in full that the person's own words name as one with a short-name page.
             await _full_name_join_safely(memory_path, settings, user_triggered=user_triggered)
+            # Ruling 74c (2026-11-24): a name that is plainly one person's page written two ways.
+            await _typo_join_safely(memory_path, settings, user_triggered=user_triggered)
         # G245 (owner 2026-11-24): a first-name page and the person who newly appeared the same week — decided and reported
         # here (`arrival_join.LIVE` false writes nothing); a write is its own commit, before the rematches attach.
         await _arrival_join_safely(memory_path, settings, user_triggered=user_triggered, no_model=no_model)

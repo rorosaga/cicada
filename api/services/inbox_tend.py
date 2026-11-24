@@ -119,6 +119,10 @@ RULES: dict[str, str] = {
     "no_pair_evidence": "No conversation names the two together",
     "two_signals": "Two separate kinds of evidence say these are one person",
     "full_name_one": "Your own words name them together as one person",
+    "typo_one": "The same name spelled two ways, and the record says one person",
+    "already_one_page": "The record already answers it: they are one page",
+    "already_a_name": "The record already answers it: that name is one of this page's names",
+    "names_one_page": "Both values name one person, spelled two ways",
     "not_started": "It is not one of your projects",
     "same_value": "The same value, said two ways",
     "moved_on": "It moved: the latest is current, the earlier ones are kept as past",
@@ -131,10 +135,13 @@ RULES: dict[str, str] = {
 RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
            "no_pair_evidence": "Not asked: no conversation names them together"}
 #: The rules that read only the bank: re-run inside each settle, which goes ahead only when they still agree.
+#: The rules whose settle is a join Sleep read twice: taking one back is the person saying they are two (74b, 74c).
+JOINS = frozenset({"full_name_one", "typo_one"})
 ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "seed_fold", "one_off", "newest_evidence",
                          "multi_valued", "in_passing", "newest_words", "own_settings", "named_account",
                          "owner_unsaid", "no_pair_evidence", "two_signals", "not_started", "same_value", "moved_on",
-                         "own_bookkeeping", "already_described", "not_fading", "source_corrected"})
+                         "own_bookkeeping", "already_described", "not_fading", "source_corrected",
+                         "already_one_page", "already_a_name", "names_one_page"})
 #: The judged kinds (owner, 2026-10-17: the inbox keeps only what genuinely needs the person).
 JUDGED_KINDS = frozenset({"merge_suggestion", "conflict", "normalization", "decay"})
 MAX_REASON_CHARS = 160
@@ -356,6 +363,16 @@ def _is_owner_page(fm: dict | None) -> bool:
 
 
 def _merge_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | None, str]:
+    from api.services import answered_questions
+
+    answered = answered_questions.pair_answer(memory_path, fm)
+    if answered is not None:
+        # Owner 2026-11-24 (ruling 74c): a question the bank itself already answers — both ends one page, or the asked
+        # name already a name of that page — is closed, nothing joined and nothing written but its record. Before every
+        # other rule: nothing else may ask, judge or join a pair that is no longer two.
+        request = {"action": "merge", "merge_target": answered.target_id} if answered.held else None
+        return Decision(item_id, "merge_suggestion", answered.rule, request, answer="Already one",
+                        guard=_guard(memory_path, answered.mention_id, answered.target_id)), ""
     if str(fm.get("detected") or "") == "same_name_doubt":
         # 2026-11-23 (`same_name_tend`): two people who share a first name, held in doubt, asked once after everything on
         # record was read. A conversation that answers it settles it (move 1); no rule and no judge reading the same
@@ -580,6 +597,18 @@ def _conflict_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision 
         return None, "judgement"
     if (moved := _moved_rule(memory_path, item_id, fm, predicate, page)) is not None:
         return moved, ""
+    from api.services import answered_questions
+
+    spelled = answered_questions.labels_one_page(memory_path, fm)
+    if spelled is not None:
+        # Owner 2026-11-24 (ruling 74c): two values that are one person's name, spelled two ways, are not a conflict. The
+        # option written as the page's own name stays; the other is closed (`same_value`'s resolver).
+        page_id, options = spelled
+        own = _fold_name(_page(memory_path, page_id)[1].get("name"))
+        kept = next((o for o in options if _fold_name(o.get("label")) == own), None)
+        if kept is not None:
+            return Decision(item_id, "conflict", "names_one_page", {"action": "resolve", "option_key": str(kept["key"])},
+                            answer=str(kept["label"]), guard=_guard(memory_path, page[0].stem, page_id)), ""
     if predicates.cardinality(memory_path, predicate) == "multi":
         # G98: a set, not a contradiction — Stage 3 already kept every value open; the question asks for a winner
         # that does not exist. The resolver's own "informational" dismiss closes nothing.
@@ -2112,6 +2141,11 @@ def still_holds(memory_path: Path, d: Decision) -> bool:
         from api.services import full_name_join
 
         return full_name_join.still_holds(memory_path, d)
+    if d.rule == "typo_one":
+        # Ruling 74c (2026-11-24): the same, for one name spelled two ways.
+        from api.services import typo_join
+
+        return typo_join.still_holds(memory_path, d)
     if d.rule not in ENGINE_FREE:
         return True
     path = _inbox(Path(memory_path)) / f"{d.item_id}.md"
@@ -3159,7 +3193,7 @@ def undo(memory_path: Path, item_id: str) -> tuple[str, list[str], list[str], di
             _write_bytes(target, data)
         paths.append(rel)
         lines.append(f"{rel}: updated (source: {item_id}, trigger: inbox/sleep-settle/undone)")
-    if rec.get("rule") == "full_name_one":
+    if rec.get("rule") in JOINS:
         # Ruling 74b: taking back Sleep's join of a held full name is the person saying they are two people. The
         # question does not come back: the pair is kept apart by the writer their own "No, different" uses
         # (`inbox_service.reject_effects`), inside this one undo, so nothing asks or joins them again.
