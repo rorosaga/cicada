@@ -503,4 +503,63 @@ final class PageInlineTests: XCTestCase {
         XCTAssertEqual(FadedTopScrollEdge.depth(scrolled: 900, height: 16), 1)
         XCTAssertEqual(FadedTopScrollEdge.depth(scrolled: 10, height: 0), 0)
     }
+
+    // MARK: A rich page drew blank at 130 % and with a band above it at 80 % (the owner runs at 80 %, 2026-11-24)
+
+    /// A layout that records the width it was proposed.
+    private struct ProposalProbe: Layout {
+        nonisolated(unsafe) static var widths: [CGFloat] = []
+        func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+            Self.widths.append(proposal.width ?? -1)
+            return CGSize(width: proposal.width ?? 10, height: 10)
+        }
+        func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+            Self.widths.append(proposal.width ?? -1)
+            for view in subviews { view.place(at: bounds.origin, proposal: proposal) }
+        }
+    }
+
+    /// The article's stack is laid out at a whole point, however the card's width came out of a text size (617.6 and
+    /// 617.4 were proposed in turn at 130 %).
+    @MainActor
+    func testTheArticleStackIsProposedAWholePointWhateverTheCardWidth() {
+        _ = NSApplication.shared
+        for width in [617.4, 617.6, 617.4000000000001, 503.99, 659.0] as [CGFloat] {
+            ProposalProbe.widths = []
+            let hosting = NSHostingView(rootView: WholePointWidth { ProposalProbe { Color.clear } }
+                .frame(width: width, height: 200, alignment: .topLeading))
+            hosting.frame = NSRect(x: 0, y: 0, width: width, height: 200)
+            hosting.layoutSubtreeIfNeeded()
+            XCTAssertFalse(ProposalProbe.widths.isEmpty)
+            for seen in ProposalProbe.widths where seen >= 0 {
+                XCTAssertEqual(seen, seen.rounded(.down), "a card \(width) pt wide proposes \(seen) to the stack")
+            }
+        }
+    }
+
+    /// A run's measured height at every text size the setting offers: positive, finite, and the same on a second pass
+    /// and when the width goes there and back (a hair of difference between two proposals is not a new layout).
+    @MainActor
+    func testARunMeasuresPositiveAndStableAtEveryTextSize() async throws {
+        defer { CicadaTheme.uiScale = 1 }
+        let article = WikiArticle.build("""
+        # Key Facts
+
+        - Every design is reviewed by [[bob-example]] and [[Alpha Project]] twice.
+        - The editor is [[gamma-ide]], and [[bob-example]] again.
+
+        A paragraph with [[bob-example]] and a cluster after it that is long enough to wrap onto a second and a third line at a narrow width, so the height depends on the type scale and the width together.
+        """)
+        let cluster = (SourceClusterModel(keys: ["claude-code", "notes"]), [CiteKey(n: 1, at: 1)])
+        for scale in [0.8, 0.9, 1.0, 1.1, 1.2, 1.3] {
+            CicadaTheme.uiScale = scale
+            let (_, view) = document(article.rows, cluster: cluster, width: 617.6)
+            let first = view.height(for: 617.6)
+            XCTAssertGreaterThan(first, 0, "scale \(scale)")
+            XCTAssertTrue(first.isFinite, "scale \(scale)")
+            XCTAssertEqual(view.height(for: 617.6), first, "scale \(scale): a second pass at the same width")
+            _ = view.height(for: 617.4)
+            XCTAssertEqual(view.height(for: 617.6), first, "scale \(scale): there and back")
+        }
+    }
 }

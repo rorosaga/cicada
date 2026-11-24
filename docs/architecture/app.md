@@ -2417,7 +2417,10 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   gives the same to Services. A line with web links keeps its 🔗 button and right-click view choices (`PageRun`: the
   button follows the row's frame, the menu is an `NSMenu` built from the same `LinkCardModel`; the button is SwiftUI drawn
   over the text view, so the text view's `hitTest` answers nil over it and its click is the button's). A selection leaves
-  when the person selects in another run. A heading's links are quiet, never chips. `PageBeliefSentences` uses the same
+  when the person selects in another run. **The stack of runs is laid out at a whole point of width** (`WholePointWidth`
+  around the article's `LazyVStack`, 2026-11-24): without it a rich page (Key Facts, prose and Related cards) drew a blank
+  Content tab at 130 % and a blank band above the first line at 80 % (the owner's size), because the lazy stack's content
+  sat hundreds of points below the top; 100 % and 120 % drew. It stays lazy. A heading's links are quiet, never chips. `PageBeliefSentences` uses the same
   engine. **The keyboard (verified 2026-11-24):** the key-view loop does not reach a view that lives inside text (a SwiftUI
   `.focusable()` chip was never a Tab stop), so the text view owns Tab for what is in it — `PageStop`s in reading order,
   chips, quiet links and clusters: arriving by Tab lands on the first (Shift-Tab, the last), Tab and Shift-Tab move

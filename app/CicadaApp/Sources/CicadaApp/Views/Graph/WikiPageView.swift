@@ -27,21 +27,23 @@ struct WikiPageView: View {
             }
         })
         let blocks = Self.blocks(article.rows, related: related)
-        LazyVStack(alignment: .leading, spacing: 0) {
-            // Identified by the first row's scroll anchor, so the card can scroll a lazy block into view (`anchor`).
-            ForEach(blocks, id: \.first.anchor) { block in
-                Group {
-                    if block.isText {
-                        PageRun(rows: block.rows, entityId: entityId, citations: citations,
-                                related: related, index: index)
-                    } else {
-                        WikiRowView(row: block.first, entityId: entityId, related: related[block.first.id],
-                                    relatedSlot: slot, index: index)
+        WholePointWidth {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                // Identified by the first row's scroll anchor, so the card can scroll a lazy block into view (`anchor`).
+                ForEach(blocks, id: \.first.anchor) { block in
+                    Group {
+                        if block.isText {
+                            PageRun(rows: block.rows, entityId: entityId, citations: citations,
+                                    related: related, index: index)
+                        } else {
+                            WikiRowView(row: block.first, entityId: entityId, related: related[block.first.id],
+                                        relatedSlot: slot, index: index)
+                        }
                     }
+                    .padding(.top, block.first.id == 0 ? 0 : WikiRowView.gap(above: block.first,
+                                                                              after: article.rows[block.first.id - 1],
+                                                                              cards: related))
                 }
-                .padding(.top, block.first.id == 0 ? 0 : WikiRowView.gap(above: block.first,
-                                                                          after: article.rows[block.first.id - 1],
-                                                                          cards: related))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -232,5 +234,27 @@ enum MentionIcon {
         return Text(Image(systemName: "globe"))
             .font(CicadaTheme.font(size: 11))
             .foregroundStyle(CicadaTheme.textTertiary)
+    }
+}
+
+/// Lays its one child out at the proposed width rounded down to a whole point (the article's `LazyVStack`).
+///
+/// Measured on the app's text-size setting (2026-11-24, scratch app, a page with Key Facts, prose and Related cards):
+/// without it, a page at 130 % drew a blank Content tab and at 80 % a blank band of several hundred points above the first line
+/// (the scroll content sat that far below the top); 100 % and 120 % drew. At 130 % the article was proposed 617.6 and
+/// 617.4 pt in turn. A plain `VStack` drew at 130 %; this wrapper draws at 80, 90, 100, 110, 120 and 130 % in two window
+/// widths and keeps the stack lazy (a 300-paragraph page made two runs of its nine on open). The cost is under a point
+/// of width; the text view already lays out at a whole or half point (`PageTextView.height(for:)`).
+struct WholePointWidth: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        let width = proposal.width.map { $0.rounded(.down) }
+        let size = child.sizeThatFits(ProposedViewSize(width: width, height: proposal.height))
+        return CGSize(width: width ?? size.width, height: size.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading,
+                              proposal: ProposedViewSize(width: bounds.width.rounded(.down), height: bounds.height))
     }
 }
