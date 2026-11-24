@@ -36,9 +36,14 @@ EXEMPT = {
     "api/services/inbox_service.py": "a resolver: closes the claims a question names",
     "api/services/entity_merge.py": "a merge: carries every claim — events and records too — unchanged but its subject",
     "api/services/linkedin_people.py": "writes its own external:linkedin claims; reads only works-at/role/connected-on",
+    "api/services/follows_people.py": "writes its own external:<site> followed-on claims; reads only that predicate, closing it when the account is gone",
     "api/services/same_name_tend.py": "reads what each conversation said about a name (G148): skips only a claim a later "
                                       "one superseded (`valid_to` with `superseded_by`); an event has no `superseded_by`, "
                                       "so a done happening is still what that conversation said — nothing here ranks by state",
+    "api/services/value_sweep.py": "current-only: reads and closes only OPEN `value-of-` literal claims (`value_alignment._open_value`: "
+                                   "no valid_to, no superseded_by); an event's predicate is never one",
+    "api/services/arrival_join_write.py": "a writer: its undo closes, by id, only the claims its own join wrote (the LinkedIn "
+                                          "observer's works-at/role/connected-on, `linkedin_people`); no event is among them",
     "api/services/entity_relations.py": "current-only: `known` reads open claims (valid_to unset) of relation predicates (RECORD_PREDICATES); no event has one",
 }
 HISTORY_READERS = ("api/services/mcp_tools.py", "api/routers/claims.py", "api/services/provenance.py",

@@ -1443,6 +1443,14 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/follows_people.py": [
+    {
+      "function": "_apply_page",
+      "method": "write",
+      "frontmatter": "new_fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
   "services/history_index.py": [
     {
       "function": "wake",
@@ -1925,6 +1933,14 @@
       "disposition": "fresh_frontmatter_untracked"
     }
   ],
+  "services/typo_join.py": [
+    {
+      "function": "_materialize",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "fresh_frontmatter_untracked"
+    }
+  ],
   "services/connector_text.py": [
     {
       "function": "repair",
@@ -1950,6 +1966,20 @@
     },
     {
       "function": "finish",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "undo",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
+  "services/arrival_birth.py": [
+    {
+      "function": "apply_birth",
       "method": "write",
       "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"

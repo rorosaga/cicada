@@ -3141,6 +3141,23 @@ actor APIClient {
         return (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["forgotten"] as? Int ?? 0
     }
 
+    /// `GET /sources/follows/list` (G245, ruling 79 (b)) — the accounts the person follows, newest first. The one route that
+    /// names them: local API, answered from this computer's directory, held in memory by the caller only.
+    func fetchFollowedAccounts(site: String = "x", query: String, offset: Int, limit: Int) async throws -> FollowedAccountsPage {
+        var path = "/sources/follows/list?site=\(site)&offset=\(max(0, offset))&limit=\(max(1, min(limit, 200)))"
+        let words = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !words.isEmpty {
+            path += "&query=" + (String(words.prefix(120)).addingPercentEncoding(withAllowedCharacters: SourceSearch.queryAllowed) ?? "")
+        }
+        return try await get(path, timeout: Self.refreshTimeout)
+    }
+
+    /// `DELETE /sources/follows/{site}` — forget this memory's kept following list; returns how many accounts were kept.
+    func forgetFollowedAccounts(site: String = "x") async throws -> Int {
+        let data = try await delete("/sources/follows/\(site)")
+        return (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["forgotten"] as? Int ?? 0
+    }
+
     /// Round 4 (G160): one browser profile's open tab groups, read by the app from Chrome's session file.
     func syncTabGroups(_ payload: TabGroupsPayload) async throws -> TabGroupsSyncResult {
         try await postData("/sources/tab-groups/sync", json: try JSONEncoder().encode(payload))

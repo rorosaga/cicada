@@ -3516,7 +3516,12 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
         from api.services import pending_store as _store
         from api.services.entity_resolver import HELD_MENTION_KEY
 
-        fold_flag = parsed.frontmatter.get("fold_page") is True
+        # A "Is A the same as B?" between two PAGES (`person_duplicates`, `detected: person_duplicate`, 2026-11-24) is a
+        # page question like a flagged one: until now it carried no flag, so a recent one was read as about a held mention
+        # and neither Sleep's join of it (ruling 74, 74c: refused, "the fold is the person's call") nor the person's own
+        # yes folded the page.
+        fold_flag = (parsed.frontmatter.get("fold_page") is True
+                     or str(parsed.frontmatter.get("detected") or "") == "person_duplicate")
         subject_file = resolve_entity_file(settings.memory_path, entity_id) if entity_id else None
         about_mention = parsed.frontmatter.get(HELD_MENTION_KEY) is True and not fold_flag
         subject_page = subject_file.stem if subject_file is not None and not about_mention else ""

@@ -87,7 +87,7 @@ def _seed(memory, url, *, origin, folder):
 def test_the_new_lists_are_keys_with_a_base_and_none_is_ever_on_by_default():
     assert tuple(saved_lists.PLATFORMS) == reading_settings.SAVED_LISTS
     bases = {k: p.base for k, p in saved_lists.PLATFORMS.items() if p.base}
-    assert bases == {"x-likes": "x", "x-reposts": "x", "instagram-likes": "instagram", "linkedin-connections": "linkedin",
+    assert bases == {"x-likes": "x", "x-reposts": "x", "x-following": "x", "instagram-likes": "instagram", "linkedin-connections": "linkedin",
                      "reddit-upvoted": "reddit"}
     assert not set(bases) & set(reading_settings.DEFAULT_ON_SAVED_LISTS)
     assert not {"playlists", "liked"} & set(reading_settings.DEFAULT_ON_YOUTUBE_LISTS)
@@ -134,7 +134,7 @@ def test_every_saved_list_label_is_a_list_save_by_its_own_origin_and_folder():
     """The gate: a list's origin and folder label are what ``history_index.save_shaped`` reads (and ``mention_asks`` and
     the wake ride on), so a list that forgot to register would be a conversation to every reader."""
     for key, p in saved_lists.PLATFORMS.items():
-        if p.kind in ("books", "people"):   # kept outside the bank: no save at all
+        if p.kind in ("books", "people", "accounts"):   # kept outside the bank: no save at all
             continue
         assert history_index.save_shaped({"origin": p.origin, "folder": p.folder}) == "list", key
         assert history_index.kind({"origin": p.origin, "folder": p.folder, "processed": True, "processed_by": "index"}) == "list", key

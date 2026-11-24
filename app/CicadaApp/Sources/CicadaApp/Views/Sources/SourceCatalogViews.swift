@@ -834,7 +834,11 @@ struct SourceCatalogDetail: View {
                 }))
             }
             if selected == people.id {
-                LinkedInConnectionsSection(streamOn: people.stream.state == .on, kept: people.stream.count ?? 0)
+                if people.stream.kind == .following {
+                    FollowedAccountsSection(streamOn: people.stream.state == .on, kept: people.stream.count ?? 0)
+                } else {
+                    LinkedInConnectionsSection(streamOn: people.stream.state == .on, kept: people.stream.count ?? 0)
+                }
             } else {
                 cameIn
             }
@@ -908,7 +912,25 @@ struct SourceCatalogDetail: View {
                                           confirm: (LinkedInConnectionsWords.forget, LinkedInConnectionsWords.forget,
                                                     Copy.Streams.forgetKeptHelp)) { forgetKeptConnections() })
         }
+        // X: the accounts the person follows are kept the same way (ruling 79 (b)); forgetting them is a removal too.
+        if row.entry.id == "x", let following = SourceStreamItems.connections(pageStreams), following.stream.kind == .following,
+           (following.stream.count ?? 0) > 0 {
+            out.append(SourceFooterAction(id: "forget-following", title: Copy.Streams.followingForget,
+                                          confirm: (Copy.Streams.followingForget, Copy.Streams.followingForget,
+                                                    Copy.Streams.followingForgetHelp)) { forgetFollowedAccounts() })
+        }
         return out
+    }
+
+    private func forgetFollowedAccounts() {
+        Task {
+            do {
+                feedNote = Copy.Streams.followingForgotten(try await APIClient.shared.forgetFollowedAccounts())
+                await sourceStreams?.refresh()
+            } catch {
+                feedNote = AddSourceSheet.friendlyError(error)
+            }
+        }
     }
 
     private func forgetKeptConnections() {

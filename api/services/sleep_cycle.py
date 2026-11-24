@@ -1188,6 +1188,24 @@ async def _full_name_join_safely(memory_path: Path, settings: Settings, *, user_
                     + (f", skipped {report.skipped}" if report.skipped else ""))
 
 
+async def _typo_join_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
+    """Ruling 74c (2026-11-24, `typo_join`): a name that is plainly one person's page written two ways, whose two sides
+    state the same fact (located, read twice by the engine's main model), is joined as one undoable Sleep settle. Nothing
+    of the shape open: no engine and no commit. Counts only. Never raises."""
+    from api.services import typo_join
+
+    if not (memory_path / ".git").exists():
+        return
+    try:
+        report = await typo_join.run_tail(memory_path, settings, user_triggered=user_triggered)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Typo join failed: {type(exc).__name__}")
+        return
+    if report.looked or report.joined:
+        logger.info(f"Typo join: {report.looked} read, {report.joined} joined"
+                    + (f", skipped {report.skipped}" if report.skipped else ""))
+
+
 async def _arrival_refusals_safely(memory_path: Path) -> None:
     """G245 (arrival join): each "Not them" the person said to a first name joined to someone who had no page, whose full name
     now belongs to a page, becomes a refused pair of pages — before the same-name review, so 74 / 74a / 74b hold it the same
@@ -1220,7 +1238,7 @@ async def _arrival_join_safely(memory_path: Path, settings: Settings, *, user_tr
     `arrival_join.LIVE` is false nothing is written to the bank, here or anywhere. When live, each join is one `cicada` commit
     of its own page alone (`arrival_join_write.apply_join`), restored if it fails; the rematches that follow attach. Counts
     only — never a name. Never raises."""
-    from api.services import arrival_join, arrival_join_write
+    from api.services import arrival_birth, arrival_join, arrival_join_write
 
     try:
         report = await arrival_join.run_tail(memory_path, settings, user_triggered=user_triggered, no_model=no_model)
@@ -1235,7 +1253,22 @@ async def _arrival_join_safely(memory_path: Path, settings: Settings, *, user_tr
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"Arrival join writes skipped: tree status unreadable ({type(exc).__name__})")
             report.joins = []
-        for decision, _case in report.joins:
+        for decision, case in report.joins:
+            if case.holder.held:
+                # Route H (`arrival_birth`): a held first name born as the arrival's full name, one commit of everything the birth
+                # wrote (the page, the held claims' landings, the store), restored whole if it fails.
+                born = await asyncio.to_thread(arrival_birth.apply_birth, memory_path, decision, case, settings, skip=skip)
+                if born is None:
+                    continue
+                try:
+                    async with _lock:
+                        await git_service.commit_paths(
+                            memory_path, arrival_birth.commit_message(born.page, born.paths, decision, date.today()), born.paths)
+                    joined += 1
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(f"Arrival birth commit failed — undoing: {type(exc).__name__}")
+                    await asyncio.to_thread(arrival_birth.restore, memory_path, born.paths)
+                continue
             applied = await asyncio.to_thread(arrival_join_write.apply_join, memory_path, decision, skip=skip)
             if applied is None:
                 continue
@@ -1248,8 +1281,9 @@ async def _arrival_join_safely(memory_path: Path, settings: Settings, *, user_tr
                 logger.warning(f"Arrival join commit failed — undoing: {type(exc).__name__}")
                 await asyncio.to_thread(arrival_join_write.restore, memory_path, applied.path)
     if report.looked or report.skipped:
-        logger.info(f"Arrival join: {report.looked} first-name page(s) with a namesake, {report.candidates} to the veto "
-                    f"({report.reads} read), {report.would_join} would join, {joined} joined"
+        logger.info(f"Arrival join: {report.looked} first-name page(s) or held name(s) with a namesake, {report.candidates} to the "
+                    f"veto ({report.reads} read), {report.would_join} page(s) would join, {report.would_birth} held name(s) would be "
+                    f"born as the full name, {joined} joined"
                     + (f", skipped {report.skipped}" if report.skipped else ""))
 
 
@@ -1380,6 +1414,40 @@ async def _rematch_linkedin_safely(memory_path: Path) -> None:
     except Exception as exc:
         logger.warning(f"LinkedIn rematch commit failed — undoing: {type(exc).__name__}")
         await asyncio.to_thread(linkedin_people.restore, memory_path, report)
+
+
+async def _rematch_follows_safely(memory_path: Path) -> None:
+    """Ruling 79 (b) (the LinkedIn pattern) — the accounts the person follows, kept outside the bank, against tonight's
+    pages: a page that exists gains the account's profile link (proposed when only the name says so) or its one dated
+    "followed-on" claim, and a page whose account has gone has that claim closed (`follows_people.rematch`). Never makes a
+    page, never counts as a mention. Engine-free, no fetch, in its own `cicada` commit; pages dirty before it ran are
+    skipped, a failed commit undoes what it wrote. Writes nothing when no list is kept. Never raises."""
+    from api.services import follows_people
+
+    if not follows_people.kept_sites(memory_path.name):
+        return
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Follows rematch skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    try:
+        report = await asyncio.to_thread(follows_people.rematch, memory_path, skip=skip)
+    except Exception as exc:
+        logger.warning(f"Follows rematch failed: {type(exc).__name__}")
+        return
+    if not report.paths or not (memory_path / ".git").exists():
+        return
+    try:
+        async with _lock:
+            await git_service.commit_paths(memory_path, follows_people.commit_message(report, date.today()),
+                                           report.paths)
+        logger.info(f"Follows rematch: {len(report.paths)} page(s) enriched")   # counts only — never a name
+    except Exception as exc:
+        logger.warning(f"Follows rematch commit failed — undoing: {type(exc).__name__}")
+        await asyncio.to_thread(follows_people.restore, memory_path, report)
 
 
 async def _rematch_contacts_safely(memory_path: Path) -> None:
@@ -1874,6 +1942,8 @@ async def _run_engine_independent_tail(
             await _same_name_review_safely(memory_path, settings, user_triggered=user_triggered)
             # Ruling 74b (2026-11-24): a name held in full that the person's own words name as one with a short-name page.
             await _full_name_join_safely(memory_path, settings, user_triggered=user_triggered)
+            # Ruling 74c (2026-11-24): a name that is plainly one person's page written two ways.
+            await _typo_join_safely(memory_path, settings, user_triggered=user_triggered)
         # G245 (owner 2026-11-24): a first-name page and the person who newly appeared the same week — decided and reported
         # here (`arrival_join.LIVE` false writes nothing); a write is its own commit, before the rematches attach.
         await _arrival_join_safely(memory_path, settings, user_triggered=user_triggered, no_model=no_model)
@@ -1887,6 +1957,8 @@ async def _run_engine_independent_tail(
         await _rematch_contacts_safely(memory_path)
         # G245: which commits an arrival join caused, recorded once both rematches have run.
         await _arrival_record_safely(memory_path)
+        # Ruling 79 (b): the accounts the person follows, kept outside the bank, against tonight's pages — its own commit.
+        await _rematch_follows_safely(memory_path)
         # G61 "Where to check" (ruling 36 D5): links already on the record proposed as sources — after the imports
         # above (a link they put on a page is not proposed again), before any poll's `git add -A`.
         await _where_to_check_safely(memory_path)

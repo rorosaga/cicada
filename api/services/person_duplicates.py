@@ -379,6 +379,16 @@ class Report:
         self.skipped[why] = self.skipped.get(why, 0) + 1
 
 
+def _one_name(memory_path: Path, pair: Pair) -> bool:
+    from api.services import typo_join
+
+    names = []
+    for pid in (pair.a, pair.b):
+        entry = bank_index.file(Path(memory_path), "entities", f"{pid}.md")
+        names.append(str((entry.frontmatter if entry is not None else {}).get("name") or pid))
+    return typo_join.variant(names[0], names[1])
+
+
 def propose(memory_path: Path, today, *, budget, skip: frozenset[str] = frozenset(), dry_run: bool = False) -> Report:
     """Ask "Is A the same as B?" for the best pairs that have no question, within the drain's budget and
     :data:`MAX_OPEN`. An ordinary ``merge_suggestion`` (so the card's one-tap merge, the page's own question list and
@@ -395,6 +405,12 @@ def propose(memory_path: Path, today, *, budget, skip: frozenset[str] = frozense
     for pair in candidates(memory_path, floor=ASK_FLOOR):
         if pair.asked:
             report.skip("question_open")
+            continue
+        if set(pair.signals) <= {"sound", "spelling"} and not pair.together and _one_name(memory_path, pair):
+            # Owner 2026-11-24 (ruling 74c): one name written two ways is a plain misspelling to be assumed or held, never
+            # asked. `typo_join` reads the record around the two names at consolidation and joins them when it shows
+            # the same fact; when it cannot tell, the pair waits apart with no question.
+            report.skip("typo_pair")
             continue
         if open_count >= MAX_OPEN:
             report.skip("max_open")

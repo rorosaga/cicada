@@ -7,7 +7,7 @@ import Foundation
 
 /// What a stream holds. The wire's own words; a kind this build does not know is kept as `other` and is never a list.
 enum StreamKind: RawRepresentable, Hashable, Sendable {
-    case saved, liked, reposted, history, later, playlists, connections, notes, pages, chats, events, tasks, code, books, feed, files
+    case saved, liked, reposted, history, later, playlists, connections, following, notes, pages, chats, events, tasks, code, books, feed, files
     case other(String)
 
     init(rawValue: String) {
@@ -19,6 +19,7 @@ enum StreamKind: RawRepresentable, Hashable, Sendable {
         case "later": self = .later
         case "playlists": self = .playlists
         case "connections": self = .connections
+        case "following": self = .following
         case "notes": self = .notes
         case "pages": self = .pages
         case "chats": self = .chats
@@ -41,6 +42,7 @@ enum StreamKind: RawRepresentable, Hashable, Sendable {
         case .later: "later"
         case .playlists: "playlists"
         case .connections: "connections"
+        case .following: "following"
         case .notes: "notes"
         case .pages: "pages"
         case .chats: "chats"

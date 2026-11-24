@@ -145,5 +145,8 @@ def test_the_turns_key_has_one_shape_owner_and_one_reader():
     # cached header and hand it back whole (`bank_index.with_turns`); neither reads a count.
     # G95 (2026-11-03): `meeting_transcripts` names `"turns"` only as a key of a recorder's posted JSON transcript
     # (one of the list keys it reads segments from); it never reads or writes the episode's frontmatter sidecar.
+    # G115 (2026-11-24, #868): `inbox_context` names `"turns"` only as a key of its own excerpt payload (the turns shown on a
+    # question card, `Excerpt.turns`); the sidecar itself still reaches it only through `bank_index.with_turns` and
+    # `evidence.turn_stamps`, never by key.
     assert found == {"episode_staging.py", "evidence.py", "transcript_capture.py", "agent_turns.py",
-                     "markdown_parser.py", "bank_index.py", "meeting_transcripts.py"}
+                     "markdown_parser.py", "bank_index.py", "meeting_transcripts.py", "inbox_context.py"}

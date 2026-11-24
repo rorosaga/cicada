@@ -276,6 +276,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   join only on two independent kinds of evidence, the name (an alias included, 2026-11-08) counting once (`person_duplicates.joins`), else a question; **79 (c):** time is the second kind for a first name and a same-week arrival, report-only.
   **74a (2026-11-23):** a same-name pair Sleep holds in doubt it joins itself on a located link read twice, undoable; one that reads like two is not asked.
   **74b (2026-11-24):** a name held in full joins its short-name page on the person's own located words naming both as one, read twice; an undo keeps them apart.
+  **74c (2026-11-24):** a plain misspelling is assumed, not asked: joined on one located same-fact line per side, read twice, else held quietly (`typo_join`); a question the record already answers is closed by Sleep's tending (`answered_questions`).
 - **An edited conversation is a revision of itself (G104, owner 2026-11-03):** diffed against the version Sleep read
   (git), only what changed is read, spans re-anchored never fuzzily; what only removed text said is superseded by the
   same revision's value (no question) or withdrawn by a record, never deleted; still one conversation for every count;
@@ -458,7 +459,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   save (G206, 2026-10-22, `mcp.md`; X reposts too, from the person's own profile, ruling 79 (a)) — and on Reddit, Pinterest or TikTok the same way, off by default until the
   person turns it on (G232, 2026-11-04; Spotify and Goodreads too, ruling 72: a site's terms don't decide this, 2026-11-06); one person's
   LinkedIn profile only through the link their page lists, on the person's ask, stdio only (2026-10-16,
-  `mcp.md`). A LinkedIn connection alone makes no page; the person's own full-name mention of one does, its link proposed (ruling 79 (e); also read by the person's agent and listed to the app on the local API, ruling 78 (c)). The backend never fetches a
+  `mcp.md`). A LinkedIn connection, or an X account they follow (ruling 79 (b)), alone makes no page; the person's own full-name mention of a connection does, its link proposed (ruling 79 (e); also read by their agent, listed to the app on the local API, ruling 78 (c)). The backend never fetches a
   login-walled page. **Exploring saved sites (ruling 25):** only the person's click or a trusted local agent they asked
   starts a run; the agent uses their signed-in session unless they turn it off, every capture says which (`mcp.md`).
 - **Skills (2026-10-15):** Cicada installs third-party skills only on the person's consent, pinned to what they saw

@@ -3118,18 +3118,32 @@ top; a line still being written waits for its newline); `state_dictionary.refres
 keys over every claim, so a first-N page would need the card changed too), and the whole-bank payloads (`/graph`
 14.9 MB, `/sleep/episodes` 5.8 MB, `/sources` 4.0 MB — already compressed on the wire).
 
+### The followed accounts' directory (G245, ruling 79 (b), owner 2026-11-24)
+
+`$CICADA_HOME/people/<bank>/follows-<site>.json` (`follows_people`; today `follows-x.json`): the accounts the person follows,
+beside `linkedin-connections.json` and `contacts.json`, **outside every bank and git**, 0600, folder 0700, written by a rename
+under an `flock` (`.follows-<site>.lock`), wiped with the bank (`people_directory.forget`) and moved with a rename. Shape:
+`{v, site, rows: [{handle, name, url, first_seen, since, last_seen, gone_on?, missed?}], read_on, whole_on, whole_count, pass?}`
+— a display name, a handle, the profile link, days, and the bookkeeping of "gone" (`missed`: whole trusted reads in a row that did
+not show it; `whole_count`: the last trusted whole read's size; `pass`: the open read's `at`, call count, the ids seen so far
+and whether it can still be judged). **Nothing else is kept** (no bio, count, picture or who follows back), nothing is
+logged but counts, and no model, remote door or agent door reads it; the local API's one list route names an account
+(`api.md`), `name_guard` reads the names so they never leave in a query, and Sleep's tail attaches a link and one dated fact to a
+page that already exists (`capture-and-sleep.md`). A row's id is a hash of its handle. The file holds at most twice the site's row
+cap (`SITES["x"].max_rows` = 2,000), gone rows included, and a row gone for 180 days is dropped.
+
 ### The arrival join's state (G245, owner 2026-11-24)
 
 Where the arrival join (`arrival_join`, `arrival_join_write`; `capture-and-sleep.md`) keeps what it knows. **Outside every bank**, in
 `$CICADA_HOME/people/<bank>/` beside the directories it reads, wiped with them and with the bank: `contacts-seen.json` (every
 Contacts card the book has ever shown, by the hash of its id, with the day it was first seen waiting or `null`, the last sync's
 day and how many cards were new in it: ids hashed, never a name), `arrival-join-report.json` (the night's reading, one item per
-first-name page that has a namesake in a directory: page id, both days, the gap, each directory's freshness stamp, each namesake
+first-name page, and per held first name (`"route": "birth"`, keyed by a hash, Route H), that has a namesake in a directory: page id, both days, the gap, each directory's freshness stamp, each namesake
 row by its hash with the role it played, the conflict and veto answers, the decision and its reason; overwritten nightly) and
 `arrival-join-veto.json` (each veto's answers by the digest of what it read, so a candidate is read once, not every night). **In
 the bank**, only once a join is live: the first-name page's frontmatter `arrival_joins` (a hash of the folded full name, the
 directory rows' hashes, both days, the gap, the commits the join caused, the claim ids it wrote, a hash of each link it added,
-`state: joined | undone`), the alias itself on the page like any alias, and `_merge_rejected.yaml`'s `arrival_joins` list
+`state: joined | undone`; a page born from a held first name (Route H) also `birth: true`, a hash of the said form and the conversation ids it was born with, and its `archived_by` stamp once taken back), the alias itself on the page like any alias, and `_merge_rejected.yaml`'s `arrival_joins` list
 (`[{holder, key, on}]`, a hash of the name, until a page of that name exists and the refusal becomes a refused pair). A note's
 episode gains `created_at` (frontmatter alone, the aware ISO moment the note was begun, sent by the app beside the dump). No
 name, company, headline, link or e-mail of a directory row is in a commit message, a record, a log line or the ledger

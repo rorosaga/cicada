@@ -295,7 +295,9 @@ def test_temporal_and_event_samples_never_anchor_on_a_save_or_a_bulk_import_day(
              "ep_2026-09-10_200", "imported note 0 about delta-topic")])
 
     b = hq.Bank(bank)
-    assert b.conversation("ep_2026-08-20_101").moment is False          # a save
+    # A save with no words of the person's is no conversation at all since ruling 80 (G245, `counts_as_activity`): it was
+    # a non-moment conversation before, and is still never a moment.
+    assert b.conversation("ep_2026-08-20_101") is None and b.moment("ep_2026-08-20_101") is None   # a save
     assert b.conversation("ep_2026-09-10_200").moment is False          # one of a bulk day
     assert b.conversation("ep_2026-02-01_101").moment is True
     temporal = {s.page for s in hq.SAMPLERS["temporal"](b)}

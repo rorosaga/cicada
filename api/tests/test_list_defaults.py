@@ -63,8 +63,8 @@ def test_the_settings_route_applies_the_defaults(tmp_path, monkeypatch):
         body = TestClient(main.app).get("/reading/settings").json()
     finally:
         config.get_settings.cache_clear()
-    assert body["savedLists"] == {**{"x": False, "x-likes": False, "x-reposts": False, "instagram": False, "instagram-likes": False, "linkedin": False, "linkedin-connections": False, "reddit": False, "reddit-upvoted": False, "pinterest": False, "tiktok": False, "spotify": False, "goodreads": False}, "linkedin": True}
-    assert body["savedListsOff"] == {"x": False, "x-likes": False, "x-reposts": False, "instagram": False, "instagram-likes": False, "linkedin": False, "linkedin-connections": False, "reddit": False, "reddit-upvoted": False, "pinterest": False, "tiktok": False, "spotify": False, "goodreads": False}
+    assert body["savedLists"] == {**{"x": False, "x-likes": False, "x-reposts": False, "x-following": False, "instagram": False, "instagram-likes": False, "linkedin": False, "linkedin-connections": False, "reddit": False, "reddit-upvoted": False, "pinterest": False, "tiktok": False, "spotify": False, "goodreads": False}, "linkedin": True}
+    assert body["savedListsOff"] == {"x": False, "x-likes": False, "x-reposts": False, "x-following": False, "instagram": False, "instagram-likes": False, "linkedin": False, "linkedin-connections": False, "reddit": False, "reddit-upvoted": False, "pinterest": False, "tiktok": False, "spotify": False, "goodreads": False}
 
 
 def test_the_g232_lists_stay_off_after_onboarding_whatever_the_memory_shows(tmp_path):
