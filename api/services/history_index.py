@@ -103,6 +103,10 @@ NOTE_KEY = "has_note"
 #: Ruling 62: why a bare save gets its one real read (``{why, at}``): the person mentioned it. Stamped by :func:`wake`,
 #: it takes the episode out of :func:`kind` for good, so the read happens once and says why.
 WOKEN_KEY = "read_asked"
+#: G246 Track M (ruling 81): the person's own located words named this save — ``{why, at}``, whatever state the save is in.
+#: Unlike :data:`WOKEN_KEY` it changes nothing about the read (no queue, no flip, no ``kind``) and no re-stage pops it: it
+#: is the one mark ``saved_posts`` reads to give a post its page for good. Written only by :func:`mark_named`.
+NAMED_KEY = "named"
 #: G221 (2026-11-23): a save filed in a folder the person gave a reason to inherits it, and that makes it readable
 #: (``save_folders``): ``{at, folders}``, stamped by that module alone when the folder's reason is set or the save is
 #: filed, removed when neither holds. The reason itself is never copied here — it is read from the folder's own record.
@@ -368,6 +372,31 @@ def wake(memory_path: Path, episode_id: str, why: str, at: str) -> str | None:
         fm.pop("processed_by", None)   # G114 R6: written only beside processed: true
         markdown_parser.write(path, fm, parsed.body)
     return f"episodes/{episode_id}.md"
+
+
+def mark_named(memory_path: Path, episode_id: str, why: str, at: str) -> str | None:
+    """G246 Track M (ruling 81): the person's own located words named this save, so say so on the save itself, whatever
+    state it is in — waiting, in the pile, already read, holding nothing to read. Frontmatter only, under the episode
+    lock, re-checked: ``processed``, ``processed_by``, the body and every other key are untouched, so it never changes
+    whether or when the save is read and costs no model call. The first mark stays (a later mention never moves its
+    ``at``). The memory-relative path, or ``None`` when nothing changed: not a save, a record another service keeps, a
+    removed source, already marked, a missing file. Only ``saved_mentions`` calls this, with words it located in the
+    person's own turns: a retrieval hit, an agent's words and a remote caller never do."""
+    from api.services import episode_staging
+
+    path = Path(memory_path) / "episodes" / f"{episode_id}.md"
+
+    def stamp(fm: dict) -> bool:
+        if save_shaped(fm) is None or is_record(fm) or fm.get("source_deleted_at") or fm.get(NAMED_KEY):
+            return False
+        fm[NAMED_KEY] = {"why": why, "at": at}
+        return True
+
+    try:
+        changed = episode_staging.amend_frontmatter(path, stamp)
+    except Exception:  # noqa: BLE001 — a missing or malformed file is named by nobody
+        return None
+    return f"episodes/{episode_id}.md" if changed else None
 
 
 def waits_for_model(fm: dict | None) -> bool:
@@ -771,9 +800,9 @@ def restore(memory_path: Path, paths: list[str]) -> None:
 
 
 __all__ = ["AUTHOR", "BULK_ITEMS", "COMMIT_STEP", "Count", "HISTORY_SOURCE", "INDEXED_BY", "LATE_DAYS", "LIST_FOLDERS",
-           "LIST_ORIGINS", "MONTH_SOURCE", "NOTE_KEY", "NO_WORDS_BY", "PERSON_KEYS", "PERSON_SECTIONS", "RECORD_FOLDERS",
+           "LIST_ORIGINS", "MONTH_SOURCE", "NAMED_KEY", "NOTE_KEY", "NO_WORDS_BY", "PERSON_KEYS", "PERSON_SECTIONS", "RECORD_FOLDERS",
            "RECORD_ORIGINS", "Retired", "SAVES_PER_DAY", "SAVES_READ", "TURN_KEY", "Turns", "WOKEN_KEY", "has_a_reason",
-           "is_pageless_save", "is_unread_save", "owes_a_read", "pile_report", "has_person_words", "mark_person_words", "TRIGGER", "commit_message", "count",
+           "is_pageless_save", "is_unread_save", "mark_named", "owes_a_read", "pile_report", "has_person_words", "mark_person_words", "TRIGGER", "commit_message", "count",
            "entry_stamp", "in_pile", "is_index_only", "is_record", "kind", "not_read", "nothing_to_read", "released_unread",
            "restore", "retire", "return_to_pile", "save_shaped", "save_state", "take_turns", "turns_due", "waits_for_model",
            "wake"]

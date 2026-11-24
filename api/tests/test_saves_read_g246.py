@@ -683,13 +683,15 @@ def test_talking_about_a_save_wakes_the_pile_moves_a_waiting_one_and_leaves_only
             "filepath": memory / "episodes" / "x.md", "gaps": ()}
     paths = saved_mentions.wake_mentioned(memory, [said], at=AT)
     bank_index.invalidate()
-    assert sorted(paths) == sorted([f"episodes/{ids['waiting']}.md", f"episodes/{ids['pile']}.md"])
+    # Every one is MARKED as named (G246 Track M: the mark that keeps a post's page); only the first two are woken.
+    assert sorted(paths) == sorted(f"episodes/{i}.md" for i in ids.values())
     waiting, pile = _fm(memory, ids["waiting"]), _fm(memory, ids["pile"])
     assert waiting["read_asked"]["why"] == saved_mentions.WHY_LINK and waiting["processed"] is False
     assert pile["read_asked"]["why"] == saved_mentions.WHY_LINK and pile["processed"] is False and "processed_by" not in pile
     assert saved_order.classify(waiting) == saved_order.TALKED and saved_order.classify(pile) == saved_order.TALKED
     assert _state(memory, ids["read"]) == "read" and "read_asked" not in _fm(memory, ids["read"])
     assert (_fm(memory, ids["empty"])["processed_by"], "read_asked" in _fm(memory, ids["empty"])) == ("no-words", False)
+    assert all(_fm(memory, i)["named"]["why"] == saved_mentions.WHY_LINK for i in ids.values())
     # Every one of them still leaves the ask for his own agent: it never depended on the save being unread.
     assert set(asked[0]) == set(ids.values())
 

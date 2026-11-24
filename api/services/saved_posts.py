@@ -77,9 +77,9 @@ ANOTHER_LABEL = "Saved another way"
 DECLARED_WORKS = frozenset({"book", "paper", "repository", "file", "list"})
 
 #: Episode keys. ``named``: the person's own words named the save — ``{why, at}``, stamped by the mention reader
-#: (Track M) and never popped by a re-stage, unlike ``read_asked``. ``kept_as_page``: the person pressed "Keep as a page"
-#: (Track K) — ``{at}``. Both are read here whether or not the writer exists yet.
-NAMED_KEY = "named"
+#: (``history_index.mark_named``, Track M) whatever state the save is in, and never popped by a re-stage, unlike
+#: ``read_asked``. ``kept_as_page``: the person pressed "Keep as a page" (Track K) — ``{at}``.
+NAMED_KEY = history_index.NAMED_KEY
 KEPT_KEY = "kept_as_page"
 #: "This save carries the person's own words", from the one definition (``history_index.PERSON_KEYS``) minus a folder's
 #: reason: that is the person's words about the list, so it reads as theirs to Sleep and the activity clock and as no
