@@ -5470,6 +5470,11 @@ class NotesSyncRequest(CamelModel):
     # ROR-15: the ids (among those in the dump) of the notes the person pinned in Notes, read by the app from Notes' own
     # store only when it already holds Full Disk Access. None = the app could not tell: every pin stays as it was.
     pinned_note_ids: Optional[list[str]] = Field(default=None, max_length=100_000)
+    # A.4 (G245): each unlocked note's folder path by note id (names, outermost first, ending in the folder the dump
+    # names), and every folder the app listed in Notes' own order (`[{account, path}]`) — beside the dump so an older
+    # backend ignores both. A locked note has no entry; a folder is a filing label, never a note's words.
+    note_folder_paths: Optional[dict[str, list[str]]] = Field(default=None, max_length=100_000)
+    note_folders: Optional[list[dict]] = Field(default=None, max_length=5_000)
 
 
 class NotesSyncResponse(CamelModel):

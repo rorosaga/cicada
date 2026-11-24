@@ -600,7 +600,14 @@ is never listed, so it never answers, and the route is not on the remote connect
 **Where a source's items live (2026-11-04, shape `g161-16`).** `GET /sources/channels/{id}/collections` answers `{channel,
 accounts: [{name, provider, count, collections: [{id, name, count, latest}]}]}` for `notes`, `calendar-local` and
 `reminders-local`, and no accounts for any other channel the bank knows; an unknown channel is a 404. `notes` adds
-`locked`, how many locked notes the last read found (G234; `sync_state.json` moves `sources`, so the ETag moves with it). Read-only and
+`locked`, how many locked notes the last read found (G234; `sync_state.json` moves `sources`, so the ETag moves with it).
+**Shape `g161-24` (A.4, G245), additive:** for `notes` and `notion-api` each collection also carries `path` (names outermost
+first), `parent` (the holding folder's id or null), `children`, `depth` and `total` (with everything under it), and the
+`collections` array is already the tree walked top-down in the owning app's order (`notion-api`: one unnamed account, plus
+`unfiled`); `notes` adds `pinsRead` (true/false, null before any read said) here and on its `items`, whose rows carry
+`modifiedAt` and `snippet` and list by the modified instant, pinned first (`collection` = a parent folder lists its own
+notes and everything under it, so the page's `total` for a folder is the rows it lists; `count` stays its own); `notion-api` lists by last edited. `POST
+/sources/sync-notes` takes `noteFolderPaths` and `noteFolders` beside the dump (`capture-and-sleep.md`). Read-only and
 engine-free. Its ETag is `sources` + `episodes` with `extra` = `channel_items.SHAPE|collections|<channel>|<digest of the
 kept names>`, and `GET …/items?collection=<id>` narrows a page under its own ETag. Neither is a Store domain, so no
 `VersionVector` mapping: `ChannelItemsCache` revalidates when a page opens and whenever the channels move, and a 304 or a

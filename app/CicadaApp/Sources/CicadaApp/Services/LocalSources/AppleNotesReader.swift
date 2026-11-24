@@ -24,6 +24,13 @@ enum AppleNotesReader {
     static let lockedMark = "cicada-locked"
     static let statsMark = "cicada-stats"
     static let lockedNameMark = "cicada-locked-name"
+    /// A.4 (G245) — the folder structure, read beside the notes and never in the dump: `cicada-folder` (account, folder id,
+    /// parent folder id or empty, folder name), `cicada-folder-held` (a folder whose every note is locked: its name stays
+    /// out of the tree, since it would say that locked notes live there) and `cicada-at` (an UNLOCKED note's id, its
+    /// folder's id). A locked note is never named by any of them. `split` takes them out and turns them into paths.
+    static let folderMark = "cicada-folder"
+    static let folderHeldMark = "cicada-folder-held"
+    static let atMark = "cicada-at"
 
     /// One batched script: every account → folder, properties fetched in BULK per folder (`id of every note of
     /// fld` is one Apple event for the whole folder, not five per note — a 217-note library blew a 30 s budget
@@ -67,6 +74,16 @@ enum AppleNotesReader {
                 set accName to name of acc as string
             end try
             repeat with fld in folders of acc
+                set folderId to ""
+                try
+                    set folderId to id of fld as string
+                    set parentId to ""
+                    try
+                        set holder to container of fld
+                        if (class of holder) is folder then set parentId to id of holder as string
+                    end try
+                    set end of outList to "\(folderMark)" & FS & accName & FS & folderId & FS & parentId & FS & (name of fld as string)
+                end try
                 try
                     set lockedIds to id of (every note of fld whose password protected is true)
                     repeat with lockedId in lockedIds
@@ -87,10 +104,14 @@ enum AppleNotesReader {
                     set cDates to creation date of (every note of fld whose password protected is false)
                     set mDates to modification date of (every note of fld whose password protected is false)
                     set idsAfter to id of (every note of fld whose password protected is false)
+                    if (count of lockedIds) > 0 and (count of noteIds) = 0 then
+                        set end of outList to "\(folderHeldMark)" & FS & folderId
+                    end if
                     if idsAfter = noteIds then
                         repeat with i from 1 to count of noteIds
                             try
                                 set end of outList to (item i of noteIds as string) & FS & (item i of noteNames as string) & FS & (item i of noteBodies as string) & FS & (item i of cDates as string) & FS & (item i of mDates as string) & FS & folderName & FS & ((item i of mDates) as «class isot» as string) & FS & utcOffset & FS & accName
+                                set end of outList to "\(atMark)" & FS & (item i of noteIds as string) & FS & folderId
                             on error
                                 set waitedFolders to waitedFolders + 1
                             end try
@@ -155,7 +176,8 @@ enum AppleNotesReader {
         if parts.foldersRead == 0, parts.foldersFailed > 0 { throw ReadError.failed }
         let pinned = await pins(AppleNotesPins.ids(inDump: parts.dump))
         return try await APIClient.shared.syncNotes(dump: parts.dump, accounts: parts.accounts, locked: parts.locked,
-                                                    lockedKeys: parts.lockedKeys, pinned: pinned)
+                                                    lockedKeys: parts.lockedKeys, pinned: pinned,
+                                                    folderPaths: parts.folderPaths, folders: parts.folders)
     }
 
     /// 2026-11-04 — the script ends each record with the note's account; it travels BESIDE the dump (`noteAccounts`,
@@ -165,8 +187,13 @@ enum AppleNotesReader {
     /// only with a complete read: "the same read saw it" protects a note only if the read saw every note, so with a folder
     /// failed or waiting a locked note retires on the next complete read.
     static func split(_ raw: String) -> (dump: String, accounts: [String: String], locked: [String], lockedKeys: [String],
-                                         foldersRead: Int, foldersFailed: Int) {
+                                         foldersRead: Int, foldersFailed: Int, folderPaths: [String: [String]],
+                                         folders: [NoteFolder]) {
         var accounts: [String: String] = [:]
+        var folderRows: [(account: String, id: String, parent: String, name: String)] = []
+        var held = Set<String>()
+        var noteFolder: [String: String] = [:]
+        var dumpIds = Set<String>()
         var locked: [String] = []
         var lockedKeys: [String] = []
         var foldersRead = 0, foldersFailed = 0, foldersWaited = 0
@@ -184,12 +211,25 @@ enum AppleNotesReader {
                 }
                 return nil
             }
+            if fields.count == 5, fields[0] == folderMark {
+                folderRows.append((fields[1].trimmingCharacters(in: .whitespacesAndNewlines), fields[2], fields[3], fields[4]))
+                return nil
+            }
+            if fields.count == 2, fields[0] == folderHeldMark {
+                held.insert(fields[1])
+                return nil
+            }
+            if fields.count == 3, fields[0] == atMark {
+                noteFolder[fields[1].trimmingCharacters(in: .whitespacesAndNewlines)] = fields[2]
+                return nil
+            }
             if fields.count == 4, fields[0] == statsMark {
                 foldersRead = Int(fields[1]) ?? 0
                 foldersFailed = Int(fields[2]) ?? 0
                 foldersWaited = Int(fields[3]) ?? 0
                 return nil
             }
+            if fields.count >= 6 { dumpIds.insert(fields[0].trimmingCharacters(in: .whitespacesAndNewlines)) }
             guard fields.count == 9 else { return record }
             let account = fields.removeLast().trimmingCharacters(in: .whitespacesAndNewlines)
             let id = fields[0].trimmingCharacters(in: .whitespacesAndNewlines)
@@ -197,7 +237,51 @@ enum AppleNotesReader {
             return fields.joined(separator: fieldSeparator)
         }
         let complete = foldersFailed == 0 && foldersWaited == 0
-        return (records.joined(separator: recordSeparator), accounts, locked, complete ? lockedKeys : [], foldersRead, foldersFailed)
+        let structure = folderStructure(rows: folderRows, held: held, noteFolder: noteFolder, noteIds: dumpIds,
+                                        lockedIds: Set(locked))
+        return (records.joined(separator: recordSeparator), accounts, locked, complete ? lockedKeys : [], foldersRead,
+                foldersFailed, structure.paths, structure.folders)
+    }
+
+    /// One folder as the backend lists it: its account and its path, outermost first (A.4, G245). Names only.
+    struct NoteFolder: Equatable, Sendable {
+        let account: String
+        let path: [String]
+    }
+
+    /// The deepest a path is walked: Notes nests no further than a person draws, and a parent loop (never seen) ends here.
+    static let maxPathDepth = 10
+
+    /// A.4 — each folder's path from the `cicada-folder` rows' parent ids, each unlocked note's path through `cicada-at`,
+    /// and the folders in Notes' own order (the order of `folders of acc`, which can list a child before its parent: only
+    /// the walk up needs the parent, so order never matters here). A folder whose every note is locked is left out of the
+    /// list (its name would say that locked notes live there) though a path through it still names an unlocked child. A
+    /// note whose folder is unknown, and every locked note, gets no path. Pure; tested.
+    static func folderStructure(rows: [(account: String, id: String, parent: String, name: String)], held: Set<String>,
+                                noteFolder: [String: String], noteIds: Set<String>, lockedIds: Set<String>)
+        -> (paths: [String: [String]], folders: [NoteFolder]) {
+        var byId: [String: (account: String, id: String, parent: String, name: String)] = [:]
+        for row in rows where !row.id.isEmpty { byId[row.id] = row }
+        func path(of id: String) -> [String]? {
+            var names: [String] = []
+            var current = id
+            var seen = Set<String>()
+            while !current.isEmpty {
+                guard let row = byId[current], seen.insert(current).inserted, names.count < maxPathDepth else { return nil }
+                names.insert(row.name.trimmingCharacters(in: .whitespacesAndNewlines), at: 0)
+                current = row.parent
+            }
+            return names.contains(where: \.isEmpty) ? nil : names
+        }
+        var paths: [String: [String]] = [:]
+        for (noteId, folderId) in noteFolder where !lockedIds.contains(noteId) && noteIds.contains(noteId) {
+            if let found = path(of: folderId) { paths[noteId] = found }
+        }
+        var folders: [NoteFolder] = []
+        for row in rows where !held.contains(row.id) {
+            if let found = path(of: row.id) { folders.append(NoteFolder(account: row.account, path: found)) }
+        }
+        return (paths, folders)
     }
 
     /// `notes_sync.locked_key`: a locked note's name, hashed, so the name never leaves the app.

@@ -34,18 +34,21 @@ struct ChannelCollections: Decodable, Equatable, Sendable {
     var accounts: [SourceAccount]
     /// G234: locked notes the last read found (Notes only); nothing else of them is kept.
     var locked: Int
+    /// A.4 (G245) — Notes only: whether the last read could tell which notes are pinned. Nil from an older backend.
+    var pinsRead: Bool?
 
-    init(channel: String, accounts: [SourceAccount], locked: Int = 0) {
-        self.channel = channel; self.accounts = accounts; self.locked = locked
+    init(channel: String, accounts: [SourceAccount], locked: Int = 0, pinsRead: Bool? = nil) {
+        self.channel = channel; self.accounts = accounts; self.locked = locked; self.pinsRead = pinsRead
     }
 
-    enum CodingKeys: String, CodingKey { case channel, accounts, locked }
+    enum CodingKeys: String, CodingKey { case channel, accounts, locked, pinsRead }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         channel = (try? c.decodeIfPresent(String.self, forKey: .channel)) ?? ""
         accounts = (try? c.decodeIfPresent([SourceAccount].self, forKey: .accounts)) ?? []
         locked = (try? c.decodeIfPresent(Int.self, forKey: .locked)) ?? 0
+        pinsRead = try? c.decodeIfPresent(Bool.self, forKey: .pinsRead)
     }
 }
 
@@ -89,15 +92,28 @@ struct SourceCollection: Decodable, Equatable, Hashable, Sendable, Identifiable 
     /// ROR-108, a followed feed only: the bundled mark it wears, else the key of its own site.
     var mark: String?
     var site: String?
+    /// A.4 (G245), a Notes folder or a Notion database or page only: where the folder sits. `path` is its names outermost
+    /// first (its own last), `parent` the id of the folder holding it (nil at the top), `children` the ids of the folders
+    /// in it in the owning app's order, `depth` how far down it is, `total` its count with everything under it. The
+    /// array the collections come in is already the tree walked top-down. Nil from an older backend, and for sources
+    /// that file nothing in folders of folders.
+    var path: [String]?
+    var parent: String?
+    var children: [String]?
+    var depth: Int?
+    var total: Int?
 
     init(id: String, name: String, count: Int, latest: String? = nil, url: String? = nil, polled: String? = nil,
-         problem: String? = nil, mark: String? = nil, site: String? = nil) {
+         problem: String? = nil, mark: String? = nil, site: String? = nil, path: [String]? = nil, parent: String? = nil,
+         children: [String]? = nil, depth: Int? = nil, total: Int? = nil) {
         self.id = id; self.name = name; self.count = count; self.latest = latest
         self.url = url; self.polled = polled; self.problem = problem
         self.mark = mark; self.site = site
+        self.path = path; self.parent = parent; self.children = children; self.depth = depth; self.total = total
     }
 
-    enum CodingKeys: String, CodingKey { case id, name, count, latest, url, polled, problem, mark, site }
+    enum CodingKeys: String, CodingKey { case id, name, count, latest, url, polled, problem, mark, site
+        case path, parent, children, depth, total }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -110,6 +126,11 @@ struct SourceCollection: Decodable, Equatable, Hashable, Sendable, Identifiable 
         problem = try? c.decodeIfPresent(String.self, forKey: .problem)
         mark = try? c.decodeIfPresent(String.self, forKey: .mark)
         site = try? c.decodeIfPresent(String.self, forKey: .site)
+        path = try? c.decodeIfPresent([String].self, forKey: .path)
+        parent = try? c.decodeIfPresent(String.self, forKey: .parent)
+        children = try? c.decodeIfPresent([String].self, forKey: .children)
+        depth = try? c.decodeIfPresent(Int.self, forKey: .depth)
+        total = try? c.decodeIfPresent(Int.self, forKey: .total)
     }
 }
 

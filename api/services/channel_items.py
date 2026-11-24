@@ -138,7 +138,10 @@ from api.services.channel_registry import CHANNEL_IDS
 #: `g161-22`: a saved link's `site` key is its own host, not its registrable domain (owner 2026-11-23).
 #: `g161-23`: G245 — `stream` and `folder` narrow a page to one list (and one of its folders); a saved-list row carries
 #: `lists`, `folders`, `depth` (`kept` | `read`) and `posted`.
-SHAPE = "g161-23"
+#: `g161-24`: A.4 (G245) — a Notes folder is a tree (`collections` gives each folder its `path`, `parent`, `children`, `depth`
+#: and `total`, in Notes' own order, and `pinsRead`), a note's row carries `modifiedAt`, a one-line `snippet` and sorts by its
+#: modified instant, and Notion's live pages are filed by database or parent page and sort by last edited.
+SHAPE = "g161-24"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -669,22 +672,80 @@ def _notes(memory_path: Path) -> list[dict]:
         entry = placed.get(str(fm.get("id") or f.stem)) or {}
         account = str(entry.get("account") or fm.get("account") or "").strip()
         folder = str(entry.get("folder") or fm.get("folder") or "").strip()
-        row["_account"], row["_folder"] = account, folder
-        row["_collection"] = note_collection_id(account, folder)
+        names = tuple(notes_sync.clean_path(entry.get(notes_sync.FOLDER_PATH_KEY) or fm.get(notes_sync.FOLDER_PATH_KEY),
+                                            folder)) or ((folder,) if folder else ())
+        row["_account"], row["_folder"], row["_path"] = account, folder, names
+        row["_collection"] = note_collection_id(account, folder, names)
         row["_note"] = entry.get("note_id") or fm.get("note_id")
+        row["_snippet_of"] = f.stem
+        # A.4: "recently modified" is the modified INSTANT, not the bare day the row says (same-day notes tied and fell
+        # back to title order). The last time Notes touched the note, else when its words last moved.
+        if at := _instant(fm.get("source_updated_at")) or _instant(fm.get("timestamp")):
+            row["_sort"] = at.timestamp()
+            row["modifiedAt"] = at.isoformat().replace("+00:00", "Z")
         if fm.get("pinned") is True:
             row["pinned"] = True
         rows.append(row)
     return rows
 
 
-def note_collection_id(account: str, folder: str) -> str:
-    """A Notes folder's collection id: opaque and stable — the same account and folder name give the same id."""
+def _notion_chain(fm: dict) -> tuple:
+    """A live Notion page's place as ``((id, title), …)``, outermost first: the parents it was read under that the person
+    shared or chose, then its database (`notion_mcp._chain`). Empty for a page read before this was kept."""
+    ids, names = fm.get("notion_path_ids"), fm.get("notion_path")
+    if not (isinstance(ids, list) and isinstance(names, list)) or len(ids) != len(names):
+        return ()
+    return tuple((str(i), _title(n, fallback="Untitled")) for i, n in zip(ids, names) if str(i).strip())
+
+
+def notion_collection_id(chain: tuple) -> str:
+    """A Notion folder's id: its page or database ids all the way down, so a page moved elsewhere is another folder."""
+    return "np-" + hashlib.sha256("\0".join(k for k, _ in chain).encode()).hexdigest()[:12]
+
+
+def _notion_filing(row: dict, fm: dict) -> None:
+    chain = _notion_chain(fm)
+    row["_account"], row["_chain"] = "", chain
+    row["_collection"] = notion_collection_id(chain) if chain else ""
+    if fm.get("notion_last_edited"):
+        row["editedAt"] = str(fm["notion_last_edited"])
+
+
+def note_collection_id(account: str, folder: str, path: tuple | list | None = None) -> str:
+    """A Notes folder's collection id: opaque and stable. A top-level folder keeps the id it always had (the same account
+    and folder name give the same id), so nothing already filed moves; a nested one is its account and its whole path, so
+    two folders of one name in different places are two collections (A.4)."""
+    names = tuple(path or ())
+    if len(names) > 1:
+        return "nf-" + hashlib.sha256((f"{account}\0" + "\0".join(names)).encode()).hexdigest()[:12]
     return "nf-" + hashlib.sha256(f"{account}\0{folder}".encode()).hexdigest()[:12]
 
 
+def _snippet(memory_path: Path, stem: str, title: str) -> str | None:
+    """A note's one-line preview (A.4): the first line of its text after its title, scrubbed and clipped — nothing for a
+    locked stub or a note of one line. Read from the episode only for the rows a page serves."""
+    f = bank_index.file(Path(memory_path), "episodes", f"{stem}.md")
+    if f is None or history_index.kind(f.frontmatter or {}) == "locked":
+        return None
+    lines = [ln.strip() for ln in str(f.body() or "").splitlines()]
+    lines = [ln for ln in lines if ln]
+    if lines and lines[0].startswith("# "):
+        lines = lines[1:]
+    if lines and lines[0].startswith("**Folder:**"):
+        lines = lines[1:]
+    if lines and text_fold.fold(lines[0]) == text_fold.fold(title):
+        lines = lines[1:]   # Notes' own text starts with the title line
+    if not lines:
+        return None
+    from api.services import sensitive_text
+
+    if any(h.sure for h in sensitive_text.find(lines[0])):
+        return None   # G235: a line that holds what may be sensitive is never repeated in a list
+    return _title(lines[0], fallback="") or None
+
+
 def _episodes(memory_path: Path, keep, *, among, when_key: str | None = None,
-              media: _Media | None = None, collection_key: str | None = None) -> list[dict]:
+              media: _Media | None = None, collection_key: str | None = None, decorate=None) -> list[dict]:
     """The live episodes ``keep`` takes, read from ``among`` (the index bucket that holds every one of them).
     ``collection_key`` (2026-11-04): the frontmatter key naming the collection an item lives in (a calendar's id, a
     Reminders list's id), kept on the row for :func:`collections` and the ``collection`` filter."""
@@ -704,6 +765,8 @@ def _episodes(memory_path: Path, keep, *, among, when_key: str | None = None,
         row = _episode_row(fm, f.stem, when_key=when_key)
         if collection_key:
             row["_collection"] = str(fm.get(collection_key) or "")
+        if decorate is not None:
+            decorate(row, fm)
         # marks-2 — a saved link Sleep has not made a page of yet still names its site, so its row asks that site's
         # icon by the episode's id (`GET /sources/saved/episodes/{id}/site-icon`) instead of drawing a letter.
         if url := saved_episode_url(fm):
@@ -792,6 +855,12 @@ def _collect(memory_path: Path, channel_id: str) -> list[dict]:
         return _watched_days(memory_path, set(_HISTORY_ROWS[channel_id]))
     if channel_id in CHAT_CHANNELS:
         return _chat_rows(memory_path, CHAT_CHANNELS[channel_id])
+    if channel_id == "notion-api":
+        # A.4: a live Notion page is listed by when it was last edited (not the day it was created) and filed by its
+        # database or parent page.
+        return _episodes(memory_path, lambda fm: str(fm.get("origin") or "") == "notion-api", media=media,
+                         when_key="notion_last_edited", decorate=_notion_filing,
+                         among=_episode_index(memory_path).origins(_ORIGIN_CHANNELS[channel_id]))
     if channel_id in _ORIGIN_CHANNELS:
         origins = set(_ORIGIN_CHANNELS[channel_id])
         return _episodes(memory_path, lambda fm: str(fm.get("origin") or "") in origins, media=media,
@@ -1261,6 +1330,8 @@ def _enrich(memory_path: Path, row: dict) -> dict:
     """A served saved-link row gains its `site` and its `why`, any row with a known place its kind; every private key
     is dropped."""
     out = {k: v for k, v in row.items() if not k.startswith("_")}
+    if row.get("_snippet_of") and (snippet := _snippet(memory_path, row["_snippet_of"], str(row.get("title") or ""))):
+        out["snippet"] = snippet
     if found := _row_place(row):
         out["place"] = found["kind"]
     if row.get("kind") == "episode" and row.get("_url"):
@@ -1370,7 +1441,10 @@ def items(memory_path: Path, channel_id: str, *, offset: int = 0, limit: int = L
     limit = max(1, min(int(limit), LIMIT_MAX))
     rows = _collect(memory_path, channel_id)
     if collection:
-        rows = [r for r in rows if r.get("_collection") == collection]
+        if channel_id in ("notes", "notion-api"):
+            rows = [r for r in rows if collection in _folder_ids_of(channel_id, r)]   # A.4: a folder holds what is under it
+        else:
+            rows = [r for r in rows if r.get("_collection") == collection]
     if stream:
         if source_streams.spec_of(stream) is None:
             raise UnknownStream(stream)
@@ -1390,12 +1464,103 @@ def items(memory_path: Path, channel_id: str, *, offset: int = 0, limit: int = L
     extras = source_streams.row_fields(memory_path, shown, _media_pages(memory_path).pages,
                                        lambda row, media=_Media(memory_path): _posted(media, row))
     page = [{**_enrich(memory_path, r), **extras.get(r.get("id"), {})} for r in shown]
-    return {"channel": channel_id, "total": len(rows), "all": everything, "latest": latest, "offset": offset,
-            "limit": limit, "items": page}
+    out = {"channel": channel_id, "total": len(rows), "all": everything, "latest": latest, "offset": offset,
+           "limit": limit, "items": page}
+    if channel_id == "notes":
+        out["pinsRead"] = notes_sync.pins_read(memory_path)   # A.4: could the last read tell which notes are pinned?
+    return out
 
 
 #: 2026-11-04 — the channels whose items live in collections the way their own app files them.
-COLLECTION_CHANNELS = ("notes", calendar_local.CHANNEL_ID, reminders_local.CHANNEL_ID)
+COLLECTION_CHANNELS = ("notes", calendar_local.CHANNEL_ID, reminders_local.CHANNEL_ID, "notion-api")
+
+
+def _folder_ids_of(channel_id: str, row: dict) -> set[str]:
+    """A.4 (G245): the ids of every folder a Notes or Notion row sits in or under — its own and each ancestor's. A parent
+    folder's page lists what the tree's ``total`` counts (the folder's own notes and everything under it), so the number
+    beside a folder and the rows under it always agree; ``count`` stays what the folder holds itself. The ids are the tree's
+    own (`note_collection_id`, `notion_collection_id`), so a collection id from ``collections`` always matches."""
+    if channel_id == "notes":
+        account, names = str(row.get("_account") or ""), tuple(row.get("_path") or ())
+        return {note_collection_id(account, names[depth - 1], names[:depth]) for depth in range(1, len(names) + 1)} \
+            or {str(row.get("_collection") or "")}
+    chain = tuple(row.get("_chain") or ())
+    return {notion_collection_id(chain[:depth]) for depth in range(1, len(chain) + 1)} or {str(row.get("_collection") or "")}
+
+
+def _folder_tree(rows: list[dict], *, node_id, listed: list[tuple[str, tuple]] = ()) -> list[dict]:
+    """A.4 (G245): a channel's folders as a tree, each account's folders flattened in display order (a folder, then
+    everything under it).
+
+    Each row names the folder it sits in as a chain of ``(key, name)`` segments (``_chain``, outermost first) and its
+    account (``_account``). Every prefix of a chain is a folder — a parent with no note of its own is still one — and so
+    is every folder ``listed`` (``[(account, chain)]`` in the owning app's own order, empty ones included). Siblings come
+    in the order the list gives them, a folder it does not name after them by name; a flat list that puts a child before
+    its parent is no matter, because only siblings are compared.
+
+    Returns ``[{name, collections: [{id, name, count, total, latest, path, parent, children, depth}], unfiled}]`` in no
+    particular account order (the caller orders accounts). ``count`` is what the folder itself holds, ``total`` with
+    everything under it; ``unfiled`` is the account's rows with no chain."""
+    accounts: dict[str, dict] = {}
+    hints: dict[tuple, int] = {}
+
+    def acct_of(account: str) -> dict:
+        return accounts.setdefault(account, {"name": account or None, "nodes": {}, "unfiled": 0})
+
+    def node(account: str, chain: tuple) -> dict:
+        nodes = acct_of(account)["nodes"]
+        keys = tuple(k for k, _ in chain)
+        if keys not in nodes:
+            nodes[keys] = {"chain": chain, "rows": [], "name": chain[-1][1]}
+        return nodes[keys]
+
+    def spread(account: str, chain: tuple) -> dict:
+        for depth in range(1, len(chain)):
+            node(account, chain[:depth])
+        return node(account, chain)
+
+    for position, (account, chain) in enumerate(listed):
+        if chain:
+            spread(account, tuple(chain))
+            hints.setdefault((account, tuple(k for k, _ in chain)), position)
+    for row in rows:
+        account, chain = str(row.get("_account") or ""), tuple(row.get("_chain") or ())
+        if chain:
+            spread(account, chain)["rows"].append(row)
+        else:
+            acct_of(account)["unfiled"] += 1
+    out = []
+    for account, acct in accounts.items():
+        nodes = acct["nodes"]
+        kids: dict[tuple, list[tuple]] = {}
+        for keys in nodes:
+            kids.setdefault(keys[:-1], []).append(keys)
+
+        def order(keys: tuple, account=account, nodes=nodes) -> tuple:
+            at = hints.get((account, keys))
+            return (0, at, "", "") if at is not None else (1, 0, str(nodes[keys]["name"]).casefold(),
+                                                           node_id(account, nodes[keys]["chain"]))
+
+        flat: list[dict] = []
+
+        def walk(parent: tuple, account=account, nodes=nodes, kids=kids, order=order, flat=flat) -> int:
+            total = 0
+            for keys in sorted(kids.get(parent, ()), key=order):
+                item = nodes[keys]
+                chain = item["chain"]
+                entry = {"id": node_id(account, chain), "name": item["name"], "count": len(item["rows"]), "total": 0,
+                         "latest": _latest(item["rows"]), "path": [n for _, n in chain],
+                         "parent": node_id(account, chain[:-1]) if len(chain) > 1 else None,
+                         "children": [node_id(account, nodes[k]["chain"]) for k in sorted(kids.get(keys, ()), key=order)],
+                         "depth": len(chain) - 1}
+                flat.append(entry)
+                entry["total"] = entry["count"] + walk(keys)
+                total += entry["total"]
+            return total
+
+        walk(())
+        out.append({"name": acct["name"], "collections": flat, "unfiled": acct["unfiled"]})
+    return out
 
 
 def collections(memory_path: Path, channel_id: str) -> dict | None:
@@ -1418,16 +1583,17 @@ def collections(memory_path: Path, channel_id: str) -> dict | None:
     if channel_id not in COLLECTION_CHANNELS:
         return {"channel": channel_id, "accounts": []}
     rows = _collect(memory_path, channel_id)
-    named = {} if channel_id == "notes" else source_collections.known(memory_path, channel_id)
+    if channel_id == "notes":
+        return _notes_tree(memory_path, rows)
+    if channel_id == "notion-api":
+        return _notion_tree(rows)
+    named = source_collections.known(memory_path, channel_id)
     fallback = {calendar_local.CHANNEL_ID: "Calendar", reminders_local.CHANNEL_ID: "Reminders"}.get(channel_id, "Notes")
     groups: dict[str, dict] = {}
     for row in rows:
         cid = str(row.get("_collection") or "")
-        if channel_id == "notes":
-            account, title, kind = row.get("_account") or "", row.get("_folder") or fallback, None
-        else:
-            record = named.get(cid) or {}
-            account, title, kind = record.get("account") or "", record.get("title") or fallback, record.get("provider")
+        record = named.get(cid) or {}
+        account, title, kind = record.get("account") or "", record.get("title") or fallback, record.get("provider")
         acct = groups.setdefault(account, {"name": account or None, "provider": kind, "collections": {}})
         acct["provider"] = acct["provider"] or kind
         coll = acct["collections"].setdefault(cid, {"id": cid, "name": title, "count": 0, "_days": []})
@@ -1441,10 +1607,36 @@ def collections(memory_path: Path, channel_id: str) -> dict | None:
         accounts.append({"name": acct["name"], "provider": acct["provider"],
                          "count": sum(c["count"] for c in colls), "collections": colls})
     accounts.sort(key=_account_order)
-    if channel_id == "notes":
-        # G234: how many locked notes the last read found, kept only as this count (`notes_sync.locked_count`).
-        return {"channel": channel_id, "accounts": accounts, "locked": notes_sync.locked_count(memory_path)}
     return {"channel": channel_id, "accounts": accounts}
+
+
+def _notes_tree(memory_path: Path, rows: list[dict]) -> dict:
+    """Apple Notes' folders as Notes draws them (A.4, owner 2026-11-24: "respect the folder structure"): each account's
+    folders nested, in the order the app listed them in Notes, an empty folder included. A library the app has not sent
+    paths for yet is the flat leaf list it was, by name. ``pinsRead`` says whether the last read could tell which notes
+    are pinned (Full Disk Access), so the page can say when it could not. G234: how many locked notes the last read
+    found, kept only as this count (`notes_sync.locked_count`)."""
+    for row in rows:
+        names = row.get("_path") or ()
+        row["_chain"] = tuple((n, n) for n in names) or (("", "Notes"),)
+    listed = [(f["account"], tuple((n, n) for n in f["path"])) for f in notes_sync.stored_folders(memory_path)]
+    tree = _folder_tree(rows, listed=listed,
+                        node_id=lambda account, chain: note_collection_id(account, chain[-1][0], [k for k, _ in chain]))
+    accounts = [{"name": a["name"], "provider": None, "count": sum(c["count"] for c in a["collections"]),
+                 "collections": a["collections"]} for a in tree]
+    accounts.sort(key=_account_order)
+    return {"channel": "notes", "accounts": accounts, "locked": notes_sync.locked_count(memory_path),
+            "pinsRead": notes_sync.pins_read(memory_path)}
+
+
+def _notion_tree(rows: list[dict]) -> dict:
+    """The live Notion pages by the database or parent page they were read under (A.4). One unnamed account; a page read
+    before its parents were kept is unfiled and still listed on the source's own page."""
+    tree = _folder_tree(rows, node_id=lambda _account, chain: notion_collection_id(chain))
+    accounts = [{"name": None, "provider": None,
+                 "count": sum(c["count"] for c in a["collections"]) + a["unfiled"],
+                 "collections": a["collections"], "unfiled": a["unfiled"]} for a in tree]
+    return {"channel": "notion-api", "accounts": accounts}
 
 
 def _account_order(account: dict) -> tuple:

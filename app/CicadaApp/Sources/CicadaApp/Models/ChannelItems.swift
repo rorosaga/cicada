@@ -51,10 +51,15 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
     /// G161 (ROR-111) — the kind of place this item lives in (`ItemPlaceKind`), when one is known. Never the place
     /// itself: `ItemPlaceControl` asks for that on the click.
     var place: String? = nil
+    /// A.4 (G245) — a Notes row's one-line preview (the first line of its text after the title; nothing for a note of one
+    /// line) and the instant Notes last modified it (aware ISO), which the list is ordered by. Nil elsewhere and from an
+    /// older backend.
+    var snippet: String? = nil
+    var modifiedAt: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case kind, id, title, day, left, host, site, why, chat, videos, sittings, video, received, messages, group
-        case ticked, pinned, book, cover, place
+        case ticked, pinned, book, cover, place, snippet, modifiedAt
         case lastAt = "last_at"
         case syncedAt = "synced_at"
         case durationS = "duration_s"
@@ -94,6 +99,8 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         syncedAt = try? c.decodeIfPresent(String.self, forKey: .syncedAt)
         durationS = try? c.decodeIfPresent(Int.self, forKey: .durationS)
         place = try? c.decodeIfPresent(String.self, forKey: .place)
+        snippet = try? c.decodeIfPresent(String.self, forKey: .snippet)
+        modifiedAt = try? c.decodeIfPresent(String.self, forKey: .modifiedAt)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -119,6 +126,8 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         try c.encodeIfPresent(lastAt, forKey: .lastAt)
         try c.encodeIfPresent(syncedAt, forKey: .syncedAt)
         try c.encodeIfPresent(durationS, forKey: .durationS)
+        try c.encodeIfPresent(snippet, forKey: .snippet)
+        try c.encodeIfPresent(modifiedAt, forKey: .modifiedAt)
     }
 }
 
@@ -163,8 +172,11 @@ struct ChannelItemsPage: Codable, Hashable, Sendable {
     var all: Int? = nil
     /// source-page-v3 — the day (`YYYY-MM-DD`) the newest item came in (ruling 39: the received day when later).
     var latest: String? = nil
+    /// A.4 — Notes only: whether the last read could tell which notes are pinned (the app reads pins only with Full Disk
+    /// Access it already holds). Nil from an older backend and before any read said; false is the page's cue to say so.
+    var pinsRead: Bool? = nil
 
-    enum CodingKeys: String, CodingKey { case channel, total, offset, items, all, latest }
+    enum CodingKeys: String, CodingKey { case channel, total, offset, items, all, latest, pinsRead }
 
     init(channel: String, total: Int, offset: Int = 0, items: [ChannelItem], all: Int? = nil, latest: String? = nil) {
         self.channel = channel; self.total = total; self.offset = offset; self.items = items
@@ -179,6 +191,7 @@ struct ChannelItemsPage: Codable, Hashable, Sendable {
         offset = try c.decodeIfPresent(Int.self, forKey: .offset) ?? 0
         all = try? c.decodeIfPresent(Int.self, forKey: .all)
         latest = try? c.decodeIfPresent(String.self, forKey: .latest)
+        pinsRead = try? c.decodeIfPresent(Bool.self, forKey: .pinsRead)
     }
 }
 

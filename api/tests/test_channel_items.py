@@ -143,8 +143,10 @@ def test_notes_lists_the_latest_episode_per_note(bank):
     page = channel_items.items(bank, "notes")
     assert page["total"] == 2
     assert _ids(page) == ["ep_2026-09-03_001", "ep_2026-09-01_001"]
+    # A.4: a note row also carries the instant it was modified and its one-line preview (nothing else of its body).
     assert page["items"][0] == {"kind": "episode", "id": "ep_2026-09-03_001", "title": "Reading list",
-                                "day": "2026-09-03"}
+                                "day": "2026-09-03", "modifiedAt": "2026-09-03T08:00:00Z",
+                                "snippet": "BODY TEXT THAT MUST NEVER TRAVEL"}
 
 
 def test_calendar_is_newest_first_by_the_events_own_day_and_skips_tombstones(bank):
@@ -208,9 +210,12 @@ def test_a_folder_lists_its_own_episodes(bank):
 def test_titles_are_scrubbed_and_bodies_never_travel(bank):
     page = channel_items.items(bank, "wispr-flow")
     assert "sk-ant" not in page["items"][0]["title"]
-    for cid in ("notes", "calendar-local", "chrome-tab-groups", "wispr-flow", "chrome-bookmarks", "telegram"):
+    for cid in ("calendar-local", "chrome-tab-groups", "wispr-flow", "chrome-bookmarks", "telegram"):
         wire = json.dumps(channel_items.items(bank, cid))
         assert "MUST NEVER TRAVEL" not in wire
+    # A.4 (owner 2026-11-24): a note's row alone carries a preview — its first line, never the rest, in `snippet`.
+    notes = channel_items.items(bank, "notes")["items"]
+    assert [r["snippet"] for r in notes] == ["BODY TEXT THAT MUST NEVER TRAVEL"] * 2
 
 
 def test_a_long_title_is_cut_to_one_line(bank):

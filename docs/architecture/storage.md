@@ -498,7 +498,8 @@ filed in place — names as the site shows them, named secrets scrubbed, one lin
 into a folder or out of one is `save_folders.file_save`: one frontmatter edit on that one episode
 (`episode_staging.amend_frontmatter`, the episode lock), never a second episode and never a question. The fixed label of a
 platform's whole list stays `folder` (`Bookmarks`), because `history_index.LIST_FOLDERS` and `kind` key on it; a YouTube
-playlist save's own `folder` counts as its folder too. A folder is a filing label under the rail above: no page, no claim,
+playlist save's own `folder` counts as its folder too. An Apple Note's `folder_path` and a live Notion page's `notion_path`
+/ `notion_database` (A.4, G245) are the same kind of label, in frontmatter and never in the body. A folder is a filing label under the rail above: no page, no claim,
 no link, never a conversation for the 2+ rule. **A folder's reason** is the person's own words about the folder — one,
 the shape of a save's answer (`reasons` keys from `saved_why.LABELS` and/or a few words, `at`, `edited_at`, `before`),
 scrubbed (writer `folder-reason`) — in `sources/folder_reasons.json`
