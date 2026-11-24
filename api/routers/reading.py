@@ -216,7 +216,7 @@ async def get_reading_prompt(variant: Literal["queue", "daily"] = "queue"):
 @router.get("/reading/asks")
 async def list_reading_asks(request: Request, response: Response, settings: Settings = Depends(get_settings)):
     memory_path = settings.memory_path
-    etag = sync_service.etag_for(memory_path, "reading", "entities", "sources", extra=SHAPE)
+    etag = await sync_service.etag_for_async(memory_path, "reading", "entities", "sources", extra=SHAPE)
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     idx = media_ingestor.load_url_index(memory_path)

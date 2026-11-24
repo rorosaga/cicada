@@ -2,6 +2,7 @@ import re
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
+from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import (
@@ -336,8 +337,8 @@ async def sleep_run_detail_route(drain_id: str, request: Request, response: Resp
         runs_stamp = f"{st.st_mtime_ns}:{st.st_size}"
     except OSError:
         pass
-    etag = sync_service.etag_for(settings.memory_path, "telemetry", "git_head", "sleep",
-                                 extra=f"run|{sleep_run_detail.SHAPE}|{drain_id}|{runs_stamp}")
+    etag = await sync_service.etag_for_async(settings.memory_path, "telemetry", "git_head", "sleep",
+                                             extra=f"run|{sleep_run_detail.SHAPE}|{drain_id}|{runs_stamp}")
     not_modified = sync_service.conditional(request, response, etag)
     if not_modified is not None:
         return not_modified
@@ -361,7 +362,7 @@ async def sleep_run_items_route(drain_id: str, request: Request, response: Respo
     app keeps it in memory beside the run's detail and revalidates with the ETag."""
     if not drain_id.replace("_", "").replace("-", "").isalnum():
         raise HTTPException(status_code=404, detail="Not a run")
-    etag = _items_etag(settings.memory_path, f"run|{drain_id}")
+    etag = await run_in_threadpool(_items_etag, settings.memory_path, f"run|{drain_id}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     commits = sleep_consolidated.run_commits(settings.memory_path, drain_id)
@@ -378,7 +379,7 @@ async def sleep_cycle_items_route(commit: str, request: Request, response: Respo
     """What one plain cycle consolidated — the same items as a run's, from its one commit."""
     if not re.fullmatch(r"[0-9a-f]{7,40}", commit or ""):
         raise HTTPException(status_code=404, detail="Not a Sleep cycle commit")
-    etag = _items_etag(settings.memory_path, f"commit|{commit}")
+    etag = await run_in_threadpool(_items_etag, settings.memory_path, f"commit|{commit}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     detail = await git_service.get_sleep_cycle_detail(settings.memory_path, commit)
@@ -475,15 +476,20 @@ async def sleep_episodes(
     :data:`EPISODES_SHAPE`); not a Store domain — the app holds the rows and the tag in memory."""
     mp = settings.memory_path
     folders = sync_service.file_mtime(folder_source.registry_path(mp))
-    etag = sync_service.etag_for(mp, "episodes",
-                                 extra=f"{EPISODES_SHAPE}|{processed}|{offset}|{limit}|{folders:.6f}")
+    etag = await sync_service.etag_for_async(mp, "episodes",
+                                             extra=f"{EPISODES_SHAPE}|{processed}|{offset}|{limit}|{folders:.6f}")
     not_modified = sync_service.conditional(request, response, etag)
     if not_modified is not None:
         return not_modified
-    headers = episode_headers(mp, processed)
-    response.headers["X-Total-Count"] = str(len(headers))
-    window = headers[offset:offset + limit] if limit is not None else headers[offset:]
-    return _episode_items(mp, window)
+
+    def build() -> tuple[int, list[EpisodeQueueItem]]:
+        headers = episode_headers(mp, processed)
+        window = headers[offset:offset + limit] if limit is not None else headers[offset:]
+        return len(headers), _episode_items(mp, window)   # a body read for every row sent: 200 ms for 3,500 (G238)
+
+    total, rows = await run_in_threadpool(build)
+    response.headers["X-Total-Count"] = str(total)
+    return rows
 
 
 def _episode_items(mp, window) -> list[EpisodeQueueItem]:
@@ -544,27 +550,32 @@ async def sleep_kept(
     headers; a body is read only for the rows sent. Not a Store domain: ETag over ``episodes``."""
     mp = settings.memory_path
     folders = sync_service.file_mtime(folder_source.registry_path(mp))
-    etag = sync_service.etag_for(mp, "episodes", extra=f"{KEPT_SHAPE}|{EPISODES_SHAPE}|{origin}|{offset}|{limit}|{folders:.6f}")
+    etag = await sync_service.etag_for_async(
+        mp, "episodes", extra=f"{KEPT_SHAPE}|{EPISODES_SHAPE}|{origin}|{offset}|{limit}|{folders:.6f}")
     not_modified = sync_service.conditional(request, response, etag)
     if not_modified is not None:
         return not_modified
-    by_origin: dict[str, list] = {}
-    for f in bank_index.files(mp, "episodes"):
-        fm = f.frontmatter
-        if history_index.kind(fm) == "saved" and not fm.get("source_deleted_at"):
-            by_origin.setdefault(queue_origin(fm), []).append(f)
 
-    def stamp(f) -> tuple[str, str]:
-        return str(f.frontmatter.get("timestamp", "") or ""), str(f.frontmatter.get("id", f.stem))
+    def build() -> SleepKept:
+        by_origin: dict[str, list] = {}
+        for f in bank_index.files(mp, "episodes"):
+            fm = f.frontmatter
+            if history_index.kind(fm) == "saved" and not fm.get("source_deleted_at"):
+                by_origin.setdefault(queue_origin(fm), []).append(f)
 
-    sources = sorted((SleepKeptSource(origin=o, count=len(files), newest=max(stamp(f) for f in files)[0] or None)
-                      for o, files in by_origin.items()), key=lambda s: (-s.count, s.origin))
-    items: list[EpisodeQueueItem] = []
-    if origin:
-        files = sorted(by_origin.get(origin, []), key=stamp, reverse=True)
-        items = _episode_items(mp, files[offset:offset + limit])
-    return SleepKept(total=sum(s.count for s in sources), sources=sources, origin=origin or None, offset=offset,
-                     items=items)
+        def stamp(f) -> tuple[str, str]:
+            return str(f.frontmatter.get("timestamp", "") or ""), str(f.frontmatter.get("id", f.stem))
+
+        sources = sorted((SleepKeptSource(origin=o, count=len(files), newest=max(stamp(f) for f in files)[0] or None)
+                          for o, files in by_origin.items()), key=lambda s: (-s.count, s.origin))
+        items: list[EpisodeQueueItem] = []
+        if origin:
+            files = sorted(by_origin.get(origin, []), key=stamp, reverse=True)
+            items = _episode_items(mp, files[offset:offset + limit])
+        return SleepKept(total=sum(s.count for s in sources), sources=sources, origin=origin or None, offset=offset,
+                         items=items)
+
+    return await run_in_threadpool(build)
 
 
 def _run_options_response(settings: Settings) -> SleepRunOptions:

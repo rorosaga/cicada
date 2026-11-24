@@ -129,9 +129,16 @@ fi
 # refresh at the tail of every Sleep cycle (G114 R5); the user-initiated
 # POST /sources/poll-feeds and POST /sources/poll-calendars are gated by the same
 # var. Without it an installed backend's subscriptions would never refresh.
-# No ProcessType key: launchd's Background (and Adaptive) class throttles the CPU work around the Neural Engine —
-# EmbeddingGemma 2 loaded in 4.9–6.7 s there against 1.4–2.0 s with no key, on an M4 Pro (2026-10-09); a 512-token
-# embed stayed ~30 ms in all three. test_install_backend_agent.py holds it.
+# ProcessType Interactive (G238, 2026-11-24): with no key a launchd agent runs at scheduler priority 20, below a job
+# started from a terminal (31), so on a busy Mac the backend lost the CPU first: /healthz took 1.2 s at best and over
+# 20 s at worst at load average 45-60 on 14 cores, and a page read timed out. Interactive puts it at 31, level with the
+# person's own apps. Measured 2026-11-24 on a throwaway agent beside 18 busy loops on 14 cores (30 requests to a
+# 3 ms handler): no key median 59-79 ms, worst 194-248 ms; Interactive median 3.9-4.0 ms, worst 19 ms; Adaptive
+# (priority 4) median 411 ms, worst 2.5 s. EmbeddingGemma 2's load on the Neural Engine: no key 2.2-2.8 s idle and
+# 21-23 s beside the same loops; Interactive 2.3-2.5 s in both.
+# Never Background or Adaptive: they throttle the CPU work around the Neural Engine — EmbeddingGemma 2 loaded in
+# 4.9-6.7 s there against 1.4-2.0 s with no key, on an M4 Pro (2026-10-09), and 9.7 s against 2.2-2.8 s on 2026-11-24.
+# A 512-token embed stayed ~30 ms in every class. test_install_backend_agent.py holds it.
 cat > "$PLIST_PATH" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -153,6 +160,7 @@ $EXTRA_ENV
 $ASSOCIATED_XML
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
+  <key>ProcessType</key><string>Interactive</string>
   <key>StandardOutPath</key><string>$(xml "$LOG_DIR")/backend.out.log</string>
   <key>StandardErrorPath</key><string>$(xml "$LOG_DIR")/backend.err.log</string>
 </dict>

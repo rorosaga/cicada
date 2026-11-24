@@ -31,7 +31,7 @@ async def get_contributors(
     response: Response,
     settings: Settings = Depends(get_settings),
 ):
-    etag = sync_service.etag_for(settings.memory_path, "git_head", extra=git_service.AUTHOR_SHAPE)
+    etag = await sync_service.etag_for_async(settings.memory_path, "git_head", extra=git_service.AUTHOR_SHAPE)
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     contributors = await git_service.get_contributors(
@@ -79,7 +79,7 @@ async def get_contributor_calendar(
     calendar per model. Git only; the UTC date is part of the ETag because a
     rolling window moves at midnight with no commit to move ``git_head``."""
     today = _utc_today()
-    etag = sync_service.etag_for(settings.memory_path, "git_head", extra=f"{author}:{weeks}:{today}")
+    etag = await sync_service.etag_for_async(settings.memory_path, "git_head", extra=f"{author}:{weeks}:{today}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     days = await consumption_stats.contributor_calendar(
@@ -109,7 +109,7 @@ async def get_top_entities(
     """
     today = _utc_today()
     reads_mtime = file_mtime(telemetry.ledger_file(f"{today:%Y-%m}", kind=telemetry.READS_KIND))
-    etag = sync_service.etag_for(
+    etag = await sync_service.etag_for_async(
         settings.memory_path, "git_head", extra=f"{limit}:{range_}:{today}:{reads_mtime:.6f}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early

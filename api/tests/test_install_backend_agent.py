@@ -68,7 +68,9 @@ def test_it_writes_the_plist_install_sh_wrote_and_bootstraps_it(tmp_path):
     assert plist["EnvironmentVariables"]["CICADA_ALLOW_FEED_FETCH"] == "1"
     assert plist["EnvironmentVariables"]["PYTHONPATH"] == str(repo)
     assert plist["RunAtLoad"] is True and plist["KeepAlive"] is True
-    assert "ProcessType" not in plist, "launchd's Background class throttles the search model's loads"
+    # Interactive keeps the backend level with the person's own apps (priority 31, not 20) when the Mac is busy;
+    # Background and Adaptive throttle the search model's loads (G238, measured 2026-10-09 and 2026-11-24).
+    assert plist["ProcessType"] == "Interactive"
     assert (repo / "logs").is_dir()
     uid = os.getuid()
     assert log.read_text().splitlines() == [f"bootout gui/{uid}/{LABEL}", f"bootstrap gui/{uid} {plist_path}"]
