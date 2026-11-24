@@ -1970,7 +1970,7 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     if ctx.sleep_answer:
         return SAVED_LIST_SLEEPING
     idx = media_ingestor.load_url_index(memory_path)
-    created = duplicates = listed = dropped = refiled = dated = 0
+    created = duplicates = listed = dropped = refiled = dated = named = 0
     seen: set[str] = set()
     known: list[bool] = []
     paths: list[str] = []
@@ -1993,10 +1993,12 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
         posted = saved_at.posted_day(row.get("posted"))
         # The list's own origin and folder make the save index-only (`history_index.kind`): no note, no reason —
         # the post's words are the post's, never the person's.
+        # Who posted it is kept as the save's channel (a LinkedIn link names nobody, and the words rarely do): the
+        # site's own label for the post, never the person's words.
         item = RawItem(url=url, title=title, folder=p.folder, origin=p.origin, aliases=list(aliases),
-                       preview=text or None, defer_enrich=True, posted=posted)
+                       preview=text or None, defer_enrich=True, posted=posted, channel=author or None)
         meta = MediaMeta(title=title, description=text, site=media_ingestor._site_of(url),
-                         media_type=media_ingestor._classify(url))
+                         media_type=media_ingestor._classify(url), channel=author or None)
         res = media_ingestor.write_prepared(PreparedItem(item, meta), memory_path, idx, append_list=True)
         if res.status == "created":
             created += 1
@@ -2007,6 +2009,10 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
             if res.collection_added:
                 listed += 1
                 paths.append(f"entities/{res.media_entity_id}.md")
+            if author and media_ingestor.give_channel(memory_path, res.media_entity_id, author):
+                named += 1
+                if f"entities/{res.media_entity_id}.md" not in paths:
+                    paths.append(f"entities/{res.media_entity_id}.md")
             if posted and _give_posted(memory_path, res.episode_id, posted):
                 dated += 1
                 if f"episodes/{res.episode_id}.md" not in paths:
@@ -2047,7 +2053,8 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
             [f"{created} saved {p.name} post(s) (trigger: {ctx.trigger})"] if created else []) + (
             [f"{listed} saved link(s) now list {p.name} {p.label} (trigger: {ctx.trigger})"] if listed else []) + (
             [f"{refiled} saved post(s) filed in more folders (trigger: {ctx.trigger})"] if refiled else []) + (
-            [f"{dated} saved post(s) given the day they were posted (trigger: {ctx.trigger})"] if dated else [])
+            [f"{dated} saved post(s) given the day they were posted (trigger: {ctx.trigger})"] if dated else []) + (
+            [f"{named} saved post(s) given who posted them (trigger: {ctx.trigger})"] if named else [])
         agent_commits.commit_write(memory_path, subject=ctx.commit_subject, lines=lines, paths=paths,
                                    author=ctx.author, session=ctx.session_id)
     extra = f" {dropped} row(s) were not {p.name} posts and were left out." if dropped else ""

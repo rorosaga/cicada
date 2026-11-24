@@ -1,0 +1,267 @@
+[
+ {
+  "id": "en-cousin-colleague",
+  "lang": "en",
+  "kind": "two",
+  "name": "Tomas",
+  "owner": "Mira Kolar",
+  "day": -6,
+  "turns": [
+   "Tomas from the finance team finally met my cousin Tomas at the party on Saturday. Tomas from finance is forty-two, has two kids and runs the budget review at Brightwell. My cousin Tomas is nineteen and studies veterinary medicine in Lyon.",
+   "Sounds like a fun party. Did they get along?",
+   "They did. The finance Tomas asked about Lyon and my cousin Tomas asked how a budget review works."
+  ],
+  "people": {
+   "A": [
+    "forty-two",
+    "two kids"
+   ],
+   "B": [
+    "nineteen",
+    "veterinary"
+   ]
+  }
+ },
+ {
+  "id": "en-two-colleagues",
+  "lang": "en",
+  "kind": "two",
+  "name": "Priya",
+  "owner": "Mira Kolar",
+  "day": -5,
+  "turns": [
+   "Priya in design and Priya in legal were both on the call today. Priya in design is leaving for a startup in March, and Priya in legal is the one reviewing the vendor contract.",
+   "Busy call. Anything you need to follow up on?",
+   "I need the new logo files from Priya in design before she goes, and a signed copy of the contract from Priya in legal."
+  ],
+  "people": {
+   "A": [
+    "startup",
+    "logo"
+   ],
+   "B": [
+    "vendor contract",
+    "signed copy"
+   ]
+  }
+ },
+ {
+  "id": "en-friend-public",
+  "lang": "en",
+  "kind": "two",
+  "name": "Marie",
+  "owner": "Mira Kolar",
+  "day": -4,
+  "turns": [
+   "My friend Marie from the climbing gym lent me a biography of Marie Curie. Marie from the gym is a physiotherapist and trains four times a week. Marie Curie won two Nobel prizes, in physics and in chemistry.",
+   "That sounds like a good read.",
+   "It is. I am on the chapter about the radium experiments, and my friend Marie says she is jealous I read it before her."
+  ],
+  "people": {
+   "A": [
+    "physiotherapist",
+    "four times"
+   ],
+   "B": [
+    "nobel",
+    "radium"
+   ]
+  }
+ },
+ {
+  "id": "en-aunt-friend",
+  "lang": "en",
+  "kind": "two",
+  "name": "Sara",
+  "owner": "Mira Kolar",
+  "day": -3,
+  "turns": [
+   "Aunt Sara and my climbing partner Sara met for the first time at my birthday dinner. Aunt Sara is retired and keeps a garden in Graz. Sara from the gym is training for a bouldering competition in March.",
+   "Did they find something to talk about?",
+   "Tomatoes. Aunt Sara gave the gym Sara two bags of them, and she is bringing the tomato sauce to the competition."
+  ],
+  "people": {
+   "A": [
+    "retired",
+    "graz"
+   ],
+   "B": [
+    "bouldering",
+    "competition"
+   ]
+  }
+ },
+ {
+  "id": "en-brother-boss",
+  "lang": "en",
+  "kind": "two",
+  "name": "Paul",
+  "owner": "Mira Kolar",
+  "day": -2,
+  "turns": [
+   "Funny mix-up at work today: my boss Paul and my brother Paul both emailed me about the Lisbon trip. My boss Paul wants the budget by Friday, and my brother Paul wants to know if he can sleep on my sofa during the trip.",
+   "Two Pauls with two requests. How will you handle it?",
+   "I will send the budget to my boss Paul tonight and tell my brother Paul the sofa is his."
+  ],
+  "people": {
+   "A": [
+    "budget",
+    "friday"
+   ],
+   "B": [
+    "sofa"
+   ]
+  }
+ },
+ {
+  "id": "es-prima-colega",
+  "lang": "es",
+  "kind": "two",
+  "name": "Carla",
+  "owner": "Mira Kolar",
+  "day": -6,
+  "turns": [
+   "Mi prima Carla conoció ayer a Carla, mi compañera de la oficina, en la boda de mi hermano. Mi prima Carla tiene diecisiete años y vive en Sevilla; Carla de la oficina trabaja en contabilidad y tiene tres hijos.",
+   "Qué buen encuentro. ¿Se llevaron bien?",
+   "Muy bien, hablaron de libros toda la noche. Mi prima Carla le pidió consejos de estudio a la Carla de contabilidad."
+  ],
+  "people": {
+   "A": [
+    "diecisiete",
+    "seventeen",
+    "sevilla",
+    "seville"
+   ],
+   "B": [
+    "contabilidad",
+    "accounting",
+    "tres hijos",
+    "three kids",
+    "three children"
+   ]
+  }
+ },
+ {
+  "id": "es-two-colleagues",
+  "lang": "es",
+  "kind": "two",
+  "name": "Luis",
+  "owner": "Mira Kolar",
+  "day": -5,
+  "turns": [
+   "Luis de ventas y Luis de sistemas se sentaron juntos en la reunión de hoy. Luis de ventas se va a Bogotá el mes que viene y Luis de sistemas migra el servidor de correo este fin de semana.",
+   "Una reunión movida. ¿Qué tienes pendiente?",
+   "Tengo que despedirme de Luis de ventas antes del viaje y avisar a Luis de sistemas de que no toque el servidor el sábado."
+  ],
+  "people": {
+   "A": [
+    "bogot"
+   ],
+   "B": [
+    "servidor",
+    "server",
+    "correo",
+    "mail"
+   ]
+  }
+ },
+ {
+  "id": "fr-voisin-collegue",
+  "lang": "fr",
+  "kind": "two",
+  "name": "Julien",
+  "owner": "Mira Kolar",
+  "day": -4,
+  "turns": [
+   "Julien, mon voisin, a rencontré Julien, mon collègue, à la fête de samedi. Mon voisin Julien est retraité et fait du jardinage ; mon collègue Julien dirige l'équipe de recherche à Grenoble.",
+   "Ça a dû être drôle. De quoi ont-ils parlé ?",
+   "De tomates, surtout. Mon voisin Julien a promis des plants à mon collègue Julien pour son balcon."
+  ],
+  "people": {
+   "A": [
+    "retrait",
+    "retired",
+    "jardin",
+    "garden"
+   ],
+   "B": [
+    "recherche",
+    "research",
+    "grenoble"
+   ]
+  }
+ },
+ {
+  "id": "de-kollege-cousin",
+  "lang": "de",
+  "kind": "two",
+  "name": "Jonas",
+  "owner": "Mira Kolar",
+  "day": -3,
+  "turns": [
+   "Mein Kollege Jonas hat auf der Feier meinen Cousin Jonas kennengelernt. Mein Kollege Jonas ist 42 und leitet das Controlling in München, mein Cousin Jonas ist 19 und macht gerade sein Abitur.",
+   "Das klingt nach einem schönen Abend. Haben sie sich verstanden?",
+   "Ja, sie haben über Fußball geredet. Der Controlling-Jonas hat dem Abitur-Jonas Nachhilfe in Mathe angeboten."
+  ],
+  "people": {
+   "A": [
+    "controlling",
+    "munchen",
+    "munich"
+   ],
+   "B": [
+    "abitur",
+    "19",
+    "nineteen"
+   ]
+  }
+ },
+ {
+  "id": "en-one-person-twice",
+  "lang": "en",
+  "kind": "one",
+  "name": "Nico",
+  "owner": "Mira Kolar",
+  "day": -2,
+  "turns": [
+   "My cousin Nico, Nico from the climbing gym I mean, is nineteen and studies veterinary medicine in Lyon. I see him at the gym every Tuesday.",
+   "Nice that you share a hobby. Does he climb well?",
+   "He does, he just started leading routes and is training for the regional youth competition."
+  ],
+  "people": {
+   "A": [
+    "nineteen",
+    "veterinary"
+   ],
+   "B": [
+    "tuesday",
+    "leading routes"
+   ]
+  }
+ },
+ {
+  "id": "es-one-person-twice",
+  "lang": "es",
+  "kind": "one",
+  "name": "Pepe",
+  "owner": "Mira Kolar",
+  "day": -1,
+  "turns": [
+   "Mi tío Pepe, sí, el Pepe que tiene el bar de la esquina, me ayudó con la mudanza el sábado. Tiene sesenta años y cocina unas tortillas increíbles.",
+   "Qué suerte tener ayuda. ¿Terminaron todo?",
+   "Casi todo. Pepe trajo una tortilla para el almuerzo y se quedó hasta que montamos el último armario."
+  ],
+  "people": {
+   "A": [
+    "sesenta",
+    "sixty",
+    "mudanza",
+    "move"
+   ],
+   "B": [
+    "bar",
+    "tortilla"
+   ]
+  }
+ }
+]

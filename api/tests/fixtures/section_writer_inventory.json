@@ -905,6 +905,12 @@
       "method": "write",
       "frontmatter": "fm",
       "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "give_channel",
+      "method": "write",
+      "frontmatter": "{**parsed.frontmatter, 'media': {**media, 'channel': name}}",
+      "disposition": "preserve_frontmatter_guarded"
     }
   ],
   "services/media_pages.py": [

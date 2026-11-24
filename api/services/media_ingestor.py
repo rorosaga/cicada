@@ -2669,6 +2669,29 @@ def add_collection(memory_path: Path, entity_id: str, folder: str | None) -> boo
     return True
 
 
+def give_channel(memory_path: Path, entity_id: str, channel: str | None) -> bool:
+    """A link already saved whose page names no author gains the one its list showed, in place and once
+    (``media.channel``, the field a video's channel and a feed's publication already use, which the words index
+    reads). A page that names one keeps it; a missing page or one that is not ``media`` changes nothing. The caller
+    holds what :func:`add_collection` asks for. Returns whether the page changed."""
+    from api.services import bank_index
+
+    name = (channel or "").strip()
+    if not name or not entity_id or "/" in entity_id:
+        return False
+    entry = bank_index.file(memory_path, "entities", f"{entity_id}.md")
+    held = entry.frontmatter.get("media") if entry is not None else None
+    if entry is None or entry.frontmatter.get("type") != "media" or not isinstance(held, dict) or held.get("channel"):
+        return False
+    path = memory_path / "entities" / f"{entity_id}.md"
+    parsed = markdown_parser.parse(path)
+    media = parsed.frontmatter.get("media")
+    if not isinstance(media, dict) or media.get("channel"):
+        return False
+    markdown_parser.write(path, {**parsed.frontmatter, "media": {**media, "channel": name}}, parsed.body)
+    return True
+
+
 def add_collections(memory_path: Path, items: list[RawItem], idx: dict) -> list[str]:
     """:func:`add_collection` for every item of a batch whose link ``idx`` already holds — a link saved before, or
     one this batch saved from an earlier list (the same video in two playlists of one export). Returns the pages

@@ -2354,8 +2354,25 @@ of the people involved (`same_name_review`): `holds_two` reads one page's conver
 located contrast; `settle_pair` reads two people held in doubt and answers *different* only on a located contrast, *same*
 only with a located link (a fact each side states that is the same fact, or one continues the other), else *cannot tell*. **A split** moves the leaving conversations to a new page
 through `page_join.split` (the page's beliefs whose every source is a leaving conversation, the Key Facts whose provenance
-(`section_provenance`) names only them, the conversations; what a staying conversation also supports stays, and so does the
-Summary, which no one conversation owns; a belief with no provenance is never moved): **one commit** authored `cicada`,
+(`section_provenance`) names only them, the conversations; what a staying conversation also supports stays; a belief with no provenance is never moved; a sourced line shorter than
+`same_name_split.MIN_CHARS` ("Dani is retired", which a sentence number cannot carry) moves as an exact cut, `same_name_tend.short_leaving`;
+**what the old page says with no source of its own** (its Summary, History, Related and Open Questions lines, its tags: written
+when the page was a blend of two people) is read once by the same main model before the split (`same_name_leftovers.plan`,
+outside the write window, an engine failure leaves the flag) and the stretches that state the leaving person move with it
+(2026-11-24): a line moves only when the words the judge copies from a leaving conversation's description are there word for word
+and in none of the staying ones **and the line's own words share a stretch of a leaving description** (at least 12 letters beyond the name, whole
+words, exact; no stretch that size with a staying description, so a name both carry is no tie; a tag is tied by the record alone) — a wrong or
+off-by-one number never moves the staying person's sentence, and the judge's proof is the gate, never the tie (`_tied`; a paraphrase shares no stretch, so it stays, the safe side).
+A mixed sentence gives up only the clause it names (copied exactly, once in the sentence, between clause edges: `;` `,` `:` `.`
+with a space after, or a dash with a space on both sides, never the hyphen of a word, a comma in a number, nor inside a `[...]`,
+`(...)` or link: `page_join.cut_edges_clean`). A cut carries the sentence the judge saw and its offset in it and is applied at
+exactly that place, re-validated inside the lock against the page as it is then (`same_name_leftovers.still_placeable`: still an
+unsourced line, nobody wrote or pinned it since, the sentence once in its section; a short sourced cut is a whole line once in its
+section), else not applied. A History bullet moves whole or stays, never cut inside (History is never rewritten). A
+line a page edit wrote (git blame, `revision_prose._hand_lines`), a pinned fix, a Summary the person wrote, or anything the
+judge cannot locate stays. The cuts are `page_join.split(cuts=...)`, so they ride in the split's own commit and the person's undo
+takes them back byte for byte; `related` entries that only what moved points at go with it (`related_follows`); the new page
+reads in the writer's own order with its lists as bullets): **one commit** authored `cicada`,
 trigger `sleep/same-name`, undone with `page_join.undo`, the pair recorded as split for good. **The person's word stands
 over a split.** That commit holds the split and nothing else; what Sleep remembers about having made it
 (`same_name_doubts.splits`) is written after it, so an undo reverses the split alone, the next look finds the commit taken
@@ -2447,11 +2464,95 @@ modified and uncommitted when a flag was taken with nothing to read, and **a sec
 while the first person was still a held line (the only page so titled took the name's key in Stage 2's index, so the first
 person's held claims were released onto the other person's page). A page recorded apart from the name's own slug no longer
 holds the name's key (`_second_person_titles`); the two runs made to hit that path then kept each person's facts their own.
-*Known limits.* A split leaves the page's Summary as it was until the page is next rewritten (a Summary sentence has no
-provenance of its own), so one sentence about the other person can outlive the split. A thin conversation joined earlier
-(nothing in it to contrast) stays where it was. A conversation that names both people ("X from work met my cousin X") is
-one mention a name to Stage 2, and Stage 1 sometimes names the two with a qualifier in the name, which is not a bare name
-and is not judged here. *The benchmark* (3 runs, both people, as landed): the fixture's two Marcs apart in 3 of 3 runs (the code before joined them in 1 run of 3 on a one-person answer, and so did a fresh control of `dev` the same day), one person kept as one 5 of 5 each run, others' words kept off the person 13 of 13, pages made or not made 14 of 14, updates 12, 12, 13 of 13 (control 12, 12, 12), every fact a claim or held under a waiting name (52 of 52 each run; claims 48, 46, 51). Questions 6, 7, 3 a run against 3, 2, 5 for the control and 5, 3, 3 before: one of them is the pair of Marcs, asked once in 1 run of 3 when the second look could not tell them apart; the rest are other proposers' run-to-run spread. $0.68 a run against $0.64: the second reading, about three main-model calls a person. *With ruling 74a (2026-11-23, the stories again):* two people the record never tells apart stay apart in **60 of 60** replays with **no question** (one each before) and no wrong join; an established page then a different person 32 of 32 with no question (7 of 32 asked before). On the benchmark (3 runs): the two Marcs apart in 3 of 3 and **no question about them in any run** (asked in 1 run of 3 before; in 2 runs the pair waits as a doubt), Sleep joined no one (there is no one to join), one person kept as one 5 of 5, others' words 13 of 13, questions 4, 4, 3 a run against 6, 7, 3, the same $0.68 a run.
+**One conversation that names both people ("X from work met my cousin X"; 2026-11-24, `same_name_people`, `entity_resolver`,
+Stage 1's name rule).** The commonest way a person tells two namesakes apart is also the one the step above handled worst: it
+worked on one mention per bare first name per conversation, and Stage 1 writes the two with what tells them apart in the
+name ("Nico (finance lead)", "Nico (cousin)"), which is not a bare name and was never judged: each waited as a held line
+under its qualified name, never matched to the Nico who already had a page, and an agent asking about Nico got half of him.
+*What Stage 1 writes* (`both_named_battery.py`, 11 invented conversations in English, Spanish, French and German: two relatives
+and a colleague, two colleagues, a friend and a public figure, a boss and a brother, two controls where the two names are one
+person said twice; the product's own call, Sonnet): two entities each carrying a parenthesised qualifier in 58 of 90 runs, one
+qualified and one written otherwise ("Aunt Sara", "Marie Curie") in 19, both written otherwise ("Luis de ventas") in 13, never one
+entity and never a bare name beside a qualified one; each person's facts on their own entity in 87 of 90 (the other 3 carry a
+sentence about the other person). The controls stayed one entity in 20 of 20. **Stage 1 now has one exception to "write a name as
+it was said"**: two different people of one conversation who share a name are each written `<name> (what tells them apart)`, in
+the conversation's own words, never with the qualifier before or after the name (a rule that holds in any language, no
+word list): both qualified in 49 of 56 runs, 6 "Marie Curie" (a real two-word name, rightly left alone), 1 "Luis de ventas";
+facts on the right entity 56 of 56; controls 12 of 12 one entity. *Stage 2 reads the structure only*: a person entity written
+`<one word> (<qualifier>)` (not a handle the record paired, not the owner's first name; a parenthesis on a concept or a two-word
+name is untouched) is a mention of the bare name (`same_name_people.stem_of`); its qualifier leads its description in brackets
+(`describe`), so the judge reads it and the thin-description count includes it. Two mentions of one conversation are two
+people, the conversation said so: they need no located quote and are never one group, and with nobody on record there is no
+judge call (`apart_reading`). **How they stand (2026-11-24, second pass, `sibling_relation`):** *apart for good* only when both
+were written with a qualifier, which is Stage 1 following its rule (all of 66 replayed two-person conversations; the controls
+stayed one entity in 12 of 12 here and 32 of 32 elsewhere); a bare name beside a qualified one is a shape Stage 1 produced in
+neither kind of replay, so it is *a doubt*, a person of its own waiting, never decided (the tail joins it on a located link, ruling
+74a). **An answer that puts the two of one conversation in one group, leaves one out, or cannot be used (a judge that fails)
+says nothing about which of them a person on record is: neither is** (it used to be the one Stage 1 listed first, so the cousin's
+facts could land on the colleague's page by mention order and the pair be written as split for good). Each waits as a person of its
+own, in doubt against the person on record and against what else was in that group, and the two stay as `sibling_relation`
+says (`read`, `sibling_reading`; `Destination.siblings` carries the pair to the resolver, which records it as a split or a doubt,
+`_resolve_same_name_people`). A group the judge itself placed with a known person's filed conversations, with the other of the
+conversation elsewhere, still goes to that person. Each is otherwise matched to who is on record by what is said of it, like
+any mention; a qualified mention is always placed by name: the plain person's page or line (`Destination(kind, ref)`),
+another person's, or a person of its own (`<slug>-2`); with nobody to compare it is the bare name's person
+(`Destination("plain")`: the entity takes the bare name in place, its edges and values follow), unless its own conversation
+also names the bare name (`no_rename`), which keeps the bare name. **A qualified mention is never left under its written name, on
+any exit** (`plan` closes with `fallback`, the resolver again for what the plan never saw: over the batch's cap, a cancelled
+run): a thin description after the judge said "different" (under `MIN_WORDS`, the qualifier counted) is *cannot tell*, a person of its own
+in doubt, never put back under the bare name nor left a held line (a thin bare mention still goes back to the plain name, as it
+always did); anything else nothing placed is the bare name's person, as a bare mention always was, or, when its conversation also
+names the bare name, a person of its own in doubt. A name the owner's page, a nickname or a relation bears is not for this rule
+and is left as it was. The written name stays as an alias, so a `[[Nico (finance lead)]]` link still resolves and no page is
+titled with a qualifier. **A conversation a person already lists, read again** (an edited one), goes back to that person with no
+judge: one mention and one person who lists it, or, when several do, the person whose aliases carry the name the mention was
+written with (the first read wrote it there; a bare name takes the one person left) (`known_for`); a third person is never
+minted for the same two. When the judge puts two groups the conversation told apart on the same known page (the page holds
+both people: flagged for the tail as before), the group with fewer of the page's conversations leaves it for a person of its own.
+The main model's second look replaces the small judge's grouping only when it accounts for every description of a person on record
+(`_covers`): one that grouped only the batch's conversations put the person on record nowhere, and a real run made the cousin a third
+person that way.
+*Measured* (the real
+Stage 1 answers above replayed through the real judge calls into a simulated bank in five states: nobody on record, the first
+person on record, the second, both as pages kept apart, one a page and one a held line in doubt; then a later bare
+conversation of each; `both_named_stories.py`; ok = two people, no blend, no cut): the code before **0 of 120** (every
+qualified name a person of its own, never matched), as landed **55 of 60** (92%; the 5 are the one "Luis de ventas" shape),
+**0 wrong joins, 0 questions**, 55 of 55 on the shape Stage 1 now writes; six stories of the shape are in
+`same_name_stories.json` (engine-free tests; eight since 2026-11-24, two of them the order reversed). *The second pass (2026-11-24, the four defects above):* the eight stories 64 of 64 (8 replays each, 0 wrong joins, 0 questions; 48 of 48 before); the same 38 Stage 1 conversations through the five bank states 183 of 190, the 7 being the 5 "Luis de ventas" shape (not a qualified name, left alone) and 2 of one Spanish case in the state where the second person is on record (the same 6 conversations replayed on the code before: 2 of 6; after: 5 of 6, 5 of 5, and 1 blend in 11); four real Sleeps of the three-phase story (`e2e_run.py`): the cousin and the finance lead each on their own page in 3 of 4, the fourth made the cousin of the two-Nico conversation a third Nico because the main model's second look grouped only that batch's conversations (fixed above, `_covers`, then 2 of 2). *The real path* (`e2e_run.py`, a three-phase twelve-conversation story with
+the two-Nico conversation, real Sleeps on a scratch bank): before, the finance Nico of that conversation waited as a held line
+"Nico (finance lead)" in 6 of 6 runs; as landed, three runs: two pages, the cousin's and the finance lead's, every fact of
+each on its own, the qualifiers as aliases, no held line, no question, 3 of 3 (a first version, 3 runs, joined the two on one
+page in 2 of 3: the judge had put a page's conversation with each, and the placement sent both people to the page; fixed above).
+*Not done:* a person the conversation names with a title and no parenthesis when Stage 1 ignores the rule is still a name of its own.
+
+*Known limits.* A split no longer leaves the Summary, History, Related or tags of the old page stating the person who left
+(2026-11-24; measured below), but what the judge cannot locate stays, and a line with no source that is a fact of both
+people stays on both. **A thin conversation** (nothing in it to contrast) goes where the second look's grouping puts it, and
+the record may say elsewhere which person it was ("the slides were from the finance lead" in a later conversation that is not
+on this page): the tail does not read other pages' conversations for it, so it can stay with the wrong person (1 split of 7
+in the replays below); and where the second look finds no contrast at all it stays on the page it was joined to, never a
+guess presented as the other person's. A conversation that names both people is handled above; what stays open there is an old
+bank's held lines written with a qualifier before 2026-11-24 (`nico (finance lead)`), which are not people on record under
+the bare name and are not migrated. *What the old page says after a split (2026-11-24, `benchmarks/consolidation/same_name_residue.py`).* The stories simulator has
+no page prose, so this builds a real git bank: the real Sleep, with the same-name judge answering "one person", leaves one page
+holding two people with a Summary written from both (three invented stories, English and Spanish; `same_name_residue.json`);
+the real tail (`run_tail`, the main model on a key) then runs on copies of it, and each page's whole text is searched for words
+only the other person's facts carry. Pages stating the other person's fact, of the pages a split made: before (`origin/dev`)
+**9 of 18** (English, 9 splits in 10 replays; each page carried the jam, the age, the street of the other person: Summary,
+History, tags) and 2 of 4 (Spanish, 2 splits in 10); with the Summary, History, Open Questions and tags moved: 10 of 20 and
+7 of 14, one word each (a short Key Fact the sentence numbering skips; a Related line and `related` entry); with short sourced
+lines and the linked pages moving too: **0 of 22** and **0 of 10** (11 and 5 splits). The undo of the split, run on every one
+of those 16 replayed banks, put every page and the graph's edges back **byte for byte**. With the stricter gates of the review (a line tied by its own words, a cut placed exactly once, no edge inside a word or a link; 2026-11-24): **0 of 20** (10 splits in 10 replays) and **0 of 12** (6 of 10), undo byte for byte in 16 of 16; the tie measured three ways, honestly: against the judge's own proof it refused 18 of 36 lines in English and left **9 of 18** pages dirty (a proof copied for one fact of a line that states several; a name both people carry read as a conflict); against the leaving descriptions it left English at 0 of 20 and Spanish at 4 of 8 (a Related bullet states nothing but a link); with a page only the leaving conversations name as a tie too it refused none of 67 lines, and the clause-edge gate refused 3 of 3 clauses it was asked about (a clause starting after "and"). A third story (nothing says which of
+two people a thin call-back was about) never splits: 0 of 10 before and after, the thin conversation stays on the page it was
+joined to. **Not fixed:** a thin conversation the judge groups with the wrong person (the Spanish story: 3 of 5 splits, 6 of 7
+before the last change, 2 of 2 earlier: the spread is the judge's) and the case where the second person is held on a line, so
+the page is not split and the thin conversation stays on the first person's page (2 of 3 real runs of the three-phase story);
+in both a later conversation says which it was, and the tail does not read it. Three real end-to-end runs (`e2e_run.py`): one split
+the page, the old page held none of the finance lead's facts and the thin slides conversation went with him; two held him on a
+line and split nothing. The 3-run benchmark does not exercise a split (no `Split a page` commit in any of its six banks), so it
+shows nothing here but that the rest did not move.
+
+*The benchmark* (3 runs, both people, as landed): the fixture's two Marcs apart in 3 of 3 runs (the code before joined them in 1 run of 3 on a one-person answer, and so did a fresh control of `dev` the same day), one person kept as one 5 of 5 each run, others' words kept off the person 13 of 13, pages made or not made 14 of 14, updates 12, 12, 13 of 13 (control 12, 12, 12), every fact a claim or held under a waiting name (52 of 52 each run; claims 48, 46, 51). Questions 6, 7, 3 a run against 3, 2, 5 for the control and 5, 3, 3 before: one of them is the pair of Marcs, asked once in 1 run of 3 when the second look could not tell them apart; the rest are other proposers' run-to-run spread. $0.68 a run against $0.64: the second reading, about three main-model calls a person. *With ruling 74a (2026-11-23, the stories again):* two people the record never tells apart stay apart in **60 of 60** replays with **no question** (one each before) and no wrong join; an established page then a different person 32 of 32 with no question (7 of 32 asked before). On the benchmark (3 runs): the two Marcs apart in 3 of 3 and **no question about them in any run** (asked in 1 run of 3 before; in 2 runs the pair waits as a doubt), Sleep joined no one (there is no one to join), one person kept as one 5 of 5, others' words 13 of 13, questions 4, 4, 3 a run against 6, 7, 3, the same $0.68 a run.
 
 **Which way a relationship points (2026-11-23).** A role the other side holds toward the person ("my <role> X") was
 sometimes written backwards at Stage 1: `<user> | <role> of | X`, the person as the holder. Nothing downstream can catch it
@@ -2471,6 +2572,24 @@ plus symmetric relations and ones the owner holds, and counts a role written the
 said in both directions, and a relation not stated. About $0.012 an extraction on Sonnet; `rescore` judges saved answers
 again with no model. A case names the holder, the other side, the role in its language and the role the other side holds
 back (the gold of the case, not a product rule). The benchmark's `gold.roles` check now also guards the hierarchy (R3).
+
+**What the person says in passing is a relationship, not only a key fact (2026-11-24).** The benchmark's one gold fact that
+is sometimes not a claim, "has read <a book>" (P18), was never dropped: stored banks show Stage 1 wrote it on the book's
+page and the person's own as a key fact ("<user> read <title> and loved it"), and wrote only "<author> author of <title>"
+as a relationship, so Sleep had no claim to keep (the book rails' `book_said` still carried the status, on the episode, which
+the scorer does not read). Cause: nothing in the prompt said the person's own act on a named thing is a relationship; "who
+someone is to the user" is, and "capture every meaningful connection" left the act to the model. Measured by replaying the
+product's own Stage 1 (`benchmarks/consolidation/dropped_battery.py`, `dropped_cases.json`; engine-free tests in
+`test_dropped_battery.py`) over invented conversations where the person mentions a book, film, trip, course, purchase, race,
+doctor's visit or decision inside a conversation about something else (English, Spanish, French), and over counter-cases that
+must not become the person's act (the assistant's suggestion, a thing only asked about, a plan, someone else's act): on the
+benchmark's own conversation 15 of 40 runs had no claim (the dev code), on the other 21 conversations (104 runs) 1 of 104
+(one French book), none in the other kinds. The fix is one sentence in the relationships paragraph of the prompt: what the
+user's own line says they did with a named thing, said in passing, is a relationship from the user to it, never only a key
+fact. After: 164 of 164 passing facts a claim (40 of 40 on the benchmark's conversation), every one that states a day on that day (16 of 16), 0 of 67 counter-cases written as the person's act; a plan or a doubt is still written as a plan or a doubt ("considering
+watching", "plans to visit"). The harness counts a fact as `claim` (a relationship between the owner and the thing, or a value
+on either), `status` (only the book rails' mark), `prose` or `dropped`; `rescore` judges saved answers with no model. A call is
+under a cent on Sonnet.
 
 **Pick the page (G227, owner ruling 2026-10-29).** A mention that could be any of two or more same-titled pages is ONE
 question for the mention — never one per pair: `ClarificationManager.create` finds an open question about the same
