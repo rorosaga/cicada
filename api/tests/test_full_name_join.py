@@ -410,7 +410,7 @@ def test_a_missing_judge_or_a_scheduled_run_without_the_plan_switch_reads_nothin
     async def none(settings, *, user_triggered):
         return None, "scheduled_plan"
 
-    monkeypatch.setattr(same_name_tend, "main_judge", none)
+    monkeypatch.setattr(same_name_tend, "main_engine", none)
     report = run(full_name_join.run_tail(memory, _Settings(memory), user_triggered=False))
     assert report.joined == 0 and report.skipped == {"scheduled_plan": 1}
 
@@ -421,7 +421,7 @@ def test_nothing_of_the_shape_open_resolves_no_engine(memory, monkeypatch):
     async def boom(settings, *, user_triggered):
         raise AssertionError("no engine may be resolved")
 
-    monkeypatch.setattr(same_name_tend, "main_judge", boom)
+    monkeypatch.setattr(same_name_tend, "main_engine", boom)
     assert run(full_name_join.run_tail(memory, _Settings(memory), user_triggered=True)).looked == 0
 
 

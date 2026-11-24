@@ -590,6 +590,22 @@ async def tend(memory_path: Path, settings, judge, *, today: date | None = None,
     return report
 
 
+async def ask_main(strong, system: str, prompt: str) -> object:
+    """The main model's one call, JSON back. On a plan (a CLI engine) it is a plain call that asks for JSON in words, as
+    the inbox's own judges do (`inbox_tend.default_llm_fn`): `entity_resolver._same_name_ask` labels its call
+    "disambiguation", and a plan then forces that stage's own answer shape (``decision``/``reason``), which no read here
+    can fill (measured 2026-11-24: every reply came back as ``{"decision": "same", "reason": ...}``). A key goes through
+    `_same_name_ask` as the same-name review's does."""
+    from api.services import engine_select, entity_resolver, inbox_tend, json_parse, providers
+
+    if str(getattr(strong, "llm_mode", "") or "").strip().lower() not in engine_select.CLI_MODES:
+        return await entity_resolver._same_name_ask(strong, system, prompt)
+    fn = providers.resolve_llm_fn(strong, stage=inbox_tend.STAGE, is_async=False)
+    resp = await asyncio.to_thread(fn, messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+                                   response_format={"type": "json_object"})
+    return json_parse.parse_json_object_or(inbox_tend._content(resp), {})
+
+
 async def run_tail(memory_path: Path, settings, *, user_triggered: bool, judge=None, today: date | None = None) -> Report:
     """Sleep's tail step (after the same-name review, inside the run's window): no engine is resolved and nothing is sent
     unless an open question has the shape. A scheduled run reaches a plan only through the person's switch (ruling 4b),
@@ -602,10 +618,14 @@ async def run_tail(memory_path: Path, settings, *, user_triggered: bool, judge=N
         if not await asyncio.to_thread(candidates, memory_path):
             return report
         if judge is None:
-            judge, why = await same_name_tend.main_judge(settings, user_triggered=user_triggered)
-            if judge is None:
+            strong, why = await same_name_tend.main_engine(settings, user_triggered=user_triggered)
+            if strong is None:
                 report.skip(why)
                 return report
+
+            async def judge(system: str, prompt: str) -> object:
+                return await ask_main(strong, system, prompt)
+
         return await tend(memory_path, settings, judge, today=today)
     except (engine_errors.EngineThrottled, engine_errors.EngineExhausted, engine_errors.EngineOverage):
         report.skip("plan_limit")

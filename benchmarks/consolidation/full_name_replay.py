@@ -47,7 +47,9 @@ def copy_bank(src: Path, dst: Path) -> Path:
 def counting(ask, tally: dict):
     async def judge(system: str, prompt: str):
         tally["calls"] += 1
-        return await ask(system, prompt)
+        answer = await ask(system, prompt)
+        tally.setdefault("answers", []).append(answer)
+        return answer
 
     return judge
 
@@ -115,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
         home = work / "home"
         home.mkdir(parents=True, exist_ok=True)
         with _leg_environment(home, bank):
-            from api.services import entity_resolver, same_name_tend
+            from api.services import full_name_join, same_name_tend
 
             from benchmarks.consolidation.run import engine_model
 
@@ -124,7 +126,7 @@ def main(argv: list[str] | None = None) -> int:
             strong = same_name_tend.main_tier(settings)
 
             async def ask(system: str, prompt: str, strong=strong):
-                return await entity_resolver._same_name_ask(strong, system, prompt)
+                return await full_name_join.ask_main(strong, system, prompt)
 
             rows = asyncio.run(replay_one(bank, counting(ask, tally), dry=a.dry, apply=a.apply, settings=settings))
         for row in rows:
@@ -132,6 +134,8 @@ def main(argv: list[str] | None = None) -> int:
             key = row["outcome"] + (f":{row['why']}" if row["outcome"] == "skip" else "")
             summary[key] = summary.get(key, 0) + 1
             print(json.dumps(row, ensure_ascii=False))
+        if os.environ.get("REPLAY_SHOW_ANSWERS"):
+            print(json.dumps(tally.get("answers", [])[-4:], ensure_ascii=False))
         if not a.keep and not any(r.get("applied") for r in rows):
             shutil.rmtree(work, ignore_errors=True)
     print(json.dumps({"summary": dict(sorted(summary.items())), "model_calls": tally["calls"]}, ensure_ascii=False))
