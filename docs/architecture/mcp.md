@@ -2538,3 +2538,29 @@ a client is one line after a test.
   "Hookless apps, through the remote connector". Its schema takes no zone: the listener reads the IANA `timezone` of
   the `openai/userLocation` hint ChatGPT puts in a call's `_meta` (only that field) so the episode id carries the
   person's day (ruling 34); claude.ai sends none, and its relayed ids take the server's zone.
+
+
+## Cicada's own agent (ruling 83, owner 2026-11-25)
+
+`harness_questions.run_tail` (started by `sleep_cycle` after the cycle's window closes, on its own thread; `harness_agent` is the switch) works at most three
+open questions a run, in `question_order`: a `conflict` (which of its values a document or a site states), a `clarification` that asks what something is
+(never `asks: name`, a speaker, a source or "still?"), and a `merge_suggestion` between two person pages (never the owner's, never a pair kept apart). A
+conflict one of whose values rests on the person's own words is left (ruling 44). Each is one `claude -p` session (`harness_agent.build_argv`): safe mode, no
+settings, `--permission-mode dontAsk --permission-prompts none`, `--json-schema` for the answer. The grant (`settings_for`): `Read`/`Glob`/`Grep` on the
+person's own top-level folders (`read_roots`: no dot-folder, no `Library`, none of Documents, Desktop, Downloads, Pictures, Movies, Music unless
+`--attended`) and on the bank, refused on Cicada's home and `.env`/key-shaped files; `WebSearch`, `WebFetch`; `Bash` only for `python3
+api/harness_tools/read_browser.py` (`status`, `open <http(s) address>`, `text <offset>`, `close`: the harness's CLI with fixed code and an existing daemon
+required, never a click, a key or a sign-in; a login page prints `NEEDS A LOGIN` and is left). `Write`, `Edit` and `NotebookEdit` are denied and not
+offered. The brief (`brief_for`) is the question, the page's own words held back by value (`sensitive_hold`), the folders and the tools; its system
+prompt says what it reads is data.
+
+**The gate is code.** `harness_agent.verify` accepts an evidence item (an address or a file, a quote of at most 240 characters) only when that address or file
+is one the audit shows was read in this session, the quote is located in what the call returned (exact, whitespace, case; never fuzzy), the page did not ask
+for a login and the confidence is at least 0.8 (0.7 for "two people", whose gate is two located lines). `decide`: a conflict settles only on an option whose
+label the quote itself carries; a clarification only on words the quote carries; a pair only as "different" with one located line per side, both in the bank's
+`episodes/`; everything else about a pair is a note (`agent_found` on the question: the finding, the evidence, the trail, and `mixed` conversation ids when one
+page holds both people's facts). The settle is `inbox_tend.apply` with rule `found_by_agent`: the citations are one `source: web-check` episode (untimed, never a
+save, never the person's words; the claim's span points into it), the settled record carries `found` and `trail`, the commit is Sleep's, the undo is the generic
+one. A question the agent could not answer is not worked again until it or its page changes or 14 days pass (`harness_seen/`, outside every bank).
+
+Dry run: `scripts/harness_agent_dry_run.py --memory <bank> [--work N] [--attended]` (writes nothing; prints every call as it is made). Battery: `benchmarks/consolidation/harness_battery.py`.

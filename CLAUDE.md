@@ -16,7 +16,7 @@ The goal: **capture the human experience seamlessly, and make it something you c
 conversation over — with agents that can understand it, contribute to it, and draw their own
 relations across it.**
 
-Concretely, Cicada aims to span:
+Cicada aims to span:
 
 - **Every kind of media ingestion** — links, articles, papers, videos, images, bookmarks, RSS,
   files, saved collections exported from the platforms where they pile up.
@@ -253,17 +253,17 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   page reads run once per drain. A plan limit is a pause, not a failure (only saves left: finished). **Ruling 4: a scheduled run uses a Claude or ChatGPT plan only
   through the person's "Scheduled runs may use my plan" switch, on unless they turned it off** (4b 2026-10-16, 4c
   2026-10-19; `SUBSCRIPTION_MODES` the one guard); on a metered engine it spends up to the person's spending limit, then pauses in words (ROR-102, ruling 63 (g), `sleep_spend`); a model with no known price stops the run.
-  **Plan-first engines (ruling 31, 2026-10-19):** the default is Auto — Claude plan, ChatGPT plan — never
+  **Plan-first engines (ruling 31):** the default is Auto — Claude plan, ChatGPT plan — never
   a metered key nobody chose; a key (OpenRouter included) reads only when chosen.
   **Ruling 36 D1 (owner, 2026-10-22):** with nothing chosen, Auto uses a signed-in plan (Claude Code, then Codex) and
   says in words what runs; a key secured properly is an equal option; a local model runs only when chosen, never as Auto's rung.
-  **The person's own Cursor, OpenCode or Grok (G49/G50, 2026-10-28)** are plans under ruling 4's switch (Grok user-started
+  **The person's own Cursor, OpenCode or Grok (G49/G50)** are plans under ruling 4's switch (Grok user-started
   only), headless with no tools or MCP context, on their own sign-in; a key-billed path is refused or stops the run (`cli_engines`).
   **Ruling 46 (owner, 2026-10-28):** Auto is Claude plan → ChatGPT plan → Cursor → OpenCode (subscription model only), each
   read from cached status, an unknown or hung tool skipped in words, never a stall; Grok never on Auto (`capture-and-sleep.md`).
   **Ruling 63:** a key whose provider has an official SDK row (`direct_engines`) is served by that
   SDK, every other key by LiteLLM; a key's limit is a pause that never says the person's plan (`capture-and-sleep.md`, "A Claude key").
-  **46a:** Auto and schedules run Cursor only on Cursor's own models; a third-party one there is labelled "billed separately at list price", never auto-picked. Continue-after-reset is opt-in (ruling 15). A scheduled time the Mac slept or was off through runs once, after a short settle, as a scheduled
+  **46a:** Auto and schedules run Cursor only on Cursor's own models; a third-party one there is labelled "billed separately at list price", never auto-picked. Continue-after-reset is opt-in (ruling 15). A scheduled time the Mac slept through runs once, after a short settle, as a scheduled
   run — never over a pause or a running cycle (`sleep_catch_up`, owner 2026-10-19, `features.md`).
 - **The write window (G177):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal,
   read only through `write_admission` (G183): a writer holds it shared through its own commit,
@@ -358,9 +358,8 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   world facts on plan runs (never a metered key), re-checked by use and volatility, never over the person's own words
   about their own life; a private
   person's name never reaches any service; every page says why it matters to the person, derived on read (`web_context`,
-  `page_relevance`, `storage.md`). **Ruling 54 (owner 2026-11-04):** a handle vs a named person is worked like an
-  agent on the Claude plan only, on by default: a tool-less model reads anything in memory, every query and link it asks for
-  passes `name_guard` in code (a name known only from the person's record never leaves; a tie always blocks); cited, undoable, never a merge (`settling_agent`, `features.md`). **54a:** a page's tracked
+  `page_relevance`, `storage.md`). **Ruling 54 (2026-11-04):** a handle vs a named person is worked like an
+  agent on the Claude plan only: a tool-less model, every query and link it asks for passes `name_guard` (a name known only from the person's record never leaves; a tie blocks); cited, undoable, never a merge (`settling_agent`; ruling 83 amends). **54a:** a page's tracked
   sources come first, opened directly, never a search for a private person; a walled one only by the person's agent. **A tracked source's
   dated re-check does (ruling 26):** a new dated fact; the newest evidence wins, even over the person's own words; the same
   day or undated asks once; walled pages only by the person's agent (`storage.md`, `network.md`).
@@ -374,11 +373,10 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Pictures:** one precedence (the person's choice → Contacts photo → the photo a ticked chat holds (Messages, WhatsApp, Telegram) → a
   person's public-profile photo → a brand's logo → a media thumbnail → a person's monogram; any other page with none draws
   nothing, never a type glyph — owner 2026-10-28). **A logo comes only from a trusted
-  `website` source — never a domain guessed from a name; a person never gets a logo and no service is sent a private person's name (G146/G159).** Owner 2026-10-28 (C, E): a public figure ruling 44's full test matched gets that item's encyclopedia portrait, asked by item, never with the name as a query; a project its trusted site's mark or, only when an organisation owns its repository, that organisation's avatar (`storage.md`). Ruling 40's homepage-confirmed find is trusted, and a public place with one draws its mark. A saved link's own site may show its own icon, asked of that site only (or the icon host its homepage declares, 2026-10-20; `network.md`), on the person's view (owner 2026-10-19; `storage.md`); a watched or saved YouTube video its still, from YouTube's own host for that id only, on the same terms (2026-10-19); a book its own copy's cover, else Open Library's, never found by title (ruling 61). A person's photo is asked only
+  `website` source — never a domain guessed from a name; a person never gets a logo and no service is sent a private person's name (G146/G159).** A public figure ruling 44's test matched gets its encyclopedia portrait, asked by item, never by name; a project its trusted site's mark or, only when an organisation owns its repository, that organisation's avatar (`storage.md`). A public place with a ruling-40 site draws its mark. A saved link's own site may show its icon, asked of that site only (or the host its homepage declares; `network.md`, `storage.md`); a saved YouTube video its still, from YouTube's host for that id only; a book its own copy's cover, else Open Library's, never found by title (ruling 61). A person's photo is asked only
   with an identifier already on the page or record and given as their own account — the owner's hashed email, a GitHub,
-  X, Instagram or LinkedIn profile link (owner, 2026-10-09; Instagram, D5), never a proposal the person has not taken (`network.md`); a LinkedIn link from the person's connections counts as given
-  on a confident match, never an alias-only one (owner 2026-10-17). The photo a chat shares in Messages is its page's
-  picture everywhere, gone on untick (owner 2026-10-16, `storage.md`).
+  X, Instagram or LinkedIn profile link (owner, 2026-10-09), never a proposal the person has not taken (`network.md`); a LinkedIn connection's link counts as given
+  on a confident match only (2026-10-17). A chat's shared photo is its page's picture, gone on untick (`storage.md`).
   Logos, pictures, media previews (fetched once, then served from the store) and repo observations are caches outside
   every bank.
 - **Link views (owner rulings 2026-10-14):** a view is a word in a link's markdown title (`[T](url "bookmark")`), one
@@ -452,7 +450,11 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   speaking only `/v1` with an agent token, like `clients/memory-tool`, is not a door (38a, 2026-10-29).
   Apps sign in through the listener's own OAuth 2.1 server (ruling 32): consent only in the app, by typing the code the
   person's own page shows, never a click or the public page; a self-registered app is never named by its claim (`network.md`).
-- **Reading with the person's own agent (G166):** Cicada never spawns a browser and never signs in to a site; it only asks
+- **Cicada's own agent (ruling 83, 2026-11-25; amends G166, 54 and 44's name guard for it alone):** a harness session on the
+  Claude plan, after the cycle and outside Sleep's window, works a few open questions with the person's files, the web and their own browser, read-only
+  (no write tool, never a sign-in); what it reads is data. It finds, **Cicada's code writes**: located
+  evidence, one `found_by_agent` settle, undoable, its trail kept; a "same person?" is never joined (`harness_agent`, `mcp.md`).
+- **Reading with the person's own agent (G166):** Cicada's backend never spawns a browser and never signs in to a site; it only asks
   (only ruling 47's tier 2 — an official API the person connects — signs in, never as a browser session, `network.md`). Only a
   link the person asked about, or a wall page of a site they allowed, can be recorded — and (owner 2026-10-16, G71) the
   person's YouTube Watch later or history page, a standing ask once they turn that list on, stdio only; their saved list on X, Instagram or LinkedIn the same way, one site at a time, each item a
@@ -465,7 +467,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Skills (2026-10-15):** Cicada installs third-party skills only on the person's consent, pinned to what they saw
   (a commit, or a catalog tool's commit); one writer (`skill_store`), never into a bank, never hooks or settings; an
   agent only asks (`cicada_propose_skill`) or drafts a held skill (`api.md`, "Skills").
-- **Video (G162):** Cicada never downloads a video or derives a stream; a video's state is derived, never stored; the
+- **Video (G162):** Cicada never downloads a video or derives a stream; its state is derived, never stored; the
   queue lives outside every bank.
 - **Continuity (G110, slice 1a/1b):** SessionStart carries a light pointer inside the whole 1,800-token note;
   previous working history is retrieved on demand via `cicada_continue`, from captured episodes over a disposable index;
@@ -499,7 +501,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   panel closes only on the person's act; the star on a saved page never prompts for Automation (2026-10-19).
 - **Copy is provider-neutral** (owner, 2026-09-30): never name a provider or model as the one doing a job — describe the
   step; a name appears only where it shows the person's own current choice.
-- **Prices and plan usage show only on the Sleep page's Past sleeps (Past reads until 2026-11-24) run detail and engine menu** (ruling 12), each figure with its basis.
+- **Prices and plan usage show only on the Sleep page's Past sleeps  run detail and engine menu** (ruling 12), each figure with its basis.
 - **Sync:** one Store, hydrated from disk, SSE deltas, **never blank**; writes are optimistic with rollback. **Ship an
   ETag and its client mapping together.** A read that is not a Store domain says so and caches in memory.
 - **d3-force stays (G109)**; every custom force multiplies by alpha; the release path never bumps alpha.
@@ -512,8 +514,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   Every server-side fetch of someone else's URL goes through `net_guard`.
 - **Update check (G182):** release builds only, behind *Install updates automatically* (on by default); a download installs only after its sha256 and Ed25519 signature verify.
 - **Search model download (2026-10-09):** EmbeddingGemma 2 is fetched only on the person's click or command — one pinned
-  revision, every file sha256-checked, never bundled (`network.md`). A model change re-embeds in the background, never during Sleep; recall keeps the old table until the
-  new one commits (`storage.md`).
+  revision, every file sha256-checked, never bundled (`network.md`). A model change re-embeds in the background, never during Sleep (`storage.md`).
 - **Study room weather (G176):** its own opt-out app gate reads only public city weather while the room is visible (`network.md`).
 - **The ToS rail — not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never behind auth. Consent
   interstitials and login walls are classified and retired **without a byte fetched**. **A block is never retried with

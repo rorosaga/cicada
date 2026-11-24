@@ -1218,3 +1218,12 @@ carry hashed ids, sizes, counts and timings, never a body, a key, an address or 
 `PYTHONPATH=relay python -m cicada_relay` with the same variables.
 
 ---
+
+## Cicada's own agent and the network (ruling 83, owner 2026-11-25)
+
+The G166 rail "Cicada never spawns a browser" is about Cicada's backend, which still never does: it opens no browser, signs in to nothing and fetches nothing behind auth.
+Cicada's own agent (`harness_agent`) is the person's own harness session, run as they would run it: `WebSearch` and `WebFetch` are the plan's tools (no `net_guard`, no
+cookies), and its one browser program (`api/harness_tools/read_browser.py`) opens an address in a new tab of the person's own browser through the browser harness's CLI
+(telemetry and the update check turned off for that call), only when a harness daemon already exists (never a launch, never the "allow remote debugging" sheet), read-only.
+A private person's name may be searched (the owner lifted that limit; ruling 44's and 54's `name_guard` stays on ruling 54's step and the backend's lookups). Every query and
+address the session used is kept with the settle.
