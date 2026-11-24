@@ -2410,7 +2410,25 @@ description (a thin one is the plain person's, as before). **A second reading** 
 join hides: it reads the speaker being named in both descriptions, or "a later move", as a link), or divides them against a
 person on record with three or more filed conversations, the same prompt is put to the main model once and its grouping replaces
 the small judge's when it divides them; its answer failing, unreadable or calling it one person leaves the small judge's
-reading, so a located split is never lost to it. A single new conversation against a person on record is not read again. `plan`
+reading, so a located split is never lost to it. A single new conversation against a person on record is not read again.
+**On a plan the judge is told no answer shape (2026-11-24).** A call's `stage` label picks three things: the model tier
+(`model_for_stage`: "disambiguation" is the small one on every engine), the plan guard and the metering. It no longer picks the
+answer shape an engine forces. Until now the Claude plan (`agent_engine`) and the ChatGPT plan (`codex_engine`) forced the pair
+judge's schema (`decision` / `decisions`) on every call labelled "disambiguation", and the same-name judge, which shares that
+label for its small model, was forced into it: its answer (`people` / `pairs`, a verdict, a list of lines) came back as
+`{"decision": "same", "reason": "<the real answer as a string>"}`, which `same_name_people.read`, `settle_pair` and `holds_two`
+could not read, so on a plan, the default, two people of one first name were placed as one person (measured: a story's aunt and
+climbing partner on one page in the one real Sleep run before the fix) and no doubt was held, joined or asked. The benchmark had
+only run on a key, where no schema is forced. Now a schema is forced only on a call that **states** a shape
+(`resolve_llm_fn(..., shape=)`, `engine_schemas.SHAPES`: `pair` by the two pair-judge calls in `entity_resolver`, `extraction`
+and `quick_read` by Stage 1's call, which keep their behaviour: Claude's behind its flag, Codex's strict one for `extraction`
+only); every other call, the same-name judge included, is told only to answer JSON, as on a key, and a misspelt shape raises where
+it is written. The Cursor, OpenCode and Grok engines never forced a shape (their stage label only picks the model). **An
+answer that does not have the shape asked for is never a verdict** and is counted: `Plan.unreadable` (the Stage 2 log line
+"N same-name answer(s) were not in the shape asked for and were skipped", a count, no name), the tail's `unreadable` skip
+(`Report.skipped`, apart from `not_read` which is a real answer that stood on nothing), and a log line for a split's leftover prose.
+The name is placed as if no judge had answered, as it is for a failed call. `api/tests/test_answer_shape.py` has the table: every
+`resolve_llm_fn` call in the services forces no schema unless it is one of the listed callers that state their shape. `plan`
 **never changes a page that exists**. When its re-read shows
 that a page's own conversations fall in two groups (`page-holds-two-people`), or that two people held in doubt fall in one
 (`doubt-may-be-one`; **also when the whole name reads as one person**, which is the usual way a doubt ends, 2026-11-24:
