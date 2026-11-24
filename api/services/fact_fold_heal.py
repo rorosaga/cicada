@@ -17,8 +17,11 @@ Before any model call :func:`census` says how many pages would be asked and the 
 **Apply** (:func:`apply`, no model call) writes exactly the folds of a reviewed plan file: a page whose Key Facts changed
 since the plan is skipped and reported, never re-judged; a fold struck from the file is not made.
 
-Loss-free by construction (the brief's rail, ruling 23): a bullet takes part only when G118's rows prove Sleep wrote it
-(a typed or edited line, one with no rows, is never dropped, and a holder with no rows could not receive the sources); a
+Loss-free by construction (the brief's rail, ruling 23): a line is KEPT as a holder only when G118's rows prove Sleep
+wrote it (a holder with no rows could not receive the sources). A line with no rows — written before the rows existed —
+may be DROPPED into a sourced line that says it in full, and never holds one (owner 2026-11-24: *"yeah go ahead"* to
+removing an old line with no source record when a sourced line says the same thing in full, on pages nobody edited;
+until then it was never dropped either). Such a fold says so in the plan (`unsourced`). A
 pinned correction is never dropped; a page a person edited is never touched; every fold passes the SAME guard as a write
 on the page's whole neighbourhood, and a line already holding others moves them on only when the new holder covers them
 all (`_admit`). The claims fence, History, Open Questions, the article and the frontmatter other than the provenance rows
@@ -250,11 +253,12 @@ class Fold:
     second_reader: bool = False
     chain: list[str] = field(default_factory=list)   # lines it passed through before the one kept
     sources: list[str] = field(default_factory=list)
+    unsourced: bool = False         # the dropped line had no source rows (written before they existed)
 
     def row(self, page: str, n: int) -> dict:
         return {"id": f"{page}#{n}", "drop": self.drop, "into": self.into, "how": self.how, "guard": self.guard,
                 "flipped": self.flipped, "ask": self.ask, "second_reader": "agreed" if self.second_reader else None,
-                "chain": self.chain, "sources_move": self.sources, "strike": False}
+                "chain": self.chain, "sources_move": self.sources, "unsourced": self.unsourced, "strike": False}
 
 
 class _Replay:
@@ -272,6 +276,10 @@ class _Replay:
     def pinned(self, text: str) -> bool:
         return _norm(text) in self.read.pinned
 
+    def sourced(self, text: str) -> bool:
+        """G118's rows prove Sleep wrote this line: only such a line may hold another."""
+        return text in self.src
+
     def canon(self, text: str) -> str:
         people = self.ctx.people
         if not people:
@@ -285,6 +293,9 @@ class _Replay:
         and everything the line already holds."""
         if drop == holder or drop not in self.alive or holder not in self.alive or self.pinned(drop):
             return False
+        if not self.sourced(holder):
+            self.refused.append({"drop": drop, "by": holder, "stage": "the kept line has no source record"})
+            return False
         carried = [drop, *self.holds.get(drop, [])]
         bad = next((x for x in carried if not _admit(self.ctx, holder, x)), None)
         if bad is not None:
@@ -297,7 +308,8 @@ class _Replay:
             if fold.into == drop:
                 fold.into = holder
                 fold.chain.append(drop)
-        self.folds[drop] = Fold(drop, holder, how, sources=sorted(self.src.get(drop, ())), **info)
+        self.folds[drop] = Fold(drop, holder, how, sources=sorted(self.src.get(drop, ())),
+                                unsourced=not self.sourced(drop), **info)
         return True
 
     def add(self, text: str) -> None:
@@ -306,9 +318,8 @@ class _Replay:
 
 def _rule_step(replay: _Replay) -> None:
     """Equal and word-for-word-extending bullets, by the rule every write applies — in page order, the earlier bullet
-    holding, unless it is the one that may not go (pinned)."""
-    for i in replay.read.foldable:
-        text = replay.read.bullets[i]
+    holding, unless it is the one that may not go (pinned) or the earlier one cannot hold (no source rows)."""
+    for text in replay.read.bullets:
         replay.add(text)
         for held in list(replay.alive):
             if text not in replay.alive:
@@ -384,7 +395,7 @@ def plan_page(read: Read, names: "link_names.Names | None", owner: str | None, j
             meter.ask += 1
             reply = judge(fact_fold.prompt(ask))
             proposed = fact_fold.proposals(reply, ask)
-            oriented = fact_fold.orient(proposed, ask)
+            oriented = _holders(fact_fold.orient(_holders(proposed, ask, replay), ask), ask, replay)
             if oriented:
                 meter.check += 1
             confirmed = fact_fold.checks(oriented, ask, judge)
@@ -437,8 +448,25 @@ def plan_page(read: Read, names: "link_names.Names | None", owner: str | None, j
     return {"v": VERSION, "page": read.id, "name": read.name, "kf_hash": read.kf_hash, "before": len(read.bullets),
             "after": len(read.bullets) - len(folds), "status": status,
             "calls": {"ask": asks, "total": meter.total - start},
-            "rowless_kept": sum(1 for ok in read.rowed if not ok), "folds": folds,
+            "rowless_kept": sum(1 for b, ok in zip(read.bullets, read.rowed) if not ok and b in survivors),
+            "unsourced_dropped": sum(1 for f in folds if f["unsourced"]), "folds": folds,
             "refused": replay.refused[:50], "strike": False}
+
+
+def _holders(pairs, ask: fact_fold.Ask, replay: "_Replay"):
+    """Each ``(drop, keep)`` pair whose kept line has no source rows is turned round when the other line can hold it (it
+    has rows, the kept one may go, and the guard and the link rule pass THAT way — the second reader is then asked about
+    that direction), and left out when it cannot."""
+    out = []
+    for drop, keep in pairs:
+        if replay.sourced(keep.text):
+            out.append((drop, keep))
+        elif (replay.sourced(drop.text) and fact_fold._droppable(keep, ask) and not replay.pinned(keep.text)
+              and fact_fold._admits(drop, keep, ask)):
+            ask.paths[keep.text] = "flipped"
+            out.append((keep, drop))
+    seen: set[int] = set()
+    return [pair for pair in out if not (pair[0].n in seen or seen.add(pair[0].n))]
 
 
 def _note_refusals(replay, reply, ask, proposed, oriented, confirmed, decided) -> None:
@@ -458,7 +486,7 @@ def _note_refusals(replay, reply, ask, proposed, oriented, confirmed, decided) -
         if drop.text not in passed:
             stage = "code guard"
         elif drop.text not in oriented_ and keep.text not in oriented_:
-            stage = "link rule"
+            stage = "link rule" if replay.sourced(keep.text) else "the kept line has no source record"
         elif drop.text not in confirmed_ and keep.text not in confirmed_:
             stage = "second reader"
         else:
@@ -606,7 +634,7 @@ def _apply_page(path: Path, page_id: str, row: dict, folds: list[dict], names, o
         why = None
         if drop not in index or into not in index or drop == into:
             why = "not_on_page"
-        elif not (read.rowed[index[drop]] and read.rowed[index[into]]):
+        elif not read.rowed[index[into]]:
             why = "no_source_rows"
         elif _norm(drop) in read.pinned:
             why = "pinned"
@@ -623,7 +651,7 @@ def _apply_page(path: Path, page_id: str, row: dict, folds: list[dict], names, o
         hops = 0
         while into in judged and hops <= len(judged):
             into, hops = judged[into], hops + 1
-        if into in judged or into == drop or not _admit(ctx, into, drop):
+        if into in judged or into == drop or not read.rowed[index[into]] or not _admit(ctx, into, drop):
             result.fold_skipped["chain"] = result.fold_skipped.get("chain", 0) + 1
             continue
         final[drop] = into

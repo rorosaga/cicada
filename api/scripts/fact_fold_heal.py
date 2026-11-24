@@ -76,6 +76,7 @@ def _review(rows: list[dict], out: Path) -> None:
                          + (f", guard {fold['guard']}" if fold.get("guard") else "")
                          + (", turned round" if fold.get("flipped") else "")
                          + (", second reader agreed" if fold.get("second_reader") else "")
+                         + (", the dropped line has no source record" if fold.get("unsourced") else "")
                          + ("  [STRUCK]" if fold.get("strike") else ""))
             lines.append(f"    dropped: {fold['drop']}")
             lines.append(f"    kept:    {fold['into']}")
@@ -122,7 +123,7 @@ def cmd_plan(args) -> int:
         if read.skip:
             skipped[read.skip] = skipped.get(read.skip, 0) + 1
             continue
-        if len(read.foldable) < 2:   # no row proves Sleep wrote them (a legacy or typed page): nothing may be dropped
+        if not read.foldable:   # no row proves Sleep wrote any of them (a legacy or typed page): nothing can hold a fold
             skipped["no_source_rows"] = skipped.get("no_source_rows", 0) + 1
             continue
         info = heal.census(read, chunk=chunk, page_cap=page_cap, names=names, owner=owner)
