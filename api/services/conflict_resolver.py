@@ -767,12 +767,15 @@ async def _overlap_pages(jobs: list, run, *, concurrency: int, cancel_check=None
     return results
 
 
-def _new_aliases(memory_path, page_id: str, aliases) -> list[str]:
-    """Sleep's NEW aliases for a page: no reference (`alias_policy`), and never the name of another page the record
+def _new_aliases(memory_path, page_id: str, aliases, own_type: str = "") -> list[str]:
+    """Sleep's NEW aliases for a page: no reference (`alias_policy`), never the name of another page the record
     already holds as a different or related thing (`wrong_aliases.names_other_thing`, 2026-10-29) — that name is
-    the other thing's, and an alias of it would raise "same as?" between the two on every batch."""
+    the other thing's, and an alias of it would raise "same as?" between the two on every batch — and never the title
+    of another live page of a thing that is not a person (`wrong_aliases.title_of_other_page`: a title outranks an
+    alias, the birth half of G21's alias collisions). Both halves apply to a page being born as to one updated."""
     return [a for a in alias_policy.keep(aliases)
-            if not wrong_aliases.names_other_thing(memory_path, page_id, a)]
+            if not wrong_aliases.names_other_thing(memory_path, page_id, a)
+            and not wrong_aliases.title_of_other_page(memory_path, page_id, a, own_type)]
 
 
 def apply_changes(changes: list[dict], memory_path) -> None:
@@ -839,7 +842,7 @@ def apply_changes(changes: list[dict], memory_path) -> None:
                 "tags": entity.get("tags", []) or [],
                 # A reference ("the lock", "my app") is not a name: kept, it would draw this page to every judge
                 # call those common words recur in (`alias_policy`).
-                "aliases": _new_aliases(memory_path, entity_id, entity.get("aliases", []) or []),
+                "aliases": _new_aliases(memory_path, entity_id, entity.get("aliases", []) or [], entity_type),
                 "related": [],
                 "version": 1,
                 "layout_version": 2,
@@ -999,7 +1002,8 @@ def apply_changes(changes: list[dict], memory_path) -> None:
 
             # Merge new aliases
             # Only Sleep's NEW aliases are filtered: what the page already lists (a hand-added one too) stays.
-            new_aliases = _new_aliases(memory_path, entity_id, new_entity.get("aliases", []) or [])
+            new_aliases = _new_aliases(memory_path, entity_id, new_entity.get("aliases", []) or [],
+                                       str(parsed.frontmatter.get("type") or ""))
             # 2026-10-29: never another live page's own name (a crossed alias; `alias_policy.names_another_page`).
             new_aliases = [a for a in new_aliases if not alias_policy.names_another_page(a, entity_id, entities_dir)]
             # G198: an alias an edit removed stays removed (`aliases_removed`, like `sources_removed`).

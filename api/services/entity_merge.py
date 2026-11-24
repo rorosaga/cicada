@@ -453,6 +453,14 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
     # The loser's aliases are NEW names of the winner: a reference or a pronoun the loser carried never travels
     # (G169, 2026-10-29) — what the winner already lists stays as it is.
     lfm["aliases"] = alias_policy.keep(lfm.get("aliases")) if isinstance(lfm.get("aliases"), list) else lfm.get("aliases")
+    if isinstance(lfm.get("aliases"), list):
+        # A title outranks an alias (`wrong_aliases.title_of_other_page`): a name the loser listed that is another live
+        # page's own title is that page's, and does not travel to the winner as one of its names.
+        from api.services import wrong_aliases
+
+        wtype = str(wfm.get("type") or "")
+        lfm["aliases"] = [a for a in lfm["aliases"] if not wrong_aliases.title_of_other_page(
+            memory_path, winner_id, a, wtype, exclude=(loser_id,))]
     for f in _LIST_FIELDS:
         merged = _union(wfm.get(f), lfm.get(f))
         if merged:
