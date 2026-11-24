@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import OSLog
@@ -140,6 +141,8 @@ final class SaveWhyCenter {
 
     @ObservationIgnored let prefs: SaveWhyPrefs
     @ObservationIgnored let outbox: SaveWhyOutbox
+    /// G245 — site saves the backend could not take when they were made (`SiteSaveOutbox`).
+    @ObservationIgnored let siteOutbox: SiteSaveOutbox
     @ObservationIgnored private var retrying = false
     /// The event being handled, so a close knows whether the person left by clicking elsewhere (the keyboard is then
     /// theirs to place) or not (it goes back to the browser).
@@ -221,6 +224,7 @@ final class SaveWhyCenter {
          uptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
         self.prefs = prefs
         self.outbox = SaveWhyOutbox(defaults: prefs.defaults)
+        self.siteOutbox = SiteSaveOutbox(defaults: prefs.defaults)
         self.api = api
         self.presenter = presenter
         self.now = now
@@ -228,6 +232,16 @@ final class SaveWhyCenter {
     }
 
     func attach(presenter: any SaveWhyPresenting) { self.presenter = presenter }
+
+    /// The bundle id of the app in front (tests set it).
+    @ObservationIgnored var frontBundleId: () -> String? = { NSWorkspace.shared.frontmostApplication?.bundleIdentifier }
+
+    /// Whether the browser a bookmark channel belongs to is the app in front. A channel that is no browser's (a site's own
+    /// source) has no browser to witness it and counts as witnessed.
+    nonisolated static func browserInFront(channel: String, front: String?) -> Bool {
+        guard let spec = BrowserInventory.catalog.first(where: { $0.bookmarksChannel == channel }) else { return true }
+        return spec.bundleId == front
+    }
 
     /// Listen to every bookmark sync from now on.
     func start() {
@@ -405,7 +419,8 @@ final class SaveWhyCenter {
         SaveWhyPolicy.decide(.init(
             enabled: site || prefs.enabled, live: live, result: result, now: now(), lastAsked: prefs.lastAsked,
             mutedHosts: prefs.mutedHosts, writing: !ours && state?.isWriting == true, lastURL: prefs.lastURL,
-            lastAddedAt: prefs.lastAddedAt))
+            lastAddedAt: prefs.lastAddedAt,
+            witnessed: result.fresh.first.map { Self.browserInFront(channel: $0.channel, front: frontBundleId()) } ?? true))
     }
 
     private func open(_ panel: SaveWhyPanelState, options: SavedWhyOptions, confirmed: Bool) {
@@ -662,16 +677,30 @@ final class SaveWhyCenter {
 
     /// G221 — a save the person just made inside a site (`SiteSaveWatcher`): saved under that site's own source
     /// first, then asked about like a bookmark the browser's file confirmed. The same rules decide (a muted site,
-    /// one save one question) except the bookmark switch: connecting the site is what turns its question on. A save the backend cannot take now (Sleep is writing, an older backend)
-    /// is not asked about, since there would be nothing to hold the answer.
+    /// one save one question) except the bookmark switch: connecting the site is what turns its question on. A save the
+    /// backend cannot take now (Sleep is writing, the backend is away) is held (`SiteSaveOutbox`), stored when it can,
+    /// and asked about only if the moment is still near.
     func siteSaved(_ item: SiteSaveItem, text: String = "", folder: String? = nil) async {
         let reply: SiteSaveReply
         do {
             reply = try await api.saveSiteItem(site: item.site, url: item.url, text: text, folder: folder)
         } catch {
-            SaveWhyTimings.logger.info("a site save was not stored, so it is not asked about")
+            // Sleep is writing, or the backend is away: hold the save and store it when it can (found 2026-11-24: it was
+            // dropped, so a save made in Sleep's write window was never stored nor asked about).
+            if SaveWhyOutbox.verdict(for: error) == .hold {
+                siteOutbox.hold(.init(site: item.site, url: item.url, text: text, folder: folder, at: now(),
+                                      bank: activeBank?()))
+                SaveWhyTimings.logger.info("a site save is held until the backend can take it")
+            } else {
+                SaveWhyTimings.logger.info("a site save was refused for good, so it is not asked about")
+            }
             return
         }
+        await askAboutSite(reply)
+    }
+
+    /// A stored site save, asked about like a bookmark the browser's file confirmed.
+    private func askAboutSite(_ reply: SiteSaveReply) async {
         let fresh = FreshBookmark(url: reply.url, title: reply.title, origin: reply.origin, channel: reply.origin,
                                   episodeId: reply.episodeId, addedAt: reply.addedAt,
                                   resave: reply.status == "duplicate")
@@ -684,8 +713,30 @@ final class SaveWhyCenter {
         await noticed(result, live: true, site: true)
     }
 
-    /// G221 — the person took a post off their list on the site. Never asked about; the save stays, marked.
+    /// Store every held site save the backend can take now; ask only about one whose moment is still near.
+    private func retrySiteSaves() async -> Bool {
+        for entry in siteOutbox.entries {
+            if siteOutbox.expired(entry, now: now()) { siteOutbox.remove(entry); continue }
+            if let bank = entry.bank, let active = activeBank?(), bank != active { continue }
+            do {
+                let reply = try await api.saveSiteItem(site: entry.site, url: entry.url, text: entry.text,
+                                                       folder: entry.folder)
+                siteOutbox.remove(entry)
+                if SiteSaveOutbox.isFresh(entry, now: now()) { await askAboutSite(reply) }
+            } catch {
+                switch SaveWhyOutbox.verdict(for: error) {
+                case .hold: return false
+                case .waitForSync, .drop: siteOutbox.remove(entry)
+                }
+            }
+        }
+        return true
+    }
+
+    /// G221 — the person took a post off their list on the site. Never asked about; the save stays, marked. A save of
+    /// the same post still held (it never landed) is let go: it is never stored.
     func siteUnsaved(_ item: SiteSaveItem) async {
+        siteOutbox.discard(site: item.site, url: item.url)
         try? await api.unsaveSiteItem(site: item.site, url: item.url)
     }
 
@@ -862,6 +913,7 @@ final class SaveWhyCenter {
     private enum PassEnd { case done, stopped }
 
     private func retryPass() async -> PassEnd {
+        if !(await retrySiteSaves()) { return .stopped }
         for entry in outbox.entries {
             if outbox.expired(entry, now: now()) {
                 outbox.remove(entry)

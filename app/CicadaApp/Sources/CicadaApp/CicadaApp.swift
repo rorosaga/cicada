@@ -496,39 +496,84 @@ struct CicadaApp: App {
         connectSuggest.isDemo = { [store] in DemoMode.isActive(store.banks.value) }
         // The ask-why question always wins the notch, window or no window (app-level, through its own center).
         connectSuggest.yields(to: saveWhy)
-        connectSuggest.status = { [store, calendarReader, contactsReader, tabGroups, watchHistory, browserWatcher,
-                                   notesWatcher, traceRecorder, remindersReader, localSources] entryId in
+        connectSuggest.status = { [store, readingAgent, calendarReader, contactsReader, tabGroups, watchHistory,
+                                   browserWatcher, notesWatcher, traceRecorder, remindersReader, appleBooksReader,
+                                   voiceMemosReader, localSources] entryId in
             guard let channels = store.channels.value, let overview = store.sourcesOverview.value else { return nil }
-            let readers = LocalReaders.on(calendar: calendarReader, contacts: contactsReader, tabGroups: tabGroups,
-                                          watchHistory: watchHistory, browsers: browserWatcher, notes: notesWatcher,
-                                          traces: traceRecorder, reminders: remindersReader)
-            return ConnectSuggestApps.status(of: entryId, channels: channels, overview: overview, localReaders: readers,
-                                             meetingFolders: localSources.folders)
-        }
-        // Yes: the source's page — or, while the Full Disk Access it needs is missing, that permission's row with its
-        // drag helper (Settings → Privacy & data → Permissions, the onboarding step's own rows). A preflight only.
-        connectSuggest.onYes = { [appRouter, siteSaves] entryId in
-            // G221 — a site's Yes is the whole connection: its switch on this Mac, nothing to open.
-            if let site = ConnectSuggestApps.siteKey(entryId: entryId) {
-                SiteSavePrefs().setConnected(site, true)
-                siteSaves.refresh()
-                NotificationCenter.default.post(name: SiteSaveSwitches.changed, object: nil)
-                return
+            // A list the person turned on, or a site their agent may open, is the source's own state (the page's word):
+            // until the reading model has loaded they are unknown, and a source is not offered on a guess.
+            if readingAgent.settings == nil,
+               ConnectSuggestApps.entry(of: entryId, overview: overview)?.browserKey != nil {
+                Task { await readingAgent.loadSettings() }
+                return nil
             }
-            Task { @MainActor in
-                var granted: [MacPermission: Bool] = [:]
-                if let permission = ConnectSuggestApps.dragPermission(entryId: entryId) {
-                    granted[permission] = await LiveMacPermissionProbe().state(permission) == .granted
-                }
-                switch ConnectSuggestApps.landing(entryId: entryId, permissionGranted: { granted[$0] ?? true }) {
-                case .permission:
-                    appRouter.showMainWindow()
-                    appRouter.openSettings(.privacy, row: .permissions)
-                case .source(let id):
-                    appRouter.routeToCatalogEntry(id)
-                }
-            }
+            return ConnectSuggestApps.status(
+                of: entryId, channels: channels, overview: overview,
+                localReaders: Self.localReaders(calendar: calendarReader, contacts: contactsReader,
+                                                tabGroups: tabGroups, watchHistory: watchHistory,
+                                                browsers: browserWatcher, notes: notesWatcher,
+                                                traces: traceRecorder, reminders: remindersReader,
+                                                books: appleBooksReader, voiceMemos: voiceMemosReader),
+                reading: ConnectSuggestApps.Reading(readableSites: readingAgent.readableSites,
+                                                    savedListsOn: readingAgent.savedListsOn,
+                                                    savedListsRead: readingAgent.savedListsRead),
+                meetingFolders: localSources.folders)
         }
+        // Yes: the one connect plan (`SourceConnect`), the same the page's switch and the root card run. A site's Yes
+        // turns on its existing saved list (with the first-use acknowledgement) and noticing saves on this Mac; a Mac
+        // app's starts its reader when one click can; a choice or a permission opens the page (or Settings' drag list).
+        let connector = NotchConnector(
+            entry: { [store, localSources] id in
+                ConnectSuggestApps.entry(of: id, overview: store.sourcesOverview.value ?? [],
+                                         meetingFolders: localSources.folders)
+            },
+            state: { [connectSuggest, readingAgent, calendarReader, contactsReader, tabGroups, watchHistory,
+                      browserWatcher, notesWatcher, traceRecorder, remindersReader, appleBooksReader,
+                      voiceMemosReader] entry in
+                await readingAgent.loadSettings()
+                var permissions: [MacPermission: Bool] = [:]
+                if let permission = ConnectSuggestApps.dragPermission(entryId: entry.id) {
+                    permissions[permission] = await LiveMacPermissionProbe().state(permission) == .granted
+                }
+                return SourceConnect.State(
+                    status: connectSuggest.status(entry.id) ?? .off, agentEnabled: readingAgent.enabled,
+                    ackCurrent: !readingAgent.needsFirstUseSheet, savedListsOn: readingAgent.savedListsOn,
+                    siteSavesOn: Set(SiteSavePrefs().connected.map(\.key)),
+                    readersOn: Self.localReaders(calendar: calendarReader, contacts: contactsReader,
+                                                 tabGroups: tabGroups, watchHistory: watchHistory,
+                                                 browsers: browserWatcher, notes: notesWatcher,
+                                                 traces: traceRecorder, reminders: remindersReader,
+                                                 books: appleBooksReader, voiceMemos: voiceMemosReader),
+                    permissions: permissions)
+            },
+            deps: SourceConnect.Deps.live(
+                reading: readingAgent, router: appRouter,
+                noticeSaves: { [siteSaves] site in
+                    SiteSavePrefs().setConnected(site, true)
+                    siteSaves.refresh()
+                    NotificationCenter.default.post(name: SiteSaveSwitches.changed, object: nil)
+                },
+                startReader: { [calendarReader, contactsReader, notesWatcher, voiceMemosReader, appleBooksReader,
+                                browserWatcher] entry in
+                    await ReaderStarter(calendar: calendarReader, contacts: contactsReader, notes: notesWatcher,
+                                        voiceMemos: voiceMemosReader, books: appleBooksReader,
+                                        browsers: browserWatcher).start(entry)
+                }),
+            accessibilityGranted: { AXIsProcessTrusted() },
+            noticing: { SiteSavePrefs().isConnected($0) },
+            openPermission: { [appRouter] _ in
+                appRouter.showMainWindow()
+                appRouter.openSettings(.privacy, row: .permissions)
+            })
+        connectSuggest.connect = { [store, readingAgent, sourceStreams] target in
+            let result = await connector.connect(target)
+            // What the Yes turned on shows on the page and the card now (the same truth, read again).
+            await readingAgent.load()
+            await store.refresh([.channels, .sources, .sourcesOverview, .status])
+            await sourceStreams.refresh()
+            return result
+        }
+        connectSuggest.openSetting = { permission in NSWorkspace.shared.open(permission.settingsURL()) }
         // Ruling 77b — the saves the offer held when the person said Yes: what each click taught is kept, and a
         // save (never an unsave or an unsettled change) is stored and asked about like any save on a connected site.
         connectSuggest.onHeld = { [saveWhy] saves in
@@ -541,6 +586,18 @@ struct CicadaApp: App {
             }
         }
         connectSuggest.start()
+    }
+
+    /// Which of this Mac's readers are on, by channel — the Sources page's own reading (`SourcesPageView.localReaders`),
+    /// so the notch and the page read one state.
+    private static func localReaders(calendar: CalendarReader, contacts: ContactsReader, tabGroups: TabGroupWatcher,
+                                     watchHistory: WatchHistoryWatcher, browsers: BrowserWatcher,
+                                     notes: AppleNotesWatcher, traces: TraceRecorder, reminders: RemindersReader,
+                                     books: AppleBooksReader, voiceMemos: VoiceMemosReader) -> [String: Bool] {
+        LocalReaders.on(calendar: calendar, contacts: contacts, tabGroups: tabGroups, watchHistory: watchHistory,
+                        browsers: browsers, notes: notes, traces: traces, reminders: reminders)
+            .merging([AppleBooksReader.channel: books.enabled, VoiceMemosReader.channel: voiceMemos.enabled,
+                      GoogleBooksKeyModel.id: GoogleBooksKeyModel.shared.connected]) { _, new in new }
     }
 
     /// What the window's `.onAppear` runs (unchanged; moved out of `body` for the type checker).
@@ -581,6 +638,9 @@ struct CicadaApp: App {
             saveWhy.prefs.enabled && browserWatcher.isEnabled(channel)
         }
         bookmarkBubbles.onBubble = { [saveWhy, bookmarkBubbles] channel in
+            // A bookmark made in a Chrome profile other than Default is in no file Cicada reads: nothing could confirm the
+            // question, so it is not opened (the browser's page says why).
+            if channel == "chrome-bookmarks", !ChromeProfile.isRead(ChromeProfile.inUse()) { return }
             saveWhy.bubbleSeen(channel: channel, frame: bookmarkBubbles.lastBubble?.bounds)
         }
         // 2026-10-19 — a click inside Chrome's own bubble is not leaving, unless it closed it (Done).

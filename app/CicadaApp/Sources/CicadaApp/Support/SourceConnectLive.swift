@@ -32,3 +32,52 @@ extension SourceConnect.Deps {
             lastNote: { reading.note })
     }
 }
+
+/// The Mac readers a click can start — the readers share no protocol (`connect()`, `turnOn()`, `syncNow()`, a watcher's
+/// `enable`), so this is the one place that knows which call each one's own Connect makes. The card's Connect and the
+/// notch's Yes both run `SourceConnect.Step.startReader` through it; macOS's own permission prompt follows from the
+/// reader's own call (never asked here). Answers whether the reader is on afterwards.
+@MainActor
+struct ReaderStarter {
+    var calendar: CalendarReader?
+    var contacts: ContactsReader?
+    var notes: AppleNotesWatcher?
+    var voiceMemos: VoiceMemosReader?
+    var books: AppleBooksReader?
+    var browsers: BrowserWatcher?
+
+    func start(_ entryId: String) async -> Bool {
+        if entryId.hasPrefix(SourceCatalog.browserPrefix) {
+            guard let browsers else { return false }
+            let installed = await Task.detached(priority: .userInitiated) { BrowserInventory.live() }.value
+            guard let channel = installed.supported.first(where: {
+                SourceCatalog.browserPrefix + $0.id == entryId })?.bookmarksChannel else { return false }
+            browsers.enable(channel)
+            return browsers.isEnabled(channel)
+        }
+        switch entryId {
+        case CalendarRow.channelId:
+            guard let calendar else { return false }
+            await calendar.connect()
+            return calendar.isEnabled
+        case ContactsReader.channel:
+            guard let contacts else { return false }
+            await contacts.connect()
+            return contacts.enabled
+        case AppleNotesWatcher.channel:
+            guard let notes else { return false }
+            _ = try? await notes.syncNow()
+            return notes.enabled
+        case VoiceMemosReader.channel:
+            guard let voiceMemos else { return false }
+            await voiceMemos.turnOn()
+            return voiceMemos.enabled
+        case AppleBooksReader.channel:
+            guard let books else { return false }
+            await books.turnOn()
+            return books.enabled
+        default:
+            return false
+        }
+    }
+}
