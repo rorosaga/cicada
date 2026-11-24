@@ -423,3 +423,24 @@ def test_nothing_of_the_shape_open_resolves_no_engine(memory, monkeypatch):
 
     monkeypatch.setattr(same_name_tend, "main_judge", boom)
     assert run(full_name_join.run_tail(memory, _Settings(memory), user_triggered=True)).looked == 0
+
+
+def test_the_short_name_inside_the_full_name_is_not_a_second_mention(memory):
+    """"I mentor Ola Petrov": "Ola" is a word of the full name, not a short name said beside it (a stored benchmark bank)."""
+    _episode(memory, "ep_2026-10-03_001", "user: Five of us. My manager there is Odile Brandt, and I mentor Ola Petrov, who joined this spring.\nassistant: ok\n")
+    _episode(memory, "ep_2026-10-22_001", "user: Ola asked me about the rota.\nassistant: ok\n")
+    _page(memory, "ola", "Ola", source_episodes=["ep_2026-10-22_001"])
+    _held(memory, "Ola Petrov", "ep_2026-10-03_001", "Five of us. My manager there is Odile Brandt, and I mentor Ola Petrov, who joined this spring.", aliases=("Ola",))
+    _question(memory, 1, "Ola Petrov", "ola", "Ola", "ep_2026-10-03_001")
+    _commit(memory)
+    judge = _judge(_one("I mentor Ola Petrov, who joined this spring"))
+    report = _tend(memory, judge)
+    assert report.joined == 0 and judge.calls == [] and report.skipped.get("no_turn_names_both") == 1
+
+
+def test_names_both_needs_the_short_name_outside_the_full_one():
+    f, s = ["teodor brandt"], ["teo"]
+    assert full_name_join.names_both(f, s, "Teodor Brandt, who everyone calls Teo")
+    assert full_name_join.names_both(["sam okafor"], ["sam"], "Sam Okafor came, and Sam stayed")
+    assert not full_name_join.names_both(["sam okafor"], ["sam"], "Sam Okafor came")
+    assert not full_name_join.names_both(f, s, "Teodor Brandt came") and not full_name_join.names_both(f, s, "Teo came")

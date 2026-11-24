@@ -209,6 +209,17 @@ def _could_mean(short_key: str, names: list[str]) -> bool:
                for n in names for w in _words(n))
 
 
+def names_both(fulls: list[str], shorts: list[str], text: str | None) -> bool:
+    """Does ``text`` say a full name AND, somewhere else, a short name (whole words)? The short name inside the full one
+    ("Ola" in "Ola Petrov") says nothing: each full name's words are taken out before the short name is looked for."""
+    folded = f" {pair_evidence.spelling(text)} "
+    if not any(f" {f} " in folded for f in fulls if f):
+        return False
+    for f in sorted((f for f in fulls if f), key=len, reverse=True):
+        folded = folded.replace(f" {f} ", " | ")
+    return any(f" {s} " in folded for s in shorts if s)
+
+
 def _episode_day(memory_path: Path, episode: str) -> str:
     return str(pair_evidence.episode_timestamp(memory_path, episode) or "")[:10]
 
@@ -242,7 +253,7 @@ def _turns_naming_both(memory_path: Path, episodes: list[str], full_names: list[
     fulls, shorts = [_key(n) for n in full_names], [_key(n) for n in short_names]
     for eid in episodes[:MAX_EPISODES]:
         for turn in _user_turns(memory_path, eid):
-            if pair_evidence.names_in(fulls, turn) and pair_evidence.names_in(shorts, turn):
+            if names_both(fulls, shorts, turn):
                 out.append(Turn(len(out) + 1, eid, _episode_day(memory_path, eid), _window(turn, full_names)))
                 if len(out) >= MAX_TURNS:
                     return out
@@ -390,7 +401,7 @@ def located(memory_path: Path, case: Case, parsed: dict) -> Read:
     quote = " ".join(str(parsed.get("quote") or "").split())
     fulls, shorts = [_key(n) for n in case.full_names], [_key(n) for n in case.short_names]
     if (len(re.sub(r"\W+", "", quote)) < MIN_QUOTE_CHARS or "…" in quote or "..." in quote
-            or not (pair_evidence.names_in(fulls, quote) and pair_evidence.names_in(shorts, quote))):
+            or not names_both(fulls, shorts, quote)):
         return Read("cannot_tell", reason="the words quoted do not carry both names")
     for turn in case.turns:
         if inbox_tend.persons_span(Path(memory_path), turn.episode, quote) is not None:
