@@ -52,7 +52,9 @@ struct PageLinkChip: View {
     @Environment(Store.self) private var store: Store?
     @State private var hovering = false
     @State private var siteImage: NSImage?
-    @FocusState private var focused: Bool
+    /// The keyboard's stop is on this chip. The article's text view owns the keyboard (`PageTextView`: Tab moves between
+    /// chips, quiet links and the cluster, ⏎ opens), because the key-view loop does not reach a view inside text.
+    var focused = false
 
     private var name: String {
         switch face {
@@ -117,13 +119,6 @@ struct PageLinkChip: View {
         .buttonStyle(.cicadaPlain)
         .onHover { hovering = $0 }
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
-        .focusable()
-        .focused($focused)
-        .focusEffectDisabled()
-        .onKeyPress(.return) {
-            open()
-            return .handled
-        }
         .help(help)
         .accessibilityLabel(name)
         .accessibilityHint(hint)

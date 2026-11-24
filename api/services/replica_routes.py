@@ -266,6 +266,7 @@ ROUTES: dict[str, str] = {
     "POST /sources/calendars": FORWARD,
     "POST /sources/connectors/{connector_id}/authorize": REFUSE,   # the home's sign-ins
     "POST /sources/connectors/{connector_id}/sync": FORWARD,
+    "POST /sources/streams/check": FORWARD,                  # G245: stamps the home's lists and runs its sign-ins' syncs
     "POST /sources/feeds": FORWARD,
     "POST /sources/folders": FORWARD,
     "POST /sources/linkedin-connections/import": FORWARD,
