@@ -49,8 +49,6 @@ extension Copy {
         static func openPage(_ name: String) -> String { "Open \(name)" }
         static let opensPage = "Opens the page"
         static let opensInBrowser = "Opens in your browser"
-        /// A line drawn with chips and its sources is copied from its menu, not selected.
-        static let copyLine = "Copy line"
         static let readingSource = "Reading where this came from…"
         static let sourceUnavailable = "Couldn't read this source."
         static let sourceMoved = "This line changed since the page was drawn. Its sources are being read again."

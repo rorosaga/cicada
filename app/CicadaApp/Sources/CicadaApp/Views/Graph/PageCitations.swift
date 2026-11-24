@@ -50,13 +50,16 @@ struct SourceCluster: View {
     let model: SourceClusterModel
     let keys: [CiteKey]
     let entityId: String
+    /// The keyboard's stop is on the cluster, and a count that goes up each time ⏎ is pressed on it. The article's text
+    /// view owns the keyboard (`PageTextView`), so a view inside the text takes it as input, not as focus.
+    var focused = false
+    var activation = 0
 
     @State private var open = false
     @State private var hovering = false
     @State private var previewHovered = false
     @State private var openedByHover = false
     @State private var hoverTask: Task<Void, Never>?
-    @FocusState private var focused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// A tile on the text line: just taller than the lowercase, as the line's own height allows.
@@ -103,13 +106,11 @@ struct SourceCluster: View {
         .alignmentGuide(.firstTextBaseline) { d in d.height / 2 + CicadaTheme.scaled(4) }
         .onHover(perform: pointer)
         .animation(CicadaMotion.hover(reduceMotion: reduceMotion), value: hovering)
-        .focusable()
-        .focused($focused)
-        .focusEffectDisabled()
-        .onKeyPress(.return) {
+        .onChange(of: activation) {
+            guard focused else { return }
+            hoverTask?.cancel()
             openedByHover = false
             open = true
-            return .handled
         }
         .popover(isPresented: $open, arrowEdge: .bottom) {
             CitationsPopover(entityId: entityId, keys: keys)

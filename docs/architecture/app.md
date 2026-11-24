@@ -2400,11 +2400,38 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   **Links are chips (2026-11-23):** a wikilink or web link in a paragraph, item or quote is a `PageLinkChip` wearing the
   resolved page's own name and picture (`PageLinkIndex`, memoised per graph snapshot as `Store.linkIndex`: an id, else
   exactly one page by name or alias; anything else keeps its written words) or the site's bundled mark
-  (`PageChipMark`) — **the first mention of a page in a passage is the chip, later ones a quiet link** (`PageQuietWordView`: the
-  name in body ink, a hover fill, the same click; an ambiguous ref is one too, so no link on the page is blue); a line with a
-  chip, quiet link or cluster is cut into `PageInline` pieces and laid out by `InlineFlowLayout` (baseline-aligned, a
-  touching piece never starts a line, the cluster glued to the last word only, a glued run wider than the column broken
-  between its pieces), a line of only words stays one `Text`. **Related** list items are `RelatedCard`s (picture, the page's name, the words after the dash); the tab bar's
+  (`PageChipMark`) — **the first mention of a page in a passage is the chip, later ones a quiet link** (a quiet link: the
+  name in body ink, a hover fill, the same click; an ambiguous ref is one too, so no link on the page is blue).
+  **One text engine (2026-11-23, "ok rebuild"):** consecutive text rows (headings, paragraphs, list items, quotes — never a
+  Related card, code block, rule, image, embed or link block; at most `PageBlock.maxRows` = 40 rows or 24,000 characters)
+  are ONE `NSAttributedString` in one TextKit 2 `NSTextView` (`PageTextView`, drawn by `PageRun`), so a drag selects across
+  words, chips, quiet links and the cluster and from one paragraph, heading or item into the next; double and triple
+  click, shift-click, ⌘C, Look Up and Services are the system's. A chip and the cluster are `NSTextAttachment`s
+  (`PageInlineAttachment`) whose views are the same `PageLinkChip` and `SourceCluster` hosted in an `NSHostingView`; the
+  environment they cannot inherit (`Store`, `ProvenanceRouter`, `openURL`) is carried by `PageAttachmentContext`. A page
+  chip is measured from its parts (no view), the cluster and a web chip by their view, cached by content; a hosted
+  view that changes size (a picture arrives) re-lays the text out. A quiet link is text with a link attribute and a
+  group (the words of one link light together on hover); a touching piece is joined by U+2060 so a full stop never
+  starts a line and the cluster is never alone on one. **A copy is prose** (`PageText.plainKey`): a chip or quiet link
+  its page's name, the cluster and joiners nothing, a bullet "- ", one line break per paragraph; `writeSelection(to:)`
+  gives the same to Services. A line with web links keeps its 🔗 button and right-click view choices (`PageRun`: the
+  button follows the row's frame, the menu is an `NSMenu` built from the same `LinkCardModel`; the button is SwiftUI drawn
+  over the text view, so the text view's `hitTest` answers nil over it and its click is the button's). A selection leaves
+  when the person selects in another run. **The stack of runs is laid out at a whole point of width** (`WholePointWidth`
+  around the article's `LazyVStack`, 2026-11-24): without it a rich page (Key Facts, prose and Related cards) drew a blank
+  Content tab at 130 % and a blank band above the first line at 80 % (the owner's size), because the lazy stack's content
+  sat hundreds of points below the top; 100 % and 120 % drew. It stays lazy. A heading's links are quiet, never chips. `PageBeliefSentences` uses the same
+  engine. **The keyboard (verified 2026-11-24):** the key-view loop does not reach a view that lives inside text (a SwiftUI
+  `.focusable()` chip was never a Tab stop), so the text view owns Tab for what is in it — `PageStop`s in reading order,
+  chips, quiet links and clusters: arriving by Tab lands on the first (Shift-Tab, the last), Tab and Shift-Tab move
+  between them and past the last leave for the next control, ⏎ opens a chip or quiet link (the page's `openURL`) and
+  the cluster's popover (`PageKeyFocus.activation`). A chip and the cluster draw focus as they draw hover (the view is
+  told, `PageAttachmentRoot`); a quiet link's hover and focus fill is one soft rounded shape drawn under the text by the
+  text view (a group is unique across the run's rows). A run with nothing to land on is not a Tab stop. **Accessibility:**
+  the views inside the text are the run's accessibility children, in reading order — a chip reads as a link ("Opens the
+  page"), the cluster as a button ("6 sources") — beside the text's own links. The header's Summary draws its links in the
+  text's ink, no underline (`MarkdownBody.inlineAttributed(quietLinks:)`). What is not here: a drag stops at a Related
+  card, code block, image or the 40-row cut.
   **A link never shows as brackets anywhere in the app (2026-11-23):** page text shown as a plain line — a search row's
   title, detail and passage, an Ask citation and gap, a question and its options, Home's lead question, the catch-up
   bar, a list row's one line (Clusters), the hover card, a history line, a belief, a project sentence, the Reader's title,
@@ -2418,6 +2445,7 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   offsets and the page names are known only here, and the MCP tools, CLI and `/v1` return page text as stored. A lint
   (`PageLineLintTests`) fails a view that draws a registered page-text field without the door; a new field is one line in
   its list. `PageQuestionsStrip` (the entity page's own text path) is its one known gap. `PageLineTests`.
+  **Related** list items are `RelatedCard`s (picture, the page's name, the words after the dash); the tab bar's
   scroll view fades what has scrolled under it over 16 pt (`fadedTopEdge`; nothing at rest, so a page's first line is whole). A page whose prose cites nothing yet draws its beliefs as one paragraph of sentences
   (`PageBeliefSentences`): an inference worded "It seems that …", an ended one "(until March 2025)"; past twelve, "N
   more in Perspectives". **Gone from the page:** the beliefs list, *Where this came from*, the person's *How you know*
