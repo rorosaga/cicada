@@ -1950,5 +1950,19 @@
       "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"
     }
+  ],
+  "services/arrival_birth.py": [
+    {
+      "function": "apply_birth",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "undo",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
   ]
 }

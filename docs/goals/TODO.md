@@ -4024,6 +4024,10 @@ A whole row moves to DONE only after its remaining implementation and required a
    its per-item dry run on the real bank (ids, both days, every namesake counted, the answers, the reason), never counts alone.
    *The coordinator's reading:* "the same week" is within seven days either way; a note supplies a day only if it carries its
    created time. **Revisit** on any join the person undoes (counted).
+   *Built so far, both report-only (`LIVE = False` each, two constants):* a page titled by one word (#866, `arrival_join`) and a
+   name still held below the promotion bar (`arrival_birth`, the owner's own example, where the page is made at its birth
+   under the full name; it reads the pending store every night, because the directory must be a week fresher than the name
+   and so is never fresh at the moment a name is first held). Two pages (Route P) is not built.
    **(d) A picture or frames of a login-walled post (4, "what do you think?") — the coordinator's recommendation, not his words;
    decided as a direction, not built, and not yet shown feasible** (a trial in his own browser did not reach the media look).
    Only for a post the person went deeper on (talked about, or asked about): his own AI app hands over the post's one picture, or

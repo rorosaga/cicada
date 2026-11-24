@@ -1236,7 +1236,7 @@ async def _arrival_join_safely(memory_path: Path, settings: Settings, *, user_tr
     `arrival_join.LIVE` is false nothing is written to the bank, here or anywhere. When live, each join is one `cicada` commit
     of its own page alone (`arrival_join_write.apply_join`), restored if it fails; the rematches that follow attach. Counts
     only — never a name. Never raises."""
-    from api.services import arrival_join, arrival_join_write
+    from api.services import arrival_birth, arrival_join, arrival_join_write
 
     try:
         report = await arrival_join.run_tail(memory_path, settings, user_triggered=user_triggered, no_model=no_model)
@@ -1251,7 +1251,22 @@ async def _arrival_join_safely(memory_path: Path, settings: Settings, *, user_tr
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"Arrival join writes skipped: tree status unreadable ({type(exc).__name__})")
             report.joins = []
-        for decision, _case in report.joins:
+        for decision, case in report.joins:
+            if case.holder.held:
+                # Route H (`arrival_birth`): a held first name born as the arrival's full name, one commit of everything the birth
+                # wrote (the page, the held claims' landings, the store), restored whole if it fails.
+                born = await asyncio.to_thread(arrival_birth.apply_birth, memory_path, decision, case, settings, skip=skip)
+                if born is None:
+                    continue
+                try:
+                    async with _lock:
+                        await git_service.commit_paths(
+                            memory_path, arrival_birth.commit_message(born.page, born.paths, decision, date.today()), born.paths)
+                    joined += 1
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(f"Arrival birth commit failed — undoing: {type(exc).__name__}")
+                    await asyncio.to_thread(arrival_birth.restore, memory_path, born.paths)
+                continue
             applied = await asyncio.to_thread(arrival_join_write.apply_join, memory_path, decision, skip=skip)
             if applied is None:
                 continue
@@ -1264,8 +1279,9 @@ async def _arrival_join_safely(memory_path: Path, settings: Settings, *, user_tr
                 logger.warning(f"Arrival join commit failed — undoing: {type(exc).__name__}")
                 await asyncio.to_thread(arrival_join_write.restore, memory_path, applied.path)
     if report.looked or report.skipped:
-        logger.info(f"Arrival join: {report.looked} first-name page(s) with a namesake, {report.candidates} to the veto "
-                    f"({report.reads} read), {report.would_join} would join, {joined} joined"
+        logger.info(f"Arrival join: {report.looked} first-name page(s) or held name(s) with a namesake, {report.candidates} to the "
+                    f"veto ({report.reads} read), {report.would_join} page(s) would join, {report.would_birth} held name(s) would be "
+                    f"born as the full name, {joined} joined"
                     + (f", skipped {report.skipped}" if report.skipped else ""))
 
 

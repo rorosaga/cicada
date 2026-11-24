@@ -39,6 +39,8 @@ EXEMPT = {
     "api/services/same_name_tend.py": "reads what each conversation said about a name (G148): skips only a claim a later "
                                       "one superseded (`valid_to` with `superseded_by`); an event has no `superseded_by`, "
                                       "so a done happening is still what that conversation said — nothing here ranks by state",
+    "api/services/arrival_join_write.py": "a writer: closes only the claims its own attach wrote (`linkedin_people.OBSERVER`), by the ids its record "
+                                          "keeps; it reads no claim for its state",
     "api/services/entity_relations.py": "current-only: `known` reads open claims (valid_to unset) of relation predicates (RECORD_PREDICATES); no event has one",
 }
 HISTORY_READERS = ("api/services/mcp_tools.py", "api/routers/claims.py", "api/services/provenance.py",

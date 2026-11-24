@@ -102,6 +102,9 @@ def alias_of(fm: dict, record: dict) -> str | None:
 def name_of(fm: dict, record: dict) -> str | None:
     """The full name a record joined, from the page's own words: its alias while joined, else the removed-alias row that
     names it once the person said "Not them". None when neither is there."""
+    if record.get("birth"):
+        # Route H: the page was BORN under the arrival's name — it is the page's own title, never an alias.
+        return str(fm.get("name") or "") or None
     alias = alias_of(fm, record)
     if alias:
         return alias
@@ -354,6 +357,61 @@ def _remaining(memory_path: Path, fm: dict, body: str, record: dict) -> str:
     return "; ".join(bits)
 
 
+def attached(fm: dict, record: dict) -> tuple[list[dict], list[dict], list[dict], set[str]]:
+    """``(the page's source rows, the ones this join wrote, the ones among them the person took or changed hands, the hashes
+    of the ones that are gone)`` — a link the person took (trusted) or changed hands is theirs now, and a link that is gone was
+    taken off by them. Shared by both routes' undo."""
+    raw = [s for s in (fm.get("sources") or []) if isinstance(s, dict)]
+    ours = set(record.get("sources") or [])
+    mine = [s for s in raw if _hash(s.get("ref")) in ours]
+    taken = [s for s in mine if fact_sources.trusted(s) or str(s.get("added_by") or "").strip().lower() != fact_sources.CICADA]
+    missing = ours - {_hash(s.get("ref")) for s in mine}
+    return raw, mine, taken, missing
+
+
+def detach(memory_path: Path, entity_id: str, fm: dict, body: str, record: dict, raw: list[dict], mine: list[dict], *,
+           author: str, day: str, paths: list[str]) -> str:
+    """Take back what the join's attaches wrote, in ``fm`` (changed in place) and the returned body: the claims they wrote close,
+    by id; the Contacts entries leave through the refusal rows so the next sync never puts them back, and a LinkedIn link through
+    its tombstone (`sources_removed`), which no import or rematch writes over. Files outside the page that this changed are
+    appended to ``paths``."""
+    if record.get("claims"):
+        ids = set(record["claims"])
+        claims = parse_claims(body, strict=True)
+        for c in claims:
+            if c.id in ids and not c.valid_to:
+                c.valid_to = day
+        body = write_claims(body, claims)
+    from api.services import contacts_local
+
+    tombs = [dict(r) for r in fm.get(fact_sources.REMOVED_KEY) or [] if isinstance(r, dict)]
+    for s in mine:
+        if str(s.get("ref") or "").startswith(contacts_local.REF_SCHEME):
+            if contacts_local.remember_removal(memory_path, entity_id, s):
+                paths.append(contacts_local.REFUSED_FILE)
+        else:
+            tombs.append({"ref": str(s.get("ref")), "predicate": s.get("predicate") or "", "by": author, "at": day})
+    if record.get("contacts"):
+        fm.pop(contacts_local.FRONTMATTER_KEY, None)
+        contacts_local.detach_photo(memory_path.name, entity_id)
+    if tombs != [dict(r) for r in fm.get(fact_sources.REMOVED_KEY) or [] if isinstance(r, dict)]:
+        fm[fact_sources.REMOVED_KEY] = tombs[-fact_sources.MAX_TOMBSTONES:]
+    kept = [s for s in raw if not any(s is m for m in mine)]
+    if kept:
+        fm["sources"] = kept
+    else:
+        fm.pop("sources", None)
+    return body
+
+
+def mark_undone(fm: dict, record: dict, day: str) -> None:
+    rows = records(fm)
+    for row in rows:
+        if row.get("id") == record.get("id"):
+            row["state"], row["undone_on"] = UNDONE, day
+    fm[KEY] = rows
+
+
 def undo(memory_path: Path, entity_id: str, *, author: str = "user", trigger: str = TRIGGER_UNDO, before=None,
          session: str | None = None, today: str | None = None) -> dict:
     """The person says "Not them". See the module docstring. ``{"commit", "restored": [], "removed": [], "page"}``; raises
@@ -372,12 +430,12 @@ def undo(memory_path: Path, entity_id: str, *, author: str = "user", trigger: st
             raise UndoError("Nothing to take back: this page has no name joined by Cicada." if not records(fm)
                             else "That join was already taken back.", 404 if not records(fm) else 409)
         alias = alias_of(fm, record)
-        raw = [s for s in (fm.get("sources") or []) if isinstance(s, dict)]
-        ours = set(record.get("sources") or [])
-        mine = [s for s in raw if _hash(s.get("ref")) in ours]
-        # a link the person took (trusted) or changed hands is theirs now, and a link that is gone was taken off by them
-        taken = [s for s in mine if fact_sources.trusted(s) or str(s.get("added_by") or "").strip().lower() != fact_sources.CICADA]
-        missing = ours - {_hash(s.get("ref")) for s in mine}
+        if record.get("birth"):
+            from api.services import arrival_birth
+
+            return arrival_birth.undo(memory_path, entity_id, path, parsed, record, author=author, trigger=trigger, before=before,
+                                      session=session, day=day)
+        raw, mine, taken, missing = attached(fm, record)
         if alias is None or taken or missing:
             raise UndoError("Nothing was undone: you changed this since Cicada made the join. Still there: "
                             + _remaining(memory_path, fm, parsed.body, record)
@@ -389,42 +447,9 @@ def undo(memory_path: Path, entity_id: str, *, author: str = "user", trigger: st
         removed = [r for r in fm.get(page_edits.ALIASES_REMOVED) or []] if isinstance(fm.get(page_edits.ALIASES_REMOVED), list) else []
         removed.append({"alias": alias, "by": author, "on": day})
         fm[page_edits.ALIASES_REMOVED] = removed[-page_edits.MAX_ALIASES_REMOVED:]
-        # the claims the join's attaches wrote close, by id
-        body = parsed.body
-        if record.get("claims"):
-            ids = set(record["claims"])
-            claims = parse_claims(body, strict=True)
-            for c in claims:
-                if c.id in ids and not c.valid_to:
-                    c.valid_to = day
-            body = write_claims(body, claims)
-        rows = records(fm)
-        for row in rows:
-            if row.get("id") == record.get("id"):
-                row["state"], row["undone_on"] = UNDONE, day
-        fm[KEY] = rows
         paths = [f"entities/{entity_id}.md"]
-        # the Contacts entries leave through the refusal rows, so the next sync never puts them back; a LinkedIn link leaves
-        # through its tombstone (`sources_removed`), which no import or rematch writes over
-        from api.services import contacts_local
-
-        tombs = [dict(r) for r in fm.get(fact_sources.REMOVED_KEY) or [] if isinstance(r, dict)]
-        for s in mine:
-            if str(s.get("ref") or "").startswith(contacts_local.REF_SCHEME):
-                if contacts_local.remember_removal(memory_path, entity_id, s):
-                    paths.append(contacts_local.REFUSED_FILE)
-            else:
-                tombs.append({"ref": str(s.get("ref")), "predicate": s.get("predicate") or "", "by": author, "at": day})
-        if record.get("contacts"):
-            fm.pop(contacts_local.FRONTMATTER_KEY, None)
-            contacts_local.detach_photo(memory_path.name, entity_id)
-        if tombs != [dict(r) for r in fm.get(fact_sources.REMOVED_KEY) or [] if isinstance(r, dict)]:
-            fm[fact_sources.REMOVED_KEY] = tombs[-fact_sources.MAX_TOMBSTONES:]
-        kept = [s for s in raw if not any(s is m for m in mine)]
-        if kept:
-            fm["sources"] = kept
-        else:
-            fm.pop("sources", None)
+        body = detach(memory_path, entity_id, fm, parsed.body, record, raw, mine, author=author, day=day, paths=paths)
+        mark_undone(fm, record, day)
         markdown_parser.write(path, fm, body)
         # the pair is refused: against the page of that name when one exists now, else by name
         key = str(record.get("alias_key"))

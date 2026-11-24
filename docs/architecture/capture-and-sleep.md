@@ -4140,8 +4140,35 @@ writes nothing and says which name, link and claims remain, each by id. The nigh
 review) turns each refusal whose name now belongs to a page into a refused pair of pages, which every other joiner already
 honours. The count of `undone` records is the live false-join measure.
 
-*Out of scope here* (later tracks): a first name held below the promotion bar with no page (born under the full name), two
-pages (ruling 74's machinery gaining time as a third kind), nicknames, and chats and meetings as the full-name side.
+*A first name still held below the promotion bar (Route H, `arrival_birth`, G245, ruling 79 (c)).* The owner's own example: a first
+name written once in one note normally has no page, only a line in the pending store (`pending_entities.jsonl`), so the page route
+above never sees it. Each night the same step reads every held one-word person line with a namesake in a directory as a case of
+the same list, and `arrival_join.decide` applies every rule to it unchanged (two namesakes, a stale directory, a conflict, the
+two-read veto, a doubt, a split, a relation title, the owner's own name, a full name already on a page); the veto draws on the
+same night's bound (`MAX_VETOES`) and the same cache. What differs for a line: its words must be the person's OWN in a
+conversation of its own day (a marked turn of his, or his own unlocked note by its created day; never an agent's reply, a relayed
+turn, a save, a tab group, a calendar entry or a feed item), several own conversations more than a week apart are a name that has
+been around (no day), and a second person of one name (`title`), a name held against a page, one the person said is none of those
+pages, a message correspondent, a self-reference and the owner's given name are never holders. It runs in the tail rather than in
+the resolver where a name would be held because the directory must be looked at a week after the name's day: at the moment a name is
+first held it is never yet fresh, and the join would wait for a second mention, which promotes the name anyway.
+**It ships `arrival_birth.LIVE = False`, a switch apart from the page route's:** nothing is written and the name stays held exactly as
+before; the report (`arrival-join-report.json`, version 2) carries the decision as an item marked `"route": "birth"`, `would_birth`,
+a held name keyed by a hash (`held-<hash>`; the command prints it with its words only under `--names`, to the terminal). Live, the
+page is born in ONE `cicada` commit (subject "Arrival join", trigger `sleep/arrival-join`) under the arrival's full name through the
+promotion's own page writer, the said form kept as an alias, a LinkedIn connection of the lead attached in the same write and only
+proposed (`match: alias`, never confident, no photo request), the line's words and credits on the page, its held claims landed on
+it by the path a person's own "this held name IS that page" takes, and the line out of the store; a Contacts card attaches through
+its rematch. The frontmatter record is the page route's with `birth: true`, a hash of the said form and the conversation ids.
+*"Not them"* (the same route and record) ARCHIVES the born page (`status: archived`, `archived_by: {reason: arrival_birth, prior_status,
+prior_confidence}`, `removed_at`; the commit is in git), takes the said form off through `aliases_removed`, the proposed link and
+the claims it wrote as the page route does, puts the held line back as it stood in the commit before the birth (read from the
+bank's own history; without it nothing is written), and refuses the pair (`merge_rejections.add_rejected` of the held name and the
+page, which the resolver's `_said_different` and every other joiner honour). It writes nothing and says what is left when the
+person changed the name or took the link, or when the page has heard another conversation since.
+
+*Out of scope here* (later tracks): two pages (ruling 74's machinery gaining time as a third kind), nicknames, and chats and meetings
+as the full-name side.
 
 **What a question between two people rests on (owner 2026-11-04, `pair_evidence`).** "Is <handle> the same as <owner>?"
 reached the inbox at "Cicada's guess 0.90" with a chat with someone else, naming neither, as its evidence ("why tf would

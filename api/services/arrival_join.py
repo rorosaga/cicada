@@ -11,6 +11,10 @@ people met at one event, more stands in front of the write: exactly one holder, 
 than a dormant row would suggest), no doubt and no history, a fresh directory, a conflict screen, and a two-read veto. A wrong
 join tells the person things about someone who is someone else, so a miss is silent and costs nothing.
 
+**Two routes, one decision.** A first-name PAGE (Route D, this module and `arrival_join_write`) and a first name still HELD below
+the promotion bar (Route H, `arrival_birth`: the page is born under the full name) are cases of one list, decided by :func:`decide`
+unchanged, their vetoes sharing one night's bound and one cache. Each route has its own switch (:data:`LIVE`, `arrival_birth.LIVE`).
+
 **This module decides; it writes through `arrival_join_write` and only when :data:`LIVE` is true.** It ships ``LIVE = False``:
 the nightly step runs every rule and leaves a per-item report outside every bank (:func:`report_path`; the command
 ``python -m api.scripts.arrival_join_report``), and writes NOTHING to the bank. The coordinator reads that report on the real
@@ -140,6 +144,8 @@ class Holder:
     facts: tuple[str, ...] = ()       # the page's own claim texts, for the veto
     summary: str = ""
     excerpts: tuple[str, ...] = ()    # the person's own lines naming the word, for the veto
+    held: bool = False             # Route H: the holder is a held line (no page yet), `line` its name in the pending store
+    line: str = ""
 
 
 @dataclass(frozen=True)
@@ -380,22 +386,33 @@ def _item(case: Case, decision: Decision, *, live: bool) -> dict:
                           "gap": gap(r.day, h.day) if r.day and h.day else None})
     outcome = decision.outcome
     if outcome == "join":
-        outcome = "join" if live else "would_join"
-    return {"page": h.page, "holder_day": h.day, "day_from": h.day_from, "arrival_day": decision.arrival_day,
+        # Route H: a held name born as the full name (`arrival_birth`) reads "birth", never "join" — the coordinator counts them apart.
+        outcome = ("birth" if live else "would_birth") if h.held else ("join" if live else "would_join")
+    return {"route": "birth" if h.held else "page",
+            # a held name is no page: it is named by a hash of its slug, never by the word the person wrote
+            "page": f"held-{key_hash(h.page)}" if h.held else h.page,
+            "holder_day": h.day, "day_from": h.day_from, "arrival_day": decision.arrival_day,
             "gap": decision.delta, "fresh": dict(case.fresh), "namesakes": namesakes,
             "alias_key": decision.alias_key or None, "conflict": decision.conflict or "none",
             "veto": list(decision.veto) if decision.veto else None, "decision": outcome, "reason": decision.reason,
             "counts": decision.counts}
 
 
-def write_report(bank: str, items: list[dict], *, today: str, live: bool, tried: int, holders: int) -> dict:
-    """Leave the night's reading outside every bank: one item per first-name page that has a namesake in a directory, and a
-    count of every refusal across them. Overwritten each night."""
+WOULD = ("would_join", "would_birth")
+
+
+def write_report(bank: str, items: list[dict], *, today: str, live: bool, tried: int, holders: int, birth_live: bool = False,
+                 held: int = 0) -> dict:
+    """Leave the night's reading outside every bank: one item per first-name page — and per held first name, marked
+    ``"route": "birth"`` — that has a namesake in a directory, and a count of every refusal across them. Overwritten each night."""
     reasons: dict[str, int] = {}
     for item in items:
-        why = "would_join" if item["decision"] == "would_join" else item["reason"]
+        why = item["decision"] if item["decision"] in WOULD else item["reason"]
         reasons[why] = reasons.get(why, 0) + 1
-    payload = {"v": 1, "live": bool(live), "ran_on": today, "holders_with_namesake": len(items), "first_name_pages": holders,
+    payload = {"v": 2, "live": bool(live), "birth_live": bool(birth_live), "ran_on": today,
+               "holders_with_namesake": sum(1 for i in items if i.get("route") != "birth"),
+               "held_with_namesake": sum(1 for i in items if i.get("route") == "birth"),
+               "first_name_pages": holders, "held_first_names": held,
                "veto_reads": tried, "reasons": dict(sorted(reasons.items())), "items": items}
     people_directory.save_json(bank, REPORT_FILE, payload)
     return payload
@@ -526,9 +543,11 @@ def _claims_of(memory_path: Path, page: str) -> list:
     return entity_relations._page_claims(memory_path, page)
 
 
-def _companies_and_facts(memory_path: Path, page: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+def facts_of(claims) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """``(the current employers (folded), the claim texts)`` of a list of claims: what the conflict screen compares and the veto
+    reads. A closed claim is no fact of the page."""
     companies, facts = [], []
-    for c in _claims_of(memory_path, page):
+    for c in claims:
         if c.valid_to is not None:
             continue
         text = " ".join(str(c.text or "").split())
@@ -539,6 +558,10 @@ def _companies_and_facts(memory_path: Path, page: str) -> tuple[tuple[str, ...],
             if _fold(obj):
                 companies.append(_fold(obj))
     return tuple(dict.fromkeys(companies)), tuple(facts[:12])
+
+
+def _companies_and_facts(memory_path: Path, page: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    return facts_of(_claims_of(memory_path, page))
 
 
 def _excerpts(memory_path: Path, episodes: list[str], word: str) -> tuple[str, ...]:
@@ -610,6 +633,7 @@ def _removed_for(fm: dict) -> tuple[set[str], set[str]]:
 class Gathered:
     cases: list[Case]
     holders: int = 0           # one-word person pages looked at
+    held: int = 0              # held one-word person lines looked at (Route H, `arrival_birth`)
     directories: dict = field(default_factory=dict)   # {kind: rows} counts, for the log (counts only)
 
 
@@ -662,6 +686,25 @@ def directory_rows(memory_path: Path, bank: str, page_keys: set[str], doubt_name
     return rows, fresh
 
 
+def carriers(word: str, pages: dict[str, dict], held_lines, *, page: str | None = None, line: int | None = None) -> int:
+    """Rule 4, counted: how many OTHER person pages carry ``word`` as their name, an alias or the start of one, and how many other
+    held person lines do (``held_lines`` is ``[(index, folded name, folded aliases)]``). The holder itself — a page by its id or a
+    line by its index — is never its own carrier. The one count Route D (a page) and Route H (a held line) share."""
+    count = 0
+    for other, ofm in pages.items():
+        if other == page:
+            continue
+        for label in _labels(ofm, other):
+            folded = _fold(label)
+            if folded == word or folded.startswith(word + " "):
+                count += 1
+                break
+    for i, name, aliases in held_lines:
+        if i != line and any(x == word or x.startswith(word + " ") for x in [name, *aliases]):
+            count += 1
+    return count
+
+
 def gather(memory_path: Path, *, bank: str | None = None) -> Gathered:
     """Every first-name page with at least one namesake in a directory, as a :class:`Case`. Reads the bank and the two
     directories once; writes nothing. Public readers of the directories only."""
@@ -685,10 +728,10 @@ def gather(memory_path: Path, *, bank: str | None = None) -> Gathered:
     for r in rows:
         by_given.setdefault(r.given, []).append(r)
     try:
-        held_lines = [(_fold(line.name), [_fold(a) for a in line.aliases]) for line in pending_store.load(memory_path)
-                      if str(line.type or "") == "person"]
+        lines = [line for line in pending_store.load(memory_path) if str(line.type or "") == "person"]
     except Exception:  # noqa: BLE001 - an unreadable store holds nothing it can name
-        held_lines = []
+        lines = []
+    held_lines = [(i, _fold(line.name), [_fold(a) for a in line.aliases]) for i, line in enumerate(lines)]
     refused = {(r["holder"], r["key"]) for r in refusals(memory_path)}
     for stem, fm in sorted(pages.items()):
         words = _fold(str(fm.get("name") or stem.replace("-", " "))).split()
@@ -699,18 +742,7 @@ def gather(memory_path: Path, *, bank: str | None = None) -> Gathered:
         block = holder_block(fm, stem, owners)
         namesakes = [r for r in by_given[word]]
         day, day_from, used = (None, "", []) if block else _holder_day(memory_path, fm)
-        carriers = 0
-        for other, ofm in pages.items():
-            if other == stem:
-                continue
-            for label in _labels(ofm, other):
-                folded = _fold(label)
-                if folded == word or folded.startswith(word + " "):
-                    carriers += 1
-                    break
-        for name, aliases in held_lines:
-            if any(x == word or x.startswith(word + " ") for x in [name, *aliases]):
-                carriers += 1
+        others = carriers(word, pages, held_lines, page=stem)
         removed_aliases, removed_slugs = _removed_for(fm)
         slugs, other_account = _profile_slugs(fm)
         marked: list[Row] = []
@@ -729,12 +761,16 @@ def gather(memory_path: Path, *, bank: str | None = None) -> Gathered:
         elif other_account or (slugs and not any(r.slug in slugs for r in marked if r.slug)):
             elsewhere = "profile_elsewhere"
         companies, facts = ((), ()) if block else _companies_and_facts(memory_path, stem)
-        holder = Holder(page=stem, word=word, day=day, day_from=day_from, block=block, others=carriers,
+        holder = Holder(page=stem, word=word, day=day, day_from=day_from, block=block, others=others,
                         doubt=bool(stem in _doubt_refs or word in doubt_names), elsewhere=elsewhere,
                         companies=companies, facts=facts,
                         summary="" if block else _summary(memory_path, stem),
                         excerpts=() if block else _excerpts(memory_path, used, word))
         out.cases.append(Case(holder, tuple(marked), dict(fresh)))
+    from api.services import arrival_birth
+
+    arrival_birth.add_cases(out, memory_path, lines=lines, pages=pages, held_lines=held_lines, by_given=by_given, fresh=fresh,
+                            owners=owners, doubt_refs=_doubt_refs, doubt_names=doubt_names, refused=refused)
     return out
 
 
@@ -744,7 +780,7 @@ def with_pairs(memory_path: Path, cases: list[Case], decisions: list[Decision]) 
     elsewhere, and so reaches no veto. Returns the cases with ``elsewhere`` set where it does."""
     from api.services import person_duplicates
 
-    reach = {d.page for d in decisions if d.outcome == "candidate"}
+    reach = {d.page for d, c in zip(decisions, cases) if d.outcome == "candidate" and not c.holder.held}
     if not reach:
         return cases
     try:
@@ -753,7 +789,7 @@ def with_pairs(memory_path: Path, cases: list[Case], decisions: list[Decision]) 
         logger.warning(f"Arrival join: candidate pairs unreadable ({type(exc).__name__})")
         return cases
     return [replace(c, holder=replace(c.holder, elsewhere=c.holder.elsewhere or "candidate_pair"))
-            if c.holder.page in reach and c.holder.page in in_pair else c for c in cases]
+            if not c.holder.held and c.holder.page in reach and c.holder.page in in_pair else c for c in cases]
 
 
 # --------------------------------------------------------------------------- the two-read veto (a model)
@@ -894,6 +930,7 @@ class Report:
     candidates: int = 0             # every rule but the veto held
     reads: int = 0                  # veto reads (pairs of model calls) paid tonight
     would_join: int = 0
+    would_birth: int = 0            # Route H: held first names that WOULD have been born as the full name (`arrival_birth`)
     joined: int = 0
     reasons: dict = field(default_factory=dict)
     joins: list = field(default_factory=list)       # LIVE only: [(Decision, Case)] the caller writes
@@ -920,16 +957,21 @@ async def _engine_judge(settings, *, user_triggered: bool) -> tuple[Judge | None
 
 
 async def run_tail(memory_path: Path, settings, *, user_triggered: bool, no_model: bool = False, today: date | None = None,
-                   judge: Judge | None = None, live: bool | None = None) -> Report:
+                   judge: Judge | None = None, live: bool | None = None, birth_live: bool | None = None) -> Report:
     """Sleep's tail step: decide, report, and — only when :data:`LIVE` — hand back the joins to write. Engine-free through
     rule 10; the veto's engine is resolved only when a candidate reaches it (a scheduled run reaches a plan only through the
-    person's switch, ruling 4b; a plan limit is a pause; no engine means no veto and so no join). Never raises."""
-    from api.services import engine_errors
+    person's switch, ruling 4b; a plan limit is a pause; no engine means no veto and so no join). Never raises.
+
+    **Both routes in one pass.** A first-name PAGE (Route D) and a held first name (Route H, `arrival_birth`) are cases of the same
+    list, decided by the same function, and their vetoes share ONE night's bound (:data:`MAX_VETOES`) and ONE cache; each route has
+    its own switch (:data:`LIVE`, `arrival_birth.LIVE`), and a route that is not live writes nothing and only reports."""
+    from api.services import arrival_birth, engine_errors
 
     memory_path = Path(memory_path)
     bank = memory_path.name
     day = (today or date.today()).isoformat()
     live = LIVE if live is None else live
+    birth_live = arrival_birth.LIVE if birth_live is None else birth_live
     report = Report()
     try:
         gathered = await asyncio.to_thread(gather, memory_path, bank=bank)
@@ -977,15 +1019,23 @@ async def run_tail(memory_path: Path, settings, *, user_triggered: bool, no_mode
             elif d.outcome == "candidate":
                 d = replace(d, reason="veto_unavailable" if report.skipped else "veto_pending")
             final.append(d)
-            items.append(_item(case, d, live=live))
-            reason = "would_join" if d.joins and not live else d.reason
+            here = birth_live if case.holder.held else live
+            items.append(_item(case, d, live=here))
+            reason = d.reason
+            if d.joins and not here:
+                reason = "would_birth" if case.holder.held else "would_join"
             report.reasons[reason] = report.reasons.get(reason, 0) + 1
             if d.joins:
-                report.would_join += 0 if live else 1
-                if live:
+                if not here:
+                    if case.holder.held:
+                        report.would_birth += 1
+                    else:
+                        report.would_join += 1
+                else:
                     report.joins.append((d, case))
         if items or load_report(bank):   # a bank with nothing to say leaves no folder behind
-            await asyncio.to_thread(write_report, bank, items, today=day, live=live, tried=tried, holders=gathered.holders)
+            await asyncio.to_thread(write_report, bank, items, today=day, live=live, tried=tried, holders=gathered.holders,
+                                    birth_live=birth_live, held=gathered.held)
     except (engine_errors.EngineThrottled, engine_errors.EngineExhausted, engine_errors.EngineOverage):
         report.skip("plan_limit")
     except Exception as exc:  # noqa: BLE001 - the join never fails a Sleep
