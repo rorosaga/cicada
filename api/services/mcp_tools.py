@@ -1635,6 +1635,10 @@ def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=N
     if not youtube_lists.allowed(name):
         return Reply(f"Not recorded: the person has not asked their agent to keep their YouTube {label} current "
                 "(Reading in your browser, on the Sources page). Nothing was read into memory.", code="refused")
+    if outcome == "read" and isinstance(videos, list):   # rows were sent: a call with none read nothing
+        from api.services import saved_lists as _lists
+
+        _lists.note_reader(memory_path, ctx.harness)   # G245: this harness drove a browser for a list (the hook's line)
     if outcome in youtube_lists.PAUSING:
         youtube_lists.note(memory_path, name, outcome)
         return ("Recorded: YouTube needs the person to sign in (or blocked the page). Stop: do not sign in, type "
@@ -1884,6 +1888,8 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     if folder_name and not p.folders:
         return Reply(f"Error: {p.name} {p.label} has no folders to open; leave `folder` out.", code="invalid_arguments")
     names = save_folders.clean_names(folder_names) if folder_names is not None else None
+    if outcome == "read" and isinstance(items, list):   # rows were sent: a call with none read nothing
+        saved_lists.note_reader(memory_path, ctx.harness)   # G245: this harness drove a browser for a list (the hook's line)
     who = {"handle": saved_lists.clean_handle(handle), "profile_url": saved_lists.clean_profile_url(key, profile_url)}
     unkept = (" The handle was not kept: send it as one word, as the page shows it." if handle and not who["handle"]
               else "") + (f" The profile link was not kept: it must be an https link on {p.name}'s own site."
@@ -2209,6 +2215,8 @@ def record_substack_list(ctx: ToolContext, list_name: str, outcome: str, items=N
     if not substack_lists.allowed(name):
         return Reply(f"Not recorded: the person has not asked their agent to keep their Substack {spec.label} current "
                      "(Sources). Nothing was read into memory.", code="refused")
+    if outcome == "read" and isinstance(items, list):   # rows were sent: a call with none read nothing
+        saved_lists.note_reader(memory_path, ctx.harness)   # G245: this harness drove a browser for a list (the hook's line)
     if outcome in substack_lists.PAUSING:
         substack_lists.note(memory_path, name, outcome)
         _ask_sign_in_for_list(ctx, memory_path, saved_lists.Platform(

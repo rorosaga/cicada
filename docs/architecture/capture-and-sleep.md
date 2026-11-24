@@ -26,7 +26,10 @@ Seven rails hold across all of them:
   which 422s without one — run from the launchd backend, macOS asked whether "python3.12" may control Notes.
   **Notes keeps up and is dated when written (2026-10-23).** `AppleNotesWatcher` reads after the person's own first
   read (Connect, Refresh, onboarding's tick), then on launch, after a bank switch and every two hours — only while
-  Notes is already open, since `tell application "Notes"` would launch it; Disconnect stops it, deleting nothing. Each
+  Notes is already open, since `tell application "Notes"` would launch it; Disconnect stops it, deleting nothing.
+  **Also when Notes is opened or comes to the front (G245, track C1):** `NSWorkspace`'s launch and activation notices
+  (a notice, never a poll), after a 3 s settle and no sooner than 15 minutes after the last read of any kind, so
+  switching to Notes over and over reads once; the same read, so a locked note's body is still never asked for. Each
   record adds the modification date as AppleScript's locale-free `«class isot»` and the Mac's UTC offset, so
   `notes_sync` dates the episode when the note was last written (read on time); the human `modified` string stays the
   dedup key, and a 6-field record from an older app still parses and is dated now.
@@ -2677,7 +2680,15 @@ follow-ups, their own `cicada` commits), the exact-match source links (G61 S3-a,
 its own `cicada` commit, dirty pages skipped), the site check (G61 S3-b, behind `CICADA_ALLOW_CONNECTOR_FETCH`, its own
 `cicada` commit), the tracked-source re-check (ruling 26), **the web check** (below), the connector poll, RSS/ICS
 polling (opt-in via `CICADA_ALLOW_FEED_FETCH=1`), and the link enrichment backfill (which reads for the person's reason, below) — all in a clean-tree-guarded slot,
-after `_finalize`'s own commit so the poll's `git add -A` sweeps only its own files. After them, unguarded (no git),
+after `_finalize`'s own commit so the poll's `git add -A` sweeps only its own files. **What triggers each source's poll
+(G245, track C1).** The connector poll and the RSS/ICS poll are no longer Sleep's alone: `source_polls.scheduled_poll`
+is the backend's own job, every 3 hours beside the tier-2 job (`network.md`), so a Sleep on `manual`, or a night with
+nothing readable, no longer leaves a feed, a calendar feed or Reddit, Pinterest or X stale; a kind that job polled in the
+last hour is left alone by the tail (`source_polls.polled_lately`). **A scheduled time with nothing readable still runs the
+tail** (`sleep_catch_up.probe` → `run(tail_only=True, engine_free=True)`): the polls, claim expiry and the state refresh run;
+every step that would ask a model (the same-name review, In short, a recording's read, the web check and light context,
+the link backfill, the books' model read) is skipped like a run stopped at its limit, so no engine starts and no plan is
+spent, and no run is recorded (it reads nothing, so there is no drain, no `runs.json` row and no "ran" on Past nights). After them, unguarded (no git),
 the episode vectors are synced when an index-only episode is newer than the vector index (owner ruling 2026-10-18).
 
 **The catch-up questions (vision item 10, owner 2026-10-28; `sleep_cycle._catchup_questions_safely`).** Two

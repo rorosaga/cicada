@@ -167,4 +167,95 @@ final class AppleNotesWatcherTests: XCTestCase {
         XCTAssertEqual(w.status, .failed("Cicada isn't allowed to read Apple Notes."))
         w.disconnect()
     }
+
+    // MARK: G245 (track C1) — Notes opened or brought to the front
+
+    private final class Clock { var at = Date(timeIntervalSince1970: 1_800_000_000) }
+
+    private func watcher(clock: Clock, open: Bool = true, floor: TimeInterval = 900,
+                         reads: @escaping () -> Void) -> AppleNotesWatcher {
+        AppleNotesWatcher(defaults: defaults, period: .seconds(3600), now: { clock.at },
+                          center: NotificationCenter(), floor: floor, settle: .zero,
+                          notesRunning: { open }, read: {
+            reads()
+            return Self.result
+        })
+    }
+
+    func testNotesComingToTheFrontReadsOnceAndSwitchingBackAndForthDoesNot() async throws {
+        var reads = 0
+        let clock = Clock()
+        let w = watcher(clock: clock) { reads += 1 }
+        _ = try await w.syncNow()
+        XCTAssertEqual(reads, 1)
+        clock.at.addTimeInterval(120)
+        await w.workspaceEvent(bundleId: AppleNotesWatcher.notesBundleId)
+        XCTAssertEqual(reads, 1, "inside the floor of the person's own read")
+        clock.at.addTimeInterval(900)
+        await w.workspaceEvent(bundleId: AppleNotesWatcher.notesBundleId)
+        XCTAssertEqual(reads, 2, "past the floor")
+        for _ in 0..<5 {
+            clock.at.addTimeInterval(60)
+            await w.workspaceEvent(bundleId: AppleNotesWatcher.notesBundleId)
+        }
+        XCTAssertEqual(reads, 2, "switching to Notes again and again reads once")
+        w.disconnect()
+    }
+
+    func testAnotherAppComingForwardReadsNothing() async throws {
+        var reads = 0
+        let clock = Clock()
+        let w = watcher(clock: clock) { reads += 1 }
+        _ = try await w.syncNow()
+        clock.at.addTimeInterval(3600)
+        await w.workspaceEvent(bundleId: "com.example.other")
+        await w.workspaceEvent(bundleId: nil)
+        XCTAssertEqual(reads, 1)
+        w.disconnect()
+    }
+
+    func testNotesComingForwardNeverReadsBeforeTheFirstReadAfterADisconnectOrWithNotesClosed() async throws {
+        var reads = 0
+        let clock = Clock()
+        defaults.set(true, forKey: AppleNotesWatcher.enabledKey)
+        let closed = watcher(clock: clock, open: false) { reads += 1 }
+        await closed.workspaceEvent(bundleId: AppleNotesWatcher.notesBundleId)
+        XCTAssertEqual(reads, 0, "a notice never launches or reads a Notes that is not open")
+        closed.disconnect()
+        let off = watcher(clock: clock) { reads += 1 }
+        await off.workspaceEvent(bundleId: AppleNotesWatcher.notesBundleId)
+        XCTAssertEqual(reads, 0, "disconnected: nothing")
+    }
+
+    /// The notice path: a workspace notice for Notes reads once the person's own first read turned it on, none does
+    /// after a Disconnect, and a different application's notice reads nothing. (A test process has no bundle id of
+    /// its own, so the notice carries one as a string and the watcher is told how to read it.)
+    func testTheWorkspaceNoticesAreWiredWhileOnAndRemovedOnDisconnect() async throws {
+        var reads = 0
+        let clock = Clock()
+        let center = NotificationCenter()
+        let w = AppleNotesWatcher(defaults: defaults, period: .seconds(3600), now: { clock.at }, center: center,
+                                  floor: 0, settle: .zero, bundleOf: { $0.userInfo?["bundle"] as? String },
+                                  notesRunning: { true }, read: {
+            reads += 1
+            return Self.result
+        })
+        func notice(_ bundle: String, _ name: Notification.Name = NSWorkspace.didActivateApplicationNotification) async throws {
+            center.post(name: name, object: nil, userInfo: ["bundle": bundle])
+            try await Task.sleep(for: .milliseconds(150))
+        }
+        _ = try await w.syncNow()
+        XCTAssertEqual(reads, 1)
+        clock.at.addTimeInterval(1)
+        try await notice("com.example.other")
+        XCTAssertEqual(reads, 1, "another application's notice reads nothing")
+        try await notice(AppleNotesWatcher.notesBundleId)
+        XCTAssertEqual(reads, 2, "Notes coming to the front reads")
+        clock.at.addTimeInterval(1)
+        try await notice(AppleNotesWatcher.notesBundleId, NSWorkspace.didLaunchApplicationNotification)
+        XCTAssertEqual(reads, 3, "so does Notes being opened")
+        w.disconnect()
+        try await notice(AppleNotesWatcher.notesBundleId)
+        XCTAssertEqual(reads, 3, "a notice after a disconnect reads nothing")
+    }
 }

@@ -77,6 +77,10 @@ SCOPES = "bookmark.read tweet.read users.read offline.access"
 # cost model before connecting, never after a surprise invoice.
 PRICE_PER_READ = 0.001
 PRICE_NOTE = "~$0.001/read · pay-per-use"
+# A poll is billed for the whole first page even when nothing is new (see `fetch_bookmarks`), so a billed adapter
+# is never polled on a timer more often than this (G245; `source_polls.poll_floor_open`). A click is the person's own
+# and ignores it. 20 h, not 24, so a nightly run is never skipped for a few minutes' drift.
+MIN_POLL_INTERVAL_HOURS = 20
 
 AUTH_URL = "https://twitter.com/i/oauth2/authorize"
 TOKEN_URL = "https://api.twitter.com/2/oauth2/token"

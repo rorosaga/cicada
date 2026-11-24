@@ -341,6 +341,13 @@ async def lifespan(app: FastAPI):
 
     scheduler.add_job(tier2.scheduled_sync, "interval", hours=tier2.SCHEDULE_HOURS, id="connectors-tier2",
                       replace_existing=True)
+    # G245 (track C1): RSS feeds, calendar feeds and the saved-content connectors (Reddit, Pinterest, X) used to be polled
+    # only at the end of a Sleep run — never with Sleep on manual. Their own job, every few hours, behind the same
+    # gates as before, yielding to a Sleep that is writing (`source_polls`).
+    from api.services import source_polls
+
+    scheduler.add_job(source_polls.scheduled_poll, "interval", hours=source_polls.SCHEDULE_HOURS, id="source-polls",
+                      replace_existing=True)
     # Sleep page v5: the opt-in continue-after-reset (TODO ruling 15) needs the scheduler, and a
     # paused run that had armed it re-arms after a restart (its sidecar says when).
     from api.services import sleep_autocontinue

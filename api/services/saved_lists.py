@@ -498,6 +498,29 @@ def stamp_folder(memory_path: Path, key: str, name: str, now: datetime | None = 
         entry["folder_reads"] = folder_pass.stamped(entry.get("folder_reads"), name, _now(now).isoformat())
 
 
+#: A harness name as the tools carry it (``claude-code``, ``codex``, ``cursor``): short, one word, never a path or a person.
+_HARNESS = re.compile(r"[a-z0-9][a-z0-9._-]{0,39}")
+
+
+def note_reader(memory_path: Path, harness, now: datetime | None = None) -> None:
+    """A harness recorded a read of one of the person's lists in a browser (G245, track C1): keep its name and when, in
+    this machine state beside the lists' status, never a bank. It is the only thing Cicada can know about whether a
+    harness can drive a browser — it has no table of each harness's tools, and ruling 14 says it cannot see them — so the
+    hook's "your list is due" line goes only to a harness that has done it before (``readers``)."""
+    name = str(harness or "").strip().lower()
+    if not _HARNESS.fullmatch(name):
+        return
+    with _locked() as data:
+        readers = data.setdefault("readers", {}).setdefault(_bank_key(memory_path), {})
+        readers[name] = _now(now).isoformat()
+
+
+def readers(memory_path: Path) -> frozenset[str]:
+    """The harnesses that have recorded a list read on this bank (:func:`note_reader`)."""
+    found = ((_load().get("readers") or {}).get(_bank_key(memory_path)) or {})
+    return frozenset(k for k in found if isinstance(k, str)) if isinstance(found, dict) else frozenset()
+
+
 def _count(data: dict, bank: str, moment: datetime) -> None:
     today = moment.date().isoformat()
     # Only today's count is kept: the bound is a day's, and older days are never read.

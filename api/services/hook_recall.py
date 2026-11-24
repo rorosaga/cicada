@@ -966,11 +966,30 @@ class _ReadingSeen:
 
     #: How much the derived (allowed-site) count must grow before a running session hears it again.
     REPEAT_STEP = 10
+    #: G245 (track C1): a list that stays due is said again on a later prompt of the same session only this long after
+    #: it was last said — a floor, never every prompt. A different list newly due is said at once.
+    LIST_REPEAT_S = 900.0
 
     def __init__(self, sessions: int = MAX_SESSIONS):
         self._sessions = sessions
         self._lock = threading.Lock()
         self._data: OrderedDict[str, tuple[int, int]] = OrderedDict()
+        self._lists: OrderedDict[str, tuple[tuple[str, ...], float]] = OrderedDict()
+
+    def lists_told(self, session_id: str) -> tuple[tuple[str, ...], float] | None:
+        """The due lists this session was last told, and when (a monotonic stamp), or ``None``."""
+        with self._lock:
+            return self._lists.get(session_id)
+
+    def lists_to_say(self, session_id: str, names: tuple[str, ...], *, now: float) -> bool:
+        """Say these due lists now? Always at a session's start; otherwise when one was not said yet or the floor
+        since the last time has passed. Nothing due is nothing to say."""
+        if not names:
+            return False
+        told = self.lists_told(session_id)
+        if told is None:
+            return True
+        return bool(set(names) - set(told[0])) or now - told[1] >= self.LIST_REPEAT_S
 
     def told(self, session_id: str) -> int:
         with self._lock:
@@ -980,16 +999,29 @@ class _ReadingSeen:
         with self._lock:
             return self._data.get(session_id, (0, 0))[1]
 
-    def remember(self, session_id: str, waiting: int, asks: int | None = None) -> None:
+    def remember(self, session_id: str, waiting: int, asks: int | None = None,
+                 lists: tuple[str, ...] | None = None, *, at: float | None = None) -> None:
+        """``lists`` (G245): the due lists just said (``()`` forgets them, ``None`` leaves what is kept)."""
         with self._lock:
             held = self._data.pop(session_id, (0, 0))
             self._data[session_id] = (waiting, held[1] if asks is None else asks)
             while len(self._data) > self._sessions:
                 self._data.popitem(last=False)
+            if lists is not None:
+                self._lists.pop(session_id, None)
+                if lists:
+                    self._lists[session_id] = (tuple(lists), _mono() if at is None else at)
+                while len(self._lists) > self._sessions:
+                    self._lists.popitem(last=False)
 
     def clear(self) -> None:
         with self._lock:
             self._data.clear()
+            self._lists.clear()
+
+
+def _mono() -> float:
+    return time.monotonic()
 
 
 READING_SEEN = _ReadingSeen()
@@ -1011,15 +1043,15 @@ def waiting_links(memory_path: Path, *, include_words_origin: bool = True) -> in
 
 
 def with_reading_note(inj: Injection, memory_path: Path, session_id: str, *, event: str,
-                      deadline: float | None = None) -> Injection:
+                      deadline: float | None = None, harness: str | None = None) -> Injection:
     """G166: append one sentence — "N links are waiting in Cicada's reading queue for
     an agent to read" — to the note (or make it the whole note), only while agent
     reading is on and more links wait than this session was last told (see
     ``_ReadingSeen``). Per request, never stored, never in ``_state.md``. It rides
     beside the page note rather than inside its 400-token budget: it is one
     sentence, and it is what makes the person's "Ask an agent" reach an agent that
-    was never told to look."""
-    line, seen = reading_line_for(memory_path, session_id, event=event, deadline=deadline)
+    was never told to look. G245: the same sentence names a list that is due."""
+    line, seen = reading_line_for(memory_path, session_id, event=event, deadline=deadline, harness=harness)
     if line is None:
         return inj
     READING_SEEN.remember(session_id, *seen)
@@ -1028,16 +1060,28 @@ def with_reading_note(inj: Injection, memory_path: Path, session_id: str, *, eve
     return replace(inj, text=f"{recall_text.READING_HEADER}\n{line}", reason="reading")
 
 
-def reading_line_for(memory_path: Path, session_id: str, *, event: str,
-                     deadline: float | None = None) -> tuple[str | None, tuple[int, int] | None]:
-    """The reading sentence this request would carry, and the ``(waiting,
-    asks)`` to remember IF it is sent — the caller remembers only what it
-    actually returns (G110: the SessionStart compositor may drop it, and then
-    the first prompt must still hear it)."""
-    from api.services import reading_queue
+def reading_line_for(memory_path: Path, session_id: str, *, event: str, deadline: float | None = None,
+                     harness: str | None = None) -> tuple[str | None, tuple | None]:
+    """The reading sentence this request would carry, and what to remember IF it is sent — ``(waiting, asks)``, plus the
+    due lists said when there were any (``READING_SEEN.remember(session_id, *seen)``; G110: the SessionStart
+    compositor may drop it, and then the first prompt must still hear it).
+
+    G245 (track C1): a list the person turned on that is due to be read (X Bookmarks, YouTube Watch later…) is named in
+    their terms, **only to a harness that has recorded a list read before** (``saved_lists.readers``). Cicada has no
+    table of which harness can drive a browser and cannot see an agent's tools (ruling 14), so a recorded read is the
+    one thing it knows; every other harness hears what it always did — "N links are waiting", a due list among the N —
+    so a first read can start from normal use, and a list nobody has read is never silent. A list that stays due is said again on a later prompt of the same session, at most once per
+    ``READING_SEEN.LIST_REPEAT_S`` (a list newly due is said at once), never on every prompt."""
+    from api.services import reading_queue, saved_lists
 
     asks, derived = reading_queue.counts(memory_path, warm_only=True,
                                          deadline=None if deadline is None else deadline - READING_RESERVE_S)
+    # A harness that has recorded a list read hears the due lists by name, and they are no longer "links". Any other
+    # harness hears the count as before, the lists among its asks: a first read can still start from normal use.
+    names = ()
+    if harness and harness in saved_lists.readers(memory_path):
+        names = tuple(reading_queue.lists_due(memory_path))
+        asks = max(0, asks - len(names))
     known = derived is not None  # a cold cache leaves the derived part unknown, never zero
     waiting = asks + (derived or 0)
     told = READING_SEEN.told(session_id)
@@ -1050,14 +1094,19 @@ def reading_line_for(memory_path: Path, session_id: str, *, event: str,
     elif not known and asks < told_asks:
         READING_SEEN.remember(session_id, told, asks)
         told_asks = asks
-    if waiting <= 0:
-        return None, None
-    if event == "user_prompt_submit" and told > 0:
+    if not names and READING_SEEN.lists_told(session_id) is not None:
+        READING_SEEN.remember(session_id, told, told_asks, ())   # the list was read or paused: the next due one is new
+    say_lists = READING_SEEN.lists_to_say(session_id, names, now=_mono())
+    say_links = waiting > 0
+    if say_links and event == "user_prompt_submit" and told > 0:
         new_ask = asks > told_asks
         grew = known and waiting - told >= READING_SEEN.REPEAT_STEP
-        if not (new_ask or grew):
-            return None, None
-    return recall_text.reading_line(waiting), (waiting, asks)
+        say_links = new_ask or grew
+    if not (say_links or say_lists):
+        return None, None
+    line = recall_text.reading_line(waiting if say_links else 0, lists=names if say_lists else ())
+    seen = (waiting, asks) if say_links else (told, told_asks)
+    return line, (*seen, names) if say_lists else seen
 
 
 def refresh_line_for(memory_path: Path) -> str | None:
@@ -1101,7 +1150,7 @@ def session_start_note(memory_path: Path, *, harness: str, session_id: str, cwd:
     variant = harness if harness in handshake.VARIANTS else "generic"
     primer, _meta = handshake.load_or_build(Path(memory_path), variant=variant,
                                             reserve=CONTINUITY_RESERVE if has_block else 0)
-    line, seen = reading_line_for(memory_path, session_id, event="session_start", deadline=deadline)
+    line, seen = reading_line_for(memory_path, session_id, event="session_start", deadline=deadline, harness=harness)
     refresh = refresh_line_for(memory_path)
     if refresh:
         line = f"{line}\n\n{refresh}" if line else refresh
@@ -1150,7 +1199,7 @@ def respond(root: Path, *, event: str, harness: str, session_id: str, prompt: st
     workspace_event = {"workspace_identity": observed} if observed else {}
     if event == "session_start":
         RECENT.reset(session_id)
-        READING_SEEN.remember(session_id, 0, 0)
+        READING_SEEN.remember(session_id, 0, 0, ())
         events = {"started_at": start, **workspace_event}
         if cwd:
             events["cwd_hash"] = continuity_sessions.cwd_hash(cwd)
@@ -1166,7 +1215,7 @@ def respond(root: Path, *, event: str, harness: str, session_id: str, prompt: st
                                          deadline=_slice(deadline, REGISTRY_SLICE_S))
     note = prompt_context(target.path, prompt, recent=RECENT.recent(session_id), deadline=deadline,
                           session_id=session_id)
-    note = with_reading_note(note, target.path, session_id, event=event, deadline=deadline)
+    note = with_reading_note(note, target.path, session_id, event=event, deadline=deadline, harness=harness)
     return replace(note, registry=registry), target.name
 
 

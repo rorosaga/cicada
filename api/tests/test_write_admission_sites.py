@@ -110,6 +110,8 @@ PROBE_SITES = {
                                   "provisional record's write admits itself and asks again",
     "api/services/connectors/tier2.py": "a scheduled sync's early skip before its network fetch (ruling 47); the "
                                         "staging and its commit admit themselves and refuse while Sleep writes",
+    "api/services/source_polls.py": "the feed, calendar and connector job's early skip before any fetch (G245); the "
+                                    "ingest and its commit run inside run_admitted and refuse while Sleep writes",
     "api/services/capture_commit.py": "the capture commit's early skip (G132 51e1) before it takes any lock; its "
                                       "commit runs inside admitted() and asks again",
 }
