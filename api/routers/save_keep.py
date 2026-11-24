@@ -34,7 +34,9 @@ class KeepState(CamelModel):
 
 
 class KeepRequest(CamelModel):
-    url: str = Field(..., min_length=1, max_length=4000)
+    #: The saved link. A row of a list that holds no link names its own page as ``entity`` instead (one of the two).
+    url: str = Field("", max_length=4000)
+    entity: str = Field("", max_length=200)
     #: ``true`` keeps the post as a page; ``false`` sends it back to a row.
     kept: bool = True
 
@@ -46,11 +48,14 @@ class KeepResult(KeepState):
 
 
 @router.get("/sources/keep-as-page", response_model=KeepState)
-async def keep_state(url: str = Query(..., min_length=1, max_length=4000),
+async def keep_state(url: str = Query("", max_length=4000), entity: str = Query("", max_length=200),
                      settings: Settings = Depends(get_settings)) -> KeepState:
     """What a saved link's card may offer: ``none`` for everything but a post drawn as a row (or kept by the person's
-    click), and for every link while the posts-as-rows switch is off (``saved_posts.HIDE_POSTS``). Read-only."""
-    found = await run_in_threadpool(keep_as_page.offer, settings.memory_path, url)
+    click), and for every link while the posts-as-rows switch is off (``saved_posts.HIDE_POSTS``). Read-only. The link
+    is ``url``, or ``entity`` for a row of a list (its own page id); 422 when neither is given."""
+    if not url.strip() and not entity.strip():
+        raise HTTPException(status_code=422, detail="Give the saved link or the row's page.")
+    found = await run_in_threadpool(keep_as_page.offer, settings.memory_path, url, entity)
     return KeepState.model_validate({k: v for k, v in found.items() if k != "episode_id"})
 
 
@@ -63,9 +68,12 @@ async def keep_as_page_route(request: KeepRequest, settings: Settings = Depends(
     409 in a demo bank or while Sleep holds the pages (this one waits Sleep's window out, never writes through it). A
     page that is no post already has its page: ``status: unchanged``."""
     memory_path = settings.memory_path
+    if not request.url.strip() and not request.entity.strip():
+        raise HTTPException(status_code=422, detail="Give the saved link or the row's page.")
 
     async def write() -> dict:
-        result = await run_in_threadpool(lambda: keep_as_page.keep(memory_path, url=request.url, kept=request.kept))
+        result = await run_in_threadpool(
+            lambda: keep_as_page.keep(memory_path, url=request.url, kept=request.kept, entity=request.entity))
         if result["paths"]:
             from api.services import git_service
 

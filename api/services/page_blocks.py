@@ -37,12 +37,10 @@ SHAPE = "blocks-8"
 #: (a map from stored coordinates, a look), what is ongoing, what the person marked in a book (ruling 64,
 #: ``book_marks``), the article's citations (ruling 48 (16),
 #: ``page_citations``: its markers, References and belief sentences), then who changed it.
-KINDS = ("relevance", "summary", "sources", "coordinates", "looks", "ongoing", "marks", "citations", "history")
-#: Every block the card reads, in page order: :data:`KINDS` plus a list's own block (G246, ruling 81), which sits where the
-#: type block does. It is the card's alone until the agent doors name it: ``include`` is an enum both tool schemas
-#: advertise (``mcp/server.py``, ``remote/tools.py``), so the kind joins :data:`KINDS` in the change that adds it there
-#: (the list pages' second track), and until then ``wanted`` never names it and an agent's blocks carry none.
-BLOCKS = ("relevance", "summary", "sources", "coordinates", "list", "looks", "ongoing", "marks", "citations", "history")
+KINDS = ("relevance", "summary", "sources", "coordinates", "list", "looks", "ongoing", "marks", "citations", "history")
+#: Every block the card reads, in page order. It is :data:`KINDS` since the agent doors named a list's own block (G246, ruling
+#: 81): ``include`` is an enum both tool schemas advertise (``mcp/server.py``, ``remote/tools.py``) and ``list`` is in each.
+BLOCKS = KINDS
 MAX_ONGOING = 8
 MAX_SOURCES = 12
 MAX_LOOKS = 6
