@@ -178,7 +178,7 @@ struct EntitySummaryText: View {
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .lineLimit(2)
         } else if let lineLimit, !expanded {
-            Text(MarkdownBody.inlineAttributed(text))
+            Text(MarkdownBody.inlineAttributed(text, quietLinks: true))
                 .font(CicadaTheme.detailBodyFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .lineLimit(lineLimit)
@@ -190,7 +190,7 @@ struct EntitySummaryText: View {
                 .accessibilityHint(Copy.Graph.showWholeSummary)
         } else {
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-                Text(MarkdownBody.inlineAttributed(text))
+                Text(MarkdownBody.inlineAttributed(text, quietLinks: true))
                     .font(CicadaTheme.detailBodyFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
                     .textSelection(.enabled)

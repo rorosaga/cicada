@@ -36,7 +36,7 @@ final class CardRowsStayInsideTests: XCTestCase {
         let line = WikiArticle.build("- " + wide + " [[a-very-long-wikilinked-page-name-that-has-to-wrap]]").rows[0]
         let view = VStack(alignment: .leading, spacing: 12) {
             main
-            WikiRowView(row: line, onSource: { _ in }).background(tagged("article"))
+            WikiRowView(row: line).background(tagged("article"))
         }
             .frame(width: width)
             .coordinateSpace(name: "card")
