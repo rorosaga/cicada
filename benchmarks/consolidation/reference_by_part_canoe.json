@@ -1,0 +1,94 @@
+{
+ "about": "Invented. A thing is named in two conversations and, weeks later, spoken of only by a part or a plain noun (chapter 3, the kitchen, the frame, the manuscript, the onboarding flow, el techo, der Motor, the boat). The later progress must be on the named thing's page or reachable from it.",
+ "owner": "Mara Quill",
+ "conversations": [
+  {
+   "id": "c0",
+   "phase": 1,
+   "day": -30,
+   "title": "Cedar strip canoe planning",
+   "turns": [
+    "I'm finally building a canoe. A 15-foot cedar-strip canoe, in the garage, over the autumn. I ordered western red cedar strips from a mill upstate, 1/4 inch bead-and-cove. What else do I need before I start?",
+    "Congratulations! Beyond the strips you'll need a strongback, station forms cut from plywood, staples or clamps, wood glue, a block plane, and later fiberglass cloth and epoxy.",
+    "Good. I want it done before spring so I can paddle it at the lake in April. Budget is about 900 dollars all in.",
+    "That's realistic for a 15-footer if you build the strongback from scrap and buy epoxy in a kit. Plan roughly: forms and strongback, stripping, fairing, glassing, then trim."
+   ]
+  },
+  {
+   "id": "c1",
+   "phase": 1,
+   "day": -25,
+   "title": "Strongback and station forms",
+   "turns": [
+    "Built the strongback today out of two 2x6s, it's dead level. Teo came over and helped me cut the station forms on his bandsaw.",
+    "Nice progress. Check that every form sits square to the centreline before you start stripping; a twisted form shows up as a wavy sheer line later.",
+    "Yep, we checked with a string line. Next weekend I start stripping the hull."
+   ]
+  },
+  {
+   "id": "c2",
+   "phase": 2,
+   "day": -20,
+   "title": "Stripping the hull",
+   "turns": [
+    "Canoe update: the hull is about 60 percent stripped. The cedar smells amazing. I'm doing a few strips every evening after work.",
+    "That's steady progress. Remember to stagger the scarf joints so no two line up.",
+    "Yes. Also, yesterday was my last day at Lumenfold. Farewell lunch was lovely."
+   ]
+  },
+  {
+   "id": "c3",
+   "phase": 3,
+   "day": -15,
+   "title": "Fiberglassing questions",
+   "turns": [
+    "The hull is fully stripped and faired. I'm nervous about fiberglassing, so I signed up for an epoxy and fiberglass workshop at the Alder Row Makerspace on October 17th.",
+    "Good call. The workshop will cover wetting out the cloth and avoiding dry spots and bubbles. Do the outside of the hull first."
+   ]
+  },
+  {
+   "id": "c4",
+   "phase": 3,
+   "day": -10,
+   "title": "After the epoxy class",
+   "turns": [
+    "The epoxy class yesterday was great. Today I fiberglassed the outside of the hull, no dry spots. Next is flipping it and glassing the inside.",
+    "Well done! Let the outside cure fully before you flip it, and sand lightly between coats.",
+    "Still aiming to paddle it in April."
+   ]
+  }
+ ],
+ "gold": {
+  "points": [],
+  "updates": [],
+  "forbid": [],
+  "people": {
+   "same": [],
+   "apart": [],
+   "apart_facts": [],
+   "one": []
+  },
+  "pages": {
+   "expected": [],
+   "not_expected": []
+  },
+  "dated": [],
+  "secret": "",
+  "apart_values": [],
+  "roles": [],
+  "fading": []
+ },
+ "expect": {
+  "stories": [
+   {
+    "id": "canoe",
+    "whole": "canoe",
+    "facts": [
+     "fiberglass.{0,40}outside|outside.{0,40}fiberglass|glass.{0,30}outside"
+    ],
+    "others": [],
+    "ask": null
+   }
+  ]
+ }
+}

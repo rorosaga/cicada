@@ -3647,7 +3647,16 @@ a relation saying so is dropped (no claim, no question), here, in a landing and 
 feature, stage, task or pull request of a page is that page's mention, as the owner's canoe rule says ("a canoe, its
 hull, the hull build — is one thing"), its own other names never the page's aliases — never "Is <feature> the same as
 <project>?", never a page competing with it (measured 2026-10-29 on a copy of the owner's bank: 74 of 160 open
-duplicate questions were a project name with no birth asked against a page). **An organisation/tool alias lead** (G209,
+duplicate questions were a project name with no birth asked against a page). **A part and its whole named in one batch are one page (2026-11-24, G148;
+`_related_unborn`):** when the pair judge calls a name with no page a part of another such name this batch (or of a line an
+earlier batch parked), or the whole of it, the two are one group. Before this a relation between two names with neither on
+disk had nowhere to be written (`_judged_relations` skips such a pair), so they became two pages with nothing between them
+and the part's later progress ("the hull is fully stripped") never reached the canoe's page. The page is named for the whole:
+a part never names it, and a part's own names are never its aliases (`_Unborn.part`). A part the pair judge reads as
+`different` for lack of evidence (an "onboarding flow" that names no app) is still its own name: a placement over the whole
+list of the person's things was measured and dropped, because it also joined a restoration with another restoration and one
+kitchen with another's (a wrong join is worse than a missed one). `benchmarks/consolidation/reference_by_part.py` is the measure: its two
+fixtures (stories and counter-stories) and the one-story `reference_by_part_canoe.json` this case was measured on (later progress on the whole's page in 1 of 6 real Sleeps before, 6 of 6 after). **An organisation/tool alias lead** (G209,
 2026-10-27: a page that lists another page's name as an alias) now meets the judge once before it is asked; only `same`
 or `unsure` asks, a relation is written as above. Any other verdict (a relation, `different`, a rejected or related pair)
 also proposes removing the alias behind the lead (`wrong_aliases`, a `page_edit` the person applies or leaves —
