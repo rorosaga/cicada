@@ -89,12 +89,20 @@ final class ConnectSuggestCenter {
     /// The saves the open offer holds, oldest first: in memory only, dropped with any answer but Yes.
     @ObservationIgnored private(set) var held: [SiteSaveCandidate] = []
     static let heldMax = 8
-    /// Yes was pressed on the open panel, and what it came to (nil while it is still turning on).
-    @ObservationIgnored private var pressed = false
-    @ObservationIgnored private var result: ConnectSuggestResult?
-    /// Saves held when the panel left before its Yes finished: kept when it does, unless it was refused.
-    @ObservationIgnored private var keepOnFinish: [SiteSaveCandidate] = []
-    @ObservationIgnored private var connecting: Task<Void, Never>?
+    /// One press of Yes, and everything that belongs to it alone: the saves it keeps once what it turned on has come back,
+    /// and what it came to (nil while it is still turning on). Per press, never shared: a Yes still connecting after its
+    /// panel left must keep ITS saves, and a second site's offer shown meanwhile must neither lend its held saves to it nor
+    /// lose them (G245 finish).
+    private final class Press {
+        let entryId: String
+        var saves: [SiteSaveCandidate]
+        var result: ConnectSuggestResult?
+        init(entryId: String, saves: [SiteSaveCandidate]) { self.entryId = entryId; self.saves = saves }
+    }
+
+    /// The press on the open panel, nil when Yes was not pressed on it (a press whose panel left lives on in its own task).
+    @ObservationIgnored private var current: Press?
+    @ObservationIgnored private var connecting: [Task<Void, Never>] = []
 
     /// Whether an open panel's clock ticks by itself (tests send `.tick` by hand).
     @ObservationIgnored private let ticks: Bool
@@ -227,22 +235,22 @@ final class ConnectSuggestCenter {
         let target = ConnectSuggestApps.site(site.key)
         guard save.offers else {
             // The person took it off again before answering: the offer lets go of it (and never shows for an unsave).
-            if state?.target == target, !pressed {
+            if state?.target == target, current == nil {
                 held.removeAll { $0.item == save.item }
                 state?.keepsSave = held.contains { $0.outcome == .saved }
             }
             return
         }
         if let open = state, open.target == target {
-            guard pressed else {
+            guard let press = current else {
                 hold(save)
                 return
             }
             // Yes was already pressed: the save is kept once it has turned on (now, if it already has).
-            if let result {
+            if let result = press.result {
                 if !result.isFailure { onHeld([save]) }
             } else {
-                keepOnFinish.append(save)
+                press.saves.append(save)
             }
             return
         }
@@ -272,10 +280,7 @@ final class ConnectSuggestCenter {
         store.memory = ConnectSuggestPolicy.shown(target.entryId, name: name, at: at, trigger: trigger,
                                                   in: store.memory)
         held = []
-        keepOnFinish = []
-        pressed = false
-        result = nil
-        connecting = nil
+        current = nil
         icon = mark ?? iconFor(pid)
         state = ConnectSuggestPanelState(target: target, appName: name, bundleId: bundleId, shownAt: uptime())
         Self.logger.info("show \(target.entryId, privacy: .public)")
@@ -303,30 +308,29 @@ final class ConnectSuggestCenter {
     /// The Yes was pressed: run the one connect plan. The panel says "Turning on…" until it comes back; the answer is
     /// kept the moment it does (a quit while the panel confirms keeps it), Not now when it was refused.
     private func begin(_ entryId: String) {
-        pressed = true
-        result = nil
+        // The saves the offer held are this press's from here on; the next offer starts from nothing.
+        let press = Press(entryId: entryId, saves: held)
+        held = []
+        current = press
         let connect = self.connect
-        connecting = Task { @MainActor [weak self] in
+        connecting.append(Task { @MainActor [weak self] in
             let came = await connect(entryId)
-            self?.finished(came, entryId: entryId)
-        }
+            self?.finished(came, press: press)
+        })
     }
 
-    private func finished(_ came: ConnectSuggestResult, entryId: String) {
+    private func finished(_ came: ConnectSuggestResult, press: Press) {
+        let entryId = press.entryId
         Self.logger.info("connect \(entryId, privacy: .public) \(came.logName, privacy: .public)")
-        let open = state?.target.entryId == entryId && state?.isConnecting == true
+        let open = current === press && state?.target.entryId == entryId && state?.isConnecting == true
         if open || came.isFailure {
             store.memory = ConnectSuggestPolicy.answered(entryId, came.isFailure ? .notNow : .yes, at: now(),
                                                          in: store.memory)
         }
-        if !came.isFailure {
-            let saves = held + keepOnFinish
-            if !saves.isEmpty { onHeld(saves) }
-        }
-        held = []
-        keepOnFinish = []
+        if !came.isFailure, !press.saves.isEmpty { onHeld(press.saves) }
+        press.saves = []
+        press.result = came
         guard open, var panel = state else { return }
-        result = came
         let outcome = panel.finish(came, at: uptime())
         state = panel
         if let outcome { close(outcome, record: false) }
@@ -336,7 +340,10 @@ final class ConnectSuggestCenter {
     func yield() { input(.superseded) }
 
     /// Tests: wait for the Yes's connect to come back.
-    func settle() async { await connecting?.value }
+    func settle() async {
+        for task in connecting { await task.value }
+        connecting = []
+    }
 
     private func close(_ outcome: ConnectSuggestPanelState.Outcome, record: Bool) {
         guard let open = state else { return }
@@ -347,10 +354,9 @@ final class ConnectSuggestCenter {
         lastOutcome = outcome
         // The saves the offer held are kept only on Yes, once the Yes has turned something on; any other answer drops
         // them here, unread by anything else. A Yes that has not finished keeps them for when it does.
-        let saves = held, pressedYes = pressed
+        let pressedYes = current != nil
         held = []
-        if pressedYes, result == nil { keepOnFinish = saves + keepOnFinish }
-        pressed = false
+        current = nil
         if record, open.result == nil || !pressedYes {
             store.memory = ConnectSuggestPolicy.answered(open.target.entryId, outcome.answer, at: now(),
                                                          in: store.memory)
