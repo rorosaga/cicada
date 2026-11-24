@@ -81,20 +81,26 @@ struct VideoStateItem: Decodable, Equatable, Identifiable, Sendable {
     /// True only for a record Sleep consolidated, false when Sleep has not read it yet, and nil when an agent flipped
     /// the flag itself (unknowable — the line says nothing then).
     var readBySleep: Bool?
+    /// `"mention"` when Cicada left this ask itself because the person talked about the video (G245 B3, ruling 78 (e)); nil
+    /// for one the person queued. Any other value reads as nil: the line says nothing it does not know.
+    var origin: String?
+
+    /// True for a queue row Cicada left on its own after the person talked about the video.
+    var isFromMention: Bool { origin == "mention" }
 
     /// The Feed's own row id (`MediaFeedItem.id`).
     var id: String { mediaEntityId + "|" + url }
 
     enum CodingKeys: String, CodingKey {
         case key, mediaEntityId, url, state, want, queueState, claimedBy, attempts, failedCode, failedReason, batch
-        case basis, engine, fidelity, episodeId, recordedAt, recordedBy, readBySleep
+        case basis, engine, fidelity, episodeId, recordedAt, recordedBy, readBySleep, origin
     }
 
     init(key: String, mediaEntityId: String, url: String, state: VideoWatchState = .none, want: VideoWant? = nil,
          queueState: VideoQueueState? = nil, claimedBy: String? = nil, attempts: Int? = nil,
          failedCode: VideoFailCode? = nil, failedReason: String? = nil, batch: String? = nil, basis: VideoBasis? = nil,
          engine: VideoEngine? = nil, fidelity: VideoFidelity? = nil, episodeId: String? = nil,
-         recordedAt: String? = nil, recordedBy: String? = nil, readBySleep: Bool? = nil) {
+         recordedAt: String? = nil, recordedBy: String? = nil, readBySleep: Bool? = nil, origin: String? = nil) {
         self.key = key
         self.mediaEntityId = mediaEntityId
         self.url = url
@@ -113,6 +119,7 @@ struct VideoStateItem: Decodable, Equatable, Identifiable, Sendable {
         self.recordedAt = recordedAt
         self.recordedBy = recordedBy
         self.readBySleep = readBySleep
+        self.origin = origin == "mention" ? origin : nil
     }
 
     init(from decoder: Decoder) throws {
@@ -135,6 +142,8 @@ struct VideoStateItem: Decodable, Equatable, Identifiable, Sendable {
         recordedAt = (try? c.decodeIfPresent(String.self, forKey: .recordedAt)) ?? nil
         recordedBy = (try? c.decodeIfPresent(String.self, forKey: .recordedBy)) ?? nil
         readBySleep = (try? c.decodeIfPresent(Bool.self, forKey: .readBySleep)) ?? nil
+        let origin = (try? c.decodeIfPresent(String.self, forKey: .origin)) ?? nil
+        self.origin = origin == "mention" ? origin : nil
     }
 
     /// True while the video is in the person's queue in any state.

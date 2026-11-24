@@ -68,6 +68,7 @@ struct VideoBlock: View {
             }
             if state.state == .recorded { tertiary(Copy.Videos.basisNotGiven) }
             statusLine(actions.status)
+            if let why = VideoWords.mentionLine(state) { tertiary(why) }
             if state.state == .none { tertiary(Copy.Videos.onlyMetadata) }
             if let sleep = VideoWords.sleepLine(state) { bodyLine(sleep) }
             if let quote = record.flatMap(VideoQuote.first) { quoteView(quote) }
