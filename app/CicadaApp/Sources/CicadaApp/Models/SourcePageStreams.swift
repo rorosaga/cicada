@@ -118,7 +118,8 @@ enum SourceStreamRow {
         var parts: [String] = []
         if stream.folderCount > 0 { parts.append(Copy.Streams.folders(stream.folderCount)) }
         if stream.how == .click {
-            parts.append(Copy.Streams.lineClick)
+            // On, and nothing in the way (Accessibility's own sentence replaces this one when it is missing).
+            parts.append(stream.state == .on && stream.why == nil ? Copy.Streams.lineClickAsks : Copy.Streams.lineClick)
         } else if let word = howWord(stream, among: streams) {
             parts.append(word)
         }

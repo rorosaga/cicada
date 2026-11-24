@@ -704,6 +704,10 @@ def _stream(spec: Spec, memory_path: Path, rows, connected, mem, eps, origins, n
         if spec.id in ("rss.feeds", "calendar.calendars") and not feed_fetch:
             out.update(state="unavailable", health=None, why=_FEEDS_OFF)
     out["count"] = _count(spec, mem, eps, view, memory_path)
+    if out["count"] == 0 and out["lastReadAt"] is None:
+        # Nothing held and never read: unknown, not empty. A read that found nothing records its day (``read_at``), so
+        # "read and empty" stays 0 and the app never draws "Playlists 0" on a list nobody has read.
+        out["count"] = None
     out["folderCount"] = _folder_count(spec, mem, eps, origins)
     return out
 

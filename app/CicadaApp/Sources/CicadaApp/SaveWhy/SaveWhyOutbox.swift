@@ -161,3 +161,54 @@ struct SaveWhyOutbox {
         return out
     }
 }
+
+/// G245 (plan 7.1 item 5) — a save the person made inside a site while Sleep held the pages, or the backend was away. It
+/// used to be dropped (the refusal was swallowed, so nothing stored it or asked about it). Now it is held here (per Mac,
+/// outside every bank, like an answer), stored when the writing flag goes false, and asked about only if the moment is
+/// still near: the question is about the instant of saving, so one that passed is stored and never asked late. Dropped
+/// after `SaveWhyOutbox.maxAge` or when the backend refuses it for good.
+struct SiteSaveOutbox {
+    static let key = "cicada.siteSaves.pending"
+    static let capacity = 20
+
+    struct Entry: Codable, Equatable {
+        var site: String
+        var url: String
+        var text: String
+        var folder: String?
+        /// When the person saved it.
+        var at: Date
+        /// The memory it was saved in (the split-brain rule): stored only while that memory is active.
+        var bank: String?
+    }
+
+    let defaults: UserDefaults
+
+    var entries: [Entry] {
+        get {
+            guard let data = defaults.data(forKey: Self.key) else { return [] }
+            return (try? JSONDecoder().decode([Entry].self, from: data)) ?? []
+        }
+        nonmutating set {
+            if newValue.isEmpty { defaults.removeObject(forKey: Self.key); return }
+            defaults.set(try? JSONEncoder().encode(Array(newValue.suffix(Self.capacity))), forKey: Self.key)
+        }
+    }
+
+    /// One held save per post: saving it again before it landed replaces the earlier one.
+    func hold(_ entry: Entry) {
+        entries = entries.filter { !($0.site == entry.site && $0.url == entry.url) } + [entry]
+    }
+
+    func remove(_ entry: Entry) { entries = entries.filter { $0 != entry } }
+
+    /// The post is no longer saved on the site (the person took it back before it landed): it is never stored.
+    func discard(site: String, url: String) { entries = entries.filter { !($0.site == site && $0.url == url) } }
+
+    func expired(_ entry: Entry, now: Date) -> Bool { now.timeIntervalSince(entry.at) > SaveWhyOutbox.maxAge }
+
+    /// Whether the moment of saving is still near enough to ask about (`SaveWhyPolicy.recentWindow`).
+    static func isFresh(_ entry: Entry, now: Date) -> Bool {
+        now.timeIntervalSince(entry.at) <= SaveWhyPolicy.recentWindow
+    }
+}

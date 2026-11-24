@@ -73,7 +73,9 @@ final class SleepAtRestTests: XCTestCase {
         }
         // A one-point sliver at the window's edge is the window, not a row.
         let bands = try Self.hostedBands(column, width: SleepLayout.contentWidth).filter { $0.bottom - $0.top >= 2 }
-        XCTAssertEqual(bands.count, 4, "headline, its line, controls, schedule — got \(bands.map { "\($0.top)–\($0.bottom)" })")
+        guard bands.count == 4 else {
+            return XCTFail("headline, its line, controls, schedule — got \(bands.map { "\($0.top)–\($0.bottom)" })")
+        }
         for (index, band) in bands.enumerated() {
             // Offscreen, the glass Consolidate draws its label but not its bezel, so the row's ink starts about 15 pt
             // inside the button's frame and its centre reads up to half that to the right. The words are exact.
@@ -96,8 +98,10 @@ final class SleepAtRestTests: XCTestCase {
         hosting.display()
         let rep = try XCTUnwrap(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
         hosting.cacheDisplay(in: hosting.bounds, to: rep)
-        // The ground as drawn (the window's colour management shifts the token a step), read from a corner.
-        let ground = try XCTUnwrap(rep.colorAt(x: 1, y: 1)?.usingColorSpace(.sRGB))
+        // The ground as drawn (the window's colour management shifts the token a step), read at the left edge, half way
+        // down — never a corner: the newest macOS draws a light line along the window's top edge, which read as the
+        // ground made every row of the page ink.
+        let ground = try XCTUnwrap(rep.colorAt(x: 1, y: rep.pixelsHigh / 2)?.usingColorSpace(.sRGB))
         let scale = CGFloat(rep.pixelsWide) / width
         func ink(_ x: Int, _ y: Int) -> Bool {
             guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return false }

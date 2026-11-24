@@ -307,7 +307,19 @@ def test_a_post_on_two_lists_counts_on_both(bank, more_lists):
 def test_a_save_naming_no_known_list_counts_on_the_stream_of_its_own_origin(bank, more_lists):
     _save(bank, "sub", "https://www.reddit.com/r/alpha/comments/abc123/x/", origin="reddit-saved", folder="r/alpha")
     reddit = _streams(bank, "reddit")
-    assert reddit["reddit.saved"]["count"] == 1 and reddit["reddit.upvoted"]["count"] == 0
+    assert reddit["reddit.saved"]["count"] == 1 and reddit["reddit.upvoted"]["count"] is None   # never read: unknown
+
+
+def test_a_list_never_read_has_no_count_and_a_list_read_and_found_empty_has_zero(bank, more_lists):
+    assert _streams(bank, "reddit")["reddit.upvoted"]["count"] is None
+    assert _streams(bank, "youtube")["youtube.playlists"]["count"] is None
+    saved_lists.note(bank, "reddit-upvoted", "read", items=0, now=NOW)
+    reddit = _streams(bank, "reddit")["reddit.upvoted"]
+    assert reddit["count"] == 0 and reddit["lastReadAt"], "read and empty is a zero, said with its day"
+    youtube_lists.note(bank, "playlists", "needs_login", now=NOW)
+    assert _streams(bank, "youtube")["youtube.playlists"]["count"] is None   # an attempt that read nothing is not a read
+    youtube_lists.note(bank, "playlists", "read", videos=0, now=NOW)
+    assert _streams(bank, "youtube")["youtube.playlists"]["count"] == 0
 
 
 def test_youtube_counts_playlists_apart_from_watch_later_and_liked(bank, more_lists):

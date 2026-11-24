@@ -63,6 +63,15 @@ extension Copy {
             "\(name) keeps its bookmarks in a folder macOS protects. Allow Cicada under Privacy & Security → Full Disk Access, then check again."
         }
         static let openFullDiskAccess = "Open Full Disk Access"
+        // G245 (plan 7.1 item 8) — the state of each piece, one quiet line on a browser's page.
+        static func askingHere(_ name: String) -> String { "Asks why when you bookmark in \(name)." }
+        static let askWhyOff = "Ask why is off: bookmarks are saved without a question."
+        static func askWhyNotWatched(_ name: String) -> String {
+            "Ask why is on, but \(name)'s bookmarks aren't watched, so nothing is asked here."
+        }
+        static func otherProfile(_ name: String) -> String {
+            "\(name) is using another profile; only its Default profile is read."
+        }
         static let checkAgain = "Check again"
         static let nothingWatched = "No browser on this Mac is watched, so nothing will ask. Turn one on above."
         static func leftOff(_ names: [String]) -> String {

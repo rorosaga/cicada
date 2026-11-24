@@ -15,6 +15,8 @@ import Foundation
 ///   reorganisation reports none, because a moved bookmark is a URL Cicada already holds.
 /// - **Made in the last minutes.** When the browser records the instant (Chrome; Safari's Reading List), it must be
 ///   within `recentWindow` — a bookmark another device synced in hours later is not a moment of saving.
+/// - **No instant, no guess** (G245): a bookmark the browser dates not (Safari's) is asked about only when its browser was
+///   the app in front when the file changed — a save the person made there, not one that synced in from another device.
 /// - **Not a muted site** ("Don't ask for this site").
 /// - **One save, one question** (G191 live, owner 2026-10-14: "shouldn't it be immediate?" — bookmarking several
 ///   sites in a row, every one after the first was silenced by the old three-minute limit). Each single fresh bookmark
@@ -71,6 +73,10 @@ enum SaveWhyPolicy {
         var lastURL: String? = nil
         /// That save's browser instant (G191 v3): the same link with another instant is another save.
         var lastAddedAt: String? = nil
+        /// G245 — the browser the bookmark came from was the app in front when its file changed. Safari records no
+        /// instant for a bookmark, so a bookmark another device synced in hours later looked like a save made now; with
+        /// no instant to check, only a save the person was there to make is asked about (found 2026-11-24).
+        var witnessed = true
     }
 
     enum Decision: Equatable {
@@ -93,6 +99,8 @@ enum SaveWhyPolicy {
         if let added = item.addedDate {
             let age = i.now.timeIntervalSince(added)
             guard age <= recentWindow, age >= -futureSkew else { return .skip(.notRecent) }
+        } else {
+            guard i.witnessed else { return .skip(.notRecent) }
         }
         guard let host = item.host else { return .skip(.noHost) }
         if i.mutedHosts.contains(host) { return .skip(.muted) }

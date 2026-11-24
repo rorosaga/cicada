@@ -495,6 +495,12 @@ struct SourceCatalogDetail: View {
                                     readerKeys: [], now: Date())
     }
 
+    /// G245 — the source is read for free through the person's browser (a saved list, or a stream the backend says is read
+    /// that way): its account, where it has one, is then a second way (`ConnectorSlot.hasFreeRoute`).
+    private var hasFreeRoute: Bool {
+        row.entry.savedListKey != nil || pageStreams.contains { $0.stream.how == .browser }
+    }
+
     /// Whether the backend named this source's streams (else the page keeps today's controls).
     private var hasBackendStreams: Bool { !(resolved ?? ownResolved).streams(row.id).isEmpty }
 
@@ -646,7 +652,8 @@ struct SourceCatalogDetail: View {
             } else if let connector = Self.connectorChannel(in: mine) {
                 ConnectorSlot(slot: .connect, channel: connector, title: entry.title,
                               ways: siteWays(withoutBrowser: webStart != nil), vendors: entry.tile?.vendors ?? [],
-                              needsSignIn: row.status == .needsSignIn, primaryOverride: webStart)
+                              needsSignIn: row.status == .needsSignIn, primaryOverride: webStart,
+                              hasFreeRoute: hasFreeRoute)
             } else if entry.site != nil || entry.savedListKey != nil {
                 SourceConnectArea(primary: webStart, ways: siteWays(withoutBrowser: webStart != nil))
             } else if let feed = mine.first, feed.actions.contains("manage"), let tile = entry.tile {
@@ -832,7 +839,8 @@ struct SourceCatalogDetail: View {
             }
         default:
             if let connector = Self.connectorChannel(in: mine) {
-                ConnectorSlot(slot: .footer, channel: connector, title: entry.title, needsSignIn: false)
+                ConnectorSlot(slot: .footer, channel: connector, title: entry.title, needsSignIn: false,
+                              hasFreeRoute: hasFreeRoute)
             } else {
                 SourcePageFooter(actions: plainFooter, note: feedNote)
             }

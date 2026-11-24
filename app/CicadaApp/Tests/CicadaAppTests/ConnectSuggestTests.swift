@@ -150,7 +150,9 @@ final class ConnectSuggestTests: XCTestCase {
     func testAButtonInTheArmDelayIsIgnored() {
         var state = panel()
         XCTAssertNil(state.handle(.yes, at: u0 + (0.2)))
-        XCTAssertEqual(state.handle(.yes, at: u0 + (0.6)), .yes)
+        XCTAssertNil(state.confirmedAt, "a press inside the arm delay was aimed at what was beneath")
+        XCTAssertNil(state.handle(.yes, at: u0 + (0.6)), "Yes is not an answer until what it did is known")
+        XCTAssertEqual(state.confirmedAt, u0 + 0.6)
         state = panel()
         XCTAssertEqual(state.handle(.no, at: u0 + (1)), .no)
         state = panel()
@@ -376,7 +378,7 @@ final class ConnectSuggestTests: XCTestCase {
         let clock = Clock(t0)
         let (center, presenter) = center(clock: clock, front: { self.whatsAppPid })
         var opened: [String] = []
-        center.onYes = { opened.append($0) }
+        center.connect = { opened.append($0); return .openedPage }
         await center.enter(entering("net.whatsapp.WhatsApp", pid: whatsAppPid, launched: t0))
         XCTAssertEqual(presenter.shows, 1)
         XCTAssertEqual(center.state?.target.entryId, "whatsapp")
@@ -384,7 +386,8 @@ final class ConnectSuggestTests: XCTestCase {
         XCTAssertEqual(center.store.memory.sources["whatsapp"]?.name, "WhatsApp")
         clock.now = clock.now.addingTimeInterval(1)
         center.input(.yes)
-        XCTAssertNil(center.state)
+        await center.settle()
+        XCTAssertNil(center.state, "a page opened is the answer: the panel leaves at once")
         XCTAssertEqual(presenter.hides, 1)
         XCTAssertEqual(opened, ["whatsapp"])
         XCTAssertEqual(center.store.memory.sources["whatsapp"]?.answer, .yes)
@@ -569,7 +572,7 @@ final class ConnectSuggestTests: XCTestCase {
         let (center, presenter) = center(clock: clock, front: { self.whatsAppPid })
         let site = try XCTUnwrap(SiteSaveSite.named("github"))
         var connected: [String] = [], kept: [[SiteSaveCandidate]] = []
-        center.onYes = { connected.append($0) }
+        center.connect = { connected.append($0); return .turnedOn(asksWhy: true, needsAccessibility: false) }
         center.onHeld = { kept.append($0) }
 
         // The page's own offer leaves unanswered; the star clicked after it brings the offer back, holding the save.
@@ -599,17 +602,20 @@ final class ConnectSuggestTests: XCTestCase {
         XCTAssertEqual(center.held, [second, first])
         XCTAssertEqual(center.state?.keepsSave, true)
 
-        // Yes connects at the press (the confirmation is never said before it is true); the saves follow it.
+        // Yes runs the connect plan; "Turned on" is said only once it has come back, and the saves follow it.
         clock.now = clock.now.addingTimeInterval(1)
         center.input(.yes)
+        XCTAssertTrue(center.state?.isConnecting == true)
+        await center.settle()
         XCTAssertEqual(connected, ["site-save:github"])
+        XCTAssertEqual(center.state?.result, .turnedOn(asksWhy: true, needsAccessibility: false))
         XCTAssertEqual(center.store.memory.sources["site-save:github"]?.answer, .yes)
-        XCTAssertTrue(kept.isEmpty)
+        XCTAssertEqual(kept, [[second, first]], "kept once what it turned on has returned")
         clock.now = clock.now.addingTimeInterval(ConnectSuggestPolicy.confirmShow + 0.1)
         center.input(.tick)
         XCTAssertNil(center.state)
         XCTAssertEqual(connected, ["site-save:github"], "connected once")
-        XCTAssertEqual(kept, [[second, first]])
+        XCTAssertEqual(kept.count, 1)
         XCTAssertTrue(center.held.isEmpty)
     }
 

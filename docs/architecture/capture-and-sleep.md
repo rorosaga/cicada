@@ -761,7 +761,11 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   `/v1` and every remote door), 409 on a demo bank, nothing written, wiped by `DELETE /sources/linkedin-connections` and by
   trashing the bank. On a copy it answers from that computer's own directory and is not in `GET_FROM_HOME`, as the Contacts
   page's book (`contacts_book`); the home's reads reach it through the tool's `replica: home` row. The stream
-  `linkedin.connections` in `GET /sources/streams` counts the directory.
+  `linkedin.connections` in `GET /sources/streams` counts the directory. **A row with no profile link is never keyed or
+  merged with another** (`Connection.dup` numbers same-name ones, so two stay two and the same-name refusal fires on a re-import);
+  such a row and a later read of one person with a link become one connection only when it can be told safely — the one
+  name in the directory, the same connected day to the day, the read the agent's — else they stay two. `imported_at` is the
+  day of the latest export's import (a read never moves it).
   **The person gets the page, never the connection (owner 2026-11-24: "a linkedin connection doesnt need a page just for
   the sake of having a page, the person is what gets a page"; ruling 78 (f) withdrawn).** A connection never makes a page:
   not on a single full-name mention, not on two (the rule that a page needs 2+ conversations, the exchanges rule or a link
@@ -769,7 +773,9 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   here does). What changed is *when the match lands*: `linkedin_people.Attacher` attaches the kept connection that matches
   the person **in the write that births their page** — Sleep's Stage 5 create (`conflict_resolver.apply_changes`, one
   instance per batch, the directory and the page index read once, every page born since added so two pages of one name
-  born in one batch see each other) and an agent's first claim about a new person (`agentic_write._ensure_subject_page`) —
+  born in one batch see each other) and a **local** agent's first claim about a new person (`agentic_write._ensure_subject_page`;
+  a remote caller's never does — its page's making would tell it whether a guessed name is one of the person's connections,
+  and the night's tail attaches it) —
   not at the night's tail, which still catches a page made some other way (by hand, a split, a page dirty at the tail).
   The link is a `sources:` entry exactly as the tail writes it, with `works-at` / `role` (an export's columns) and
   `connected-on` as dated claims observed `external:linkedin`. So **one person across the two directories** needs no new

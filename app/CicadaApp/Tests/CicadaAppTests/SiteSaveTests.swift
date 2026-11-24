@@ -215,24 +215,27 @@ final class SiteSaveTests: XCTestCase {
 
     // MARK: - The connect offer for a site
 
-    func testASitesYesStaysAMomentToSayItIsConnectedThenClosesAsYes() {
+    func testASitesYesStaysAMomentToSayWhatItDidThenClosesAsYes() {
         var panel = ConnectSuggestPanelState(target: ConnectSuggestApps.site("x"), appName: "X",
                                              bundleId: "com.google.Chrome", shownAt: 100)
         XCTAssertNil(panel.handle(.yes, at: 100.1), "a press inside the arm delay is the hand on its way elsewhere")
         XCTAssertNil(panel.handle(.yes, at: 102))
         XCTAssertEqual(panel.confirmedAt, 102)
-        XCTAssertNil(panel.handle(.no, at: 102.2), "nothing is undone by a stray press while it says connected")
+        XCTAssertNil(panel.handle(.no, at: 102.2), "nothing is undone by a stray press while it says so")
+        // It says "Turned on" only once what the Yes turned on has returned (it is never "Connected").
+        XCTAssertNil(panel.finish(.turnedOn(asksWhy: true, needsAccessibility: false), at: 102.3))
         XCTAssertNil(panel.handle(.tick, at: 102.5))
-        XCTAssertEqual(panel.handle(.tick, at: 102.1 + ConnectSuggestPolicy.confirmShow), .yes)
+        XCTAssertEqual(panel.handle(.tick, at: 102.4 + ConnectSuggestPolicy.confirmShow), .yes)
         // Leaving the browser while it says so keeps the yes.
         var leaving = ConnectSuggestPanelState(target: ConnectSuggestApps.site("x"), appName: "X",
                                                bundleId: "com.google.Chrome", shownAt: 100)
         _ = leaving.handle(.yes, at: 102)
         XCTAssertEqual(leaving.handle(.appChanged, at: 102.3), .yes)
-        // An app's yes still closes at once (it opens that source's page).
+        // An app's yes is the same plan: it says what it did, and a page it opened is the answer.
         var app = ConnectSuggestPanelState(target: .init(entryId: "notes", kind: .notes), appName: "Notes",
                                            bundleId: "com.apple.Notes", shownAt: 100)
-        XCTAssertEqual(app.handle(.yes, at: 102), .yes)
+        XCTAssertNil(app.handle(.yes, at: 102))
+        XCTAssertEqual(app.finish(.openedPage, at: 102.1), .yes)
         XCTAssertEqual(ConnectSuggestApps.siteKey(entryId: ConnectSuggestApps.site("github").entryId), "github")
         XCTAssertNil(ConnectSuggestApps.siteKey(entryId: "notes"))
     }
@@ -297,6 +300,54 @@ final class SiteSaveTests: XCTestCase {
         XCTAssertNil(unasked.state)
     }
 
+    /// A save made while Sleep held the pages used to vanish (the refusal was swallowed). It is held, stored when the
+    /// backend can take it, and asked about only while the moment is still near; a stale one is stored and not asked.
+    @MainActor
+    func testASaveMadeWhileSleepWritesIsHeldStoredLaterAndAskedOnlyWhileFresh() async {
+        let item = SiteSaveItem(site: "x", origin: "x-bookmarks", url: "https://x.com/alpha_user/status/19",
+                                title: "Post by @alpha_user")
+        let defaults = TestDefaults.suite("SiteSaveTests.\(UUID().uuidString)")!
+        let api = SiteSaveFakeAPI()
+        await api.refuse()
+        var clock = Date()
+        let center = SaveWhyCenter(prefs: SaveWhyPrefs(defaults: defaults), api: api, now: { clock })
+        await center.siteSaved(item, text: "an idea")
+        XCTAssertNil(center.state, "nothing is asked while nothing is stored")
+        XCTAssertEqual(center.siteOutbox.entries.map(\.url), [item.url])
+        // Still refused: it stays held.
+        await center.retryHeld()
+        XCTAssertEqual(center.siteOutbox.entries.count, 1)
+        // Sleep let go, a minute later: stored, and asked, since the moment is near.
+        await api.refuse(false)
+        clock = clock.addingTimeInterval(60)
+        await center.retryHeld()
+        XCTAssertTrue(center.siteOutbox.entries.isEmpty)
+        XCTAssertEqual(center.state?.item?.url, item.url)
+        let stored = await api.saved
+        XCTAssertEqual(stored, ["x https://x.com/alpha_user/status/19"])
+
+        // A save held for an hour is stored but never asked about: the question is about the moment of saving.
+        let late = SaveWhyCenter(prefs: SaveWhyPrefs(defaults: TestDefaults.suite("SiteSaveTests.\(UUID().uuidString)")!),
+                                 api: api, now: { clock })
+        await api.refuse()
+        await late.siteSaved(item)
+        await api.refuse(false)
+        clock = clock.addingTimeInterval(3600)
+        await late.retryHeld()
+        XCTAssertTrue(late.siteOutbox.entries.isEmpty)
+        XCTAssertNil(late.state)
+        let storedLater = await api.saved
+        XCTAssertEqual(storedLater.count, 2)
+
+        // Taken off again before it landed: never stored.
+        let off = SaveWhyCenter(prefs: SaveWhyPrefs(defaults: TestDefaults.suite("SiteSaveTests.\(UUID().uuidString)")!),
+                                api: api, now: { clock })
+        await api.refuse()
+        await off.siteSaved(item)
+        await off.siteUnsaved(item)
+        XCTAssertTrue(off.siteOutbox.entries.isEmpty)
+    }
+
     func testThePostsOwnWordsAreCutFromItsBlockWithoutKnowingASingleWord() {
         var reading = timeline(save: "b", counts: "20 respuestas, 184 Me gusta")
         reading.context = "Alpha Person Cuenta verificada @alpha_user hace 5 horas una idea para sincronizar réplicas 20 respuestas, 184 Me gusta"
@@ -313,7 +364,7 @@ final class SiteSaveTests: XCTestCase {
 private actor SiteSaveFakeAPI: SavedWhyAPI {
     var saved: [String] = []
     var refusing = false
-    func refuse() { refusing = true }
+    func refuse(_ on: Bool = true) { refusing = on }
 
     func freshBookmarks(_ bytes: BookmarkBytes) async throws -> BookmarkSyncResult {
         BookmarkSyncResult(new: 0, skipped: 0, sources: [])
