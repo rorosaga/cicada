@@ -2367,6 +2367,44 @@ page now existing); the page prose kept the old fact beside the new. `episode_re
 - **Left (G104):** a transcript's replaced reply (Cursor's final reply for a generation) closes nothing; a held claim
   only the removed text said keeps its span `stale` in the pending store rather than being closed there. The prose,
   the section rows and the held spans are slice 2, below.
+- **A stale date beside the corrected one: measured, three fixes tried and dropped, still open (2026-11-24;
+  `benchmarks/consolidation/revision_e2e.py`).** A claim the first read wrote from one line but dated (or named) from
+  another keeps its span on the unchanged line, so the span test never marks it; and the re-read words the
+  relationship under another predicate (`is-moving-to`, then `moves-to`), which is another slot, so `redated` never
+  meets it. The old date stays current beside the new one. Of 62 stored failures of the consolidation benchmark's own
+  edited conversation, 55 have this shape. On 17 invented two-night stories through real Sleeps (plan, Sonnet main,
+  Haiku judge; 10 runs): wrong in 49 of 170: a corrected date 29 of 70, a corrected name 18 of 20, a removed sentence 2
+  of 20; a corrected number, an added sentence and a fact a second conversation also says, 0 of 60.
+  Three designs were built and measured, each was broken by an independent review with scripted readings, and none
+  is merged:
+  1. *A rule on the words:* close a claim whose day, number or name the removed text says and the new body does not.
+     0 of 170 wrong on the stories, and it withdrew claims that are still true: a `Date:` header removed withdrew every
+     claim of the conversation; "3 may attend" read as the 3rd of May; a date rewritten in words or another language, a
+     corrected spelling and a reformatted number all counted as gone.
+  2. *A rule picks candidates; the re-read (same subject and object, another day) or one main-model reading with
+     code-checked quotes closes them.* 4 of 119 wrong, and it closed relationships still stated: a correct "the day
+     changed" reading closed the relationship when the re-read wrote nothing in its place, and a re-read claim about a
+     visit superseded a move to the same place.
+  3. *Never close what is still said: a verified reading only takes the stale day off the claim; a name closes only
+     beside the re-read's replacement.* Dates 0 of 28 wrong, names unchanged (6 of 8 wrong). The day came off for good:
+     a claim's id embeds its day, so the same relationship stated again (the edit undone, or another conversation)
+     merges into the dayless claim by id and nothing restores the day; a conversation read the same night that states
+     the day lost it too; a held claim released after losing its day was stamped with the run's day; and the record of
+     the day taken off lived only in the run's return value. The name path closed a claim beside any same-subject claim
+     from the changed lines, and "the name is gone" compared whole tokens, so an inflected form, a translation and a
+     script written without spaces all read as gone.
+  What the three teach, for whoever takes it next: (a) words in the text cannot decide what a conversation still says:
+  a day number, a month's first letters and a name's spelling collide with ordinary text in every language; (b) the old
+  claim must never end with nothing in its place; (c) clearing a field in place is unsafe while a claim's id carries its
+  day and a merge never restores one; (d) a rule about a name must read the page's aliases and substrings, never whole
+  tokens. **Not built, not measured (a reading of the three, 2026-11-24):** act where the re-read's claim meets the old
+  one, with a judgment that the two word the same relationship (as `value_alignment` does for a value said again in
+  other words), so the same-slot path that exists (`redated`, which held under all three reviews) moves the date; a
+  wrong judgment there costs a date, never the relationship. The stories and their runner are in the repo so the next
+  attempt starts from the measure: `revision_e2e_stories.json` (17 shapes) and `revision_e2e_review_stories.json` (the
+  ten shapes the reviews attacked; today's code gets nine right and leaves two dates current after an edit made and
+  undone in 2 of 4 runs). Also found and left: a held claim dropped because its span went leaves no record of why
+  (`pending_store.drop_held`), and a held name whose spelling is corrected loses a claim from an unchanged line.
 
 **A page's prose follows the revision (G104 slice 2, owner 2026-11-03: "Sleep regenerates a page's prose from its
 corrected claims when a revision closes one, limited to the pages a revision touched").** Measured before (the same
