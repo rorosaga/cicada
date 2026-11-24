@@ -470,7 +470,7 @@ def _no_answer(exc: BaseException, timeout: float) -> str:
 
 #: The route a local capture's spooled request goes back to; a client's ``/capture/session`` entries are never sent
 #: by :func:`_flush_local`.
-LOCAL_ROUTE = "/capture/transcript"
+LOCAL_ROUTE = remote_client.LOCAL_ROUTE
 #: At most this many waiting sessions are sent by one firing: after a long outage the backlog drains over a few
 #: replies instead of holding one reply's hook for its whole budget.
 LOCAL_FLUSH_MAX = 3
@@ -529,8 +529,10 @@ def _flush_local(home: Path, post, token: str, *, base: str, key: str, event: st
             left += 1
         elif remote_client.landed(status) or not remote_client.keep(status):
             sent += 1 if remote_client.landed(status) else 0
-            spool.remove(path, stamp)   # landed, or refused for good (the transcript is gone): never resent — unless
-            #                             a newer firing of the session replaced the entry during the post
+            if spool.remove(path, stamp) and not remote_client.landed(status):
+                # landed, or refused for good (the transcript is gone): never resent — unless a newer firing of the
+                # session replaced the entry during the post. A refusal is counted, like the home's (never silent).
+                spool.count_rejected(home)
         else:
             left += 1
     return f"; spool: sent {sent}, {left} waiting" if sent or left else ""

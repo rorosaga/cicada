@@ -1963,6 +1963,11 @@ extractor keeps crosses the wire:
   and a dropped entry never comes back — in `_flush_local` too. (3) *Said, not silent*: the spool counts what was refused for good or dropped by its bounds
   (`.counters`), and every session post carries `unsent` (`{waiting, held, rejected}`, counts only). (4) A hook that
   posts a path to a copy's own backend is answered by `replica_gateway` instead of `409 replica_read_only` (`headless.md`).
+  (5) *A local entry never waits for a hook (2026-11-25)*: the entries `_flush_local` resends (`/capture/transcript`, the
+  loopback port) are also sent by the backend itself once it is up (`local_spool`, a thread from the lifespan: first pass
+  5 s after the start, each minute while one waits, three a pass), through the route's own writer on the home or a single
+  computer and `replica_gateway` on a copy; an entry for another address or port is not taken, and one whose transcript is
+  gone, refused or empty is removed and counted in `rejected` (`_flush_local` counts a refusal too). `headless.md`.
 
 **After capture: the awake read (G207, ruling 36 D2, 2026-10-22).** A captured conversation is usable before Sleep
 reads it, through a separate job that never runs inside the capture write. `/capture/transcript`, `/capture/session`

@@ -196,6 +196,36 @@ def test_a_hook_that_does_not_know_it_runs_on_a_copy_is_not_refused(trio, tmp_pa
     assert len(_episodes(home, "55555555-6666-4777-8888-999999999999")) == 1
 
 
+def test_sessions_kept_for_the_copys_own_backend_go_once_it_is_up_with_no_hook_firing(trio):
+    """The state measured on a second computer (2026-11-25): entries of ``/capture/transcript`` kept while its own backend
+    was down, no session has ended since (so no hook fired), the backend restarted. They reach the home's queue (one
+    episode a session, this device's id), the empty one is finished and counted, and the machine's unsent count falls to
+    0 on the home — the light clears by itself."""
+    from api.hooks import capture as hook
+
+    home, replica = trio["home"], trio["replica"]
+    replica.stop()
+    sids = ["aaaaaaa1-2222-4333-8444-555555555551", "aaaaaaa2-2222-4333-8444-555555555552",
+            "aaaaaaa3-2222-4333-8444-555555555553", "aaaaaaa4-2222-4333-8444-555555555554"]
+    for sid in sids[:3]:
+        _session(trio["replica_projects"], sid, f"kept while the backend was down {sid[:8]}")
+    (trio["replica_projects"] / f"{sids[3]}.jsonl").write_text("")            # the empty one
+    for sid in sids:
+        hook._spool_local(replica.cicada_home, {
+            "harness": "claude-code", "session_id": sid, "transcript_path": str(trio["replica_projects"] / f"{sid}.jsonl"),
+            "cwd": "/home/example/alpha", "hook_event": "SessionEnd"}, key=f"claude-code:{sid}", base=replica.url)
+    assert hook.spool.counts(replica.cicada_home)["waiting"] == 4
+    replica.start()                                              # no hook fires from here on
+    for sid in sids[:3]:
+        got = _wait(lambda sid=sid: _episodes(home, sid), 240)
+        assert len(got) == 1, f"the home never received {sid[:8]}"
+        assert _device_of(got[0]) == trio["replica_device"]
+    assert not _episodes(home, sids[3])
+    assert _wait(lambda: hook.spool.pending(replica.cicada_home) == 0, 60), hook.spool.counts(replica.cicada_home)
+    assert hook.spool.counts(replica.cicada_home)["rejected"] == 1
+    assert _wait(lambda: _unsent_of(home, trio["replica_device"]) == 0, 120), _unsent_of(home, trio["replica_device"])
+
+
 # --- the home answers 202 and then does not write (b, c), in one process ----------------------------------------------
 
 import io  # noqa: E402

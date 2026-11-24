@@ -192,9 +192,15 @@ async def _replica_lifespan(app: FastAPI, settings):
 
     await sync_net.on_start(app, settings)
     replica.start()
+    # B3 (2026-11-25): a session this computer's own hook kept while this backend was away goes on to the home without
+    # waiting for another session to end here.
+    from api.services import local_spool
+
+    local_spool.start()
     try:
         yield
     finally:
+        await asyncio.to_thread(local_spool.stop)
         await asyncio.to_thread(replica.stop)
         await sync_net.on_stop()
         from api.services import bank_watch
@@ -266,7 +272,6 @@ async def lifespan(app: FastAPI):
     from api.services import list_pages
 
     list_pages.start_sync(settings.memory_path, delay_s=list_pages.SETTLE_S)
-
     logger.info(f"Memory path: {settings.memory_path}")
     logger.info(f"LLM model: {settings.litellm_model}")
 
@@ -385,6 +390,13 @@ async def lifespan(app: FastAPI):
 
     await sync_net.on_start(app, settings)
 
+    # B3 (2026-11-25): a session this computer's own hook kept while this backend was away (a restart) is written now, a
+    # few seconds after the start and then every minute while one waits — not when another session happens to end. Last,
+    # so the bank is scaffolded and migrated before anything is written into it.
+    from api.services import local_spool
+
+    local_spool.start()
+
     from api.services import gc_tuning
 
     gc_tuning.freeze_after_start()
@@ -392,6 +404,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        await asyncio.to_thread(local_spool.stop)
         home_move.stop_peer_watch()
         replica_guard.thaw()
         await sync_net.on_stop()
