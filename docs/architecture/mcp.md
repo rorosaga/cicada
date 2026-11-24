@@ -119,8 +119,8 @@ asking a person known only by a description their name until they come up again:
 it should be able to find the mention easily, as claude code memory does, even if it was mentioned once". Measured
 (`benchmarks/consolidation/findability.py`, 11 invented stories, 4 not in English, a person or a thing said once; a
 real Sleep on the plan; then 150 conversations of noise and 12 decoys Sleep had not read; `cicada_recall` and `cicada_ask`
-over the real stdio server, each asked three ways: the person's own words, a rewording and a partial): found 64 of 66
-before, 65 of 66 after, in every state a once-said mention is in after Sleep: a page titled by the description, a line held
+over the real stdio server, each asked three ways: the person's own words, a rewording and a partial): found 63 of 66
+before, 64 of 66 after (the two left are one saved link that holds only its title, asked in other words), in every state a once-said mention is in after Sleep: a page titled by the description, a line held
 with no page, a conversation Sleep has not read, a quiet saved page. Without the question the mention is as findable as
 with it. One defect, now fixed: recall's lead turns (`_turn_excerpts`) were the OLDEST four of the best eight turns Ask's
 search leg gathered, so a conversation the words found was lost to four older ones that shared a word or that the meaning leg added
