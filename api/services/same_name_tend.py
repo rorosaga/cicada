@@ -39,7 +39,7 @@ from typing import Callable
 
 from loguru import logger
 
-from api.services import same_name_doubts, same_name_people as snp, same_name_review as snr
+from api.services import same_name_doubts, same_name_leftovers, same_name_people as snp, same_name_review as snr
 
 TRIGGER = "sleep/same-name"
 #: New questions about a doubt one drain may open (the inbox already holds hundreds): the rest wait for the next drain.
@@ -124,45 +124,70 @@ def page_of(memory_path: Path, page_id: str) -> snr.Page | None:
     return snr.Page(page_id, tuple(items)) if items else None
 
 
-def moving(memory_path: Path, page_id: str, episodes: frozenset[str]) -> tuple[list[str], list[int]]:
-    """``(belief ids, sentence numbers)`` that leave with ``episodes``: those whose every source is one of them."""
-    from api.services import markdown_parser, same_name_split, section_provenance
-    from api.services.claims import parse_claims, strip_claims_block
+def _leaving_items(memory_path: Path, page_id: str, episodes: frozenset[str]) -> list[tuple[str, str]]:
+    """``(heading, text)`` of the page's sourced prose items whose every source is one of ``episodes``."""
+    from api.services import markdown_parser, section_provenance
+    from api.services.claims import strip_claims_block
 
     parsed = markdown_parser.parse(Path(memory_path) / "entities" / f"{page_id}.md")
-    claim_ids = [c.id for c in parse_claims(parsed.body)
-                 if c.source_episodes and {str(e) for e in c.source_episodes} <= episodes]
-    leaving: list[str] = []
+    out: list[tuple[str, str]] = []
     scanned = section_provenance.scan(strip_claims_block(parsed.body))
     for section, items in section_provenance.matched(parsed.frontmatter or {}, parsed.body).items():
         by_key = {item.key: item for item in scanned.get(section, [])}
         for key, (_guard, rows) in items.items():
             sources = {ev.episode for ev in rows}
             if sources and sources <= episodes and key in by_key:
-                leaving.append(by_key[key].text)
+                out.append((section_provenance.TITLES.get(section, section), by_key[key].text))
+    return out
+
+
+def moving(memory_path: Path, page_id: str, episodes: frozenset[str]) -> tuple[list[str], list[int]]:
+    """``(belief ids, sentence numbers)`` that leave with ``episodes``: those whose every source is one of them."""
+    from api.services import markdown_parser, same_name_split
+    from api.services.claims import parse_claims
+
+    parsed = markdown_parser.parse(Path(memory_path) / "entities" / f"{page_id}.md")
+    claim_ids = [c.id for c in parse_claims(parsed.body)
+                 if c.source_episodes and {str(e) for e in c.source_episodes} <= episodes]
+    leaving = [text for _heading, text in _leaving_items(memory_path, page_id, episodes)]
     numbers = [s.n for s in same_name_split.sentences(parsed.body) if any(s.text in text for text in leaving)]
     return claim_ids, numbers
+
+
+def short_leaving(memory_path: Path, page_id: str, episodes: frozenset[str]) -> list[tuple[str, str]]:
+    """The leaving conversations' own sourced lines that a sentence number cannot carry: the numbering skips anything under
+    `same_name_split.MIN_CHARS` ("Dani is retired"), so on its own such a line would stay behind on the old page as the
+    other person's fact. They move as exact cuts (`page_join.split(cuts=...)`), on their provenance alone."""
+    from api.services import same_name_split
+
+    return [(heading, text) for heading, text in _leaving_items(memory_path, page_id, episodes)
+            if len(text) < same_name_split.MIN_CHARS and "\n" not in text]
 
 
 def _author() -> list[str]:
     return ["cicada"]
 
 
-def split_page(memory_path: Path, page_id: str, episodes: frozenset[str], split: snr.Split, *, before=None) -> dict | None:
+def split_page(memory_path: Path, page_id: str, episodes: frozenset[str], split: snr.Split, *, before=None,
+               cuts=()) -> dict | None:
     """The page's leaving conversations, with their beliefs and facts, to a new page: one commit (`page_join.split`).
-    ``None`` when there is nothing to move (no belief or sentence is sourced only from them)."""
+    ``cuts``: the unsourced stretches of the old page that state the leaving person (`same_name_leftovers.plan`); they
+    move in the same commit, so the person's undo takes them back with it. ``None`` when there is nothing to move (no
+    belief or sentence is sourced only from them)."""
     from api.services import page_join
 
     claims, sentences = moving(memory_path, page_id, episodes)
     if not claims and not sentences:
         return None
+    cuts = [*short_leaving(memory_path, page_id, episodes), *cuts]
     reason = f"Two people share this name: “{split.here}” cannot be true of the same person as “{split.there}”."
     try:
         # The commit holds the split and nothing else: `page_join.undo` reverses exactly this, and what Sleep remembers
         # about having made it (`same_name_doubts.note_split`) is written after, outside it.
         return page_join.split(
             memory_path, page_id, sentences=sentences, claims=claims, episodes=sorted(episodes), author=_author(),
-            trigger=TRIGGER, reason=reason, before=before)
+            trigger=TRIGGER, reason=reason, before=before,
+            cuts=[tuple(c) if isinstance(c, tuple) else c.as_tuple() for c in cuts], related_follows=True)
     except page_join.JoinError as exc:
         logger.info(f"same-name split not applied: {exc}")
         return None
@@ -385,11 +410,16 @@ async def tend(memory_path: Path, judge, *, today: date | None = None,
             report.looked += 1
             name = str(page_conversations(memory_path, ref)[0])
             split = await snr.holds_two(name, page, judge, speaker)   # an engine failure leaves the flag for the next run
-            same_name_doubts.clear_flags(memory_path, pages=[ref])
             if not split.episodes:
+                same_name_doubts.clear_flags(memory_path, pages=[ref])
                 continue
-            out = await _in_lock(memory_path, lambda before, ref=ref, split=split: split_page(
-                memory_path, ref, split.episodes, split, before=before))
+            # What the old page's unsourced prose (Summary, History, tags) still says of the person who leaves, read
+            # outside the write window (a model call) and moved in the split's own commit. An engine failure here
+            # leaves the flag too: the split is made with it, never without, the next run.
+            cuts = await same_name_leftovers.plan(memory_path, ref, split.episodes, judge)
+            same_name_doubts.clear_flags(memory_path, pages=[ref])
+            out = await _in_lock(memory_path, lambda before, ref=ref, split=split, cuts=cuts: split_page(
+                memory_path, ref, split.episodes, split, before=before, cuts=cuts))
             if out is None:
                 report.skip("nothing_to_move")
                 continue
