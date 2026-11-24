@@ -47,6 +47,7 @@ from api.models.schemas import (
     FolderSyncResponse,
     FolderUpdateRequest,
     LinkedInConnectionsImportResponse,
+    LinkedInConnectionsList,
     LinkedInConnectionsPreview,
     LinkedInConnectionsStatus,
     MessagesConversationsRequest,
@@ -75,6 +76,7 @@ from api.services import (
     calendar_local,
     contacts_book,
     contacts_local,
+    demo_guard,
     device_context,
     folder_source,
     linkedin_people,
@@ -86,6 +88,7 @@ from api.services import (
     papers,
     reminders_local,
     source_collections,
+    sync_service,
     sync_state,
     tab_groups,
     watch_history,
@@ -585,6 +588,31 @@ async def linkedin_connections_status(settings: Settings = Depends(get_settings)
     """The kept export's day and how many connections it lists — what the LinkedIn tile shows. Not a Store domain."""
     bank = settings.memory_path.name
     return LinkedInConnectionsStatus(**linkedin_people.status(bank), bank=bank)
+
+
+@router.get("/sources/linkedin-connections/list", response_model=LinkedInConnectionsList)
+async def linkedin_connections_list(request: Request, response: Response, query: str = Query("", max_length=120),
+                                    since: str | None = Query(None, max_length=10),
+                                    until: str | None = Query(None, max_length=10), offset: int = Query(0, ge=0),
+                                    limit: int = Query(50, ge=1, le=linkedin_people.MAX_ROWS),
+                                    settings: Settings = Depends(get_settings)):
+    """G245 (ruling 78 (c), owner 2026-11-24): the person's connections in the order they were made — name, headline,
+    profile link, the day and how exactly it is known, and the matched page's id when there is exactly one (one index of the
+    pages per request). The one route that names them, so: the local API only (not on ``/mcp``, ``/v1`` or any remote
+    door), 409 on a demo bank, read from the directory outside every bank at this moment and written nowhere, wiped by the
+    forget route and by trashing the bank. On a copy it answers from this computer's own directory, like the Contacts
+    page's book (``GET_FROM_HOME`` does not carry it). Not a Store domain: the ETag is a digest of the body and the app
+    caches it in memory."""
+    memory_path = settings.memory_path
+    if demo_guard.is_demo(memory_path):
+        raise HTTPException(409, "A demo bank holds no one's real connections.")
+    body = await run_in_threadpool(linkedin_people.list_rows, memory_path, memory_path.name, query=query, since=since,
+                                   until=until, offset=offset, limit=limit)
+    body["bank"] = memory_path.name
+    etag = '"' + sync_service._digest(body) + '"'
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    return LinkedInConnectionsList(**body)
 
 
 @router.delete("/sources/linkedin-connections")

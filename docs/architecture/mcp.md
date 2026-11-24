@@ -806,6 +806,32 @@ page, nothing clicked that changes it, never a feed, timeline, someone else's pr
   save's own day (`saved_at.posted_day`: a bare day in the sane range, never a relative phrase — "3 days ago" is left out), and
   given once, in place, to a post kept before without one (`episode_staging.amend_frontmatter`, committed). The items route
   serves it as the row's `posted`.
+* **LinkedIn connections, in the order they were made (ruling 78 (c), owner 2026-11-24: "who i have connected with and in
+  chronological order which to me is super important … so cicada can later surface this relationships and be aware of
+  it").** The key `linkedin-connections` (base `linkedin`; in `PLATFORMS`, `reading_settings.SAVED_LISTS`, the tool's
+  `platform` enum, `cli_map`; **off until the person turns it on**, never in `DEFAULT_ON_SAVED_LISTS`) shares LinkedIn's address
+  rules, handle, profile link and pause. The queue offers the connections page
+  (`https://www.linkedin.com/mynetwork/invite-connect/connections/`, sorted by Recently added) in the person's own signed-in
+  browser: read the list only — never a profile, never the contact-info overlay, never the feed or messages, nothing clicked
+  that changes a connection. `cicada_record_saved_list(platform="linkedin-connections", items=[{name, profile_url, headline,
+  connected}])` is the **outside-the-bank branch** (the Goodreads precedent): nothing is written into any bank (so Sleep running
+  is no reason to refuse), the rows **merge into the people directory outside every bank** by profile link
+  (`linkedin_people.record_read`: never deletes, never moves `exported_on`, keeps the finer day; a row with no member profile link or
+  no name is left out and said; there is no email field, and one sent is never read), and no model reads them. `connected` is an ISO
+  day when the page shows a date, else the page's own words ("3 weeks ago"), stored as a day and a precision (`day` · `week` ·
+  `month`) counted from the read day (`linkedin_people.parse_connected`); words it does not read leave the row undated and the reply
+  counts them. The read counts once against the day's 10 like any list's (a pass of up to 200 rows a call, `continues`,
+  `reached_end`: the first read goes to the end, later reads stop at `Known ground`). A connection never makes a page; a person's
+  page gains its connection at birth or at the night's tail (`capture-and-sleep.md`, *LinkedIn connections*).
+  **`cicada_linkedin_connections(since?, until?, limit?)`** is the one read door for the person's agents: connections in a date range
+  (`since` a day or days back, default 30; `until` a day; at most **50** rows, newest first), each with its name, headline, day (and
+  "about, to the week" for an approximate one) and the matched page's id when there is exactly one. **Stdio and the command line
+  only** (`cicada linkedin connections`; `catalog.NEVER_REMOTE`, so on neither `/mcp` nor `/v1`; a remote call is refused; a demo
+  bank refuses). Read-only: the names are read from the directory at that moment, the whole reply is fenced as reference data
+  (`_STDIO_READS`), and nothing is written — not a bank, not a log, not the telemetry ledger (the ledger holds a tool's name, never
+  its reply). On a copy the row runs at the home (`replica: home`), where the directory is. The primer does not name the tool (the
+  budget and R12 hold); its own description carries "who did I connect with that week". The app's own list is
+  `GET /sources/linkedin-connections/list` (`api.md`).
 
 **Reddit, Pinterest and TikTok join (G232, owner 2026-11-04: "offer the website connection through browser harness,
 just like a toggle switch").** Three more `saved_lists.PLATFORMS`, after LinkedIn in the offer's order, on the same

@@ -777,7 +777,7 @@ ON_SERVER_TEXT = ("This command reads the memory folder, and this shell is a cli
 #: G181 phase 2: what a client shell runs, through the server's own routes — the tool mirrors (the tool door) and
 #: the read of the bank list; every `backend` command already goes to the backend's routes.
 CLIENT_DOOR_COMMANDS = frozenset({"recall", "get", "project", "continue", "save", "handshake", "timeline",
-                                  "skills list", "skills propose", "skills create", "page merge", "page split", "page undo",
+                                  "linkedin connections", "skills list", "skills propose", "skills create", "page merge", "page split", "page undo",
                                   "status", "commands",
                                   "bank list", "import"})
 

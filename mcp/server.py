@@ -382,7 +382,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "platform": {"type": "string", "enum": ["x", "x-likes", "instagram", "instagram-likes", "linkedin", "reddit", "reddit-upvoted", "pinterest", "tiktok", "spotify", "goodreads"]},
+                "platform": {"type": "string", "enum": ["x", "x-likes", "instagram", "instagram-likes", "linkedin", "linkedin-connections", "reddit", "reddit-upvoted", "pinterest", "tiktok", "spotify", "goodreads"]},
                 "outcome": {"type": "string", "enum": ["read", "needs_login", "blocked", "failed"]},
                 "items": {
                     "type": "array",
@@ -1063,6 +1063,16 @@ TOOLS = [
         },
     },
     {
+        # G245 (ruling 78 (c)): the person's LinkedIn connections by date, from the directory kept outside memory. Stdio
+        # and the command line only, never remote; names are read at this moment and stored nowhere.
+        "name": "cicada_linkedin_connections",
+        "description": "Who the person connected with on LinkedIn, newest first, in a date range (at most 50), each with their page when they have one. Use it for \"who did I connect with that week\". Read from the person's own kept list at this moment; a connection has no page unless the person does.",
+        "inputSchema": {"type": "object", "properties": {
+            "since": {**tool_contract.SINCE_SCHEMA, "description": "YYYY-MM-DD, or days back (e.g. 7). Default 30."},
+            "until": {"type": "string", "description": "YYYY-MM-DD, inclusive."},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 50}}},
+    },
+    {
         "name": "cicada_project",
         "description": "Where one of the person's projects stands: what is under way, next and quiet, what happened (dated, from whose words), and the people, tools, documents and sub-projects around it. Read-only. Use it when they ask how a project is going.",
         "inputSchema": {"type": "object", "required": ["project"], "properties": {
@@ -1463,7 +1473,7 @@ def prompt_get(name) -> dict | None:
 _SCHEMAS = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
 #: Stdio-only reads whose whole reply is stored text (episodes, saved looks), fenced like the remote reads. The other
 #: stdio-only reads (explore queue, site map, skills) mark the provider lines inside them instead (`_untrusted_block`).
-_STDIO_READS = frozenset({"cicada_pending", "cicada_design_search", "cicada_continue"})
+_STDIO_READS = frozenset({"cicada_pending", "cicada_design_search", "cicada_continue", "cicada_linkedin_connections"})
 
 
 def call_tool(name: str, arguments) -> dict:
@@ -1696,6 +1706,9 @@ def _handle_local_tool(name: str, arguments: dict) -> str:
         return handle_check_nudges(arguments.get("topic"), arguments.get("entity_ids"), arguments.get("mode"))
     elif name == "cicada_handshake":
         return handle_handshake()
+    elif name == "cicada_linkedin_connections":
+        return mcp_tools.linkedin_connections_read(_ctx(), arguments.get("since"), arguments.get("until"),
+                                                   arguments.get("limit"))
     elif name == "cicada_timeline":
         return handle_timeline(arguments.get("since"))
     elif name == "cicada_project":

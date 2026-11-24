@@ -6148,6 +6148,8 @@ class LinkedInConnectionsImportResponse(CamelModel):
     claims_closed: int = 0
     older: int = 0
     removed_kept_out: int = 0
+    #: A name-only match refused because the bank holds a same-name doubt for that name (counted, never named).
+    doubted: int = 0
     exported_on: str = ""
     bank: str = ""
 
@@ -6158,6 +6160,36 @@ class LinkedInConnectionsStatus(CamelModel):
     exported_on: str | None = None
     imported_at: str | None = None
     connections: int = 0
+    bank: str = ""
+
+
+class LinkedInConnectionRow(CamelModel):
+    """One connection in ``GET /sources/linkedin-connections/list`` (G245, ruling 78 (c)): a name, read now."""
+
+    id: str
+    name: str
+    headline: str = ""
+    url: str | None = None
+    #: The day connected, and how exactly it is known (``day`` · ``week`` · ``month``; a page that said "3 weeks ago" is a
+    #: day counted back from the day it was read). ``None`` for a connection with no date.
+    day: str | None = None
+    precision: str | None = None
+    #: The one person page this connection is, when there is exactly one.
+    page: str | None = None
+
+
+class LinkedInConnectionsList(CamelModel):
+    """``GET /sources/linkedin-connections/list`` — the person's connections, newest first. The one route that names
+    them: local API only (absent from ``/mcp`` and ``/v1``), 409 on a demo bank, never written to a bank, a log or the
+    telemetry ledger."""
+
+    rows: list[LinkedInConnectionRow] = []
+    total: int = 0
+    offset: int = 0
+    next: int | None = None
+    kept: int = 0
+    exported_on: str | None = None
+    read_on: str | None = None
     bank: str = ""
 
 
