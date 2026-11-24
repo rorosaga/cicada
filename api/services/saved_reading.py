@@ -9,9 +9,10 @@ decision is a line to undo:
 * **The source note** (:func:`note`): Stage 1 is told it is reading a saved item, whose "I" and "my" are the author's
   and whose "the user" is not the person, that nothing is known of why it was saved beyond the person's own sections,
   and to take at most :data:`MAX_ENTITIES` things from it.
-* **The observer** (:func:`observer_for`): a claim whose located evidence is only the item's own words is the
-  author's — ``external:<the save's channel, else its site>`` — never Cicada's own reading (``agent``) and never the
-  person's. A claim with any span in a section of the person's own is theirs, as everywhere.
+* **The observer** (:func:`observer_for`): a claim whose located evidence is only the item's own words — or whose
+  quote could not be located at all — is the author's, ``external:<the save's channel, else its site>``, never Cicada's
+  own reading (``agent``) and never the person's. A claim with any span in a section of the person's own is theirs, as
+  everywhere.
 * **The owner guard** (:func:`clean`): nothing a post says lands on the owner's page, nor as an alias on a person page,
   unless one of the person's own sections says it.
 * **A bound** (:func:`clean`): at most :data:`MAX_ENTITIES` entities are taken from one save, and a save raises no
@@ -168,17 +169,20 @@ def note(episode: dict, content: str) -> str | None:
 
 
 def observer_for(item: dict, episode: dict, content: str, ranges: list[tuple[int, int]] | None = None) -> str | None:
-    """The observer of a claim from a saved item, or ``None`` for the default reading: the item's author when every
-    located span is the item's own text (or the claim has no located span and the person said nothing in it); nothing
-    special when any span sits in a section of the person's own words, or in an agent's note."""
+    """The observer of a claim from a saved item, or ``None`` for the default reading: the item's author, unless a
+    located span sits in a section of the person's own words (theirs, as everywhere) or in an agent's note (not the
+    author alone). **A quote that cannot be located is the author's too** (ruling 80, G246): in a save that holds none
+    of the person's words every fact is the post's, located or not; in one that holds a reason, a fact whose words the
+    model could not point at is still far more likely the post's (the post is the bulk of the text), and the two ways to
+    be wrong are not alike — labelled the author's, a belief of the person's is under-credited (and what they said in
+    their own section lands as theirs whenever its quote is exact); labelled Cicada's or the person's, a stranger's
+    words become a belief held in the person's memory. The safe side is the author's."""
     ranges = person_ranges(content) if ranges is None else ranges
     spans = [e for e in item.get("evidence") or [] if isinstance(e, dict) and e.get("kind") != "reasoning"]
     if any(_in_person(e.get("start"), ranges) for e in spans):
         return None
     if spans and any(e.get("kind") != "page" and e.get("kind") != "user" for e in spans):
         return None   # an agent's note backs it: not the item's author alone
-    if not spans and ranges:
-        return None   # unlocated, and the person did say something in it: Cicada's own reading, as before
     return author_observer(episode, content)
 
 

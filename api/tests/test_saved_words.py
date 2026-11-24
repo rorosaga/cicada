@@ -555,3 +555,92 @@ def test_a_connector_post_held_as_a_description_is_words_however_short():
 
     assert "x-bookmarks" in reading_walls._TEXT_IS_DESCRIPTION_ORIGINS
     assert "x-bookmarks" in reading_walls._TEXT_IN_NOTES_ORIGINS      # a post kept before G245 still counts
+
+
+# --------------------------------------------------------------------------- #
+# a quote nothing locates is still its author's (ruling 80, G246; the saves battery's 5 of 48)
+# --------------------------------------------------------------------------- #
+
+
+def test_in_a_save_with_none_of_his_words_a_fact_whose_quote_is_not_found_is_still_its_authors():
+    reply = {"entities": [_entity("alpha-co", "company"), _entity("alpha-tool")],
+             "relationships": [_rel("alpha-co", "alpha-tool", "ships", "words the post never says"),
+                               _rel("alpha-co", "alpha-tool", "ships weekly", "alpha-co ships alpha-tool every Friday")],
+             "values": [{"entity": "alpha-tool", "attribute": "price", "value": "10", "evidence_quote": "nowhere in it"}]}
+    result, _ = _read(_episode(_save_body()), reply)
+    assert [r["evidence"][0]["kind"] for r in result["relationships"]] == ["reasoning", "page"]
+    assert [r["observer"] for r in result["relationships"]] == ["external:alex-example"] * 2
+    assert result["values"][0]["evidence"][0]["kind"] == "reasoning"
+    assert result["values"][0]["observer"] == "external:alex-example"
+    claims = entity_extractor.entities_to_claims([result], None)
+    assert {c.observer for c in claims} == {"external:alex-example"}          # none is Cicada's own reading
+
+
+def test_in_a_save_with_his_reason_an_unlocated_fact_is_the_authors_and_a_located_one_in_his_words_is_his():
+    """The safe side: the post is the bulk of the text, so what no quote can point at is far likelier the post's; labelled
+    the author's, a belief of his is under-credited (his exact words still land as his), never a stranger's made his."""
+    body = _save_body(person="## Saved because\nI want to try alpha-tool on alpha-project")
+    reply = {"entities": [_entity("alpha-tool"), _entity("alpha-project", "project"), _entity("alpha-co", "company")],
+             "relationships": [
+                 _rel(OWNER, "alpha-tool", "wants to try", "I want to try alpha-tool on alpha-project"),
+                 _rel("alpha-co", "alpha-tool", "ships", "a sentence the model made up")]}
+    result, _ = _read(_episode(body), reply)
+    by_label = {r["label"]: r for r in result["relationships"]}
+    assert "observer" not in by_label["wants to try"]                  # located in his own section: his, as ever
+    assert by_label["ships"]["evidence"][0]["kind"] == "reasoning"
+    assert by_label["ships"]["observer"] == "external:alex-example"    # not located: the author's, never his or Cicada's
+
+
+def test_two_authors_stating_one_fact_in_one_run_stay_the_first_authors_with_both_sources():
+    reply = {"entities": [_entity("alpha-co", "company"), _entity("alpha-tool")],
+             "relationships": [_rel("alpha-co", "alpha-tool", "ships", "alpha-co ships alpha-tool every Friday")]}
+    a, _ = _read(_episode(_save_body(channel="alex-example")), reply)
+    b, _ = _read(_episode(_save_body(channel="sam-example")), reply)
+    a["episode_id"], b["episode_id"] = "ep_2026-11-20_001", "ep_2026-11-20_002"
+    for rel in a["relationships"]:
+        rel["source_episode"] = a["episode_id"]
+    for rel in b["relationships"]:
+        rel["source_episode"] = b["episode_id"]
+    (claim,) = entity_extractor.entities_to_claims([a, b], None)
+    assert claim.observer == "external:alex-example"
+    assert claim.source_episodes == ["ep_2026-11-20_001", "ep_2026-11-20_002"]
+    # a fact a conversation also states is still Cicada's own reading, as before
+    chat = {"episode_id": "ep_2026-11-21_001", "origin": "claude-code", "entities": [],
+            "relationships": [dict(b["relationships"][0], source_episode="ep_2026-11-21_001")], "values": []}
+    chat["relationships"][0].pop("observer", None)
+    (merged,) = entity_extractor.entities_to_claims([a, chat], None)
+    assert merged.observer == "agent"
+
+
+def test_unlocated_facts_from_many_saves_are_counted_by_the_per_page_cap(tmp_path):
+    """Fifteen posts each say a different thing about one page with a quote nothing locates: all fifteen are the authors'
+    and the page keeps twelve open."""
+    from api.services import claim_reconciler, saves_bounded
+
+    memory = _bank(tmp_path)
+    claims = []
+    for n in range(15):
+        eid = f"ep_2026-11-{10 + n // 2:02d}_{n:03d}"
+        markdown_parser.write(memory / "episodes" / f"{eid}.md",
+                              {"id": eid, "timestamp": "2026-11-20T09:00:00+00:00", "processed": True, "source": "url",
+                               "origin": "chrome-bookmark", "media_entity_id": f"media-p{n}", "url": f"https://example.com/p/{n}"},
+                              f"# Post {n}\n\n**Channel:** author-{n}\n**URL:** https://example.com/p/{n}\n\n## Description\nQuillnote ships {n}.\n")
+        reply = {"entities": [_entity("quillnote"), _entity(f"feature-{n}")],
+                 "relationships": [_rel("quillnote", f"feature-{n}", "ships", "a quote nothing locates")]}
+        ep = _episode(_save_body(channel=f"author-{n}"))
+        ep["id"] = eid
+        result, _ = _read(ep, reply)
+        result["episode_id"] = eid
+        result["relationships"][0]["source_episode"] = eid
+        result["relationships"][0]["source_episode_timestamp"] = f"2026-11-{10 + n // 2:02d}T08:00:00+00:00"
+        claims += entity_extractor.entities_to_claims([result], None)
+    assert {c.observer.split(":")[0] for c in claims} == {"external"}
+    bank_index.invalidate()
+    settings = SimpleNamespace(memory_path=memory, litellm_model="m", litellm_disambiguation_model="", archive_threshold=0.2,
+                               decay_nudge_threshold=0.4, sleep_promotion_threshold=2, sleep_resolve_concurrency=1,
+                               link_enrich_enabled=False)
+    reconciled, _nudges, audit = claim_reconciler.reconcile_stage3(
+        claims, {}, settings, cardinality_fn=lambda _p: False, now_date="2026-11-24", decay=False)
+    open_ = [c for slot in reconciled.values() for c in slot if c.valid_to is None]
+    assert len(open_) == saves_bounded.MAX_OPEN_CLAIMS
+    assert sum(a["action"] == "save_capped" for a in audit) == 3
