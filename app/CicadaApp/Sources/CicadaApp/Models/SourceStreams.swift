@@ -181,6 +181,11 @@ struct SourceStream: Equatable, Identifiable, Sendable {
     }
 
     var isOn: Bool { state == .on }
+
+    /// G246 (ruling 81, Track 3) — a post site's "Saved another way": the posts that came by any door but the site's own
+    /// lists. A place posts go and a tab of the Items, never something Cicada reads, so it has no row under Reads, says
+    /// nothing in the head's line about how the source is read, and asks for no setup.
+    var isDerived: Bool { tail == "another-way" }
 }
 
 extension SourceStream: Decodable {

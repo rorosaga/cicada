@@ -127,6 +127,9 @@ def _noun(label: str) -> str:
 
 def sentence(site_name: str, label: str, folder: str | None = None) -> str:
     """The one fixed line a page says about itself — the list's kind and its site, no model's words."""
+    if _cf(label) == _cf(saved_posts.ANOTHER_LABEL) and not folder:
+        return (f"Posts from {site_name} you saved another way: a link you pasted, a browser bookmark, "
+                f"or a link an agent or a chat saved for you.")
     if folder:
         return f"Posts in “{folder}”, a folder of your {_noun(label)} on {site_name}."
     verb = _VERBS.get(_cf(label))
@@ -149,14 +152,16 @@ def _name(site_name: str, label: str, folder: str | None) -> str:
 
 
 def post_specs() -> list[tuple]:
-    """``[(group, spec)]``: the streams of a site whose lists hold posts and count by membership."""
+    """``[(group, spec)]``: the streams of a site whose lists hold posts and count by membership, and the site's "Saved another
+    way" (the posts every door but its own lists brought, Track 3)."""
     from api.services import source_streams
 
     out = []
     for group in source_streams.groups():
         if not saved_posts.is_post_site(group.id):
             continue
-        out.extend((group, spec) for spec in group.specs if spec.counts == "members" and spec.family == "saved")
+        out.extend((group, spec) for spec in group.specs if spec.counts == "members"
+                   and (spec.family == "saved" or saved_posts.is_another_way(spec.id)))
     return out
 
 
@@ -253,7 +258,8 @@ def block(memory_path: Path, entity_id: str, fm: dict | None) -> dict | None:
             "channel": spec.channel if spec is not None and spec.channel else info["site"],
             "label": info["label"], "source": info["source"],
             "count": int(read.get("all") or 0), "newest": read.get("latest"),
-            "lastReadAt": _last_read(memory_path, key),
+            # Nothing reads "Saved another way": it holds what other doors brought, so it has no read time of its own.
+            "lastReadAt": None if spec is not None and saved_posts.is_another_way(spec.id) else _last_read(memory_path, key),
             "why": _why(memory_path, info["source"], info["folder"]),
             "recent": [_row(item) for item in (read.get("items") or [])[:RECENT]],
         }

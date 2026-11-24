@@ -52,6 +52,7 @@ enum SourceHeadLine {
     static func ways(_ streams: [ResolvedStream]) -> [StreamHow] { ways(streams.map(\.stream)) }
 
     static func ways(_ streams: [SourceStream]) -> [StreamHow] {
+        let streams = streams.filter { !$0.isDerived }   // a place posts go says nothing about how the source is read
         let on = streams.filter { $0.state == .on }
         let chosen = (on.isEmpty ? streams.filter { $0.state == .off } : on).map(\.how)
         var seen = Set<StreamHow>()
