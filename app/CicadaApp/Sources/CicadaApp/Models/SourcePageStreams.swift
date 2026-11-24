@@ -258,7 +258,8 @@ enum SourceItemCardText {
     /// it, else when Cicada kept it), the lists it is on, and the depth word (nothing for `kept`). `showsSite` is for a
     /// card away from its source's own page: on the page every item is from that site, so the site and its mark are left
     /// out there (DR-38) and put first here.
-    static func footer(_ item: ChannelItem, today: ISODay, showsSite: Bool = false,
+    /// `omitting` is the list whose tab is open: every card on it is on that list, so it is not said again (DR-38).
+    static func footer(_ item: ChannelItem, today: ISODay, showsSite: Bool = false, omitting list: String? = nil,
                        locale: Locale = .autoupdatingCurrent) -> [String] {
         var parts: [String] = []
         if showsSite, let host = item.host, !host.isEmpty { parts.append(host) }
@@ -268,7 +269,8 @@ enum SourceItemCardText {
         } else if let age = CapturedItems.age(item, today: today, locale: locale) {
             parts.append(Copy.Streams.kept(age.text))
         }
-        if let lists = item.lists, !lists.isEmpty { parts.append(lists.joined(separator: " · ")) }
+        let lists = (item.lists ?? []).filter { $0 != list }
+        if !lists.isEmpty { parts.append(lists.joined(separator: " · ")) }
         if let depth = depth(item) { parts.append(depth) }
         return parts
     }

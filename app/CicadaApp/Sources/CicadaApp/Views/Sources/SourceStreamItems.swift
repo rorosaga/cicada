@@ -16,6 +16,8 @@ struct SourceItemCard: View {
     /// Whether the card names its site (a mark and the host): only away from the source's own page, where every item is
     /// from that site and saying so again is noise (DR-38). Never a letter: `SiteIcon` draws the family's real mark.
     var showsSite = false
+    /// The list whose tab is open: not said again on a card that is on it.
+    var omittingList: String?
     let today: ISODay
     let route: CapturedItemRoute?
     let open: (CapturedItemRoute) -> Void
@@ -60,7 +62,7 @@ struct SourceItemCard: View {
             if showsSite, SavedItemText.stillPath(item) == nil, item.book != true {
                 SavedLinkMark(mark: SavedItemText.mark(item), size: .inline)
             }
-            Text(SourceItemCardText.footer(item, today: today, showsSite: showsSite).joined(separator: " · "))
+            Text(SourceItemCardText.footer(item, today: today, showsSite: showsSite, omitting: omittingList).joined(separator: " · "))
                 .monospacedDigit()
         }
         .font(CicadaTheme.metaFont)
@@ -70,7 +72,7 @@ struct SourceItemCard: View {
     }
 
     private var spoken: String {
-        ([item.title, SourceItemCardText.words(item)].compactMap { $0 } + SourceItemCardText.footer(item, today: today, showsSite: showsSite))
+        ([item.title, SourceItemCardText.words(item)].compactMap { $0 } + SourceItemCardText.footer(item, today: today, showsSite: showsSite, omitting: omittingList))
             .joined(separator: ", ")
     }
 }
@@ -142,6 +144,8 @@ struct SourceStreamCards: View {
     /// The page's one search: a list under a search is held beside the plain one (never blank while it is read).
     var query = ""
     var cap: Int? = SourceStreamItems.cap
+    /// The open tab's list name, left off each card's footer.
+    var omittingList: String?
     let onAll: (String) -> Void
 
     @Environment(ChannelItemsCache.self) private var cache: ChannelItemsCache?
@@ -178,7 +182,7 @@ struct SourceStreamCards: View {
                 let today = ISODay.today()
                 VStack(alignment: .leading, spacing: CicadaTheme.cardGap) {
                     ForEach(rows, id: \.self) { item in
-                        SourceItemCard(item: item, today: today, route: CapturedItemRoute.of(item, interactive: true),
+                        SourceItemCard(item: item, omittingList: omittingList, today: today, route: CapturedItemRoute.of(item, interactive: true),
                                        open: { SourcePageRouting.go($0, router: router, provenance: provenance) })
                     }
                     footer(list, shown: rows.count, cache: cache)
@@ -249,7 +253,8 @@ struct SourceStreamItemsSection: View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             SourceStreamTabsRow(tabs: SourceStreamItems.tabs(streams), selection: $tab,
                                 folders: folderStream == nil ? [] : folderNames, folder: $folder)
-            SourceStreamCards(key: key, query: query, onAll: onAll)
+            SourceStreamCards(key: key, query: query,
+                              omittingList: selected.flatMap { id in streams.first { $0.id == id }?.stream.label }, onAll: onAll)
         }
         .task(id: folderStream?.id) {
             if folderStream != nil { await cache?.refreshCollections(channel) }

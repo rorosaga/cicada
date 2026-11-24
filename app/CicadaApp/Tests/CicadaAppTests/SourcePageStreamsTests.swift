@@ -58,17 +58,43 @@ final class SourcePageStreamsTests: XCTestCase {
         XCTAssertEqual(SourceStreamRow.control(try resolved("imessage.chats", in: "imessage")), .setup)
     }
 
-    func testARowSaysHowItIsReadAndHowDeepItGoes() throws {
-        XCTAssertEqual(SourceStreamRow.line(try resolved("x.bookmarks", in: "x").stream),
-                       "In your browser, by your AI app · kept and findable")
-        XCTAssertEqual(SourceStreamRow.line(try resolved("notes.notes", in: "notes").stream),
-                       "On this Mac · read by Sleep")
-        XCTAssertEqual(SourceStreamRow.line(try resolved("imessage.chats", in: "imessage").stream),
-                       "Messages needs Full Disk Access.", "an unavailable stream says why instead")
+    /// DR-38: the head says how a source is read, so a row says only what is specific to its stream.
+    func testARowSaysOnlyWhatIsSpecificToItsStream() throws {
+        func line(_ id: String, in source: String) throws -> String? {
+            let one = try resolved(id, in: source)
+            let siblings = try XCTUnwrap(SourceStreamsFixture.load().source(source)).streams
+            return SourceStreamRow.line(one.stream, among: siblings)
+        }
+        // The head already says "In your browser, by your AI app": nothing repeats it, and "kept and findable" is the norm.
+        XCTAssertEqual(try line("x.bookmarks", in: "x"), "3 folders", "its folders, nothing about the way it is read")
+        XCTAssertNil(try line("x.likes", in: "x"), "nothing specific: no line at all")
+        XCTAssertEqual(try line("x.saves", in: "x"), "When you save, on this Mac", "the click stream's own way")
+        XCTAssertEqual(try line("notes.notes", in: "notes"), "6 folders", "a lone Mac reader: the head says it is read on this Mac")
+        XCTAssertEqual(try line("imessage.chats", in: "imessage"), "Messages needs Full Disk Access.", "unavailable: why")
+        XCTAssertEqual(try line("linkedin.connections", in: "linkedin"), "Matched to people you already have pages for",
+                       "what a stream is for when its name does not say, never \"kept and findable\"")
+        XCTAssertFalse(try XCTUnwrap(try line("linkedin.connections", in: "linkedin")).contains("kept and findable"))
         let help = try XCTUnwrap(SourceStreamRow.help(try resolved("x.bookmarks", in: "x").stream))
         XCTAssertTrue(help.contains("Older ones come with the site's export"))
         XCTAssertTrue(help.contains("Unsaving on the site does not remove one here"))
         XCTAssertNil(SourceStreamRow.help(try resolved("notes.notes", in: "notes").stream))
+    }
+
+    func testARowSaysHowItIsReadOnlyWhenTheHeadDoesNot() {
+        let browser = SourceStream(id: "s.a", label: "A", kind: .saved, how: .browser, state: .on)
+        let account = SourceStream(id: "s.b", label: "B", kind: .saved, how: .account, state: .on)
+        let app = SourceStream(id: "s.c", label: "C", kind: .notes, how: .app, state: .off)
+        // The head names the ways of the streams that are on (browser, account); a stream read another way says it.
+        XCTAssertNil(SourceStreamRow.line(browser, among: [browser, account, app]))
+        XCTAssertEqual(SourceStreamRow.line(app, among: [browser, account, app]), "On this Mac")
+        // A source whose streams go to different depths says each row's own.
+        var deep = browser
+        deep.depth = .read
+        XCTAssertEqual(SourceStreamRow.line(deep, among: [deep, account]), "read by Sleep")
+        XCTAssertEqual(SourceStreamRow.line(account, among: [deep, account]), "kept and findable")
+        XCTAssertEqual(SourceStreamRow.line(SourceStream(id: "s.d", label: "D", kind: .saved, state: .unavailable,
+                                                        why: "Needs Full Disk Access."), among: []),
+                       "Needs Full Disk Access.", "an unavailable stream says why instead")
     }
 
     func testTheTrailingWordsAreCountAndLastReadOrTheStateWord() throws {
@@ -150,18 +176,31 @@ final class SourcePageStreamsTests: XCTestCase {
         XCTAssertNil(bad.lists, "a malformed field drops the field, never the row")
     }
 
-    func testAnItemCardsFooterIsSiteKeptAgeListsAndDepthWithNothingForKept() throws {
+    func testAnItemCardsFooterIsOneDateTheListsAndTheDepthWithNothingForKept() throws {
         let today = try XCTUnwrap(ISODay("2026-11-24"))
+        let en = Locale(identifier: "en_US")
         var item = ChannelItem(kind: .media, id: "m1", title: "t", day: "2026-11-22", host: "x.com")
         item.lists = ["Bookmarks", "Likes"]
         item.depth = "read"
         item.posted = "2026-11-20"
-        let footer = SourceItemCardText.footer(item, today: today, locale: Locale(identifier: "en_US"))
-        XCTAssertEqual(footer.first, "x.com")
-        XCTAssertTrue(footer.contains("kept 2d"))
-        XCTAssertTrue(footer.contains("Bookmarks · Likes"))
-        XCTAssertEqual(footer.last, "read")
-        XCTAssertTrue(footer.contains { $0.hasPrefix("posted ") })
+        // On a source's own page every item is from that site: no host, ONE date (the post's own day), then lists, depth.
+        let footer = SourceItemCardText.footer(item, today: today, locale: en)
+        XCTAssertEqual(footer.count, 3, "one date, the lists, the depth word: \(footer)")
+        XCTAssertTrue(try XCTUnwrap(footer.first).hasPrefix("posted "))
+        XCTAssertFalse(footer.contains { $0.hasPrefix("kept") }, "never two dates")
+        XCTAssertFalse(footer.contains("x.com"))
+        XCTAssertEqual(Array(footer.suffix(2)), ["Bookmarks · Likes", "read"])
+        // Without a post day, the day it was kept.
+        item.posted = nil
+        XCTAssertEqual(SourceItemCardText.footer(item, today: today, locale: en).first, "kept 2d")
+        // Away from the source's own page the site leads (its real mark is drawn beside it).
+        XCTAssertEqual(SourceItemCardText.footer(item, today: today, showsSite: true, locale: en).first, "x.com")
+        // A list's own tab: every card is on it, so it is not said again.
+        XCTAssertEqual(SourceItemCardText.footer(item, today: today, omitting: "Bookmarks", locale: en),
+                       ["kept 2d", "Likes", "read"])
+        // The author leads the footer when the row has one.
+        item.author = "  Alpha Writer "
+        XCTAssertEqual(SourceItemCardText.footer(item, today: today, locale: en).first, "Alpha Writer")
         item.depth = "kept"
         XCTAssertNil(SourceItemCardText.depth(item), "kept says nothing")
         XCTAssertEqual(SourceItemCardText.footer(ChannelItem(kind: .media, id: "m2", title: "t"), today: today), [],

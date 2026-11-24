@@ -110,6 +110,7 @@ struct SourceReadsRow: View {
                     Toggle(isOn: Binding(get: { on }, set: onToggle)) { EmptyView() }
                         .toggleStyle(.switch)
                         .controlSize(.mini)
+                        .tint(CicadaTheme.accent)
                         .labelsHidden()
                         .accessibilityLabel(stream.label)
                 case .setup:

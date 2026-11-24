@@ -246,14 +246,29 @@ extension SourceStreamsSource: Decodable {
 /// `GET /sources/streams`.
 struct SourceStreamsResponse: Decodable, Equatable, Sendable {
     var sources: [SourceStreamsSource]
+    /// `POST /sources/streams/check` only: the backend's one word per stream it was asked about (`requested`, `signed_out`,
+    /// `paused`, `app`, `read`, `failed`, `off`, `not_connected`, `noted`), by stream id. Empty from the GET. An unknown
+    /// word is kept as it is and read as no word.
+    var checked: [String: String]
 
-    init(sources: [SourceStreamsSource] = []) { self.sources = sources }
+    init(sources: [SourceStreamsSource] = [], checked: [String: String] = [:]) {
+        self.sources = sources
+        self.checked = checked
+    }
 
-    private enum CodingKeys: String, CodingKey { case sources }
+    /// The answer's top-level `shape` ("streams-1") is not read: every field is read leniently by name.
+    private enum CodingKeys: String, CodingKey { case sources, checked }
+
+    private struct Checked: Decodable {
+        var stream: String
+        var result: String
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         sources = (c.lenient(.sources) as LossyList<SourceStreamsSource>?)?.items ?? []
+        let rows = (c.lenient(.checked) as LossyList<Checked>?)?.items ?? []
+        checked = Dictionary(rows.map { ($0.stream, $0.result) }, uniquingKeysWith: { _, last in last })
     }
 
     func source(_ id: String) -> SourceStreamsSource? { sources.first { $0.id == id } }

@@ -126,7 +126,7 @@ final class SourceStreamCheckModel {
                 let fresh = resolve(answer)
                 for target in backend {
                     guard let now = fresh.stream(target.id) else { checking.remove(target.id); continue }
-                    record(now, word: Self.backendWord(now), previous: Self.previous(now))
+                    record(now, word: Self.backendWord(now, checked: answer.checked[now.id]), previous: Self.previous(now))
                 }
             } else {
                 failure = Copy.Streams.checkFailed
@@ -144,7 +144,17 @@ final class SourceStreamCheckModel {
     /// What a stream the backend checked ends in: its own word when that is one of the six, else the nearest honest one.
     /// A browser list is asked of the person's AI app; an account the service did not confirm is a read that did not
     /// happen. Never a word that lifts a pause.
-    static func backendWord(_ resolved: ResolvedStream) -> StreamWord {
+    static func backendWord(_ resolved: ResolvedStream, checked: String? = nil) -> StreamWord {
+        // The backend's own result for the stream, where it names one of the six words (`checked` in its answer): a list
+        // stamped for the person's AI app, a sign-in the service refused or confirmed. Anything else (paused, an app's
+        // reader, off, not connected, noted, a word this build does not know) falls to what the stream itself says.
+        switch checked {
+        case "requested": return .yourAIAppReadsNext
+        case "signed_out": return .signedOut
+        case "read": return .read
+        case "failed": return .couldntRead
+        default: break
+        }
         let word = resolved.word
         if word.isCheckWord { return word }
         // A pause is never lifted by asking: it stays a read that did not happen.

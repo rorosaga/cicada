@@ -13,6 +13,9 @@ import XCTest
 ///     SOURCES_PAGE_RENDER_DIR=<folder> swift test --filter SourcePageStreamsRenderTests
 ///
 /// Pictures come from Cicada's API, which is offline under XCTest, so a mark with no bundled logo draws its glyph.
+/// A window that was never shown is not key, and macOS draws every switch of such a window in its inactive grey (an
+/// ON switch and an OFF one differ only by the knob's side here, even with an explicit tint, on a window made key off
+/// screen too). The running app's switches take the accent while its window is key, as Settings' do.
 @MainActor
 final class SourcePageStreamsRenderTests: XCTestCase {
     private let now = SourceStreamsFixture.now
@@ -108,6 +111,9 @@ final class SourcePageStreamsRenderTests: XCTestCase {
             let model = SourceStreamsModel(fetch: { _ in Conditional(value: streams, etag: nil, notModified: false) })
             model.apply(streams)
             let lights = BrowserWatcher()
+            // Notes is connected in these fixtures, so its page draws the connected state (no Connect step under Reads).
+            let notesDefaults = TestDefaults.suite("page-render-\(UUID().uuidString)")!
+            notesDefaults.set(true, forKey: AppleNotesWatcher.enabledKey)
             return content
                 .environment(store)
                 .environment(AppRouter())
@@ -119,7 +125,7 @@ final class SourcePageStreamsRenderTests: XCTestCase {
                 .environment(cache)
                 .environment(ProvenanceRouter())
                 .environment(model)
-                .environment(AppleNotesWatcher(defaults: TestDefaults.suite("page-render-\(UUID().uuidString)")!,
+                .environment(AppleNotesWatcher(defaults: notesDefaults,
                                                notesRunning: { false }, read: { throw CancellationError() }))
                 .environment(SourceStreamCheckModel(deps: .init(runReader: { _ in "" }, askBackend: { _ in streams })))
         }

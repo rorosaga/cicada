@@ -199,4 +199,19 @@ final class SourceStreamCheckTests: XCTestCase {
         XCTAssertNil(m.lastCheckedAt)
         XCTAssertNil(m.failure)
     }
+
+    /// The backend's own `checked` result names the word where it is one of the six; anything else falls to the stream.
+    func testTheBackendsCheckedResultNamesTheWord() throws {
+        let response = try SourceStreamsFixture.load()
+        let resolved = resolve(response, StreamAppState())
+        let bookmarks = try XCTUnwrap(resolved.stream("x.bookmarks"))
+        XCTAssertEqual(SourceStreamCheckModel.backendWord(bookmarks, checked: "requested"), .yourAIAppReadsNext)
+        XCTAssertEqual(SourceStreamCheckModel.backendWord(bookmarks, checked: "signed_out"), .signedOut)
+        XCTAssertEqual(SourceStreamCheckModel.backendWord(bookmarks, checked: "read"), .read)
+        XCTAssertEqual(SourceStreamCheckModel.backendWord(bookmarks, checked: "failed"), .couldntRead)
+        XCTAssertEqual(SourceStreamCheckModel.backendWord(bookmarks, checked: "paused"),
+                       SourceStreamCheckModel.backendWord(bookmarks), "a pause is never lifted by a word of its own")
+        XCTAssertEqual(SourceStreamCheckModel.backendWord(bookmarks, checked: "a word from a newer backend"),
+                       SourceStreamCheckModel.backendWord(bookmarks))
+    }
 }

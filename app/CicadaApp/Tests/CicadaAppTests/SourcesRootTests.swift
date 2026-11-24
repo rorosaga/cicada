@@ -142,6 +142,19 @@ final class SourcesRootTests: XCTestCase {
         XCTAssertEqual(card.line?.text(), "Saved posts · Connections")
     }
 
+    /// The streams may say a list is on while the catalogue (the one truth) says the source is not connected: the card
+    /// follows the catalogue, so it never shows counts or "on" for a source it offers to connect.
+    func testASourceNotConnectedNeverShowsCountsEvenWhenItsStreamsSayOn() throws {
+        let said = SourceStreamsResponse(sources: [SourceStreamsSource(id: "linkedin", streams: [
+            SourceStream(id: "linkedin.saved", label: "Saved posts", state: .on, count: 41),
+            SourceStream(id: "linkedin.gone", label: "Gone", state: .unavailable)])])
+        let resolved = SourceStreamOverlay.resolve(said, app: StreamAppState(), entries: [], now: now)
+        let card = try XCTUnwrap(SourcesRoot.cards(rows: rows(), streams: resolved).first { $0.id == "linkedin" })
+        XCTAssertEqual(card.group, .notConnected)
+        XCTAssertEqual(card.line?.ink, .available)
+        XCTAssertEqual(card.line?.text(), "Saved posts", "names only: no count, no unavailable stream")
+    }
+
     func testAnUnavailableStreamIsNeverPromised() throws {
         let resolved = try streams()
         let messages = try XCTUnwrap(SourcesRoot.cards(rows: rows(), streams: resolved).first { $0.id == "imessage" })

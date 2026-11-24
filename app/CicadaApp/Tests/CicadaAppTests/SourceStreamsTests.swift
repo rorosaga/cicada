@@ -34,6 +34,24 @@ final class SourceStreamsTests: XCTestCase {
         XCTAssertEqual(bookmarks.tail, "bookmarks")
     }
 
+    /// The merged backend's own answer (`api/services/source_streams.py`): a top-level `shape`, a `channel` on every stream,
+    /// and, from the check route only, `checked` — one `{stream, result}` per stream asked about.
+    func testTheBackendsOwnShapeAndTheCheckedResultsDecode() throws {
+        let answer = try decode("""
+            {"shape": "streams-1", "sources": [{"id": "x", "label": "X", "account": null, "streams": [
+              {"id": "x.bookmarks", "label": "Bookmarks", "kind": "saved", "how": "browser", "owner": "backend",
+               "control": "switch", "state": "on", "health": null, "lastReadAt": null, "pausedUntil": null,
+               "checkRequestedAt": "2026-11-24T09:00:00Z", "count": 3, "folderCount": 0, "depth": "index",
+               "switch": {"setting": "savedLists", "key": "x"}, "why": null, "channel": "x"}]}],
+             "checked": [{"stream": "x.bookmarks", "result": "requested"}, {"stream": "x.saves-you-make", "result": "noted"},
+                         {"bad": 1}]}
+            """)
+        XCTAssertEqual(answer.source("x")?.streams.first?.id, "x.bookmarks")
+        XCTAssertEqual(answer.checked, ["x.bookmarks": "requested", "x.saves-you-make": "noted"],
+                       "a malformed entry is dropped alone")
+        XCTAssertEqual(try decode(#"{"sources": []}"#).checked, [:], "the GET carries none")
+    }
+
     func testNullsAndTheClickStreamDecodeAsNothing() throws {
         let response = try SourceStreamsFixture.load()
         let saves = try XCTUnwrap(response.source("x")?.streams.last)
