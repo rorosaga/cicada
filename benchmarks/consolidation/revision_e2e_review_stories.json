@@ -1,0 +1,469 @@
+{
+ "about": "Invented. Stories for what an independent review found a rule withdrawing although the conversation still said it (2026-11-24): the conversation's own day or a sign-off taken out, a date taken out while the relationship stays, a date written in words or another language, a name's spelling corrected, a name shortened to a relation, a number or a time written another way, an edit made and then undone. Phases 1 and 2 as in revision_e2e_stories.json; the last story has a third night. Every name, place and date is invented.",
+ "owner": "Wren Calloway",
+ "conversations": [
+  {
+   "id": "n01",
+   "phase": 1,
+   "day": -50,
+   "title": "Bram's move",
+   "turns": [
+    "My cousin Bram is moving to Utrecht to start a design job.",
+    "Congratulations! When does he move?",
+    "On {day:+30}, once his lease ends. I promised to help him pack.",
+    "Great. Only 3 may attend the leaving party, so keep it small."
+   ]
+  },
+  {
+   "id": "n01",
+   "phase": 2,
+   "day": -50,
+   "title": "Bram's move",
+   "edit": true,
+   "turns": [
+    "My cousin Bram is moving to Utrecht to start a design job.",
+    "Congratulations! When does he move?",
+    "On {day:+30}, once his lease ends. I promised to help him pack."
+   ]
+  },
+  {
+   "id": "n02",
+   "phase": 1,
+   "day": -47,
+   "title": "Odile's studio",
+   "turns": [
+    "Today is {day:+0}, I'm writing up my notes.",
+    "Noted. What is on your mind?",
+    "My neighbour Odile is moving to Lyon to open a pottery studio.",
+    "That sounds exciting! When?",
+    "In the spring, once the studio lease is signed.",
+    "Good luck to her."
+   ]
+  },
+  {
+   "id": "n02",
+   "phase": 2,
+   "day": -47,
+   "title": "Odile's studio",
+   "edit": true,
+   "turns": [
+    "My neighbour Odile is moving to Lyon to open a pottery studio.",
+    "That sounds exciting! When?",
+    "In the spring, once the studio lease is signed.",
+    "Good luck to her."
+   ]
+  },
+  {
+   "id": "n03",
+   "phase": 1,
+   "day": -46,
+   "title": "Teodor's move",
+   "turns": [
+    "My brother Teodor is moving to Gdansk to join a boatyard.",
+    "Congratulations! When does he go?",
+    "On {day:+35}, when his flat lease ends. He asked me to help with the move.",
+    "I'm sure he will be glad of it."
+   ]
+  },
+  {
+   "id": "n03",
+   "phase": 2,
+   "day": -46,
+   "title": "Teodor's move",
+   "edit": true,
+   "turns": [
+    "My brother Teodor is moving to Gdansk to join a boatyard.",
+    "Congratulations! When does he go?",
+    "He has not told me when yet. He asked me to help with the move.",
+    "I'm sure he will be glad of it."
+   ]
+  },
+  {
+   "id": "n04",
+   "phase": 1,
+   "day": -48,
+   "title": "Karin's move",
+   "turns": [
+    "My aunt Karin is moving to Tromso to run a ferry kiosk.",
+    "Congratulations! When does she go?",
+    "On 12 December, when her flat lease ends. I will drive her up.",
+    "A long drive."
+   ]
+  },
+  {
+   "id": "n04",
+   "phase": 2,
+   "day": -48,
+   "title": "Karin's move",
+   "edit": true,
+   "turns": [
+    "My aunt Karin is moving to Tromso to run a ferry kiosk.",
+    "Congratulations! When does she go?",
+    "On December twelfth, when her flat lease ends. I will drive her up.",
+    "A long drive."
+   ]
+  },
+  {
+   "id": "n05",
+   "phase": 1,
+   "day": -44,
+   "title": "Jarek's move",
+   "turns": [
+    "My uncle Jarek is moving to Lodz to start a bakery.",
+    "Congratulations! When does he go?",
+    "On 12 December, when his flat lease ends. I will carry the ovens.",
+    "Heavy work."
+   ]
+  },
+  {
+   "id": "n05",
+   "phase": 2,
+   "day": -44,
+   "title": "Jarek's move",
+   "edit": true,
+   "turns": [
+    "My uncle Jarek is moving to Lodz to start a bakery.",
+    "Congratulations! When does he go?",
+    "On 12 grudnia, when his flat lease ends. I will carry the ovens.",
+    "Heavy work."
+   ]
+  },
+  {
+   "id": "n06",
+   "phase": 1,
+   "day": -42,
+   "title": "The dentist",
+   "turns": [
+    "I saw my dentist, Dr. Halvorsen, today.",
+    "How was it?",
+    "Fine. He has been my dentist for ten years and charges 80 euros a visit.",
+    "That is reasonable."
+   ]
+  },
+  {
+   "id": "n06",
+   "phase": 2,
+   "day": -42,
+   "title": "The dentist",
+   "edit": true,
+   "turns": [
+    "I saw my dentist, Dr. Halvorson, today.",
+    "How was it?",
+    "Fine. He has been my dentist for ten years and charges 80 euros a visit.",
+    "That is reasonable."
+   ]
+  },
+  {
+   "id": "n07",
+   "phase": 1,
+   "day": -40,
+   "title": "Marit",
+   "turns": [
+    "My sister Marit lives in Oslo and teaches piano.",
+    "Nice. Does she have family there?",
+    "Yes, she has three kids and a flat near the harbour.",
+    "Lovely."
+   ]
+  },
+  {
+   "id": "n07",
+   "phase": 2,
+   "day": -40,
+   "title": "Marit",
+   "edit": true,
+   "turns": [
+    "My sister lives in Oslo and teaches piano.",
+    "Nice. Does she have family there?",
+    "Yes, she has three kids and a flat near the harbour.",
+    "Lovely."
+   ]
+  },
+  {
+   "id": "n08",
+   "phase": 1,
+   "day": -38,
+   "title": "The festival",
+   "turns": [
+    "I'm organising a small music festival in Aarhus.",
+    "How much are the tickets?",
+    "The tickets cost 3,500 krona for the weekend.",
+    "That is quite a lot."
+   ]
+  },
+  {
+   "id": "n08",
+   "phase": 2,
+   "day": -38,
+   "title": "The festival",
+   "edit": true,
+   "turns": [
+    "I'm organising a small music festival in Aarhus.",
+    "How much are the tickets?",
+    "The tickets cost 3500 krona for the weekend.",
+    "That is quite a lot."
+   ]
+  },
+  {
+   "id": "n09",
+   "phase": 1,
+   "day": -36,
+   "title": "Pottery class",
+   "turns": [
+    "I teach a pottery class at the community centre in Tromso.",
+    "When does it start?",
+    "The doors open at 09:30 on Saturdays.",
+    "Early!"
+   ]
+  },
+  {
+   "id": "n09",
+   "phase": 2,
+   "day": -36,
+   "title": "Pottery class",
+   "edit": true,
+   "turns": [
+    "I teach a pottery class at the community centre in Tromso.",
+    "When does it start?",
+    "The doors open at 9:30 on Saturdays.",
+    "Early!"
+   ]
+  },
+  {
+   "id": "n10",
+   "phase": 1,
+   "day": -20,
+   "title": "Sunniva's move",
+   "turns": [
+    "My friend Sunniva is moving to Bergen to start a job at a salmon farm.",
+    "Congratulations! When does she move?",
+    "On {day:+33}, once her flat is handed over. I will drive her van.",
+    "She must be excited."
+   ]
+  },
+  {
+   "id": "n10",
+   "phase": 2,
+   "day": -20,
+   "title": "Sunniva's move",
+   "edit": true,
+   "turns": [
+    "My friend Sunniva is moving to Bergen to start a job at a salmon farm.",
+    "Congratulations! When does she move?",
+    "On {day:+40}, once her flat is handed over. I will drive her van.",
+    "She must be excited."
+   ]
+  },
+  {
+   "id": "n10",
+   "phase": 3,
+   "day": -20,
+   "title": "Sunniva's move",
+   "edit": true,
+   "turns": [
+    "My friend Sunniva is moving to Bergen to start a job at a salmon farm.",
+    "Congratulations! When does she move?",
+    "On {day:+33}, once her flat is handed over. I will drive her van.",
+    "She must be excited."
+   ]
+  }
+ ],
+ "gold": {
+  "points": [],
+  "updates": [],
+  "forbid": [],
+  "people": {
+   "same": [],
+   "apart": [],
+   "apart_facts": [],
+   "one": []
+  },
+  "pages": {
+   "expected": [],
+   "not_expected": []
+  },
+  "dated": [],
+  "secret": "",
+  "apart_values": [],
+  "roles": [],
+  "fading": []
+ },
+ "expect": {
+  "stories": [
+   {
+    "id": "n01",
+    "conversation": "n01",
+    "current": [],
+    "stale": [],
+    "shape": "signoff",
+    "lang": "en",
+    "kept": [
+     [
+      "utrecht"
+     ],
+     [
+      "{date:-20}"
+     ]
+    ],
+    "about": [
+     "bram"
+    ]
+   },
+   {
+    "id": "n02",
+    "conversation": "n02",
+    "current": [],
+    "stale": [],
+    "shape": "header",
+    "lang": "en",
+    "kept": [
+     [
+      "lyon"
+     ],
+     [
+      "studio"
+     ]
+    ],
+    "about": [
+     "odile"
+    ]
+   },
+   {
+    "id": "n03",
+    "conversation": "n03",
+    "current": [],
+    "stale": [],
+    "shape": "date_removed",
+    "lang": "en",
+    "kept": [
+     [
+      "gdansk"
+     ]
+    ],
+    "about": [
+     "teodor"
+    ]
+   },
+   {
+    "id": "n04",
+    "conversation": "n04",
+    "current": [
+     [
+      "{date:18}"
+     ]
+    ],
+    "stale": [],
+    "shape": "date_words",
+    "lang": "en",
+    "kept": [
+     [
+      "tromso"
+     ]
+    ],
+    "about": [
+     "karin"
+    ]
+   },
+   {
+    "id": "n05",
+    "conversation": "n05",
+    "current": [
+     [
+      "{date:18}"
+     ]
+    ],
+    "stale": [],
+    "shape": "date_language",
+    "lang": "en",
+    "kept": [
+     [
+      "lodz"
+     ]
+    ],
+    "about": [
+     "jarek"
+    ]
+   },
+   {
+    "id": "n06",
+    "conversation": "n06",
+    "current": [],
+    "stale": [],
+    "shape": "name_spelling",
+    "lang": "en",
+    "kept": [
+     [
+      "80"
+     ]
+    ],
+    "about": [
+     "halvors"
+    ]
+   },
+   {
+    "id": "n07",
+    "conversation": "n07",
+    "current": [],
+    "stale": [],
+    "shape": "name_to_relation",
+    "lang": "en",
+    "kept": [
+     [
+      "marit",
+      "harbour"
+     ]
+    ]
+   },
+   {
+    "id": "n08",
+    "conversation": "n08",
+    "current": [
+     [
+      "3500"
+     ]
+    ],
+    "stale": [
+     [
+      "3,500"
+     ]
+    ],
+    "shape": "number_format",
+    "lang": "en"
+   },
+   {
+    "id": "n09",
+    "conversation": "n09",
+    "current": [
+     [
+      "9:30"
+     ]
+    ],
+    "stale": [
+     [
+      "09:30"
+     ]
+    ],
+    "shape": "time_format",
+    "lang": "en"
+   },
+   {
+    "id": "n10",
+    "conversation": "n10",
+    "current": [
+     [
+      "{date:13}"
+     ]
+    ],
+    "stale": [
+     [
+      "{date:20}"
+     ]
+    ],
+    "shape": "undone",
+    "lang": "en",
+    "about": [
+     "sunniva"
+    ]
+   }
+  ]
+ }
+}
