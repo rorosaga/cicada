@@ -4215,8 +4215,12 @@ is about, who did it, and never say one thing twice. Four mechanisms, each engin
   `--skip-page`). `apply` makes **no model call** and writes exactly the folds the file holds, after `--check` (the same
   counts, nothing written): a page whose Key Facts changed since the plan (hash) is skipped and counted, never re-judged,
   as is a page a person edited or one dirty in git, and a fold the guard would no longer pass. **Loss-free by
-  construction**: a bullet takes part only when G118's rows prove Sleep wrote it (a typed, edited or legacy line has no rows —
-  it is never dropped, and as a holder it could not receive the sources); a pinned correction is never dropped; a person's page
+  construction**: a bullet is kept as a holder only when G118's rows prove Sleep wrote it (as a holder a line with no rows
+  could not receive the sources). **A line with no rows may be dropped into a sourced line that says it in full, and
+  never holds one (owner 2026-11-24, amending 2026-11-23's "never dropped"):** the judge's pair is turned round when the
+  sourced line can hold the other by the same guard, left alone when it cannot; the plan marks such a fold `unsourced`
+  and apply refuses any fold whose kept line has no rows. The sample that asked for it: on the reported page 5 of the 9
+  lines left after the first heal were such lines; a pinned correction is never dropped; a person's page
   is left alone; every fold passes the live guard and link rule again on the page's whole neighbourhood, and a line already
   holding others moves them on only when the new holder covers every one; the dropped bullets' source rows move to the
   kept line (`section_provenance.refresh`); only those bullets' lines leave the Key Facts section — the claims fence,
