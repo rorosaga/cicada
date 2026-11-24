@@ -63,8 +63,8 @@ from api.services import (
 SHAPE = "streams-1"
 
 # --- the vocabulary of the wire (plan 2.1) ----------------------------------------------------------------------
-KINDS = ("saved", "liked", "reposted", "history", "later", "playlists", "connections", "notes", "pages", "chats", "events",
-         "tasks", "code", "books", "feed", "files")
+KINDS = ("saved", "liked", "reposted", "history", "later", "playlists", "connections", "following", "notes", "pages",
+         "chats", "events", "tasks", "code", "books", "feed", "files")
 HOWS = ("browser", "app", "account", "click")
 STATES = ("on", "off", "unavailable")
 HEALTHS = ("read", "not_read", "signed_out", "couldnt_read", "paused")
@@ -145,7 +145,7 @@ _LIST_NAMES: dict[str, tuple[str, str]] = {
     "subscriptions": ("subscriptions", "feed"),
 }
 _KIND_BY_NAME = {"likes": "liked", "liked": "liked", "upvoted": "liked", "reposts": "reposted",
-                 "connections": "connections", "history": "history", "playlists": "playlists", "subscriptions": "feed", "shelves": "books"}
+                 "connections": "connections", "following": "following", "history": "history", "playlists": "playlists", "subscriptions": "feed", "shelves": "books"}
 
 #: The sources a person saves from inside the site itself, whose save click the app notices on this Mac (the plan's
 #: "Saves you make" stream). The state is the app's own switch, which the app writes over this row.
@@ -690,11 +690,14 @@ def _depth(spec: Spec) -> str:
 
 def _directory_count(spec: Spec, memory_path: Path) -> int | None:
     """How many a directory outside every bank holds, by the list's kind (``Platform.kind``): the people kind is LinkedIn's
-    connections; a kind with no directory yet has no count to claim."""
-    from api.services import linkedin_people
+    connections, the accounts kind the accounts followed now; a kind with no directory has no count to claim."""
+    from api.services import follows_people, linkedin_people
 
-    if saved_lists.PLATFORMS[spec.key].kind == "people":
+    kind = saved_lists.PLATFORMS[spec.key].kind
+    if kind == "people":
         return int(linkedin_people.status(Path(memory_path).name)["connections"] or 0)
+    if kind == "accounts" and follows_people.has_site(spec.key):
+        return follows_people.following_count(Path(memory_path).name, follows_people.site_of_platform(spec.key).key)
     return None
 
 

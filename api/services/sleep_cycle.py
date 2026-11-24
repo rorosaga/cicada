@@ -1380,6 +1380,40 @@ async def _rematch_linkedin_safely(memory_path: Path) -> None:
         await asyncio.to_thread(linkedin_people.restore, memory_path, report)
 
 
+async def _rematch_follows_safely(memory_path: Path) -> None:
+    """Ruling 79 (b) (the LinkedIn pattern) — the accounts the person follows, kept outside the bank, against tonight's
+    pages: a page that exists gains the account's profile link (proposed when only the name says so) or its one dated
+    "followed-on" claim, and a page whose account has gone has that claim closed (`follows_people.rematch`). Never makes a
+    page, never counts as a mention. Engine-free, no fetch, in its own `cicada` commit; pages dirty before it ran are
+    skipped, a failed commit undoes what it wrote. Writes nothing when no list is kept. Never raises."""
+    from api.services import follows_people
+
+    if not follows_people.kept_sites(memory_path.name):
+        return
+    skip: frozenset[str] = frozenset()
+    if (memory_path / ".git").exists():
+        try:
+            skip = await _dirty_paths(memory_path)
+        except Exception as exc:
+            logger.warning(f"Follows rematch skipped: tree status unreadable ({type(exc).__name__})")
+            return
+    try:
+        report = await asyncio.to_thread(follows_people.rematch, memory_path, skip=skip)
+    except Exception as exc:
+        logger.warning(f"Follows rematch failed: {type(exc).__name__}")
+        return
+    if not report.paths or not (memory_path / ".git").exists():
+        return
+    try:
+        async with _lock:
+            await git_service.commit_paths(memory_path, follows_people.commit_message(report, date.today()),
+                                           report.paths)
+        logger.info(f"Follows rematch: {len(report.paths)} page(s) enriched")   # counts only — never a name
+    except Exception as exc:
+        logger.warning(f"Follows rematch commit failed — undoing: {type(exc).__name__}")
+        await asyncio.to_thread(follows_people.restore, memory_path, report)
+
+
 async def _rematch_contacts_safely(memory_path: Path) -> None:
     """Owner ruling 2026-10-20 (the LinkedIn pattern) — the address-book cards waiting outside the bank against
     tonight's pages: a person who got a page since the last Contacts sync gains their card's sources and photo
@@ -1883,6 +1917,8 @@ async def _run_engine_independent_tail(
         await _rematch_contacts_safely(memory_path)
         # G245: which commits an arrival join caused, recorded once both rematches have run.
         await _arrival_record_safely(memory_path)
+        # Ruling 79 (b): the accounts the person follows, kept outside the bank, against tonight's pages — its own commit.
+        await _rematch_follows_safely(memory_path)
         # G61 "Where to check" (ruling 36 D5): links already on the record proposed as sources — after the imports
         # above (a link they put on a page is not proposed again), before any poll's `git add -A`.
         await _where_to_check_safely(memory_path)

@@ -516,6 +516,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     # The LinkedIn forget is the person's click in a panel that shows a refusal in words: admitted, 409 while Sleep's
     # tail may be reading the kept export.
     "DELETE /sources/linkedin-connections": (ADMITTED, None),
+    # Ruling 79 (b): the followed-accounts forget is the same shape — Sleep's tail may be reading the kept list.
+    "DELETE /sources/follows/{site}": (ADMITTED, None),
     "POST /sources/messages/sync": (CAPTURE, None),            # G179: one ticked conversation's sittings
     "PUT /sources/messages/settings": (CAPTURE, None),         # G179: the registry file + a re-attributed sitting
     "POST /sources/messages/conversations": (NONE, None),      # G179: detection over names and counts, stores nothing

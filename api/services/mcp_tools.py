@@ -1998,6 +1998,10 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
         return (f"Recorded the person's Goodreads shelves. {out['held']} new book(s) wait for the person to choose which "
                 f"to add; {out['known']} were already in memory or left out. Nothing is in memory until they choose "
                 f"(Sources → Goodreads).{left}{unkept}")
+    if p.kind == "accounts":
+        # G245 (ruling 79 (b)): the accounts the person follows — a directory outside every bank, like the connections.
+        return _record_follows(memory_path, rows, p, continuing=continuing, at_end=at_end, who=who, unkept=unkept,
+                               started=started)
     if p.kind == "people":
         # G245 (ruling 78 (c)): people, not posts. The rows merge into the people directory outside every bank
         # (`linkedin_people.record_read`): nothing is written into the bank, so Sleep running is no reason to refuse; the
@@ -2131,6 +2135,58 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     return (f"Recorded the person's {p.name} {p.label}. {created} new post(s) saved; {duplicates} already in memory"
             + (f" ({listed} now on this list too)" if listed else "") + f". Saved posts are kept for lookup, not read."
             f"{more}{stop}{folders_said()}{started}{extra}{unkept}")
+
+
+def _record_follows(memory_path: Path, rows: list, p, *, continuing: bool, at_end: bool, who: dict, unkept: str,
+                    started: str) -> str:
+    """The ``x-following`` branch of ``cicada_record_saved_list`` (ruling 79 (b)): nothing is written into the bank, so Sleep
+    running is no reason to refuse. Counts only in the reply, the log and the ledger; never a name."""
+    from api.services import follows_people, saved_lists
+
+    site = follows_people.site_of_platform(p.key)
+    read_day = datetime.now(timezone.utc).date().isoformat()
+    out = follows_people.record_read(memory_path.name, site.key, rows, read_day, continues=continuing, reached_end=at_end)
+    if out.dropped and not out.seen:
+        saved_lists.note(memory_path, p.key, "failed", **who)
+        return (f"Recorded: the read failed. None of the rows was an account's own profile link on {site.name}, so nothing "
+                f"was kept; the list is offered again later. Open {site.name}'s Following list and read that." + unkept)
+    saved_lists.note(memory_path, p.key, "read", items=out.passed, new=out.added, continues=continuing,
+                     reached_end=out.finished, **who)
+    seen = follows_people.match_counts(memory_path, site.key, out.rows)
+    people = ""
+    if seen["confident"]:
+        people += (f" {seen['confident']} are on pages already in memory: their page gains the dated fact at the night's "
+                   "tail.")
+    if seen["proposed"]:
+        people += f" {seen['proposed']} match a page by name alone and are only proposed as links."
+    if seen["refused"]:
+        people += f" {seen['refused']} names were held back (a same-name doubt, or two of one name)."
+    if out.over_cap:
+        stop = (f" The list is longer than {site.max_rows:,} accounts: only the first {site.max_rows:,} are kept, and "
+                "nothing is marked as no longer followed from this read. Stop scrolling.")
+    elif at_end and out.partial:
+        stop = (" You said you reached the end, but this read did not begin here (a call carried on one that was not "
+                "open), so nothing is marked as no longer followed from it. Start the next read from the top.")
+    elif at_end and out.first_whole:
+        stop = " The whole list is kept. Later reads read all of it again; nothing is judged from this first one."
+    elif at_end and out.short:
+        stop = (" The whole list is kept, but it is much smaller than the last whole read, so nothing is marked as no "
+                "longer followed from it.")
+    elif at_end:
+        stop = (f" The whole list is kept. {out.marked_gone} account(s) are no longer followed."
+                if out.marked_gone else " The whole list is kept; nothing has gone.")
+    else:
+        stop = (" Keep scrolling and recording (`continues=true`) until the list stops growing, then set `reached_end=true` "
+                f"on the last call (at most {site.max_screens} screens, {site.max_rows:,} accounts). If you have to stop "
+                "before the end, leave `reached_end` out: nothing is marked as no longer followed from a read that stopped "
+                "early.")
+    left = (f" {out.dropped} row(s) were not an account's own profile link and were left out." if out.dropped else "") + (
+        f" {out.full} account(s) did not fit." if out.full and not out.over_cap else "")
+    return (f"Recorded the accounts the person follows on {site.name}. {out.added} new, {out.updated} updated, "
+            f"{out.unchanged} already kept. They are kept for lookup in a directory outside memory, never read by a model; "
+            "an account never makes a page, only a page that already exists gains its link and one dated fact."
+            + (" This call continued the read: it was not counted again today." if continuing else "")
+            + f"{people}{stop}{started}{left}{unkept}")
 
 
 def _record_connections(memory_path: Path, rows: list, p, *, continuing: bool, at_end: bool, was_whole: bool,

@@ -239,7 +239,7 @@ def _read_contacts(memory_path: Path, name: str) -> str:
         return "Give a name."
     hits = []
     try:
-        for held in name_guard.store_names(Path(memory_path).name):
+        for held in name_guard.store_names(Path(memory_path).name, include_follows=False):   # no model reads a follow list (ruling 79 (b))
             words = frozenset(text_fold.words(held))
             if words and (wanted <= words or words <= wanted):
                 hits.append(held)

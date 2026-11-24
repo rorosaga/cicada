@@ -36,6 +36,7 @@ EXEMPT = {
     "api/services/inbox_service.py": "a resolver: closes the claims a question names",
     "api/services/entity_merge.py": "a merge: carries every claim — events and records too — unchanged but its subject",
     "api/services/linkedin_people.py": "writes its own external:linkedin claims; reads only works-at/role/connected-on",
+    "api/services/follows_people.py": "writes its own external:<site> followed-on claims; reads only that predicate, closing it when the account is gone",
     "api/services/same_name_tend.py": "reads what each conversation said about a name (G148): skips only a claim a later "
                                       "one superseded (`valid_to` with `superseded_by`); an event has no `superseded_by`, "
                                       "so a done happening is still what that conversation said — nothing here ranks by state",

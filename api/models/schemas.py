@@ -6269,6 +6269,40 @@ class LinkedInConnectionsList(CamelModel):
     bank: str = ""
 
 
+class FollowedAccountRow(CamelModel):
+    """One followed account in ``GET /sources/follows/list`` (G245, ruling 79 (b)): a name, a handle, a link — never a bio,
+    a count or a picture."""
+
+    id: str
+    name: str
+    handle: str
+    url: str
+    #: The day the current stretch of following began (first seen in a read).
+    day: str | None = None
+    #: The one page this account is, when there is exactly one; ``proposed`` says the match is by name alone.
+    page: str | None = None
+    proposed: bool = False
+    gone_on: str | None = None
+
+
+class FollowedAccountsList(CamelModel):
+    """``GET /sources/follows/list`` — the accounts the person follows, newest first. The one route that names them: local
+    API only (absent from ``/mcp`` and ``/v1``), 409 on a demo bank, never written to a bank, a log or the telemetry
+    ledger."""
+
+    rows: list[FollowedAccountRow] = []
+    total: int = 0
+    offset: int = 0
+    next: int | None = None
+    kept: int = 0
+    gone: int = 0
+    read_on: str | None = None
+    whole_on: str | None = None
+    site: str = ""
+    site_name: str = ""
+    bank: str = ""
+
+
 # --- Saved-content connectors (G71 §2) ---
 
 

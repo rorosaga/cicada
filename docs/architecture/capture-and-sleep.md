@@ -816,6 +816,38 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   The tail, the export's import and the list's matched page apply the same rules. A link the person removed
   (`sources_removed`) stays removed at birth too. Not built: pages for pages made by hand reach their connection only at
   the night's tail; a split page (a doubt by definition) is refused.
+- **The accounts the person follows on X (G245, ruling 79 (b); owner 2026-11-24: "Should the accounts you follow be read?"
+  "2. yes"; `follows_people.py`).** Treated like a LinkedIn connection and held to the same line: *the person gets the page,
+  never the account* (a followed account's own words are never the person's, and following is not acquaintance, ruling 44).
+  The person's own agent reads their Following list (`mcp.md`, "The accounts the person follows on X") into
+  `$CICADA_HOME/people/<bank>/follows-x.json` — outside every bank and git, 0600, per site: display name, handle, profile
+  link, the day first seen, the day this stretch of following began (`since`), last seen and `gone_on`. **No bio, count,
+  picture or "follows back"; no episode, no media page, no commit; nothing logged but counts; no model reads it**, and
+  `GET /sources/follows/list` (local only) is the one door that names an account. A bank's trash or rename takes the folder
+  along (`people_directory`), and `DELETE /sources/follows/{site}` removes every account, handle and link it holds.
+  **Attaching to a page that exists** (`rematch`, Sleep's tail in its own `cicada` commit beside the connections' and
+  Contacts', `trigger: sleep/follows`, pages dirty before it ran skipped; and `Attacher`, in the write that births a person,
+  organisation or tool page — Stage 5's create and a local agent's first claim): *a match on a link the page already holds*
+  (a `sources:` entry that is the person's, an identified agent's or one the person took — never a proposal still waiting)
+  is the match beyond doubt and writes ONE dated claim `followed-on` (object the site, `observer external:x`, `origin
+  follows/x`, `valid_from` the day this stretch began, evidence `reasoning`); *a match on the display name alone* (the page's
+  folded name or alias, both orders for two words; a person page needs two parts, an organisation or tool a real word)
+  writes only a **proposed** profile link (`match: name`, `proposed: true`, the grouped "Confirm N links" review) and no
+  fact — names on X are free text; once the person takes the link the page holds it, and the next night writes the fact.
+  The claim closes (`valid_to`) only when the account is marked gone (`mcp.md` for the rule), and a gone account followed
+  again gets a new dated claim. **Refusals** write nothing and are counted, never named: a same-name doubt (`same_name_doubts`),
+  two pages or two followed accounts of one name, two pages holding one handle, a page that already names another handle of
+  the site; a link the person removed (`sources_removed`) is never put back, and the owner's page, a project, a place, a
+  concept, a media page and a dropped page gain nothing. **It is never a mention:** nothing here touches promotion, a
+  conversation count, `last_referenced`, `learned_on`, `decayed_through` or the page's status, and a followed account never
+  makes a page (a test walks the entities folder before and after). A demo bank takes in nothing. The photo rung does not
+  draw a followed account's link (`person_photo.is_own_account` is false for Cicada's own link outside the connections'
+  exception). **Names never leave (`name_guard`):** a followed account's display name and handle are blocked from any web
+  query like a connection's, except one the bank already has a page for — then the page's own rule governs, so a company, a
+  tool or a public figure the person follows stays searchable (following is not acquaintance); a follow file that cannot
+  be read fails the guard closed; the settling agent's address-book read leaves follows out (`store_names(
+  include_follows=False)`): no model reads that directory. **Consequence to watch:** a private person's name that is
+  known only from the follow list (no page, nothing public) can no longer be a search's subject.
 - **Meeting transcripts — Hex, any recorder's folder (G95, owner ruling 2026-11-03: "Meetings ofc should also be
   consolidated in memory").** A meeting folder is a watched folder of `kind: meetings` (`folder_source.register(kind=,
   recorder=)`; set on the first add, never flipped — a folder added before G95 has no `kind` and is notes

@@ -94,12 +94,12 @@ def test_a_repost_save_is_index_only_by_its_own_origin_and_never_read_by_a_model
     assert history_index.kind({"origin": "x-reposts", "folder": "Reposts"}) == "list"
 
 
-def test_every_list_has_a_kind_and_only_the_two_special_lists_are_not_posts():
+def test_every_list_has_a_kind_and_only_the_special_lists_are_not_posts():
     kinds = {k: p.kind for k, p in saved_lists.PLATFORMS.items()}
     assert set(kinds.values()) <= set(saved_lists.LIST_KINDS) and saved_lists.LIST_KINDS == (
         "posts", "people", "accounts", "books")
-    assert {k for k, kind in kinds.items() if kind != "posts"} == {"linkedin-connections", "goodreads"}
-    assert kinds["linkedin-connections"] == "people" and kinds["goodreads"] == "books"
+    assert {k for k, kind in kinds.items() if kind != "posts"} == {"linkedin-connections", "x-following", "goodreads"}
+    assert kinds["linkedin-connections"] == "people" and kinds["goodreads"] == "books" and kinds["x-following"] == "accounts"
     with pytest.raises(ValueError):
         dataclasses.replace(saved_lists.PLATFORMS["x"], kind="feed")
 
@@ -357,16 +357,6 @@ def test_the_second_failed_read_says_the_site_is_paused_and_not_to_retry(reading
     assert saved_lists.status(memory)["lists"]["x"]["pausedUntil"] is not None
 
 
-@pytest.fixture
-def accounts_list(monkeypatch):
-    """A list of the ``accounts`` kind, which no row of the table is yet (a later track adds the follows)."""
-    table = dict(saved_lists.PLATFORMS)
-    table["x-following"] = dataclasses.replace(table["x-likes"], key="x-following", label="Following", origin="x-following",
-                                               folder="Following", kind="accounts")
-    monkeypatch.setattr(saved_lists, "PLATFORMS", table)
-    monkeypatch.setattr(reading_settings, "SAVED_LISTS", (*reading_settings.SAVED_LISTS, "x-following"))
-
-
 def test_an_unattended_offer_never_includes_a_list_not_yet_read_to_its_end(reading):
     _server, memory = reading
     _on("x", "instagram")
@@ -382,7 +372,7 @@ def test_an_unattended_offer_never_includes_a_list_not_yet_read_to_its_end(readi
     assert saved_lists.due(memory, DAY0) == ["x"]
 
 
-def test_an_unattended_offer_never_includes_an_accounts_list(reading, accounts_list):
+def test_an_unattended_offer_never_includes_an_accounts_list(reading):
     _server, memory = reading
     _on("x-following", "x")
     _read(memory, "x-following", DAY0 - timedelta(days=9))
@@ -432,10 +422,10 @@ def test_reposts_is_a_stream_of_its_own_kind_on_xs_page_with_a_switch_that_start
     assert streams()["x.reposts"]["state"] == "on" and streams()["x.bookmarks"]["state"] == "off"
 
 
-def test_the_directory_count_is_by_the_lists_kind_not_its_key(reading, accounts_list):
+def test_the_directory_count_is_by_the_lists_kind_not_its_key(reading):
     _server, memory = reading
     specs = {s.key: s for g in source_streams.groups() for s in g.specs if s.family == "saved"}
     assert specs["linkedin-connections"].counts == "directory"
     assert source_streams._directory_count(specs["linkedin-connections"], memory) == 0
-    assert specs["x-following"].counts == "directory" and source_streams._directory_count(specs["x-following"], memory) is None
+    assert specs["x-following"].counts == "directory" and source_streams._directory_count(specs["x-following"], memory) == 0
     assert specs["goodreads"].counts == "channel" and specs["x-reposts"].counts == "members"

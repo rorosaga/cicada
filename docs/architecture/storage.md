@@ -3114,6 +3114,20 @@ top; a line still being written waits for its newline); `state_dictionary.refres
 keys over every claim, so a first-N page would need the card changed too), and the whole-bank payloads (`/graph`
 14.9 MB, `/sleep/episodes` 5.8 MB, `/sources` 4.0 MB — already compressed on the wire).
 
+### The followed accounts' directory (G245, ruling 79 (b), owner 2026-11-24)
+
+`$CICADA_HOME/people/<bank>/follows-<site>.json` (`follows_people`; today `follows-x.json`): the accounts the person follows,
+beside `linkedin-connections.json` and `contacts.json`, **outside every bank and git**, 0600, folder 0700, written by a rename
+under an `flock` (`.follows-<site>.lock`), wiped with the bank (`people_directory.forget`) and moved with a rename. Shape:
+`{v, site, rows: [{handle, name, url, first_seen, since, last_seen, gone_on?, missed?}], read_on, whole_on, whole_count, pass?}`
+— a display name, a handle, the profile link, days, and the bookkeeping of "gone" (`missed`: whole trusted reads in a row that did
+not show it; `whole_count`: the last trusted whole read's size; `pass`: the open read's `at`, call count, the ids seen so far
+and whether it can still be judged). **Nothing else is kept** (no bio, count, picture or who follows back), nothing is
+logged but counts, and no model, remote door or agent door reads it; the local API's one list route names an account
+(`api.md`), `name_guard` reads the names so they never leave in a query, and Sleep's tail attaches a link and one dated fact to a
+page that already exists (`capture-and-sleep.md`). A row's id is a hash of its handle. The file holds at most twice the site's row
+cap (`SITES["x"].max_rows` = 2,000), gone rows included, and a row gone for 180 days is dropped.
+
 ### The arrival join's state (G245, owner 2026-11-24)
 
 Where the arrival join (`arrival_join`, `arrival_join_write`; `capture-and-sleep.md`) keeps what it knows. **Outside every bank**, in
