@@ -218,6 +218,36 @@ final class SourcePageStreamsTests: XCTestCase {
                        "an older backend's row says less, never a guess")
     }
 
+    /// G245 B3 — how deep Cicada went, said in the footer's own style: nothing for `kept` or a value this build does not
+    /// know, one short plain phrase for each of the other three, no provider named.
+    func testTheDepthWordIsQuietForKeptAndOneShortPhraseForTheRest() throws {
+        let today = try XCTUnwrap(ISODay("2026-11-24"))
+        let en = Locale(identifier: "en_US")
+        func card(_ depth: String?) -> ChannelItem {
+            var item = ChannelItem(kind: .media, id: "m", title: "t", day: "2026-11-22", host: "x.com")
+            item.depth = depth
+            item.lists = ["Bookmarks"]
+            return item
+        }
+        XCTAssertNil(SourceItemCardText.depth(card("kept")), "kept is the default and adds no noise")
+        XCTAssertNil(SourceItemCardText.depth(card(nil)))
+        XCTAssertNil(SourceItemCardText.depth(card("deeper-than-we-know")), "an unknown value draws nothing")
+        XCTAssertEqual(SourceItemCardText.depth(card("asked")), "your AI app reads it next")
+        XCTAssertEqual(SourceItemCardText.depth(card("read")), "read")
+        XCTAssertEqual(SourceItemCardText.depth(card("watched")), "watched")
+        let kept = SourceItemCardText.footer(card("kept"), today: today, locale: en)
+        for depth in ["asked", "read", "watched"] {
+            let footer = SourceItemCardText.footer(card(depth), today: today, locale: en)
+            XCTAssertEqual(footer.count, kept.count + 1, "\(depth): one more word in the meta line, nothing else")
+            XCTAssertEqual(footer.dropLast().map { $0 }, kept, "\(depth): the depth word comes last")
+        }
+        XCTAssertEqual(kept, SourceItemCardText.footer(card("deeper-than-we-know"), today: today, locale: en))
+        for word in [Copy.Streams.itemRead, Copy.Streams.itemAsked, Copy.Streams.itemWatched] {
+            XCTAssertEqual(word, word.lowercased(), "the footer's own lowercase style: \(word)")
+            XCTAssertFalse(["claude", "chatgpt", "openai", "gemini", "anthropic"].contains { word.lowercased().contains($0) }, word)
+        }
+    }
+
     // MARK: What is gone
 
     private static func source(_ path: String) throws -> String {

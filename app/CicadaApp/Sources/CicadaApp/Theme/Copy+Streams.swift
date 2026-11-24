@@ -91,8 +91,10 @@ extension Copy {
         // Items (plan 3.2 item 3).
         static let allFolders = "All folders"
         static let folders = "Folders"
+        // How deep Cicada went on a kept item (G245 B3): nothing for `kept`, one quiet word or phrase for the rest.
         static let itemRead = "read"
-        static let itemAsked = "asked about"
+        /// The person talked about it and an ask waits for their own AI app to read or watch it.
+        static let itemAsked = "your AI app reads it next"
         static let itemWatched = "watched"
         static func posted(_ day: String) -> String { "posted \(day)" }
         static func kept(_ age: String) -> String { "kept \(age)" }

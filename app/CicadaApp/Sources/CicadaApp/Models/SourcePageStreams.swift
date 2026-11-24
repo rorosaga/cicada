@@ -312,7 +312,8 @@ enum SourceStreamItems {
 /// An item card's words (plan 3.2 item 3): two lines of the person's own words, and the footer
 /// `author · posted Sunday · Bookmarks · Likes · read` — one date, the lists it is on, the depth word (nothing for kept).
 enum SourceItemCardText {
-    /// The depth word: nothing for `kept`; B3 adds `asked` and `watched`.
+    /// The depth word: nothing for `kept` (the default, so it adds no noise) and for a value this build does not know; one
+    /// quiet word or phrase for `asked`, `read` and `watched`, said in the footer's own style and never a badge.
     static func depth(_ item: ChannelItem) -> String? {
         switch item.depth {
         case "read": Copy.Streams.itemRead
