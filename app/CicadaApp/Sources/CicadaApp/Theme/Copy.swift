@@ -111,7 +111,7 @@ enum Copy {
     static let keepAwakeWriteFailed = "Couldn't change this — nothing changed."
     static let scheduleWriteFailed = "Couldn't change the schedule — nothing changed."
     static let openInSources = "Open in Sources ›"
-    static func moreInDetails(_ n: Int) -> String { "+\(UsageFormat.count(n)) more in Waiting" }
+    static func moreInDetails(_ n: Int) -> String { "+\(UsageFormat.count(n)) more in Queue" }
     /// The lamp popover's line while the lamp is off (§7.2): what a scheduled
     /// run WOULD use, shown before the person lights it (ruling 4 at the
     /// moment of choice).
@@ -182,16 +182,6 @@ enum Copy {
     static func restedBreakdown(volumePct: Int, agePct: Int) -> String {
         "Volume \(volumePct)% · age \(agePct)% of the way to a full backlog"
     }
-
-    /// R-A14/P18 — every `—` on this page carries a hover reason naming why
-    /// the number is unknowable. A cycle's duration is joined from the
-    /// `sleep_run` telemetry ledger by commit hash; with telemetry off (or a
-    /// cycle older than the ledger) there is no row to join, and G107's
-    /// ruling forbids showing a guess in its place.
-    static let noTimingRecorded = "No timing was recorded for that cycle."
-    static let bankListNotLoaded = "The bank list hasn't loaded yet."
-    static let sourceOverviewNotLoaded = "The source overview hasn't loaded yet."
-
 
     // MARK: Sleep engine (G74(a))
 
@@ -338,7 +328,7 @@ enum Copy {
     static let sleepSubtitle = "Fold what's waiting into the graph."
     /// The Sleep page's list of what it read (the Details disclosure until the Sleep redesign, 2026-10-16, which also
     /// retired the "Sleep Cycle" title: the page opens on its eyebrow). Home's links to a read name it.
-    static let sleepDetails = "Past reads"
+    static let sleepDetails = "Past sleeps"
     static let inboxSubtitle = "Questions waiting on you."
     static let agentsSubtitle = "Wire any MCP agent into this Mac's memory."
     static let plansAndKeysSubtitle = "What Cicada bills against, and how it signs in."

@@ -1,28 +1,26 @@
 import SwiftUI
 
 /// G132 phase 2 (ruling 51a; owner 2026-10-29: "Sleep page on the app should show the selected device running
-/// consolidation and you should be able to easily switch") — under the machines strip, only while this memory is
-/// shared with another device: one line naming the device that runs consolidation (the home, which also keeps every
-/// change in order — one concept) with its Sleep state, then every other device with a dot (green while online), its
-/// name and how far behind its copy is, and an inline "Make this the home" on a device that can be. A pick asks once
-/// in a confirmation (the native dialog, as Settings → Devices' revoke does) and that is the hand-off. A lost home
-/// offers "Take over on this computer…", whose confirmation shows how far behind this copy is first. What the backend
-/// says in words (moving, set aside) follows as plain lines. Existing patterns only: the strip's meta line and dot
-/// (MachinesStripView), inline `TextButton`s (DR-40, DR-41: disabled while busy), plain lines with no card (DR-37,
-/// DR-59); nothing drawn when nothing is shared and no disclosure (DR-81); no new motion.
+/// consolidation and you should be able to easily switch") — under the room, only while this memory is shared with
+/// another device AND there is something to do or to say. Since the machine chips (owner 2026-11-24) the chips say who
+/// runs consolidation (the house), who is online and how far behind each copy is; this keeps only what a chip cannot:
+/// an inline "Make this the home" on a device that can be, "Take over on this computer…" for a lost home, and what the
+/// backend says in words (moving, set aside, a refusal) as plain lines. A pick asks once in a confirmation (the native
+/// dialog, as Settings → Devices' revoke does) and that is the hand-off; a take-over's confirmation shows how far behind
+/// this copy is first. Existing patterns only: inline `TextButton`s (DR-40, DR-41: disabled while busy), plain lines
+/// with no card (DR-37, DR-59); nothing drawn when nothing is shared or nothing is to be done (DR-81); no new motion.
 struct HomeStripView: View {
     let model: HomeStripModel
     @State private var pendingMove: HomeOverview.Device?
 
     var body: some View {
-        if model.isShown, let overview = model.overview, let home = overview.home {
+        if model.isShown, let overview = model.overview,
+           HomeStrip.hasNews(overview, movingLine: model.movingLine, problem: model.problem, isMoving: model.isMoving) {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                Text(HomeStrip.homeLine(home))
-                    .font(CicadaTheme.metaFont)
-                    .monospacedDigit()
-                    .foregroundStyle(CicadaTheme.textPrimary)
-                ForEach(overview.devices) { device in
-                    row(device, overview: overview)
+                // The machines — who runs Sleep, who is online, how far behind — are the chips' to say. What is left is
+                // what a chip cannot: moving the home, taking over, and the backend's own words.
+                ForEach(HomeStrip.movable(overview, isMoving: model.isMoving)) { device in
+                    row(device)
                 }
                 if overview.takeOver?.possible == true {
                     TextButton(title: Copy.MemoryHome.takeOver, help: Copy.MemoryHome.takeOverHelp, inline: true,
@@ -71,23 +69,17 @@ struct HomeStripView: View {
         }
     }
 
-    private func row(_ device: HomeOverview.Device, overview: HomeOverview) -> some View {
-        HStack(spacing: CicadaTheme.scaled(6)) {
-            Circle()
-                .fill(device.online ? CicadaTheme.success : CicadaTheme.textTertiary)
-                .frame(width: CicadaTheme.scaled(7), height: CicadaTheme.scaled(7))
-            Text(HomeStrip.deviceLine(device))
+    /// One device that can take the home: its name and the one act, "Make this the home".
+    private func row(_ device: HomeOverview.Device) -> some View {
+        HStack(spacing: CicadaTheme.spacingSM) {
+            Text(device.name)
                 .font(CicadaTheme.metaFont)
-                .monospacedDigit()
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .lineLimit(1)
-            if HomeStrip.offersMove(device, in: overview) && !model.isMoving {
-                TextButton(title: Copy.MemoryHome.makeHome, help: Copy.MemoryHome.makeHomeHelp(device.name),
-                           inline: true) {
-                    pendingMove = device
-                }
-                .disabled(model.busy)
+            TextButton(title: Copy.MemoryHome.makeHome, help: Copy.MemoryHome.makeHomeHelp(device.name), inline: true) {
+                pendingMove = device
             }
+            .disabled(model.busy)
         }
         .accessibilityElement(children: .combine)
     }

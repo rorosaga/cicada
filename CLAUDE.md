@@ -498,7 +498,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   panel closes only on the person's act; the star on a saved page never prompts for Automation (2026-10-19).
 - **Copy is provider-neutral** (owner, 2026-09-30): never name a provider or model as the one doing a job — describe the
   step; a name appears only where it shows the person's own current choice.
-- **Prices and plan usage show only on the Sleep page's Past reads run detail and engine menu** (ruling 12), each figure with its basis.
+- **Prices and plan usage show only on the Sleep page's Past sleeps (Past reads until 2026-11-24) run detail and engine menu** (ruling 12), each figure with its basis.
 - **Sync:** one Store, hydrated from disk, SSE deltas, **never blank**; writes are optimistic with rollback. **Ship an
   ETag and its client mapping together.** A read that is not a Store domain says so and caches in memory.
 - **d3-force stays (G109)**; every custom force multiplies by alpha; the release path never bumps alpha.

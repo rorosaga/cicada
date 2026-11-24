@@ -192,8 +192,9 @@ def populate(bank_dir: Path, today: date | None = None) -> None:
     _write_inbox(bank_dir, episodes, today)
     owner_identity.ensure_owner_entity(bank_dir, "Bob Example")
     _write_claims_with_evidence(bank_dir, episodes, today)
-    _commit_history(bank_dir, today)
+    _commit_history(bank_dir, today, _page_sources(episodes))
     scenario = _write_scenario(bank_dir, today)
+    _record_scenario_sources(bank_dir, scenario)
     _commit_scenario(bank_dir, today, scenario)
     _write_scenario_ownership(bank_dir, today)   # ruling 45 — before the events, whose commits tests read as newest
     _write_scenario_backlog(bank_dir, today)   # G150 R-B26 — before the events: a test reads their commits as newest
@@ -204,6 +205,7 @@ def populate(bank_dir: Path, today: date | None = None) -> None:
     _write_scenario_followups(bank_dir, today)
     _write_showcase(bank_dir, today)   # round 4 T-Demo — so no id or byte the scenario tests pin moves
     _write_source_kinds(bank_dir, today)   # ROR-16 — last, for the same reason
+    _write_retired(bank_dir, today)   # G125 — a decay archive and a removal, the last Sleep run: nothing earlier moves
 
 
 def _write_scenario_ownership(bank_dir: Path, today: date) -> None:
@@ -516,7 +518,71 @@ def _run_commit(bank_dir: Path, message: str, paths: list[str]) -> None:
         asyncio.run(git_service.commit_paths(bank_dir, message, paths))
 
 
-def _commit_history(bank_dir: Path, day: date) -> None:
+def _page_sources(episodes: list[dict]) -> dict[str, list[str]]:
+    """Which generated conversations fed each roster page, the way a real page's ``source_episodes`` records it: the
+    conversations whose sentence names the page, and the one each claim on it was read from (the owner's page aside:
+    its one claim is the person's own, not a Sleep read). Sorted by id, so the bank is deterministic."""
+    by_page: dict[str, set[str]] = {}
+    for record in episodes:
+        for entity_id in record["entities"]:
+            by_page.setdefault(entity_id, set()).add(record["id"])
+    for subject, _predicate, _obj, idx in _CLAIM_SPECS:
+        if subject != "bob-example":
+            by_page.setdefault(subject, set()).add(episodes[idx]["id"])
+    return {entity_id: sorted(ids) for entity_id, ids in by_page.items()}
+
+
+def _set_sources(bank_dir: Path, entity_id: str, ids: list[str], *, extend: bool = False) -> bool:
+    """Write a page's ``source_episodes`` header (frontmatter only; the claims fence is untouched). With ``extend`` the
+    ids are added to what the page holds. True when the file changed."""
+    page = bank_dir / "entities" / f"{entity_id}.md"
+    parsed = markdown_parser.parse(page, ledger=False)
+    fm = dict(parsed.frontmatter)
+    have = [str(e) for e in (fm.get("source_episodes") or [])]
+    merged = sorted(set(have) | set(ids)) if extend else list(ids)
+    if merged == have:
+        return False
+    fm["source_episodes"] = merged
+    markdown_parser.write(page, fm, parsed.body)
+    return True
+
+
+def _record_scenario_sources(bank_dir: Path, scenario: dict) -> None:
+    """The scenario's pages name the conversations that fed them, from the claims each conversation yielded: the
+    subject of a claim, and the page a node claim points at. Only pages the scenario's own commit writes (the owner's
+    and Carol's, made earlier, are updated by it)."""
+    in_commit = {Path(p).stem for p in scenario["paths"] if p.startswith("entities/")}
+    by_page: dict[str, set[str]] = {}
+    for key, subject, _predicate, obj, kind, _text, _quote in _SCENARIO_CLAIMS:
+        by_page.setdefault(subject, set()).add(scenario["episodes"][key])
+        if kind == "node":
+            by_page.setdefault(obj, set()).add(scenario["episodes"][key])
+    for entity_id in sorted(in_commit & set(by_page)):
+        _set_sources(bank_dir, entity_id, sorted(by_page[entity_id]), extend=True)
+
+
+def _write_retired(bank_dir: Path, today: date) -> None:
+    """G125: the Sleep page's Past sleeps shows what a run did to each page — made, changed, archived, removed — so the
+    demo's history ends with the two kinds the earlier runs lack: a night's decay archives one page (its own `(decay)`
+    commit, authored `cicada`, made just before the run's, as a real batch's `_finalize` does) and the run removes
+    another. Two concept pages nothing else in the bank points at, so the rest of the demo reads as it did."""
+    archived, removed = "morning-routine", "knowledge-management"
+    page = bank_dir / "entities" / f"{archived}.md"
+    parsed = markdown_parser.parse(page, ledger=False)
+    fm = dict(parsed.frontmatter)
+    fm["status"] = "archived"
+    markdown_parser.write(page, fm, parsed.body)
+    a_path, r_path = f"entities/{archived}.md", f"entities/{removed}.md"
+    _run_commit(bank_dir, git_service.build_commit_message(
+        f"Sleep cycle {today} (decay)", [f"{a_path}: updated (source: n/a, trigger: decay)"], authors=["cicada"]),
+        [a_path])
+    (bank_dir / r_path).unlink()
+    _run_commit(bank_dir, git_service.build_commit_message(
+        f"Sleep cycle {today}", [f"{r_path}: removed (source: n/a, trigger: sleep/dedup)"],
+        authors=["claude-sonnet-5"], engine="claude-cli"), [r_path])
+
+
+def _commit_history(bank_dir: Path, day: date, sources: dict[str, list[str]] | None = None) -> None:
     """A handful of commits grouped roughly the way a real Sleep cycle would
     write them, so `GET /contributors` and entity-history views have
     something real to show on a bank that has never actually run Sleep.
@@ -561,6 +627,15 @@ def _commit_history(bank_dir: Path, day: date) -> None:
     first_half_episodes = all_episode_paths[:20]
     second_half_episodes = all_episode_paths[20:]
 
+    # G125: a page records the conversations that fed it, and a run's card lists them under the run that read them —
+    # so the first run's pages name the first half's conversations, and the second run, which reads the other half,
+    # makes its own pages and updates the first run's pages those conversations also named.
+    sources = sources or {}
+    first_ids = {Path(p).stem for p in first_half_episodes}
+    second_ids = {Path(p).stem for p in second_half_episodes}
+    for eid in _PEOPLE + _PROJECTS:
+        _set_sources(bank_dir, eid, [e for e in sources.get(eid, []) if e in first_ids])
+
     _run_commit(
         bank_dir,
         git_service.build_commit_message(
@@ -573,17 +648,23 @@ def _commit_history(bank_dir: Path, day: date) -> None:
     )
 
     tools_companies_concepts = [f"entities/{eid}.md" for eid in _TOOLS + _COMPANIES + _CONCEPTS]
+    for eid in _TOOLS + _COMPANIES + _CONCEPTS:
+        _set_sources(bank_dir, eid, [e for e in sources.get(eid, []) if e in second_ids])
+    updated_by_second = [f"entities/{eid}.md" for eid in _PEOPLE + _PROJECTS
+                         if _set_sources(bank_dir, eid, [e for e in sources.get(eid, []) if e in second_ids],
+                                         extend=True)]
     inbox_paths = sorted(p.relative_to(bank_dir).as_posix() for p in (bank_dir / "inbox").glob("*.md"))
     _run_commit(
         bank_dir,
         git_service.build_commit_message(
             f"Sleep cycle {today}",
             [f"{p}: created (source: n/a, trigger: sleep/extraction)"
-             for p in tools_companies_concepts + second_half_episodes + inbox_paths],
+             for p in tools_companies_concepts + second_half_episodes + inbox_paths]
+            + [f"{p}: updated (source: n/a, trigger: sleep/extraction)" for p in updated_by_second],
             authors=["claude-sonnet-5"],
             engine="claude-cli",
         ),
-        tools_companies_concepts + second_half_episodes + inbox_paths,
+        tools_companies_concepts + updated_by_second + second_half_episodes + inbox_paths,
     )
 
     # The owner page ONLY. `entities/bob-example.md` is never referenced by

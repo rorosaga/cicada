@@ -31,10 +31,9 @@ struct SleepRoomColumn: View {
     /// ROR-118 — the page sets the group on the leading edge, beside the room's rectangle (DR-36 amended in §9); the
     /// offscreen layouts keep the centred column.
     var leading = false
-    /// ROR-118 round 2 - "last read 2 h ago", said in the lamp's line beside the room (nil: not said).
-    var lastRead: String? = nil
-    /// ROR-118 round 6 - beside the room the block is laid out to the room's own height: the page's title on top, the
-    /// headline and its lamp line in the middle, the buttons last, the free height shared by two springs, so the block's
+    /// ROR-118 round 6 - beside the room the block is laid out to the room's own height: the page's title on top (the
+    /// name, when Sleep last read, and the machines), the headline in the middle, the run bar last (2026-11-24: the
+    /// engine, the schedule and the one primary as one object), the free height shared by two springs, so the block's
     /// top and bottom edges are the room's whatever the state says (`fillHeight`). The run's instrument is then drawn
     /// by the page under both, at full width, never inside a block whose height the room sets.
     var title: AnyView? = nil
@@ -52,14 +51,11 @@ struct SleepRoomColumn: View {
         VStack(alignment: .leading, spacing: 0) {
             title
             Spacer(minLength: CicadaTheme.spacingMD)
-            VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
-                RoomSentenceView(line: status, answers: answers, room: room, feedAsleep: feedAsleep, perform: perform,
-                                 leading: true)
-                whisperRow.accessibilitySortPriority(RoomA11yOrder.whisper)
-            }
+            RoomSentenceView(line: status, answers: answers, room: room, feedAsleep: feedAsleep, perform: perform,
+                             leading: true)
             Spacer(minLength: CicadaTheme.spacingMD)
             SleepControlRow(consolidateEnabled: page.consolidateEnabled, queuedCount: page.queuedCount, page: page,
-                            leading: true, part: .buttons)
+                            leading: true, part: .buttons, room: room)
                 .accessibilitySortPriority(RoomA11yOrder.control)
                 .tourAnchor(.consolidate)
         }
@@ -71,15 +67,13 @@ struct SleepRoomColumn: View {
             // R-Z5 — the one slot the worm speaks in; an answer replaces the status here (R-Z7).
             RoomSentenceView(line: status, answers: answers, room: room, feedAsleep: feedAsleep, perform: perform,
                              leading: leading)
-            // ROR-118 round 5 - beside the room the schedule is the one fact about the job, so it sits under the
-            // headline it explains (overdue because no schedule), not under the buttons.
-            if leading { whisperRow.accessibilitySortPriority(RoomA11yOrder.whisper) }
+            // Leading (the page's own layout, below 720 pt of column): the run bar, which holds the schedule.
             SleepControlRow(consolidateEnabled: page.consolidateEnabled, queuedCount: page.queuedCount, page: page,
-                            leading: leading)
+                            leading: leading, room: room)
                 .accessibilitySortPriority(RoomA11yOrder.control)
                 .tourAnchor(.consolidate)
             notes
-            if !leading { whisperRow.accessibilitySortPriority(RoomA11yOrder.whisper) }
+            if !leading { centredWhisper.accessibilitySortPriority(RoomA11yOrder.whisper) }
             RunInstrument(page: page, justFinished: room.recentCycleCommit != nil)
         }
         .frame(maxWidth: SleepLayout.contentWidth)
@@ -114,51 +108,29 @@ struct SleepRoomColumn: View {
         }
     }
 
-    /// The schedule in one quiet line (§7.2) — the lamp's text twin (R-A3). Since Z6 it is a control: it opens the
-    /// same `LampPopover` the lamp does, anchored here (Z-P25); the popover's engine line shows the scheduled engine
-    /// ALWAYS, so ruling 4 is on screen at the moment someone chooses to schedule.
-    @ViewBuilder
-    private var whisperRow: some View {
+    /// The schedule in one quiet line (§7.2) — the lamp's text twin (R-A3), in the centred group only; beside the room
+    /// the run bar holds the schedule. Since Z6 it is a control: it opens the same `LampPopover` the lamp does,
+    /// anchored here (Z-P25); the popover's engine line shows the scheduled engine ALWAYS, so ruling 4 is on screen at
+    /// the moment someone chooses to schedule.
+    private var centredWhisper: some View {
         // The switch is the lamp's second door (owner 2026-11-07), beside the sentence that says whether it is on.
         HStack(spacing: CicadaTheme.spacingSM) {
-            if leading { cornerWhisper } else { centredWhisper }
+            centredWhisperButton
             LampSwitch()
         }
-        .frame(maxWidth: .infinity, alignment: leading ? .leading : .center)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
-    /// ROR-118 round 4 - beside the room the schedule is the one fact about the job, so it is a quiet 13 pt
-    /// button (DR-40), the headline's subtitle, never a 12 pt caption under the buttons.
-    private var cornerWhisper: some View {
-        NeutralButton(title: cornerWhisperLine(scheduleText: page.scheduleText, nextRunText: page.nextRunText,
-                                               lampLit: page.lampLit, lastRead: lastRead),
-                      systemImage: "moon.zzz", size: .compact,
-                      help: page.nextRunText.hasSuffix("—") ? Copy.nextRunUnknownReason : Copy.lampHint, quiet: true) {
-            room.lampPopover = .whisper
-        }
-        .roomLinkCursor()
-        .accessibilityHint(Copy.lampHint)
-        .popover(isPresented: Binding(get: { room.lampPopover == .whisper },
-                                      set: { if !$0 { room.lampPopover = nil } }),
-                 arrowEdge: .bottom) { LampPopover(page: page) }
-        .padding(.leading, -CicadaTheme.scaled(10))   // the words hang on the headline's left edge, not the button's padding
-        .padding(.top, -CicadaTheme.spacingXS)
-    }
-
-    private var centredWhisper: some View {
+    private var centredWhisperButton: some View {
         Button { room.lampPopover = .whisper } label: {
             HStack(spacing: CicadaTheme.spacingSM) {
                 Image(systemName: "moon.zzz")
                     .font(CicadaTheme.font(size: 11))
                     .iconHover()
-                Text(leading
-                     ? cornerWhisperLine(scheduleText: page.scheduleText, nextRunText: page.nextRunText,
-                                         lampLit: page.lampLit, lastRead: lastRead)
-                     : whisperLine(scheduleText: page.scheduleText, nextRunText: page.nextRunText,
-                                   lampLit: page.lampLit))
+                Text(whisperLine(scheduleText: page.scheduleText, nextRunText: page.nextRunText, lampLit: page.lampLit))
                     .font(CicadaTheme.captionFont)
             }
-            .foregroundStyle(leading ? CicadaTheme.textSecondary : CicadaTheme.textTertiary)
+            .foregroundStyle(CicadaTheme.textTertiary)
             .contentShape(Rectangle())
         }
         .buttonStyle(.cicadaPlain)

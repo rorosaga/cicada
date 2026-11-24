@@ -1,175 +1,238 @@
 {
+  "archived": [
+    {
+      "change": "archived",
+      "commits": [
+        "0000000000000000000000000000000000000000"
+      ],
+      "displayName": null,
+      "episodes": [],
+      "gone": false,
+      "id": "arch-decay",
+      "name": "Arch Decay",
+      "qualifier": null,
+      "type": "concept"
+    },
+    {
+      "change": "archived",
+      "commits": [
+        "0000000000000000000000000000000000000000"
+      ],
+      "displayName": null,
+      "episodes": [],
+      "gone": false,
+      "id": "arch-batch",
+      "name": "Arch Batch",
+      "qualifier": null,
+      "type": "concept"
+    },
+    {
+      "change": "archived",
+      "commits": [
+        "0000000000000000000000000000000000000000",
+        "0000000000000000000000000000000000000000"
+      ],
+      "displayName": null,
+      "episodes": [
+        "ep_2026-10-01_002"
+      ],
+      "gone": false,
+      "id": "made-then-archived",
+      "name": "Made Then Archived",
+      "qualifier": null,
+      "type": "concept"
+    }
+  ],
   "commits": [
-    "0000000000000000000000000000000000000000",
     "0000000000000000000000000000000000000000",
     "0000000000000000000000000000000000000000"
   ],
   "conversations": [
     {
-      "id": "ep_2026-09-01_000",
+      "device": null,
+      "id": "ep_2026-10-01_000",
+      "meeting": null,
       "origin": "claude-code",
-      "timestamp": "2026-09-01T10:00:00",
+      "pages": [
+        "new-one",
+        "new-two"
+      ],
+      "site": null,
+      "timestamp": "2026-10-01T10:00:00",
       "title": "Conversation 1"
     },
     {
-      "id": "ep_2026-09-01_001",
+      "device": "device-a",
+      "id": "ep_2026-10-01_001",
+      "meeting": null,
       "origin": "claude-code",
-      "timestamp": "2026-09-01T10:00:00",
+      "pages": [
+        "new-two",
+        "upd-one"
+      ],
+      "site": null,
+      "timestamp": "2026-10-01T10:10:00",
       "title": "Conversation 2"
     },
     {
-      "id": "ep_2026-09-01_002",
-      "origin": "claude-code",
-      "timestamp": "2026-09-01T10:00:00",
+      "device": null,
+      "id": "ep_2026-10-01_002",
+      "meeting": null,
+      "origin": "chrome-bookmark",
+      "pages": [
+        "made-then-archived"
+      ],
+      "site": "docs.example.com",
+      "timestamp": "2026-10-01T10:20:00",
       "title": "Conversation 3"
     },
     {
-      "id": "ep_2026-09-01_003",
-      "origin": "claude-code",
-      "timestamp": "2026-09-01T10:00:00",
+      "device": null,
+      "id": "ep_2026-10-01_003",
+      "meeting": {
+        "app": "call-app",
+        "attendees": 2,
+        "durationS": 1800
+      },
+      "origin": "hex",
+      "pages": [
+        "new-three"
+      ],
+      "site": null,
+      "timestamp": "2026-10-01T10:30:00",
       "title": "Conversation 4"
-    },
-    {
-      "id": "ep_2026-09-01_004",
-      "origin": "claude-code",
-      "timestamp": "2026-09-01T10:00:00",
-      "title": "Conversation 5"
-    },
-    {
-      "id": "ep_2026-09-01_005",
-      "origin": "claude-code",
-      "timestamp": "2026-09-01T10:00:00",
-      "title": "Conversation 6"
-    },
-    {
-      "id": "ep_2026-09-01_006",
-      "origin": "claude-code",
-      "timestamp": "2026-09-01T10:00:00",
-      "title": "Conversation 7"
-    },
-    {
-      "id": "ep_2026-09-01_007",
-      "origin": "claude-code",
-      "timestamp": "2026-09-01T10:00:00",
-      "title": "Conversation 8"
-    },
-    {
-      "id": "ep_2026-09-01_008",
-      "origin": "claude-code",
-      "timestamp": "2026-09-01T10:00:00",
-      "title": "Conversation 9"
     }
   ],
   "counts": {
-    "conversations": 9,
-    "created": 9,
+    "archived": 3,
+    "conversations": 4,
+    "created": 3,
     "questions_raised": 0,
     "questions_settled": 0,
-    "updated": 0
+    "removed": 2,
+    "updated": 3
   },
   "created": [
     {
+      "change": "created",
       "commits": [
         "0000000000000000000000000000000000000000"
       ],
       "displayName": null,
+      "episodes": [
+        "ep_2026-10-01_000"
+      ],
       "gone": false,
-      "id": "e-ep_2026-09-01_000",
-      "name": "ep_2026-09-01_000",
+      "id": "new-one",
+      "name": "New One",
       "qualifier": null,
       "type": "concept"
     },
     {
+      "change": "created",
       "commits": [
         "0000000000000000000000000000000000000000"
       ],
       "displayName": null,
+      "episodes": [
+        "ep_2026-10-01_000",
+        "ep_2026-10-01_001"
+      ],
       "gone": false,
-      "id": "e-ep_2026-09-01_001",
-      "name": "ep_2026-09-01_001",
+      "id": "new-two",
+      "name": "New Two",
       "qualifier": null,
       "type": "concept"
     },
     {
+      "change": "created",
       "commits": [
         "0000000000000000000000000000000000000000"
       ],
       "displayName": null,
-      "gone": false,
-      "id": "e-ep_2026-09-01_002",
-      "name": "ep_2026-09-01_002",
-      "qualifier": null,
-      "type": "concept"
-    },
-    {
-      "commits": [
-        "0000000000000000000000000000000000000000"
+      "episodes": [
+        "ep_2026-10-01_003"
       ],
-      "displayName": null,
       "gone": false,
-      "id": "e-ep_2026-09-01_003",
-      "name": "ep_2026-09-01_003",
-      "qualifier": null,
-      "type": "concept"
-    },
-    {
-      "commits": [
-        "0000000000000000000000000000000000000000"
-      ],
-      "displayName": null,
-      "gone": false,
-      "id": "e-ep_2026-09-01_004",
-      "name": "ep_2026-09-01_004",
-      "qualifier": null,
-      "type": "concept"
-    },
-    {
-      "commits": [
-        "0000000000000000000000000000000000000000"
-      ],
-      "displayName": null,
-      "gone": false,
-      "id": "e-ep_2026-09-01_005",
-      "name": "ep_2026-09-01_005",
-      "qualifier": null,
-      "type": "concept"
-    },
-    {
-      "commits": [
-        "0000000000000000000000000000000000000000"
-      ],
-      "displayName": null,
-      "gone": false,
-      "id": "e-ep_2026-09-01_006",
-      "name": "ep_2026-09-01_006",
-      "qualifier": null,
-      "type": "concept"
-    },
-    {
-      "commits": [
-        "0000000000000000000000000000000000000000"
-      ],
-      "displayName": null,
-      "gone": false,
-      "id": "e-ep_2026-09-01_007",
-      "name": "ep_2026-09-01_007",
-      "qualifier": null,
-      "type": "concept"
-    },
-    {
-      "commits": [
-        "0000000000000000000000000000000000000000"
-      ],
-      "displayName": null,
-      "gone": false,
-      "id": "e-ep_2026-09-01_008",
-      "name": "ep_2026-09-01_008",
+      "id": "new-three",
+      "name": "New Three",
       "qualifier": null,
       "type": "concept"
     }
   ],
   "questionsRaised": [],
   "questionsSettled": [],
+  "removed": [
+    {
+      "change": "removed",
+      "commits": [
+        "0000000000000000000000000000000000000000"
+      ],
+      "displayName": null,
+      "episodes": [],
+      "gone": true,
+      "id": "gone-one",
+      "name": "Gone One",
+      "qualifier": null,
+      "type": "person"
+    },
+    {
+      "change": "removed",
+      "commits": [
+        "0000000000000000000000000000000000000000"
+      ],
+      "displayName": null,
+      "episodes": [],
+      "gone": true,
+      "id": "gone-two",
+      "name": "Gone Two",
+      "qualifier": null,
+      "type": "person"
+    }
+  ],
   "truncated": false,
-  "updated": []
+  "updated": [
+    {
+      "change": "updated",
+      "commits": [
+        "0000000000000000000000000000000000000000"
+      ],
+      "displayName": null,
+      "episodes": [],
+      "gone": false,
+      "id": "solo-two",
+      "name": "Solo Two Edited",
+      "qualifier": null,
+      "type": "concept"
+    },
+    {
+      "change": "updated",
+      "commits": [
+        "0000000000000000000000000000000000000000"
+      ],
+      "displayName": null,
+      "episodes": [
+        "ep_2026-10-01_001"
+      ],
+      "gone": false,
+      "id": "upd-one",
+      "name": "Upd One",
+      "qualifier": null,
+      "type": "concept"
+    },
+    {
+      "change": "updated",
+      "commits": [
+        "0000000000000000000000000000000000000000",
+        "0000000000000000000000000000000000000000"
+      ],
+      "displayName": null,
+      "episodes": [],
+      "gone": false,
+      "id": "restored",
+      "name": "Restored",
+      "qualifier": null,
+      "type": "concept"
+    }
+  ]
 }

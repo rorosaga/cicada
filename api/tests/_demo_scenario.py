@@ -27,7 +27,8 @@ TZ = "UTC"
 # simply not patched.
 _STEPS = {"events": "_write_scenario_events", "person": "_write_scenario_person",
           "followups": "_write_scenario_followups", "backlog": "_write_scenario_backlog",
-          "showcase": "_write_showcase", "source_kinds": "_write_source_kinds"}
+          "showcase": "_write_showcase", "source_kinds": "_write_source_kinds",
+          "retired": "_write_retired"}
 
 
 def d(offset: int) -> str:
@@ -35,14 +36,15 @@ def d(offset: int) -> str:
 
 
 def build(tmp_path: Path, *, index: bool = True, events: bool = True, person: bool = True,
-          followups: bool = True, backlog: bool = True, showcase: bool = False, today: date | None = T) -> Path:
+          followups: bool = True, backlog: bool = True, showcase: bool = False, retired: bool = False,
+          today: date | None = T) -> Path:
     """The scenario bank, generated from scratch at ``tmp_path / "demo"`` (~1–3 s of writes and git). Only a test of
     the generator itself (determinism) needs this; every other test takes :func:`demo`'s copy. ``today=None`` is
     `populate`'s own default, the real day."""
     bank = tmp_path / "demo"
     bank_registry.scaffold_bank(bank)
     wanted = {"events": events, "person": person, "followups": followups, "backlog": backlog, "showcase": showcase,
-              "source_kinds": False}
+              "source_kinds": False, "retired": retired}
     with ExitStack() as stack:
         for flag, name in _STEPS.items():
             if not wanted[flag] and hasattr(demo_bank, name):
@@ -71,7 +73,8 @@ def _template_root() -> Path:
 
 
 def demo(tmp_path: Path, *, index: bool = True, events: bool = True, person: bool = True,
-         followups: bool = True, backlog: bool = True, showcase: bool = False, today: date | None = T) -> Path:
+         followups: bool = True, backlog: bool = True, showcase: bool = False, retired: bool = False,
+         today: date | None = T) -> Path:
     """The scenario bank at ``tmp_path / "demo"``: an independent copy of a template :func:`build` made once per
     process for these flags — files, git history and (``index``) the FTS index, with their mtimes, so the index reads
     as fresh. A test may write to its copy freely. ``showcase`` (round 4 T-Demo) is OFF by default: every expectation
@@ -81,11 +84,11 @@ def demo(tmp_path: Path, *, index: bool = True, events: bool = True, person: boo
 
     A caller must not patch ``demo_bank`` before calling it: the template is built once per process for these flags
     and cached, so a patched ``populate`` step would be baked into the copy every later test receives."""
-    key = (index, events, person, followups, backlog, showcase, today or date.today())
+    key = (index, events, person, followups, backlog, showcase, retired, today or date.today())
     template = _TEMPLATES.get(key)
     if template is None or not template.is_dir():
         template = build(_template_root(), index=index, events=events, person=person, followups=followups,
-                         backlog=backlog, showcase=showcase, today=today)
+                         backlog=backlog, showcase=showcase, retired=retired, today=today)
         _TEMPLATES[key] = template
     bank = tmp_path / "demo"
     # An index commit can delete its own journal between the copy's listing and its read.

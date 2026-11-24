@@ -322,14 +322,14 @@ private func sentenceTail(_ ctx: RoomContext) -> SentenceTail? {
         let text = vendor.flatMap { !$0.isEmpty && $0.count <= SentenceLine.maxTail ? $0 : nil }
             ?? (keyLimit ? Copy.SleepV5.keyLimitTail
                 : vendor == nil ? "Stopped at your plan's limit — the rest wait."
-                              : "Stopped at your plan's limit — the reset time is in Past reads.")
+                              : "Stopped at your plan's limit — the reset time is in Past sleeps.")
         return SentenceTail(text: text, tone: .warning, action: .openDetails(.lastCycle))
     }
     if ctx.capped {                                                                              // T5
         return SentenceTail(text: "The rest wait for the next cycle.", action: .openDetails(.lastCycle))
     }
     if let warning = ctx.indexWarning, !warning.isEmpty {                                        // T6
-        return SentenceTail(text: "Finished with a warning — it's in Past reads.", tone: .warning,
+        return SentenceTail(text: "Finished with a warning — it's in Past sleeps.", tone: .warning,
                             action: .openDetails(.lastCycle))
     }
     if ctx.recentCycleCommit != nil {                                                             // T7
@@ -464,14 +464,6 @@ func drainCancelledClause(_ drain: SleepDrainInfo, locale: Locale) -> String {
 /// on the page (T11, which said it again above the controls, retired; DR-38).
 func whisperLine(scheduleText: String, nextRunText: String, lampLit: Bool) -> String {
     lampLit ? "\(scheduleText) · \(nextRunText)" : Copy.lampOffSentence
-}
-
-/// ROR-118 round 2 - the one quiet line under the controls beside the room: the lamp, short, and when Sleep last
-/// read, so "last read" is not a second caption up by the title. `lastRead` is `SleepEyebrow.lastRead`'s phrase.
-func cornerWhisperLine(scheduleText: String, nextRunText: String, lampLit: Bool, lastRead: String?) -> String {
-    if !lampLit, lastRead == nil { return Copy.lampOffSentence }
-    let lamp = lampLit ? "\(scheduleText) · \(nextRunText)" : Copy.SleepV5.lampOffShort
-    return [lamp, lastRead].compactMap { $0 }.joined(separator: " · ")
 }
 
 // MARK: - The slot

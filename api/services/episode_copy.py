@@ -155,3 +155,38 @@ def folder_roots(memory_path: Path) -> Callable[[str], Optional[str]]:
         return cache[folder_id]
 
     return root
+
+
+def own_device_id() -> str | None:
+    """This computer's own device id (a copy that became the home posted under it), or ``None``. Asked once a listing."""
+    from api.services import device_tokens
+
+    try:
+        own = device_tokens.store().own()
+    except Exception:  # noqa: BLE001 - no registry is no own id; the stamp then reads as a device, as it always did
+        return None
+    return own.id if own is not None else None
+
+
+def wire_device(stamp: Any, own_device: str | None = None) -> str | None:
+    """A conversation's ``device`` on the wire: ``None`` for the home itself — an episode stamped with this computer's
+    own id (it was a copy once, then became the home) is the server's, the way ``device_status.snapshot`` counts it in
+    the server row, so a machine's chip count and its filters agree."""
+    value = str(stamp or "") or None
+    return None if value is not None and value == own_device else value
+
+
+def row_facets(fm: Mapping[str, Any], own_device: str | None = None) -> dict[str, Any]:
+    """What a conversation's row shows beside its title, from its header alone: ``site`` (a saved link's own site key,
+    the icon it draws), ``device`` (the device id that posted it; ``None`` is the home itself) and ``meeting`` (the
+    call app, length and invitee count as a plain dict, or ``None``). The ONE helper behind the Waiting list's rows
+    (``GET /sleep/episodes``) and a past run's conversations (``GET /sleep/runs/{id}/items``, items-5), so a row
+    carries the same facts before and after Sleep reads it."""
+    from api.services import channel_items, meeting_transcripts, reading_hosts
+
+    url = channel_items.saved_episode_url(dict(fm))
+    return {
+        "site": reading_hosts.mark_key(url) if url else None,
+        "device": wire_device(fm.get("device"), own_device),
+        "meeting": meeting_transcripts.queue_brief(dict(fm)),
+    }

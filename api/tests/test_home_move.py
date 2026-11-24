@@ -595,3 +595,49 @@ def test_idempotency_keys_travel_to_the_next_home(tmp_path, monkeypatch):
     _status, body, replayed = asyncio.run(idempotency.run_once("dev:b", "/tools/call:cicada_save_episode", "K-1",
                                                                work))
     assert replayed and body == {"text": "saved"} and ran == [1]             # applied once across the move
+
+
+# --- the Sleep page's machines: one liveness rule, one set of facts ---------------------------------------------------------
+
+def test_one_liveness_rule_both_routes_agree_at_the_same_instant(home):
+    """Before 2026-11-24 the same machine read `connected` on /devices/status (600 s) and `online: false` on
+    /sync/home (120 s) five minutes after its last contact. Both routes now ask ``device_status.is_connected``: a
+    machine that keeps a copy polls, so two minutes of silence is silence; one that only sends is heard when it has
+    something to say, so ten minutes."""
+    from datetime import datetime, timedelta, timezone
+
+    from api.services import device_status
+
+    _share()
+    store = device_tokens.store()
+    copy, _ = store.create("copy-example")
+    sender, _ = store.create("sender-example")
+    store.announce(copy.id, bank_id=home_move._pin().id, seq=3)      # noqa: SLF001 — a copy of THIS memory
+    store.touch(sender.id)                                             # a full device that keeps no copy
+    t0 = datetime.now(timezone.utc)
+    for seconds, copy_up, sender_up in ((30, True, True), (300, False, True), (700, False, False)):
+        now = t0 + timedelta(seconds=seconds)
+        page = {d["id"]: d for d in home_move.overview(home, now)["devices"]}
+        rows = {r["id"]: r for r in device_status.snapshot(home, now=now)["devices"]}
+        assert page[copy.id]["online"] is rows[copy.id]["connected"] is copy_up, seconds
+        assert page[sender.id]["online"] is rows[sender.id]["connected"] is sender_up, seconds
+        assert page[copy.id]["lastSeenAt"] == rows[copy.id]["lastSeenAt"]
+
+
+def test_a_status_row_says_home_copy_and_behind_from_the_same_facts_as_the_sleep_page(home):
+    from api.services import device_status, sync_log
+
+    _share()
+    store = device_tokens.store()
+    copy, _ = store.create("copy-example")
+    capture, _ = store.create("phone-example")
+    store.announce(copy.id, bank_id=home_move._pin().id, seq=1)      # noqa: SLF001
+    head = sync_log.head_seq(home)
+    page = {d["id"]: d for d in home_move.overview(home)["devices"]}
+    rows = {r["id"]: r for r in device_status.snapshot(home)["devices"]}
+    assert rows[None]["home"] is True and rows[None]["role"] == "server" and rows[None]["keepsCopy"] is True
+    assert rows[None]["behind"] is None
+    assert rows[copy.id]["home"] is False and rows[copy.id]["keepsCopy"] is True
+    assert rows[copy.id]["behind"] == page[copy.id]["behind"] == max(0, head - 1)
+    assert rows[capture.id]["keepsCopy"] is False and rows[capture.id]["behind"] is None
+    assert all(r["revoked"] is False for r in rows.values())

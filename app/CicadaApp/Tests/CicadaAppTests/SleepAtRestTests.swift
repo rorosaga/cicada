@@ -146,7 +146,10 @@ final class SleepAtRestTests: XCTestCase {
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/CicadaApp/Views/Sleep/SleepHero.swift"), encoding: .utf8)
         XCTAssertTrue(source.contains("EngineLabelButton(size: .compact)"), "D6: the engine label at the row's height")
-        XCTAssertTrue(source.contains("NeutralButton(title: leading ? Copy.SleepV5.optionsShort : Copy.SleepV5.options"), "Options in the row")
+        XCTAssertTrue(source.contains("NeutralButton(title: Copy.SleepV5.options, size: .compact"), "Options in the centred row")
+        // 2026-11-24: beside the room the row is the run bar, Options an icon-only slider mark with its help.
+        XCTAssertTrue(source.contains("IconButton(systemName: \"slider.horizontal.3\", help: Copy.SleepV5.optionsHelp"),
+                      "Options in the run bar")
         XCTAssertFalse(source.contains("TextButton(title: Copy.SleepV5.readingOptions"), "no floating Reading options…")
     }
 }

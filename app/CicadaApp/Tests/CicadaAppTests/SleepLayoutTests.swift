@@ -107,13 +107,36 @@ final class SleepTabTests: XCTestCase {
         XCTAssertEqual(SleepTab.resolve(chosen: .waiting, waitingHasRows: false, saved: 3, videos: 2), .pastReads)
     }
 
+    /// 2026-11-24 - Saved and Videos fold into the trailing ⋯ menu; a list a hand-off opened is on the row, selected,
+    /// until the person leaves it, so nothing is unreachable and nothing is hidden while it is open.
+    func test_savedAndVideosFoldIntoTheMoreMenuUnlessOneIsOpen() {
+        let all = SleepTabRow.tabs([.waiting, .saved, .videos, .pastReads], waiting: 4, saved: 7, videos: 3)
+        func ids(_ tabs: [TextTab<SleepTab>]) -> [SleepTab] { tabs.compactMap(\.id) }
+        let atRest = SleepTabRow.fold(all, selected: .waiting)
+        XCTAssertEqual(ids(atRest.inline), [.waiting, .pastReads])
+        XCTAssertEqual(ids(atRest.folded), [.saved, .videos])
+        XCTAssertEqual(ids(SleepTabRow.fold(all, selected: .pastReads).folded), [.saved, .videos])
+        let saved = SleepTabRow.fold(all, selected: .saved)
+        XCTAssertEqual(ids(saved.inline), [.waiting, .saved, .pastReads], "the open list keeps the row's order")
+        XCTAssertEqual(ids(saved.folded), [.videos])
+        XCTAssertEqual(saved.inline.compactMap(\.count), [4, 7], "its count rides along")
+        let videos = SleepTabRow.fold(all, selected: .videos)
+        XCTAssertEqual(ids(videos.inline), [.waiting, .videos, .pastReads])
+        XCTAssertEqual(ids(videos.folded), [.saved])
+        // Nothing to fold: no menu (an empty `folded` draws nothing).
+        let two = SleepTabRow.tabs([.waiting, .pastReads], waiting: 4, saved: 0, videos: 0)
+        XCTAssertTrue(SleepTabRow.fold(two, selected: .waiting).folded.isEmpty)
+        XCTAssertEqual(SleepTab.allCases.filter(\.isSleepList), [.waiting, .pastReads])
+    }
+
     func test_onlyTheSavedListsHaveFind() {
         XCTAssertEqual(SleepTab.allCases.filter(\.hasFind), [.saved, .videos])
     }
 
-    func test_theTabsCarryTheirCountsAndPastReadsNone() {
+    func test_theTabsCarryTheirCountsAndPastSleepsNone() {
         let tabs = SleepTabRow.tabs([.waiting, .saved, .videos, .pastReads], waiting: 42, saved: 318, videos: 6)
-        XCTAssertEqual(tabs.map(\.label), ["Waiting", "Saved", "Videos", "Past reads"])
+        // 2026-11-24: Queue and Past sleeps are the page's two lists; Saved and Videos fold into the ⋯ menu (`fold`).
+        XCTAssertEqual(tabs.map(\.label), ["Queue", "Saved", "Videos", "Past sleeps"])
         XCTAssertEqual(tabs.map(\.count), [42, 318, 6, nil])
         XCTAssertEqual(SavedViewMenu.label(kind: nil), "View")
         XCTAssertEqual(SavedViewMenu.label(kind: .paper), "View · Papers")
@@ -268,17 +291,14 @@ final class SleepLivenessTests: XCTestCase {
         XCTAssertEqual(Copy.asOf(date, timeZone: TimeZone(identifier: "UTC")!), "as of 16:12")
     }
 
-    /// ROR-118 round 2 - "last read" rides the lamp's line beside the room, one caption; the title row says "Sleep".
-    func test_lastReadJoinsTheLampsLine() {
+    /// 2026-11-24 - "last read" is said once, in the title row ("Sleep · last read 2 h ago"); the schedule's full
+    /// sentence is the run bar's `.help` and the lamp popover's, never a line of its own.
+    func test_lastReadIsInTheTitleAndTheScheduleSentenceIsTheHelp() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let twoHours = ISO8601DateFormatter().string(from: now.addingTimeInterval(-2 * 3_600))
-        XCTAssertEqual(SleepEyebrow.lastRead(lastSleepAt: twoHours, now: now), "last read 2 h ago")
-        XCTAssertNil(SleepEyebrow.lastRead(lastSleepAt: nil, now: now))
-        XCTAssertEqual(cornerWhisperLine(scheduleText: "x", nextRunText: "y", lampLit: false,
-                                         lastRead: "last read 2 h ago"), "The lamp is off — I read when you ask · last read 2 h ago")
-        XCTAssertEqual(cornerWhisperLine(scheduleText: "x", nextRunText: "y", lampLit: false, lastRead: nil),
-                       "The lamp is off — I read when you ask.")
-        XCTAssertEqual(cornerWhisperLine(scheduleText: "Nightly", nextRunText: "Next run 3:00", lampLit: true,
-                                         lastRead: nil), "Nightly · Next run 3:00")
+        XCTAssertEqual(SleepEyebrow.text(waiting: 0, lastSleepAt: twoHours, now: now), "Sleep · last read 2 h ago")
+        XCTAssertEqual(whisperLine(scheduleText: "x", nextRunText: "y", lampLit: false), Copy.lampOffSentence)
+        XCTAssertEqual(whisperLine(scheduleText: "Nightly", nextRunText: "Next run 3:00", lampLit: true),
+                       "Nightly · Next run 3:00")
     }
 }

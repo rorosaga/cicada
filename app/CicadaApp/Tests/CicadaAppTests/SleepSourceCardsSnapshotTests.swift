@@ -207,7 +207,11 @@ final class SleepSourceCardsSnapshotTests: XCTestCase {
         }
     }
 
-    /// Past reads as cards with the sources' marks (owner 2026-11-23), one open with a page's change shown.
+    /// Past sleeps as the Queue's cards (owner 2026-11-24), from the SHARED fixtures the backend writes: a run closed,
+    /// and opened with every case — two sources and a meeting, a conversation from another machine, a saved link's site,
+    /// one page of each change kind, a page two conversations fed, and the pages no conversation stands behind — at the
+    /// page's 1,040 pt column; the filter on one kind; a page's change open; one machine selected; and an older
+    /// backend's items (no attribution).
     func test_writeThePastReadsCards() async throws {
         guard let dir = ProcessInfo.processInfo.environment["CICADA_SLEEP_CARDS_SNAPSHOTS"], !dir.isEmpty else {
             throw XCTSkip("set CICADA_SLEEP_CARDS_SNAPSHOTS=<dir> to write the review renders")
@@ -218,6 +222,16 @@ final class SleepSourceCardsSnapshotTests: XCTestCase {
         let store = Store(cache: SnapshotCache(root: FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)), api: FakeSyncAPI())
         let vm = SleepViewModel(store: store, putSchedule: { $0 })
+        let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("fixtures")
+        func fixture<T: Decodable>(_ type: T.Type, _ name: String) throws -> T {
+            try JSONDecoder().decode(T.self, from: Data(contentsOf: fixtures.appendingPathComponent(name)))
+        }
+        // The fixture's run, moved to last night so the head reads "Today, …" like a real card.
+        let runJSON = try String(contentsOf: fixtures.appendingPathComponent("sleep-history-run.json"), encoding: .utf8)
+            .replacingOccurrences(of: "2026-09-30T10:14:00+00:00", with: "2026-11-24T02:10:00+00:00")
+            .replacingOccurrences(of: "2026-09-30T17:05:00+00:00", with: "2026-11-24T04:25:00+00:00")
+        let run = try JSONDecoder().decode(SleepHistoryEntry.self, from: Data(runJSON.utf8))
         func cycle(_ commit: String, _ date: String, episodes: Int, created: Int, updated: Int) throws -> SleepHistoryEntry {
             try JSONDecoder().decode(SleepHistoryEntry.self, from: Data("""
             {"commitHash": "\(commit)", "date": "\(date)", "message": "Sleep cycle", "filesChanged": [],
@@ -227,30 +241,26 @@ final class SleepSourceCardsSnapshotTests: XCTestCase {
                               "equivCostUsd": 0.03, "plan": null, "planShare": []}}
             """.utf8))
         }
-        let entries = [try cycle("aaa1111", "2026-11-23T03:00:00+00:00", episodes: 9, created: 1, updated: 18),
-                       try cycle("bbb2222", "2026-11-22T03:00:00+00:00", episodes: 12, created: 0, updated: 4),
-                       try cycle("ccc3333", "2026-11-21T03:00:00+00:00", episodes: 1, created: 0, updated: 5)]
+        // An older backend's items: conversations and pages with no attribution at all.
         func conv(_ id: String, _ origin: String, _ title: String) -> SleepConsolidated.Conversation {
             .init(id: id, title: title, origin: origin, timestamp: "2026-11-22T18:00:00+00:00")
         }
-        let first = SleepConsolidated(
-            commits: ["aaa1111"],
+        let older = SleepConsolidated(
+            commits: ["bbb2222"],
             conversations: [conv("ep_1", "claude-code", "Planning the alpha-project release"),
                             conv("ep_2", "claude-code", "Why the beta-tool tests flake"),
-                            conv("ep_3", "chatgpt", "A reading list for the week"),
-                            conv("ep_4", "telegram", "Dinner on Friday")],
-            created: [.init(id: "gamma-idea", name: "gamma-idea", commits: ["aaa1111"])],
-            updated: [.init(id: "alpha-project", name: "alpha-project", commits: ["aaa1111"]),
-                      .init(id: "bob-example", name: "bob-example", commits: ["aaa1111"]),
-                      .init(id: "beta-tool", name: "beta-tool", commits: ["aaa1111"]),
-                      .init(id: "delta-place", name: "delta-place", commits: ["aaa1111"])],
-            questionsRaised: [.init(id: "inbox-1", title: "Is beta-tool the same as beta-runner?")],
-            counts: ["conversations": 9, "created": 1, "updated": 18, "questions_raised": 3, "questions_settled": 0])
-        let second = SleepConsolidated(
-            commits: ["bbb2222"], conversations: [conv("ep_5", "chrome-bookmark", "A guide to continuous corners")],
-            updated: [.init(id: "alpha-project", name: "alpha-project"), .init(id: "beta-tool", name: "beta-tool")],
-            counts: ["conversations": 12, "created": 0, "updated": 4])
-        let items: [SleepConsolidatedKey: SleepConsolidated] = [.commit("aaa1111"): first, .commit("bbb2222"): second]
+                            conv("ep_3", "chatgpt", "A reading list for the week")],
+            created: [.init(id: "gamma-idea", name: "gamma-idea", commits: ["bbb2222"])],
+            updated: [.init(id: "alpha-project", name: "alpha-project", commits: ["bbb2222"]),
+                      .init(id: "beta-tool", name: "beta-tool", commits: ["bbb2222"])],
+            counts: ["conversations": 3, "created": 1, "updated": 2])
+        let entries = [run, try cycle("bbb2222", "2026-11-22T03:00:00+00:00", episodes: 3, created: 1, updated: 2),
+                       try cycle("ccc3333", "2026-11-21T03:00:00+00:00", episodes: 1, created: 0, updated: 5)]
+        let fresh = try fixture(SleepConsolidated.self, "sleep-run-items.json")
+        let items: [SleepConsolidatedKey: SleepConsolidated] = [.run("sleep_leg1"): fresh, .commit("bbb2222"): older]
+        let machines = [MachineStatus(deviceId: nil, name: "saga-01", role: "server", connected: true, how: "local",
+                                      queue: 0, current: true, home: true),
+                        MachineStatus(deviceId: "device-a", name: "device-a", connected: true, how: "tailscale", queue: 0)]
         let diff = EntityDiff(added: "", removed: "", lines: [
             .init(kind: "hunk", text: "@@ -12,4 +12,5 @@"),
             .init(kind: "context", oldLine: 12, newLine: 12, text: "## Where it stands"),
@@ -263,22 +273,28 @@ final class SleepSourceCardsSnapshotTests: XCTestCase {
         for mode in [AppColorScheme.light, .dark] {
             CicadaTheme.mode = mode
             let name = mode == .dark ? "dark" : "light"
-            let list = ConsolidationHistoryCard(entries: entries, details: [:], expanded: nil, items: items,
-                                                onToggle: { _ in })
-                .padding(CicadaTheme.spacingLG)
-            try snapshot(list, size: CGSize(width: 760, height: 430), mode: mode, store: store, vm: vm,
-                         to: URL(fileURLWithPath: dir).appendingPathComponent("past-reads-\(name).png"))
-            let open = ConsolidationHistoryCard(entries: Array(entries.prefix(1)), details: [:], expanded: "aaa1111",
-                                                items: items, onToggle: { _ in })
-                .padding(CicadaTheme.spacingLG)
-            try snapshot(open, size: CGSize(width: 760, height: 760), mode: mode, store: store, vm: vm,
-                         to: URL(fileURLWithPath: dir).appendingPathComponent("past-reads-open-\(name).png"))
-            let row = RunPageRow(page: .init(id: "alpha-project", name: "alpha-project"), isNew: false,
-                                 commits: ["aaa1111"], initiallyOpen: true, loadDiff: { _, _, _ in diff })
-                .padding(CicadaTheme.spacingLG)
-                .background(CicadaTheme.bgFocus)
-            try snapshot(row, size: CGSize(width: 640, height: 220), mode: mode, store: store, vm: vm,
-                         to: URL(fileURLWithPath: dir).appendingPathComponent("past-reads-change-\(name).png"))
+            func write<V: View>(_ view: V, _ height: CGFloat, _ file: String) throws {
+                let framed = view
+                    .padding(.horizontal, CicadaTheme.spacingXL)
+                    .environment(\.runPageDiffLoader, { _, _, _ in diff })
+                try snapshot(framed, size: CGSize(width: 1_040 + 2 * 24, height: height), mode: mode, store: store, vm: vm,
+                             to: URL(fileURLWithPath: dir).appendingPathComponent("\(file)-\(name).png"))
+            }
+            func history(expandedRun: String? = nil, expanded: String? = nil, machineId: String? = nil, filter: SleepConsolidated.Change? = nil,
+                         page: String? = nil, only: Int = 3) -> some View {
+                ConsolidationHistoryCard(entries: Array(entries.prefix(only)), details: [:], expanded: expanded,
+                                         expandedRun: expandedRun, items: items, onToggle: { _ in },
+                                         machineId: machineId, machineName: machineId.map { _ in "device-a" },
+                                         machines: machines, initialFilter: filter, initiallyOpenPage: page)
+                    .padding(.vertical, CicadaTheme.spacingLG)
+            }
+            try write(history(), 430, "past-sleeps")
+            try write(history(expandedRun: "sleep_leg1", only: 1), 1_560, "past-sleeps-open")
+            try write(history(expandedRun: "sleep_leg1", filter: .archived, only: 1), 760, "past-sleeps-open-archived")
+            try write(history(expandedRun: "sleep_leg1", page: "ep_2026-10-01_001|upd-one", only: 1), 1_560,
+                      "past-sleeps-open-change")
+            try write(history(expandedRun: "sleep_leg1", machineId: "device-a", only: 1), 620, "past-sleeps-machine")
+            try write(history(expanded: "bbb2222", only: 2), 900, "past-sleeps-older-backend")
         }
     }
 

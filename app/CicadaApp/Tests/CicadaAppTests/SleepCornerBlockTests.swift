@@ -36,7 +36,7 @@ final class SleepCornerBlockTests: XCTestCase {
         if finished { host.room.recentCycleCommit = "abc1234" }
         let context = page.roomContext(recentCycleCommit: host.room.recentCycleCommit, locale: SleepRunStripTests.en)
         let words = SleepRoomColumn(page: page, status: roomSentence(context), answers: [], room: host.room,
-                                    leading: true, lastRead: "2 h ago",
+                                    leading: true,
                                     title: AnyView(EyebrowRow(eyebrow: "Sleep", bare: true) { EmptyView() }),
                                     fillHeight: roomHeight)
         return SleepRunStripTests.environment(words.frame(width: wordsWidth, alignment: .leading), host: host)

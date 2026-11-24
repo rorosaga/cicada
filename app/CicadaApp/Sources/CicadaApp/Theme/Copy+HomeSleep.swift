@@ -66,10 +66,6 @@ extension Copy {
     enum SleepUsage {
         static let notRecorded = "Usage not recorded"
         /// Say it once — Past nights' label carries what no row recorded, instead of every row repeating it.
-        static let pastNights = "Past nights"
-        static let usageNotRecordedNote = "usage not recorded"
-        static let timeNotRecordedNote = "time not recorded"
-        static let usageAndTimeNotRecorded = "usage and time not recorded"
         static let noCalls = "No model calls"
         static let ranLocally = "Ran on this Mac"
         static let modelsTitle = "Models"
@@ -247,16 +243,6 @@ extension Copy {
             "\(UsageFormat.count(processed, locale: locale)) of \(UsageFormat.count(queued, locale: locale)) processed — the rest stay queued for the next cycle."
         }
         static let warningTitle = "Completed with warnings"
-        static let inMemory = "In memory"
-        static let feedingIt = "Feeding it"
-        static let lastCycleTook = "Last cycle took"
-        static let lastBatchTook = "Last batch took"
-        static let lastEngine = "Last engine"
-        /// The engine row's dash reason. Not "Sleep hasn't run": `lastEngine` is also nil while the
-        /// status is still loading and on an older backend, and a dash's reason is never a guess (R-A14).
-        static let noEngineYet = "No cycle has reported its engine yet."
-        /// The readout's dash while no cycle in the recent history has finished (one still reads, or is paused).
-        static let noFinishedCycle = "No finished cycle to show yet."
         static let untitled = "Untitled"
     }
 
@@ -298,11 +284,10 @@ extension Copy {
         // `capText` is a sentence that passes 60 characters once its counts have four digits, so it
         // stays off this list (Task 3).
         SleepDetailsWords.failedTitle, SleepDetailsWords.cancelledTitle, SleepDetailsWords.cancelledText,
-        SleepDetailsWords.drainTitle, SleepDetailsWords.stoppedTitle, SleepDetailsWords.lastBatchTook,
+        SleepDetailsWords.drainTitle, SleepDetailsWords.stoppedTitle,
         SleepDetailsWords.pausedTitle, SleepUsage.lastBatchTitle,
-        SleepDetailsWords.capTitle(2), SleepDetailsWords.warningTitle, SleepDetailsWords.inMemory,
-        SleepDetailsWords.feedingIt, SleepDetailsWords.lastCycleTook, SleepDetailsWords.lastEngine,
-        SleepDetailsWords.noEngineYet, SleepDetailsWords.noFinishedCycle, SleepDetailsWords.untitled,
+        SleepDetailsWords.capTitle(2), SleepDetailsWords.warningTitle,
+        SleepDetailsWords.untitled,
         SleepUsage.notRecorded, SleepUsage.noCalls, SleepUsage.ranLocally, SleepUsage.modelsTitle,
         SleepUsage.lastCycleTitle, SleepUsage.windowReset,
         // `writtenByAnAgentHelp`, `noSubfolders`, `notOnThisMac` and `manageHelp` are sentences over 60 characters,

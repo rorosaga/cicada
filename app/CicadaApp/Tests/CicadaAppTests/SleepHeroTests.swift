@@ -205,42 +205,6 @@ final class SleepHeroTests: XCTestCase {
         XCTAssertNil(heroMeterHelp(.rested(pct: 42), debt: nil))
     }
 
-    // MARK: readoutRows — R-A6's measured values as rows (R-HS15)
-
-    func test_readoutRowsAreFourAndMeasured() {
-        let en = Locale(identifier: "en_US")
-        let rows = readoutRows(entityCount: 1_904, sourceCount: 6, lastDurationMs: 252_000, lastEngine: "claude-cli",
-                               engineDetail: nil, locale: en)
-        XCTAssertEqual(rows.map(\.key), ["In memory", "Feeding it", "Last cycle took", "Last engine"])
-        XCTAssertEqual(rows.map(\.value), ["1,904 entities", "6 sources", "4 m 12 s", Copy.engineLabel("claude-cli")])
-        XCTAssertTrue(rows.allSatisfy { $0.reason == nil }, "a real value carries no dash reason")
-        XCTAssertEqual(rows.last?.engine, "claude-cli", "the engine row wears its mark (DR-52)")
-        // de_DE, not es_ES: CLDR gives es_ES `minimumGroupingDigits = 2`, so Spanish leaves a
-        // four-digit count ungrouped ("1904") — `SourcesV2Tests` records the same choice.
-        XCTAssertEqual(readoutRows(entityCount: 1_904, sourceCount: 1, lastDurationMs: nil, lastEngine: nil,
-                                   engineDetail: nil, locale: Locale(identifier: "de_DE")).first?.value,
-                       "1.904 entities", "DR-21 — the reader's locale, never String(n)")
-    }
-
-    func test_readoutRowsUseADashWithAReasonForEveryUnknown() {
-        for row in readoutRows(entityCount: nil, sourceCount: nil, lastDurationMs: nil, lastEngine: nil, engineDetail: nil) {
-            XCTAssertEqual(row.value, "—", "\(row.key) invented a value it does not have")
-            XCTAssertFalse((row.reason ?? "").isEmpty, "\(row.key): every dash names why")
-        }
-    }
-
-    func test_readoutRowsPluraliseAndNeverForecast() {
-        let one = readoutRows(entityCount: 1, sourceCount: 1, lastDurationMs: 900, lastEngine: "ollama",
-                              engineDetail: "example-local", locale: Locale(identifier: "en_US"))
-        XCTAssertEqual(one.map(\.value), ["1 entity", "1 source", "0 s", "\(Copy.engineLabel("ollama")) · example-local"])
-        for row in one {
-            let text = "\(row.key) \(row.value) \(row.reason ?? "")".lowercased()
-            for banned in ["cluster", "insight", "estimate", "~", "$", "token"] {
-                XCTAssertFalse(text.contains(banned), "\"\(text)\" contains \"\(banned)\"")
-            }
-        }
-    }
-
     // MARK: The meter is a sentence (DESIGN_RULES §10, Sleep; R-HS15)
 
     func test_theRestedMeterIsASentence() {

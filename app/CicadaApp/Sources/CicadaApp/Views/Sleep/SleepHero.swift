@@ -192,202 +192,6 @@ func heroMeterHelp(_ meter: HeroMeter, debt: SleepDebtView?) -> String? {
     return Copy.restedBreakdown(volumePct: debt.volumePct, agePct: debt.agePct)
 }
 
-// MARK: - The readout rows (R-A6, R-HS15)
-
-/// Details › Readout as rows (R-HS15): R-A6's measured values — present tense, never a forecast —
-/// and the last cycle's engine, each a key on the left and its value on the right, `—` with its
-/// reason on hover for anything unknown (R-A14/P18). Counts go through `UsageFormat` (DR-21: the
-/// tiles printed `String(n)`, so a German reader saw 1904, not 1.904). Every input is a Store domain
-/// or `SleepPageModel` (P6).
-///
-/// "The last cycle" is the newest `kind == "sleep"` commit (Z-P3, `lastCycleEntry`): neither the G85
-/// `(decay)` commit nor an inbox-resolution commit is a cycle, and its duration is the `sleep_run`
-/// telemetry join — `—` when no row joined (G107: a measured duration or nothing).
-struct ReadoutRow: Equatable, Identifiable {
-    let id: String
-    let key: String
-    let value: String
-    let reason: String?
-    /// The engine the value names, for its mark (DR-52); nil on every other row.
-    let engine: String?
-}
-
-func readoutRows(entityCount: Int?, sourceCount: Int?, lastDurationMs: Int?, lastEngine: String?,
-                 engineDetail: String?, lastIsOneBatch: Bool = false, hasFinishedCycle: Bool = true,
-                 engineShownBelow: Bool = false, locale: Locale = .autoupdatingCurrent) -> [ReadoutRow] {
-    let entities = entityCount.map { "\(UsageFormat.count($0, locale: locale)) \($0 == 1 ? "entity" : "entities")" }
-    let sources = sourceCount.map { "\(UsageFormat.count($0, locale: locale)) \($0 == 1 ? "source" : "sources")" }
-    let engine = lastEngine.map { id in
-        ([Copy.engineLabel(id)] + [engineDetail].compactMap { $0 }.filter { !$0.isEmpty }).joined(separator: " · ")
-    }
-    // Say it once (owner 2026-10-19) — Past nights' newest row names the same engine with its mark, so the readout
-    // keeps its engine row only for what that row cannot say: the reason the backend gave for the engine.
-    let engineSaidBelow = engineShownBelow && lastEngine != nil && (engineDetail ?? "").isEmpty
-    let rows = [
-        ReadoutRow(id: "entities", key: Copy.SleepDetailsWords.inMemory, value: entities ?? "—",
-                   reason: entityCount == nil ? Copy.bankListNotLoaded : nil, engine: nil),
-        ReadoutRow(id: "sources", key: Copy.SleepDetailsWords.feedingIt, value: sources ?? "—",
-                   reason: sourceCount == nil ? Copy.sourceOverviewNotLoaded : nil, engine: nil),
-        ReadoutRow(id: "lastCycle", key: lastIsOneBatch ? Copy.SleepDetailsWords.lastBatchTook : Copy.SleepDetailsWords.lastCycleTook,
-                   value: SleepHistoryPresentation.durationText(ms: lastDurationMs),
-                   reason: lastDurationMs != nil ? nil
-                       : hasFinishedCycle ? Copy.noTimingRecorded : Copy.SleepDetailsWords.noFinishedCycle,
-                   engine: nil),
-        ReadoutRow(id: "engine", key: Copy.SleepDetailsWords.lastEngine, value: engine ?? "—",
-                   reason: lastEngine != nil ? nil
-                       : hasFinishedCycle ? Copy.SleepDetailsWords.noEngineYet : Copy.SleepDetailsWords.noFinishedCycle,
-                   engine: lastEngine),
-    ]
-    return engineSaidBelow ? rows.filter { $0.id != "engine" } : rows
-}
-
-// MARK: - The readout (Details › Readout)
-
-/// Details › Readout (Track Z §4.2): the meter's sentence that never renders
-/// without its noun (R-A5), the no-baseline line, and four measured key–value
-/// rows (R-A6, R-HS15) — the three former tiles and the engine the last cycle
-/// ran on. It stays in THIS file so "Rested" is still
-/// spelled by exactly one file (`SleepNumbersLintTests`).
-///
-/// It was the hero that sat under the study room. Track Z Z2 took its other
-/// halves away: the promoted count and its qualifier chip became the room's
-/// sentence lead (`roomSentence`, which asks `heroCount`/`heroQualifier`
-/// rather than re-deriving them — parity by construction), and the one
-/// Consolidate/Cancel control became `SleepControlRow` below. Z3 moved what was
-/// left into Details, and took the no-baseline line and the engine line with
-/// it, so every number the default view no longer shows lives in one section.
-///
-/// Every input is resolved by the caller, once per body evaluation (H1), so
-/// the readout can never disagree with the book pile or the queue about
-/// which cycle's counts it is showing.
-struct SleepReadoutView: View {
-    @Environment(Store.self) private var store
-
-    let mood: BookwormState
-    let debt: SleepDebtView?
-    /// The sums of `resolveOriginCounts` — the running meter's two numbers.
-    let read: Int
-    let total: Int
-    /// The latest finished cycle's measured time (`LastCycleFigures`: a drain's whole run, Z-P3's
-    /// `kind == "sleep"` rule kept — an inbox resolution is never timed as "the last cycle").
-    let lastDurationMs: Int?
-    /// The figures are one batch's because its run summary is missing (G163): the duration row says so.
-    var lastIsOneBatch: Bool = false
-    /// The engine that latest finished cycle's commits name — not the status's in-memory engine, which every run
-    /// start resets.
-    let lastEngine: String?
-    let engineDetail: String?
-    /// Whether history holds a finished cycle at all: a dash then says there is none yet, not "not recorded".
-    var hasFinishedCycle: Bool = true
-    /// Past nights' newest row names this engine (say it once).
-    var engineShownBelow: Bool = false
-
-    /// R-HS15 — the meter is a sentence and the tiles and the engine line are key–value rows, under
-    /// the section's label, no card (DR-37). R-A5 still holds: `heroMeter` returning `nil` is what
-    /// hides the sentence, and no path draws a bare percentage. A `.rested` meter only exists when
-    /// `debt` does, so the `?? 0` below never speaks.
-    var body: some View {
-        SleepDetailsSection(title: "Readout") {
-            if let meter = heroMeter(mood: mood, debt: debt, read: read, total: total) {
-                let sentence = meter.sentence(unprocessed: debt?.unprocessedCount ?? 0, mood: mood)
-                Text(sentence)
-                    .font(CicadaTheme.detailBodyFont)
-                    .foregroundStyle(CicadaTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    // An empty help string renders no tooltip — `.reading` has nothing to explain.
-                    .help(heroMeterHelp(meter, debt: debt) ?? "")
-                    .padding(.horizontal, CicadaTheme.scaled(10))
-                    .padding(.top, CicadaTheme.scaled(6))
-                    .padding(.bottom, CicadaTheme.spacingSM)
-                    // A tooltip is sighted-only, so the breakdown joins the label here (R-A15:
-                    // every mark has a text twin), as it did on the meter's label.
-                    .accessibilityLabel([sentence, heroMeterHelp(meter, debt: debt)]
-                        .compactMap { $0 }
-                        .joined(separator: " — "))
-            } else {
-                noBaselineLine
-                    .padding(.horizontal, CicadaTheme.scaled(10))
-            }
-            ForEach(readoutRows(entityCount: activeBankEntityCount, sourceCount: feedingSourceCount,
-                                lastDurationMs: lastDurationMs, lastEngine: lastEngine,
-                                engineDetail: engineDetail, lastIsOneBatch: lastIsOneBatch,
-                                hasFinishedCycle: hasFinishedCycle,
-                                engineShownBelow: engineShownBelow)) { readoutRow($0) }
-        }
-    }
-
-    /// A key–value row (DR-34: `RowMetrics.keyValue`): the key in `textTertiary`, the engine's mark
-    /// when the row names one, the value in 13 medium, tabular.
-    private func readoutRow(_ row: ReadoutRow) -> some View {
-        HStack(spacing: CicadaTheme.spacingMD) {
-            Text(row.key)
-                .font(CicadaTheme.bodyFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .frame(width: CicadaTheme.scaled(150), alignment: .leading)
-            if let engine = row.engine { EngineMark(engine: engine, size: CicadaTheme.scaled(12)) }
-            Text(row.value)
-                .font(CicadaTheme.rowFont)
-                .monospacedDigit()
-                .foregroundStyle(CicadaTheme.textPrimary)
-                .lineLimit(2)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, CicadaTheme.scaled(10))
-        .frame(minHeight: CicadaTheme.scaled(RowMetrics.keyValue))
-        // An empty help string renders no tooltip, so a real value carries none — the reason
-        // belongs to the dash (P18).
-        .help(row.reason ?? "")
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(row.key), \(row.value)\(row.reason.map { " — \($0)" } ?? "")")
-    }
-
-    // MARK: No baseline
-
-    /// The one thing the meter CANNOT say: that there is no baseline at all.
-    /// Moved from `SleepView.moodDetailLine` (Track Z Z3).
-    ///
-    /// G125 v3 Task 5 (R-A8) deleted this line's running branch — the
-    /// `Text("Stage \(stage) of 5")` and the bare `ProgressView` the stage
-    /// strip replaced. The round-2 live check deleted its idle branch for the
-    /// same reason one step further on: it drew `Rested n% — volume v%, age
-    /// a%` directly under a meter already labelled `Rested n%`, so **the same
-    /// number was on screen twice** (R-A5 — one number, one place). The
-    /// volume/age split is the sentence's hover text now (`heroMeterHelp`).
-    ///
-    /// What is left is the branch the meter has no way to draw. `heroMeter`
-    /// returns `nil` when `restedPct` is nil, so without this line a bank
-    /// where Sleep has never run would show nothing at all where the meter
-    /// sits — and silence reads as "fine", which is the opposite of the truth.
-    ///
-    /// The `.sleeping` guard survives as an explicit empty branch: a baseline
-    /// is what the queue looks like BETWEEN cycles, so mid-cycle it would sit
-    /// stale next to a live readout.
-    @ViewBuilder
-    private var noBaselineLine: some View {
-        if case .sleeping = mood {
-            EmptyView()
-        } else if let debt, debt.restedPct == nil {
-            // No baseline: the queue is empty and Sleep has never run in
-            // this bank — an honest state, not a fabricated 100%.
-            Text("No baseline yet — Sleep hasn't run in this bank.")
-                .font(CicadaTheme.metaFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-        }
-    }
-
-    /// The ACTIVE bank's entity count from `GET /banks` (P6) — `nil` until
-    /// the roster has loaded, which reads as `—` rather than a zero.
-    private var activeBankEntityCount: Int? {
-        store.banks.value?.banks.first { $0.active }?.entityCount
-    }
-
-    /// The same `sourcesOverview` rows the Sources grid draws, counted once:
-    /// a source that has captured nothing is not feeding anything.
-    private var feedingSourceCount: Int? {
-        store.sourcesOverview.value.map { rows in rows.filter { $0.episodes > 0 }.count }
-    }
-}
-
 // MARK: - The one control (R-A7, Track Z §4.2)
 
 /// While a cycle runs, what Cancel does; otherwise nothing — the engine menu beside the control
@@ -430,6 +234,9 @@ struct SleepControlRow: View {
     /// a state with more to say never makes the block taller than the room.
     enum Part { case all, buttons, captions }
     var part: Part = .all
+    /// The room's interaction state: the run bar's schedule opens the lamp's popover through it. Only the page's
+    /// leading layout (the bar) needs it.
+    var room: RoomModel? = nil
 
     @State private var optionsOpen = false
 
@@ -444,7 +251,11 @@ struct SleepControlRow: View {
 
     var body: some View {
         VStack(alignment: leading ? .leading : .center, spacing: CicadaTheme.spacingSM) {
-            if part != .captions { buttonRow }
+            if part != .captions {
+                // Beside the room (the page's layout) the row is the run bar; the centred group below is the
+                // offscreen layout the at-rest and run-strip tests lay out.
+                if leading, let room, let page { runBar(page: page, room: room) } else { buttonRow }
+            }
             if part != .buttons { captions }
         }
         .padding(.top, part == .captions && hasCaptions ? CicadaTheme.spacingSM : 0)
@@ -462,24 +273,61 @@ struct SleepControlRow: View {
         }
     }
 
+    /// The page's one run bar (`SleepRunBar.swift` holds its quiet parts): what will run, when, and the go button in
+    /// one soft block. A narrow column drops words in order — the engine to its model, then the schedule to its
+    /// moon and switch — and never the primary.
+    private func runBar(page: SleepPageModel, room: RoomModel) -> some View {
+        ViewThatFits(in: .horizontal) {
+            ForEach(RunBarLevel.allCases, id: \.self) { level in barContent(page: page, room: room, level: level) }
+        }
+        .softCard(shape: .block, inset: .snug, fillsWidth: true)
+    }
+
+    private func barContent(page: SleepPageModel, room: RoomModel, level: RunBarLevel) -> some View {
+        HStack(spacing: CicadaTheme.spacingXS) {
+            // The owner's quick switch (R-HS8, R-HS9). It stays while a cycle runs: a change applies to the next one
+            // (G80). It names the person's own engine and model — never another.
+            RunBarEngine(short: level.engineIsShort)
+            RunBarSchedule(page: page, room: room, glyphOnly: !level.schedule)
+            if showsOptionsLink { optionsButton }
+            Spacer(minLength: CicadaTheme.spacingSM)
+            if paused != nil, !sleepVM.isRunning {
+                TextButton(title: Copy.SleepV5.endRun, help: Copy.SleepV5.endRunHelp) {
+                    Task { await sleepVM.endRun() }
+                }
+            }
+            primaryButton(short: level.primaryIsShort)
+        }
+    }
+
+    /// Options opens the reading options (how often a run saves, what it runs on): a slider mark, said in `.help`.
+    private var optionsButton: some View {
+        IconButton(systemName: "slider.horizontal.3", help: Copy.SleepV5.optionsHelp,
+                   accessibilityLabel: Copy.SleepV5.optionsShort) { optionsOpen = true }
+    }
+
+    /// The row's one primary: Pause or Cancel while a cycle runs, Continue while one waits paused, else Consolidate.
+    @ViewBuilder
+    private func primaryButton(short: Bool) -> some View {
+        if sleepVM.isRunning {
+            if draining { pauseButton } else { cancelButton }
+        } else if let paused {
+            continueButton(paused)
+        } else {
+            consolidateButton(short: short)
+        }
+    }
+
     private var buttonRow: some View {
             HStack(spacing: CicadaTheme.spacingSM) {
-                if sleepVM.isRunning {
-                    if draining { pauseButton } else { cancelButton }
-                } else if let paused {
-                    continueButton(paused)
-                } else {
-                    consolidateButton
-                }
+                primaryButton(short: false)
                 // The owner's quick switch (R-HS8, R-HS9). It stays while a cycle runs: a change
                 // applies to the next one (G80). It names the person's own engine and model — never another.
                 EngineLabelButton(size: .compact)   // D6: a label that opens Settings → Intelligence (UI-A)
                 // The owner's at-rest row (2026-10-16): Consolidate · engine · Options, one height. Options opens the
                 // same reading options the floating "Reading options…" link did, on this row instead of its own line.
                 if showsOptionsLink {
-                    // ROR-118 round 4 - "Options…" was vague: a slider mark says it adjusts (a longer label truncated the engine's).
-                    NeutralButton(title: leading ? Copy.SleepV5.optionsShort : Copy.SleepV5.options,
-                                  systemImage: leading ? "slider.horizontal.3" : nil, size: .compact,
+                    NeutralButton(title: Copy.SleepV5.options, size: .compact,
                                   help: Copy.SleepV5.optionsHelp) { optionsOpen = true }
                 }
                 if paused != nil, !sleepVM.isRunning {
@@ -543,8 +391,8 @@ struct SleepControlRow: View {
     /// shared `PrimaryActionButton` so its ink follows the key-window rule. It
     /// lifts on hover because it is the one thing on the page that starts
     /// something; Cancel beside it stays quiet.
-    private var consolidateButton: some View {
-        PrimaryActionButton(title: Copy.consolidateNow, systemImage: "moon.fill") {
+    private func consolidateButton(short: Bool = false) -> some View {
+        PrimaryActionButton(title: short ? Copy.SleepPage.consolidateShort : Copy.consolidateNow, systemImage: "moon.fill") {
             Task {
                 await sleepVM.triggerManually()
                 await store.refresh([.status, .channels])
@@ -640,7 +488,8 @@ struct SleepControlRow: View {
 
 /// The engine a line names, with its real mark (round-3 brief: "use logos
 /// whenever possible"; Z-P26; DR-52). `claude-cli` IS Claude Code, so it borrows that
-/// origin's mark; an API key has no vendor to show.
+/// origin's mark; a key wears its provider's (owner 2026-11-24: "with the logos of providers"), read from the model
+/// it runs (`ContributorIdentity.modelMark`) — the key glyph only when the provider is truly unknown.
 struct EngineMark: View {
     let engine: String
     var size: CGFloat = 14
@@ -649,8 +498,8 @@ struct EngineMark: View {
     var model: String? = nil
 
     /// Which mark an engine wears (R-HS13): the Claude plan runs Claude Code's own binary, the ChatGPT
-    /// plan wears its card's mark (`EngineOption.previewMark`), Ollama its own, and an API key — which
-    /// has no vendor — a key. `codex-cli` drew the key before DS-3b (DR-52).
+    /// plan wears its card's mark (`EngineOption.previewMark`), Ollama its own, and an API key the mark of the
+    /// provider whose model it runs, a key only when that is unknown. `codex-cli` drew the key before DS-3b (DR-52).
     enum Source: Equatable {
         case origin(String)
         case logo(String)
@@ -668,7 +517,7 @@ struct EngineMark: View {
         // from the shared set; only a key run has no vendor to show.
         case _ where engine.hasSuffix("-cli") && LogoSet.umbrellaMarks.contains(String(engine.dropLast(4))):
             .logo(String(engine.dropLast(4)))
-        default: .symbol("key")
+        default: model.flatMap { ContributorIdentity.modelMark(author: $0) }.map(Source.logo) ?? .symbol("key")
         }
     }
 

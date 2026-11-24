@@ -45,7 +45,7 @@ and `Cicada-Author: user` — a second door onto one writer, as the CLI is (ruli
 carries `qualifier` and `displayName` ("<name> (<qualifier>)") on `GET /graph` nodes (omitted otherwise; node shape
 `+same-name`, folded into the node's `contentHash` only when present), `GET /entities/{id}` (null / the bare name
 otherwise; `same_name.SHAPE` rides the card ETag's `extra`), `GET /search` entity and media hits, `GET /projects/{id}`
-page rows (`g141-9`), `GET /sleep/runs/{id}/items` page rows (`items-2`, in its ETag) and `/ask` citations. **A book's `byline`
+page rows (`g141-9`), `GET /sleep/runs/{id}/items` page rows (`items-2`, in its ETag; `items-5` adds `change`/`episodes`) and `/ask` citations. **A book's `byline`
 (ROR-135):** `GET /graph` nodes of a `media.kind: book` page carry its `book.authors` joined, capped at 120 characters (omitted
 otherwise; node shape `+byline`, folded into `contentHash` only when present) — the graph's hover card names the author
 from it (`features.md`, "The hover card"). `GET /inbox` items add
@@ -501,7 +501,18 @@ name a `cicada_…` tool; `llms.txt` maps each to its operation), `data`'s shape
   Answers `{catchUp}` (the reporter's view, below). Demo bank 409 (`_DEMO_GATE`); write-admission class `outside`;
   replica `local`. `fix` is kept only on a `failed` reader.
 - `GET /devices/status` — `{devices: [{id, name, role: server|device, current, connected, how, lastSeenAt, queue,
-  catchUp}], connectedWithinSeconds}`. `catchUp` (G229) is that machine's live sync or null: `{state: reading|done,
+  parked, home, keepsCopy, behind, revoked, catchUp}], connectedWithinSeconds, copyConnectedWithinSeconds}` — the one list
+  of machines the Sleep page's top bar draws (2026-11-24). **One liveness rule** (`device_status.is_connected`, also what
+  `GET /sync/home` calls a device's `online`): the newest of its token use, last request and copy report is within
+  `copyConnectedWithinSeconds` (120) when it keeps a copy (it polls its home) or `connectedWithinSeconds` (600) when it
+  does not (a capture-only device speaks only when it has something to send). **`queue` adds up**: every waiting
+  conversation (`history_index.waits_for_model`, parked included) is in exactly one row, so `sum(queue)` is the Waiting
+  tab's `X-Total-Count` and the headline's `debt.unprocessedCount`, and `sum(queue) - sum(parked)` is `readableCount`; a
+  revoked device, or an id the store never knew (`Removed device`), keeps a last row with `revoked: true` while
+  conversations from it still wait. `home` is the machine that runs Sleep and writes (with nothing shared, the server
+  row), `keepsCopy` and `behind` (changes behind the home, `null` when unknown or not a copy) come from
+  `home_move.group` / `copy_facts`, the facts `GET /sync/home` is built from. `GET /sleep/queue` rows carry `device`
+  too, so a filter by machine works on the queue. The older keys are unchanged. `catchUp` (G229) is that machine's live sync or null: `{state: reading|done,
   openedAt, awaySince, doneAt, readers, arrived, new}` — `arrived` = waiting episodes whose file changed between
   `awaySince` and `openedAt` (null without `awaySince`), `new` = since `openedAt` (frozen at `doneAt`), both from the
   same `bank_index` header scan as `queue`, never from the app: this server first, named by its own Computer Name (macOS `scutil`, else the host name),
@@ -773,6 +784,26 @@ waiting list 5 KB / 45 ms, a 304 ~25 ms. ETag over `episodes` with `extra` = `sl
 mtime>` (a folder file's row copies its path from that registry). Not a Store domain: no `VersionVector` mapping —
 `SleepViewModel` holds the rows and the tag in memory, sends `If-None-Match` on every `load()` and drops both on a bank
 switch.
+
+**The pages per source (owner 2026-11-24, items-5).** Additive on the run card's body, `sleep_consolidated.SHAPE` bumped to
+`items-5`. A page row says `change` (`created` | `updated` | `archived` | `removed`) and `episodes`, the ids of THIS run's
+conversations that fed it (its `source_episodes` ∩ the run's own, never another run's); a conversation row says `pages`
+(the ids of the listed pages it fed, so every id resolves in a list; a page past the 200 cap is not linked) and the Waiting
+row's facts — `device` (`null` is the home), `site` (a saved link's own site key) and `meeting` (`{app, durationS,
+attendees}`) — from the one `episode_copy.row_facets` that `GET /sleep/episodes` also builds its rows with. The body gains
+`archived` and `removed` beside `created` / `updated`, and `counts` gains `archived` and `removed`; a page is in exactly one
+list by its final state in the run (removed > archived > created > updated), and each count is its list's whole length.
+**Removed** is a deleted page file (a rename's source counts: `-M` pairs a merged-away page with a look-alike new one); its
+name, type and sources come from its last version (`git show <commit>^:entities/<id>.md`, one call a page) and it is
+`gone`. **Archived** is read from the diffs, never from the page's status today (a later run may have restored or archived
+it): a `status:` line changing to `archived` in a run commit (one `diff-tree -p -G^status:` a commit that modified a page), or
+in the batch's own `Sleep cycle … (decay)` commit, which `_finalize` makes first and which the run ledger does not list — it
+is tied to a run commit only when it is the first non-`State snapshot` commit before it and no more than 600 s earlier
+(`DECAY_TIE_S`); a commit another writer made between them leaves it untied and the page unreported, never wrongly reported.
+A page the decay commit only re-scored is not listed (decay is not a read). Cost per run commit: its file list, one
+`git log -n 4`, one status diff (skipped with no modified page) and one for its decay commit. (The manifest's `sessions:`
+value is comma-split by `parse_cycle_body`, but nothing here reads the manifest, so that truncation does not matter to this
+route.) The app's fixture `sleep-run-items.json` is this route's wire over a synthetic bank (`test_sleep_v5_app_fixtures`).
 
 **Unit tests reach no backend (2026-10-19).** Under XCTest `APIClient.shared` is `APIClient.pointingAtNothing()`: a
 session whose transport (`NoBackendURLProtocol`) fails every request with `cannotConnectToHost` before a byte leaves the

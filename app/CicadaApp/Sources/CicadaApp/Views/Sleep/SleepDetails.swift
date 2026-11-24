@@ -23,6 +23,10 @@ struct SleepWaitingList: View {
     let episodes: [EpisodeQueueItem]
     /// G212 — one machine's queue open: its rows, built from its own episodes (nil: the page's rows, every machine's).
     var machineRows: [StudyRow]? = nil
+    /// The machine the queue is narrowed to, when it has nothing waiting: one line says so instead of an empty card.
+    var emptyMachine: String? = nil
+    /// A machine is the page's filter (its rows are shown, whatever they number).
+    var narrowedToMachine = false
     var onSelectEntity: ((String) -> Void)?
     /// Track Z Z6 (I5, I7) — hands the room to the rows, so a row and its spine answer each other's hover.
     var room: RoomModel? = nil
@@ -47,11 +51,21 @@ struct SleepWaitingList: View {
                                 onRetry: canRetry ? onRetryParked : nil, onSeeOwnerPage: onSeeOwnerPage)
                     .saturation(liveness.saturation)
             }
-            StudyListCard(rows: machineRows ?? page.rows, episodes: episodes, queueLoad: page.queueLoad,
-                          onSelectEntity: onSelectEntity, room: room)
-                .id(DetailsSection.waiting.anchorID)
-                .saturation(liveness.saturation)
-            if let kept = queue?.kept, kept > 0 {
+            if let emptyMachine, episodes.isEmpty {
+                Text(Copy.Machines.nothingFrom(emptyMachine))
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, CicadaTheme.spacingSM)
+                    .id(DetailsSection.waiting.anchorID)
+            } else {
+                StudyListCard(rows: machineRows ?? page.rows, episodes: episodes, queueLoad: page.queueLoad,
+                              onSelectEntity: onSelectEntity, room: room)
+                    .id(DetailsSection.waiting.anchorID)
+                    .saturation(liveness.saturation)
+            }
+            // What is kept for lookup is the whole memory's count, not a machine's: it waits out a machine filter.
+            if emptyMachine == nil, !narrowedToMachine, let kept = queue?.kept, kept > 0 {
                 // The list's own last card (owner 2026-11-23): what is kept for lookup, opened in order by source.
                 KeptForLookupCard(kept: kept)
                     .padding(.top, -CicadaTheme.spacingCard + CicadaTheme.spacingSM)
@@ -60,10 +74,11 @@ struct SleepWaitingList: View {
     }
 }
 
-/// Past reads (DESIGN §3.4): Last cycle first — the run's own rows, at full contrast (R-A12) — then the Readout's
-/// key–value rows, then Past nights, one row per run or cycle. Opening a row shows that read in place: what it read,
-/// the pages it touched, Models with tokens and cost and their basis (ruling 12 — prices and plan usage show on this
-/// page only here, and in the engine menu).
+/// Past sleeps (DESIGN §3.4; the tab's enum case is still `.pastReads`): Last cycle first — the run's own rows, at full
+/// contrast (R-A12), only when there is news — then one card per consolidation, in the Queue's column and chrome (owner
+/// 2026-11-24: the Readout block and the "Past nights" label left the page). Opening a card shows that read in place:
+/// each source it read, the conversations it fed and the pages they fed, then Models with cost and their basis (ruling
+/// 12 — prices and plan usage show on this page only here, and in the engine menu).
 struct SleepPastReads: View {
     let page: SleepPageModel
     let liveness: SleepLiveness
@@ -85,6 +100,11 @@ struct SleepPastReads: View {
     var items: [SleepConsolidatedKey: SleepConsolidated] = [:]
     var itemsFailed: Set<SleepConsolidatedKey> = []
     var onLoadItems: (SleepConsolidatedKey) -> Void = { _ in }
+    /// The machine the page is narrowed to (a device id, or `"server"` for this server's own), nil for every machine:
+    /// the cards narrow to the conversations it posted and the pages they fed (`RunItemsModel.matches`).
+    var machineId: String? = nil
+    var machineName: String? = nil
+    var machines: [MachineStatus] = []
 
     /// Retry on a parked conversation only when the server would take it: no run reading, none waiting paused.
     private var canRetry: Bool {
@@ -115,18 +135,6 @@ struct SleepPastReads: View {
                                  runRows: runRows, onRetryParked: canRetry ? { onRetryParked(nil) } : nil)
                     .id(DetailsSection.lastCycle.anchorID)
             }
-            SleepReadoutView(mood: page.mood, debt: page.debt, read: page.read, total: page.total,
-                             lastDurationMs: lastFigures?.durationMs,
-                             lastIsOneBatch: lastFigures?.isOneBatch ?? false,
-                             lastEngine: lastFigures?.engine,
-                             // The status's reason describes the engine the backend last resolved; it is shown only
-                             // beside that same engine, never under another cycle's.
-                             engineDetail: status?.lastEngine == lastFigures?.engine ? status?.engineDetail : nil,
-                             hasFinishedCycle: lastFigures != nil,
-                             engineShownBelow: lastFigures?.engine != nil
-                                 && history.first(where: { $0.kind == "sleep" })?.engine == lastFigures?.engine)
-                .id(DetailsSection.readout.anchorID)
-                .saturation(liveness.saturation)
             ConsolidationHistoryCard(entries: history, details: details, expanded: expanded, expandedRun: expandedRun,
                                      runDetails: runDetails, items: items, itemsFailed: itemsFailed,
                                      onToggle: { card in
@@ -136,7 +144,8 @@ struct SleepPastReads: View {
                                          }
                                          onLoadItems(card.key)
                                      },
-                                     onSelectEntity: onSelectEntity, onLoadItems: onLoadItems)
+                                     onSelectEntity: onSelectEntity, onLoadItems: onLoadItems,
+                                     machineId: machineId, machineName: machineName, machines: machines)
                 .id(DetailsSection.pastNights.anchorID)
                 .saturation(liveness.saturation)
         }

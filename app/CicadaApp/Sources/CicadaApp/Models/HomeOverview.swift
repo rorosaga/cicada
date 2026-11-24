@@ -142,6 +142,18 @@ enum HomeStrip {
         device.canBeHome && !overview.isMoving && overview.role != "left" && overview.role != "superseded"
     }
 
+    /// The devices that can take the home right now, in the list's order.
+    static func movable(_ overview: HomeOverview, isMoving: Bool) -> [HomeOverview.Device] {
+        isMoving ? [] : overview.devices.filter { offersMove($0, in: overview) }
+    }
+
+    /// Whether the strip has anything to draw once the chips say the rest: a device to move the home to, a take-over,
+    /// or a line in words.
+    static func hasNews(_ overview: HomeOverview, movingLine: String?, problem: String?, isMoving: Bool) -> Bool {
+        !movable(overview, isMoving: isMoving).isEmpty || overview.takeOver?.possible == true
+            || !lines(overview, movingLine: movingLine, problem: problem).isEmpty
+    }
+
     /// The lines the backend wrote in words, in order: moving, a take-over offer, what was set aside, a note.
     static func notes(_ overview: HomeOverview) -> [String] {
         [overview.moving, overview.takeOver, overview.setAside, overview.note]

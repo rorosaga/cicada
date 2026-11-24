@@ -142,7 +142,7 @@ final class SleepV5RoomSentenceTests: XCTestCase {
             context.lastEngine = "codex-cli"
             let line = roomSentence(context)
             XCTAssertEqual(line.lead, "Reading stopped.")
-            XCTAssertEqual(line.tail, "See what needs a fix in Past reads, then try again.")
+            XCTAssertEqual(line.tail, "See what needs a fix in Past sleeps, then try again.")
             XCTAssertEqual(line.action, .openDetails(.lastCycle))
             XCTAssertEqual(LastCycleRow.rows(pageError: diagnosis, cancelled: false, capped: false,
                                              indexWarning: nil, status: nil).first?.text, diagnosis)
