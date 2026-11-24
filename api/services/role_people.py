@@ -443,8 +443,9 @@ def _next_item(inbox: Path) -> Path:
     return inbox / f"inbox-{top + 1:03d}.md"
 
 
-#: Owner 2026-11-24: "someone known only by a description is not asked about on a first mention, only once they come up
-#: again". The name is asked when the page rests on this many distinct conversations, counted the way promotion counts
+#: Ruling 41a (owner 2026-11-24, asked whether someone known only by a description should be asked about only once
+#: they come up again: "yeah i think that makes sense", on the condition that the mention is still found when an agent
+#: asks for it). The name is asked when the page rests on this many distinct conversations, counted the way promotion counts
 #: them (`promotion.conversation_keys`: a session and its notes are one, every saved item the person said nothing about is
 #: one together, a memory-export entry or a watched day never lifts a page by its number).
 CONVERSATIONS_TO_ASK = 2
