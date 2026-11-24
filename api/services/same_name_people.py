@@ -68,7 +68,22 @@ _LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 SYSTEM = ("You decide, from the descriptions you are given, whether conversations that name someone by the same single "
           "name are about one real person or about several, and you answer in JSON.")
 
-PROMPT = """In one person's private conversations, someone is called "{name}" with no surname. Several conversations name a "{name}". Decide which of them are the same real person, which are different people, and where you cannot tell.
+#: Said when the bank's owner has a name (2026-11-24). The descriptions name the owner ("<owner>'s brother-in-law", "a
+#: meeting with <owner>"), and a judge that does not know that name is the speaker's reads it as a third person both
+#: descriptions share: two colleagues were joined "through <owner>" in 2 of 17 benchmark runs, by both models. Told only
+#: who the speaker is, the judge then discounted the one true link a thin description had (someone who "moved with
+#: <owner>" against <owner>'s partner: cut in two in 8 of 30), so the line also says what a tie to the speaker is.
+SPEAKER = (' The speaker, the person whose conversations these are, appears in the descriptions as "{speaker}". What '
+           'someone is to the speaker (their partner, a relative, the one they live, travel or move with) is a fact '
+           'about that someone like any other.')
+
+
+def speaker_line(speaker: str | None) -> str:
+    speaker = " ".join(str(speaker or "").replace('"', "").split())
+    return SPEAKER.format(speaker=speaker) if speaker else ""
+
+
+PROMPT = """In one person's private conversations, someone is called "{name}" with no surname.{speaker} Several conversations name a "{name}": every description below is about someone called "{name}", whether or not it repeats the name. Decide which of them are the same real person, which are different people, and where you cannot tell.
 {filed}
 {new}
 Rules:
@@ -207,7 +222,7 @@ def _by_date(entries: list[Entry]) -> list[Entry]:
     return sorted(entries, key=lambda e: (re.match(r"\((\d{4}-\d{2}-\d{2})\)", e.text) or [None, "~"])[1] if e.text else "~")
 
 
-def build_prompt(name: str, entries: list[Entry], identities: list[Identity]) -> str:
+def build_prompt(name: str, entries: list[Entry], identities: list[Identity], speaker: str | None = None) -> str:
     filed = ""
     if identities:
         blocks = []
@@ -221,7 +236,7 @@ def build_prompt(name: str, entries: list[Entry], identities: list[Identity]) ->
     new = ""
     if fresh:
         new = "\nNEW CONVERSATIONS (not filed under anyone yet)\n" + "\n".join(f"({e.letter}) {e.text}" for e in fresh) + "\n"
-    return PROMPT.format(name=name, filed=filed, new=new)
+    return PROMPT.format(name=name, filed=filed, new=new, speaker=speaker_line(speaker))
 
 
 # ---------------------------------------------------------------- reading the answer
@@ -461,7 +476,7 @@ CONFIRM_ITEMS = 3
 
 async def plan(name: str, mentions: list[Mention], identities: list[Identity],
                judge: Callable[[str, str], Awaitable[object]],
-               strong: Callable[[str, str], Awaitable[object]] | None = None) -> Plan:
+               strong: Callable[[str, str], Awaitable[object]] | None = None, *, speaker: str | None = None) -> Plan:
     """Decide one name. ``judge(system, prompt)`` answers the parsed JSON (an injected, engine-free seam); a failure or
     an answer that does not line up is the old behaviour: one person.
 
@@ -476,7 +491,7 @@ async def plan(name: str, mentions: list[Mention], identities: list[Identity],
         return result
     result.called = True
     entries = entries_for(judged, shown)
-    prompt = build_prompt(name, entries, shown)
+    prompt = build_prompt(name, entries, shown, speaker)
     try:
         parsed = await judge(SYSTEM, prompt)
     except asyncio.CancelledError:

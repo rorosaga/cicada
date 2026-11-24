@@ -2398,6 +2398,19 @@ and per flagged doubt pair, at most 8 a drain (`MAX_LOOKS`), and none when nothi
 **Measured (2026-11-23).** *The replay battery* (`same_name_battery.py`, 71 labelled single judge inputs, the small judge on a key
 at about $0.0003 a call, the second reading on): the code before (`origin/dev`, 10 replays a case) kept 216 of 240 two-person
 replays apart (90%) and cut no one of 460 one-person replays; an established page against a different person's mention was kept
+**The judge is told who the speaker is (2026-11-24).** Stage 1's descriptions name the bank's owner ("<owner>'s
+brother-in-law", "took part in a meeting with <owner>"), and the prompt's rule that the speaker appearing in two
+descriptions connects nothing spoke of "the speaker" without saying which name that is. Both models then joined two
+colleagues of one first name "through <owner>": 2 of 17 benchmark runs, and **11 of 80** replays of four such inputs taken
+from those runs. The three prompts (`same_name_people.PROMPT`, the pair and the page review of `same_name_review`) now say
+which name is the speaker's when the bank has an owner page, that a tie to the speaker (a partner, a relative, the one
+they live or move with) is a fact about that person like any other, and that every description is about someone of
+that name whether or not it repeats it. The last two matter: told only the name, the judge cut one real person in two in
+8 of 30 replays of a thin description whose one link is having moved with the owner, giving "it names no <name>" as
+its reason. As landed: those four inputs **80 of 80** apart, the whole battery (75 cases, 10 replays) **0 of 460** one
+person cut and **290 of 290** two kept apart (`same_name_cases.json` carries a `speaker` on the 23 cases whose
+descriptions name the owner; `--no-speaker` replays the prompt before).
+
 apart in 69 of 90 (77%; an established family page against a colleague's mention in 0 of 10). As landed: **248 of 250** two-person
 replays kept apart (99%) and **0 false splits of one person in 460 replays** (one earlier wording of the prompt cut one person
 once in 920; that input was not reproduced in 60 more). *The stories* (`same_name_stories.py`, 30 stories in English, Spanish and

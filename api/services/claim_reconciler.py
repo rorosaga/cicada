@@ -991,7 +991,8 @@ def _adopt_value_attribute(new: Claim, slot: list[Claim]) -> None:
 def _place_ending(new: Claim, ending: "predicates.Ending", slot: list[Claim], settings, today: str,
                   audit: list[dict], untimed=frozenset(),
                   ended_by: "Callable[[str], str | None] | None" = None,
-                  ended_values: "frozenset[str]" = frozenset()) -> "Claim | bool":
+                  ended_values: "frozenset[str]" = frozenset(),
+                  elsewhere: "list[Claim]" = ()) -> "Claim | bool":
     """A claim whose label says a belief stopped being true (``predicates.build_endings_fn``; 2026-10-14).
 
     A multi-valued place ends only on evidence that it ended — this, a stated end (``claim_expiry``) or the
@@ -1032,6 +1033,13 @@ def _place_ending(new: Claim, ending: "predicates.Ending", slot: list[Claim], se
         # own words, and only the ones it said this ending made out of date arrive here.
         targets += [c for c in slot if c.id in ended_values and open_(c) and c.subject == new.subject
                     and is_value_claim(c) and c not in targets]
+    if ending.mode == predicates.ENDING_OVER and new.object_kind == "node":
+        # 2026-11-24: ... and what rested on the thing that ended (`value_ended.scope_candidates`): a claim of this page
+        # that was not a value, or a line on another page, which the judge said the ending made out of date.
+        targets += [c for c in slot if c.id in ended_values and open_(c) and c.subject == new.subject
+                    and not is_event(c) and not is_record(c) and c not in targets]
+        targets += [c for c in elsewhere if c.id in ended_values and open_(c) and not is_event(c) and not is_record(c)
+                    and c not in targets]
     if not targets and not (ending.synonym or new.predicate == canonical):
         return False
     if ending.mode == predicates.ENDING_PAST and targets:
@@ -1063,6 +1071,13 @@ def _place_ending(new: Claim, ending: "predicates.Ending", slot: list[Claim], se
     new.valid_to = new.valid_from
     slot.append(new)
     return new
+
+
+def _on_other_pages(reconciled: dict[str, list[Claim]], page: str, ids: "frozenset[str]") -> list[Claim]:
+    """The claims of ``ids`` held on pages other than ``page`` (the judge's scope asks reach another page's line)."""
+    if not ids:
+        return []
+    return [c for sub, claims in reconciled.items() if sub != page for c in claims if c.id in ids]
 
 
 def _onset_canonical(new: Claim, raw_label: str | None, onset_fn, subject_fn) -> str | None:
@@ -1278,8 +1293,9 @@ def reconcile_stage3(
             raw_label = None
         ending = endings_fn(str(raw_label or new.predicate))
         ended_by = getattr(endings_fn, "ended_by", None)
-        if ending is not None and _place_ending(new, ending, slot, settings, today, audit, untimed, ended_by,
-                                                frozenset((ended_values or {}).get(new.id, ()))) is not False:
+        scoped = frozenset((ended_values or {}).get(new.id, ()))
+        if ending is not None and _place_ending(new, ending, slot, settings, today, audit, untimed, ended_by, scoped,
+                                                _on_other_pages(reconciled, sub, scoped)) is not False:
             continue
         # A predicate an ending also ends (`also_ends`, or a qualified label) reads that canonical's departures.
         canonical = (ended_by(new.predicate) if ended_by else None) or new.predicate

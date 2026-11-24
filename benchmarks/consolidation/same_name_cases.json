@@ -16,7 +16,8 @@
     "text": "(2026-11-03) Idris is someone close to Noor Haddad who moved with them to Grenoble and got a job at the university hospital there. Facts: Got a job at the university hospital in Grenoble (stated 2026-11-03); Moved from Lyon to Grenoble with Noor Haddad on 2026-11-02",
     "label": "p"
    }
-  ]
+  ],
+  "speaker": "Noor Haddad"
  },
  {
   "id": "idris-decay-after",
@@ -35,7 +36,8 @@
     "text": "(2026-11-21) Idris is someone whose parents Noor Haddad is hosting for dinner on a Saturday in November 2026. Facts: Idris's parents were invited to dinner at Noor Haddad's on the Saturday after 2026-11-21.",
     "label": "p"
    }
-  ]
+  ],
+  "speaker": "Noor Haddad"
  },
  {
   "id": "idris-decay-iter2",
@@ -54,7 +56,8 @@
     "text": "(2026-11-03) Idris is a person close to Noor Haddad who got a job at the university hospital in Grenoble, which prompted the move. Facts: Idris got a job at the university hospital in Grenoble.; Idris moved to Grenoble with Noor Haddad.",
     "label": "p"
    }
-  ]
+  ],
+  "speaker": "Noor Haddad"
  },
  {
   "id": "idris-final-dev",
@@ -73,7 +76,8 @@
     "text": "(2026-11-03) Got a job at the university hospital in Grenoble, which prompted the move there. Facts: Got a job at the university hospital in Grenoble; Moved to Grenoble with Noor Haddad on 2026-11-02",
     "label": "p"
    }
-  ]
+  ],
+  "speaker": "Noor Haddad"
  },
  {
   "id": "teo-promoted-real",
@@ -92,7 +96,8 @@
     "text": "(2026-11-13) Teo is head of product at Kestrel after a promotion, and is two levels above Ines Varga in the hierarchy as of November 2026. Facts: Teo was promoted to head of product at Kestrel (stated 2026-11-13).; Teo is two levels above Ines Varga after the promotion.; Teo works on a different floor from Ines Varga.",
     "label": "p"
    }
-  ]
+  ],
+  "speaker": "Ines Varga"
  },
  {
   "id": "partner-job-move",
@@ -722,7 +727,8 @@
     "label": "p"
    }
   ],
-  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it",
+  "speaker": "Noor Haddad"
  },
  {
   "id": "real-noor-1-marc",
@@ -743,7 +749,8 @@
     "label": "work"
    }
   ],
-  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it",
+  "speaker": "Noor Haddad"
  },
  {
   "id": "real-noor-2-léa",
@@ -762,7 +769,8 @@
     "label": "p"
    }
   ],
-  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it",
+  "speaker": "Noor Haddad"
  },
  {
   "id": "real-noor-3-marc",
@@ -786,7 +794,8 @@
     "label": "work"
    }
   ],
-  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it",
+  "speaker": "Noor Haddad"
  },
  {
   "id": "real-noor-4-idris",
@@ -805,7 +814,8 @@
     "label": "p"
    }
   ],
-  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it",
+  "speaker": "Noor Haddad"
  },
  {
   "id": "real-noor-5-idris",
@@ -824,7 +834,8 @@
     "label": "p"
    }
   ],
-  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it",
+  "speaker": "Noor Haddad"
  },
  {
   "id": "real-noor-6-marc",
@@ -848,7 +859,8 @@
     "label": "fam"
    }
   ],
-  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it",
+  "speaker": "Noor Haddad"
  },
  {
   "id": "real-ines-0-tomas",
@@ -865,7 +877,8 @@
     "label": "p"
    }
   ],
-  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it",
+  "speaker": "Ines Varga"
  },
  {
   "id": "real-ines-1-tomas",
@@ -888,7 +901,8 @@
     "label": "p"
    }
   ],
-  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it",
+  "speaker": "Ines Varga"
  },
  {
   "id": "real-ines-2-tomas",
@@ -907,7 +921,8 @@
     "label": "p"
    }
   ],
-  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it",
+  "speaker": "Ines Varga"
  },
  {
   "id": "real-ines-3-lucía",
@@ -926,7 +941,8 @@
     "label": "p"
    }
   ],
-  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it",
+  "speaker": "Ines Varga"
  },
  {
   "id": "real-ines-4-tomas",
@@ -945,7 +961,8 @@
     "label": "p"
    }
   ],
-  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it",
+  "speaker": "Ines Varga"
  },
  {
   "id": "real-ines-5-teo",
@@ -964,7 +981,8 @@
     "label": "p"
    }
   ],
-  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it"
+  "note": "a real call of a benchmark run (split-before, r1): the judge's input as the pipeline built it",
+  "speaker": "Ines Varga"
  },
  {
   "id": "heldout-landlord-becomes-friend",
@@ -1360,6 +1378,95 @@
    {
     "text": "(2026-10-14) Marc is a participant in a meeting with Noor Haddad who is moving to Berlin. Facts: Marc said his move to Berlin is confirmed for the 15th of March.",
     "label": "work"
+   }
+  ],
+  "speaker": "Noor Haddad"
+ },
+ {
+  "id": "marc-owner-named-joined-a",
+  "name": "Marc",
+  "kind": "two",
+  "speaker": "Noor Haddad",
+  "note": "a stored run of 2026-11-24 (the two were joined through the owner named in both): Stage 1's own descriptions, which name the owner",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-09-30) Marc is Noor Haddad's brother-in-law, a carpenter based in Annecy, who is helping Noor Haddad assemble shelves. Facts: Marc is a carpenter (menuisier) in Annecy; Marc is Noor Haddad's brother-in-law; Marc planned to come help Noor Haddad assemble shelves over the weekend following 2026-09-30; Marc is bringing his own tools",
+    "label": "c"
+   },
+   {
+    "text": "(2026-10-03) Marc is a colleague on the banking app usability study who is moving to the Berlin office. Facts: Marc said he is moving to the Berlin office in March 2027 and will be remote for the project afterwards.",
+    "label": "k"
+   },
+   {
+    "text": "(2026-10-15) Marc is a participant in a meeting with Noor Haddad who is moving to Berlin. Facts: Marc said his Berlin move is confirmed for 15 March.",
+    "label": "k"
+   }
+  ]
+ },
+ {
+  "id": "marc-owner-named-joined-b",
+  "name": "Marc",
+  "kind": "two",
+  "speaker": "Noor Haddad",
+  "note": "a stored run of 2026-11-24 (the two were joined through the owner named in both): Stage 1's own descriptions, which name the owner",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-09-29) Marc est le beau-frère de Noor Haddad et menuisier à Annecy. En septembre 2026, il devait aider Noor Haddad à monter des étagères. Facts: Marc est le beau-frère de Noor Haddad.; Marc est menuisier à Annecy.; En septembre 2026, Marc devait venir aider Noor Haddad à monter des étagères le week-end suivant et apporter ses outils.",
+    "label": "c"
+   },
+   {
+    "text": "(2026-10-02) Marc is a colleague on the banking app usability study who is moving offices. Facts: Marc said on 2026-10-02 he is moving to the Berlin office in March 2027 and will be remote for the banking app usability study afterwards",
+    "label": "k"
+   },
+   {
+    "text": "(2026-10-14) Participant in a meeting with Noor Haddad who is moving to Berlin. Facts: Marc's move to Berlin is confirmed for 15 March (2027).",
+    "label": "k"
+   }
+  ]
+ },
+ {
+  "id": "marc-owner-named-apart-a",
+  "name": "Marc",
+  "kind": "two",
+  "speaker": "Noor Haddad",
+  "note": "a stored run of 2026-11-24 (kept apart): Stage 1's own descriptions, which name the owner",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-09-30) Marc is Noor Haddad's brother-in-law and a carpenter in Annecy. In September 2026 he was due to help Noor Haddad assemble shelves. Facts: Marc is a carpenter (menuisier) based in Annecy; Marc was to bring his own tools to help Noor Haddad assemble shelves; Marc was expected to come over the weekend following 2026-09-30",
+    "label": "c"
+   },
+   {
+    "text": "(2026-10-03) Marc is a colleague on the banking app usability study who is moving to the Berlin office. Facts: Marc said on 2026-10-03 he is moving to the Berlin office in March 2027 and will then be remote for this project",
+    "label": "k"
+   },
+   {
+    "text": "(2026-10-15) Marc took part in a meeting with Noor Haddad and said his move to Berlin is confirmed. Facts: Marc said on 2026-10-15 that his move to Berlin is confirmed for 15 March (2027).",
+    "label": "k"
+   }
+  ]
+ },
+ {
+  "id": "marc-owner-named-apart-b",
+  "name": "Marc",
+  "kind": "two",
+  "speaker": "Noor Haddad",
+  "note": "a stored run of 2026-11-24 (kept apart): Stage 1's own descriptions, which name the owner",
+  "identities": [],
+  "mentions": [
+   {
+    "text": "(2026-09-29) Marc is Noor Haddad's brother-in-law, a carpenter in Annecy, who is helping assemble shelves. Facts: Marc is a carpenter (menuisier) in Annecy.; Marc is Noor Haddad's brother-in-law.; Marc is bringing his own tools to help Noor Haddad assemble shelves.",
+    "label": "c"
+   },
+   {
+    "text": "(2026-10-02) Marc is a colleague on the banking app usability study who is moving to the Berlin office. Facts: Marc said on 2026-10-02 he is moving to the Berlin office in March 2027 and will be remote for the banking app usability study afterwards",
+    "label": "k"
+   },
+   {
+    "text": "(2026-10-14) Marc took part in the 2026-10-14 meeting and said his move to Berlin was confirmed for 15 March. Facts: Marc's move to [[Berlin]] was confirmed for 15 March, as he said on 2026-10-14.",
+    "label": "k"
    }
   ]
  }

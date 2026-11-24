@@ -268,6 +268,20 @@ def test_a_doubted_pair_in_one_of_several_groups_is_flagged_too():
     assert ("marc", "marc-2") in result.review_pairs
 
 
+def test_the_judge_is_told_who_the_speaker_is_when_the_bank_has_an_owner():
+    """The descriptions name the owner ("<owner>'s brother-in-law", "a meeting with <owner>"): a judge that does not know
+    that name is the speaker's reads it as a person two descriptions share, and joins through it."""
+    entries = snp.entries_for(M, [])
+    plain = snp.build_prompt("Marc", entries, [])
+    named = snp.build_prompt("Marc", entries, [], "Noor Example")
+    assert "Noor Example" not in plain and 'appears in the descriptions as "Noor Example"' in named
+    assert named.replace(snp.speaker_line("Noor Example"), "") == plain, "nothing else in the prompt changes"
+    assert snp.speaker_line("") == "" and snp.speaker_line(None) == "" and '"' not in snp.speaker_line('No"or').replace('"Noor"', "")
+    judge = _judge(TWO)
+    _run(snp.plan("Marc", M, [], judge, speaker="Noor Example"))
+    assert "Noor Example" in judge.calls[0]
+
+
 def test_only_a_bare_name_is_for_this_rule():
     assert snp.is_bare("Marc") and snp.is_bare("Léa")
     assert not snp.is_bare("Marc Dupont") and not snp.is_bare("M") and not snp.is_bare("marc2") and not snp.is_bare("")
@@ -381,6 +395,16 @@ def test_in_one_batch_two_people_of_one_name_are_a_page_and_a_held_line(tmp_path
 
     assert merge_rejections.load_split(memory) == {("marc", "marc-2")}, "the pair Sleep decided, and only that one"
     assert len(judged.calls) == 1
+
+
+def test_stage_2_tells_the_judge_the_owners_name_from_the_owner_page(tmp_path, judged):
+    memory = _bank(tmp_path)
+    owner = {"id": "noor-example", "frontmatter": {"name": "Noor Example", "type": "person", "owner": True,
+                                                   "confidence": 1.0, "source_episodes": []}, "body": "## Summary\n"}
+    judged.answer = TWO
+    _run(er.resolve([_extraction("ep1", FAMILY, target="Alpine Town"), _extraction("ep2", WORK), _extraction("ep3", WORK)],
+                    [owner], _settings(memory)))
+    assert len(judged.calls) == 1 and 'appears in the descriptions as "Noor Example"' in judged.calls[0]
 
 
 def test_a_later_conversation_of_the_held_person_gives_them_a_page_of_their_own(tmp_path, judged):

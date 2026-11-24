@@ -806,6 +806,21 @@
      ],
      "architecture"
     ]
+   },
+   {
+    "id": "U8",
+    "why": "a job is left and what she led there ends with it (no `current`: the thing only ends; the handover is Priya's, said apart)",
+    "on_owner": true,
+    "stale": [
+     "migration",
+     [
+      "lead",
+      "leads",
+      "leading",
+      "works on",
+      "working on"
+     ]
+    ]
    }
   ],
   "forbid": [
