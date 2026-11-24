@@ -5,9 +5,7 @@ never joins), and the join's undo. Names invented (Teodor Brandt / Teo, Ines Var
 from __future__ import annotations
 
 import asyncio
-import json
 import subprocess
-from datetime import date
 from pathlib import Path
 
 import pytest
