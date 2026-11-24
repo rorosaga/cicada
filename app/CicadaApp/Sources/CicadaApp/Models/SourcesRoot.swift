@@ -42,6 +42,20 @@ enum SourcesRoot {
         }
     }
 
+    /// What the person's one button on a card names, when the card has something for them to do (plan 3.1).
+    enum Fix: Equatable, Sendable {
+        case signIn, giveAccess, tryAgain, connectYourAI
+
+        var title: String {
+            switch self {
+            case .signIn: Copy.Catalog.signIn
+            case .giveAccess: Copy.Streams.giveAccess
+            case .tryAgain: Copy.tryAgain
+            case .connectYourAI: Copy.WebReading.openAgents
+            }
+        }
+    }
+
     struct Card: Identifiable, Equatable {
         let row: SourceCatalogRow
         let group: Group
@@ -57,6 +71,82 @@ enum SourcesRoot {
         var tone: StatusWord.Tone { row.tone }
         /// Whether the card says when it last read (a source that is not connected says nothing of the kind).
         var showsLastRead: Bool { group != .notConnected && lastRead != nil }
+
+        /// The word at the card's trailing edge. A source not connected says nothing (its label and its Connect button
+        /// say it), except where the catalogue has something to add: the app is gone, or a list is on and not read yet.
+        var trailingWord: (word: String, tone: StatusWord.Tone)? {
+            switch group {
+            case .needsYou, .connected:
+                return (word, tone)
+            case .notConnected:
+                if row.notInstalled { return (Copy.SourcePage.notInstalledRow, .off) }
+                if row.browser?.state == .notReadYet { return (word, tone) }
+                return nil
+            }
+        }
+
+        /// The one button of a needs-you card, naming the fix; nil on any other card.
+        var fix: Fix? { group == .needsYou ? SourcesRoot.fix(row) : nil }
+
+        /// A source not connected can be connected from its card, unless there is nothing to connect: its app is gone,
+        /// or its list is already on and waiting for a first read.
+        var connectable: Bool {
+            group == .notConnected && !row.notInstalled && row.browser?.state != .notReadYet
+        }
+    }
+
+    /// The fix a needs-you card names. Pure over the catalogue row, so the word and the button never disagree.
+    static func fix(_ row: SourceCatalogRow) -> Fix? {
+        if row.notInstalled { return nil }
+        if let waiting = row.waitingOn { return waiting == Copy.sourceNeedsAccess ? .giveAccess : .tryAgain }
+        if row.status == .waitingForAgent { return .connectYourAI }
+        if row.browser?.state == .couldntRead { return .tryAgain }
+        if row.browser?.state == .signedOut || row.status == .needsSignIn { return .signIn }
+        return nil
+    }
+
+    /// The page's state on the root: the words in the field, the card the arrows moved to, and the chosen kind. Kept by
+    /// the page, so what was typed outlives an opened source and Esc from it returns to the same results.
+    struct State: Equatable {
+        var text = ""
+        /// The card ↑/↓ moved to; nil is the best result while searching (`highlighted`).
+        var cursor: String?
+        /// The kind chosen in the tabs; nil is All.
+        var tab: SourceShelf?
+
+        /// New words start at the best result again. Return commits the field with the words it already holds just
+        /// before it submits, and that must not lose the card the arrows moved to.
+        mutating func typed(_ words: String) {
+            guard words != text else { return }
+            text = words
+            cursor = nil
+        }
+
+        var searching: Bool { SourceGrid.isSearching(text) }
+
+        /// What the page draws and the keys walk: the chosen kind's cards, or the ranked find.
+        func visible(_ cards: [Card]) -> [Card] {
+            SourcesRoot.visible(cards, tab: SourcesRoot.effectiveTab(tab, cards: cards), query: text)
+        }
+
+        /// The card that is lit: while words are typed the best result, once an arrow moved the one it moved to; at rest
+        /// none (a page nobody has touched shows no selection).
+        func lit(_ cards: [Card]) -> String? {
+            searching || cursor != nil ? SourcesRoot.highlighted(visible(cards), cursor: cursor) : nil
+        }
+
+        /// ↑/↓ along the visible cards, stopping at either end.
+        mutating func walk(_ delta: Int, in cards: [Card]) {
+            let shown = visible(cards)
+            guard !shown.isEmpty else { return }
+            cursor = SourcesRoot.moved(delta, in: shown, cursor: cursor)
+        }
+
+        /// A hand-off (the palette, a notch, Sleep's *Open in Sources*) did not ask for the words left in the field.
+        mutating func clearFind() {
+            text = ""
+            cursor = nil
+        }
     }
 
     // MARK: - Cards and their order
@@ -174,6 +264,21 @@ enum SourcesRoot {
         let ids = visible.map(\.id)
         guard let current = highlighted(visible, cursor: cursor), let at = ids.firstIndex(of: current) else { return nil }
         return ids[min(max(at + delta, 0), ids.count - 1)]
+    }
+
+    // MARK: - Where the one label goes
+
+    /// What the root draws under the tabs: the cards that are the person's (needs you, then connected) with no heading,
+    /// then what is not connected under one label — and no label when it would head the only run, or while words are
+    /// typed (a ranked find is one flat list). DR-81: a run with nothing in it is not drawn.
+    static func sections(_ visible: [Card], searching: Bool) -> [(label: String?, cards: [Card])] {
+        guard !searching else { return visible.isEmpty ? [] : [(nil, visible)] }
+        let mine = visible.filter { $0.group != .notConnected }
+        let rest = visible.filter { $0.group == .notConnected }
+        var out: [(label: String?, cards: [Card])] = []
+        if !mine.isEmpty { out.append((nil, mine)) }
+        if !rest.isEmpty { out.append((mine.isEmpty ? nil : Copy.Streams.notConnected, rest)) }
+        return out
     }
 
     // MARK: - Beside an open source

@@ -1,6 +1,6 @@
 import SwiftUI
 
-// G217 (ruling 36 D6) — the Sources page as the one catalogue: `SourceGridView` at the root; beside an open source, rows
+// G217 (ruling 36 D6) — the Sources page as the one catalogue: `SourcesRootList` at the root; beside an open source, rows
 // in the grid's own sections, each a logo tile, a name and a dot with one word (DR-34 row heights, DR-38 nothing said
 // twice, DR-52 via the one tile adapter, DR-74 the detail's head). The old Integrations page's rows and the "Add a
 // source" grid both land here.
@@ -158,7 +158,7 @@ struct SourceCatalogRowView: View {
                 Spacer(minLength: CicadaTheme.spacingSM)
                 // Its heading already says Connected; the word only cost the name its room.
                 if (style == .wide || (style == .triage && !row.isConnectedHere)) && (row.status != .off || row.waitingOn != nil || row.notInstalled) {
-                    StatusWord(word: row.word, tone: row.tone)
+                    StatusWord(word: row.word, tone: row.tone).layoutPriority(1)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -180,26 +180,37 @@ struct SourceCatalogRowView: View {
     }
 }
 
-/// The grid's sections as labelled rows (DR-47), for the list beside an open source: a tile and its row sit under the
-/// same word, and the arrow keys walk the same order.
+/// The root's cards as narrow rows (DR-47, DR-34), for the list beside an open source: the same order as the root (what
+/// needs the person, then what is connected, then what is not), so the keys walk what the root drew.
 struct SourceCatalogList: View {
-    let rows: [SourceCatalogRow]
+    let cards: [SourcesRoot.Card]
     let style: ColumnPlan.ListStyle
     var selection: SourcesSelection? = nil
     let open: (SourcesSelection) -> Void
+    /// The clock the ages are read against; nil is the live one (a render pins it to its fixture).
+    var clock: Date? = nil
+
+    private var groups: [(title: String, cards: [SourcesRoot.Card])] {
+        let titles: [SourcesRoot.Group: String] = [.needsYou: Copy.Catalog.needsYou, .connected: Copy.Catalog.connected,
+                                                   .notConnected: Copy.Streams.notConnected]
+        return [SourcesRoot.Group.needsYou, .connected, .notConnected].compactMap { group in
+            let mine = cards.filter { $0.group == group }
+            return mine.isEmpty ? nil : (titles[group] ?? "", mine)
+        }
+    }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(RowMetrics.twoLineGap)) {
-                ForEach(Array(SourceGrid.sections(rows).enumerated()), id: \.element.section) { index, group in
-                    SectionLabel(group.section.title)
+                ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
+                    SectionLabel(group.title)
                         .padding(.horizontal, CicadaTheme.scaled(10))
                         .padding(.top, index == 0 ? 0 : CicadaTheme.scaled(14))
                         .padding(.bottom, CicadaTheme.scaled(4))
-                    ForEach(group.rows) { row in
-                        SourceCatalogRowView(row: row, style: style, selected: selection == .entry(row.id),
-                                             now: context.date) { open(.entry(row.id)) }
-                            .id(SourcesSelection.entry(row.id))
+                    ForEach(group.cards) { card in
+                        SourceCatalogRowView(row: card.row, style: style, selected: selection == .entry(card.id),
+                                             now: clock ?? context.date) { open(.entry(card.id)) }
+                            .id(SourcesSelection.entry(card.id))
                     }
                 }
             }

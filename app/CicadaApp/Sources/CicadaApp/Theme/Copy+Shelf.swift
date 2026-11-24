@@ -1,7 +1,6 @@
 import Foundation
 
-/// ROR-118 — the Sources page's shelves, its add overlay and the website-reading card. Few words on purpose: a shelf
-/// is a heading and its sources, an add line is a verb and two names.
+/// ROR-118 — the Sources page's kinds (its tabs, G245) and the website-reading card. Few words on purpose.
 extension Copy {
     enum Shelf {
         static let conversations = "Conversations"
@@ -10,17 +9,6 @@ extension Copy {
         static let work = "Work"
         static let saved = "Saved"
         static let media = "Media"
-        static let addSource = "Add source"
-        static let addHelp = "Add a source"
-        static let addTitle = "Add a source"
-        static let yours = "Yours"
-        static let calendarNote = "Includes Google"
-        static let close = "Close"
-        static let nothingToAdd = "Nothing else to add here"
-        static func savedCount(_ n: Int) -> String { n == 1 ? "1 saved" : "\(n.formatted()) saved" }
-        static func itemCount(_ n: Int) -> String { n == 1 ? "1 item" : "\(n.formatted()) items" }
-        static func conversationCount(_ n: Int) -> String { n == 1 ? "1 conversation" : "\(n.formatted()) conversations" }
-        static let nothingYet = "Nothing in yet"
     }
 
     /// The website-reading card: an animation before the switch, and what a service reads, said plainly. Checked

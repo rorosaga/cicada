@@ -1,11 +1,10 @@
 import XCTest
 @testable import CicadaApp
 
-/// G126 R9 — the Feed hand-off. `AppRouter` is a small `@Observable
-/// @MainActor` class, not a `NotificationCenter` post: "Import in Feed →"
-/// on an Integrations row stages a tile AND switches the tab together
-/// (`routeToAddSource`), and `consumeAddSource()` reads-then-clears in
-/// one call so a caller can never re-consume a stale tile.
+/// G126 R9 — the hand-offs. `AppRouter` is a small `@Observable @MainActor` class, not a `NotificationCenter` post:
+/// a row naming a source stages that source's page AND switches the tab together (`routeToAddSource`, G245: the
+/// tile's own entry, `pendingCatalogEntry`), and every consumer reads-then-clears in one call so a caller can never
+/// re-consume a stale hand-off.
 @MainActor
 final class AppRouterTests: XCTestCase {
     func testHomeFailureDetailsStagesSleepAndConsumesSectionOnce() {
@@ -16,19 +15,16 @@ final class AppRouterTests: XCTestCase {
         XCTAssertNil(router.consumeSleepDetails())
     }
 
-    func testRouteToAddSourceStagesTileAndTab() {
+    /// G245 (ruling 78): nothing is "added" any more, so a tile's hand-off opens that source's own page, staged with the
+    /// tab switch; an export tile with no entry of its own lands on Chat exports.
+    func testRouteToAddSourceOpensTheTilesOwnSourcePage() {
         let router = AppRouter()
         router.routeToAddSource(.instagram)
         XCTAssertEqual(router.pendingTab, .sources, "G217: a tile opens its entry in the one catalogue, the Sources page")
-        XCTAssertEqual(router.pendingAddSource, .instagram)
-    }
-
-    func testConsumeClearsAfterOneRead() {
-        let router = AppRouter()
-        router.routeToAddSource(.youtube)
-        XCTAssertEqual(router.consumeAddSource(), .youtube)
-        XCTAssertNil(router.pendingAddSource)
-        XCTAssertNil(router.consumeAddSource())
+        XCTAssertEqual(router.pendingCatalogEntry, "instagram")
+        let youtube = AppRouter()
+        youtube.routeToAddSource(.youtube)
+        XCTAssertEqual(youtube.pendingCatalogEntry, "youtube")
     }
 
     /// Track Z §7.1 — a spine's "Open in Sources ›" stages the tab AND the

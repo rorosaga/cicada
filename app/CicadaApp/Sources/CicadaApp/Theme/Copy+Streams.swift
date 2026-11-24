@@ -25,6 +25,18 @@ extension Copy {
             n == 1 ? "1 folder" : "\(UsageFormat.count(n)) folders"
         }
 
+        // The root (plan 3.1): the header's one button, the one label, the one fix a needs-you card names.
+        static let checkConnections = "Check connections"
+        static let checkingConnections = "Checking…"
+        static func checkedAgo(_ ago: String) -> String { "Checked \(ago)" }
+        static let notConnected = "Not connected"
+        static let connect = "Connect"
+        static let giveAccess = "Give access"
+        static let kindsLabel = "Kinds of source"
+        static let readingSources = "Reading your sources"
+        /// The Connect button's tooltip.
+        static func connectHelp(_ name: String) -> String { "Connect \(name)" }
+
         /// The "Saves you make" row, when macOS has not been given Accessibility (ruling 77: never prompted for).
         static let accessibilityWhy = "Seeing a save needs Accessibility, which Cicada never asks for on its own."
         static let openAccessibility = "Open Accessibility settings"

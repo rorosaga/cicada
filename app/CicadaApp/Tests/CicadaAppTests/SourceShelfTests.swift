@@ -1,7 +1,8 @@
 import XCTest
 @testable import CicadaApp
 
-/// ROR-118 — the Sources page's six kinds, its add overlay's groups and the website-reading card's scene, all pure.
+/// ROR-118 — the Sources page's six kinds (the root's tabs, G245) and the website-reading card's scene, all pure. The
+/// shelves' grids, the add overlay and the week strip left with the card root (ruling 78).
 final class SourceShelfTests: XCTestCase {
     private func rows(channels: [SourceChannel] = [], savedLists: Set<String> = []) -> [SourceCatalogRow] {
         let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, overview: [])
@@ -11,18 +12,6 @@ final class SourceShelfTests: XCTestCase {
 
     private func channel(_ id: String) -> SourceChannel {
         SourceChannel(id: id, label: id, connected: true, lastSync: nil, lastError: nil)
-    }
-
-    func testYoursStripSpreadsItsRowsEvenly() {
-        XCTAssertEqual((1...6).map { SourceAddOverlay.yoursColumns($0) }, [1, 2, 3, 4, 5, 6])
-        XCTAssertEqual(SourceAddOverlay.yoursColumns(7), 4, "7 marks are 4 + 3, never 6 + 1")
-        XCTAssertEqual(SourceAddOverlay.yoursColumns(13), 5, "13 marks are 5 + 5 + 3, never 6 + 6 + 1")
-        XCTAssertEqual(SourceAddOverlay.yoursColumns(0), 1)
-    }
-
-    func testAKindWithThreeThingsToAddDrawsThemCardWide() {
-        XCTAssertEqual([0, 1, 3].map { SourceShelfLayout.tileSpan(addable: $0) }, [2, 2, 2])
-        XCTAssertEqual([4, 5, 9].map { SourceShelfLayout.tileSpan(addable: $0) }, [1, 1, 1])
     }
 
     func testEveryCatalogueEntryHasOneKindAndNoVendorMakesAKind() {
@@ -38,42 +27,29 @@ final class SourceShelfTests: XCTestCase {
         XCTAssertEqual(SourceShelf.of(all.first { $0.id == "imessage" }!.entry), .conversations)
     }
 
-    func testAShelfListsWhatIsConnectedAndWhatCouldStillBeAdded() {
+    func testAKindListsWhatIsConnectedAndWhatCouldStillBeAdded() {
         let all = rows(channels: [channel("reddit")])
         let saved = SourceShelves.shelves(all).first { $0.shelf == .saved }!
         XCTAssertEqual(saved.connected.map(\.id), ["reddit"])
-        XCTAssertFalse(saved.addable.contains { $0.id == "reddit" }, "added already")
+        XCTAssertFalse(saved.addable.contains { $0.id == "reddit" }, "connected already")
         XCTAssertTrue(saved.addable.contains { $0.id == "instagram" })
-        XCTAssertEqual(SourceShelves.yours(all).map(\.id), ["reddit"])
     }
 
-    func testTheOverlayNarrowsByKindAndByWordsAndNeverRepeatsYours() {
-        let all = rows(channels: [channel("reddit")])
-        let everything = SourceShelves.addGroups(all, shelf: nil, query: "")
-        XCTAssertEqual(everything.map(\.shelf), SourceShelf.allCases)
-        XCTAssertFalse(everything.flatMap(\.addable).contains { $0.id == "reddit" })
-        XCTAssertEqual(SourceShelves.addGroups(all, shelf: .work, query: "").map(\.shelf), [.work])
-        let found = SourceShelves.addGroups(all, shelf: nil, query: "notion").flatMap(\.addable).map(\.id)
-        XCTAssertEqual(found.first, "notion")
-    }
-
-    func testEveryKindHoldsOnePlaceAndAnEmptyOneStillShowsWhatItTakes() {
+    func testEveryKindHoldsOnePlaceAndAnEmptyOneStillHoldsWhatItTakes() {
         let all = rows(channels: [channel("reddit"), channel("github")])
-        let shown = SourceShelfLayout.shown(SourceShelves.shelves(all))
-        XCTAssertEqual(shown.map(\.shelf), SourceShelf.allCases, "one fixed order: a kind never moves when a source joins it")
-        let documents = shown.first { $0.shelf == .documents }!
+        let shelves = SourceShelves.shelves(all)
+        XCTAssertEqual(shelves.map(\.shelf), SourceShelf.allCases, "one fixed order: a kind never moves when a source joins it")
+        let documents = shelves.first { $0.shelf == .documents }!
         XCTAssertTrue(documents.connected.isEmpty)
         XCTAssertTrue(documents.addable.contains { $0.id == "notes" }, "Apple Notes is findable by name")
-        let events = shown.first { $0.shelf == .events }!
+        let events = shelves.first { $0.shelf == .events }!
         XCTAssertTrue(events.addable.contains { $0.id == "calendar-local" }, "so is the Mac's Calendar")
-        XCTAssertEqual(Copy.Shelf.calendarNote, "Includes Google")
     }
 
-    func testTheCountInTheTitleIsTheYoursStripAndTheRowsOnThePage() {
+    func testTheCountInTheTitleIsTheConnectedSourcesOfTheKinds() {
         let all = rows(channels: [channel("reddit"), channel("github")])
         let onPage = SourceShelves.shelves(all).flatMap(\.connected).map(\.id)
-        XCTAssertEqual(SourceCatalog.connectedCount(all), onPage.count, "every connected source is a row somewhere")
-        XCTAssertEqual(SourceShelves.yours(all).map(\.id), onPage, "and Yours lists the same ones")
+        XCTAssertEqual(SourceCatalog.connectedCount(all), onPage.count, "every connected source is in some kind")
         XCTAssertTrue(onPage.contains("reddit") && onPage.contains("github"))
     }
 
@@ -86,18 +62,6 @@ final class SourceShelfTests: XCTestCase {
         }
         XCTAssertTrue(Copy.Honest.notion.hasPrefix("Read-only"))
         XCTAssertTrue(Copy.Honest.telegram.contains("one-to-one chats you tick"))
-    }
-
-    func testTheWeekStartsOnMondayAndHoldsToday() {
-        let today = ISODay(year: 2026, month: 11, day: 6)   // a Friday
-        let week = SourceWeekStrip.week(containing: today)
-        XCTAssertEqual(week.count, 7)
-        XCTAssertEqual(week[0].description, "2026-11-02")
-        XCTAssertEqual(week[4], today)
-        let items = [ChannelItem(kind: .page, id: "a", title: "A", day: "2026-11-03"),
-                     ChannelItem(kind: .page, id: "b", title: "B", day: "2026-11-20")]
-        XCTAssertEqual(SourceWeekStrip.busy(items, in: week), [ISODay(year: 2026, month: 11, day: 3)])
-        XCTAssertEqual(SourceWeekStrip.upcoming(items, today: today, limit: 1).map(\.id), ["b"])
     }
 
     // MARK: The website-reading card

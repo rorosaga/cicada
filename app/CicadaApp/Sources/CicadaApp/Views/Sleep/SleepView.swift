@@ -225,9 +225,6 @@ struct SleepView: View {
     @FocusState private var focus: ListFocus?
     /// G162 — the watch run: the picker and its card take the list and the detail while it is on.
     @State private var run = VideoRunModel()
-    /// R-DL14 — the one-shot import's sheet (an Integrations hand-off).
-    @State private var showAddSheet = false
-    @State private var sheetTile: AddSourceTile?
     /// Track Z Z5 — the room's interaction state (gaze, perk, the answer
     /// ladder). Page-local `@State`: a tab switch tears it down, so an answer
     /// never outlives the visit it was asked in.
@@ -278,9 +275,6 @@ struct SleepView: View {
         // I4 — a mood change resets the ladder: an answer about the state that just ended is no longer true, and any
         // feed line about a moment that has passed (Z-B11). On the page, not the room: the room may have scrolled away.
         .onChange(of: page.mood.caseName) { _, _ in room.dismissSlot() }
-        .sheet(isPresented: $showAddSheet) {
-            AddSourceSheet(initialTile: sheetTile, onClose: { showAddSheet = false }, flowOnly: sheetTile != nil)
-        }
     }
 
     private func handoffs(_ content: some View) -> some View {
@@ -288,13 +282,12 @@ struct SleepView: View {
         .onAppear {
             // A search left from the last visit would keep filtering with no field on screen (§5.5).
             feedVM.searchText = ""
-            consumeDetailsRoute(); consumePendingAddSource(); consumeLanding(); consumeVideoChooser()
+            consumeDetailsRoute(); consumeLanding(); consumeVideoChooser()
             feedVM.reconcile()
         }
         .onChange(of: appRouter.pendingSleepDetails) { _, _ in consumeDetailsRoute() }
         // Say it once — Sleep clicked again in the rail: the room, the list its state chooses, nothing open.
         .onRailReselect(.sleep, router: appRouter) { popToRoot() }
-        .onChange(of: appRouter.pendingAddSource) { _, _ in consumePendingAddSource() }
         .onChange(of: appRouter.pendingSavedItem) { _, _ in consumeLanding() }
         .onChange(of: appRouter.pendingVideoChooser) { _, _ in consumeVideoChooser() }
         .onChange(of: feedVM.items.map(\.id)) { _, _ in feedVM.reconcile() }
@@ -801,17 +794,6 @@ struct SleepView: View {
         }
     }
 
-    /// G217 — one catalogue: no tile opens the Sources page (where every way in is listed); a hand-off naming one tile
-    /// still opens that tile's flow here, alone (`flowOnly`).
-    private func openSheet(_ tile: AddSourceTile?) {
-        guard let tile else {
-            appRouter.routeToSources()
-            return
-        }
-        sheetTile = tile
-        showAddSheet = true
-    }
-
     private func retryParked(_ ids: [String]?) {
         Task { @MainActor in
             await sleepVM.retryParked(ids: ids)
@@ -839,11 +821,6 @@ struct SleepView: View {
     }
 
     // MARK: Hand-offs (each consumer reads then clears, so a second firing is a no-op)
-
-    private func consumePendingAddSource() {
-        guard let tile = appRouter.consumeAddSource() else { return }
-        openSheet(tile)
-    }
 
     /// R-DL16 / DR-30 — a landed item opens in Saved, every kind shown, scrolled into view; a keyboard-free path, so
     /// it never animates.

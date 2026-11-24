@@ -89,8 +89,12 @@ final class SourcesV3Tests: XCTestCase {
 
     func testTheRootHasNoSparklineAndOneQuietStatisticsDisclosure() throws {
         let columns = try source("Views/Sources/SourcesColumns.swift")
-        for gone in ["sparklinePath", "weekDots", "SourceDeltaText", "SourceCardGrid", "LazyVGrid"] {
+        // G245: the cards are one column of `SourcesRootList`; no grid, no sparkline, no bento comes back with them.
+        let cards = try source("Views/Sources/SourcesRootView.swift")
+        for gone in ["sparklinePath", "weekDots", "SourceDeltaText", "SourceCardGrid", "LazyVGrid", "BentoLayout",
+                     "EqualGridLayout", "Canvas("] {
             XCTAssertFalse(columns.contains(gone), "\(gone) is the v2 grid's, retired by the owner")
+            XCTAssertFalse(cards.contains(gone), "\(gone) is the v2 grid's, retired by the owner")
         }
         XCTAssertTrue(columns.contains("ContributorsStrip"), "who wrote your memory moved under Statistics")
         XCTAssertEqual(columns.components(separatedBy: "usageVM.mode").count - 1, 2,

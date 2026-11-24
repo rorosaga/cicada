@@ -210,29 +210,27 @@ final class SourcesV2Tests: XCTestCase {
             .appendingPathComponent(relativePath), encoding: .utf8)
     }
 
-    /// F2/R-S7 — `+ Add a source` has to exist on a POPULATED page, not only in
-    /// the empty state. A rendered-view test cannot see "the button is only in
-    /// the `rows.isEmpty` branch", so this reads the source.
-    func testAddASourceLivesInTheHeaderAndIsPresentedExactlyOnce() throws {
-        // G217 (ruling 36 D6): the page IS the one catalogue — the header keeps a labelled add (a file or an export),
-        // and the old grid's sheet is presented nowhere on it.
+    /// G245 (ruling 78) amends F2/R-S7: the header no longer holds an add — every source is a card on the page, so
+    /// there is nothing to add and no second catalogue to present. A rendered-view test cannot see "the button is only in
+    /// one branch", so this reads the source.
+    func testThereIsNoAddAndTheHeaderHoldsTheOneCheckButton() throws {
         let page = try sourceFile("Views/Sources/SourcesPageView.swift")
-        XCTAssertTrue(page.contains("PageAddButton("),
-                      "the header lost its affordance — F2 all over again")
+        XCTAssertFalse(page.contains("PageAddButton("), "ruling 78: no Add source button")
+        XCTAssertFalse(page.contains("SourceAddOverlay"), "ruling 78: no add overlay")
         XCTAssertEqual(page.components(separatedBy: "AddSourceSheet(").count - 1, 0,
                        "one catalogue: no second one presented from this page")
         XCTAssertFalse(page.contains("routeToAddSource"),
                        "R-S9 — no bounce to the Feed tab just to show a sheet")
+        XCTAssertTrue(page.contains("checkButton("), "the header's one button is Check connections")
     }
 
-    /// R-S7 — the empty state keeps the affordance it already has. R-S9's fix is
-    /// that the page never *loses* a way in, not that both ways be identical, so
-    /// a reviewer removing `EmptyStateView`'s action "because the header has one
-    /// now" is a regression, not a tidy-up.
-    func testTheEmptyStateKeepsItsOwnWayIn() throws {
-        // G217, ROR-7: the root is the catalogue — every way in, on or off — so it is never empty; each tile is a way in.
-        let grid = try sourceFile("Views/Sources/SourcesColumns.swift")
-        XCTAssertTrue(grid.contains("SourceGridView(rows: catalog,"))
+    /// R-S7 restated for the card root: the page never loses a way in — every source is a card, so the root is the
+    /// catalogue and is never empty; each card opens its source.
+    func testTheRootIsTheCatalogueAsCards() throws {
+        let columns = try sourceFile("Views/Sources/SourcesColumns.swift")
+        XCTAssertTrue(columns.contains("SourcesRootList("))
+        XCTAssertFalse(columns.contains("SourceGridView"), "the grid of apps is gone")
+        XCTAssertFalse(columns.contains("SourceShelvesView"), "so are the shelves")
     }
 
     /// The detail page's window is the backend's OWN `ACTIVITY_DAYS`

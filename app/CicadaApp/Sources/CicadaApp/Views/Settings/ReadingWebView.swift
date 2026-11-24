@@ -764,6 +764,9 @@ struct ReadingFirstUseSheet: View {
     var youtubeList: YouTubeList? = nil
     /// G89 (2026-11-04) — raised by a Substack list's switch on the Substack entry: the same, then that list.
     var substackList: SubstackList? = nil
+    /// G245 — raised by a card's Connect or the notch for a list by the contract's own words (`ReadingConsent`): Turn on
+    /// enables agent reading with the acknowledgement, then that list, whichever list it is (`setSwitch`).
+    var consent: ReadingConsent? = nil
     let done: () -> Void
     @State private var understood = false
     @State private var failure: String?
@@ -779,7 +782,7 @@ struct ReadingFirstUseSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let label {
-                Text(savedList ? Copy.Reading.sheetAlsoReadsList(label) : Copy.Reading.sheetAlsoAllows(label))
+                Text(savedList || consent != nil ? Copy.Reading.sheetAlsoReadsList(label) : Copy.Reading.sheetAlsoAllows(label))
                     .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
             }
@@ -797,7 +800,9 @@ struct ReadingFirstUseSheet: View {
                 TextButton(title: Copy.Reading.sheetNotNow, action: done)
                 PrimaryActionButton(title: Copy.Reading.sheetTurnOn) {
                     Task {
-                        let ok = if let youtubeList {
+                        let ok = if let consent {
+                            await model.setSwitch(setting: consent.setting, key: consent.key, on: true, acknowledge: true)
+                        } else if let youtubeList {
                             await model.setEnabled(true, acknowledge: true, site: nil)
                                 ? await model.setYouTubeList(youtubeList, true) : false
                         } else if let substackList {

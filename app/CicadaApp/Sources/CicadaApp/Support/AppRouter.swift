@@ -19,7 +19,6 @@ final class AppRouter {
     var pendingTab: AppTab?
     /// Set with `pendingTab` when a key asked for the switch, so it lands in one frame (DR-60).
     var pendingTabByKey = false
-    var pendingAddSource: AddSourceTile?
     /// G117 — Settings → General's "Run setup again" hand-off. The panel's
     /// pages cannot flip `showFirstRun` on `ContentView` themselves (same
     /// reason `pendingTab` exists for G126 R9's import hand-off), so they stage a
@@ -62,15 +61,14 @@ final class AppRouter {
         byKey ? nil : CicadaMotion.columns(reduceMotion: reduceMotion)
     }
 
-    /// Sets both fields together — a `pendingAddSource` with no matching
-    /// tab-switch would stage a sheet nobody ever sees, since the Sleep page
-    /// only consumes it once it's actually on screen. A hand-off naming a tile
-    /// opens that tile's flow on the Sleep page (the Feed folded into it, 2026-10-16).
+    /// A hand-off naming a tile (Settings' old Integrations rows, a walkthrough) opens that tile's source page on the
+    /// Sources page (G245, ruling 78: nothing is "added" any more — every source is on the page). A tile no source owns
+    /// opens the page itself.
     func routeToAddSource(_ tile: AddSourceTile) {
+        let entries = SourceCatalog.entries(browsers: [], wisprPresent: false, hexPresent: false, overview: [])
         closeSettings()
-        // G217 — the tile's entry in the one catalogue (the Sources page), which opens its flow.
         pendingTab = .sources
-        pendingAddSource = tile
+        pendingCatalogEntry = SourceCatalog.entry(for: tile, in: entries)?.id
         activateMainWindow()
     }
 
@@ -196,7 +194,7 @@ final class AppRouter {
         activateMainWindow()
     }
 
-    /// Read-then-clear, for `consumeAddSource`'s double-firing reason (`onAppear` and `onChange` can both see it).
+    /// Read-then-clear, for the double-firing reason (`onAppear` and `onChange` can both see it).
     @discardableResult
     func consumeProject() -> String? {
         defer { pendingProject = nil }
@@ -362,7 +360,7 @@ final class AppRouter {
         pendingSettings = nil
     }
 
-    /// Read-then-clear, for the double-firing reason `consumeAddSource` states.
+    /// Read-then-clear, for the double-firing reason `consumeSourceDetail` states.
     @discardableResult
     func consumeSettings() -> SettingsRequest? {
         defer { pendingSettings = nil }
@@ -413,15 +411,6 @@ final class AppRouter {
         return pendingConversationQuery
     }
 
-    /// Reads then clears in one call so a caller (`SleepView.onAppear` AND
-    /// its `onChange(of: router.pendingAddSource)`, which can both fire for
-    /// the same hand-off) can never re-consume a stale tile.
-    @discardableResult
-    func consumeAddSource() -> AddSourceTile? {
-        defer { pendingAddSource = nil }
-        return pendingAddSource
-    }
-
     /// G139 — Settings → You → "Show on graph". Stages the entity with the
     /// tab switch, like the import hand-off; `ContentView` reveals it (G123).
     var pendingRevealEntity: String?
@@ -433,7 +422,7 @@ final class AppRouter {
         activateMainWindow()
     }
 
-    /// Read-then-clear, for the reason `consumeAddSource` is.
+    /// Read-then-clear, for the reason `consumeSourceDetail` is.
     @discardableResult
     func consumeRevealEntity() -> String? {
         defer { pendingRevealEntity = nil }
@@ -466,14 +455,14 @@ final class AppRouter {
         showMainWindow()
     }
 
-    /// Read-then-clear, for the same double-firing reason as `consumeAddSource`.
+    /// Read-then-clear, for the same double-firing reason as `consumeSourceDetail`.
     @discardableResult
     func consumeConsent() -> ReadingConsent? {
         defer { pendingConsent = nil }
         return pendingConsent
     }
 
-    /// Read-then-clear, for the same double-firing reason as `consumeAddSource`
+    /// Read-then-clear, for the same double-firing reason as `consumeSourceDetail`
     /// (`SourcesPageView.onAppear` and its `onChange` can both see one hand-off).
     @discardableResult
     func consumeSourceDetail() -> String? {

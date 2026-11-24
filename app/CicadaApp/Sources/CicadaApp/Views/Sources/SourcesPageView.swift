@@ -1,18 +1,25 @@
 import SwiftUI
 
-/// The Sources page (G124) in progressive columns (Direction D, DS-3c; §10). ROR-7 (owner 2026-11-05): with nothing
-/// open it is a grid of apps with a search, answering what waits on the person, what is connected and what they could
-/// add (`SourceGridView`), and one quiet *Statistics* disclosure (who wrote your memory, the counts); opening a source
-/// narrows the page to rows in the same sections and opens its standard page; a conversation's Reader is the third
+/// The Sources page (G124) in progressive columns (Direction D, DS-3c; §10). G245 (ruling 78, owner 2026-11-24): with
+/// nothing open it is one column of source cards, one shape for every source — what waits on the person first, then what
+/// is connected, then what is not — under a find and the kinds (`SourcesRootList`), the header's one button *Check
+/// connections*, and one quiet *Statistics* disclosure (who wrote your memory, the counts); opening a source narrows the
+/// page to the same cards as rows, in the same order, and opens its standard page; a conversation's Reader is the third
 /// column. Clicking Sources in the sidebar again returns here (`AppRouter.reselect`). No prices, no tokens anywhere
 /// (the 2026-09-03 G124 ruling).
 struct SourcesPageView: View {
     /// Entity chip → the app's existing entity navigation, threaded from `ContentView` like Ask citations.
     var onSelectEntity: ((String) -> Void)?
 
+    init(onSelectEntity: ((String) -> Void)? = nil) {
+        self.onSelectEntity = onSelectEntity
+        let run = SourceReaderRun()
+        _readerRun = State(initialValue: run)
+        _check = State(initialValue: SourceStreamCheckModel(deps: .live(runReader: { try await run.run($0) })))
+    }
+
     @Environment(Store.self) private var store
     @Environment(AppRouter.self) private var router
-    @Environment(IntakeRouter.self) private var intake
     @Environment(ContributorsViewModel.self) private var contributorsVM
     @Environment(ProvenanceRouter.self) private var provenance
     @AppStorage(ShellMetrics.labelledKey) private var labelledSidebar = false
@@ -32,16 +39,26 @@ struct SourcesPageView: View {
     @State private var showReadingSheet = false
     @Environment(ExploreCache.self) private var exploreCache
     @FocusState private var focus: ListFocus?
-    /// ROR-7 — the grid's search. Only the grid reads it: `catalog` stays whole, so a hand-off (the palette, the notch's
-    /// Yes, Sleep's *Open in Sources*) and the rows beside an open source reach every source, whatever was typed.
-    @State private var gridSearch = SourceGridSearch()
+    /// The root's find, the card the keys moved to and the chosen kind. Only the root reads the words: `catalog` stays
+    /// whole, so a hand-off (the palette, the notch's Yes, Sleep's *Open in Sources*) and the rows beside an open source
+    /// reach every source, whatever was typed.
+    @State private var rootState = SourcesRoot.State()
     /// Off sources whose app is on this Mac (`SourceGrid.suggested`): one Launch Services pass per appearance.
     @State private var suggested: Set<String> = []
-    /// ROR-118 — the add overlay: closed, or open on a kind (nil is every kind).
-    @State private var adding: AddRequest?
-
-    /// The overlay's one state: which kind it opens on.
-    private struct AddRequest: Equatable { var shelf: SourceShelf? }
+    /// G245 — `GET /sources/streams` (in memory; a 404 is "no streams yet", and every card is the catalogue row's).
+    @Environment(SourceStreamsModel.self) private var sourceStreams
+    /// G245 plan 3.3 — Check connections / Check now. Owned here, where the readers it runs are in the environment.
+    @State private var check: SourceStreamCheckModel
+    /// The closure the check runs a reader through, bound when the page appears (the readers are in the environment,
+    /// which an initializer cannot read).
+    @State private var readerRun: SourceReaderRun
+    /// What this Mac says about the permissions a stream needs: preflights only, never a prompt (ruling 77).
+    @State private var permissions: [MacPermission: Bool] = [:]
+    /// Cards whose button is working.
+    @State private var working: Set<String> = []
+    /// G245 — the first-use acknowledgement a Connect or a switch asked for (`AppRouter.pendingConsent`), raised here
+    /// because the notch's panel and a card cannot hold the sheet.
+    @State private var consent: ReadingConsent?
 
     private var rows: [SourceOverview] { SourceOverview.gridOrder(store.sourcesOverview.value ?? []) }
 
@@ -66,6 +83,17 @@ struct SourcesPageView: View {
                                       voiceMemos: voiceMemosReader),
                                   suggested: suggested, browserReads: reading.settings?.browserReads ?? [:],
                                   watch: { browserWatcher?.state(for: $0) })
+    }
+
+    /// G245 — the root's cards: the catalogue's rows (their word, order and eyebrow count unchanged) with each source's
+    /// streams beneath them. A 404 or a failed read leaves no streams, and every card is the catalogue row alone.
+    private func resolvedStreams(_ catalog: [SourceCatalogRow]) -> ResolvedStreams {
+        let app = StreamAppState(readers: localReaders,
+                                 waitingOn: Dictionary(uniqueKeysWithValues: catalog.compactMap { row in
+                                     row.waitingOn.map { (row.id, $0) } }),
+                                 notInstalled: Set(catalog.filter(\.notInstalled).map(\.id)),
+                                 siteSavesOn: Set(SiteSavePrefs().connected.map(\.key)), permissions: permissions)
+        return SourceStreamOverlay.resolve(sourceStreams.value, app: app, entries: catalog.map(\.entry))
     }
 
     /// 2026-11-03 — when each chat reader on this Mac last read its ticked chats (`ChatCheck`).
@@ -107,7 +135,11 @@ struct SourcesPageView: View {
         let rows = self.rows
         let catalog = self.catalog
         let segments = ContributorShare.segments(contributorsVM.contributors)
-        let order = SourceGrid.drawnOrder(catalog).map { SourcesSelection.entry($0.id) }
+        let streams = resolvedStreams(catalog)
+        let cards = SourcesRoot.cards(rows: catalog, streams: streams)
+        let openEntry: String? = { if case .entry(let id)? = columns.openId { id } else { nil } }()
+        let narrow = SourcesRoot.narrow(rows: catalog, streams: streams, open: openEntry)
+        let order = narrow.map { SourcesSelection.entry($0.id) }
         let detailOpen = columns.openId.map {
             SourcesModel.present(rows: rows, contributors: contributorsVM.contributors, catalog: catalog).contains($0)
         } ?? false
@@ -116,26 +148,23 @@ struct SourcesPageView: View {
                            navWidth: ShellMetrics.navWidth(labelled: labelledSidebar)) { plan in
             EyebrowRow(eyebrow: Eyebrow.text(Copy.sources, Copy.Catalog.eyebrow(SourceCatalog.connectedCount(catalog))),
                        horizontalPadding: !detailOpen && !trailingOpen ? plan.gutter : CicadaTheme.spacingXL) {
-                // 2026-11-03 (owner, on WhatsApp's page: "i dont get why these buttons are here if they dont influence
-                // whatsapp or some of the other sources at all") — the page's top right holds only what applies to the
-                // whole list: the one labelled add (DR-75), and only while no source is open (a source's page is about
-                // that source). *Reading in your browser* and *Explore saved sites* moved into the settings of the
-                // sources they act on (`SourceCatalogDetail.browserActions`): the accounts read in the browser and
-                // YouTube; the browsers whose saved sites Explore walks.
-                if !detailOpen {
-                    // CIC8 (2026-10-29): it opens the one intake — every export it reads, each chat app's export page
-                    // and steps, *Choose a file…* in Downloads — named for what people bring.
-                    PageAddButton(title: Copy.Shelf.addSource, help: Copy.Shelf.addHelp) { adding = AddRequest(shelf: nil) }
-                }
+                // The page's top right holds only what applies to the whole list, and only while no source is open (a
+                // source's page is about that source): the one button that asks every connection how it is doing
+                // (plan 3.3). No add: every source is on the page (ruling 78 amends DR-75's Sources adopter).
+                if !detailOpen { checkButton(catalog) }
             }
+            .frame(maxWidth: detailOpen || trailingOpen ? .infinity : SourcesRootLayout.headerWidth(gutter: plan.gutter),
+                   alignment: .leading)
         } list: { plan in
             if plan.listStyle == .wide {
-                SourcesOverviewColumn(rows: rows, catalog: catalog,
+                SourcesOverviewColumn(cards: cards,
                                       hasLoaded: store.sourcesOverview.value != nil || store.channels.value != nil,
-                                      onOpen: { select($0) }, onSelectEntity: onSelectEntity, search: $gridSearch,
-                                      onOpenByKey: { openByKey($0) })
+                                      onOpen: { select($0) }, onSelectEntity: onSelectEntity, state: $rootState,
+                                      onOpenByKey: { openByKey($0) }, onAct: { act($0, catalog: catalog) },
+                                      busy: working)
+                    .focused($focus, equals: .list)
             } else {
-                SourcesListColumn(catalog: catalog, style: plan.listStyle,
+                SourcesListColumn(cards: narrow, style: plan.listStyle,
                                   selection: columns.openId, open: { select($0) },
                                   move: { move($0, order: order) }, escape: { escape() })
                     .focused($focus, equals: .list)
@@ -154,16 +183,7 @@ struct SourcesPageView: View {
             }
         }
         .background(CicadaTheme.bgBase)
-        .overlay {
-            if let request = adding {
-                SourceAddOverlay(rows: catalog, shelf: request.shelf, open: { row in
-                    adding = nil
-                    select(.entry(row.id))
-                }, close: { adding = nil })
-                    .transition(.opacity)
-            }
-        }
-        .animation(CicadaMotion.panel(reduceMotion: reduceMotion), value: adding)
+        .environment(check)
         .environment(chatPanel)
         .environment(pageBack)
         .onChange(of: provenance.isPresented) { _, open in if open { chatPanel.close() } }
@@ -176,7 +196,23 @@ struct SourcesPageView: View {
         .onChange(of: router.pendingReadingSheet) { _, wants in
             if wants { router.pendingReadingSheet = false; showReadingSheet = true }
         }
+        // G245 — the first-use acknowledgement a card's Connect (or, later, the notch) asked for, raised here.
+        .sheet(item: $consent) { ask in
+            SettingsSheet(title: Copy.Reading.sheetTitle, onClose: { consent = nil }) {
+                ReadingFirstUseSheet(model: reading, site: nil, label: label(of: ask), consent: ask) {
+                    consent = nil
+                    Task { await sourceStreams.refresh() }
+                }
+            }
+        }
+        .onAppear { takeConsent() }
+        .onChange(of: router.pendingConsent) { _, _ in takeConsent() }
         .environment(agents)
+        .task { bindReaders() }
+        .task { await sourceStreams.refresh() }
+        .onChange(of: store.channels.value) { _, _ in Task { await sourceStreams.refresh() } }
+        .onChange(of: store.bank) { _, _ in check.reset() }
+        .task { await probePermissions() }
         .task { await exploreCache.refresh() }
         .task { await GoogleBooksKeyModel.shared.refresh() }
         .task { await reading.loadSettings() }
@@ -191,8 +227,6 @@ struct SourcesPageView: View {
         }
         // 2026-11-04 — an app removed since launch (Wispr Flow) reads Off · not installed as soon as the page opens.
         .task { await localSources.refreshInstalledApps() }
-        .onAppear { consumeAddSource() }
-        .onChange(of: router.pendingAddSource) { _, _ in consumeAddSource() }
         // Track Z §7.1 — a Sleep spine's "Open in Sources ›" lands here with the tab switch.
         .onAppear { openPendingSource() }
         .onChange(of: router.pendingSourceDetail) { _, _ in openPendingSource() }
@@ -321,7 +355,7 @@ struct SourcesPageView: View {
     /// pointer click closes on the columns' curve; the ⌘ shortcut never animates (DR-60).
     private func popToRoot() {
         // The sidebar's re-click clears the words too, even with nothing open: the root at rest, like a tab bar.
-        gridSearch = SourceGridSearch()
+        rootState.clearFind()
         guard SourcesModel.popsToRoot(detailOpen: columns.openId != nil,
                                       readerOpen: provenance.isPresented || chatPanel.isPresented) else { return }
         let change = {
@@ -342,7 +376,7 @@ struct SourcesPageView: View {
     private func openPendingSource() {
         guard let id = router.consumeSourceDetail(), let row = rows.first(where: { $0.id == id }) else { return }
         let entry = catalog.first { SourceCatalog.overviewRow(for: $0.entry, in: [row]) != nil }
-        gridSearch = SourceGridSearch()   // Whoever sent the person here did not ask for the words left in the field.
+        rootState.clearFind()   // Whoever sent the person here did not ask for the words left in the field.
         Instant.run { columns.open(entry.map { .entry($0.id) } ?? .source(id)) }
     }
 
@@ -351,19 +385,125 @@ struct SourcesPageView: View {
     private func openPendingEntry() {
         guard let id = router.pendingCatalogEntry, catalog.contains(where: { $0.id == id }) else { return }
         router.pendingCatalogEntry = nil
-        gridSearch = SourceGridSearch()
+        rootState.clearFind()
         Instant.run { columns.open(.entry(id)) }
     }
 
-    /// G217 — a hand-off naming one tile (Settings' old Integrations rows, a walkthrough) opens that tile's entry.
-    ///
-    /// CIC8 (2026-10-29) — a chat-export tile has no entry of its own: it lands on Chat exports. And a tile this page
-    /// cannot place is still consumed: left staged, it opened its Add-source sheet over the Sleep page the next time
-    /// that page appeared (`SleepView.consumePendingAddSource`), long after the click that staged it.
-    private func consumeAddSource() {
-        guard let tile = router.consumeAddSource(),
-              let entry = SourceCatalog.entry(for: tile, in: catalog.map(\.entry)) else { return }
-        gridSearch = SourceGridSearch()
-        Instant.run { columns.open(.entry(entry.id)) }
+    // MARK: - Check connections and a card's one button (G245, plan 3.1/3.3, section 7)
+
+    /// The header's one button. While a check runs it says so and waits; after one it says when, quietly beside it (what
+    /// each stream ended in is on the source's page). A check never prompts for anything.
+    @ViewBuilder
+    private func checkButton(_ catalog: [SourceCatalogRow]) -> some View {
+        HStack(spacing: CicadaTheme.spacingMD) {
+            if let failure = check.failure {
+                Text(failure).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.warning).lineLimit(1)
+            } else if let at = check.lastCheckedAt, !check.isChecking {
+                Text(Copy.Streams.checkedAgo(SourceCatalog.ago(at, now: Date())))
+                    .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary).lineLimit(1)
+            }
+            NeutralButton(title: check.isChecking ? Copy.Streams.checkingConnections : Copy.Streams.checkConnections,
+                          size: .compact, isDisabled: check.isChecking) {
+                Task { await runCheck([], catalog: catalog) }
+            }
+        }
+    }
+
+    /// Check `sources` (none is every source): the app's readers run now, the backend asks the services, and the answer
+    /// goes into the streams cache, so every card and page redraws from it.
+    private func runCheck(_ sources: [String], catalog: [SourceCatalogRow]) async {
+        bindReaders()
+        let current = resolvedStreams(catalog)
+        await check.check(sources: sources, current: current,
+                          resolve: { SourceStreamOverlay.resolve($0, app: streamApp(catalog), entries: catalog.map(\.entry)) },
+                          publish: { sourceStreams.apply($0) })
+        await sourceStreams.refresh()
+    }
+
+    private func streamApp(_ catalog: [SourceCatalogRow]) -> StreamAppState {
+        StreamAppState(readers: localReaders,
+                       waitingOn: Dictionary(uniqueKeysWithValues: catalog.compactMap { row in row.waitingOn.map { (row.id, $0) } }),
+                       notInstalled: Set(catalog.filter(\.notInstalled).map(\.id)),
+                       siteSavesOn: Set(SiteSavePrefs().connected.map(\.key)), permissions: permissions)
+    }
+
+    /// The card's one button. A needs-you card names its fix: access and sign-in are given on the source's page (its
+    /// permission row, its sign-in), so those open it; Try again runs that source's check; Connect your AI opens Agents.
+    /// A card not connected runs the one connect plan (`SourceConnect.plan`), the same the notch's Yes will.
+    private func act(_ card: SourcesRoot.Card, catalog: [SourceCatalogRow]) {
+        switch card.fix {
+        case .tryAgain?:
+            working.insert(card.id)
+            Task { await runCheck([card.id], catalog: catalog); working.remove(card.id) }
+        case .connectYourAI?:
+            router.routeToAgents()
+        case .signIn?, .giveAccess?:
+            select(.entry(card.id))
+        case nil:
+            guard card.connectable else { return select(.entry(card.id)) }
+            connect(card.row)
+        }
+    }
+
+    private func connect(_ row: SourceCatalogRow) {
+        working.insert(row.id)
+        Task { @MainActor in
+            defer { working.remove(row.id) }
+            await reading.loadSettings()
+            let state = SourceConnect.State(row: row, reading: reading,
+                                            siteSavesOn: Set(SiteSavePrefs().connected.map(\.key)),
+                                            readersOn: localReaders, permissions: permissions)
+            var plan = SourceConnect.plan(row.entry, state)
+            // The Mac readers share no protocol, so a card cannot start one yet: it opens the page, where that reader's own
+            // Connect is (macOS's prompt follows from there).
+            if case .start(let steps, _) = plan, steps.contains(where: { if case .startReader = $0 { true } else { false } }) {
+                plan = .openPage
+            }
+            let deps = SourceConnect.Deps.live(
+                reading: reading, router: router,
+                noticeSaves: { site in
+                    SiteSavePrefs().setConnected(site, true)
+                    NotificationCenter.default.post(name: SiteSaveSwitches.changed, object: nil)
+                },
+                startReader: { _ in false })
+            let outcome = await SourceConnect.run(plan, entry: row.id, deps: deps)
+            if case .turnedOn = outcome { await reading.load(); await sourceStreams.refresh() }
+        }
+    }
+
+    private func takeConsent() {
+        if let ask = router.consumeConsent() { consent = ask }
+    }
+
+    private func label(of ask: ReadingConsent) -> String? {
+        catalog.first { $0.id == ask.entryId }?.entry.title
+    }
+
+    private func bindReaders() {
+        readerRun.run = { [store, browserWatcher, localSources, calendarReader, tabGroups, contactsReader, messagesWatcher,
+                           watchHistory] channel in
+            try await ChannelActions.sync(channel, store: store, watcher: browserWatcher, local: localSources,
+                                          calendar: calendarReader, tabGroups: tabGroups, contacts: contactsReader,
+                                          messages: messagesWatcher, watchHistory: watchHistory)
+        }
+    }
+
+    /// Preflights only (`MacPermissionProbe` never prompts, ruling 77): what a stream's word needs to know.
+    private func probePermissions() async {
+        let probe = LiveMacPermissionProbe()
+        var out: [MacPermission: Bool] = [:]
+        for permission in [MacPermission.accessibility, .fullDiskAccess] {
+            out[permission] = await probe.state(permission) == .granted
+        }
+        permissions = out
+    }
+}
+
+/// The closure a check runs an app reader through. A class, so the page's initializer can hand the model a closure that
+/// reads it later, once the readers in the environment are known.
+@MainActor
+final class SourceReaderRun {
+    var run: @MainActor (String) async throws -> String = { _ in
+        throw BrowserImportActions.ImportActionError.failed(Copy.Streams.couldntRead)
     }
 }

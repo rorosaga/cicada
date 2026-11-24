@@ -97,90 +97,74 @@ enum SourceListText {
     }
 }
 
-/// STATE 0 — the root: the field, the explore run (when one exists), the sources as a grid of their apps (ROR-7), then
-/// one quiet disclosure, *Statistics*, holding who wrote the memory and the counts (the old `cicada.usageMode` key, DR-39).
+/// STATE 0 — the root (G245, ruling 78): the explore run (when one exists), the find and the kinds, then one capped
+/// column of source cards, one shape for every source (`SourcesRootList`), and one quiet disclosure, *Statistics*, holding
+/// who wrote the memory and the counts (the old `cicada.usageMode` key, DR-39). The page resolves the cards; this column
+/// only lays them out, so the same view renders from fixtures.
 struct SourcesOverviewColumn: View {
-    let rows: [SourceOverview]
-    /// G217 — the one catalogue the root draws.
-    var catalog: [SourceCatalogRow] = []
+    let cards: [SourcesRoot.Card]
     let hasLoaded: Bool
     let onOpen: (SourcesSelection) -> Void
     var onSelectEntity: ((String) -> Void)?
-    /// ROR-7 — the field's words and the keys' cursor, the page's own so they outlive an opened source.
-    var search: Binding<SourceGridSearch> = .constant(SourceGridSearch())
-    /// ⏎ in the field: opens with no animation (DR-60); the pointer's `onOpen` keeps its drawer curve.
+    /// The field's words, the keys' cursor and the chosen kind: the page's own, so they outlive an opened source.
+    var state: Binding<SourcesRoot.State> = .constant(SourcesRoot.State())
+    /// ⏎ opens with no animation (DR-60); the pointer's `onOpen` keeps its drawer curve.
     var onOpenByKey: (SourcesSelection) -> Void = { _ in }
+    /// A card's one button: Connect, or the fix it names.
+    var onAct: (SourcesRoot.Card) -> Void = { _ in }
+    var busy: Set<String> = []
+    /// The clock the ages are read against; nil is the live one (a render pins it to its fixture).
+    var clock: Date? = nil
 
     @Environment(UsageViewModel.self) private var usageVM
     @Environment(ExploreCache.self) private var exploreCache
-    @Environment(BrowserWatcher.self) private var watcher
-    @Environment(IntakeRouter.self) private var intake
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // DR-46's in-page find, drawn at rest because search is how this page is used (owner, ROR-7); ⌘F focuses it.
-            CicadaSearchField(text: textBinding, prompt: Copy.Catalog.searchPrompt, onSubmit: openHighlighted,
-                              onMove: move)
-                .frame(maxWidth: CicadaTheme.scaled(SourceGrid.searchMaxWidth))
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
+                    // G166 exploring — the run's one line of progress, Stop and Copy for an agent, while a run exists.
+                    if exploreCache.showsCard { ExploreRunCard().frame(maxWidth: textCap, alignment: .leading) }
+                    if !hasLoaded {
+                        SourceCardSkeleton()
+                    } else {
+                        TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
+                            list(now: clock ?? context.date)
+                        }
+                    }
+                    if !state.wrappedValue.searching { statistics.frame(maxWidth: textCap, alignment: .leading) }
+                }
+                .frame(maxWidth: SourcesRootLayout.columnWidth, alignment: .leading)
                 .padding(.horizontal, CicadaTheme.spacingGutter)
                 .padding(.top, CicadaTheme.spacingXS)
-                .padding(.bottom, CicadaTheme.spacingMD)
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: CicadaTheme.spacingXL) {
-                        // G166 exploring — the run's one line of progress, Stop and Copy for an agent, while a run exists.
-                        if exploreCache.showsCard { ExploreRunCard().frame(maxWidth: textCap, alignment: .leading) }
-                        if !hasLoaded {
-                            SourceGridSkeleton()
-                        } else {
-                            // G217 — every way in, on or off, so the page is never empty (a dropped export lands on the
-                            // window's own intake, and on Files and links).
-                            if searching {
-                                SourceGridView(rows: catalog, search: search.wrappedValue, open: onOpen,
-                                               importFiles: { intake.present(from: .emptyState(.sources)) })
-                            } else {
-                                SourceShelvesView(rows: catalog, open: onOpen)
-                            }
-                        }
-                        if !searching { statistics.frame(maxWidth: textCap, alignment: .leading) }
-                    }
-                    .padding(.horizontal, CicadaTheme.spacingGutter)
-                    .padding(.top, CicadaTheme.spacingXS)
-                    .padding(.bottom, CicadaTheme.scaled(72))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .onChange(of: search.wrappedValue.cursor) { _, cursor in
-                    guard let cursor else { return }
-                    Instant.run { proxy.scrollTo(SourcesSelection.entry(cursor)) }
-                }
+                .padding(.bottom, CicadaTheme.scaled(72))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .onChange(of: state.wrappedValue.cursor) { _, cursor in
+                guard let cursor else { return }
+                Instant.run { proxy.scrollTo(SourcesSelection.entry(cursor)) }
             }
         }
+        // The same keys every list page has (DR-68): ↑/↓ walk the visible kind, ⏎ opens, Esc clears the find. None animates.
+        .listKeys(move: { state.wrappedValue.walk($0, in: cards) }, enter: { enter() }, escape: { escapeFind() })
     }
 
-    private var searching: Bool { SourceGrid.isSearching(search.wrappedValue.text) }
-
-    /// New words start again from the best result.
-    private var textBinding: Binding<String> {
-        Binding(get: { search.wrappedValue.text }, set: { search.wrappedValue.typed($0) })
+    private func list(now: Date) -> some View {
+        SourcesRootList(cards: cards, state: state, now: now, open: onOpen, openByKey: onOpenByKey, act: onAct, busy: busy)
     }
 
-    private var found: [SourceCatalogRow] { SourceGrid.results(catalog, query: search.wrappedValue.text) }
-
-    private func move(_ delta: Int) {
-        guard searching else { return }
-        search.wrappedValue.cursor = SourceGrid.moved(delta, in: found, cursor: search.wrappedValue.cursor)
-    }
-
-    private func openHighlighted() {
-        guard searching, let id = SourceGrid.highlighted(found, cursor: search.wrappedValue.cursor) else { return }
+    /// ⏎ opens the lit card; with none lit it is nobody's key (the list is at rest).
+    private func enter() -> Bool {
+        guard let id = state.wrappedValue.lit(cards) else { return false }
         onOpenByKey(.entry(id))
+        return true
+    }
+
+    private func escapeFind() {
+        Instant.run { state.wrappedValue.clearFind() }
     }
 
     private var textCap: CGFloat { CicadaTheme.scaled(ColumnLayout.textMaxWidth) }
-
-    private func liveness(_ row: SourceOverview) -> SourceLiveness {
-        SourceLiveness.of(row: row, channel: nil, watch: row.channelId.flatMap { watcher.state(for: $0) })
-    }
 
     /// R-DL23 (DR-39) — one quiet, remembered disclosure, on the same `cicada.usageMode` key, so an existing choice
     /// carries over. Sources v3 moves *Who wrote your memory* in here with the counts: both are statistics.
@@ -226,21 +210,20 @@ struct SourceGroupsList: View {
     }
 }
 
-/// STATE 1 / 2 — the same two groups as rows beside the open source.
+/// STATE 1 / 2 — the same cards as the narrow DR-34 rows beside the open source, in the root's order (needs you,
+/// connected, not connected). Tabs and the find are the root's; the keys here walk what is drawn.
 struct SourcesListColumn: View {
-    let catalog: [SourceCatalogRow]
+    let cards: [SourcesRoot.Card]
     let style: ColumnPlan.ListStyle
     let selection: SourcesSelection?
     let open: (SourcesSelection) -> Void
     let move: (Int) -> Void
     let escape: () -> Void
 
-    @Environment(BrowserWatcher.self) private var watcher
-
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                SourceCatalogList(rows: catalog, style: style, selection: selection, open: open)
+                SourceCatalogList(cards: cards, style: style, selection: selection, open: open)
                     .padding(ListInsets.of(style))
             }
             .onChange(of: selection) { _, s in
