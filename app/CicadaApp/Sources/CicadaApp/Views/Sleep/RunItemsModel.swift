@@ -6,9 +6,10 @@ import Foundation
 ///
 /// The card nests like the Queue: the run holds one card per source, a source holds the conversations it fed, a
 /// conversation holds the pages it fed. A page shows under every conversation that fed it. A page no conversation of the
-/// run stands behind (decay's archives, Sleep's own upkeep) sits in a last group. An older backend sends no
-/// attribution (`device`, `pages`, `episodes`): the conversations then group by origin with no pages under them, and the
-/// pages sit in one group.
+/// run stands behind sits under the step that changed it (owner 2026-11-24: "what influenced this change?"), in a card
+/// of its own per step, in plain words. A page whose facts only lost confidence to silence is `faded`: its own quiet
+/// tab, never in All. An older backend sends no attribution (`device`, `pages`, `episodes`, `steps`): the conversations
+/// then group by origin with no pages under them, and the pages sit in one group.
 enum RunItemsModel {
     typealias Change = SleepConsolidated.Change
 
@@ -39,11 +40,22 @@ enum RunItemsModel {
         machineId == nil ? items.conversations : items.conversations.filter { matches(device: $0.device, machineId: machineId) }
     }
 
-    /// The pages the page is narrowed to: with a machine selected, only the pages its conversations fed.
+    /// The pages that really changed, narrowed to the machine: with a machine selected, only the pages its
+    /// conversations fed. Faded pages are not here (`allPages`): fading is not a change.
     static func pages(_ items: SleepConsolidated, machineId: String?) -> [SleepConsolidated.Page] {
-        guard machineId != nil else { return items.pages }
+        narrowed(items.pages, items, machineId: machineId)
+    }
+
+    /// Every listed page, faded ones last: what the Faded tab and the counts read.
+    static func allPages(_ items: SleepConsolidated, machineId: String?) -> [SleepConsolidated.Page] {
+        narrowed(items.pages + items.fadedPages, items, machineId: machineId)
+    }
+
+    private static func narrowed(_ pages: [SleepConsolidated.Page], _ items: SleepConsolidated, machineId: String?)
+        -> [SleepConsolidated.Page] {
+        guard machineId != nil else { return pages }
         let mine = conversations(items, machineId: machineId)
-        return items.pages.filter { page in mine.contains { feeds($0, page) } }
+        return pages.filter { page in mine.contains { feeds($0, page) } }
     }
 
     /// Whether a run read anything from the selected machine (a run with none is not listed while the filter is on).
@@ -54,9 +66,19 @@ enum RunItemsModel {
     /// The filter the card draws by: the one picked while its kind is still among the tabs, else All. A machine change
     /// can leave the picked kind with no page (or hide the tabs altogether), and a filter nobody can see must not hold
     /// the card empty.
-    static func effectiveFilter(_ filter: Change?, kinds: [Change]) -> Change? {
-        guard let filter, kinds.contains(filter) else { return nil }
-        return filter
+    static func effectiveFilter(_ filter: Change?, kinds: [Change], counts: [Change: Int] = [:]) -> Change? {
+        if let filter, kinds.contains(filter) { return filter }
+        // A run that changed nothing and only faded pages has no tab to choose: it draws its faded pages.
+        return onlyFaded(counts) ? .faded : nil
+    }
+
+    /// Nothing really changed, and some pages faded: the card has only the quiet list.
+    static func onlyFaded(_ counts: [Change: Int]) -> Bool {
+        (counts[.faded] ?? 0) > 0 && changeKinds(counts).isEmpty
+    }
+
+    private static func changeKinds(_ counts: [Change: Int]) -> [Change] {
+        Change.allCases.filter { $0 != .faded && (counts[$0] ?? 0) > 0 }
     }
 
     /// Whether a narrowed card's numbers are partial: the server caps each list, so with a machine selected the counts
@@ -75,11 +97,15 @@ enum RunItemsModel {
             out[.updated] = items.count("updated", items.updated.count)
             out[.archived] = items.count("archived", items.archived.count)
             out[.removed] = items.count("removed", items.removed.count)
+            out[.faded] = items.count("faded", items.faded.count)
         } else {
-            for page in pages(items, machineId: machineId) { out[page.change ?? .updated, default: 0] += 1 }
+            for page in allPages(items, machineId: machineId) { out[page.change ?? .updated, default: 0] += 1 }
         }
         return out
     }
+
+    /// The pages that really changed — what "All" counts. Fading is its own count (`counts[.faded]`).
+    static func changed(_ counts: [Change: Int]) -> Int { changeKinds(counts).map { counts[$0] ?? 0 }.reduce(0, +) }
 
     /// Conversations read: the whole count for every machine, else the narrowed list's.
     static func conversationCount(_ items: SleepConsolidated, machineId: String?) -> Int {
@@ -92,13 +118,18 @@ enum RunItemsModel {
         let counts = counts(items, machineId: machineId)
         return Copy.RunCard.summary(conversations: conversationCount(items, machineId: machineId),
                                     created: counts[.created] ?? 0, updated: counts[.updated] ?? 0,
-                                    archived: counts[.archived] ?? 0, removed: counts[.removed] ?? 0, locale: locale)
+                                    archived: counts[.archived] ?? 0, removed: counts[.removed] ?? 0,
+                                    faded: counts[.faded] ?? 0, locale: locale)
     }
 
-    /// The filter's tabs: only the kinds that happened, and none at all when there is just one kind (nothing to choose).
+    /// The filter's tabs: only the kinds that happened, and none at all when there is just one kind (nothing to
+    /// choose). Faded is the trailing tab (owner 2026-11-24), shown beside a change kind and never alone.
     static func filterKinds(_ counts: [Change: Int]) -> [Change] {
-        let present = Change.allCases.filter { (counts[$0] ?? 0) > 0 }
-        return present.count > 1 ? present : []
+        let real = changeKinds(counts)
+        let faded = (counts[.faded] ?? 0) > 0
+        if real.isEmpty { return [] }
+        if real.count == 1 && !faded { return [] }
+        return real + (faded ? [.faded] : [])
     }
 
     // MARK: The sources a card marks
@@ -123,7 +154,7 @@ enum RunItemsModel {
         -> (pages: [SleepConsolidated.Page], total: Int) {
         guard let items else { return ([], 0) }
         let pages = pages(items, machineId: machineId)
-        let total = counts(items, machineId: machineId).values.reduce(0, +)
+        let total = changed(counts(items, machineId: machineId))
         return (pages, max(total, pages.count))
     }
 
@@ -141,23 +172,54 @@ enum RunItemsModel {
         var id: String { origin }
     }
 
+    /// The pages a step changed with no conversation of the run behind them (owner 2026-11-24).
+    struct StepGroup: Equatable, Identifiable {
+        let step: SleepConsolidated.Step
+        let pages: [SleepConsolidated.Page]
+        var id: String { "step.\(step.rawValue)" }
+    }
+
     struct Body: Equatable {
         var sources: [Source]
-        /// Pages no conversation of the run stands behind, in reading order.
+        /// The pages no conversation of the run stands behind, under the step that changed each: the biggest first.
+        var steps: [StepGroup] = []
+        /// Pages nobody and no step stands behind — an older backend's, which cannot say; a group of its own.
         var leftover: [SleepConsolidated.Page]
         /// Pages a conversation of the run fed that the server did not list (it caps each list): not upkeep, so never in
         /// `leftover`, and with no conversation row to sit under, a group of their own.
         var unlisted: [SleepConsolidated.Page] = []
         /// False for an older backend: the leftover is then every page, and says so in its name.
         var attributed: Bool
-        var isEmpty: Bool { sources.isEmpty && leftover.isEmpty && unlisted.isEmpty }
+        var isEmpty: Bool { sources.isEmpty && steps.isEmpty && leftover.isEmpty && unlisted.isEmpty }
+    }
+
+    /// The step a page sits under: the first the backend names that is not the bare reading (a page restored by a
+    /// later batch carries decay, then reading — decay is what changed it), else the first, else `other`.
+    static func primaryStep(_ page: SleepConsolidated.Page) -> SleepConsolidated.Step {
+        page.steps.first { $0 != .reading && $0 != .other } ?? page.steps.first ?? .other
+    }
+
+    /// The steps of `page` that are not the `parent` group's own: what a page's panel adds ("also changed by").
+    static func otherSteps(_ page: SleepConsolidated.Page, parent: SleepConsolidated.Step?) -> [SleepConsolidated.Step] {
+        var seen = Set<SleepConsolidated.Step>()
+        return page.steps.filter { $0 != parent && seen.insert($0).inserted }
+    }
+
+    /// Groups pages by their primary step: the biggest group first, ties in the step's own order.
+    static func stepGroups(_ pages: [SleepConsolidated.Page]) -> [StepGroup] {
+        var by: [SleepConsolidated.Step: [SleepConsolidated.Page]] = [:]
+        for page in pages { by[primaryStep(page), default: []].append(page) }
+        let order = SleepConsolidated.Step.allCases
+        return by.keys
+            .sorted { (by[$0]?.count ?? 0, -(order.firstIndex(of: $0) ?? 0)) > (by[$1]?.count ?? 0, -(order.firstIndex(of: $1) ?? 0)) }
+            .map { StepGroup(step: $0, pages: by[$0] ?? []) }
     }
 
     /// The sources, largest first (ties keep the conversations' order), each with its conversations and their pages.
     /// `filter` keeps only the pages of one kind, and then only the conversations that fed one.
     static func body(_ items: SleepConsolidated, filter: Change?, machineId: String?) -> Body {
         let attributed = isAttributed(items)
-        let kept = pages(items, machineId: machineId).filter { filter == nil || $0.change == filter }
+        let kept = allPages(items, machineId: machineId).filter { filter == nil ? $0.change != .faded : $0.change == filter }
         let mine = conversations(items, machineId: machineId)
         var rows: [Row] = []
         for c in mine {
@@ -191,7 +253,16 @@ enum RunItemsModel {
         } else {
             leftover = kept
         }
-        return Body(sources: sources, leftover: leftover, unlisted: unlisted, attributed: attributed)
+        // The backend says which step changed a page (items-6): a page nobody of the run fed sits under that step. A page
+        // with no step is only an older backend's — unless the backend names steps on its other pages, where the
+        // step it could not name is `other`.
+        let namesSteps = items.pages.contains { !$0.steps.isEmpty } || items.fadedPages.contains { !$0.steps.isEmpty }
+        var stepped: [StepGroup] = []
+        if namesSteps {
+            stepped = stepGroups(leftover)
+            leftover = []
+        }
+        return Body(sources: sources, steps: stepped, leftover: leftover, unlisted: unlisted, attributed: attributed)
     }
 
     // MARK: A conversation row

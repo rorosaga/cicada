@@ -72,6 +72,7 @@ final class RunItemsModelTests: XCTestCase {
         XCTAssertEqual(body.sources.map(\.origin), ["claude-code"])
         XCTAssertEqual(body.sources[0].rows[0].pages.map(\.id), ["new-two", "upd-one"])
         XCTAssertEqual(body.leftover, [], "pages no conversation stands behind are the memory's, not a machine's")
+        XCTAssertEqual(body.steps, [], "nor are the steps' pages a machine's")
         XCTAssertEqual(RunItemsModel.conversationCount(items, machineId: "device-a"), 1)
         XCTAssertEqual(RunItemsModel.counts(items, machineId: "device-a"), [.created: 1, .updated: 1])
         XCTAssertTrue(RunItemsModel.hasConversations(items, machineId: "server"))
@@ -92,8 +93,12 @@ final class RunItemsModelTests: XCTestCase {
                        "a page two conversations fed shows under both")
         XCTAssertEqual(body.sources[1].rows[0].pages.map(\.id), ["made-then-archived"])
         XCTAssertEqual(body.sources[1].rows[0].pages[0].change, .archived)
-        XCTAssertEqual(body.leftover.map(\.id), ["solo-two", "restored", "arch-decay", "arch-batch", "gone-one", "gone-two"],
-                       "no conversation of the run stands behind these, in reading order")
+        // Owner 2026-11-24: no card of pages with no reason. A page nobody of the run fed sits under the step that changed it,
+        // the biggest step first, each group in reading order; the page a later batch restored (decay, then reading) is decay's.
+        XCTAssertEqual(body.leftover, [], "a current backend always says why")
+        XCTAssertEqual(body.steps.map(\.step), [.reading, .decay, .conflict])
+        XCTAssertEqual(body.steps.map { $0.pages.map(\.id) },
+                       [["arch-batch", "gone-one", "gone-two"], ["restored", "arch-decay"], ["solo-two"]])
     }
 
     func testTheFilterKeepsOnePageKindAndOnlyTheConversationsThatFedOne() throws {
@@ -101,13 +106,14 @@ final class RunItemsModelTests: XCTestCase {
         let created = RunItemsModel.body(items, filter: .created, machineId: nil)
         XCTAssertEqual(created.sources.map(\.origin), ["claude-code", "hex"])
         XCTAssertEqual(created.sources[0].rows.map { $0.pages.map(\.id) }, [["new-one", "new-two"], ["new-two"]])
-        XCTAssertEqual(created.leftover, [])
+        XCTAssertEqual(created.steps, [])
         let removed = RunItemsModel.body(items, filter: .removed, machineId: nil)
         XCTAssertEqual(removed.sources, [], "no conversation fed a removed page")
-        XCTAssertEqual(removed.leftover.map(\.id), ["gone-one", "gone-two"])
+        XCTAssertEqual(removed.steps.flatMap(\.pages).map(\.id), ["gone-one", "gone-two"])
         let archived = RunItemsModel.body(items, filter: .archived, machineId: nil)
         XCTAssertEqual(archived.sources.map(\.origin), ["chrome-bookmark"])
-        XCTAssertEqual(archived.leftover.map(\.id), ["arch-decay", "arch-batch"])
+        XCTAssertEqual(archived.steps.map(\.step), [.reading, .decay])
+        XCTAssertEqual(archived.steps.flatMap(\.pages).map(\.id), ["arch-batch", "arch-decay"])
     }
 
     func testAnOlderBackendGroupsConversationsByOriginAndListsPagesInOneGroup() throws {
@@ -129,9 +135,9 @@ final class RunItemsModelTests: XCTestCase {
     func testTheCountsAreTheServersWholeCountsAndTheSummaryIsSaidOnce() throws {
         let items = try items()
         XCTAssertEqual(RunItemsModel.counts(items, machineId: nil),
-                       [.created: 3, .updated: 3, .archived: 3, .removed: 2])
+                       [.created: 3, .updated: 3, .archived: 3, .removed: 2, .faded: 1])
         XCTAssertEqual(RunItemsModel.summary(items, machineId: nil, locale: us),
-                       "4 conversations · 3 new pages · 3 updated · 3 archived · 2 removed")
+                       "4 conversations · 3 new pages · 3 updated · 3 archived · 2 removed · 1 faded")
         XCTAssertEqual(RunItemsModel.summary(items, machineId: "device-a", locale: us),
                        "1 conversation · 1 new page · 1 updated")
     }
@@ -142,6 +148,50 @@ final class RunItemsModelTests: XCTestCase {
         XCTAssertEqual(RunItemsModel.filterKinds([:]), [])
         XCTAssertEqual(RunItemsModel.filterKinds([.removed: 1, .created: 1, .archived: 1, .updated: 1]),
                        [.created, .updated, .archived, .removed], "in reading order")
+    }
+
+    /// Owner 2026-11-24: fading is its own quiet thing — a trailing tab beside a change kind, never in All, never alone.
+    func testFadedIsTheTrailingTabAndNeverCountedAmongTheChanges() throws {
+        XCTAssertEqual(RunItemsModel.filterKinds([.created: 2, .updated: 5, .faded: 9]), [.created, .updated, .faded])
+        XCTAssertEqual(RunItemsModel.filterKinds([.updated: 5, .faded: 9]), [.updated, .faded])
+        XCTAssertEqual(RunItemsModel.filterKinds([.faded: 9]), [], "only fading: no tabs, the faded pages are the card")
+        XCTAssertEqual(RunItemsModel.changed([.created: 2, .updated: 5, .faded: 9]), 7)
+        XCTAssertEqual(RunItemsModel.effectiveFilter(nil, kinds: [], counts: [.faded: 9]), .faded)
+        XCTAssertNil(RunItemsModel.effectiveFilter(nil, kinds: [.updated, .faded], counts: [.updated: 1, .faded: 9]))
+        let items = try items()
+        let all = RunItemsModel.body(items, filter: nil, machineId: nil)
+        XCTAssertFalse((all.sources.flatMap(\.rows).flatMap(\.pages) + all.steps.flatMap(\.pages) + all.leftover)
+            .contains { $0.id == "faded-one" }, "a faded page is not in the default list")
+        let faded = RunItemsModel.body(items, filter: .faded, machineId: nil)
+        XCTAssertEqual(faded.sources, [])
+        XCTAssertEqual(faded.steps.map(\.step), [.decay])
+        XCTAssertEqual(faded.steps[0].pages.map(\.id), ["faded-one"])
+        XCTAssertEqual(RunItemsModel.preview(items).total, 11, "the closed card's chips count the changes alone")
+        XCTAssertFalse(RunItemsModel.preview(items).pages.contains { $0.id == "faded-one" })
+    }
+
+    /// The step a page sits under: decay is what changed a page a later batch restored (decay, then reading).
+    func testAPageSitsUnderTheStepThatChangedIt() {
+        func page(_ steps: [SleepConsolidated.Step]) -> SleepConsolidated.Page { .init(id: "p", steps: steps) }
+        XCTAssertEqual(RunItemsModel.primaryStep(page([.decay, .reading])), .decay)
+        XCTAssertEqual(RunItemsModel.primaryStep(page([.reading, .sourceCheck])), .sourceCheck)
+        XCTAssertEqual(RunItemsModel.primaryStep(page([.reading])), .reading)
+        XCTAssertEqual(RunItemsModel.primaryStep(page([])), .other)
+        XCTAssertEqual(RunItemsModel.otherSteps(page([.decay, .reading, .decay]), parent: .decay), [.reading])
+    }
+
+    /// A backend that names steps on some pages names `other` where it could not say; one that names none is an older
+    /// backend, whose pages stay together in the one fallback group.
+    func testAStepLessPageIsOtherFromACurrentBackendAndTheFallbackFromAnOlderOne() {
+        let current = SleepConsolidated(updated: [.init(id: "a", change: .updated, steps: [.summary]),
+                                                  .init(id: "b", change: .updated)])
+        let body = RunItemsModel.body(current, filter: nil, machineId: nil)
+        XCTAssertEqual(body.steps.map(\.step), [.summary, .other])
+        XCTAssertEqual(body.leftover, [])
+        let older = SleepConsolidated(updated: [.init(id: "a"), .init(id: "b")])
+        let old = RunItemsModel.body(older, filter: nil, machineId: nil)
+        XCTAssertEqual(old.steps, [])
+        XCTAssertEqual(old.leftover.map(\.id), ["a", "b"])
     }
 
     // MARK: Marks
