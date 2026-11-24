@@ -1,5 +1,6 @@
-"""What the lean pass keeps findable (ruling 62, owner 2026-11-04): "enough info so that it can come up in a relevant
-conversation and an agent can look further into it."
+"""What a saved item that Sleep has not read yet keeps findable (ruling 62, owner 2026-11-04: "enough info so that it
+can come up in a relevant conversation and an agent can look further into it"; ruling 80, 2026-11-24: Sleep reads every
+save, so a line says whether this one is read yet, in the words of ``saved_words``).
 
 A saved item no model has read holds a title, a link, a site, a date and, when one is already on the page, its own
 description. This module finds those by words, engine-free, for the three doors an agent reads memory through: recall,
@@ -18,7 +19,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from api.services import bank_index, history_index, search_index, text_fold
+from api.services import bank_index, history_index, saved_words, search_index, text_fold
 
 LIVE_STATUSES = frozenset({"active", "decaying"})
 #: The message's own subject words read, from its end (the question closes a message).
@@ -61,6 +62,9 @@ class Hit:
     page: str | None
     episode: str | None
     read: bool
+    #: Where the save stands (``history_index.save_state``): ``waiting``, ``pile``, ``no-words`` or ``read``; what the
+    #: line says about it (``saved_words.tag``). ``""`` from a caller that built a hit by hand.
+    state: str = ""
 
 
 def subject_stems(text: str) -> list[str]:
@@ -93,14 +97,24 @@ def page_hit(memory_path: Path, ref: str) -> Hit | None:
         return None
     media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
     episodes = [str(e).split("#", 1)[0] for e in (fm.get("source_episodes") or []) if str(e).startswith("ep_")]
-    kinds = [history_index.kind(e.frontmatter) for e in
-             (bank_index.file(memory_path, "episodes", f"{i}.md") for i in episodes[:4]) if e is not None]
+    held = [e.frontmatter for e in
+            (bank_index.file(memory_path, "episodes", f"{i}.md") for i in episodes[:4]) if e is not None]
+    unread = [st for fm in held if (st := _unread_state(fm))]
     return Hit(
         id=ref, title=str(fm.get("name") or ref), url=str(media.get("url") or "") or None,
         site=str(media.get("site") or "") or None,
         day=str(fm.get("saved_at") or media.get("saved_at") or fm.get("created") or "")[:10] or None,
         about=_about(entry.body()), page=ref, episode=episodes[0] if episodes else None,
-        read=not any(k in ("saved", "list") for k in kinds))
+        # Ruling 80: a save is read once Sleep or an agent read it; waiting for tonight, waiting its turn or holding
+        # nothing to read, it is not, whatever its stored kind. A page several saves made is read when all are.
+        read=not unread, state=unread[0] if unread else "read")
+
+
+def _unread_state(fm: dict | None) -> str:
+    """``waiting`` / ``pile`` / ``no-words`` for a save no model has read, ``record`` for another service's record,
+    else ``""`` (read, or no save at all)."""
+    st = history_index.save_state(fm)
+    return st if st in ("waiting", "pile", "no-words", "record") else ""
 
 
 def _episode_hit(memory_path: Path, ref: str) -> Hit | None:
@@ -108,10 +122,11 @@ def _episode_hit(memory_path: Path, ref: str) -> Hit | None:
     if entry is None:
         return None
     fm = entry.frontmatter or {}
-    if not history_index.is_unread_save(fm) or fm.get("source_deleted_at"):
+    if not history_index.is_pageless_save(fm) or fm.get("source_deleted_at"):
         return None
     return Hit(id=ref, title=str(fm.get("title") or ref), url=str(fm.get("url") or "") or None, site=None,
-               day=str(fm.get("timestamp") or "")[:10] or None, about="", page=None, episode=ref, read=False)
+               day=str(fm.get("timestamp") or "")[:10] or None, about="", page=None, episode=ref,
+               read=history_index.save_state(fm) == "read", state=history_index.save_state(fm) or "")
 
 
 def _weights(conn, stems: list[str], saved_docs: dict[int, str]) -> tuple[dict[str, float], dict[str, set[int]]]:
@@ -254,8 +269,8 @@ def shown_url(url: str) -> str:
 
 
 def line(hit: Hit) -> str:
-    """One hit as an agent reads it: what it is, where it came from, how to look further."""
-    bits = ", ".join(b for b in (hit.site, f"saved {hit.day}" if hit.day else None) if b)
+    """One hit as an agent reads it: what it is, where it came from, whether Sleep has read it, how to look further."""
+    bits = ", ".join(b for b in (hit.site, f"saved {hit.day}" if hit.day else None, saved_words.tag(hit.state) or None) if b)
     head = f"- {hit.title}" + (f" ({bits})" if bits else "")
     if hit.url:
         head += f" {shown_url(hit.url)}"

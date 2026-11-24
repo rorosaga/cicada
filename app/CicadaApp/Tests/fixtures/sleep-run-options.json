@@ -8,6 +8,7 @@
     ],
     "continueAfterReset": true,
     "keepAwake": false,
+    "lightOldSaves": true,
     "reserveChoices": [
       5,
       10,
@@ -34,6 +35,7 @@
     ],
     "continueAfterReset": false,
     "keepAwake": false,
+    "lightOldSaves": true,
     "reserveChoices": [
       5,
       10,

@@ -16,11 +16,13 @@ never raises to the caller.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import hashlib
 import json
 import os
 import re
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from io import BytesIO
@@ -146,6 +148,11 @@ class RawItem:
     # G245: the post's OWN day, when a saved list showed one beside it (the person's agent reads it off the page); the
     # save's own day stays ``added``. Written to the episode as ``posted`` (a bare ``YYYY-MM-DD``), never guessed.
     posted: str | None = None
+    # Ruling 80 (G246): the door a save came through when it is one that says so — ``file``: a bookmarks, export or archive
+    # FILE the person gave (``parse_upload`` stamps it on every item it returns). Written to the episode as ``arrived_by``
+    # and read by one reader (``light_reads``: old bulk material is read on the engine's lightest model); a sync, a list
+    # read by the person's agent, a connector and a single save carry none.
+    arrived_by: str | None = None
 
 
 @dataclass
@@ -1674,7 +1681,29 @@ _NOT_SAVES = {
 }
 
 
+#: ``RawItem.arrived_by`` of a save that came out of a file the person gave (a bookmarks file, an export, an archive).
+FILE_DOOR = "file"
+
+
 def parse_upload(
+    content: bytes,
+    filename: str,
+    *,
+    include_history: bool = False,
+    warnings: list[str] | None = None,
+    stats: dict | None = None,
+) -> tuple[list[RawItem], str, bool]:
+    """:func:`_parse_upload`, every item stamped as one that arrived by a file (ruling 80, ``light_reads``). A feed's
+    items are no saves and are left as they were."""
+    items, label, from_bookmark_file = _parse_upload(
+        content, filename, include_history=include_history, warnings=warnings, stats=stats)
+    if label != "RSS Feed":
+        for item in items:
+            item.arrived_by = item.arrived_by or FILE_DOOR
+    return items, label, from_bookmark_file
+
+
+def _parse_upload(
     content: bytes,
     filename: str,
     *,
@@ -2175,6 +2204,51 @@ def _saved_day(day: str | None, instant: str | None, moment: datetime | None) ->
     return episode_ids.id_day(moment)
 
 
+#: Ruling 80 (G246): is the save being written one of a bulk — an import, an export, a first whole read of a list —
+#: whose saves each wait their turn in the pile (``history_index.take_turns``) instead of Sleep's queue tonight? Set by
+#: the door that holds the batch (:func:`bulk_door`), read by :func:`write_media_episode`; asyncio and ``to_thread``
+#: copy it into the tasks they start.
+_BULK: "contextvars.ContextVar[bool]" = contextvars.ContextVar("media_bulk", default=False)
+
+
+@contextmanager
+def bulk_door(new_items: int):
+    """Inside it, every save written is one of a bulk when ``new_items`` (the saves this door is about to write, links
+    the index does not hold yet) is more than ``history_index.BULK_ITEMS``; a door nested in a bulk stays one."""
+    token = _BULK.set(_BULK.get() or new_items > history_index.BULK_ITEMS)
+    try:
+        yield
+    finally:
+        _BULK.reset(token)
+
+
+def count_new(items: list["RawItem"], idx: dict) -> int:
+    """How many of ``items`` the url index does not hold yet (distinct links): what a door counts to know it is a bulk."""
+    seen: set[str] = set()
+    for item in items:
+        if not item.url:
+            continue
+        h = url_hash(item.url)
+        if h in seen or existing_hash(item, idx) is not None:
+            continue
+        seen.add(h)
+    return len(seen)
+
+
+def is_bulk(rows: list, idx: dict) -> bool:
+    """Does a list pass hold more than ``history_index.BULK_ITEMS`` rows whose link the url index does not know yet? The
+    rows are an agent's, each ``{url, ...}``; a repeat read of a list the bank already holds is not a bulk."""
+    new = {url_hash(str(r["url"])) for r in rows if isinstance(r, dict) and isinstance(r.get("url"), str) and r["url"]}
+    return len(new - set(idx)) > history_index.BULK_ITEMS
+
+
+def _received_late(saved_moment: "datetime | None") -> bool:
+    """Is this save being received more than ``history_index.LATE_DAYS`` after the day it was saved?"""
+    if saved_moment is None:
+        return False
+    return (datetime.now(timezone.utc) - saved_moment).days > history_index.LATE_DAYS
+
+
 def write_media_episode(
     episodes_dir: Path, item: RawItem, meta: MediaMeta, media_entity_id: str
 ) -> str:
@@ -2241,22 +2315,33 @@ def write_media_episode(
         frontmatter["posted"] = posted
     if item.origin:
         frontmatter["origin"] = item.origin
+    if item.arrived_by:
+        frontmatter["arrived_by"] = item.arrived_by
     if item.session_id:
         frontmatter["session_id"] = item.session_id
         if item.harness and item.harness != "unknown":
             frontmatter["harness"] = item.harness
         if item.project_dir:
             frontmatter["project_dir"] = item.project_dir
-    # Owner ruling 2026-10-18: a save from a platform's saved list (an export archive, the agent's Watch later read)
-    # stays in Saved with its metadata and is indexed, never read by a model. Ruling 62 (2026-11-04): so does every
-    # other bare save (a bookmark, a saved link, a feed item). A save's note or reason is always read: it is marked and
-    # queued like any conversation.
-    if history_index.is_index_only(frontmatter):
-        if item.note or item.reason:
-            frontmatter[history_index.NOTE_KEY] = True
-        else:
+    # Owner ruling 2026-10-18 (62, 2026-11-04) kept a save from a platform's saved list, a bookmark, a saved link,
+    # index-only. Ruling 80 (owner 2026-11-24, G246: "if i save it already has a reason"): Sleep reads a save, so what
+    # capture decides is only where it waits. One the person saves singly is written waiting (`processed: false`: Sleep
+    # reads it tonight); one of a bulk, or received long after it was saved, waits its turn in the pile (`processed:
+    # true, processed_by: index`, a few a day, `history_index.take_turns`); a title and a link on a site no page is read
+    # from holds nothing to read (`no-words`); a record another service keeps (his own repository, an open tab) is
+    # index-only as before. A save's note or reason is always read: it is marked and queued like any conversation.
+    if history_index.save_shaped(frontmatter) is not None and (item.note or item.reason):
+        frontmatter[history_index.NOTE_KEY] = True
+    else:
+        from api.services import link_enrichment
+
+        stamp = history_index.entry_stamp(
+            frontmatter, has_words=bool((meta.description or "").strip()),
+            walled=link_enrichment._excluded_media(item.url, meta.media_type),
+            bulk=_BULK.get(), late=_received_late(saved_moment))
+        if stamp is not None:
             frontmatter["processed"] = True
-            frontmatter["processed_by"] = history_index.INDEXED_BY
+            frontmatter["processed_by"] = stamp
     episode_id = episode_ids.create_episode(episodes_dir, frontmatter, body)
     return episode_id
 
@@ -2754,9 +2839,11 @@ async def append_collections(memory_path: Path, items: list[RawItem], idx: dict,
         return []
 
 
-def write_prepared(prepared: PreparedItem, memory_path: Path, idx: dict, *, append_list: bool = False) -> IngestResult:
+def write_prepared(prepared: PreparedItem, memory_path: Path, idx: dict, *, append_list: bool = False,
+                   bulk: bool = False) -> IngestResult:
     """The file half of :func:`ingest_one`: no network. ``idx`` is checked again — a link saved since it was
-    prepared is a duplicate (and one dropped since gets the offline metadata)."""
+    prepared is a duplicate (and one dropped since gets the offline metadata). ``bulk``: this save is one of a bulk (a
+    list pass over more than a few new rows, :func:`is_bulk`), which waits its turn in the pile (ruling 80)."""
     item, from_bookmark_file = prepared.item, prepared.from_bookmark_file
     h = url_hash(item.url)
     found = existing_hash(item, idx)
@@ -2788,9 +2875,13 @@ def write_prepared(prepared: PreparedItem, memory_path: Path, idx: dict, *, appe
 
     pageless = is_pageless(item)
     entity_id = "" if pageless else _media_entity_id(meta, item, memory_path / "entities")
-    episode_id = write_media_episode(
-        memory_path / "episodes", item, meta, entity_id
-    )
+    token = _BULK.set(_BULK.get() or bulk)
+    try:
+        episode_id = write_media_episode(
+            memory_path / "episodes", item, meta, entity_id
+        )
+    finally:
+        _BULK.reset(token)
     if not pageless:
         write_media_entity(memory_path / "entities", entity_id, item, meta, episode_id)
 
@@ -2935,7 +3026,8 @@ async def ingest_batch(
                         created_paths.append(f"entities/{result.media_entity_id}.md")
                     created_paths.append(f"episodes/{result.episode_id}.md")
 
-        await asyncio.gather(*(worker(it) for it in fresh))
+        with bulk_door(len(fresh)):
+            await asyncio.gather(*(worker(it) for it in fresh))
 
     save_url_index(memory_path, idx)
 
@@ -2968,10 +3060,12 @@ async def ingest_chunked(
     ``(created, duplicates)``."""
     created = duplicates = 0
     step = max(1, MAX_BATCH)
-    for start in range(0, len(items), step):
-        c, d = await ingest_batch(items[start:start + step], memory_path, from_bookmark_file=from_bookmark_file)
-        created += c
-        duplicates += d
+    # Ruling 80: the whole archive is one bulk, however its slices fall (a last slice of three is no single save).
+    with bulk_door(count_new(items, load_url_index(memory_path))):
+        for start in range(0, len(items), step):
+            c, d = await ingest_batch(items[start:start + step], memory_path, from_bookmark_file=from_bookmark_file)
+            created += c
+            duplicates += d
     return created, duplicates
 
 

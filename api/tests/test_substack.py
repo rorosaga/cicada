@@ -265,8 +265,8 @@ def test_saved_posts_are_indexed_saves_and_one_a_feed_brought_in_is_never_saved_
     assert "1 new post(s) saved; 1 already in memory" in out and "1 row(s) were not Substack posts" in out
     fm = _episode_of(memory, "https://bob-example.substack.com/p/a-week-of-vectors")
     assert fm["origin"] == "substack-saved" and fm["folder"] == "Saved"
-    assert fm["processed"] is True and fm["processed_by"] == history_index.INDEXED_BY      # ruling 30
-    assert history_index.kind(fm) == "list"
+    assert fm["processed"] is False and "processed_by" not in fm      # ruling 80: one post is read tonight
+    assert history_index.save_state(fm) == "waiting"
     # The open.substack.com spelling is an alias: a later paste of it is the same row.
     idx = media_ingestor.load_url_index(memory)
     assert media_ingestor.existing_hash(media_ingestor.RawItem(

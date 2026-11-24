@@ -79,8 +79,11 @@ struct SourceOverview: Codable, Identifiable, Hashable {
     /// Sources v4 — this source's episodes still waiting for Sleep's read (the backend's count, `history_index.
     /// waits_for_model`): the detail's "Consolidate now · N waiting" shows only when it is above zero.
     let waiting: Int
-    /// Ruling 62 — this source's saves kept for lookup: no model read them, and one is read when the person talks about it.
+    /// Ruling 80 — this source's older saves Sleep has not read yet (the field keeps its name); it reads `keptPerNight`
+    /// of them a night, newest first, and one first when the person talks about it.
     let kept: Int
+    /// How many Sleep reads a night (the backend's one number); nil from an older backend.
+    let keptPerNight: Int?
     /// Sources v4 — up to three faces, newest first (a Messages chat, a site a saved thing came from), and how many more.
     let faces: [SourceFace]
     let facesMore: Int
@@ -90,13 +93,14 @@ struct SourceOverview: Codable, Identifiable, Hashable {
          connected: Bool = false, lastError: String? = nil, actions: [String] = [],
          channelId: String? = nil, origins: [String] = [], harness: String? = nil,
          activity: [String: Int] = [:], intent: SourceIntent = .captured, waiting: Int = 0, kept: Int = 0,
+         keptPerNight: Int? = nil,
          faces: [SourceFace] = [], facesMore: Int = 0) {
         self.id = id; self.label = label; self.kind = kind; self.mark = mark
         self.conversations = conversations; self.episodes = episodes; self.entities = entities
         self.items = items; self.lastActivityAt = lastActivityAt; self.connected = connected
         self.lastError = lastError; self.actions = actions; self.channelId = channelId
         self.origins = origins; self.harness = harness; self.activity = activity; self.intent = intent
-        self.waiting = waiting; self.kept = kept; self.faces = faces; self.facesMore = facesMore
+        self.waiting = waiting; self.kept = kept; self.keptPerNight = keptPerNight; self.faces = faces; self.facesMore = facesMore
     }
 
     /// Sources v3 — the id a saved source's list is read under (`GET /sources/channels/{id}/items`): its channel, else
@@ -171,7 +175,7 @@ struct SourceOverview: Codable, Identifiable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case id, label, kind, mark, conversations, episodes, entities, items, lastActivityAt
-        case connected, lastError, actions, channelId, origins, harness, activity, intent, waiting, kept, faces,
+        case connected, lastError, actions, channelId, origins, harness, activity, intent, waiting, kept, keptPerNight, faces,
              facesMore
     }
 
@@ -199,6 +203,7 @@ struct SourceOverview: Codable, Identifiable, Hashable {
         // Sources v4 — lenient: an older backend sends none, and a malformed face drops the faces, never the row.
         waiting = (try? c.decodeIfPresent(Int.self, forKey: .waiting)) ?? 0
         kept = (try? c.decodeIfPresent(Int.self, forKey: .kept)) ?? 0
+        keptPerNight = ((try? c.decodeIfPresent(Int.self, forKey: .keptPerNight)) ?? nil).flatMap { $0 > 0 ? $0 : nil }
         faces = (try? c.decodeIfPresent([SourceFace].self, forKey: .faces)) ?? []
         facesMore = (try? c.decodeIfPresent(Int.self, forKey: .facesMore)) ?? 0
     }

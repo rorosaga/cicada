@@ -325,6 +325,32 @@ struct InboxSubject: Codable, Equatable {
     }
 }
 
+/// Who asked a question (`question_origin` on the server, derived at read from the question's own file): the step in
+/// words (`by`, "Sleep's duplicate check"), whether a model was called for it (`how`: rule, model, agent or check), and,
+/// for an agent's proposal, the harness the record names. Every field optional, so a newer server's extra step or an
+/// older cache still decodes; the card says nothing it does not know (`InboxAskedLine`).
+struct InboxAskedBy: Codable, Equatable {
+    var step: String?
+    var how: String?
+    var by: String?
+    var agent: String?
+
+    init(step: String? = nil, how: String? = nil, by: String? = nil, agent: String? = nil) {
+        self.step = step
+        self.how = how
+        self.by = by
+        self.agent = agent
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        step = (try? c.decodeIfPresent(String.self, forKey: .step)) ?? nil
+        how = (try? c.decodeIfPresent(String.self, forKey: .how)) ?? nil
+        by = (try? c.decodeIfPresent(String.self, forKey: .by)) ?? nil
+        agent = (try? c.decodeIfPresent(String.self, forKey: .agent)) ?? nil
+    }
+}
+
 /// A predicate fold in words (`InboxFold`): the label as said, the predicate it was filed under, what it covers.
 struct InboxFold: Codable, Equatable {
     var raw: String
@@ -558,6 +584,9 @@ struct InboxItem: Identifiable, Codable {
     /// Ruling 70 — this question's place in the list the server served (0 first), derived there from the expected change
     /// in what gets read. It carries no magnitude and is never compared with `priority`; nil from an older server.
     var orderIndex: Int? = nil
+    /// 2026-11-24 — who asked, for the card's one quiet line (`InboxAskedLine`); the day is `createdDate`. nil when the
+    /// record says nothing (and from an older server or cache): the line then says only when, or nothing.
+    var askedBy: InboxAskedBy? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, kind, requiredInput, status, priority
@@ -568,7 +597,7 @@ struct InboxItem: Identifiable, Codable {
         case extractorConfidence, extractorModel, recommendedKey, informational, checks
         case subject, fold, request, rows, review, spokenQuestion, spokenReason, sensitiveRows, replaced
         case chain, chainQuestion, chainReason, chainPairs
-        case entityDisplayName, mergeTargetDisplayName, sameTitle, orderIndex, otherSubject
+        case entityDisplayName, mergeTargetDisplayName, sameTitle, orderIndex, otherSubject, askedBy
     }
 
     init(from decoder: Decoder) throws {
@@ -640,6 +669,7 @@ struct InboxItem: Identifiable, Codable {
         sameTitle = (try? c.decodeIfPresent([String].self, forKey: .sameTitle)) ?? nil
         orderIndex = (try? c.decodeIfPresent(Int.self, forKey: .orderIndex)) ?? nil
         otherSubject = (try? c.decodeIfPresent(InboxSubject.self, forKey: .otherSubject)) ?? nil
+        askedBy = (try? c.decodeIfPresent(InboxAskedBy.self, forKey: .askedBy)) ?? nil
     }
 
     /// G61 — the one grouped "Confirm N links" review, drawn as its own card above the questions.

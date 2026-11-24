@@ -292,3 +292,31 @@ extension Copy.Inbox {
         static let backToInbox = "Back to the Inbox"
     }
 }
+
+extension Copy.Inbox {
+    /// 2026-11-24 (owner, DESIGN_RULES §9): the one quiet line that says who asked a question and when. The step is
+    /// said by what it does (the server's words, `question_origin.STEPS`), never by a provider or a model: a model's
+    /// name stays where provenance already shows it (a claim's author, the card's own guess line).
+    enum AskedBy {
+        /// "Asked 13 days ago by Sleep's duplicate check" — `when` is `InboxAge.phrase` ("13 days ago", "yesterday").
+        static func line(_ when: String, by: String?) -> String {
+            guard let by, !by.isEmpty else { return "Asked \(when)" }
+            return "Asked \(when) by \(by)"
+        }
+        static let anAgent = "an agent"
+        /// The hover: what kind of asker it was, so a person can weigh the question (UX principle 2). One sentence per
+        /// `how` (`question_origin.HOWS`).
+        static func how(_ how: String?) -> String? {
+            switch how {
+            case "rule": "A rule found this from what Cicada already holds. No model read anything for it."
+            case "model": "A model read a conversation and raised this."
+            case "agent": "An agent proposed this through Cicada's tools."
+            case "check": "Found by re-checking a source."
+            default: nil
+            }
+        }
+        /// The first asking in full, for the hover (DR-58: a stored day never shows raw).
+        static func onDay(_ full: String) -> String { "Asked on \(full)" }
+        static func seenAgain(_ full: String) -> String { "Seen again on \(full)" }
+    }
+}

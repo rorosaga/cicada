@@ -34,6 +34,7 @@ from api.services import (
     pair_evidence,
     phone_numbers,
     predicates,
+    question_origin,
     quiet_pages,
     same_name_pick,
     search_index,
@@ -317,6 +318,7 @@ def _item_from_file(
         source_episode=_opt_str(fm.get("source_episode")),
         source_episode_timestamp=_opt_str(fm.get("source_episode_timestamp")),
         claim_id=_opt_str(fm.get("claim_id")),
+        asked_by=question_origin.wire(fm, kind),
         **extra,
     )
 

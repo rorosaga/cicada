@@ -1327,7 +1327,119 @@ this Mac, with times — off by default, on only after the consent sheet (Source
   a model, which the rail forbids; "what was that video at 15:20" is answered through the watched day Ask and recall
   already read. Remote doors and other devices never see traces.
 
-**The lean pass (ruling 62, owner 2026-11-04; G236).** Owner: "For chrome bookmarks, and the rest of things I told you we
+**Every save is read (ruling 80, owner 2026-11-24, G246: "if i save it already has a reason").** Ruling 62's lean pass below
+is what is left of it: the **pile**. `history_index` is the one place; `SAVES_READ = False` restores ruling 62 whole (capture
+writes every save index-only, `take_turns` releases nothing, `retire` retires a queued save again).
+- **Where capture puts a save** (`history_index.entry_stamp`, `media_ingestor.write_media_episode`; file I/O only). *Waiting*
+  (`processed: false`): a save he makes singly — a click, a paste, a notch or site save, a small connector poll or list read —
+  and any save carrying his own note or reason, even inside a bulk. *The pile* (`processed: true, processed_by: index`, the old
+  pair): a bulk (more than `BULK_ITEMS = 10` new links through one door: `ingest_batch`, an archive through `ingest_chunked`
+  however its slices fall, a connector poll, an agent's list pass, the stars of a first GitHub sync, a browser's first set of
+  tab groups), and a save received more than `LATE_DAYS = 30` after the day it was saved, whatever its door. *Nothing to read*
+  (`processed_by: no-words`): a title, a link and a site on a link no page is read from (`link_enrichment._excluded_media`:
+  a walled site, a video, a paper), alone or in a bulk. A *record* (his own repository, a joined community, an open tab) is
+  index-only as before, never released, never woken (`history_index.is_record`). A feed item is as the code read it. The bulk
+  decision rides a context variable (`media_ingestor.bulk_door`, `is_bulk`), so no door's signature moved.
+- **`kind` names a save only while it is index-only** (`pile` or a record). `save_state` says where a save stands (`waiting`,
+  `pile`, `no-words`, `read`, `record`) and `not_read` is the one place "not read yet" comes from. Every save already kept in a
+  bank is stored `processed: true, processed_by: index`, so it is in the pile with nothing migrated.
+- **The day's number** (`take_turns`, run by `_index_without_model_safely` at the start of every run that reads, never a tidy-up
+  run): `SAVES_PER_DAY = 100` less what was released today (`turn_released_on`), newest saved day first, ties by id, flipped to
+  `processed: false` in the same `cicada` commit as the rest of the index step (manifest line `queued`; a failed commit puts them
+  back). A pile save with nothing to read is stamped `no-words` instead and costs no turn. A save released today and put back is
+  not released again today. The scheduled catch-up counts a pile with turns left as something to read (`turns_due`).
+  `return_to_pile` is the revert (and what a night that ended at its line does); `released_unread(day)` lists a day's.
+- **The order** (`saved_order`, one call at the freeze): every non-save first, oldest first; then saves he talked about
+  (`read_asked`) or wrote words on, newest first; then the other saves grouped by origin, the origin with the newest save first.
+  A conversation read in this run that names a save still waiting moves it up after the batch (`_promote_talked_saves`). With
+  the option below on, the old bulk material among the other saves comes after all of them, in the same grouping.
+- **Old bulk material is read on the engine's lightest model (ruling 80, owner 2026-11-24: his own answer to the cost, "ok go
+  ahead with your recommendations"; `light_reads`, `sleep_run_prefs.light_old_saves`).** A save released from the pile
+  (`turn_released_on` is set) that is old bulk material is read on the lightest model of the engine he chose; everything else is
+  read on the model he chose, exactly as before: conversations, a save made singly (never in the pile), a save he talked about or
+  gave a reason, and a pile save from a saved list he turned on and his agent read in his browser or a connector he connected.
+  - **The table** (`light_reads.why`, the one place). *Old bulk:* `browser` — a browser's bookmark taken in by a sync or an import:
+    origin `<browser>-bookmark` for each of `bookmark_sync.CHANNEL_BY_ORIGIN` (Chrome, Brave, Vivaldi, Comet, Dia, Safari), or
+    `source: bookmark` with no origin (a bookmarks file imported before the door was stamped); `file` — a save that arrived out of a
+    file he gave, any platform's export or archive (`arrived_by: file`, stamped by `media_ingestor.parse_upload` on every item of
+    the file; a feed is no save and is not stamped). *His model:* every list origin read by his agent in his browser (X
+    bookmarks, likes and reposts, Instagram, LinkedIn, Reddit, Pinterest, TikTok, YouTube lists, Substack, Spotify), a connector's
+    saves (the X, Reddit and GitHub polls, Pinterest), a tab group and a single save. **The same origin is on both sides**, told
+    apart by the door only: an Instagram save out of an export file is old bulk, the same Instagram save his agent read is not.
+    A save kept before the stamp existed carries none, so a list save already in a bank reads on his model: when in doubt, his.
+  - **The lightest model** (`light_reads.lighter`): the same engine, sign-in, key and billing, never another. The Claude plan:
+    `haiku`, its small model (a choice already of that line is left alone). A Claude key: the newest active Haiku of the key's own
+    list that has a price row (`anthropic_models.active`, `price_supplement`), if it costs less than his on a read of the measured
+    size. An OpenAI key: `gpt-5.4-nano`; a Gemini key: `gemini-flash-lite-latest` (`LIGHTEST_KEY`, each priced and structured-output
+    capable, held by a test), only for that provider's own model ids. **No lighter model is known** for the ChatGPT plan, the
+    Cursor, OpenCode and Grok plans, a local model, a router (OpenRouter), the open-model hosts, Groq, Mistral and xAI, so those
+    read on the chosen model and nothing fails; a model with no known price gets none, and a chosen model with no price still stops
+    a metered run (`sleep_spend`), as before. The lighter model must also be priced when the run starts (`guard_for(also=...)`).
+  - **A batch is read by one model.** `sleep_drain.next_batch_retrying` ends a batch where the model changes (a retry too), so the
+    lighter saves form their own batches, after every other save, on an engine copy (`BatchPlan.lighter`) that carries the lighter
+    model in its main fields (and a later-stage override follows it). The person's own main model is kept on that copy
+    (`Settings.kept_main_models`) for the one call that must not get cheaper: the same-name second look
+    (`same_name_tend.main_tier`), accuracy over price on a person. The spending line adds each call at its own model's price (the
+    ledger's figure); the first lighter batch is sized by what the dearer model cost each, so it never holds more than the allowance
+    buys. The reserve, and "a line reached with only background saves left ends the run" (`ds.background_ids`), are unchanged: a
+    lighter save is a background save. A save he talks about during the run leaves the lighter class (`_promote_talked_saves`).
+  - **The option** (`light_old_saves`, on unless he turned it off): `GET/PUT /sleep/run-options` (`lightOldSaves`) and
+    `cicada sleep options --light-old-saves on|off`, snapshotted when a run starts; no app control. Off: everything is read on his
+    model and the order is as it was.
+  - **The record.** A lighter batch's `sleep_run` ledger row carries `refs.lighter`, and the run detail (`GET /sleep/runs/{id}`,
+    `SHAPE = lighter-1`) says per batch the model that wrote it and whether it was lighter beside how many it filed, on top of
+    the per-model calls and stages it already had, so a night that read 80 old bookmarks on the lighter model and 20 posts on his
+    is legible. The commit's `Cicada-Author` names the models the engine reported (a plan engine records each reply's), else
+    those of the batch's own settings, so a lighter batch names the model that wrote it.
+- **A night never blocks the next.** Decay and the page reads run in the batch that leaves only background saves behind it
+  (not the last batch). A spending line, a reserve, a plan window or a key limit reached while only background saves are left is
+  a **finished** run: no paused record (so `schedule_may_replace` is moot), no page read, the unread released saves returned to
+  the pile (`_return_unread_saves_safely`, the tail's first step), the day's number stays spent. With a conversation or a
+  talked-about save left it pauses as ever. An `engine` stop stays a pause.
+- **Nothing to read, and what a public title-only save costs.** Stage 1 sends no model a saved link whose body holds no section
+  (`saved_reading.nothing_to_read`): it is filed with no entities and **no call** (a folder's reason or a tab group still read).
+  A title-only save of a *walled or excluded* link is stamped `no-words` at capture: no model ever reads it until he talks about it
+  or his agent opens it. A title-only save of a *public* link takes its turn like any save: Stage 1 costs 0 calls and the page
+  behind the link is read by the existing page read (Stage 5.57, the backfill; behind the connector fetch gate and its caps), so
+  what is "read" for it is that page. A save with words costs about two calls (`docs/plans/2026-11-24-saves-are-read.md` 3.6).
+- **Talking about a save** (`saved_mentions`): of one still waiting, it stamps `read_asked` (first among saves, no flip) and
+  leaves the ask for his own agent (`mention_asks`, ruling 78 (e)); of one in the pile, it wakes it as before; of one already read,
+  or with nothing to read, it leaves only the ask. The ask no longer depends on the save being unread.
+- **Scripts** (counts and enums only): `api/scripts/history_index_dry_run.py` gains a `saves` block (saves by state, what would
+  leave the pile tonight by origin at the day's number, what holds nothing to read, nights for the pile);
+  `api/scripts/saves_night_report.py --bank --day` prints one row per save in a night (ids, origin, state, how it reached the queue,
+  whether he talked about it, the pages its claims landed on, claims by observer kind, questions open).
+- **Measured** (`benchmarks/consolidation/saves_battery.py run --leg single`, the real path, 288 synthetic saves and 8 conversations,
+  Claude plan at haiku, one run, 395 s): 168 calls, 1.13M input tokens (gross of cache), 115k output tokens for the 91 episodes a model
+  read, about 1.85 calls, 12.4k input and 1.3k output tokens each. The 103 title-only saves of a public link (3 singles and the 100
+  the day's number released from the bulk list of 200) cost 0 Stage 1 calls (the connector fetch gate was off, so no page was
+  read); the 100 left in the pile wait. Retrieval 12/12 by words and 11/12 by the hook's note, before and after Sleep. Gates still
+  failing, and why, are in the PR that built this (the old-shape connector rows, a quill-page cap that counts `external` claims only).
+- **Short saves of one origin read together (Track 3, `grouped_save_read`, built and OFF: `ON = False`, flipped by the coordinator
+  after the saves battery's grouped leg is read against the single one; numbers below).** Stage 1 is one call per item, and a 60 to 250
+  token post rides a fixed prompt of about 8k tokens. With the constant on, `extract` plans groups before its fan-out (`plan`): saves
+  with none of his words, not talked about (`read_asked` now rides the episode dict), no tab group, feed item, book or conversation,
+  none over 1,500 characters, none whose text holds the question's own marker, of one origin, up to 25 a group (a group of one reads
+  alone). Each save is still prepared and finished alone (its date note, its source note, the sensitive-text hold and `on_sensitive`
+  before the send, every per-item callback); only the model call is shared: one call at Stage 1's own stage label (`extraction`, so the
+  spending line, the ledger and the model tier are the same and no stage enum was added) with the Stage 1 prompt plus `GROUP_PROMPT`,
+  each save between `<<<SAVE n>>>` markers carrying its own date note and source note, no answer shape forced on a plan engine. The
+  answer is used only when it lines up exactly (`json_parse.numbered_rows` over `results`, one numbered block per save, each block's
+  lists lists); anything else, a refusal, or a timeout twice, reads each save alone with the same facts (a bad answer costs a call,
+  never a fact); a rate limit, a sign-out, the network or the line are the engine's and reach each save as they would a single read
+  (a spending line skips them, never fails them). A quote a block lifts from a neighbour is located only in its own save's text (so it
+  is `reasoning`, and the claim is still written; the log counts them). A batch of background saves alone may hold 50 (bytes bound
+  150,000) and skips Stage 4's skills call (`saves_only_batch`; a skill needs two conversations).
+  *Measured once each* (`saves_battery run --leg single` and `--leg grouped`, the real path, 288 synthetic saves and 8 conversations,
+  Claude plan at haiku, 80 saves sent to a model): Stage 1 calls 88 against 22 (1.10 against 0.28 a save), Stage 1 input tokens 940k
+  against 263k (11.8k against 3.3k a save), output tokens 67k against 63k; every stage 163 calls against 57 (2.04 against 0.71 a
+  save), 13.8k against 4.2k input and 1.4k against 1.0k output tokens a save; evidence not located 5 of 42 spans against 1 of 23; all
+  12 gates the same (nothing on his page, no page from saves alone, every fact `external:`, 12 claims on the 50-post page, the 2021
+  fact dated); the grouped leg kept fewer facts (42 claims from saves against 23, almost all of it on the 50 near-identical posts,
+  where the page's cap is 12 either way), which is part of why its later stages are cheaper: repeat both legs before turning it on.
+- **Not in this change:** the words the app and agents show about saves (Track R).
+
+**The lean pass (ruling 62, owner 2026-11-04; G236) — since ruling 80 the pile above, which only a bulk, a late arrival and a save already kept enter.** Owner: "For chrome bookmarks, and the rest of things I told you we
 can do a leaner initial pass for consolidation on those things who have no reason/user intent attached, but enough info so
 that it can come up in a relevant conversation and an agent can look further into it." What a full read of a bare bookmark
 buys, measured (25 synthetic bookmarks, Claude plan at haiku, connector gate off): 56 to 57 calls and 269k to 272k input
@@ -1372,7 +1484,7 @@ the folder, and `covers` claims from the title's own words. Recall found the sam
   passages (`meta.saved_no_page`), the entity vectors. Rarity decides, as in the hook's topic leg: a word held by more than 3%
   of saved items (floor 5) finds nothing, a hit must carry 40% of the message's rare weight, and an unasked note needs two rare
   words, 60% of that weight and half of the title's own subject words. Three doors: **recall** (a media page a leg ranks shows `Link:`, its
-  saved day and "nobody has read it"; the rest under *Saved links on this*, at most 3, one rare word enough; a save is no
+  saved day and, while Sleep has not read it, "(not read yet)" or "(nothing to read yet)" (ruling 80, `saved_words`); the rest under *Saved links on this*, at most 3, one rare word enough; a save is no
   *conversation excerpt*), **Ask** (`SAVED LINKS`, at most 4, words then meaning; a line only the vectors found never earns a
   model call by itself; a tab group, which holds no page, only for a caller with the `sources` scope, as recall (G135), and
   `saved_lookup.find` leaves it out unless the caller says it may see one), **the hook's note** (at most 2 lines under the note's own 400-token cap and a 40 ms reserve, reason
@@ -1426,8 +1538,15 @@ the folder, and `covers` claims from the title's own words. Recall found the sam
   Between the upgrade and that run they are already out of every waiting count (`waits_for_model`, `/sleep/queue`,
   `/sleep/episodes?processed=false`). Measure with `history_index_dry_run --bank <path>`: `index_only_by_kind.saved` is that
   number, counts only.
-- **What the pages say.** Sources (`source.kept`, `overview-v17`) and the Sleep page's Waiting (`/sleep/queue`'s `kept`): one
-  line, "371 saved, kept for lookup. One is read when you talk about it." `Copy.keptForLookup`.
+- **What the pages say (ruling 80, Track R; the words live in `saved_words` and the app's `Copy`, never twice).** Sources
+  (`source.kept` and `keptPerNight`) and the Sleep page's Waiting (`/sleep/queue`'s `kept` and `keptPerNight`): one line, "371
+  saves not read yet. Sleep reads about 100 a night, newest first. Talk about one and it is read first." (`Copy.savesNotReadYet`;
+  the number is `SAVES_PER_DAY`, sent by the backend). A saved-list row says `read`, `not read yet`, `nothing to read yet`,
+  `waiting for your AI app` (his words named it and an ask is open) or `watched`; a stream says `read by Sleep`; watch history,
+  follows, connections, owned repositories and tabs open on another device say "kept, never read: you did not save it". Recall,
+  Ask and the hook's note mark an unread save "not read yet" and say when Sleep reads it; a record tool's reply says Sleep reads
+  the posts it saved; none of Cicada's own words ("lookup", "indexed", "index-only", "lean", "its turn") reach a person or an
+  agent (`test_words_on_screen.py`, `SaveWordsTests`).
 - **Reads everything, still (rulings 13, 16 as amended by 62).** A lean read is a read: everything waiting when a run starts is
   consolidated by the end of it, the lean part with no model.
 - **Measured.** All on scratch banks, Claude plan at haiku, the connector gate off, input tokens gross of cache. **25 bookmarks:** before 56 and 57 calls, 269k and 272k input tokens, about 2.5 minutes; after 0 calls, 0 tokens, 2 seconds. **The owner's 22-item shape** (7 coding sessions of which 2 long, 5 short chats, 6 bookmarks, 4 tab groups), fresh bank: before 62 calls, 421k tokens, 1 batch, its first commit after 54 calls; after 59 calls, 383k tokens, 4 batches, its first commit after 11 calls, its largest batch 19. The same again on a bank that already has those pages: before 92 calls, 522k tokens, 1 batch, first commit after 66 calls; after 75 calls, 461k tokens, 3 batches, largest 34. Conversations are most of a mixed run, so the lean pass saves little there, and more batches mean more merges (5 to 16 on the fresh bank) and a `skills` call each: the bound buys what a stop can cost, not fewer calls. **Retrieval** (15 messages about 25 bookmarks, 12 sharing words with the title and 3 only meaning; 4 unrelated; real doors, with vectors): recall 12/12 and 3/3 both when Sleep had read them and with the lean pass; the hook's note 3/12 before, 12/12 after, 0/3 by meaning both; Ask 3/4 before, 4/4 after; unrelated messages: the note 0/4 both, Ask 0/1 both, recall 4/4 both (its top-one rule shows the nearest page in a bank that holds nothing else). Words only, read by Sleep: recall 11/12 and 1/3. Nothing woke a save in all of it. **At scale:** 3,000 titles drawn from the same 70 technical words, a worst case: the leg's p95 is 3.9 ms, and 6 of 15 unrelated coding messages drew a line. Real titles have far more words; count `reason: saved` in the ledger on a real bank. **The read back:** a conversation naming one link and one whole title woke those two and not the link only the agent said; the next Sleep read them in 9 calls, and they are read for good. **Lost, disclosed:** the `covers` claims and the page's edges to concepts that a read made from the title's words, so a lean page draws unconnected until it is read. `test_lean_pass.py` pins each case.
@@ -3579,7 +3698,11 @@ and a feed item keeps ruling 39's own rule). Talking about a save (`read_asked`)
 in the save.
 - **One source for the 2+ rung.** `promotion.conversation_keys` gives every such save the one key `promotion.SAVES_KEY`:
   two saves naming one thing, or fifty, make no page; one save plus one conversation do, and the page keeps both sources. A
-  save carrying the person's own reason, note, why-answer or folder reason keeps its own key and counts as a conversation.
+  save carrying the person's own reason, note, why-answer or folder reason keeps its own key and counts as a conversation
+  **for what his words name**: his reason on a post is about that post, so for a name only the post's text carries it still
+  counts with the other saves (`promotion.conversation_keys(..., names)`: the page's name and aliases, tested against his own
+  sections folded and with punctuation collapsed; the four promotion sites in `entity_resolver` pass them; `Saves.of` / `all_of`
+  and the held-name checks take them the same way, `promotion.labels`). A caller with no name keeps the old key.
   No other rung can fire from a save alone: `substantive` needs the person's own exchanges (a save yields none outside
   their sections) and a link only counts from a relationship located in their words (`person_said`).
 - **No mention.** `episode_time.counts_as_activity` is false for such a save (the bank-wide `untimed_ids`, the card's
@@ -4046,8 +4169,9 @@ listed as an alias. Four gaps caused it, each closed:
   the line re-read from the store is not asked again.
 - **A person met only in saves joins a page on an exact name or alias alone, and asks nothing (G245, ruling 80's plan, Track 2c;
   `saves_bounded`, `entity_resolver._from_saves_alone`).** A person's name every conversation of which — this batch's and
-  any an earlier run parked it from (`PendingEntity.episodes()`) — is a saved item with no words of the person's (no
-  `## Why it was saved`, `## Saved because`, `## User note`, or a person's `## Note`) skips the judge, the first-name-across
+  any an earlier run parked it from (`PendingEntity.episodes()`) — is a saved item with no words of the person's about it (no
+  `## Why it was saved`, `## Saved because`, `## User note`, or a person's `## Note` that names it: a reason that does not
+  name the person is about the post) skips the judge, the first-name-across
   rule, the same-name planning (`_plan_same_name_people` leaves a save's mention out) and the G209 "account" lead. It joins
   only the page TITLED exactly so, or the one person page that lists it among its aliases (`_exact_person_match`; the guards
   of the direct match stand: a recording's page, a name two pages answer to, a page the person said it is not): a post's
@@ -4541,7 +4665,20 @@ and ids (a portability bug). `api/services/role_people.py` is the one place that
   (no mark, no question), because a bare word cannot be told from a name.
 - **Stage 5.4 asks** (`ask_after_write`): after the pages are written, each unnamed person page the batch touched
   gets one inbox question, "What's the name of your partner?" (`features.md`), unless one is open or the person
-  declined. It rides the cycle's commit like every question the cycle opens.
+  declined. It rides the cycle's commit like every question the cycle opens. **Only on the second conversation
+  (owner 2026-11-24: "someone known only by a description is not asked about on a first mention, only once they come
+  up again").** `ensure_question` is the one place a name question is written (Stage 5.4 and the repair script both go
+  through it), and it writes nothing until the page rests on two distinct conversations (`role_people.heard_again`:
+  the page's `source_episodes` counted by `promotion.conversation_keys`, as the 2+ rung counts them: a session and its
+  notes are one, saves the person said nothing about are one together). What was said is kept exactly as before (the
+  page or the held line, its title, its claims, the nickname rule); only the asking moved. A question already asked from
+  one mention is retired by Sleep with nothing written (`inbox_tend` rule `name_once`, "Settled by Sleep", undoable; an
+  undone one is the person's and Sleep never retires it again) and comes back, new, when they come up again. A person
+  who declined, a question the person put off, one answered: unchanged. The same holds for every producer: a relation
+  ("your partner") and a nickname ("What's <nickname>'s name?") alike; a meeting's unnamed voice (`meeting_speakers`,
+  "Who was Speaker 1?") is another question and is not touched. Whether a thing said once is still found by its words
+  (an agent asking about "the Portuguese guitar teacher" with no page, no question) is measured in
+  `benchmarks/consolidation/findability.py` (2026-11-24); see `mcp.md`.
 - **A nickname is the title only until a name is found** (ruling 41, owner 2026-10-27): Stage 1's "<nickname>
   (unnamed)" (no relation word) becomes a page titled by the nickname, `unnamed: true` + `nickname_title: true`, the
   nickname also an alias (`canonicalize`, `nickname_of`), asked "What's <nickname>'s name?" when it holds no relation.

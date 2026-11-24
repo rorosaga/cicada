@@ -40,7 +40,7 @@ from loguru import logger
 
 from api.services import (
     bank_registry, continuity, continuity_sessions, episode_ids, handshake, mcp_tools, page_use, recall_text,
-    saved_lookup, search_index, state_dictionary, telemetry, text_fold,
+    saved_lookup, saved_words, search_index, state_dictionary, telemetry, text_fold,
 )
 from api.services.claims import is_current, is_record, parse_claims
 
@@ -748,7 +748,7 @@ def _with_saved(reader, memory_path: Path, prompt: str, note: Injection, *, rece
         return note
     while hits:
         lines = [clip(saved_lookup.line(h), SAVED_LINE_CHARS) for h in hits]
-        block = "\n".join([recall_text.SAVED_HEADER, *lines, recall_text.SAVED_FOOTER])
+        block = "\n".join([recall_text.SAVED_HEADER, *lines, saved_words.note_footer()])
         text = f"{note.text}\n\n{block}" if note.text else block
         if len(text) // 4 <= MAX_TOKENS:
             ids = tuple(h.page or h.episode or h.id for h in hits)

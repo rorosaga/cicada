@@ -148,7 +148,7 @@ struct SourceDetailHead: View {
                 stateLine(watch: watch, now: context.date)
             }
             .padding(.leading, indent)
-            if let kept = Copy.keptForLookup(source.kept) {
+            if let kept = Copy.savesNotReadYet(source.kept, perNight: source.keptPerNight) {
                 Text(kept).font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, indent)

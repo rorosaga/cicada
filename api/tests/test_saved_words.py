@@ -310,7 +310,8 @@ def test_an_x_bookmark_through_the_real_writer_is_a_description_with_no_note_and
     assert "## User note" not in parsed.body and "has_note" not in fm
     assert "## Description\n" + TWEET["text"] in parsed.body
     assert fm["posted"] == "2021-03-04"
-    assert history_index.kind(fm) == "saved" and fm["processed"] is True and fm["processed_by"] == "index"
+    # Ruling 80: one post written by the connector is a save made singly: it waits for Sleep tonight, as its author's words.
+    assert history_index.save_state(fm) == "waiting" and history_index.kind(fm) is None and fm["processed"] is False
     assert "## Notes" not in _page_text(memory, res.media_entity_id)
     assert TWEET["text"] in _page_text(memory, res.media_entity_id)
 
@@ -367,7 +368,7 @@ def test_a_pinterest_pin_keeps_its_text_as_a_description_beside_the_linked_pages
     parsed = markdown_parser.parse(memory / "episodes" / f"{res.episode_id}.md")
     assert "## User note" not in parsed.body and "has_note" not in parsed.frontmatter
     assert "A soup I make" in parsed.body and "The page's own summary." in parsed.body
-    assert history_index.kind(parsed.frontmatter) == "saved"
+    assert history_index.save_state(parsed.frontmatter) == "waiting"
 
 
 def test_a_pin_the_page_already_says_is_not_written_twice(tmp_path, monkeypatch):
@@ -423,10 +424,13 @@ def _snapshot(memory):
     return {p.name: p.read_bytes() for p in (memory / "episodes").glob("*.md")}
 
 
-def test_the_repair_reports_and_changes_nothing_while_it_is_off(tmp_path):
+def test_the_repair_is_on_and_reports_and_changes_nothing_when_asked_only_to_report(tmp_path, monkeypatch):
     memory = _seed_old_bank(tmp_path)
     before = _snapshot(memory)
-    assert connector_text.REPAIR is False
+    assert connector_text.REPAIR is True                       # ruling 80: it runs before any save is read
+    report = connector_text.repair(memory, apply=False)
+    assert _snapshot(memory) == before and report.changed == [] and report.counts()["repair_on"] is False
+    monkeypatch.setattr(connector_text, "REPAIR", False)
     report = connector_text.repair(memory)
     assert _snapshot(memory) == before and report.changed == []
     assert report.counts() == {
@@ -453,8 +457,8 @@ def test_the_repair_renames_the_heading_drops_the_note_stamp_and_is_idempotent(t
     bank_index.invalidate()
     again = connector_text.repair(memory, apply=True)
     assert again.paths == [] and again.changed == [] and again.counts()["found"] == 0
-    # the healed waiting episode is now a bare save: index-only like every other
-    assert history_index.kind(waiting.frontmatter) == "saved"
+    # the healed waiting episode is now a bare save: it waits for tonight like every other save made singly (ruling 80)
+    assert history_index.save_state(waiting.frontmatter) == "waiting"
 
 
 def test_a_healed_episode_is_never_read_again_as_a_revision(tmp_path):
@@ -481,6 +485,39 @@ def test_a_healed_episode_is_never_read_again_as_a_revision(tmp_path):
     assert episode_revision.attach(memory, waiting) == {}
 
 
+def test_a_repaired_row_is_read_as_its_authors_and_an_unrepaired_one_as_his():
+    """The same post, before and after the repair: the old shape puts it in the person's section (`## User note`), so a claim
+    from it is the person's reading; once healed it is the post's description, so a claim is the author's."""
+    reply = {"entities": [_entity("alpha-co", "company"), _entity("alpha-tool")],
+             "relationships": [_rel("alpha-co", "alpha-tool", "works on", "I work at alpha-co and my favourite tool is alpha-tool.")]}
+    old, _ = _read(_episode(OLD_X), reply)
+    assert saved_reading.person_ranges(OLD_X) and "observer" not in old["relationships"][0]       # read as his words
+    healed = connector_text._healed(OLD_X)
+    assert not saved_reading.person_ranges(healed)
+    new, _ = _read(_episode(healed), reply)
+    assert new["relationships"][0]["observer"] == "external:x-com"                                 # the post's author (its site)
+    assert new["relationships"][0]["evidence"][0]["kind"] == "page"
+    # and nothing the post says is put on the owner's page
+    reply_owner = {"entities": [_entity(OWNER, "person"), _entity("alpha-tool")],
+                   "relationships": [_rel(OWNER, "alpha-tool", "uses", "I work at alpha-co and my favourite tool is alpha-tool.")]}
+    result, _ = _read(_episode(healed), reply_owner)
+    assert result["relationships"] == []
+
+
+def test_the_repair_in_sleeps_first_step_leaves_a_waiting_episode_as_a_plain_save_read_as_its_authors(tmp_path):
+    from drain_harness import git
+
+    memory = _bank(tmp_path)
+    _old(memory, "ep_2026-11-20_010")
+    git(memory, "add", "-A")
+    git(memory, "commit", "-m", "seed")
+    asyncio.run(sleep_cycle._index_without_model_safely(memory))      # the switch is on: no monkeypatch
+    bank_index.invalidate()
+    (episode,) = [e for e in sleep_cycle._get_unprocessed_episodes(memory) if e["id"] == "ep_2026-11-20_010"]
+    assert saved_reading.applies(episode) and not saved_reading.person_ranges(episode["content"])
+    assert episode_revision.attach(memory, [episode]) == {}          # never a revision of what Sleep never read, nor of itself
+
+
 async def _commit(memory, fixed):
     from api.services import git_service
 
@@ -490,6 +527,7 @@ async def _commit(memory, fixed):
 def test_sleeps_first_step_repairs_in_a_commit_of_its_own_only_when_the_switch_is_on(tmp_path, monkeypatch):
     from drain_harness import git
 
+    monkeypatch.setattr(connector_text, "REPAIR", False)
     memory = _seed_old_bank(tmp_path)
     git(memory, "add", "-A")
     git(memory, "commit", "-m", "seed")
@@ -511,18 +549,20 @@ def test_sleeps_first_step_repairs_in_a_commit_of_its_own_only_when_the_switch_i
     assert "ep_2026-11-20_011.md: healed" in entry
     assert git(memory, "status", "--porcelain").strip() == ""
     fm = markdown_parser.parse(memory / "episodes" / "ep_2026-11-20_010.md").frontmatter
-    assert "has_note" not in fm and fm["processed"] is True and fm["processed_by"] == "index"   # then indexed, no model
+    assert "has_note" not in fm and fm["processed"] is False and history_index.save_state(fm) == "waiting"   # then a plain save
 
 
 def test_the_dry_run_prints_counts_and_never_a_word_of_a_post(tmp_path, capsys):
     from api.scripts import connector_text_dry_run
+
+    assert connector_text.REPAIR is True      # on, and the dry run still changes nothing
 
     memory = _seed_old_bank(tmp_path)
     before = _snapshot(memory)
     assert connector_text_dry_run.main(["--bank", str(memory)]) == 0
     out = capsys.readouterr().out
     printed = json.loads(out)
-    assert printed["found"] == 4 and printed["read_by_sleep"] == 1 and printed["repair_on"] is False
+    assert printed["found"] == 4 and printed["read_by_sleep"] == 1 and printed["repair_on"] is False   # whatever REPAIR says
     assert "alpha-co" not in out and "alpha-tool" not in out
     assert _snapshot(memory) == before
     assert connector_text_dry_run.main(["--bank", str(memory), "--ids"]) == 0
@@ -554,3 +594,92 @@ def test_a_connector_post_held_as_a_description_is_words_however_short():
 
     assert "x-bookmarks" in reading_walls._TEXT_IS_DESCRIPTION_ORIGINS
     assert "x-bookmarks" in reading_walls._TEXT_IN_NOTES_ORIGINS      # a post kept before G245 still counts
+
+
+# --------------------------------------------------------------------------- #
+# a quote nothing locates is still its author's (ruling 80, G246; the saves battery's 5 of 48)
+# --------------------------------------------------------------------------- #
+
+
+def test_in_a_save_with_none_of_his_words_a_fact_whose_quote_is_not_found_is_still_its_authors():
+    reply = {"entities": [_entity("alpha-co", "company"), _entity("alpha-tool")],
+             "relationships": [_rel("alpha-co", "alpha-tool", "ships", "words the post never says"),
+                               _rel("alpha-co", "alpha-tool", "ships weekly", "alpha-co ships alpha-tool every Friday")],
+             "values": [{"entity": "alpha-tool", "attribute": "price", "value": "10", "evidence_quote": "nowhere in it"}]}
+    result, _ = _read(_episode(_save_body()), reply)
+    assert [r["evidence"][0]["kind"] for r in result["relationships"]] == ["reasoning", "page"]
+    assert [r["observer"] for r in result["relationships"]] == ["external:alex-example"] * 2
+    assert result["values"][0]["evidence"][0]["kind"] == "reasoning"
+    assert result["values"][0]["observer"] == "external:alex-example"
+    claims = entity_extractor.entities_to_claims([result], None)
+    assert {c.observer for c in claims} == {"external:alex-example"}          # none is Cicada's own reading
+
+
+def test_in_a_save_with_his_reason_an_unlocated_fact_is_the_authors_and_a_located_one_in_his_words_is_his():
+    """The safe side: the post is the bulk of the text, so what no quote can point at is far likelier the post's; labelled
+    the author's, a belief of his is under-credited (his exact words still land as his), never a stranger's made his."""
+    body = _save_body(person="## Saved because\nI want to try alpha-tool on alpha-project")
+    reply = {"entities": [_entity("alpha-tool"), _entity("alpha-project", "project"), _entity("alpha-co", "company")],
+             "relationships": [
+                 _rel(OWNER, "alpha-tool", "wants to try", "I want to try alpha-tool on alpha-project"),
+                 _rel("alpha-co", "alpha-tool", "ships", "a sentence the model made up")]}
+    result, _ = _read(_episode(body), reply)
+    by_label = {r["label"]: r for r in result["relationships"]}
+    assert "observer" not in by_label["wants to try"]                  # located in his own section: his, as ever
+    assert by_label["ships"]["evidence"][0]["kind"] == "reasoning"
+    assert by_label["ships"]["observer"] == "external:alex-example"    # not located: the author's, never his or Cicada's
+
+
+def test_two_authors_stating_one_fact_in_one_run_stay_the_first_authors_with_both_sources():
+    reply = {"entities": [_entity("alpha-co", "company"), _entity("alpha-tool")],
+             "relationships": [_rel("alpha-co", "alpha-tool", "ships", "alpha-co ships alpha-tool every Friday")]}
+    a, _ = _read(_episode(_save_body(channel="alex-example")), reply)
+    b, _ = _read(_episode(_save_body(channel="sam-example")), reply)
+    a["episode_id"], b["episode_id"] = "ep_2026-11-20_001", "ep_2026-11-20_002"
+    for rel in a["relationships"]:
+        rel["source_episode"] = a["episode_id"]
+    for rel in b["relationships"]:
+        rel["source_episode"] = b["episode_id"]
+    (claim,) = entity_extractor.entities_to_claims([a, b], None)
+    assert claim.observer == "external:alex-example"
+    assert claim.source_episodes == ["ep_2026-11-20_001", "ep_2026-11-20_002"]
+    # a fact a conversation also states is still Cicada's own reading, as before
+    chat = {"episode_id": "ep_2026-11-21_001", "origin": "claude-code", "entities": [],
+            "relationships": [dict(b["relationships"][0], source_episode="ep_2026-11-21_001")], "values": []}
+    chat["relationships"][0].pop("observer", None)
+    (merged,) = entity_extractor.entities_to_claims([a, chat], None)
+    assert merged.observer == "agent"
+
+
+def test_unlocated_facts_from_many_saves_are_counted_by_the_per_page_cap(tmp_path):
+    """Fifteen posts each say a different thing about one page with a quote nothing locates: all fifteen are the authors'
+    and the page keeps twelve open."""
+    from api.services import claim_reconciler, saves_bounded
+
+    memory = _bank(tmp_path)
+    claims = []
+    for n in range(15):
+        eid = f"ep_2026-11-{10 + n // 2:02d}_{n:03d}"
+        markdown_parser.write(memory / "episodes" / f"{eid}.md",
+                              {"id": eid, "timestamp": "2026-11-20T09:00:00+00:00", "processed": True, "source": "url",
+                               "origin": "chrome-bookmark", "media_entity_id": f"media-p{n}", "url": f"https://example.com/p/{n}"},
+                              f"# Post {n}\n\n**Channel:** author-{n}\n**URL:** https://example.com/p/{n}\n\n## Description\nQuillnote ships {n}.\n")
+        reply = {"entities": [_entity("quillnote"), _entity(f"feature-{n}")],
+                 "relationships": [_rel("quillnote", f"feature-{n}", "ships", "a quote nothing locates")]}
+        ep = _episode(_save_body(channel=f"author-{n}"))
+        ep["id"] = eid
+        result, _ = _read(ep, reply)
+        result["episode_id"] = eid
+        result["relationships"][0]["source_episode"] = eid
+        result["relationships"][0]["source_episode_timestamp"] = f"2026-11-{10 + n // 2:02d}T08:00:00+00:00"
+        claims += entity_extractor.entities_to_claims([result], None)
+    assert {c.observer.split(":")[0] for c in claims} == {"external"}
+    bank_index.invalidate()
+    settings = SimpleNamespace(memory_path=memory, litellm_model="m", litellm_disambiguation_model="", archive_threshold=0.2,
+                               decay_nudge_threshold=0.4, sleep_promotion_threshold=2, sleep_resolve_concurrency=1,
+                               link_enrich_enabled=False)
+    reconciled, _nudges, audit = claim_reconciler.reconcile_stage3(
+        claims, {}, settings, cardinality_fn=lambda _p: False, now_date="2026-11-24", decay=False)
+    open_ = [c for slot in reconciled.values() for c in slot if c.valid_to is None]
+    assert len(open_) == saves_bounded.MAX_OPEN_CLAIMS
+    assert sum(a["action"] == "save_capped" for a in audit) == 3

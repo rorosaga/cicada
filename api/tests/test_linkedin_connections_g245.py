@@ -102,7 +102,7 @@ def test_a_read_keeps_each_row_with_its_day_and_precision_outside_every_bank_and
                            {"name": "Email Person", "profile_url": f"{LI}/email-person", "email": "x@example.org",
                             "connected": "2026-11-02"}], reached_end=True)
     assert "3 new, 0 updated" not in out and "4 new" in out, out
-    assert "1 row(s) had no member profile link" in out and "not read by a model" in out or "never read by a model" in out
+    assert "1 row(s) had no member profile link" in out and "never read" in out and "not something the person saved" in out
     held = _held(memory)
     rows = {r["url"].rsplit("/", 1)[1]: r for r in held["connections"]}
     assert set(rows) == {"erin-example", "finn-sample", "gale-undated", "email-person"}

@@ -157,8 +157,11 @@ struct InboxFocusCard: View {
                     .font(CicadaTheme.metaFont)
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .lineLimit(1)
+                    .layoutPriority(-1)   // yields to "Asked …" below
             }
-            Spacer(minLength: CicadaTheme.spacingSM)
+            Spacer(minLength: 0)   // the HStack's own spacing is the gap; a minimum here made the row wider than a narrow card
+            // 2026-11-24 — who asked and when, in the row that already exists, so no answer moves (§9).
+            AskedByLine(item: item)
             if let onClose {
                 IconButton(systemName: "xmark", help: Copy.Inbox.close, action: onClose)
             }

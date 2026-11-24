@@ -1,6 +1,9 @@
-"""The lean pass (ruling 62, owner 2026-11-04): a save with no reason is indexed, found when it comes up, and read once
-when the person talks about it. Measured: 25 bookmarks cost 58 model calls and 272k input tokens to learn little beyond
-each title. Synthetic banks, placeholder titles and example.com links only."""
+"""The pile (ruling 62's lean pass, owner 2026-11-04, as ruling 80 left it, 2026-11-24): a save that waits its turn is
+indexed, found when it comes up, and read when its day's turn comes or the person talks about it. Measured: 25 bookmarks
+cost 58 model calls and 272k input tokens to learn little beyond each title — which is why the older pile is released a
+fixed number a day (``history_index.take_turns``) rather than all at once. A save the person makes singly is no longer
+kept here: it waits for tonight (``test_saves_read_g246.py``). Synthetic banks, placeholder titles and example.com
+links only."""
 from __future__ import annotations
 
 import asyncio
@@ -20,6 +23,12 @@ from api.services.media_ingestor import MediaMeta, PreparedItem, RawItem
 AT = "2026-11-04T10:00:00+00:00"
 
 
+@pytest.fixture
+def legacy(monkeypatch):
+    """The kill switch (ruling 80): ruling 62's lean pass whole — every save index-only, a queued one retired."""
+    monkeypatch.setattr(history_index, "SAVES_READ", False)
+
+
 @pytest.fixture(autouse=True)
 def _fresh():
     bank_index.invalidate()
@@ -29,10 +38,11 @@ def _fresh():
     s.status, s.drain, s.drain_run, s.cancel_requested = "idle", None, False, False
 
 
-def _save(memory, url, title, *, origin="chrome-bookmark", idx=None, description="", **kw):
+def _save(memory, url, title, *, origin="chrome-bookmark", idx=None, description="", bulk=True, **kw):
+    """One save as a bulk door writes it (the pile), unless ``bulk=False`` (one the person made singly: waiting)."""
     item = RawItem(url=url, title=title, origin=origin, **kw)
     meta = MediaMeta(title=title, description=description, site="example.com", media_type="bookmark")
-    res = media_ingestor.write_prepared(PreparedItem(item, meta), memory, idx if idx is not None else {})
+    res = media_ingestor.write_prepared(PreparedItem(item, meta), memory, idx if idx is not None else {}, bulk=bulk)
     bank_index.invalidate()
     return res.episode_id, res.media_entity_id
 
@@ -54,14 +64,25 @@ def _conversation(memory, eid, body, **fm):
 # --- what is lean ----------------------------------------------------------------------------------------------------
 
 
+_IN_THE_PILE = {"processed": True, "processed_by": "index"}
+
+
 @pytest.mark.parametrize(("fm", "kind"), [
-    ({"origin": "chrome-bookmark", "url": "u", "media_entity_id": "m", "processed": False}, "saved"),
-    ({"origin": "safari-bookmark", "processed": False}, "saved"),
-    ({"origin": "saved-link", "url": "u", "media_entity_id": "m", "processed": False}, "saved"),
-    ({"origin": "rss", "url": "u", "media_entity_id": "m", "processed": False}, "saved"),
-    ({"origin": "reddit-saved", "folder": "r/example", "url": "u", "media_entity_id": "m", "processed": False}, "saved"),
-    ({"source": "tab-group", "origin": "chrome-tab-group", "processed": False}, "saved"),
+    # Waiting its turn (the pile): index-only, as ruling 62 made every bare save.
+    ({"origin": "chrome-bookmark", "url": "u", "media_entity_id": "m", **_IN_THE_PILE}, "saved"),
+    ({"origin": "safari-bookmark", **_IN_THE_PILE}, "saved"),
+    ({"origin": "saved-link", "url": "u", "media_entity_id": "m", **_IN_THE_PILE}, "saved"),
+    ({"origin": "rss", "url": "u", "media_entity_id": "m", **_IN_THE_PILE}, "saved"),
+    ({"origin": "reddit-saved", "folder": "r/example", "url": "u", "media_entity_id": "m", **_IN_THE_PILE}, "saved"),
+    ({"source": "tab-group", "origin": "chrome-tab-group", **_IN_THE_PILE}, "saved"),
     ({"source": "bookmark", "url": "u", "media_entity_id": "m", "processed": True, "processed_by": "index"}, "saved"),
+    # Ruling 80: the same saves, written waiting for tonight (a click, a paste), are ordinary episodes.
+    ({"origin": "chrome-bookmark", "url": "u", "media_entity_id": "m", "processed": False}, None),
+    ({"origin": "safari-bookmark", "processed": False}, None),
+    ({"origin": "saved-link", "url": "u", "media_entity_id": "m", "processed": False}, None),
+    ({"source": "tab-group", "origin": "chrome-tab-group", "processed": False}, None),
+    # Nothing to read: settled at capture, never queued, never read by a model.
+    ({"origin": "chrome-bookmark", "url": "u", "media_entity_id": "m", "processed": True, "processed_by": "no-words"}, None),
     # A reason, a note, an answer: read like any conversation.
     ({"origin": "chrome-bookmark", "url": "u", "media_entity_id": "m", "processed": False, "has_note": True}, None),
     ({"origin": "chrome-bookmark", "url": "u", "media_entity_id": "m", "processed": False,
@@ -86,11 +107,22 @@ def test_what_is_lean(fm, kind):
     assert history_index.waits_for_model(fm) is (kind is None and not fm.get("processed", False))
 
 
-def test_a_bare_save_lands_read_and_a_save_with_a_reason_or_note_waits(tmp_path):
+@pytest.mark.parametrize(("fm", "kind"), [
+    ({"origin": "chrome-bookmark", "url": "u", "media_entity_id": "m", "processed": False}, "saved"),
+    ({"source": "tab-group", "origin": "chrome-tab-group", "processed": False}, "saved"),
+    ({"origin": "x-likes", "processed": False}, "list"),
+])
+def test_the_kill_switch_restores_ruling_62(legacy, fm, kind):
+    assert history_index.kind(fm) == kind and not history_index.waits_for_model(fm)
+
+
+def test_a_bulk_save_waits_its_turn_and_a_save_with_a_reason_or_note_waits_for_tonight(tmp_path):
     memory = _bank(tmp_path)
     idx: dict = {}
     bare, page = _save(memory, "https://example.com/a", "Bare bookmark title", idx=idx)
     assert (_fm(memory, bare)["processed"], _fm(memory, bare)["processed_by"]) == (True, "index")
+    single, _ = _save(memory, "https://example.com/s", "Saved on its own", idx=idx, bulk=False)
+    assert _fm(memory, single)["processed"] is False and history_index.waits_for_model(_fm(memory, single))
     assert (memory / "entities" / f"{page}.md").exists()   # still a saved page in Saved, with its link views
     why, _ = _save(memory, "https://example.com/b", "Saved with a reason", idx=idx, reason="for the layout")
     note, _ = _save(memory, "https://example.com/c", "Saved with a note", idx=idx, note="check this later")
@@ -112,7 +144,7 @@ def test_a_note_on_a_link_already_saved_is_read_and_the_save_stays_indexed(tmp_p
     assert history_index.kind(_fm(memory, bare)) == "saved"
 
 
-def test_a_tab_group_is_indexed_when_captured_and_when_it_changes(tmp_path):
+def test_a_tab_group_waits_for_tonight_and_a_change_to_it_is_an_update_in_place(tmp_path):
     memory = _bank(tmp_path)
 
     def sync(tabs):
@@ -123,12 +155,22 @@ def test_a_tab_group_is_indexed_when_captured_and_when_it_changes(tmp_path):
     assert sync(["one"])["created"] == 1
     path = next(p for p in (memory / "episodes").glob("*.md")
                 if markdown_parser.parse(p).frontmatter.get("source") == "tab-group")
-    assert markdown_parser.parse(path).frontmatter["processed_by"] == "index"
+    fm = markdown_parser.parse(path).frontmatter
+    assert fm["processed"] is False and "processed_by" not in fm and history_index.waits_for_model(fm)
     bank_index.invalidate()
     assert sync(["one", "two"])["updated"] == 1
     fm = markdown_parser.parse(path).frontmatter
-    assert (fm["processed"], fm["processed_by"]) == (True, "index")
-    assert history_index.waits_for_model(fm) is False
+    assert fm["processed"] is False and history_index.waits_for_model(fm)
+
+
+def test_a_browsers_whole_set_of_groups_waits_its_turn_in_the_pile(tmp_path):
+    memory = _bank(tmp_path)
+    groups = [{"title": f"Group {i}", "color": "blue", "saved_guid": f"guid-{i}",
+               "tabs": [{"title": "t", "url": f"https://example.com/{i}"}]} for i in range(history_index.BULK_ITEMS + 1)]
+    assert tab_groups.sync(memory, {"browser": "chrome", "profile": "Default", "groups": groups})["created"] == len(groups)
+    states = {fm.get("processed_by") for p in (memory / "episodes").glob("*.md")
+              if (fm := markdown_parser.parse(p).frontmatter).get("source") == "tab-group"}
+    assert states == {"index"}
 
 
 def _group(memory, tabs, *, title="Espresso research"):
@@ -176,7 +218,7 @@ def test_a_woken_group_closed_and_reopened_unchanged_stays_queued(tmp_path):
     assert not fm.get("source_deleted_at")
 
 
-def test_a_group_that_changes_after_its_read_is_a_bare_save_again(tmp_path):
+def test_a_group_that_changes_after_its_read_is_not_read_again(tmp_path):
     memory = _bank(tmp_path)
     _group(memory, ["grind size notes"])
     eid = _group_id(memory)
@@ -190,16 +232,11 @@ def test_a_group_that_changes_after_its_read_is_a_bare_save_again(tmp_path):
     assert _group(memory, ["grind size notes"])["unchanged"] == 1
     assert _fm(memory, eid)["processed_by"] == "sleep"
 
-    # New tabs: no model read them, so they cost nothing, can be found, and a later mention wakes them.
+    # New tabs (ruling 80): the record is updated in place and is not read again; the read it had stands.
     _group(memory, ["grind size notes", "water hardness chart"])
     fm = _fm(memory, eid)
-    assert (fm["processed"], fm["processed_by"]) == (True, "index") and "read_asked" not in fm
-    assert history_index.kind(fm) == "saved"
-    bank_index.invalidate()
-    search_index.refresh(memory)
-    assert [h.episode for h in saved_lookup.find(memory, "espresso water hardness", episodes=True)] == [eid]
-    bank_index.invalidate()
-    assert history_index.wake(memory, eid, saved_mentions.WHY_LINK, AT)
+    assert (fm["processed"], fm["processed_by"]) == (True, "sleep") and fm["read_asked"]["why"] == saved_mentions.WHY_LINK
+    assert history_index.kind(fm) is None and not history_index.waits_for_model(fm)
 
 
 def test_a_lean_resync_leaves_a_save_the_person_gave_a_reason_queued_and_parks_the_rest(tmp_path):
@@ -243,7 +280,7 @@ def _queued(memory, eid, body="# A title\n\n**URL:** https://example.com/a", **f
     markdown_parser.write(memory / "episodes" / f"{eid}.md", base, body)
 
 
-def test_retire_takes_what_waits_and_leaves_what_a_model_read_as_it_was(tmp_path):
+def test_retire_takes_what_waits_and_leaves_what_a_model_read_as_it_was(tmp_path, legacy):
     memory = _bank(tmp_path)
     _entity(memory, "media-ep_2026-08-01_001", type="media", media={"url": "u"}, source_episodes=["ep_2026-08-01_001"])
     _queued(memory, "ep_2026-08-01_001")
@@ -260,7 +297,7 @@ def test_retire_takes_what_waits_and_leaves_what_a_model_read_as_it_was(tmp_path
     assert {"ep_2026-08-01_003", "ep_2026-08-01_004"} <= waiting and "ep_2026-08-01_001" not in waiting
 
 
-def test_a_queued_save_whose_page_a_conversation_already_lit_gets_its_read(tmp_path):
+def test_a_queued_save_whose_page_a_conversation_already_lit_gets_its_read(tmp_path, legacy):
     memory = _bank(tmp_path)
     eid = "ep_2026-08-01_001"
     _conversation(memory, "ep_2026-08-02_001", "user: that article on tides")
@@ -274,8 +311,9 @@ def test_a_queued_save_whose_page_a_conversation_already_lit_gets_its_read(tmp_p
     assert fm["read_asked"]["why"] == saved_mentions.WHY_LIT and history_index.waits_for_model(fm)
 
 
-def test_a_first_run_commits_alone_with_no_engine_and_no_model_ever_sees_a_save(tmp_path, monkeypatch):
-    """The 371 waiting bookmarks: one `cicada` commit, nothing asked of an engine, no question, no page, no claim."""
+def test_a_first_run_commits_alone_with_no_engine_and_no_model_ever_sees_a_save(tmp_path, monkeypatch, legacy):
+    """The kill switch: the 371 waiting bookmarks are one `cicada` commit, nothing asked of an engine, no question, no
+    page, no claim — ruling 62's pass, restored by ``history_index.SAVES_READ = False``."""
     rig = install(monkeypatch)
     pages_before = {}
 
@@ -396,9 +434,11 @@ def test_a_woken_save_is_read_as_the_page_never_as_the_person(tmp_path):
 
 def test_a_batch_wakes_what_its_conversation_named_and_the_next_run_reads_it(tmp_path, monkeypatch):
     rig = install(monkeypatch)
+    monkeypatch.setattr(history_index, "SAVES_PER_DAY", 0)   # no turn today: only a mention reads it
 
     def extra(memory):
-        _queued(memory, "ep_2026-08-01_001", title="CRDTs for local-first apps", url="https://example.com/crdts")
+        _queued(memory, "ep_2026-08-01_001", title="CRDTs for local-first apps", url="https://example.com/crdts",
+                processed=True, processed_by="index")
         markdown_parser.write(memory / "episodes" / "ep_2026-09-01_100.md",
                               {"id": "ep_2026-09-01_100", "processed": False, "source": "claude-code",
                                "timestamp": "2026-09-01T11:00:00", "session_id": "ses_2026-09-01_abcdef01"},
@@ -552,7 +592,7 @@ def test_reading_a_save_by_id_says_what_it_is_and_where_it_goes(found, monkeypat
     ep = next(p.stem for p in (found / "episodes").glob("*.md")
               if markdown_parser.parse(p).frontmatter.get("url") == "https://example.com/crdts")
     text = str(mcp.handle_sources(ep))
-    assert "nobody has read" in text and "https://example.com/crdts" in text
+    assert "not read yet" in text and "https://example.com/crdts" in text
 
 
 def test_ask_sees_a_save_no_claim_could_reach_and_no_engine_is_called_for_a_miss(found, monkeypatch):
@@ -567,7 +607,7 @@ def test_ask_sees_a_save_no_claim_could_reach_and_no_engine_is_called_for_a_miss
     out = ask_service.answer_query(found, "what have I saved about crdts", retrieve_fn=lambda q, k: [], llm_fn=llm,
                                  search_fn=lambda *a, **k: None)
     assert "SAVED LINKS" in prompts[0] and "https://example.com/crdts" in prompts[0]
-    assert "nobody has read them" in prompts[0]
+    assert "marked not read yet" in prompts[0]
     assert out["answer"] == "A saved link covers it."
     prompts.clear()
     miss = ask_service.answer_query(found, "what time is my dentist appointment", retrieve_fn=lambda q, k: [], llm_fn=llm,
@@ -666,7 +706,7 @@ def test_what_is_kept_is_listed_by_source_newest_first(tmp_path):
         main.app.dependency_overrides.clear()
 
 
-def test_a_save_queued_before_this_ruling_is_no_waiting_row_before_a_run_takes_it(tmp_path):
+def test_a_save_queued_before_this_ruling_is_no_waiting_row_before_a_run_takes_it(tmp_path, legacy):
     """The 371 bookmarks between the upgrade and the first run: nothing says they wait."""
     memory = _bank(tmp_path)
     _queued(memory, "ep_2026-08-01_001")

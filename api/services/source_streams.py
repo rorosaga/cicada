@@ -69,9 +69,12 @@ HOWS = ("browser", "app", "account", "click")
 STATES = ("on", "off", "unavailable")
 HEALTHS = ("read", "not_read", "signed_out", "couldnt_read", "paused")
 
-#: What a stream reads of each item, by kind: ``read`` is a stream Sleep reads, ``index`` a stream whose items are kept
-#: and findable and read by no model until the person talks about one (rulings 30 and 62).
-_READ_KINDS = frozenset({"notes", "pages", "chats", "events", "tasks"})
+#: What a stream reads of each item, by kind: ``read`` is a stream Sleep reads — since ruling 80 every list the person
+#: saves from, their saved links and files, and the feeds they follow, as well as the notes, chats and the rest — and
+#: ``index`` (the wire's old word, kept) a stream Cicada keeps and never reads, because the person did not save it:
+#: watch history, accounts they follow, their connections, the repositories they own.
+_READ_KINDS = frozenset({"notes", "pages", "chats", "events", "tasks", "saved", "liked", "reposted", "later",
+                         "playlists", "books", "feed", "files"})
 
 
 @dataclass(frozen=True)
@@ -84,7 +87,7 @@ class Spec:
     how: str
     owner: str = "backend"       # backend | app
     control: str = "switch"      # switch | setup
-    depth: str | None = None     # index | read; None: by kind
+    depth: str | None = None     # index (kept, never read) | read; None: by kind
     #: The items route's channel the stream's rows live under (``/sources/channels/{channel}/items``).
     channel: str | None = None
     #: How the count is made: members (pages whose lists name it) · origin (pages of ``origins``) · days (history days of
@@ -336,7 +339,8 @@ def _browser_specs(rows: dict[str, dict]) -> dict[str, list[Spec]]:
             specs.append(Spec(f"{source}.reading-list", source, "Reading List", "later", "app", "app", "setup",
                               channel=channel, counts="part", channel_rows=(channel,), note="reading-list"))
             specs.append(Spec(f"{source}.icloud-tabs", source, "iCloud tabs", "pages", "app", "app", "setup",
-                              channel="safari-tabs", counts="channel", channel_rows=("safari-tabs",)))
+                              channel="safari-tabs", counts="channel", channel_rows=("safari-tabs",),
+                              depth="index"))   # ruling 80: a tab open on another device is a record, not a save
         if browser in tab_groups.BROWSERS:
             tabs = tab_groups.channel_id(browser)
             specs.append(Spec(f"{source}.tab-groups", source, "Tab groups", "pages", "app", "app", "setup",
@@ -520,6 +524,9 @@ class Episodes:
     days: Counter
     #: media page ids whose save a model read, and the url hashes an agent read or watched.
     read_pages: frozenset[str]
+    #: media page id -> where its save stands when no model has read it (``waiting`` | ``pile`` | ``no-words``), or
+    #: ``record`` for another service's record: the row's "not read yet", "nothing to read yet" and "kept, never read".
+    unread_state: dict[str, str]
     agent_read: frozenset[str]
     #: the url hashes an agent recorded a WATCH of (``video-watch``): the deepest a save goes (``depth: watched``).
     agent_watched: frozenset[str]
@@ -536,6 +543,7 @@ def _build_episodes(entries) -> Episodes:
     folder_names: dict[tuple[str, str], list] = {}
     days: Counter = Counter()
     read_pages: set[str] = set()
+    unread_state: dict[str, str] = {}
     agent_read: set[str] = set()
     agent_watched: set[str] = set()
     harnesses: Counter = Counter()
@@ -555,9 +563,12 @@ def _build_episodes(entries) -> Episodes:
             if fm.get("source") == "video-watch":
                 agent_watched.add(media_ingestor.url_hash(str(fm["url"])))
         if (page := str(fm.get("media_entity_id") or "")) and fm.get("processed") \
-                and fm.get("processed_by") != history_index.INDEXED_BY \
+                and fm.get("processed_by") not in (history_index.INDEXED_BY, history_index.NO_WORDS_BY) \
                 and fm.get("source") not in history_index.NOT_A_SAVE:
             read_pages.add(page)
+        elif (page := str(fm.get("media_entity_id") or "")) and (st := history_index.save_state(fm)) in (
+                "waiting", "pile", "no-words", "record"):
+            unread_state.setdefault(page, st)
         if day := saved_at.posted_day(fm.get("posted")):
             posted_of[stem] = day
         held = save_folders.folders_of(fm)
@@ -573,7 +584,7 @@ def _build_episodes(entries) -> Episodes:
             stamp = str(fm.get("timestamp") or "")
             if stamp > last.get(key, ""):
                 last[key] = stamp
-    return Episodes(folders_of, folder_names, days, frozenset(read_pages), frozenset(agent_read),
+    return Episodes(folders_of, folder_names, days, frozenset(read_pages), unread_state, frozenset(agent_read),
                     frozenset(agent_watched), harnesses, last, posted_of)
 
 
@@ -953,10 +964,12 @@ def _list_display_names() -> dict[tuple[str, str], str]:
 def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], posted: Callable[[dict], str | None]) -> dict[str, dict]:
     """The three fields a list row gains (plan 2.2), by row id: ``lists`` (the labels of the lists the item is on),
     ``folders`` (the site's own folder names), ``depth`` and ``posted`` (the post's own day, when the list showed one).
-    ``depth`` (ruling 78 (e)), deepest first: ``watched`` (the person's own agent recorded a watch) · ``asked`` (the person
-    talked about it and an ask waits on a queue for their agent, honoured now) · ``read`` (Sleep read it, or an agent read
-    its page) · ``kept`` (indexed, no model has read it). Built from maps computed once per request; only a media row of a
-    list origin gets any."""
+    ``depth`` (ruling 78 (e); ruling 80 changed what ``kept`` and the others say), deepest first: ``watched`` (the person's
+    own agent recorded a watch) · ``asked`` (the person talked about it and an ask waits on a queue for their agent,
+    honoured now) · ``read`` (Sleep read it, or an agent read its page) · ``empty`` (it holds a title and a link only:
+    nothing to read yet) · ``record`` (another service's record: kept, never read) · ``kept`` (not read yet: waiting for
+    Sleep's next run or its turn in the older pile). The words are the app's (``Copy.Streams``). Built from maps computed
+    once per request; only a media row of a list origin gets any."""
     from api.services import mention_asks
 
     eps = episodes(memory_path)
@@ -981,8 +994,9 @@ def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], post
         folders = [n for n in eps.folders_of.get(str(row.get("_episode") or ""), ()) if _cf(n) not in held]
         h = media_ingestor.url_hash(str(row["_url"])) if row.get("_url") else ""
         read = row.get("id") in eps.read_pages or (bool(h) and h in eps.agent_read)
+        state = eps.unread_state.get(row.get("id"), "")
         depth = "watched" if h and h in eps.agent_watched else "asked" if h and h in asked else \
-            "read" if read else "kept"
+            "read" if read else "empty" if state == "no-words" else "record" if state == "record" else "kept"
         fields: dict[str, Any] = {"depth": depth}
         if lists:
             fields["lists"] = lists

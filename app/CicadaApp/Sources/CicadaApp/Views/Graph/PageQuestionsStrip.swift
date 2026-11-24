@@ -22,6 +22,7 @@ struct PageQuestionsStrip: View {
                 HStack(spacing: CicadaTheme.spacingXS) {
                     SectionLabel(Copy.Catchup.stripTitle(i + 1, of: questions.count))
                     Spacer(minLength: CicadaTheme.spacingSM)
+                    AskedByLine(item: item)
                     if questions.count > 1 {
                         IconButton(systemName: "chevron.left", help: Copy.Catchup.previous) {
                             index = (i - 1 + questions.count) % questions.count

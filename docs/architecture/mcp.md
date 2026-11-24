@@ -74,10 +74,12 @@ times — and Ask said "the assistant" where the episode recorded a Claude Code 
 **Every episode id reads (2026-10-27).** `cicada_sources(entity_id)` takes an episode id Cicada printed (`ep_<day>_<n>`
 from Ask, recall's excerpts, a page) and returns that conversation: a header (id, day, title), `With: <actor>`, a
 removed-from-source or not-yet-read note when true, then its words as stored — scrubbed at capture, the dropped-middle
-marker labelled (gate B2). A bare save (ruling 62) answers one line with its title and link, an agent's way to look
-further. Any other index-only episode (ruling 30: a watched day, a month's summary, a saved-list item, a
-trace day — `history_index.kind`) answers one line saying what it is and that it is indexed for lookup, never its
-text. The door is `cicada_sources` and not a new tool: it is the `sources` scope's own tool, so a
+marker labelled (gate B2). **Ruling 80 (the words, `saved_words`):** a save in the older pile answers one line with its title
+and link, says it is not read yet and when (about `SAVES_PER_DAY` a night, newest first, one first when the person talks
+about it); a saved-list post in the pile says the same without its title; a save waiting for tonight or holding nothing to
+read is read whole like any episode, with one header line saying what happens to it. A watched day, a month's summary, a trace
+day, a reading or listening day, and a record another service keeps (`history_index.kind`) answer one line saying what it is
+and "kept, never read: the person did not save it", never its text. The door is `cicada_sources` and not a new tool: it is the `sources` scope's own tool, so a
 remote connection reads a conversation only with that scope, at R-R28's 1,000 characters, and every door fences it as
 a read; no schema, CLI row or `/v1` operation changed (a page id still reads as before, and a page that happens to be
 named like an episode id still wins). A stdio read returns up to `EPISODE_READ_MAX` (12,000 characters) and names
@@ -113,6 +115,22 @@ characters, p50 21 → 54 ms.
 so in any language; a passage repeating a quoted turn is dropped; a turn says "the person" or "an agent". LongMemEval_S 100, nothing slept,
 an agent holding only recall's words, haiku, one run each: right 47 → 56 (10 gained, 2 lost, p = .04), tokens per right answer 9,220 → 7,421,
 characters p50 2,777 → 2,211.
+
+**A thing said once is found by the words that were said (owner 2026-11-24).** The owner, asked whether Sleep may stop
+asking a person known only by a description their name until they come up again: "if i ask claude about 'the Portuguese guitar teacher'
+it should be able to find the mention easily, as claude code memory does, even if it was mentioned once". Measured
+(`benchmarks/consolidation/findability.py`, 11 invented stories, 4 not in English, a person or a thing said once; a
+real Sleep on the plan; then 150 conversations of noise and 12 decoys Sleep had not read; `cicada_recall` and `cicada_ask`
+over the real stdio server, each asked three ways: the person's own words, a rewording and a partial): found 63 of 66
+before, 64 of 66 after (the two left are one saved link that holds only its title, asked in other words), in every state a once-said mention is in after Sleep: a page titled by the description, a line held
+with no page, a conversation Sleep has not read, a quiet saved page. Without the question the mention is as findable as
+with it. One defect, now fixed: recall's lead turns (`_turn_excerpts`) were the OLDEST four of the best eight turns Ask's
+search leg gathered, so a conversation the words found was lost to four older ones that shared a word or that the meaning leg added
+(a single word asked of 160 conversations; the conversation was found by the word leg and dropped at the cut). They are now the best four,
+the person's first, shown oldest first. On LoCoMo (2 conversations, 231 questions, no model, nothing slept): recall hands
+over an answer turn for 112 → 138 questions and 118 → 148 answer turns, p50 characters 2,229 → 2,131; Ask, the hook and pending are
+byte for byte as before (206 of 231). Still missed: a rewording that shares no word with a title-only saved page ("that guide I
+saved about the seashore" for "The Tide Pool Handbook"): the page holds only its title, so no leg has anything to match.
 
 **What a reply costs (ROR-100 slice 1, 2026-11-08; `benchmarks/perf/reply_tokens.py`, no model call).** Measured on a
 read-only clone of a 9,000-page bank, 40 prompts, tokens by cl100k_base: the SessionStart note 1,816 (the contract is
@@ -153,7 +171,7 @@ characters, so a note's list was cut mid-way and the model called it truncated. 
 to 3 non-overlapping 500-character windows around the question's words (`…` where text was left out), drawing on one
 budget of **4,000 characters (about 1,000 tokens) per question**, on top of the leg's 3,000; the line is labelled "not yet
 read by Sleep" and Ask's rule 12 says a read-whole line is whole and that an answer resting on one is unconfirmed by
-Sleep. A turn of a conversation Sleep has read is clipped as before. An index-only record (a save with no reason, a
+Sleep. A turn of a conversation Sleep has read is clipped as before. An index-only record (a save in the older pile, a
 feed item, a watched day, a list save), and a retired locked note, are skipped by `_scored_turns` before any text
 is taken (ruling 62, G234; tests `test_ask_unread`), so nothing new reaches a model for them; the leg runs only with
 `source_words`, so a connector without `sources` gets nothing new. Ask's engine, `resolve_llm_fn` and G235's hold are
@@ -715,7 +733,7 @@ adds); the agent reads a few screens, so a long list fills over several reads.
 (`https://www.youtube.com/feed/playlists`, then each playlist's own page) and `liked` (`https://www.youtube.com/playlist?list=LL`),
 both **off until the person turns one on** (`reading_settings.YOUTUBE_LISTS`; `DEFAULT_ON_YOUTUBE_LISTS` stays Watch later and
 history, so `list_defaults` never turns either on; `GET /reading/settings` `youtubeLists` carries `playlists` and `liked`).
-Both save under `youtube-playlist`, index-only like Watch later: Liked videos under the folder `Liked videos`, a playlist's
+Both save under `youtube-playlist`, read by Sleep like Watch later (ruling 80): Liked videos under the folder `Liked videos`, a playlist's
 video under **the playlist's own name** (a `playlist` on each row, the label a Takeout's playlist file gives — a row naming
 none is left out and said), so a video in two lists is one page on both (`collections:`, the reply says "now on this list
 too"). Playlists are a pass: a call with `playlist_names` (what the index shows, `[]` for an account with none) and no
@@ -758,7 +776,7 @@ sign in to x.com, to read your bookmarks" — when the `agent_requests` module i
 `/p/`, `/reel/` or `/tv/`, a LinkedIn `feed/update/urn:li:…` or `/posts/…`; the rest are counted and left out), saved
 through `media_ingestor.write_prepared` with no fetch, under the list's own origin and folder (`x-bookmarks`/`Bookmarks`,
 `instagram-saved`/`Saved`, `linkedin-saved`/`Saved Items` — the export archives' own), so `history_index.kind` makes it
-**index-only: `processed: true`, `processed_by: index`, never read by a model** (ruling 30). Dedup is by URL: the post's
+**read by Sleep (ruling 80; ruling 30 had them index-only, `processed_by: index`, never read by a model): a single new post waits for tonight, a bulk or old one waits in the older pile (`SAVES_PER_DAY` a night, newest first); the reply says so (`saved_words.recorded_posts`).** Dedup is by URL: the post's
 other spellings (X's `i/web/status`, `twitter.com`, Instagram and LinkedIn without `www`) ride as `url_index` aliases, so
 a post an archive, a connector or a pasted link already saved is a duplicate; the platform's own ids are never asked
 for. The post's words become the title (≤ 80) and description (≤ 500), scrubbed; they are the post's, never the
@@ -990,7 +1008,7 @@ agent request for `substack.com`; "I signed in" on it lifts the pause (`agent_re
 saved list's own pause), as does turning a list on again. A `read` (≤ 200 rows a call), each row checked by
 `substack.post` / `substack.publication` (the rest counted and left out):
 - **Saved** → an indexed save through `media_ingestor.write_prepared` with no fetch, origin `substack-saved`, folder
-  `Saved` (`history_index.LIST_ORIGINS`: `processed_by: index`, never read by a model, ruling 30), the publication as
+  `Saved` (`history_index.LIST_ORIGINS`: read by Sleep like any save, ruling 80; ruling 30 had it never read by a model), the publication as
   its `channel`. A post is its canonical URL — `<pub>.substack.com/p/<slug>`, the shape a publication's feed links to,
   so a post a followed feed already brought in is a duplicate, never a second page; `open.substack.com/pub/<pub>/p/…`
   and `substack.com/@<handle>/p-<id>` ride as aliases; a publication on its own domain keeps its `/p/<slug>` URL.

@@ -136,6 +136,56 @@ def test_a_save_with_his_own_reason_counts_as_a_conversation(tmp_path, monkeypat
     assert set(change["source_episodes"]) == {SAVE_A, SAVE_B}
 
 
+# --------------------------------------------------------------------------- his reason is about the save, not about every name in it
+
+
+def _five_saves_one_with_a_reason(tmp_path, reason: str):
+    """Five posts name Alpha Tool; one of them carries his reason, which is about the post."""
+    posts = [(f"ep_2026-11-20_{n:03d}", {**SAVE_FM, "url": f"https://example.com/p{n}"}, POST) for n in range(1, 5)]
+    posts.append(("ep_2026-11-20_005", {**SAVE_FM, "has_note": True, "url": "https://example.com/p5"},
+                  POST + f"\n## Saved because\n{reason}\n"))
+    return _bank(tmp_path, *posts), [p[0] for p in posts]
+
+
+def test_a_reason_on_a_save_is_his_own_source_only_for_what_his_words_name(tmp_path):
+    memory, ids = _five_saves_one_with_a_reason(tmp_path, "Reading this for the billing rewrite.")
+    reasoned = ids[-1]
+    assert promotion.conversation_keys(ids, memory) == {promotion.SAVES_KEY, reasoned}                 # no name to test: as before
+    assert promotion.conversation_keys(ids, memory, ["Alpha Tool", "alpha-tool-cli"]) == {promotion.SAVES_KEY}
+    memory, ids = _five_saves_one_with_a_reason(tmp_path / "again", "I want alpha-tool for the billing rewrite.")
+    # his words name it (spelled with a hyphen, the page is "Alpha Tool"): the save is his own source for it
+    assert promotion.conversation_keys(ids, memory, ["Alpha Tool"]) == {promotion.SAVES_KEY, ids[-1]}
+    # an alias of the page counts as its name
+    memory, ids = _five_saves_one_with_a_reason(tmp_path / "alias", "I want the AT cli for the billing rewrite.")
+    assert promotion.conversation_keys(ids, memory, ["Alpha Tool", "AT cli"]) == {promotion.SAVES_KEY, ids[-1]}
+
+
+def test_a_name_five_saves_carry_makes_no_page_when_the_one_reason_among_them_does_not_name_it(tmp_path, monkeypatch):
+    _model_free(monkeypatch)
+    memory, ids = _five_saves_one_with_a_reason(tmp_path, "Reading this for the billing rewrite.")
+    ts = "2026-11-20T10:00:00+00:00"
+    assert _resolve(memory, [(eid, ts, "chrome-bookmark", True) for eid in ids]) == []
+
+
+def test_a_name_his_reason_names_plus_another_save_makes_the_page(tmp_path, monkeypatch):
+    _model_free(monkeypatch)
+    memory, ids = _five_saves_one_with_a_reason(tmp_path, "I want Alpha Tool for the billing rewrite.")
+    ts = "2026-11-20T10:00:00+00:00"
+    (change,) = _resolve(memory, [(eid, ts, "chrome-bookmark", True) for eid in ids])
+    assert ids[-1] in change["source_episodes"]
+
+
+def test_a_name_only_saves_and_a_reason_that_does_not_name_it_carry_is_still_only_the_saves(tmp_path):
+    from api.services import saves_bounded
+
+    memory, ids = _five_saves_one_with_a_reason(tmp_path, "Reading this for the billing rewrite.")
+    saves = saves_bounded.for_bank(memory)
+    assert saves.all_of(ids) is False                                    # no name given: his words make it his
+    assert saves.all_of(ids, ["Alpha Tool"]) is True                     # his words do not name it: only saves carried it
+    assert saves.all_of(ids, ["billing rewrite"]) is False               # they do
+    assert saves.of(ids[-1], ["Alpha Tool"]) is True and saves.of(ids[-1], ["Billing Rewrite"]) is False
+
+
 # --------------------------------------------------------------------------- a save is no mention
 
 
