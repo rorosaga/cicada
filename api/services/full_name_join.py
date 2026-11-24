@@ -686,10 +686,10 @@ async def tend(memory_path: Path, settings, judge, *, today: date | None = None,
 
 async def ask_main(strong, system: str, prompt: str) -> object:
     """The main model's one call, JSON back. On a plan (a CLI engine) it is a plain call that asks for JSON in words, as
-    the inbox's own judges do (`inbox_tend.default_llm_fn`): `entity_resolver._same_name_ask` labels its call
-    "disambiguation", and a plan then forces that stage's own answer shape (``decision``/``reason``), which no read here
-    can fill (measured 2026-11-24: every reply came back as ``{"decision": "same", "reason": ...}``). A key goes through
-    `_same_name_ask` as the same-name review's does."""
+    the inbox's own judges do (`inbox_tend.default_llm_fn`), and its reply says which model answered, so the settle can
+    carry it as author. (It was written when a plan forced the pair judge's answer shape on every call labelled
+    "disambiguation"; since 2026-11-24 a label picks no shape, `engine_schemas.SHAPES`, and this call is kept for the
+    model it reports.) A key goes through `_same_name_ask` as the same-name review's does."""
     from api.services import engine_select, entity_resolver, inbox_tend, json_parse, providers
 
     if str(getattr(strong, "llm_mode", "") or "").strip().lower() not in engine_select.CLI_MODES:
