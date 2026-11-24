@@ -6,6 +6,8 @@
 
 [Feature status: one line per feature](feature-status.md) · [Implementation review: every G ID](BACKLOG_IMPLEMENTATION_REVIEW.md) · [Active reasoning by priority](memory-evolution.md) · [Completed work](DONE.md) · [Reference context / original prompts](BACKLOG_CONTEXT.md) · [Working method](working-method.md) · [Cognition comparison](../research/2026-10-06-agent-memory-repo.md) · [Source/video gaps](../research/2026-10-06-source-refresh-and-video-gaps.md) · [Provider/source modularity](../specs/2026-10-06-provider-and-ingestion-modularity.md) · [Benchmark rebuild](../specs/2026-10-06-system-benchmark-rebuild.md)
 
+**Sources and saves (2026-11-24, rulings 79 and 80, G245, G246):** read rulings 79 and 80 before touching a source's lists, the join of a first name, or what Sleep reads of a save. The owner answered ruling 78's six questions (79: reposts and one full-name mention are built; follows and the arrival join are decided, the join being built report-only; pictures of a walled post are the coordinator's recommendation, not built; the daily run starts no agent, and the owner is asked to choose) and withdrew the index-only rule for saves (80: every save is to be read, as its author's words, never his). **Reading is not on yet:** it waits for his answer on pace and cost and ships with a daily allowance for the older pile, which amends rulings 13 and 16 and is **pending his confirmation**. Order of work: the bounds (no page or mention from saves alone, per-page and per-name caps) before reading is switched on; [`2026-11-24-saves-are-read.md`](../plans/2026-11-24-saves-are-read.md) and [`2026-11-24-sources-answers.md`](../plans/2026-11-24-sources-answers.md) carry the tracks.
+
 **Pick up here (2026-10-22, redesign):** read ruling 36 (the owner's answers D1–D6 to the redesign proposal), then [`feature-status.md`](feature-status.md) for what is building. Branches in flight: `feat/awake-read` (G207), `fix/people-dedup` (G209), `feat/update-sources` (G61); queued: connection model and providers (G217, G50), agent API (G213), app (G217's pages, needs a Mac). **Decided after review (2026-10-22, in ruling 36):** a new install's Auto uses a signed-in plan, a key offered as an equal option; ruling 4c stays and the quick read follows it; G213's API rides the G135 listener; "Where to check" as one grouped inbox review; `rich` + `questionary` approved. Nothing waits on the owner from this ruling. **Ruling 38 (2026-10-23)** decides the follow-ups: `/v1` from the tool table (G213), a capture-only phone (G91), one-way syncs (G219), traces with screenshots (G218).
 
 **Inbox order (2026-11-06, ruling 70, G113/G115):** `GET /inbox`, the catch-up and `mode="ask"`/`"list"`, recall's question block, the recall hook's pointer and a web lookup's order are ordered by `question_order` (the expected change in what gets read, lowered for a fact said long ago), fed by `page_use` and the new read counter `page_reads` (not the ledger); read ruling 70 before touching the order, its constants or the counter. In flight: #673.
@@ -18,6 +20,7 @@
 
 ## Current state and evidence
 
+- **2026-11-24 — The owner's six answers and "every save is read" are rulings 79 and 80 (G245, G246; docs only).** Built and merged today: a page from one full-name mention of a connection (#855), what a saved post says is its author's and never his (#858), X reposts as their own list, off until turned on (#860), the saves benchmark (#861). Reading 87 synthetic saves the way Sleep reads today wrote 10 to 11 facts on the owner's page from strangers' posts, 8 pages from saves alone (one called by a bare first name, never joined to the friend of that name), 31 to 36 open facts on one page that 50 posts name, and in one of two runs a 2021 fact as current; a save costs about 2 model calls, 13k input and 1.8k output tokens at the small model. Being built: the arrival join (report-only), saves alone making no page or mention, and the per-page and per-name bounds. **Not built, decided:** the accounts he follows. **Not on:** saves waiting for Sleep, until he answers on pace and cost (a daily allowance for the older pile, amending rulings 13 and 16: pending his confirmation). **Open:** the daily run of his own AI app (Cicada starts no agent; the rail on spawning a browser stands) until he chooses between a command for his own scheduler and the app reading the page itself while its window is visible.
 - **2026-11-24 — A part and its whole named in the same batch are one page (G148; #869).** A person names a thing once and then speaks of it by a part ("the hull is curing"). Traced end to end: Stage 1 emits the part as a name of its own; Stage 2 does offer the whole and the pair judge usually answers `part_of`, which lands the part on the whole's PAGE; but when both are new in one batch neither has a page, `_judged_relations` skipped the pair and they became two unlinked pages. Now the two are one group named for the whole, with no model call added (`entity_resolver._related_unborn`). Measured on real Sleeps on the plan, one story: later progress on the whole's page in 1 of 6 before, 6 of 6 after. Eight other stories and six counter-stories did not move beyond the run-to-run spread; consolidation benchmark on a key unchanged (updates 14 / 14 / 14, pages 14 / 14 / 14). **Not fixed, measured:** a part judged against an existing page under a name Stage 1 gave it a kind for ("Kayak hull" beside a canoe page: the new-user benchmark's boat question stays partial, 24 of 25); a part that names no whole ("the onboarding flow"); a whole typed as a place or a concept, never offered as a candidate; and, on `dev` before this, the pair judge folding one home's kitchen onto another flat's page in 2 of 2 counter-story runs. Tried and dropped: a Stage 1 rule against inventing a kind (its gain came from quoting the benchmark's phrase as its example; with neutral examples haiku still wrote the kind 5 of 8); a placement call over the list of the person's things (7 of 8 stories, but 11 of 66 wrong placements in replay).
 - **2026-11-24 — Every judge of the last two days run on the plan on purpose; each battery takes `--engine key|plan` (G148; #865).** #859's defect was found by accident, so each battery in `benchmarks/consolidation/` now builds its judge for either engine (`engines.py`; default `key`, unchanged) and counts the replies its parser could not use. On the plan, about 610 judge calls and 5 real Sleeps of the small stories: **0 unusable answers**, no call discarded by the plan-account guard, and every rate inside the key's spread at the small repeat counts run (same-name 0 of 46 cut and 29 of 29 apart; direction 0 of 22 reversed; said-in-passing 22 of 22; ended scope 12 of 12 closed, 1 of 22 still-true closed once and 0 of 10 on a repeat; value joins 12 of 12 true, 0 of 18 false; full-name join 0 wrong of 34). Findings left open, none a plan defect: (1) Stage 1 writes a kin title in front of a name ("<Title> <Name>") where #846's rule wants "<Name> (what tells them apart)": 12 of 12 on the plan and 5 of 6 on the key today, so it is the prompt, not the engine, and such a name is no mention of the bare name; (2) the inbox's judges run on the main model on a plan and on the small one on a key (`inbox_tend.default_llm_fn` passes no model to a CLI engine): same answers in 20 calls each, more plan use; (3) one of two real Sleeps of the full-name story on the plan held the short name as two people in doubt (a colleague and a climbing partner), so the join waited.
 - **2026-11-24 — On a Claude or ChatGPT plan the same-name judge was forced into another judge's answer, so two people of one first name were always placed as one (G148; #859).** `entity_resolver._same_name_ask` reused the pair judge's stage label for its model tier, and a plan engine forced that label's schema on every call: in a real Sleep on the plan 7 of 7 same-name answers came back as `{"decision", "reason": "<the real answer as a string>"}` and an aunt and a climbing partner of one first name ended as one page holding both lives. Everything about same-name people (#814 to #846, ruling 74a) had been measured on a key, where no shape is forced. Now a call states the shape it parses (`resolve_llm_fn(shape=)`, `engine_schemas.SHAPES`) and a label never picks one; an answer in the wrong shape is counted and logged, never read as a verdict. After: 0 of 33 answers unusable in three real Sleeps on the plan. With the judge readable, the plan's small judge held one real person in doubt as two in 0 to 8 of 36 replays of the same call (it answers "cannot tell" with no contrast); a division that rests only on such answers is now read once by the main model, which may lift the doubt and never deepen it. One person cut in two: plan 0 of 92, key 0 of 92. Two people kept apart: plan 123 of 124, key 87 of 87; real Sleeps on both right. Cursor, OpenCode, Grok and every key were never affected.
@@ -1842,7 +1845,8 @@ A whole row moves to DONE only after its remaining implementation and required a
       write window (`sleep_cycle.is_writing()`), so an agent's claim between batches commits alone under its own author.
 
     Revisit only on the trigger G163's row names (the journal slice; the reserve and Continue are built), or if a drain's plan volume
-    hurts a real owner's coding budget.
+    hurts a real owner's coding budget. *Ruling 80 (d), 2026-11-24, proposes one amendment, an allowance on how many saves enter the
+    queue a day: PENDING THE OWNER'S CONFIRMATION; until he confirms, this ruling stands as written.*
 
 14. **Reading with the person's own agent — Cicada asks, the agent reads, the backend holds no session
     (owner, 2026-09-29: "i want the agent using browser harness … or the native computer/browser harnesses from the
@@ -1956,7 +1960,8 @@ A whole row moves to DONE only after its remaining implementation and required a
     slept through is still one automatic continue spent. Revisit the bounds on the owner's word, or the switch's default
     only with a ruling of its own.
 
-16. **A scheduled cycle reads everything waiting too — ruling 4 untouched (owner, 2026-09-30).** This amends
+16. **A scheduled cycle reads everything waiting too — ruling 4 untouched (owner, 2026-09-30).** *Ruling 80 (d), 2026-11-24, proposes one
+    amendment, a daily allowance on how many saves enter the queue: PENDING THE OWNER'S CONFIRMATION; until then this ruling stands.* This amends
     ruling 13's "scheduled = one batch". `sleep_scheduler` passes `drain=True` from both entry points (the daily/interval
     cron and the after-import probe); `user_triggered=False` still keeps every plan engine out, so an unattended run
     reads on the scheduled engine — a key, OpenRouter or Ollama — and **on a metered engine it spends until the queue is
@@ -2451,7 +2456,9 @@ A whole row moves to DONE only after its remaining implementation and required a
     <path> [--judge]` (counts only, writes nothing). Revisit a rule if `GET /consumption/feedback`'s `sleepSettles`
     shows the person undoing it often, or at once if a settle is found to have decided who a person is without their
     own words.
-30. **Watch history and export saves are indexed, not consolidated (owner, 2026-10-18; G71, G94).** Owner: "maybe
+30. **Watch history and export saves are indexed, not consolidated (owner, 2026-10-18; G71, G94).** *Point 1's "a save from a
+    platform's saved list" WITHDRAWN 2026-11-24 (ruling 80): such a save is read like any save; watch history (points 2 and 3)
+    stays indexed and unread.* Owner: "maybe
     overanalyzing the watch history is too much … Maybe just have it there and then maybe the metadata has it as
     embeddings or something." **1 — A record to look up.** A watched day, a month's summary of them and a save from a
     platform's saved list (a Takeout playlist and Watch later through any door, Instagram saves and likes, TikTok likes
@@ -3876,9 +3883,10 @@ A whole row moves to DONE only after its remaining implementation and required a
    offer may be triggered by the page in front only when Accessibility is already granted and the offer switch is on,
    and the address is kept nowhere. The app never asks for the permission by a prompt.
    (d) **A noticed save is the row a list read writes** (same origin, canonical link, aliases), index-only until the
-   person gives a reason (ruling 62 stands); an unsave removes nothing and marks the save as off the list.
+   person gives a reason (ruling 62 stands); an unsave removes nothing and marks the save as off the list. *Amended 2026-11-24
+   by ruling 80: a noticed save is a save, to be read; a reason adds his words.*
    (e) **A folder on the site stays a filing label; its reason is the person's** and is inherited by the saves filed
-   there, marked as inherited, which makes them readable (ruling 62's "they give a reason" includes a folder's).
+   there, marked as inherited, which makes them readable (ruling 62's "they give a reason" includes a folder's; amended by ruling 80: a folder's reason now only adds his words).
    (f) **Not a way to read more:** direct messages, feeds and what the person reads stay under their own rails (G179,
    G218); anything beyond a save control needs its own ruling. Measured facts and what is not built: `app.md`,
    "A save inside a site". **Revisit** if a site's markup makes a rule misfire (it must fail to nothing), or when
@@ -3964,19 +3972,148 @@ A whole row moves to DONE only after its remaining implementation and required a
    (`saved_lists.whole`). Unchanged: one pass is one read against the day's 10, a login wall pauses the site, nothing on
    the list is ever clicked. YouTube's own lists keep their 20 screens (not asked about; their Takeout already holds
    them here). **Revisit** if a site meets a long scroll with a block (the read must then stop and record `blocked`).
-   **Waiting on the owner, not built:** (1) reposts, which are mixed into the profile timeline that no list page covers;
-   (2) accounts followed (he said "maybe"; accounts are a new kind of item, G120 sketches it); (3) a first name in a note
-   tied to a same-week connection: a lead only, or may Sleep join it (undoable)?; (4) a post's picture or video itself
-   from a walled host: the agent would have to hand over the picture's public address for one fetch into the picture
-   index (frames of an online video stay the agent's own work today); (5) one full-name mention of someone who is a
-   LinkedIn connection with no Contacts card: enough for their page, or wait for the second mention?; (6) a daily run of
-   his own AI app to read the lists that are due (it spends his plan, needs his browser open, and amends R-RW8 and
-   rulings 4 and 15). *Why:* five registries keyed sources differently
+   **The six questions it left open were answered the same day: see ruling 79** (1 reposts, built; 2 follows, decided, not built; 3 the
+   arrival join, being built, report-only; 4 pictures of a walled post, the coordinator's recommendation, not built; 5 one
+   full-name mention, built; 6 the daily run, no agent started by Cicada, open until he chooses). *Amended the same day by
+   ruling 80:* (e)'s "wakes for one Sleep read" becomes "is read first, and the ask stays"; and by ruling 79 (e): (f)'s "a connection
+   never makes a page" now has one exception, the person's own full-name mention. *Why:* five registries keyed sources differently
    so no row said what was read; the lists he has (X likes and folders, Instagram collections, YouTube playlists, LinkedIn
    connections) could not be read live; a platform-list save stayed index-only even when he talked about it; the notch's
    Yes set a per-Mac flag the Sources page never read. **Trigger to revisit:** a list the owner turned on that reads past
    its bound or a login wall it should have stopped at, a wrong page made from a connection (counted), or a mention ask
    that fires without the person's own words.
+
+79. **The six answers to ruling 78's open questions (owner, 2026-11-24; G245; amends ruling 78 "Waiting on the owner" 1 to 6, ruling 29's "never a person's identity without their words" and ruling 74 for one case, ruling 78 (f)'s "a connection never makes a page", and the CLAUDE.md rails on LinkedIn connections and on the person's own agent only where a part says so; plan `docs/plans/2026-11-24-sources-answers.md`).**
+   The owner answered the six questions ruling 78 left open: "1. yes? 2. yes 3. yes ofc join. and this should happen accross
+   sources (even chats, conversations, etc). 4. what do you think? 5. yes it should be enough. 6. yes". The parts below say,
+   for each, what is **built**, what is **decided, not built**, and where a sentence is **the coordinator's reading and not his
+   words**. The plan's text was written before the building; where it and this ruling differ, this ruling wins.
+   **(a) Reposts (1, "yes?", tentative) — built (#860).** X reposts are a list of their own, off until the person turns it on
+   (`x-reposts`, never in `DEFAULT_ON_SAVED_LISTS`): the person's own agent reads their own profile and records only the rows the
+   page marks as their own repost (the original post's link, author and shown words). X only; Instagram, TikTok and LinkedIn
+   reposts are unverified. Their own posts, replies and quotes are never filed (a row whose author is the person's recorded handle
+   is dropped and counted); a timeline has no end, so the first read stops at a screen bound (20, unmeasured, to be set after a
+   look at a real profile) and never says the list is whole; reposts are read last, because a block met on them pauses every X
+   list. **This amends, for that one page, the rail "never a feed, a timeline"** (`mcp.md`, "X reposts"). A repost is a save like
+   any other: what is done with it after it is kept is ruling 80's. To undo: delete the `x-reposts` row from `PLATFORMS` (kept
+   reposts stay kept). **Revisit** on a read past its bound, or the person's own posts filed as reposts (counted).
+   **(b) The accounts he follows (2, "yes") — decided, not built.** A directory outside every bank, the way LinkedIn connections
+   are: name, handle, link, first and last seen, never a bio, count or avatar; X first, Instagram after a look at its dialog. It
+   never makes a page, a mention, a promotion or a question. It attaches only to a page the bank already has (that profile as a
+   source and one dated "followed on" claim; a name-only match is a proposed source, never a trusted one), and a follow's name and
+   handle are held back from any web query like a name known only from the record (rulings 44, 54). The list has no limit, so a
+   read is capped in rows and screens; a row is marked gone only when two whole reads in a row agree it is missing. No unattended
+   read. Off until turned on; one line to undo: drop the `*-following` rows and delete the directory file. **Revisit** on a page made
+   from a follow, a name-only attach the person overrules, or a row marked gone by a cut-off read (counted).
+   **(c) The arrival join (3, "yes ofc join. and this should happen accross sources (even chats, conversations, etc)") — being
+   built, report-only.** A first name the person wrote (a page titled by one word, or a name still held below the promotion bar)
+   and a person who newly appeared with that given name within the same week (a LinkedIn connection with a day, a Contacts card
+   first seen) are joined by Sleep itself, undoably, shown on the page and on the directory row. **This amends ruling 29's "never a
+   person's identity without their words" for this one class, and ruling 74:** the second kind of evidence is time, beside the name
+   (the first name is the given name of the full name), counted once each as ruling 74's rule requires. Name alone never joins,
+   and time alone never does; time counts only beside that strict name signal, never beside a nickname, a sound or a spelling
+   match (a "Tom" on a "Tomás" page is not it). Exactly one holder and exactly one arrival; a same-name doubt, a pair the person
+   called two, a conflicting company or role, or a directory not looked at since the window closed refuses; and two separate model
+   reads, each looking for a reason it is two people, must both find none. It writes one alias through the page's own writer and
+   the existing rematches attach (a LinkedIn link is only proposed); the undo removes the alias and what it caused, and the pair is
+   never joined again, a later full-name page included. **"Across sources":** the first-name side may come from any source (a
+   note, a chat, a meeting, a conversation), dated by that conversation's own day; the full-name side is a directory row or, later,
+   a person who already has a page, where ruling 74's join gets the `time` kind (the other session's 74b has merged, #857; this is
+   still later and report-only first). **Report-only:** a constant keeps every route from writing until the coordinator has read
+   its per-item dry run on the real bank (ids, both days, every namesake counted, the answers, the reason), never counts alone.
+   *The coordinator's reading:* "the same week" is within seven days either way; a note supplies a day only if it carries its
+   created time. **Revisit** on any join the person undoes (counted).
+   **(d) A picture or frames of a login-walled post (4, "what do you think?") — the coordinator's recommendation, not his words;
+   decided as a direction, not built, and not yet shown feasible** (a trial in his own browser did not reach the media look).
+   Only for a post the person went deeper on (talked about, or asked about): his own AI app hands over the post's one picture, or
+   at most six frames of a video, as bytes, never an address (the backend fetches nothing; the ToS rail is untouched); kept outside
+   every bank, indexed by meaning, never written into memory, gone with the page; its own switch, off until his click, saying that
+   pixels cannot be scrubbed. A plain save and a login wall keep nothing. Built only if a hands-on look shows an agent can hand
+   over the media element itself, never a screenshot of the page. Amends 78 (e)'s "frames stay the agent's own work" and withdraws
+   78's idea of the picture's public address for one fetch. Ruling 68 stands. **Revisit** on a pixel found in a bank, or a picture
+   of a plain save or of a wall.
+   **(e) One full-name mention is enough for a connection's page (5, "yes it should be enough") — built (#855).** The person's
+   own words in a conversation naming one waiting LinkedIn connection in full make the page that night; the connection attaches
+   in the same write with its link **only proposed** (no photo request; not an acquaintance for ruling 44). A connection nobody
+   mentioned makes nothing, as he said ("a linkedin connection doesnt need a page just for the sake of having a page"); every
+   refusal of the Contacts rule holds (two rows of one name, a same-name doubt, the owner's name, an existing page). *The
+   coordinator's reading of his own example, which was notes:* a full name in the person's own Apple Notes or Notion note counts
+   too, for a connection only, behind one constant (`CONNECTION_NAMED_IN_OWN_NOTES`, one line to turn off). Amends 78 (f) and the
+   CLAUDE.md rail "enrich existing people only, never mint a page". **Revisit** on a wrong page made this way (counted).
+   **(f) A daily run of his own AI app (6, "yes") — decided not to start an agent; a command for his own scheduler decided, not
+   built.** A trial in his own browser, which he approved, found no way to hold an unattended agent to reading at the tool layer,
+   so **Cicada does not start an agent, and the rail "Cicada never spawns a browser and never signs in to a site; it only asks"
+   stands unchanged**, as do R-RW8, ruling 14's "Cicada only asks" and rulings 4 and 15. What would ship is a ready-made command
+   and a "work the lists that are due" prompt for his own scheduler (cron or launchd), shown on the Sources card with a Copy
+   button; his scheduler starts his agent, Cicada starts nothing. A second design, where the app itself scrolls and copies the page
+   and a tool-less model parses the text, was tested on scratch pages only: it reads a lazily loaded list without clicking, but
+   only while the browser window is visible on screen, so it is not unattended either. **The owner has been asked to choose; this
+   part is open until he does.** Built meanwhile (#860), unused: `due(unattended=True)`, which never offers a list not yet read to
+   its end, never an accounts list, and puts reposts last.
+   *Why:* only LinkedIn keeps a day per person; a timeline has no end; no unattended run has ever driven his browser read-only.
+   **Revisit the whole ruling** on any count above.
+
+80. **Every save is read: saving is the reason (owner, 2026-11-24; G246; withdraws ruling 62's index-only rule (points 1 to 4) and the saved-list half of ruling 30 point 1; amends rulings 13 and 16 in one place, PENDING HIS CONFIRMATION; amends 77 (d) and (e), 78 (e), and 79 (a) and (d)'s "rulings 30, 62, 68 stand"; plan `docs/plans/2026-11-24-saves-are-read.md`).**
+   The owner, told that a save with no reason was kept and searchable but never read by a model: "Omg no. remve that ruling. if
+   i save it already has a reason. Maybe i didnt write it explicitly but should work still. This is for every source." (He also
+   asked what the word on the page meant; Cicada's copy says what it does or does not do with the item instead.) Earlier the same
+   day, still standing: saves "but those that i actually go ahead and talk about are way more important and maybe worth using the
+   claude video skill to pull the transcription, maybe even frames and watch it"; "a clear logic i believe should be established
+   to not blote cicada memory with shit, but making it aware and powerful to go deeper in the things i save"; "I want to leverage
+   the power of the embeddings model we use which is multimodal"; and that he wants to be asked less.
+   **(a) What he said, decided.** A save is its own reason, for every source: a bookmark, a tab group, a saved link, a post from a
+   platform's saved list, a like, an upvote, a repost, a save clicked inside a site, an export archive. Sleep reads it the way it
+   reads anything he gives Cicada, after his conversations. Ruling 62's points 1 to 4 and ruling 30's "a save from a platform's
+   saved list" are withdrawn; ruling 62's point 5 (a save a model already read keeps what it made) and point 6 (a batch is bounded
+   by what it holds) stand, as does recall, Ask and the hook finding a save by its words, which must not get worse.
+   **(b) Built so far.** What a saved post says is **its author's, never the person's** (#858): the X and Pinterest connectors'
+   text is a description and never his note (a live defect: Sleep read it as his own words); a save a model reads is told so, dated
+   by its post day and never as current when undated; its claims are `external:<author, else site>`; nothing lands on the owner's
+   page or as a person's alias unless his own words say it; at most 8 entities; no question. The repair of episodes the connectors
+   wrote the old way is report-only until the coordinator has read a dry run. **A benchmark with today's baseline** (#861,
+   `benchmarks/consolidation/saves_battery.py`): reading 87 synthetic saves the way Sleep reads today wrote 10 to 11 facts on
+   the owner's page from strangers' posts, 8 pages from saves alone (one called by a bare first name, never joined to the friend of
+   that name), 31 to 36 open facts on the one page that 50 posts name, and, in one of two runs, a 2021 fact as current.
+   **(c) Being built, before any save waits for Sleep:** a save alone makes no page and no mention (saves with no words of his
+   count together as one source for the 2+ rule; a save with his own reason keeps its own); at most 12 open save-derived claims on
+   a page, the same fact from several authors folded into one with all its sources; at most 3 held lines per name from saves, and a
+   name in a post joins an existing person page only on an exact full name or alias ("Sam" in a stranger's post never joins his
+   friend Sam); a media page's `about` edge only to a page its save names in full, at most 5 (the one narrowing of ruling 56).
+   **(d) NOT yet on: saves do not wait for Sleep yet.** That switch waits for the owner's answer on pace and cost; he was given
+   the measured numbers (about 2 model calls, 13k input and 1.8k output tokens a save, on the plan at the small model), and no save
+   waits for Sleep that did not wait before. It ships with **a daily allowance for the older pile** (everything already kept, a
+   bulk list or import, a save received long after the day it was saved): a fixed number a day enter the queue, newest first, after
+   all his conversations, and nothing that is waiting is ever cut; a save he makes one at a time is read that night with no
+   allowance. **This amends rulings 13 and 16 ("Consolidate reads everything") in one place, an allowance on how many saves enter
+   the queue a day, and it is PENDING HIS CONFIRMATION: until he confirms, rulings 13 and 16 stand as written and saves stay as
+   they are today.** The first number (25 in the plan) is the coordinator's; it is raised only after the first nights are read one
+   save at a time. Designed with it: every non-save is read before any save; his talked-about saves are first among saves; a spending
+   or plan line reached while only background saves remain finishes the run and does not pause it (so tomorrow's run is not
+   blocked), and decay runs after his conversations. Revert: one constant restores today's behaviour.
+   **(e) The coordinator's readings, built as stated, one line to undo each, not the owner's words:** (i) watch history and
+   records he did not save (his own repositories, joined communities, open tabs on other devices) stay indexed and unread, and a
+   feed item stays as the code reads it today (the publisher's words, no mention); follows are a directory no model reads. (ii) A
+   save nobody talked about raises no question. (iii) Going deeper follows his talking: a save he talks about is read first, still
+   leaves the ask for his own agent (a transcript, the post itself, pictures if he turned that on, ruling 79 (d)), at most 5 a
+   conversation and 5 a day, and Cicada starts no agent. (iv) Sleep reads the public page behind a saved link through the page
+   reads that exist (behind the connector fetch gate, never a walled site, video, arXiv, LinkedIn or Instagram, at most 20 a run);
+   the plan's draft had this off.
+   **(f) Not decided (the plan lists each as an open question for him):** whether a save that holds nothing but a title and a link (nothing for a model to read)
+   is sent to a model at all or is kept as a page, found by its title, and read when he talks about it or his agent opens it; the
+   plan's first number a day; and whether a picture or frames of every saved post are embedded too (ruling 79 (d) says only for a
+   post he went deeper on).
+   **(g) Amended with it:** 77 (d) "a noticed save is index-only until the person gives a reason" and (e)'s folder reason that
+   "makes them readable" (a reason now only adds his words); 78 (e)'s "a save the person talks about wakes for one Sleep read" (it is
+   read anyway, first; the ask stays); G236's row. Rows G102, G206, G221 and G232 still say index-only; each is true until reading is
+   switched on and is edited by the PR that switches it on.
+   *Why:* the owner's own words. Ruling 62's measure (25 bookmarks cost 56 calls to restate their titles, recall found the same
+   links without it) was true of one call per save on text with nothing in it; the order, the bounds and an allowance on the older
+   pile remove the harm it measured, and reading a save as its author's words, never his, with no page from saves alone, keeps out
+   the harm ruling 62 feared. The benchmark above is what today's reading does to a bank, which is why the bounds ship first. He
+   also said to ask less: a save nobody talked about asks nothing.
+   **Revisit on:** a page or a claim on his own page found that only saves made; a question raised only by a save; a night that
+   starved a conversation or left a pause; the first nights' results saying the day's number is wrong; or a save he talked about
+   that was not read first.
 
 74. **Sleep joins two people pages when two independent signals agree (owner, 2026-11-07; ROR-136, amends rulings 29 and 41's "a question only").**
    The owner agreed to Sleep joining pairs he would spot at a glance, and warned: "I remember you mentioned some pairs that
@@ -4095,7 +4232,8 @@ A whole row moves to DONE only after its remaining implementation and required a
     slow on a large first run. **Open for the owner:** a theme drawn from highlights months old is born `decaying` at 0.39
     (the age rule, unchanged: 2+ dated conversations floor there, only live silence archives it, no question asked).
 62. **A save with no reason gets a lean pass: indexed, findable, read once when the person talks about it (owner, 2026-11-04;
-    G236; amends rulings 13, 16 and 30 and G102).** Owner: "For chrome bookmarks, and the rest of things I told you we can do a
+    G236; amends rulings 13, 16 and 30 and G102).** *Points 1 to 4 WITHDRAWN by the owner on 2026-11-24 (ruling 80): every save is
+    read. Points 5 and 6 stand. What follows is kept as the record of the measure and of what was decided then.* Owner: "For chrome bookmarks, and the rest of things I told you we can do a
     leaner initial pass for consolidation on those things who have no reason/user intent attached, but enough info so that it
     can come up in a relevant conversation and an agent can look further into it." **1 — What is lean:** a bare save, by its
     own record (`history_index.kind` `saved`): a bookmark, tab group, saved link, feed item, connector poll, with no note and no
