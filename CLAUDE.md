@@ -318,7 +318,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   **"Same person?" (owner 2026-11-04):** never the owner's page without the person's own words naming themselves so;
   two people only on a conversation naming both, its evidence, and names sharing nothing only on a line that suggests one person (ruling 65); the guess ≤ 0.8 (`pair_evidence`, `capture-and-sleep.md`).
   A person known only by a relation to the owner is titled by the relation, never the owner's name, and asked their
-  name; it is merged only on the person's answer or evidence on the record (`role_people`, `capture-and-sleep.md`).
+  name on a second mention (41a); merged only on their answer or recorded evidence (`role_people`, `capture-and-sleep.md`).
 - **Temporal decay is a signal; age counts from when it was said** (owner 2026-10-09/13, amends G170): what the
   conversations prove silent is charged once, when read; a one-off may archive by age, a page or claim on 2+ dated
   conversations floors at 0.39 and only live silence archives it; ruling 1's one-week cap governs live silence; a

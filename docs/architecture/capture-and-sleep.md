@@ -4538,7 +4538,20 @@ and ids (a portability bug). `api/services/role_people.py` is the one place that
   (no mark, no question), because a bare word cannot be told from a name.
 - **Stage 5.4 asks** (`ask_after_write`): after the pages are written, each unnamed person page the batch touched
   gets one inbox question, "What's the name of your partner?" (`features.md`), unless one is open or the person
-  declined. It rides the cycle's commit like every question the cycle opens.
+  declined. It rides the cycle's commit like every question the cycle opens. **Only on the second conversation
+  (owner 2026-11-24: "someone known only by a description is not asked about on a first mention, only once they come
+  up again").** `ensure_question` is the one place a name question is written (Stage 5.4 and the repair script both go
+  through it), and it writes nothing until the page rests on two distinct conversations (`role_people.heard_again`:
+  the page's `source_episodes` counted by `promotion.conversation_keys`, as the 2+ rung counts them: a session and its
+  notes are one, saves the person said nothing about are one together). What was said is kept exactly as before (the
+  page or the held line, its title, its claims, the nickname rule); only the asking moved. A question already asked from
+  one mention is retired by Sleep with nothing written (`inbox_tend` rule `name_once`, "Settled by Sleep", undoable; an
+  undone one is the person's and Sleep never retires it again) and comes back, new, when they come up again. A person
+  who declined, a question the person put off, one answered: unchanged. The same holds for every producer: a relation
+  ("your partner") and a nickname ("What's <nickname>'s name?") alike; a meeting's unnamed voice (`meeting_speakers`,
+  "Who was Speaker 1?") is another question and is not touched. Whether a thing said once is still found by its words
+  (an agent asking about "the Portuguese guitar teacher" with no page, no question) is measured in
+  `benchmarks/consolidation/findability.py` (2026-11-24); see `mcp.md`.
 - **A nickname is the title only until a name is found** (ruling 41, owner 2026-10-27): Stage 1's "<nickname>
   (unnamed)" (no relation word) becomes a page titled by the nickname, `unnamed: true` + `nickname_title: true`, the
   nickname also an alias (`canonicalize`, `nickname_of`), asked "What's <nickname>'s name?" when it holds no relation.
