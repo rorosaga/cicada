@@ -11,6 +11,9 @@ judge, the second reading of the lines the first refused.
 
 Needs ``ANTHROPIC_API_KEY`` in the environment or in ``--key-file`` (never printed). Prints the true joins and false
 joins per repeat and, per stage, what the first read proposed and what the check kept.
+``--engine plan`` runs it on the signed-in Claude plan (no key read; ``--model haiku --reader sonnet`` are a plan's small
+judge and main model) and prints the replies that were not a JSON object; ``--every K`` runs every K-th pair of
+`CASES` (a cheap pass on a plan: the cases themselves are not changed). 2026-11-24.
 """
 from __future__ import annotations
 
@@ -228,22 +231,27 @@ def main(argv=None) -> int:
     ap.add_argument("--false-only", action="store_true", help="run only the pairs that must stay apart")
     ap.add_argument("--key-file", default="~/.cicada/secrets.env")
     ap.add_argument("--parallel", type=int, default=8)
+    ap.add_argument("--every", type=int, default=1, help="run every K-th pair of CASES (default: all)")
+    from benchmarks.consolidation import engines
+
+    engines.add_argument(ap)
     args = ap.parse_args(argv)
     os.environ["CICADA_HOME"] = tempfile.mkdtemp(prefix="vjb-home-")
-    from benchmarks.engine_parity import read_key_file, settings_for
-    from benchmarks.consolidation.run import engine_model
+    from benchmarks.engine_parity import read_key_file
     from api.services import value_alignment as va
 
-    os.environ.setdefault("ANTHROPIC_API_KEY", read_key_file(Path(args.key_file).expanduser()) or "")
+    if args.engine == "key":
+        os.environ.setdefault("ANTHROPIC_API_KEY", read_key_file(Path(args.key_file).expanduser()) or "")
+    engines.arm(args.engine)
     out = Path(args.out).expanduser() if args.out else Path(tempfile.mkdtemp(prefix="vjb-out-"))
     out.mkdir(parents=True, exist_ok=True)
-    m = engine_model("key", args.model)
-    small = va.judge_for(settings_for("key", out, model=m, judge=m))
+    counted_cm = engines.tally()
+    counted = counted_cm.__enter__()   # closed at the end of main: the judges below are built inside it
+    small = va.judge_for(engines.settings(args.engine, out, model=args.model, judge=args.model))
     params = inspect.signature(va.align).parameters
     extra = {}
     if "reread" in params and args.reader:
-        r = engine_model("key", args.reader)
-        extra["reread"] = va.judge_for(settings_for("key", out, model=r, judge=r))
+        extra["reread"] = va.judge_for(engines.settings(args.engine, out, model=args.reader, judge=args.reader))
 
     def run_case(i):
         oa, ov, ol, na, nv, nl, same = CASES[i]
@@ -281,10 +289,10 @@ def main(argv=None) -> int:
             rows.append({"page": name, "new": a, "want": want, "got": got, "ok": got == want})
         return rows
 
-    idx = [i for i, c in enumerate(CASES) if args.only in c[3] and not (args.false_only and c[6])]
+    idx = [i for i, c in enumerate(CASES) if args.only in c[3] and not (args.false_only and c[6]) and i % max(1, args.every) == 0]
     summary = []
     for rep in range(args.repeats):
-        with ThreadPoolExecutor(args.parallel) as ex:
+        with ThreadPoolExecutor(args.parallel if args.engine == "key" else min(args.parallel, 3)) as ex:
             cases = list(ex.map(run_case, idx))
             pages = [r for rows in ex.map(run_page, range(len(PAGES))) for r in rows]
         (out / f"run{rep + 1}.json").write_text(json.dumps({"cases": cases, "pages": pages}, indent=1, ensure_ascii=False))
@@ -304,9 +312,12 @@ def main(argv=None) -> int:
         from benchmarks.engine_parity import _usage_events
 
         events = _usage_events(Path(os.environ["CICADA_HOME"]))
-        print(f"{len(events)} calls, ${sum(e.get('cost_usd') or 0.0 for e in events):.3f} on the key")
+        print(f"{len(events)} calls" + (f", ${sum(e.get('cost_usd') or 0.0 for e in events):.3f} on the key" if args.engine == "key" else " on the plan"))
     except Exception as exc:  # noqa: BLE001 - the cost line is a convenience
         print(f"(no cost line: {type(exc).__name__})")
+    counted_cm.__exit__(None, None, None)
+    if args.engine == "plan":
+        print(counted.report())
     return 1 if any("false joins 0 " not in s for s in summary) else 0
 
 

@@ -1324,6 +1324,17 @@ the folder, and `covers` claims from the title's own words. Recall found the sam
   (`link_enrichment.lean_page`: every episode the page rests on is `saved` or `list`), including the no-model reuse path,
   which writes a `describes` claim. This narrows G102's "what makes a saved link part of the graph" to saves someone said
   something about. No engine is needed, so it works with no plan: `_index_without_model_safely` runs before an engine is resolved.
+- **The page behind a save Sleep reads (ruling 80, G245; the coordinator's reading of "if i save it already has a reason",
+  pending the owner's confirmation).** `link_enrichment.lean_page` stays keyed on the read state — a page whose every
+  episode is still stored as `saved` or `list` gets no page read, exactly as above — so the moment a save is read by Sleep
+  (or owes its read) the public page behind its link is read by the existing path and no other: Stage 5.57's in-cycle pass
+  and the tail's backfill, behind `CICADA_ALLOW_CONNECTOR_FETCH`, the caps (`link_enrich_max_per_cycle`,
+  `link_enrich_backfill_per_cycle`, 20 each), `_excluded_media` (never a walled site, a video, arXiv, LinkedIn or Instagram)
+  and `default_fetch`'s rail. **Newest saves first:** the backfill sorts newest save first (it was oldest-imported first,
+  R2), and a page only saves made, which has no last mention, is ordered by its save's day in the in-cycle pass.
+  **One line turns it off:** `link_enrichment.READ_SAVED_PAGES = False` makes a page every save of which has no words of the
+  person's and no `read_asked` lean whatever its read state (never fetched, described or related) and puts the backfill back
+  to oldest-imported first.
 - **What is kept: enough to come up, `saved_lookup`.** Title, link, site, date and the page's own description when one is
   already held (no fetch), found by the indexes every episode and page already has: the FTS `med` table, a tab group's
   passages (`meta.saved_no_page`), the entity vectors. Rarity decides, as in the hook's topic leg: a word held by more than 3%
@@ -3521,6 +3532,35 @@ Entities are NOT extracted from every mention — that pollutes the graph. First
 vector index only; promotion needs **2+ separate conversations**, OR substantive discussion (>3
 exchanges) in one, OR an explicit link to an existing high-confidence entity.
 
+**Saves alone make no page and no mention (G245, owner 2026-11-24, ruling 80; `promotion`, `episode_time`, `quiet_pages`,
+`media_ingestor.inject_media_edges`).** "If I save it, it already has a reason" means a save is read (Track 1); this is what
+keeps a pile of them from becoming a pile of pages. A save **with no words of the person's** is one with none of
+`history_index.PERSON_KEYS` (`has_note`, `saved_why`, `saved_why_earlier`, `readable_by_folder`: a reason, a why-answer, a
+note, a folder reason; `saved_reading.no_words_of_his`, read from the record alone so the card, Sleep and the 2+ rule agree
+and a feed item keeps ruling 39's own rule). Talking about a save (`read_asked`) is a conversation of its own, never words
+in the save.
+- **One source for the 2+ rung.** `promotion.conversation_keys` gives every such save the one key `promotion.SAVES_KEY`:
+  two saves naming one thing, or fifty, make no page; one save plus one conversation do, and the page keeps both sources. A
+  save carrying the person's own reason, note, why-answer or folder reason keeps its own key and counts as a conversation.
+  No other rung can fire from a save alone: `substantive` needs the person's own exchanges (a save yields none outside
+  their sections) and a link only counts from a relationship located in their words (`person_said`).
+- **No mention.** `episode_time.counts_as_activity` is false for such a save (the bank-wide `untimed_ids`, the card's
+  `untimed_among`, whose one awk pass and line reader now read `episode_time._KEYS`, and Stage 1's `untimed` agree). A page it
+  creates starts its silence clock the day Cicada learned it (`decayed_through`, no `last_referenced`), a page it names keeps
+  its last mention, status and confidence, and it is no week, no said-day and no conversation for decay. Its claims are still
+  dated by the post's own day (`valid_from`). **Chosen, not built (plan 1.2):** "touch a page that has other sources at the
+  post's day, at most once a day" is not implemented: the update path ties a mention to the decay watermark (`learned_on`,
+  `decayed_through`, the read-late mark), so a half-touch would desynchronise them, and a stream of strangers' posts would
+  keep a page alive. The rail line "a save is no mention" is the simpler and safer reading; revisit on a measured loss.
+- **Quiet.** A page whose only evidence is saves is quiet (`quiet_pages`, derived); a tab group holds no page link, so
+  `episode_kind` now calls `source: tab-group` an import too, which makes its page quiet and keeps a group out of the
+  conversation rungs (Contacts card, connection) that asked for one.
+- **A link from a save's page** (`inject_media_edges`, amends ruling 56 for this edge only): the media page's `about` edge to a
+  page Sleep resolved from the save is made only where the save's own text states that page in full, its exact title or an
+  alias as whole words (`saved_reading.named_in_full`; never a first name, the link's address, or a name under three
+  characters), at most five per save, in the order the text names them. Any other episode a media page rests on (a
+  conversation about the link) keeps the rule it had.
+
 **A skill takes two conversations by either door (G239, ruling 65).** A note's lines are all the person's own, so a
 phrase Stage 1 typed `skill` and linked to any page got one from a single note. A Stage-1 skill now waits in the index until
 a second conversation names it; the one-conversation rungs do not apply to it. Stage 4 keeps `skill_hold`, and its prompt
@@ -4856,7 +4896,7 @@ their own. One function, `decay_policy.effective`, serves the pass and the entit
 episodes and cited `ep_*` documents plus the subject's keeps; session ids carry no date and never
 count). **One-offs archive, repeats fade** (owner 2026-10-09, after the first dry run on a real bank would have
 archived 79% of it): proven silence alone never takes a page or claim resting on 2+ distinct dated conversations
-(`decay_policy.conversations`; a memory export entry is not one) below 0.39, just under the question line
+(`decay_policy.conversations`; a memory export entry and a save with no words of the person's are not one) below 0.39, just under the question line
 (`decay_policy.proven_floor` = decay-question threshold − 0.01, applied by `decay_policy.charge`) — it stays
 `decaying`, dimmed and on the graph, and only live silence after Cicada read it carries it on to the archive line, at
 the normal pace (at the default `active` pace, about 38 days for two conversations in different weeks, 52 for five,

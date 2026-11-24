@@ -82,39 +82,46 @@ def build(case):
 
 
 def main(argv=None) -> int:
+    from benchmarks.consolidation import engines
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--repeats", type=int, default=20)
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--key-file", default="~/.cicada/secrets.env")
+    engines.add_argument(ap)
     args = ap.parse_args(argv)
     os.environ["CICADA_HOME"] = tempfile.mkdtemp(prefix="ended-home-")
-    from benchmarks.consolidation.run import engine_model
-    from benchmarks.engine_parity import read_key_file, settings_for
-    key = os.environ.get("ANTHROPIC_API_KEY") or read_key_file(Path(args.key_file))
-    if not key:
-        print("no ANTHROPIC_API_KEY", file=sys.stderr)
-        return 2
-    os.environ["ANTHROPIC_API_KEY"] = key
     from api.services import value_alignment, value_ended
 
-    model = engine_model("key", args.model)
-    judge = value_alignment.judge_for(settings_for("key", Path(tempfile.mkdtemp()), model=model, judge=model))
-    jobs = [(c, i) for c in CASES for i in range(args.repeats)]
+    if args.engine == "key":
+        from benchmarks.engine_parity import read_key_file
 
-    def one(job):
-        case, _i = job
-        incoming, existing, bank = build(case)
-        return case, bool(value_ended.plan(incoming, existing, judge, bank)[1])
+        key = os.environ.get("ANTHROPIC_API_KEY") or read_key_file(Path(args.key_file))
+        if not key:
+            print("no ANTHROPIC_API_KEY", file=sys.stderr)
+            return 2
+        os.environ["ANTHROPIC_API_KEY"] = key
+    engines.arm(args.engine)
+    with engines.tally() as counted:
+        judge = value_alignment.judge_for(engines.settings(args.engine, Path(tempfile.mkdtemp()), model=args.model, judge=args.model))
+        jobs = [(c, i) for c in CASES for i in range(args.repeats)]
 
-    with ThreadPoolExecutor(8) as pool:
-        results = list(pool.map(one, jobs))
-    wrong = 0
-    for case in CASES:
-        closed = sum(1 for c, did in results if c is case and did)
-        bad = (args.repeats - closed) if case[1] else closed
-        wrong += bad
-        print(f"{'CLOSE' if case[1] else 'STAY '}  {closed:>3}/{args.repeats} closed  {'WRONG x' + str(bad) if bad else 'ok'}  {case[0]}")
-    print(f"wrong answers: {wrong} of {len(results)}")
+        def one(job):
+            case, _i = job
+            incoming, existing, bank = build(case)
+            return case, bool(value_ended.plan(incoming, existing, judge, bank)[1])
+
+        with ThreadPoolExecutor(8 if args.engine == "key" else 3) as pool:
+            results = list(pool.map(one, jobs))
+        wrong = 0
+        for case in CASES:
+            closed = sum(1 for c, did in results if c is case and did)
+            bad = (args.repeats - closed) if case[1] else closed
+            wrong += bad
+            print(f"{'CLOSE' if case[1] else 'STAY '}  {closed:>3}/{args.repeats} closed  {'WRONG x' + str(bad) if bad else 'ok'}  {case[0]}")
+        print(f"wrong answers: {wrong} of {len(results)}")
+        if args.engine == "plan":
+            print(counted.report())
     return 1 if wrong else 0
 
 

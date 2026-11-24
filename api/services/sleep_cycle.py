@@ -4124,6 +4124,9 @@ def _get_unprocessed_episodes(
             # it was posted, and whose site it is (`saved_reading`); the save's own day stays `timestamp`.
             **({"posted": str(fm["posted"])} if fm.get("posted") else {}),
             **({"url": str(fm["url"])} if fm.get("url") else {}),
+            # Ruling 80 (G245): the marks of the person's own words on a save (a reason, a why-answer, a note, a folder
+            # reason) — a save with none is no mention and one source for the 2+ rule (`saved_reading.no_words_of_his`).
+            **{key: fm[key] for key in history_index.PERSON_KEYS if fm.get(key)},
             "filepath": f.path,
             # G48: which conversation produced this episode. `session_id` is
             # stamped by the MCP seam at capture; `source_id` is G20's
