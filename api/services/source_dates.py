@@ -115,6 +115,27 @@ def feed_note(day: date | None, today: date) -> str:
     return note + "]\n\n"
 
 
+def saved_note(posted: date | None, today: date) -> str:
+    """The line put before every chunk of a saved item instead of :func:`date_note` (owner 2026-11-24, G245): its date is
+    when the author posted it — never the day the person saved it or Cicada took it in — so what it says holds as of
+    then, and its text (apart from any section of the person's own words) is the author's, never the person's. A post
+    older than :data:`OLD_AFTER_DAYS` is written as of its month; one with no post day is told so, and never written as
+    current."""
+    own = ("Its text, apart from any section of the person's own words, is the author's: "
+           "never something the person said, did or is doing.")
+    if posted is None:
+        return (f"{DATE_NOTE_PREFIX} this is a saved item, of unknown post date; today is {today.isoformat()}. {own} "
+                "Its post date is unknown, so never write what it says as current or recent.]\n\n")
+    note = (f"{DATE_NOTE_PREFIX} this is a saved item, posted {posted.isoformat()}; today is {today.isoformat()}. "
+            f"{own} What it says holds as of its post day.")
+    if posted > today:
+        note += " Its post day is ahead of this computer's clock: never write it as current."
+    elif is_old(posted, today):
+        note += (f" It is older than {OLD_AFTER_DAYS} days: write what it says as of {month_year(posted)}, "
+                 "never as current.")
+    return note + "]\n\n"
+
+
 def describe(day) -> str:
     """A day for a prompt line: the ISO day, or ``unknown`` — never a guess."""
     parsed = parse_day(day)

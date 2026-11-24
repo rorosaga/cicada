@@ -77,6 +77,7 @@ class Pair:
     called: bool = False
     answered: bool = False
     leaning: str = ""   # for a plain "cannot tell": "one", "two" or "" (nothing points either way)
+    unreadable: bool = False   # an answer with no verdict word of this call's shape: not read, and counted as such
 
 
 def _side(page: Page) -> str:
@@ -102,6 +103,7 @@ async def settle_pair(name: str, one: Page, two: Page, judge: Judge, speaker: st
         logger.debug(f"Same-name pair judge failed: {type(e).__name__}")
         return result
     if not isinstance(parsed, dict):
+        result.unreadable = parsed is not None
         return result
     verdict = str(parsed.get("verdict") or "").strip().lower().replace(" ", "_")
     one_texts, two_texts = [i.text for i in one.items], [i.text for i in two.items]
@@ -124,6 +126,7 @@ async def settle_pair(name: str, one: Page, two: Page, judge: Judge, speaker: st
             return result
         result.verdict = "same"
     else:
+        result.unreadable = True   # no "same" / "different" / "cannot_tell": not this call's shape
         return result
     result.answered = True
     result.here, result.there = str(here or ""), str(there or "")
@@ -139,6 +142,7 @@ class Split:
     here: str = ""
     there: str = ""
     called: bool = False
+    unreadable: bool = False   # the answer had no groups to read: the page was not read (counted, never "one person")
 
 
 async def holds_two(name: str, page: Page, judge: Judge, speaker: str | None = None) -> Split:
@@ -164,7 +168,10 @@ async def holds_two(name: str, page: Page, judge: Judge, speaker: str | None = N
         logger.debug(f"Same-name page judge failed: {type(e).__name__}")
         return result
     reading = snp.read(parsed, entries, name)
-    if reading is None or reading.single:
+    if reading is None:
+        result.unreadable = parsed is not None
+        return result
+    if reading.single:
         return result
     apart = {key: found for key, found in reading.relation.items() if found[0] == "apart"}
     if not apart:

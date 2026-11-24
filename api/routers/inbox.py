@@ -190,6 +190,8 @@ async def _undo_sleep_settle(item_id: str, settings: Settings) -> dict:
         raise HTTPException(409 if "changed" in str(exc) or "moved" in str(exc) else 404, str(exc)) from exc
     inbox_tend.record_undo(memory_path, item_id, out.get("rec") or {})
     await state_dictionary.refresh_admitted(memory_path, settings)   # admitted; skipped while Sleep holds the pages
+    if str((out.get("rec") or {}).get("rule") or "") == "full_name_one":
+        return {"status": "kept_apart", "id": target}   # ruling 74b: the person said they are two; no question comes back
     return {"status": "reopened", "id": target}
 
 

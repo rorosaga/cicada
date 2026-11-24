@@ -300,6 +300,7 @@ def resolve_llm_fn(
     is_async: bool | None = None,
     runner: Callable[..., Any] | None = None,
     scope: str | None = None,
+    shape: str | None = None,
 ) -> LlmFn:
     """Resolve a model spec -> a callable bound to that model.
 
@@ -314,7 +315,12 @@ def resolve_llm_fn(
             ``litellm.completion``. Injected as a fake in tests so no network
             is touched.
         stage: label recorded on every emitted ``UsageEvent`` (e.g. ``"ask"``,
-            ``"extraction"``); defaults to ``"unknown"`` when not supplied.
+            ``"extraction"``); defaults to ``"unknown"`` when not supplied. It also picks the model tier and what the
+            call is metered against, and nothing else: it never makes an engine force an answer shape.
+        shape: the answer shape the caller parses, when a plan engine can be told it (``engine_schemas.SHAPES``:
+            ``"pair"``, ``"extraction"``, ``"quick_read"``). ``None`` (the default): the engine is only told to answer
+            JSON. A shape the caller does not state is never forced on it (2026-11-24: the same-name judge shared the
+            pair judge's label and was forced into the pair judge's answer on a plan).
         sink: ``Callable[[UsageEvent], None]`` receiving one event per call;
             defaults to ``telemetry.record`` (the on-disk ledger).
         bank: label recorded on the event; defaults to
@@ -365,6 +371,9 @@ def resolve_llm_fn(
         (default: the telemetry ledger) tagged with ``stage`` — the single
         interception point for the consumption dashboard.
     """
+    from api.services import engine_schemas
+
+    shape = engine_schemas.check_shape(shape)   # a typo at a call site fails here, never as a silent "no schema"
     no_engine_reason = str(getattr(settings, "no_engine_reason", "") or "").strip()
     if not no_engine_reason and str(getattr(settings, "llm_mode", "") or "").strip().lower() == "auto":
         # An UNRESOLVED Auto (a caller that never asked ``engine_select.resolve_settings``) used to read as byok here
@@ -621,7 +630,7 @@ def resolve_llm_fn(
                 refs = {}
             elif mode == "agent":
                 envelope = agent_engine.complete(
-                    messages=messages, model=argv_model, stage=stage,
+                    messages=messages, model=argv_model, stage=stage, shape=shape,
                     want_json=response_format is not None, timeout=timeout, runner=runner,
                     scope=resolved_scope,
                     policy=dataclasses.replace(
@@ -663,7 +672,7 @@ def resolve_llm_fn(
                 # semaphore and ledger. Effort is every stage's `low`
                 # (R-E17), so `reasoning_off` has nothing further to lower.
                 parsed = codex_engine.complete(
-                    messages=messages, model=argv_model, stage=stage,
+                    messages=messages, model=argv_model, stage=stage, shape=shape,
                     want_json=response_format is not None, timeout=timeout, runner=runner,
                     scope=resolved_scope, effort=codex_engine.effort_for(settings),
                 )

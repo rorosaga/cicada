@@ -123,12 +123,13 @@ def test_authorize_url_carries_scopes_state_and_the_backend_redirect():
     assert x._pending_verifiers["state-xyz"], "the verifier is stashed internally, keyed by state"
 
 
-def test_bookmarks_to_items_uses_tweet_text_as_the_note_and_has_no_folder():
+def test_bookmarks_to_items_uses_tweet_text_as_the_description_never_a_note_and_has_no_folder():
     items = x.bookmarks_to_items([TWEET_1])
     assert len(items) == 1
     item = items[0]
     assert item.url == "https://x.com/i/web/status/1001"
-    assert item.note == TWEET_1["text"]
+    assert item.preview == TWEET_1["text"], "the post is its author's words (G245)"
+    assert item.note is None, "never the person's own note"
     assert item.title == TWEET_1["text"]
     assert item.folder is None
     assert item.origin == "x-bookmarks"
@@ -138,7 +139,7 @@ def test_bookmarks_to_items_truncates_a_long_tweet_into_the_title():
     items = x.bookmarks_to_items([TWEET_2])
     assert items[0].title.endswith("…")
     assert len(items[0].title) == x._TITLE_MAX + 1
-    assert items[0].note == TWEET_2["text"], "the full text still rides `note` untruncated"
+    assert items[0].preview == TWEET_2["text"], "the full text still rides `preview` untruncated"
 
 
 def test_bookmarks_to_items_skips_junk_rows():

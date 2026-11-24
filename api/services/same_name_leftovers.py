@@ -231,6 +231,8 @@ async def plan(memory_path: Path, page_id: str, leaving: frozenset[str], judge: 
         return []
     answers = parsed.get("lines") if isinstance(parsed, dict) else None
     if not isinstance(answers, list):
+        if parsed is not None:
+            logger.warning("same-name leftovers: the answer was not in the shape asked for; nothing cut")   # a count of one, no text
         return []
     by_n = {i.n: i for i in items}
     cuts: list[Cut] = []

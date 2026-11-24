@@ -283,8 +283,8 @@ def _tail_rig(bank, monkeypatch):
             seen.append(_n)
 
         monkeypatch.setattr(sleep_cycle, name, step)
-    for name in ("_same_name_review_safely", "_in_short_safely", "_media_read_safely", "_web_check_safely",
-                 "_web_context_safely", "_backfill_links_safely"):
+    for name in ("_same_name_review_safely", "_full_name_join_safely", "_in_short_safely", "_media_read_safely",
+                 "_web_check_safely", "_web_context_safely", "_backfill_links_safely"):
         async def model_step(*a, _n=name, **k):
             seen.append(_n)
 
@@ -308,8 +308,8 @@ def test_an_engine_free_tail_runs_the_polls_and_upkeep_and_asks_no_model(bank, m
     _run(sleep_cycle.run(settings, "cycle-quiet", user_triggered=False, tail_only=True, engine_free=True))
     assert "_poll_connectors_safely" in seen and "_poll_feeds_and_calendars_safely" in seen
     assert "_expire_claims_safely" in seen and "_resolve_books_safely(settings=None)" in seen
-    for model_step in ("_same_name_review_safely", "_in_short_safely", "_media_read_safely", "_web_check_safely",
-                       "_web_context_safely", "_backfill_links_safely"):
+    for model_step in ("_same_name_review_safely", "_full_name_join_safely", "_in_short_safely", "_media_read_safely",
+                       "_web_check_safely", "_web_context_safely", "_backfill_links_safely"):
         assert model_step not in seen
     assert sleep_cycle.get_sleep_state().status == "idle"
 
@@ -319,6 +319,7 @@ def test_a_paused_runs_upkeep_still_runs_its_model_steps_as_before(bank, monkeyp
     settings = SimpleNamespace(memory_path=bank)
     _run(sleep_cycle.run(settings, "cycle-paused", user_triggered=False, tail_only=True))
     assert "_in_short_safely" in seen and "_resolve_books_safely(settings=set)" in seen
+    assert "_full_name_join_safely" in seen
 
 
 def test_an_engine_free_run_records_no_sleep_run(bank, monkeypatch):

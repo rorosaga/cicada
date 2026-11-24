@@ -601,7 +601,7 @@ write). **There is no pre-picked list of sites** (owner, 2026-09-30: "limiting t
 because we will never know which sites this will happen"): a **wall page** is a saved page Cicada's own reader could not
 read — a sign-in, a consent wall, a refusal, or a host the backend never requests — decided by `reading_walls.wall_kind`
 from stamps the fetchers already write (`fetch_status`) plus the closed host set, and only while it holds no words (no
-`describes` claim, agent read stamp, substantive `## Description`, `description_source`, or — an X bookmark, whose saved item is the post — a non-empty `## Notes`; a saved sign-in or consent URL is
+`describes` claim, agent read stamp, substantive `## Description`, `description_source`, or — an X bookmark, whose saved item is the post — a non-empty `## Description` (a post kept before G245: a non-empty `## Notes`); a saved sign-in or consent URL is
 never one). The stamps are written wherever the reader fails: at save time (`MediaMeta.fetch_status`), in the in-cycle pass
 and in the backfill, in the backfill's own vocabulary and 30-day backoff, so a site surfaces when its page is walled, not
 when the capped backfill reaches it. Wall pages group by **site** (`reading_hosts.site_of`: a walled family folds to its

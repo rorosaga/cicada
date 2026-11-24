@@ -25,10 +25,10 @@ read), and **a page that already holds words** — a live ``describes`` claim, a
 agent's read stamp, a substantive ``## Description`` or a ``description_source``.
 That last rule keeps a connector-saved post whose text Cicada already holds out
 of the list (the reuse tier never runs for a walled host, so such a page has a
-description and no claim). A connector whose saved item IS the post (``x-bookmarks``:
-the post's text rides ``RawItem.note`` into the page's ``## Notes``) holds words
-through any non-empty ``## Notes`` too, and an X archive like (``x-likes``) through any
-non-empty ``## Description`` — the export's text is the whole post. A Reddit or Pinterest save is a link out: its
+description and no claim). A connector whose saved item IS the post (``x-bookmarks``: the post's text rides
+``RawItem.preview`` into the page's ``## Description``; before G245 it rode ``note`` into ``## Notes``, which a page
+kept then still counts) and an X archive like (``x-likes``) hold words through any non-empty ``## Description`` — the
+text is the whole post. A Reddit or Pinterest save is a link out: its
 title or pin description is not the linked page, so such a page is surfaced on purpose.
 
 The words check parses a page body, so it runs only for the small set of
@@ -48,11 +48,12 @@ from api.services import bank_index, media_ingestor, reading_hosts
 WALL_KINDS = ("walled", "login", "consent", "refused")  # closed; "js" is reserved (G164/G167)
 _MEMO_MAX = 4096
 _HIDDEN = frozenset({"archived", "dropped"})
-#: Connector origins whose ``## Notes`` is the saved item's own text (the post), not a note about it.
+#: Connector origins whose ``## Notes`` is the saved item's own text (the post), not a note about it: the way a
+#: post kept before G245 wrote it (a connector's post text now rides the description, ``saved_reading``).
 _TEXT_IN_NOTES_ORIGINS = frozenset({"x-bookmarks"})
-#: Export origins whose ``## Description`` is the post's whole text (``saved_exports``: an X archive like), so
-#: any of it is the post, however short — never asked for again.
-_TEXT_IS_DESCRIPTION_ORIGINS = frozenset({"x-likes"})
+#: Origins whose ``## Description`` is the post's whole text (``saved_exports``: an X archive like; the X connector's
+#: tweet, G245), so any of it is the post, however short — never asked for again.
+_TEXT_IS_DESCRIPTION_ORIGINS = frozenset({"x-likes", "x-bookmarks"})
 
 _lock = threading.Lock()
 _words_memo: "OrderedDict[tuple, bool]" = OrderedDict()

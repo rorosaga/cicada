@@ -679,3 +679,27 @@ def test_the_main_model_is_not_asked_when_the_small_judge_divides_and_nothing_on
     known = [snp.Identity("page", "marc", True, COLLEAGUE)]
     _run(snp.plan("Marc", M[:1], known, _judge(ans("A", "B", pairs=[(1, 2, "different", FAM_Q, WORK_Q)])), strong))
     assert strong.calls == []
+
+
+# 2026-11-24: on the Claude plan the small judge held one person in doubt ("cannot_tell") in about one replay in eight when
+# her life changed (a partner who took a job in another city); the main model reads such a doubt once and may lift it
+def test_a_doubt_the_small_judge_could_not_quote_a_contrast_for_is_read_again_and_may_be_lifted():
+    strong = _judge(ONE)
+    lifted = _run(snp.plan("Marc", M, [], _judge(DOUBT), strong))
+    assert lifted.second and len(strong.calls) == 1 and lifted.moves == {} and not lifted.review
+    kept = _run(snp.plan("Marc", M, [], _judge(DOUBT), _judge(DOUBT)))
+    assert kept.second and kept.review and kept.moves == {"e1": snp.Destination("new", "g0", doubt=True)}, "still a doubt: held"
+    for answer in (RuntimeError("down"), {}, TWO):
+        same = _run(snp.plan("Marc", M, [], _judge(DOUBT), _judge(answer)))
+        assert same.moves == kept.moves and same.review, "failing, unreadable or dividing: the small judge's doubt stands, never deepened"
+
+
+def test_a_located_contrast_is_not_read_again_for_a_lift_and_a_doubt_with_no_quotes_is_not_one():
+    strong = _judge(ONE)
+    result = _run(snp.plan("Marc", M, [], _judge(TWO), strong))
+    assert strong.calls == [] and result.moves == {"e1": snp.Destination("new", "g0")}, "'different' is not a doubt: nothing lifts it"
+    unquoted = ans("A", "BC", pairs=[(1, 2, "cannot_tell", "words nobody wrote", "more words nobody wrote")])
+    entries = snp.entries_for(M, [])
+    assert snp.lone_doubt(snp.read(DOUBT, entries, "Marc"))
+    assert not snp.lone_doubt(snp.read(TWO, entries, "Marc")) and not snp.lone_doubt(snp.read(ONE, entries, "Marc"))
+    assert snp.read(unquoted, entries, "Marc").single, "a verdict whose quotes are not in the descriptions is no verdict: one person, no doubt"
