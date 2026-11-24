@@ -2682,6 +2682,13 @@ async def _settle_unborn(
         match = _pick_match(u.name, judged)
         # Review of #545 (B2): only when nothing came back same or unsure — "unsure" about one page holds and asks.
         whole = _part_of_page(judged, u.name) if match is None else None
+        if whole is not None:
+            # 2026-11-24 (G148): one small-model answer is not enough to join a part onto a page for good; the engine's
+            # main model reads the part's own conversations beside the page first (`part_landing`).
+            if not await _part_confirmed(u, whole, cache, settings, memory_path):
+                whole = None
+            if cancel_check is not None and cancel_check():
+                return True
         placed = None
         if match is None and whole is None:
             # 2026-11-24 (G148): the pair judge called it a part of (or the whole of) another name this batch has no page for
@@ -2790,6 +2797,20 @@ async def _settle_unborn(
     logger.info(f"Stage 2: {len(unborn)} project name(s) with no page → {len(groups)} group(s), {made} fallback "
                 f"page(s), {sum(len(m) for _, m in on_page.values())} onto existing pages")   # counts, never names
     return False
+
+
+async def _part_confirmed(u: _Unborn, whole: dict, cache: dict, settings: Settings, memory_path: Path) -> bool:
+    """Whether the engine's main model agrees ``u`` is a part of the page ``whole`` (`part_landing.confirms`). A part it
+    does not confirm is its own name again, and the judge's verdict is no relation either: the cache says ``different``,
+    so `_judged_relations` writes no "includes" claim for a pair a second reading refused."""
+    from api.services import part_landing
+
+    confirmed = await part_landing.confirms(
+        u.name, _effective_summary(u.entity), sorted(u.episodes()), _candidate_display_name(whole),
+        _candidate_description(whole), settings, memory_path=memory_path)
+    if not confirmed:
+        cache[(u.name.lower(), str(whole["id"]))] = "different"
+    return confirmed
 
 
 def _related_unborn(judged: list[tuple[dict, str]]) -> tuple[dict, str] | None:
