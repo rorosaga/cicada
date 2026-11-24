@@ -398,3 +398,11 @@ def test_a_bare_name_from_a_post_is_left_out_of_the_same_name_planning(memory, m
         extracted, [friend], {"sam": [friend]}, _settings(memory), refs=er.owner_identity.self_references(
             [friend], extracted, memory, _settings(memory)), owner_page_id=None))
     assert (moves, compared, asked) == ({}, {}, [])
+
+
+def test_stage_2_logs_the_names_held_count_as_an_integer():
+    from api.services import sleep_cycle
+
+    line = sleep_cycle._stage2_summary(2, 1, 3, 5)
+    assert line == "Stage 2 complete: 2 new entities, 1 updates, 3 relationships, 5 name(s) met only in saves held"
+    assert "held" not in sleep_cycle._stage2_summary(2, 1, 3, 0)

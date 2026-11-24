@@ -865,7 +865,7 @@ conversations (`PendingEntity.episodes()`) is a save with no words of the person
 line any conversation of his names keeps `MAX_HELD_CLAIMS` of 50, and a claim already held is never evicted. Nothing is
 silent: the claim pipeline returns `saves_folded` and `saves_closed` (the `save_folded` and `save_capped` audit entries) and
 `saves_held_capped` (of `claims_hold_capped`, what a saves-only line refused), Stage 2 returns `saves_names_held`, and Sleep
-carries all four into the `sleep_run` ledger row and one log line each — integers, never a name or a word.
+carries all four into the `sleep_run` ledger row; each is also in a log line (the claim pipeline's for folded and closed, its hold summary for held-capped, Stage 2's complete line for `saves_names_held`) — integers, never a name or a word.
 **An agent's saved note is the agent's words (ruling 50, owner 2026-10-29).** A note an agent saved through a tool door
 — `cicada_save_episode` over stdio (`source: mcp`), the remote connector (`mcp-remote`), or `cicada save` from an
 agent's shell (`cli` with the harness or session it ran in; the CLI stamps a Codex sandbox's harness too) — is known by

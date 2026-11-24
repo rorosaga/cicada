@@ -3077,6 +3077,12 @@ def _decide_progress(live: "sleep_drain.BatchLive"):
     return cb
 
 
+
+def _stage2_summary(creates: int, updates: int, relationships: int, saves_names_held: int = 0) -> str:
+    """Stage 2's one log line; the held-name count (G245) is an integer, never a name."""
+    held = f", {saves_names_held} name(s) met only in saves held" if saves_names_held else ""
+    return f"Stage 2 complete: {creates} new entities, {updates} updates, {relationships} relationships{held}"
+
 async def _run_stages(
     settings: Settings, cycle_id: str, memory_path: Path, *, user_triggered: bool = True,
     batch: BatchPlan | None = None,
@@ -3474,11 +3480,11 @@ async def _run_stages(
     episode_cooccurrences = resolved_result.get("episode_cooccurrences", {})
     creates = sum(1 for r in resolved_changes if r.get("action") == "create")
     updates = sum(1 for r in resolved_changes if r.get("action") == "update")
-    logger.info(f"Stage 2 complete: {creates} new entities, {updates} updates, {len(resolved_edges)} relationships")
+    _state.saves_names_held = int(resolved_result.get("saves_names_held", 0) or 0)   # G245, Track 2c
+    logger.info(_stage2_summary(creates, updates, len(resolved_edges), _state.saves_names_held))
     _state.entities_created = creates
     _state.entities_updated = updates
     _state.relationships_created = len(resolved_edges)
-    _state.saves_names_held = int(resolved_result.get("saves_names_held", 0) or 0)   # G245, Track 2c
     _state.stage = 2
 
     # Sleep control — safe point: still nothing on disk. Stage 2's own
