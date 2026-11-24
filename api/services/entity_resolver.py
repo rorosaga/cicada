@@ -1339,6 +1339,41 @@ def _same_name_identities(name_lower: str, pages: list[dict], lines: list[Pendin
     return found
 
 
+def same_name_skip(name: str, entity: dict, refs: "owner_identity.SelfReferences", owner_first: list[str]) -> str | None:
+    """Why a person's name is NOT a mention of a bare name for the same-name rule (`_plan_same_name_people`), or ``None``
+    when it is one (a bare name, or a person written with a qualifier, "Nico (finance lead)", 2026-11-24). The one place
+    the exclusions live, so the one-time sweep of old held lines (`name_sweep`) calls it rather than copy it: a handle the
+    record paired (G209), a self-reference or the owner's own first name, a name that is not one bare word, a label-only
+    mention, a runtime path, an unnamed or relation-only person, a message correspondent, an address-book card.
+    ``owner_first`` is the owner's name's first word as a list (empty with no owner)."""
+    if not _is_person(entity):
+        return "not_person"
+    qualified = same_name_people.stem_of(name)
+    if qualified is not None:
+        if person_leads.split_named_handle(name) is not None:
+            return "handle"
+        if refs.is_speaker(qualified[0], entity.get("type")):
+            return "speaker"
+        if [qualified[0].lower()] == [w.lower() for w in owner_first]:
+            return "owner_first_name"
+    stem = qualified[0] if qualified is not None else name
+    if not same_name_people.is_bare(stem) or (qualified is None and not same_name_people.is_bare(name)):
+        return "not_bare"
+    if refs.is_speaker(name, entity.get("type")):
+        return "speaker"
+    if entity.get(promotion.LABEL_ONLY):
+        return "label_only"
+    if agent_engine.is_runtime_path(name):
+        return "runtime_path"
+    if entity.get(role_people.UNNAMED_KEY):
+        return "unnamed"
+    if correspondents.from_mark(entity.get(correspondents.MARK)) is not None:
+        return "correspondent"
+    if contact_identity.card_of(entity) is not None:
+        return "address_book_card"
+    return None
+
+
 async def _plan_same_name_people(
     extracted: list[dict], existing: list[dict], same_title: dict[str, list[dict]], settings: Settings, *,
     refs: "owner_identity.SelfReferences", owner_page_id: str | None, cancel_check: Callable[[], bool] | None = None,
@@ -1364,19 +1399,10 @@ async def _plan_same_name_people(
             name = str(entity.get("name") or "").strip()
             # 2026-11-24: a person written with a qualifier ("Nico (finance lead)") is a mention of the bare name too, as
             # long as the parenthesis is not a handle the record paired (G209) and the bare name is not the owner's.
-            qualified = same_name_people.stem_of(name) if _is_person(entity) else None
-            if qualified is not None and (person_leads.split_named_handle(name) is not None
-                                          or refs.is_speaker(qualified[0], entity.get("type"))
-                                          or [qualified[0].lower()] == [w.lower() for w in owner_first]):
+            if not episode_id or same_name_skip(name, entity, refs, owner_first) is not None:
                 continue
+            qualified = same_name_people.stem_of(name)
             stem = qualified[0] if qualified is not None else name
-            if (not episode_id or not _is_person(entity) or not same_name_people.is_bare(stem)
-                    or (qualified is None and not same_name_people.is_bare(name))
-                    or refs.is_speaker(name, entity.get("type")) or entity.get(promotion.LABEL_ONLY)
-                    or agent_engine.is_runtime_path(name) or entity.get(role_people.UNNAMED_KEY)
-                    or correspondents.from_mark(entity.get(correspondents.MARK)) is not None
-                    or contact_identity.card_of(entity) is not None):
-                continue
             key = same_name_people.mention_key(episode_id, name)
             held = mentions.setdefault(stem.lower(), {}).get(key)
             if held is None or len(same_name_people.describe(entity)) > len(same_name_people.describe(held)):

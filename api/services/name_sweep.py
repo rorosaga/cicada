@@ -1,62 +1,64 @@
-"""A one-time sweep for people a memory holds under a qualified name (G148, owner 2026-11-24): plan with a judge, apply with none.
+"""A one-time sweep for people a memory holds under a qualified name (G148, owner 2026-11-24): never a join, no model call.
 
 Before #846 a conversation naming two people of one first name ("Nico from work finally met my cousin Nico") left each
 waiting on a held line titled with the qualifier ("Nico (finance lead)"), never matched to the Nico who already has a
 page. #846 treats such a person as a mention of the bare name from now on; a line already held stays as it is.
 
-**Plan** (:func:`plan_line`, writes nothing): each held person line written ``Name (qualifier)`` is placed by the live
-module itself (`same_name_people.plan`, the small judge, the main model's second reading, the thin-description and
-same-conversation rules, run on the bank's own pages and lines exactly as Stage 2 gives them): to the plain person, to a
-person on record (a page or a held line), or to a person of its own held in doubt. Never a join on the name alone
-(ruling 74): when the plan finds no reading, or a person it cannot place, the line is **left as it is** and the row says so.
-A handle the record paired (``Full Name (handle)``), the owner's first name, a name of two words, a line the person said was
-not a page (`apart`), a message correspondent and anything that is not a person are never touched.
+**This is a repair of an old shape, not a second place where people get joined.** Sleep already has the machinery that
+joins two people of one name or keeps them apart, on located evidence, with two reads and an undo
+(`same_name_people`, `same_name_tend`, ruling 74a). The sweep only turns an old line into the shape Stage 2 writes today
+and lets that machinery decide later:
 
-**Apply** (:func:`apply_rows`, no model call) writes exactly the rows of a reviewed plan: the line's name becomes the page's
-or the bare name's (or a free ``<name>-2`` key for a person of its own with the bare name as its title, the pair recorded
-in doubt), the written name kept as an alias, its held claims re-pointed (`pending_store._repoint`) and the line's facts
-folded into the line it joins (`pending_store._carry`). The next Sleep releases a line's claims onto a page that bears its
-name, as it does for every held name (`pending_store.ready`). A row whose line changed since the plan is skipped and counted.
+* a line written ``Name (qualifier)`` becomes a person held under the bare name **as a second person in doubt**: a free
+  ``<name>-2`` key, the bare name as its title (`same_name_people.free_id`; ``entity_resolver._pending_line``'s own shape),
+  the written name kept as an alias, its held claims kept on its own id (`pending_store._repoint`), and a doubt recorded
+  against every page and every other held line that answers to the bare name, by name OR alias
+  (`entity_resolver._record_doubt_pairs`, the live writer);
+* only when nothing else in the bank answers to the bare name is the line simply renamed to the bare name, as Stage 2
+  sends a lone qualified mention (the written name kept as an alias).
 
-Pages titled with a qualifier are counted and listed, never changed: moving a page is the page join's, which has its own
-undo.
+It never renames a line onto a page's id, never merges two lines, never calls a model. Every exclusion Stage 2 applies
+before it treats a qualified name as a mention of the bare name is Stage 2's own function (`entity_resolver.same_name_skip`).
+
+**Plan** (:func:`plan_rows`, no model, writes nothing) shows every line: its own words, what it will be titled, and each page
+or line it will be held in doubt against, with that page's first summary sentence and status. **Apply**
+(:func:`apply_rows`) derives the plan again from the bank as it is now and writes a row only when it comes out the same
+(a hash over the line AND everything it is held against): anything that changed since the plan is skipped and counted.
+
+Pages titled with a qualifier are counted and listed, never changed: moving a page is the page join's, which has its own undo.
 """
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Awaitable, Callable
-
-from loguru import logger
 
 from api.services import (
-    entity_resolver, git_service, markdown_parser, pending_store, person_leads, same_name_doubts, same_name_people as snp,
+    agent_engine, entity_body, entity_resolver, markdown_parser, media_pages, owner_identity, pending_store,
+    people_directory, role_people, same_name_doubts, same_name_people as snp,
 )
-from api.services.claims import Claim
+from api.services.claims import Claim, strip_claims_block
 from api.services.id_utils import sanitize_id
 
 TRIGGER = "maintenance/name-sweep"
-VERSION = 1
-#: Lines one run may place (each is one judge call or more); the rest wait for another run.
-MAX_LINES = 40
+VERSION = 2
+RENAME, HOLD, LEAVE = "rename_bare", "hold_in_doubt", "leave"
+#: The two files a name row writes. Apply refuses a bank where either has uncommitted changes (never swept in).
+FILES = (pending_store.PENDING_STORE_FILE, same_name_doubts.FILE)
 
-
-class EngineDown(RuntimeError):
-    """The engine failed several calls in a row: stop, the run resumes."""
-
-
-@dataclass
-class Meter:
-    small: int = 0
-    strong: int = 0
-    failed: int = 0
-
-    @property
-    def total(self) -> int:
-        return self.small + self.strong
+_WHY = {
+    "handle": "a handle the record paired",
+    "speaker": "a self-reference",
+    "owner_first_name": "the owner's first name",
+    "not_bare": "not one bare name",
+    "label_only": "a label, not a person",
+    "runtime_path": "a runtime path",
+    "unnamed": "a person known only by a relation",
+    "correspondent": "a message correspondent",
+    "address_book_card": "an address-book card",
+}
 
 
 # --------------------------------------------------------------------------- reading the bank
@@ -69,10 +71,32 @@ class Bank:
     owner_id: str | None = None
     owner_name: str = ""
     path: Path | None = None
+    refs: object = None
+    open_questions: set = field(default_factory=set)
 
     @property
-    def owner_first(self) -> str:
-        return (self.owner_name.split() or [""])[0].lower()
+    def owner_first(self) -> list[str]:
+        return self.owner_name.split()[:1]
+
+
+def _open_question_names(bank: Path) -> set[str]:
+    """What an open inbox question names (an entity id or a name, lower case): a line a question is about is left alone."""
+    out: set[str] = set()
+    folder = Path(bank) / "inbox"
+    for path in sorted(folder.glob("*.md")) if folder.is_dir() else []:
+        try:
+            fm = markdown_parser.parse(path).frontmatter or {}
+        except Exception:  # noqa: BLE001
+            continue
+        if str(fm.get("status") or "pending") in ("resolved", "answered", "dismissed", "done"):
+            continue
+        for key in ("entity_id", "entity_name", "name", "merge_target_hint"):
+            if fm.get(key):
+                out.add(str(fm[key]).strip().lower())
+        for key in ("covered", "entity_ids", "pages"):
+            for item in fm.get(key) or []:
+                out.add(str(item.get("entity_id") if isinstance(item, dict) else item).strip().lower())
+    return out
 
 
 def load(bank: Path) -> Bank:
@@ -82,10 +106,12 @@ def load(bank: Path) -> Bank:
             parsed = markdown_parser.parse(path)
         except Exception:  # noqa: BLE001 - an unreadable page is left alone
             continue
-        fm = parsed.frontmatter or {}
-        out.pages.append({"id": path.stem, "frontmatter": fm, "body": parsed.body})
-        if fm.get("owner") and out.owner_id is None:
-            out.owner_id, out.owner_name = path.stem, str(fm.get("name") or "")
+        out.pages.append({"id": path.stem, "frontmatter": parsed.frontmatter or {}, "body": parsed.body})
+    out.owner_id = owner_identity.owner_page_id(out.pages, Path(bank), None)
+    owner = next((p for p in out.pages if p["id"] == out.owner_id), None)
+    out.owner_name = str(((owner or {}).get("frontmatter") or {}).get("name") or "")
+    out.refs = owner_identity.self_references(out.pages, None, Path(bank), None)
+    out.open_questions = _open_question_names(bank)
     return out
 
 
@@ -97,162 +123,237 @@ def qualified_pages(bank: Bank) -> list[str]:
             and snp.stem_of(str(p["frontmatter"].get("name") or "")) is not None]
 
 
-def candidates(bank: Bank) -> tuple[list, dict[str, int]]:
-    """The held person lines written with a qualifier, and the ones left alone with why (counts)."""
-    out, left = [], {}
-    for line in bank.lines:
-        stem = snp.stem_of(line.name) if line.type == "person" else None
-        if stem is None:
+def _fold(text) -> str:
+    return people_directory.fold(text)
+
+
+def _sentence(text: str, limit: int = 240) -> str:
+    text = " ".join(str(text or "").split())
+    m = re.match(r"(.+?[.!?])(\s|$)", text)
+    return (m.group(1) if m else text)[:limit]
+
+
+def _page_says(page: dict) -> str:
+    body = strip_claims_block(page.get("body") or "")
+    summary = entity_body.parse_sections(body).get("Summary") or ""
+    if not summary.strip():
+        summary = next((ln for ln in body.splitlines() if ln.strip() and not ln.lstrip().startswith("#")), "")
+    return _sentence(summary)
+
+
+def _line_says(line) -> str:
+    return _sentence(line.summary or line.description or (line.key_facts[0] if line.key_facts else ""))
+
+
+# --------------------------------------------------------------------------- who answers to a bare name
+
+
+@dataclass(frozen=True)
+class Against:
+    """A person (or a thing) that answers to the bare name, as the review shows it and the binding hash sees it."""
+
+    kind: str          # "page" | "line"
+    ref: str           # the page's id, the line's name
+    name: str          # how it is titled
+    status: str
+    says: str          # its first summary sentence
+    how: str           # "name", "alias", "id" or "same name, written with a qualifier"
+    fingerprint: str
+
+    def to_dict(self) -> dict:
+        return {"kind": self.kind, "ref": self.ref, "name": self.name, "status": self.status, "says": self.says, "how": self.how}
+
+
+def _digest(*parts) -> str:
+    return hashlib.sha256(json.dumps(parts, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
+
+
+def _page_against(page: dict, how: str) -> Against:
+    fm = page["frontmatter"]
+    status = str(fm.get("status") or "active")
+    says = _page_says(page)
+    aliases = sorted(str(a) for a in fm.get("aliases") or [])
+    return Against("page", page["id"], str(fm.get("name") or page["id"]), status, says, how,
+                   _digest("page", page["id"], fm.get("name"), aliases, fm.get("type"), status, bool(fm.get("owner")), says))
+
+
+def _line_against(line, how: str) -> Against:
+    says = _line_says(line)
+    return Against("line", line.name, line.title or line.name, "held (below the bar)", says, how,
+                   _digest("line", line.name, line.title, sorted(line.aliases), line.type, line.episodes(), says))
+
+
+def answering(bank: Bank, stem: str, group: set[str]) -> list[Against] | None:
+    """Everything in the bank that answers to the bare name ``stem`` (a person or owner page by title, alias or id; a held
+    line by name, title, alias or key; a held line written with a qualifier of the same bare name that this sweep leaves
+    alone), except the lines in ``group``. ``None`` when the name is not for this rule: the owner's page, a nickname or a
+    relation bears it, or a page that is not a person holds its key. The live rule's own read decides the title case
+    (`entity_resolver._same_name_identities`)."""
+    low, slug, folded = stem.lower(), sanitize_id(stem), _fold(stem)
+    out: list[Against] = []
+    same_title = [p for p in bank.pages if str(p["frontmatter"].get("name") or "").lower() == low
+                  and str(p["frontmatter"].get("status") or "") != "dropped"
+                  and not agent_engine.is_runtime_path(str(p["frontmatter"].get("name") or ""))]
+    others = [ln for ln in bank.lines if ln.name not in group]
+    if entity_resolver._same_name_identities(low, same_title, others, bank.owner_id, bank.path) is None:
+        return None
+    for page in bank.pages:
+        fm = page["frontmatter"]
+        if str(fm.get("status") or "") == "dropped" or media_pages.is_file_page(fm):
             continue
-        why = None
-        if person_leads.split_named_handle(line.name) is not None:
-            why = "a handle the record paired"
-        elif stem[0].lower() == bank.owner_first:
-            why = "the owner's first name"
-        elif line.correspondent or line.apart:
-            why = "a correspondent, or the person said it is not a page"
-        if why:
-            left[why] = left.get(why, 0) + 1
+        name = str(fm.get("name") or "")
+        aliases = {_fold(a) for a in fm.get("aliases") or [] if str(a).strip()}
+        how = ("name" if name.lower() == low else "alias" if folded in aliases else "id" if page["id"] == slug else "")
+        if not how:
+            continue
+        if fm.get("owner") or fm.get(role_people.NICKNAME_KEY) or fm.get(role_people.UNNAMED_KEY) or page["id"] == bank.owner_id:
+            return None
+        if str(fm.get("type") or "").lower() != "person":
+            return None   # a page of another kind holds the key: not for a person line to sit beside
+        out.append(_page_against(page, how))
+    for line in others:
+        if line.type != "person":
+            continue
+        qualified = snp.stem_of(line.name)
+        aliases = {_fold(a) for a in line.aliases if str(a).strip()}
+        if line.name.lower() == low or sanitize_id(line.name) == slug:
+            how = "name"
+        elif (line.title or "").lower() == low:
+            how = "title"
+        elif folded in aliases:
+            how = "alias"
+        elif qualified is not None and qualified[0].lower() == low:
+            how = "same name, written with a qualifier"
         else:
-            out.append(line)
-    return out, left
+            continue
+        out.append(_line_against(line, how))
+    return sorted(out, key=lambda a: (a.kind, a.ref))
 
 
-def line_state(line) -> str:
-    return hashlib.sha256(json.dumps(line.to_dict(), sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
+# --------------------------------------------------------------------------- the lines
 
 
-def mention_for(line, plain_episodes: frozenset[str]) -> snp.Mention:
+def skip_reason(bank: Bank, line) -> str | None:
+    """Why a held line written with a qualifier is not swept (``None``: it is). Stage 2's own exclusions first."""
+    if line.type != "person":
+        return "not a person"
     stem = snp.stem_of(line.name)
-    day = next((str(h.get("timestamp") or h.get("day") or "")[:10] for h in line.heard_in if h.get("episode") == line.source_episode),
-               "")
-    text = snp.describe({"name": line.name, "summary": line.summary or line.description, "key_facts": line.key_facts,
-                         "source_episode_timestamp": day})
-    return snp.Mention(snp.mention_key(line.source_episode, line.name), text, line.source_episode, True,
-                       line.source_episode in plain_episodes)
+    if stem is None:
+        return "not written with a qualifier"
+    why = entity_resolver.same_name_skip(line.name, {"type": line.type, "name": line.name}, bank.refs, bank.owner_first)
+    if why is not None:
+        return _WHY.get(why, why)
+    if bank.owner_first and _fold(stem[0]) == _fold(bank.owner_first[0]):
+        return _WHY["owner_first_name"]
+    if line.correspondent:
+        return _WHY["correspondent"]
+    if line.apart:
+        return "the person said it is not a page"
+    if {sanitize_id(line.name), line.name.lower(), sanitize_id(line.name).lower()} & bank.open_questions:
+        return "an open question names it (answer or dismiss that first)"
+    return None
 
 
 def census(bank: Bank) -> dict:
-    cands, left = candidates(bank)
-    names = {snp.stem_of(c.name)[0].lower() for c in cands}
-    return {"lines": len(cands), "bare_names": len(names), "left_alone_by_reason": dict(sorted(left.items())),
-            "pages_titled_with_a_qualifier": len(qualified_pages(bank)),
-            "most_calls_possible": 2 * len(names)}
+    left: dict[str, int] = {}
+    swept = 0
+    for line in bank.lines:
+        if line.type == "person" and snp.stem_of(line.name) is not None:
+            why = skip_reason(bank, line)
+            if why:
+                left[why] = left.get(why, 0) + 1
+            else:
+                swept += 1
+    return {"lines": swept, "left_alone_by_reason": dict(sorted(left.items())),
+            "pages_titled_with_a_qualifier": len(qualified_pages(bank))}
 
 
-# --------------------------------------------------------------------------- the plan
+def _day(line) -> str:
+    days = [str(h.get("day") or h.get("timestamp") or "")[:10] for h in line.heard_in if isinstance(h, dict)]
+    days = [d for d in days if d]
+    if not days and line.source_episode.startswith("ep_"):
+        days = [line.source_episode[3:13]]
+    return min(days) if days else ""
 
 
-def recorder(ask: Callable[[str, str], object], meter: Meter, kind: str, said: list) -> Callable[[str, str], Awaitable[object]]:
-    async def call(system: str, prompt: str) -> object:
-        setattr(meter, kind, getattr(meter, kind) + 1)
-        try:
-            reply = await asyncio.to_thread(ask, system, prompt)
-        except Exception as exc:  # noqa: BLE001
-            meter.failed += 1
-            logger.info(f"name sweep: a call failed ({type(exc).__name__})")
-            if meter.failed >= 3:
-                raise EngineDown(type(exc).__name__) from exc
-            raise
-        meter.failed = 0
-        said.append(reply)
-        return reply
-    return call
-
-
-def _reasons(said: list) -> list[str]:
-    out = []
-    for reply in said:
-        if not isinstance(reply, dict):
+def plan_rows(bank: Bank) -> list[dict]:
+    """The row of every held person line written with a qualifier: what it will be, and what it is held against. No model."""
+    rows: list[dict] = []
+    by_stem: dict[str, list] = {}
+    for line in bank.lines:
+        if line.type == "person" and snp.stem_of(line.name) is not None:
+            by_stem.setdefault(snp.stem_of(line.name)[0].lower(), []).append(line)
+    taken = {sanitize_id(ln.name) for ln in bank.lines} | {p["id"] for p in bank.pages}
+    for low, lines in sorted(by_stem.items()):
+        stem = snp.stem_of(lines[0].name)[0]
+        group = sorted((ln for ln in lines if skip_reason(bank, ln) is None), key=lambda ln: (_day(ln), ln.name))
+        for line in lines:
+            why = skip_reason(bank, line)
+            if why is not None:
+                rows.append(_row(line, LEAVE, f"left as it is: {why}"))
+        if not group:
             continue
-        for key in ("people", "pairs"):
-            for item in reply.get(key) or []:
-                if isinstance(item, dict) and item.get("reason"):
-                    out.append(str(item["reason"]))
-    return out
-
-
-def identities_for(bank: Bank, stem: str, exclude: set[str]) -> list | None:
-    """The people on record under the bare name, as Stage 2 gives them to the judge (`entity_resolver`'s own builder);
-    ``None`` when the name is not for this rule (the owner's page, a nickname or a relation bears it)."""
-    low = stem.lower()
-    pages = [p for p in bank.pages if str(p["frontmatter"].get("name") or "").lower() == low
-             and str(p["frontmatter"].get("status") or "") != "dropped"]
-    lines = [ln for ln in bank.lines if ln.name not in exclude]
-    return entity_resolver._same_name_identities(low, pages, lines, bank.owner_id, bank.path)
-
-
-def action_of(dest: snp.Destination, identities: list) -> tuple[str, str]:
-    """``(action, target)``: what applying a destination does to the line."""
-    if dest.kind == "new":
-        return "new_person", ""
-    if dest.kind == "plain":
-        plain = next((i for i in identities if i.plain), None)
-        if plain is None:
-            return "rename_bare", ""
-        return ("to_page" if plain.kind == "page" else "merge_line"), plain.ref
-    return ("to_page" if dest.kind == "page" else "merge_line"), dest.ref
-
-
-async def plan_name(bank: Bank, stem: str, lines: list, small: Callable, strong: Callable, meter: Meter) -> list[dict]:
-    """The rows of every swept line that is written with this bare name: placed together, as Stage 2 places the mentions of
-    one name in one batch."""
-    identities = identities_for(bank, stem, {ln.name for ln in lines})
-    base = {"v": VERSION, "pass": "names", "stem": stem, "strike": False}
-    if identities is None:
-        return [{**base, "line": ln.name, "state": line_state(ln), "action": "leave",
-                 "reason": "the owner's page, a nickname or a relation bears this name"} for ln in lines]
-    plain_eps = next((i.episodes for i in identities if i.plain), frozenset())
-    mentions = [mention_for(ln, plain_eps) for ln in lines]
-    said: list = []
-    if not identities and len(mentions) == 1:
-        moves, called, flagged = {mentions[0].episode: snp.Destination("plain", "")}, False, set()
-    else:
-        # `_plan`, not `plan`: `plan` ends by sending every qualified mention nothing placed to the bare name (right for a
-        # new mention, which was always the bare name's), and that is a join on the name alone (ruling 74). A line the
-        # reader placed nowhere stays as it is, and the row says so.
-        outcome = await snp._plan(stem, mentions, identities, recorder(small, meter, "small", said),
-                                  recorder(strong, meter, "strong", said), bank.owner_name or None)
-        moves, called, flagged = outcome.moves, outcome.called, set(outcome.review_pages)
-    compared = [sanitize_id(i.ref) for i in identities[: snp.MAX_IDENTITIES]]
-    rows = []
-    for line, mention in zip(lines, mentions):
-        dest = moves.get(mention.episode)
-        row = {**base, "line": line.name, "state": line_state(line), "episodes": line.episodes(),
-               "facts": len(line.key_facts), "held_claims": len(line.held_claims),
-               "text": mention.text, "alias": line.name, "judge_said": _reasons(said) if called else []}
-        if dest is None:
-            rows.append({**row, "action": "leave", "reason": "the reader placed it nowhere (a thin description, no usable reading, or only the name to go on)"})
+        found = answering(bank, stem, {ln.name for ln in group})
+        if found is None:
+            for line in group:
+                rows.append(_row(line, LEAVE, "left as it is: the owner's page, a nickname, a relation or a page that is not a "
+                                              "person bears this name"))
             continue
-        action, target = action_of(dest, identities)
-        if target and target in flagged:
-            rows.append({**row, "action": "leave", "reason": f"the reading also says the page {target} holds two people already: "
-                         "joining a line to it would add to that; look at the page first (Sleep's same-name review)"})
+        if not found and len(group) == 1:
+            line = group[0]
+            slug = sanitize_id(stem)
+            rows.append({**_row(line, RENAME, ""), "new_name": stem, "state": _digest(line.to_dict(), [], slug)})
             continue
-        if mention.no_rename and action in ("to_page", "merge_line") and any(i.plain and i.ref == target for i in identities):
-            rows.append({**row, "action": "leave", "reason": "its own conversation also names the bare name's person, so it is "
-                         "another person than that one: never joined to it on a reading of its description"})
-            continue
-        rows.append({**row, "action": action, "target": target, "doubt": dest.doubt, "compared": compared,
-                     "destination": f"{dest.kind}:{dest.ref}"})
+        siblings = {ln.name: _line_against(ln, "same name, written with a qualifier") for ln in group}
+        ids: dict[str, str] = {}
+        for line in group:
+            new_id = snp.free_id(sanitize_id(stem), taken)
+            taken.add(new_id)
+            ids[line.name] = new_id
+        for line in group:
+            against = [*found, *(a for name, a in siblings.items() if name != line.name)]
+            rows.append({**_row(line, HOLD, ""), "new_id": ids[line.name], "title": stem,
+                         "against": [a.to_dict() for a in against],
+                         "also_new": sorted(i for n, i in ids.items() if n != line.name),
+                         "state": _digest(line.to_dict(), [a.fingerprint for a in against], ids[line.name])})
     return rows
 
 
+def _row(line, action: str, reason: str) -> dict:
+    return {"v": VERSION, "pass": "names", "line": line.name, "strike": False, "action": action, "reason": reason,
+            "alias": line.name, "says": _line_says(line), "facts": len(line.key_facts), "held_claims": len(line.held_claims),
+            "episodes": line.episodes(), "state": _digest(line.to_dict()), "against": []}
+
+
 def review_text(rows: list[dict]) -> str:
-    lines: list[str] = []
-    for row in sorted(rows, key=lambda r: (r.get("action") == "leave", str(r.get("line")))):
-        lines.append(f"## {row['line']}  -> {row['action']}" + (f" {row.get('target')}" if row.get("target") else "")
-                     + ("  (held in doubt)" if row.get("doubt") else "") + ("  [STRUCK]" if row.get("strike") else ""))
-        if row.get("text"):
-            lines.append(f"    this line says: {row['text']}")
-        lines.append(f"    holds {row.get('facts', 0)} fact(s), {row.get('held_claims', 0)} held claim(s), "
-                     f"conversations {', '.join(row.get('episodes') or [])}")
-        for text in row.get("judge_said") or []:
-            lines.append(f"    reader: {text}")
+    out: list[str] = []
+    order = {HOLD: 0, RENAME: 1, LEAVE: 2}
+    for row in sorted(rows, key=lambda r: (order.get(r["action"], 3), str(r.get("line")))):
+        head = f"## {row['line']}"
+        if row["action"] == HOLD:
+            head += f"  -> held under the name \"{row['title']}\" as a second person in doubt (key {row['new_id']})"
+        elif row["action"] == RENAME:
+            head += f"  -> renamed to \"{row['new_name']}\": nobody else in the bank answers to that name"
+        else:
+            head += "  -> left as it is"
+        out.append(head + ("  [STRUCK]" if row.get("strike") else ""))
+        out.append(f"    this line says: {row.get('says') or '(nothing recorded)'}")
+        out.append(f"    holds {row.get('facts', 0)} fact(s), {row.get('held_claims', 0)} held claim(s), "
+                   f"conversations {', '.join(row.get('episodes') or []) or '(none)'}")
+        if row["action"] == HOLD:
+            out.append(f"    the written name \"{row['alias']}\" stays as an alias; its claims stay on {row['new_id']}")
+            out.append("    held in doubt against (Sleep decides later; nothing is joined here):")
+            for a in row.get("against") or []:
+                out.append(f"      - {a['kind']} {a['ref']} \"{a['name']}\" [{a['status']}] answers by {a['how']}: "
+                           f"{a.get('says') or '(nothing recorded)'}")
+            for other in row.get("also_new") or []:
+                out.append(f"      - the other line(s) of this name made a second person now: {other}")
+        elif row["action"] == RENAME:
+            out.append(f"    the written name \"{row['alias']}\" stays as an alias; nothing else answers to the bare name")
         if row.get("reason"):
-            lines.append(f"    left as it is: {row['reason']}")
-        lines.append("")
-    return "\n".join(lines)
+            out.append(f"    {row['reason']}")
+        out.append("")
+    return "\n".join(out)
 
 
 # --------------------------------------------------------------------------- apply
@@ -264,13 +365,26 @@ class Result:
     applied: dict[str, int] = field(default_factory=dict)
     skipped: dict[str, int] = field(default_factory=dict)
     paths: list = field(default_factory=list)
+    pairs: list = field(default_factory=list)
 
     def skip(self, why: str) -> None:
         self.skipped[why] = self.skipped.get(why, 0) + 1
 
     def counts(self) -> dict:
         return {"lines_in_plan": self.rows, "applied": dict(sorted(self.applied.items())),
-                "skipped": dict(sorted(self.skipped.items()))}
+                "skipped": dict(sorted(self.skipped.items())), "doubt_pairs": len(self.pairs)}
+
+
+def dirty_files(bank_path) -> frozenset[str] | None:
+    """The files a name row writes that have uncommitted changes; ``None`` when git cannot say (no repository)."""
+    from api.services import git_service
+
+    if not (Path(bank_path) / ".git").exists():
+        return None
+    try:
+        return frozenset(p for p in git_service.dirty_paths_sync(Path(bank_path), *FILES) if p in FILES)
+    except git_service.GitError:
+        return None
 
 
 def _aliases(line, *extra: str) -> list[str]:
@@ -292,101 +406,86 @@ def _repointed(line, target_slug: str) -> list[dict]:
     return [c.to_dict() for c in pending_store._repoint(claims, sanitize_id(line.name), target_slug)]
 
 
-def apply_rows(bank_path_: Path, rows: list[dict], *, skip_lines=(), check: bool = False) -> Result:
-    """Write the reviewed rows onto the pending store (and the doubt pairs of a person of its own). The caller holds the
-    bank's admission and lock and commits ``Result.paths``."""
-    bank_path_ = Path(bank_path_)
+def apply_rows(bank_path, rows: list[dict], *, skip_lines=(), check: bool = False, remember=lambda path: None) -> Result:
+    """Write the reviewed rows onto the pending store and record the doubts (the caller holds the bank's admission and
+    lock, refuses a bank with a dirty store, and commits ``Result.paths``). The plan is derived again from the bank as it
+    is now: a row whose line, or anything the line is held against, differs from the plan's is skipped and counted.
+    ``remember(path)`` is told each file before it is first written (the caller's way back from a failure)."""
+    bank_path = Path(bank_path)
     result = Result()
-    entries = pending_store.load(bank_path_)
-    bank = load(bank_path_)
-    pairs: list[tuple[str, str]] = []
-    changed = False
+    skip = set(skip_lines)
+    now = {r["line"]: r for r in plan_rows(load(bank_path))}
+    entries = pending_store.load(bank_path)
+    changed, pairs, applied_ids = False, [], {}
+    wanted = []
     for row in rows:
         result.rows += 1
-        action = row.get("action")
-        if row.get("strike") or row.get("line") in set(skip_lines):
+        if row.get("strike") or row.get("line") in skip:
             result.skip("struck")
-            continue
-        if action not in ("rename_bare", "to_page", "merge_line", "new_person"):
+        elif row.get("action") not in (RENAME, HOLD):
             result.skip("left_alone")
+        else:
+            wanted.append(row)
+    for row in wanted:
+        fresh = now.get(row["line"])
+        if fresh is None:
+            result.skip("line_missing")
             continue
-        line = next((e for e in entries if e.name == row.get("line")), None)
+        if fresh["action"] != row["action"] or fresh["state"] != row.get("state") or fresh.get("new_id") != row.get("new_id"):
+            result.skip("changed_since_plan")
+            continue
+        line = next((e for e in entries if e.name == row["line"]), None)
         if line is None:
             result.skip("line_missing")
             continue
-        if line_state(line) != row.get("state"):
-            result.skip("changed_since_plan")
-            continue
-        stem = snp.stem_of(line.name)
-        if stem is None or line.type != "person":
+        written, stem = line.name, snp.stem_of(line.name)
+        if stem is None:
             result.skip("not_qualified")
             continue
-        names = {e.name.lower(): e for e in entries if e is not line}
-        pages = {p["id"]: p for p in bank.pages}
-        written, slug = line.name, sanitize_id(stem[0])
-        old = sanitize_id(line.name)
-        target = str(row.get("target") or "")
-        if action == "rename_bare":
-            if slug in pages or stem[0].lower() in names or any(sanitize_id(n) == slug for n in names):
-                result.skip("target_appeared")
-                continue
+        if fresh["action"] == RENAME:
+            slug = sanitize_id(stem[0])
             line.held_claims = _repointed(line, slug)
             line.name = stem[0]
             line.aliases = _aliases(line, written)
-        elif action == "to_page":
-            page = pages.get(target)
-            if page is None or str(page["frontmatter"].get("type") or "").lower() != "person":
-                result.skip("page_gone")
-                continue
-            title = str(page["frontmatter"].get("name") or target)
-            new_name = title if sanitize_id(title) == target else target
-            if new_name.lower() in names:
-                result.skip("target_appeared")
-                continue
-            line.held_claims = _repointed(line, target)
-            line.name = new_name
-            line.aliases = _aliases(line, written)
-            line.title = title if new_name != title else ""
-        elif action == "merge_line":
-            into = names.get(target.lower())
-            if into is None or into.type != "person":
-                result.skip("line_gone")
-                continue
-            moving = pending_store.PendingEntity.from_dict(line.to_dict())
-            moving.held_claims = _repointed(line, sanitize_id(into.name))
-            moving.aliases = _aliases(moving, written)
-            held = pending_store._merged(moving.held_claims, into.held_claims)
-            pending_store._carry(moving, into)
-            into.held_claims = held
-            into.aliases = _aliases(into, *moving.aliases)
-            entries = [e for e in entries if e is not line]
-            result.applied[action] = result.applied.get(action, 0) + 1
-            changed = True
-            continue
-        else:   # new_person
-            taken = {sanitize_id(e.name) for e in entries} | set(pages)
-            new_id = snp.free_id(slug, taken)
+        else:
+            new_id = fresh["new_id"]
             line.held_claims = _repointed(line, new_id)
             line.name = new_id
             line.aliases = _aliases(line, written)
             line.title = stem[0]
-            others = {slug, *(str(c) for c in row.get("compared") or [])} - {new_id}
-            for other in sorted(others):
-                pairs.append((new_id, other))
-        result.applied[action] = result.applied.get(action, 0) + 1
+            applied_ids[written] = (new_id, fresh)
+        result.applied[fresh["action"]] = result.applied.get(fresh["action"], 0) + 1
         changed = True
+    for written, (new_id, fresh) in applied_ids.items():
+        # Against every page and line that answers to the bare name (a line still written with a qualifier is either made a
+        # second person by this same run, below, or left as it is: no pair is held against its old key), the bare name's
+        # own key, and every other line this run made a second person.
+        against = {sanitize_id(a["ref"]) for a in fresh.get("against") or []
+                   if not (a["kind"] == "line" and snp.stem_of(a["ref"]) is not None)}
+        against.add(sanitize_id(snp.stem_of(written)[0]))
+        against |= {i for w, (i, _f) in applied_ids.items() if w != written}
+        pairs += [tuple(sorted((new_id, other))) for other in sorted(against) if other != new_id]
+    result.pairs = sorted(set(pairs))
     if changed and not check:
-        pending_store.save(bank_path_, entries)
+        before = same_name_doubts_bytes(bank_path)
+        remember(bank_path / pending_store.PENDING_STORE_FILE)
+        pending_store.save(bank_path, entries)
         result.paths.append(pending_store.PENDING_STORE_FILE)
-        if pairs:
-            doubt = [p for p in pairs]
-            if same_name_doubts.add_pairs(bank_path_, doubt):
+        if result.pairs:
+            remember(bank_path / same_name_doubts.FILE)
+            entity_resolver._record_doubt_pairs(bank_path, result.pairs)   # the live writer: records and flags
+            if same_name_doubts_bytes(bank_path) != before:
                 result.paths.append(same_name_doubts.FILE)
     return result
 
 
+def same_name_doubts_bytes(bank_path) -> bytes | None:
+    path = Path(bank_path) / same_name_doubts.FILE
+    return path.read_bytes() if path.is_file() else None
+
+
 def commit_message(result: Result) -> tuple[str, list[str]]:
     n = sum(result.applied.values())
-    return (f"People held under a qualified name placed: {n} line(s)",
-            [f"{rel}: a held person written \"Name (qualifier)\" placed as a mention of the bare name (trigger: {TRIGGER})"
-             for rel in result.paths])
+    return (f"People held under a qualified name turned into the shape Sleep writes today: {n} line(s)",
+            [f"{rel}: a held person written \"Name (qualifier)\" held as a second person in doubt, or renamed to the bare "
+             f"name when nobody else answers to it; nothing joined (trigger: {TRIGGER})" for rel in result.paths])
