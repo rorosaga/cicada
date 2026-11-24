@@ -513,11 +513,28 @@ def test_find_with_no_kind_never_asks_for_pictures(env, monkeypatch, capsys):
     assert code == 0 and asked[-1] == ["image"]
 
 
+def test_read_daily_prints_one_shell_line_and_starts_nothing(env, capsys):
+    """G245 (owner 2026-11-24, answer 6): one line for the person's own scheduler, the prompt as one quoted word, none of
+    Cicada's flags. Nothing starts, schedules or times anything; `--prompt` and `--program` change only what is printed."""
+    import shlex
+
+    from api.services import reading_prompt
+
+    code, out = _run(["read", "daily"], capsys)
+    assert code == 0 and "\n" not in out["text"].strip()
+    assert shlex.split(out["text"]) == ["claude", "-p", reading_prompt.daily_prompt()]
+    assert out["data"]["command"] == out["text"]
+    code, out = _run(["read", "daily", "--prompt"], capsys)
+    assert code == 0 and out["text"] == reading_prompt.daily_prompt()
+    code, out = _run(["read", "daily", "--program", "my-app run"], capsys)
+    assert code == 0 and shlex.split(out["text"])[:2] == ["my-app", "run"]
+
+
 def test_bank_reads_never_call_the_backend(env, monkeypatch, capsys):
     with _backend(env, monkeypatch) as server:
         for argv in (["page", "list"], ["graph"], ["inbox", "all"], ["bank", "list"], ["feed", "list"],
                      ["sleep", "history"], ["page", "history", "alpha-project"], ["coverage", "pictures"],
-                     ["coverage", "sources", "--ids"]):
+                     ["coverage", "sources", "--ids"], ["read", "daily"]):
             code, out = _run(argv, capsys)
             assert code == 0, (argv, out)
     assert server.seen == []

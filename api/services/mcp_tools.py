@@ -802,7 +802,7 @@ _READING_OFF = ("Agent reading is off: the person has not turned on \"Let an age
                 "Cicada's settings, so nothing is waiting and nothing can be recorded.")
 
 
-def reading_queue(ctx: ToolContext, limit=None) -> str:
+def reading_queue(ctx: ToolContext, limit=None, unattended=False) -> str:
     """``cicada_reading_queue`` (G166, spec \u00a78.4): the links waiting for an agent to
     read, the person's own asks first (oldest first), then saved pages of sites
     they allowed.
@@ -823,13 +823,21 @@ def reading_queue(ctx: ToolContext, limit=None) -> str:
 
     Cost: the site part needs every page's frontmatter, so the first call in a process is a cold
     parse of the bank (seconds on a large one) unless the connect-time warm (``mcp/server.py``) has
-    finished; later calls answer from the cached pages."""
+    finished; later calls answer from the cached pages.
+
+    ``unattended`` (G245, owner 2026-11-24): the person's own scheduler runs their AI app on the prompt of
+    ``reading_prompt.daily_prompt`` with nobody watching. The reply is then the browser lists that are due and nothing
+    else (never a link, an ask, a wall page or a source to check), offered by each source's unattended rules: never a
+    list not yet read to its end, never an accounts list, a timeline last. It changes nothing else: Cicada starts no
+    one, and the same tools record the same way."""
     from api.services import agent_methods, media_ingestor, reading_hosts
     from api.services import reading_queue as queue
 
     memory_path = ctx.memory_path()
     if not reading_settings_enabled():
         return _READING_OFF
+    if unattended is True:
+        return _due_lists_reply(ctx, memory_path)
     try:
         n = max(1, min(int(limit) if limit is not None else MAX_QUEUE_ROWS, MAX_QUEUE_ROWS))
     except (TypeError, ValueError):
@@ -873,23 +881,7 @@ def reading_queue(ctx: ToolContext, limit=None) -> str:
             has_why = True
             why_part = f" \u2014 saved because: {e.why}"
         rows.append(f"{len(rows) + 1}. {e.url} ({reading_hosts.display_host(e.host)}, {how}){title_part}{why_part}")
-    # G71 (2026-10-16): the YouTube lists the person asked their agent to keep current, when due. Stdio only — the
-    # record tool is never remote (`catalog.NEVER_REMOTE`).
-    from api.services import youtube_lists
-
-    yt_lines = ([] if ctx.is_remote else
-                youtube_lists.queue_lines(memory_path, can_record=ctx.can("cicada_record_youtube_list")))
-    # G206 (2026-10-22): a saved list on X, Instagram or LinkedIn the person turned on, the same way and seat.
-    from api.services import saved_lists
-
-    if not ctx.is_remote:
-        yt_lines += saved_lists.queue_lines(memory_path, can_record=ctx.can("cicada_record_saved_list"))
-    # G89 (2026-11-04): a Substack list the person turned on — only when no other site's list is due (one at a time).
-    from api.services import substack_lists
-
-    if not ctx.is_remote:
-        yt_lines += substack_lists.queue_lines(memory_path, can_record=ctx.can("cicada_record_substack_list"))
-    yt_text = "\n".join(yt_lines)
+    yt_text = "\n".join(_list_lines(ctx, memory_path))
     if not rows:
         return yt_text or "Nothing is waiting: no link is waiting for an agent to read right now."
     from api.services import handshake
@@ -928,6 +920,38 @@ def reading_queue(ctx: ToolContext, limit=None) -> str:
     tail = (f"\n{held_back} more link(s) are waiting; call again after you finish these."
             if held_back else "")
     return head + "\n" + "\n".join(rows) + tail + (f"\n\n{yt_text}" if yt_text else "")
+
+
+def _list_lines(ctx: ToolContext, memory_path: Path, *, unattended: bool = False) -> list[str]:
+    """The browser lists due, in the queue's words. Stdio only: the record tools are never remote
+    (`catalog.NEVER_REMOTE`). G71 (2026-10-16) the YouTube lists; G206 (2026-10-22) a saved list on X, Instagram or
+    LinkedIn the person turned on; G89 (2026-11-04) a Substack list, only when no other site's list is due (one at a
+    time). ``unattended`` is each source's rules for a read nobody watches."""
+    if ctx.is_remote:
+        return []
+    from api.services import saved_lists, substack_lists, youtube_lists
+
+    return (youtube_lists.queue_lines(memory_path, can_record=ctx.can("cicada_record_youtube_list"),
+                                      unattended=unattended)
+            + saved_lists.queue_lines(memory_path, can_record=ctx.can("cicada_record_saved_list"),
+                                      unattended=unattended)
+            + substack_lists.queue_lines(memory_path, can_record=ctx.can("cicada_record_substack_list"),
+                                         unattended=unattended))
+
+
+#: The reading queue's answer to a read nobody watches, when no list is due: the agent's cue to stop.
+NOTHING_DUE = ("Nothing is due: no list is waiting for a read nobody watches (a list not yet read to its end, or one "
+               "that is paused, off or read lately waits for the person). Stop: your run is finished.")
+#: First line of an unattended offer: the rules travel with the list, in case the agent was given no prompt.
+UNATTENDED_HEAD = ("This read is unattended. Scroll and read only: never click anything that changes anything, never "
+                   "type into a page, never sign in. On a login wall, a block or a refusal (a record that says Sleep is "
+                   "reading, or any tool or permission that says no), record it if you can and stop the run: do not "
+                   "retry. Close every tab or window you opened.")
+
+
+def _due_lists_reply(ctx: ToolContext, memory_path: Path) -> str:
+    lines = _list_lines(ctx, memory_path, unattended=True)
+    return NOTHING_DUE if not lines else UNATTENDED_HEAD + "\n" + "\n".join(lines)
 
 
 _CHECKS_BY_SESSION: dict[str, int] = {}

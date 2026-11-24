@@ -29,6 +29,7 @@ agent's ``needs_login`` shows on the link over SSE with no bank write.
 from __future__ import annotations
 
 import asyncio
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse
@@ -203,8 +204,12 @@ async def serve_site_icon(request: Request, memory_path, site: str, domain: str)
 
 
 @router.get("/reading/prompt")
-async def get_reading_prompt():
-    """The generic, URL-free hand-off the person gives their own agent."""
+async def get_reading_prompt(variant: Literal["queue", "daily"] = "queue"):
+    """The generic, URL-free hand-off the person gives their own agent. ``variant=daily`` is the one for a run the
+    person's own scheduler starts (G245): the lists that are due and nothing else, with the one shell line to schedule
+    it. Cicada runs neither."""
+    if variant == "daily":
+        return {"prompt": reading_prompt.daily_prompt(), "command": reading_prompt.daily_command()}
     return {"prompt": reading_prompt.queue_prompt()}
 
 
