@@ -504,6 +504,164 @@ final class ConnectSuggestTests: XCTestCase {
         XCTAssertNil(center.store.memory.sources["whatsapp"]?.answer)
     }
 
+    // MARK: - A save on a site that is not connected (ruling 77b)
+
+    private let github = ConnectSuggestApps.site("github")
+
+    private func saveClick(_ memory: ConnectSuggestMemory, _ now: Date) -> ConnectSuggestPolicy.Decision {
+        ConnectSuggestPolicy.decide(github, memory: memory, context: context(now), trigger: .saveClick)
+    }
+
+    /// Found live: a site's offer left unanswered when its page opened, and the star clicked minutes later did
+    /// nothing. A save click shows the offer inside that wait, once; after an offer a save brought, the wait holds.
+    func testASaveClickShowsTheOfferOnceInsideAWaitAndNoIsStillNever() {
+        var memory = ConnectSuggestPolicy.shown(github.entryId, at: t0, in: .init())
+        memory = ConnectSuggestPolicy.answered(github.entryId, .notNow, at: t0, in: memory)
+        let soon = t0.addingTimeInterval(7 * 60)
+        XCTAssertEqual(decide(github, memory, context(soon)), .skip(.snoozed), "opening the page again waits")
+        XCTAssertEqual(saveClick(memory, soon), .suggest)
+        XCTAssertTrue(ConnectSuggestPolicy.listens(github, memory: memory, now: soon))
+
+        memory = ConnectSuggestPolicy.shown(github.entryId, at: soon, trigger: .saveClick, in: memory)
+        memory = ConnectSuggestPolicy.answered(github.entryId, .notNow, at: soon, in: memory)
+        let next = soon.addingTimeInterval(60)
+        XCTAssertEqual(saveClick(memory, next), .skip(.snoozed), "the second save in the same wait is left alone")
+        XCTAssertFalse(ConnectSuggestPolicy.listens(github, memory: memory, now: next), "and is not read at all")
+        // The second wait is a day: after it, a save click or the page shows it again.
+        let later = soon.addingTimeInterval(day + 60)
+        XCTAssertEqual(saveClick(memory, later), .suggest)
+        XCTAssertEqual(decide(github, memory, context(later)), .suggest)
+        XCTAssertTrue(ConnectSuggestPolicy.listens(github, memory: memory, now: later))
+
+        var declined = ConnectSuggestPolicy.shown(github.entryId, at: t0, in: .init())
+        declined = ConnectSuggestPolicy.answered(github.entryId, .no, at: t0, in: declined)
+        XCTAssertEqual(saveClick(declined, later), .skip(.declined))
+        XCTAssertFalse(ConnectSuggestPolicy.listens(github, memory: declined, now: later), "No: the site is not read")
+
+        var spent = ConnectSuggestMemory()
+        for _ in 0..<ConnectSuggestPolicy.maxShows {
+            spent = ConnectSuggestPolicy.shown(github.entryId, at: t0, in: spent)
+        }
+        XCTAssertFalse(ConnectSuggestPolicy.listens(github, memory: spent, now: t0.addingTimeInterval(400 * day)))
+        XCTAssertTrue(ConnectSuggestPolicy.listens(github, memory: .init(), now: t0), "a site never offered listens")
+    }
+
+    func testARefusalAboutTheMomentDoesNotSpendTheVisit() {
+        for skip in [ConnectSuggestPolicy.Skip.showing, .saveWhyOpen, .memoryUnknown, .noEntry, .cicadaJustLaunched,
+                     .appJustLaunched] {
+            XCTAssertTrue(skip.passes, skip.rawValue)
+        }
+        for skip in [ConnectSuggestPolicy.Skip.off, .inSetup, .demo, .setUp, .declined, .answered, .shownEnough,
+                     .snoozed, .dailyCap] {
+            XCTAssertFalse(skip.passes, skip.rawValue)
+        }
+    }
+
+    private func candidate(_ url: String, _ outcome: SiteSaveRule.Outcome = .saved) -> SiteSaveCandidate {
+        SiteSaveCandidate(item: SiteSaveItem(site: "github", origin: "github-starred", url: url, title: "alpha/beta"),
+                          outcome: outcome, text: "", folder: nil,
+                          lesson: .labels(was: "a", now: "b", outcome: outcome))
+    }
+
+    @MainActor
+    func testASaveOnAnUnconnectedSiteOffersAndOnlyYesKeepsIt() async throws {
+        let clock = Clock(t0)
+        let (center, presenter) = center(clock: clock, front: { self.whatsAppPid })
+        let site = try XCTUnwrap(SiteSaveSite.named("github"))
+        var connected: [String] = [], kept: [[SiteSaveCandidate]] = []
+        center.onYes = { connected.append($0) }
+        center.onHeld = { kept.append($0) }
+
+        // The page's own offer leaves unanswered; the star clicked after it brings the offer back, holding the save.
+        XCTAssertTrue(center.offer(site: site, connected: false, pid: 7, bundleId: "com.google.Chrome"))
+        XCTAssertEqual(presenter.shows, 1)
+        XCTAssertEqual(center.state?.keepsSave, false)
+        clock.now = clock.now.addingTimeInterval(1)
+        center.input(.notNow)
+        clock.now = clock.now.addingTimeInterval(300)
+        let first = candidate("https://github.com/alpha/beta")
+        center.offer(saved: first, site: site, pid: 7, bundleId: "com.google.Chrome")
+        XCTAssertEqual(presenter.shows, 2)
+        XCTAssertEqual(center.held, [first])
+        XCTAssertEqual(center.state?.keepsSave, true)
+        // A second save while it shows is held too; the same post twice is one.
+        let second = candidate("https://github.com/alpha/gamma")
+        center.offer(saved: second, site: site, pid: 7, bundleId: "com.google.Chrome")
+        center.offer(saved: first, site: site, pid: 7, bundleId: "com.google.Chrome")
+        XCTAssertEqual(center.held, [second, first])
+        XCTAssertEqual(presenter.shows, 2)
+
+        // Yes connects at the press (the confirmation is never said before it is true); the saves follow it.
+        clock.now = clock.now.addingTimeInterval(1)
+        center.input(.yes)
+        XCTAssertEqual(connected, ["site-save:github"])
+        XCTAssertEqual(center.store.memory.sources["site-save:github"]?.answer, .yes)
+        XCTAssertTrue(kept.isEmpty)
+        clock.now = clock.now.addingTimeInterval(ConnectSuggestPolicy.confirmShow + 0.1)
+        center.input(.tick)
+        XCTAssertNil(center.state)
+        XCTAssertEqual(connected, ["site-save:github"], "connected once")
+        XCTAssertEqual(kept, [[second, first]])
+        XCTAssertTrue(center.held.isEmpty)
+    }
+
+    @MainActor
+    func testAHeldSaveIsDroppedByAnyAnswerButYes() async throws {
+        let site = try XCTUnwrap(SiteSaveSite.named("github"))
+        for answer in [ConnectSuggestPanelState.Input.notNow, .no, .appChanged] {
+            let clock = Clock(t0)
+            let (center, _) = center(clock: clock, front: { self.whatsAppPid })
+            var kept = 0
+            center.onHeld = { kept += $0.count }
+            center.offer(saved: candidate("https://github.com/alpha/beta"), site: site, pid: 7,
+                         bundleId: "com.google.Chrome")
+            XCTAssertEqual(center.held.count, 1)
+            XCTAssertEqual(center.store.memory.sources["site-save:github"]?.saveShown, clock.now)
+            clock.now = clock.now.addingTimeInterval(1)
+            center.input(answer)
+            XCTAssertNil(center.state)
+            XCTAssertTrue(center.held.isEmpty)
+            XCTAssertEqual(kept, 0)
+            // A save right after is not offered again inside the wait, and nothing is held with no panel.
+            center.offer(saved: candidate("https://github.com/alpha/gamma"), site: site, pid: 7,
+                         bundleId: "com.google.Chrome")
+            XCTAssertNil(center.state)
+            XCTAssertTrue(center.held.isEmpty)
+        }
+    }
+
+    /// A click whose direction nothing settled brings the offer but promises no save; a refusal about the moment
+    /// leaves the page's own offer for the next look.
+    @MainActor
+    func testAnUnsettledClickPromisesNothingAndAMomentsRefusalKeepsTheVisit() async throws {
+        let clock = Clock(t0)
+        let (center, _) = center(clock: clock, front: { self.whatsAppPid })
+        let site = try XCTUnwrap(SiteSaveSite.named("github"))
+        center.memoryKnown = { false }
+        XCTAssertFalse(center.offer(site: site, connected: false, pid: 7, bundleId: "com.google.Chrome"))
+        XCTAssertFalse(center.listens(site: "github"), "no page is read while the offer could not show")
+        center.memoryKnown = { true }
+        XCTAssertTrue(center.listens(site: "github"))
+        center.isDemo = { true }
+        XCTAssertFalse(center.listens(site: "github"))
+        center.isDemo = { false }
+        center.offer(saved: candidate("https://github.com/alpha/beta", .changed), site: site, pid: 7,
+                     bundleId: "com.google.Chrome")
+        XCTAssertNotNil(center.state)
+        XCTAssertEqual(center.state?.keepsSave, false)
+        XCTAssertFalse(candidate("https://github.com/alpha/beta", .unsaved).offers)
+        XCTAssertFalse(candidate("https://github.com/alpha/beta", .none).offers)
+    }
+
+    /// The question's last state stays after it closes: the offer asks whether it is showing, never whether it ever
+    /// showed (found 2026-11-24: one question silenced every offer until the app was relaunched).
+    func testTheOfferAsksWhetherTheQuestionIsShowingNotWhetherItEverShowed() throws {
+        let text = try String(contentsOf: try XCTUnwrap(ThemeTokenTests.swiftSources().first {
+            $0.path.hasSuffix("ConnectSuggest/ConnectSuggestCenter.swift") }), encoding: .utf8)
+        XCTAssertTrue(text.contains("saveWhy?.isShowing == true"))
+        XCTAssertFalse(text.contains("saveWhyOpen = { [weak saveWhy] in saveWhy?.state != nil }"))
+    }
+
     // MARK: - Source guards
 
     func testThePanelNeverTakesTheKeyboardAndAsksNoPermission() throws {

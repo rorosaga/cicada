@@ -1609,19 +1609,43 @@ Measured on the owner's Chrome and built in: a control can be far smaller to mac
 in a ~35 pt circle — `nearestButton`, 14 pt halo); Chromium's first answer about a fresh point is often a neighbour
 and the second is exact (`settledRead`); on GitHub's lists the answer stays the whole page (`buttonByFrames` walks
 down by frames); Instagram and TikTok nest the button the pointer is on inside the control (the outer one is used).
-It asks a Chromium browser for its page tree (`AXManualAccessibility`) only once a site is connected — the tree
-costs the browser work — and until then reads nothing but the front tab's address from the window itself
-(`frontSite`, `AXDocument`), for the offer.
+It asks a Chromium browser for its page tree (`AXManualAccessibility`) only once a site is connected, or the front tab
+is on a candidate (77b, below) — the tree costs the browser work — and until then reads nothing but the front tab's
+address from the window itself (`frontSite`, `AXDocument`), for the offer.
 
 *The watcher (`SiteSaveWatcher`).* One monitor (mouse moves and mouse-downs) while a supported browser is in front,
-only when Accessibility is already granted and only for sites the person connected. The state before a click is read
+only when Accessibility is already granted and only for sites the person connected (and the candidate below, ruling
+77b). The state before a click is read
 when the pointer rests on a save control (70 ms), kept in memory only, and a click within 24 pt and 60 s of it is
 compared with the row at 0.6, 1.2 and 2.0 s. A save goes to `SaveWhyCenter.siteSaved`: stored first through
 `POST /sources/site-save` (`api.md`; the site's own origin, index-only until a reason — ruling 62), then asked about
-through the ordinary confirmed path, so the Ask-why switch, "Don't ask for this site" and one-save-one-question apply
+through the ordinary confirmed path, so "Don't ask for this site" and one-save-one-question apply (the bookmark
+question's own switch does not gate a site save, 2026-11-24)
 and the answer is posted with `via` the site's origin. An unsave goes to `POST /sources/site-unsave`: never asked
 about, the save stays and shows "no longer on …" (`leftBrowser`). Logs (`site-save`) hold an outcome word, what
 settled it and milliseconds, never a link or a label.
+
+*A save on a site that is not connected (ruling 77b, owner 2026-11-24).* Before 77b nothing was read until the
+connection, so the first saves on a site passed unseen (found live: three in one evening). Now the watcher also reads
+the **candidate**: the one site the front tab is on, when it is not connected and a save click there could still bring
+its offer (`ConnectSuggestPolicy.listens`: the offer switch on, the site not answered No or Yes, not shown its last
+time, not inside a wait a save click cannot pass). It is read exactly as a connected site is (the rest, the click, the
+menu), and the page tree is asked for the first time the pointer rests on such a page. A click that saved, or changed
+the control in a direction nothing settled, becomes a `SiteSaveCandidate` — the post, the outcome, the post's words,
+the list, and what the click would have taught (`Lesson`) — handed to `ConnectSuggestCenter.offer(saved:)`; an unsave
+or a click that changed nothing is dropped. **Nothing is written before Yes:** no label learned, no post hash kept, no
+request sent. The offer shows at that moment (or, when that site's offer is already up, takes the save), holds up to
+eight saves in memory and says "Yes keeps this save" when one of them is a save. Yes connects the site at the press
+(`onYes`, then `SiteSaveSwitches.changed`), and when the panel's confirmation has shown, `onHeld` keeps each lesson
+(`SiteSavePrefs.keep`) and sends each save through `SaveWhyCenter.siteSaved`, as on a connected site. Not now, No, the
+timeout, leaving the browser or the ask-why question taking the notch all drop what was held. **When a save click may
+offer:** it passes a wait once (`Trigger.saveClick`: when the last offer was not itself brought by a save click,
+`saveShown`), and after such an offer the ladder's wait holds for saves too; No, the six shows and every other rule
+are the offer's own. Two rules of the offer changed with it: a refusal about the moment (`Skip.passes`: another panel
+up, Cicada's first minute, the memory not loaded) no longer spends the visit, so the next rest on the same page asks
+again; and the offer asks whether the ask-why question **is showing** (`isShowing`), not whether its state exists (the
+last state stays after it closes, which had silenced every offer for the rest of a session). A site save is asked
+about whatever the bookmark question's switch says: connecting the site is its switch.
 
 *A save kept in a menu (`SaveWhy/SiteMenuSave.swift`, ruling 77a, 2026-11-23).* Reddit and YouTube have no save
 button in a post's row, so their table rows carry a `Menu` rule instead of a slot, again structure only: DOM ids and

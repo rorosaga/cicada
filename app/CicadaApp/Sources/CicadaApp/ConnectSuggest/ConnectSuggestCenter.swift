@@ -79,6 +79,14 @@ final class ConnectSuggestCenter {
     @ObservationIgnored var iconFor: (pid_t) -> NSImage? = { NSRunningApplication(processIdentifier: $0)?.icon }
     /// Yes: open the source's page (`AppRouter.routeToCatalogEntry`).
     @ObservationIgnored var onYes: (String) -> Void = { _ in }
+    /// G221 (ruling 77b) — a site's offer was answered Yes while it held saves the person had just made there: keep
+    /// them (store, learn, ask why). Called after `onYes`, once the panel has left.
+    @ObservationIgnored var onHeld: ([SiteSaveCandidate]) -> Void = { _ in }
+    /// The saves the open offer holds, oldest first: in memory only, dropped with any answer but Yes.
+    @ObservationIgnored private(set) var held: [SiteSaveCandidate] = []
+    static let heldMax = 8
+    /// A site's Yes connects it at the press, before the panel's own confirmation plays out.
+    @ObservationIgnored private var connected = false
 
     /// Whether an open panel's clock ticks by itself (tests send `.tick` by hand).
     @ObservationIgnored private let ticks: Bool
@@ -125,7 +133,9 @@ final class ConnectSuggestCenter {
     /// while it shows, and an open offer leaves the moment it is about to show — through the question's own center,
     /// which lives as long as the app, so this holds with the main window closed (review of #585).
     func yields(to saveWhy: SaveWhyCenter) {
-        saveWhyOpen = { [weak saveWhy] in saveWhy?.state != nil }
+        // `isShowing`, not `state != nil`: the question's last state stays after it closes, which silenced every offer
+        // for the rest of the session once one question had shown (found 2026-11-24).
+        saveWhyOpen = { [weak saveWhy] in saveWhy?.isShowing == true }
         saveWhy.willShow = { [weak self] in self?.yield() }
     }
 
@@ -180,23 +190,66 @@ final class ConnectSuggestCenter {
     /// G221 — the page in the front browser is on a site whose saves Cicada can notice and the person has not
     /// connected it: the same offer, the same rules (the switch, once a day, No is kept, Not now waits), with the
     /// site's own mark. `connected` is the site's switch on this Mac.
-    func offer(site: SiteSaveSite, connected: Bool, pid: pid_t, bundleId: String) {
+    /// Answers whether the visit is spent: false only for a refusal about the moment (`Skip.passes`), which the next
+    /// rest on the same page asks again.
+    @discardableResult
+    func offer(site: SiteSaveSite, connected: Bool, pid: pid_t, bundleId: String,
+               trigger: ConnectSuggestPolicy.Trigger = .entered) -> Bool {
         let target = ConnectSuggestApps.site(site.key)
         let context = ConnectSuggestPolicy.Context(
             now: now(), enabled: store.enabled, memoryKnown: memoryKnown(), setUp: setUp(), isDemo: isDemo(),
             status: connected ? .connected : .off, appLaunchedAt: nil, cicadaLaunchedAt: launchedAt,
             saveWhyOpen: saveWhyOpen(), showing: state != nil)
-        let decision = ConnectSuggestPolicy.decide(target, memory: store.memory, context: context)
+        let decision = ConnectSuggestPolicy.decide(target, memory: store.memory, context: context, trigger: trigger)
         lastDecision = decision
-        guard case .suggest = decision else { return }
+        guard case .suggest = decision else {
+            if case .skip(let why) = decision { return !why.passes }
+            return true
+        }
         let mark = OriginIconography.logoName(for: site.origin).flatMap(LogoImage.bundledImageNow(for:))
-        show(target, name: site.name, bundleId: bundleId, pid: pid, icon: mark)
+        show(target, name: site.name, bundleId: bundleId, pid: pid, icon: mark, trigger: trigger)
+        return true
+    }
+
+    /// G221 (ruling 77b, owner 2026-11-24) — the person clicked the save control of a site they have not connected:
+    /// the offer shows at that moment and holds the save, which only Yes keeps. An offer for that site already open
+    /// takes the save too, so a Yes pressed after it keeps it.
+    func offer(saved save: SiteSaveCandidate, site: SiteSaveSite, pid: pid_t, bundleId: String) {
+        let target = ConnectSuggestApps.site(site.key)
+        if let open = state, open.target == target {
+            guard !connected else {
+                onHeld([save])      // Yes was already pressed: the site is connected, the save is kept
+                return
+            }
+            hold(save)
+            return
+        }
+        offer(site: site, connected: false, pid: pid, bundleId: bundleId, trigger: .saveClick)
+        if state?.target == target, lastDecision == .suggest { hold(save) }
+    }
+
+    /// Whether a save click on this site could bring its offer now (ruling 77b): only then is a site that is not
+    /// connected read at all. Never in a demo memory, before setup, with the switch off, or for a site the memory
+    /// says not to offer.
+    func listens(site key: String) -> Bool {
+        store.enabled && memoryKnown() && setUp() && !isDemo()
+            && ConnectSuggestPolicy.listens(ConnectSuggestApps.site(key), memory: store.memory, now: now())
+    }
+
+    private func hold(_ save: SiteSaveCandidate) {
+        held.removeAll { $0.item == save.item }
+        held.append(save)
+        if held.count > Self.heldMax { held.removeFirst(held.count - Self.heldMax) }
+        state?.keepsSave = held.contains { $0.outcome == .saved }
     }
 
     private func show(_ target: ConnectSuggestApps.Target, name: String, bundleId: String, pid: pid_t,
-                      icon mark: NSImage? = nil) {
+                      icon mark: NSImage? = nil, trigger: ConnectSuggestPolicy.Trigger = .entered) {
         let at = now()
-        store.memory = ConnectSuggestPolicy.shown(target.entryId, name: name, at: at, in: store.memory)
+        store.memory = ConnectSuggestPolicy.shown(target.entryId, name: name, at: at, trigger: trigger,
+                                                  in: store.memory)
+        held = []
+        connected = false
         icon = mark ?? iconFor(pid)
         state = ConnectSuggestPanelState(target: target, appName: name, bundleId: bundleId, shownAt: uptime())
         Self.logger.info("show \(target.entryId, privacy: .public)")
@@ -213,8 +266,16 @@ final class ConnectSuggestCenter {
 
     func input(_ input: ConnectSuggestPanelState.Input) {
         guard var open = state else { return }
+        let confirmed = open.confirmedAt != nil
         let outcome = open.handle(input, at: uptime())
         state = open
+        if !confirmed, open.confirmedAt != nil {
+            // A site's Yes is the whole connection: it is written at the press, so "Connected" is never said before
+            // it is true (and a quit during the confirmation keeps the answer).
+            connected = true
+            store.memory = ConnectSuggestPolicy.answered(open.target.entryId, .yes, at: now(), in: store.memory)
+            onYes(open.target.entryId)
+        }
         if let outcome { close(outcome, record: true) }
     }
 
@@ -228,11 +289,17 @@ final class ConnectSuggestCenter {
         ticking = nil
         presenter?.hide()
         lastOutcome = outcome
-        if record {
+        let saves = held, already = connected
+        held = []
+        connected = false
+        if record, !already {
             store.memory = ConnectSuggestPolicy.answered(open.target.entryId, outcome.answer, at: now(),
                                                          in: store.memory)
         }
         Self.logger.info("close \(open.target.entryId, privacy: .public) \(outcome.name, privacy: .public)")
-        if outcome == .yes { onYes(open.target.entryId) }
+        if outcome == .yes, !already { onYes(open.target.entryId) }
+        // The saves the offer held are kept only on Yes, after the confirmation has shown; any other answer drops
+        // them here, unread by anything else.
+        if already || outcome == .yes, !saves.isEmpty { onHeld(saves) }
     }
 }
