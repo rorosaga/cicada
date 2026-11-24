@@ -175,7 +175,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   2026-11-24, "if i save it already has a reason"; withdraws 62's index-only rule and 30's saved-list half):** every save
   (bookmark, tab group, link, like, upvote, repost, list post) is read by Sleep after conversations,
   its words the author's, never theirs, and no page or mention from saves alone (`capture-and-sleep.md`). **Built (G246):** a single save waits
-  for tonight; bulk, late and already-kept saves wait in a pile, 100 released a day (amends 13, 16; pending).
+  for tonight; bulk, late and already-kept saves wait in a pile, 100 released a day (amends 13, 16).
 - **Books (G39, G233):** a scanned ISBN (`/capture/isbn`) resolves at the home behind the connector
   gate, cached outside every bank; Apple Books is read by the app once turned on; Goodreads through the person's own agent
   and browser first, its export second (ruling 72); one `media` page per work across doors (identical title and authors join, a doubt asks; ruling 67; a door's rename follows, the person's stands; 69), status as dated claims, imports quiet (`capture-and-sleep.md`, "Books").
