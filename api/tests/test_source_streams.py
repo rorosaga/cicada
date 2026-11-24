@@ -547,6 +547,18 @@ def test_a_saved_link_on_one_sites_list_is_not_another_sites_same_named_list(ban
     assert _streams(bank, "instagram")["instagram.saved"]["count"] in (0, None)
 
 
+def test_the_list_display_names_are_built_once_a_request_not_once_a_row(client, bank, more_lists, monkeypatch):
+    _x_bank(bank)
+    for i in range(5):
+        _save(bank, f"extra{i}", f"https://x.com/alice_example/status/6{i}", origin="x-bookmarks", folder="Bookmarks")
+    calls = []
+    real = source_streams._list_display_names
+    monkeypatch.setattr(source_streams, "_list_display_names", lambda: calls.append(1) or real())
+    body = _items(client, "x").json()
+    assert body["total"] >= 8 and all("lists" in r for r in body["items"])
+    assert len(calls) == 1
+
+
 def test_a_saved_list_row_says_its_lists_folders_depth_and_post_day(client, bank, more_lists):
     _x_bank(bank)
     _save(bank, "seen", "https://x.com/alice_example/status/9", origin="x-bookmarks", folder="Bookmarks", read=True)
