@@ -286,7 +286,9 @@ two memories: a hook's capture waiting offline was delivered to whichever server
 
 - Each hook spool entry names its **target** — the address (`runtime_layout.api_base`) and, once heard, the bank id the
   server's capture answer gave (`bankId`, kept per address in `spool/capture/.servers`). A flush sends only the entries
-  for the address in use; a resend carries `bank_id`, and `/capture/session` and `/capture/turn` refuse it with 409
+  for the address in use — and, on a computer that keeps a copy, those whose target names the bank it follows, so a
+  session follows its bank when the home moves (an entry for another bank, or for no known bank at another address,
+  still waits for its own server); a resend carries `bank_id`, and `/capture/session` and `/capture/turn` refuse it with 409
   `bank_mismatch` only when no bank of that server's memory has the id — the address now leads to another memory. A
   bank switch on the server itself files the resend where a live capture of the same session goes (a session is never
   split between two banks of one memory). Entries for another server wait, never dropped; the hook's log line says how
@@ -651,7 +653,9 @@ this memory, has an address, and answers `/sync/peer` with the home's own token.
    and **promotes** itself: `promote.json` first, then the registry taken into its own store, its copy made its own
    bank (`replica: false`, the marker removed), publishing on, the old home's schedule adopted (Sleep moves with the
    home), `replica_of` removed — and it starts again in place (`os.execv`), as the home. What it queued in its own
-   outbox while the old home was closed is then applied here, in order, through its own doors (each keyed once).
+   outbox while the old home was closed is then applied here, in order, through its own doors (each keyed once), and
+   the hooks' `/capture/session` and `/capture/turn` entries naming its own bank go the same way
+   (`home_move.drain_own_spool`, at start, whether or not `spool/tx` exists); another bank's entries wait.
 8. The old home, once the target answers `/sync/peer` as the home of that term, **demotes** itself: `demote.json`
    first, then its own token as `device_token`, its bank marked a copy (in place, with a marker), publishing off,
    `replica_of` = the new home's address — and it starts again in place, following it.

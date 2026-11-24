@@ -868,23 +868,29 @@ def _flush_outbox() -> None:
 HOOK_SPOOL_ROUTES = frozenset({"/capture/session", "/capture/turn"})
 
 
-def _flush_hook_spool() -> None:
+def _flush_hook_spool(*, base: str | None = None, banks=(), environ=None) -> None:
     """The home answered: the captures the hooks on this computer could not deliver go now (B3, 2026-11-24) — through
     this backend's own transport (direct to the home, its door or the relay, ``request``), not the hook's one direct
     request, and without waiting for another session to end here. ``hook_spool``'s rules: oldest first, a post the home
-    only accepted waits for its write's confirmation, a refusal for good is counted (never silent)."""
+    only accepted waits for its write's confirmation, a refusal for good is counted (never silent).
+
+    **A session follows its bank, not the address** it was captured for: an entry goes when its target is this home's
+    address, or names the bank this copy follows (the home moved), and one for another bank waits for its own
+    server. ``base`` / ``banks`` / ``environ`` are for the computer that has just become the home
+    (``home_move.drain_own_spool``): the same entries for its own bank go to its own backend."""
     from api.hooks import hook_client
     from api.services import runtime_layout
 
+    env = os.environ if environ is None else environ
     try:
         spool = hook_client.spool_module()
-        home = runtime_layout.cicada_home()
+        home = runtime_layout.cicada_home(env)
         if not spool.pending(home):
             return
 
         def one(route: str, body: dict):
             status, _h, answer = request("POST", route, body=json.dumps(hook_client.with_unsent(home, body)).encode(
-                "utf-8"), headers={"Content-Type": "application/json"}, timeout=20)
+                "utf-8"), headers={"Content-Type": "application/json"}, timeout=20, environ=env)
             if status is None:
                 return None, ""
             return status, json.dumps(answer) if isinstance(answer, (dict, list)) else ""
@@ -896,13 +902,18 @@ def _flush_hook_spool() -> None:
                 return fallback
 
         # Only what was kept for THIS computer's home goes: a session kept while this machine pointed at another
-        # server waits for that one (D1, G202), as it does when a hook flushes.
-        try:
-            base = runtime_layout.replica_of()
-        except ValueError:
-            base = None
+        # server waits for that one (D1, G202), as it does when a hook flushes — unless it was kept for this bank.
+        if base is None:
+            try:
+                base = runtime_layout.replica_of(env)
+            except ValueError:
+                base = None
+            followed = _STATE.bank_id
+            if not followed and (mp := copy_path()) is not None:
+                followed = (read_marker(mp) or {}).get("bankId")
+            banks = (followed,) if isinstance(followed, str) and followed else ()
         spool.flush(home, one, deadline=time.monotonic() + 25.0, keep=hook_client.keep, size_of=size_of, base=base,
-                    only_routes=HOOK_SPOOL_ROUTES)
+                    only_routes=HOOK_SPOOL_ROUTES, banks=tuple(banks))
     except NoDeviceToken:
         _set(status="no_token")
     except Exception as exc:  # noqa: BLE001 — a flush is retried on the next contact

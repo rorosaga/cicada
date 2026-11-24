@@ -1754,7 +1754,12 @@ extractor keeps crosses the wire:
   5 min, gone when nothing waits for the server or after 2 h; the child that reads a session over 16 MB starts one too —
   the retrier's own marker is `CICADA_HOOK_RETRIER`, never the long-read child's `CICADA_HOOK_DETACHED`); a machine that keeps a copy has its backend's follower
   send the spool through the same transport as every other request to the home (`replica._flush_hook_spool`, session
-  and turn routes only). (3) *Said, not silent*: the spool counts what was refused for good or dropped by its bounds
+  and turn routes only; an entry whose target names the bank the copy follows goes whatever address it was captured for,
+  and a computer that becomes the home drains its own bank's entries into itself, `home_move.drain_own_spool`).
+  Marking an entry (accepted, held) or removing it re-checks, under one short spool-wide `flock` that `put` also takes
+  around its rename (`.mark.lock`, never held across a post, a hook never waits past 1 s), that the file is still the
+  one that was sent (`hook_spool.signature`: mtime + inode), so a newer snapshot of the session is never overwritten
+  and a dropped entry never comes back — in `_flush_local` too. (3) *Said, not silent*: the spool counts what was refused for good or dropped by its bounds
   (`.counters`), and every session post carries `unsent` (`{waiting, held, rejected}`, counts only). (4) A hook that
   posts a path to a copy's own backend is answered by `replica_gateway` instead of `409 replica_read_only` (`headless.md`).
 

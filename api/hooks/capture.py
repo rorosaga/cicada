@@ -496,6 +496,7 @@ def _flush_local(home: Path, post, token: str, *, base: str, key: str, event: st
         return ""
     sent = left = 0
     for path in paths:
+        stamp = spool.signature(path)      # which file is sent: a newer snapshot landing during the post is not marked
         try:
             entry = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -517,14 +518,12 @@ def _flush_local(home: Path, post, token: str, *, base: str, key: str, event: st
             left += 1
             break
         if status == 202:
-            spool.accept(path, entry)    # accepted, not written: it stays until a send is answered with the write
+            spool.accept(path, entry, stamp)   # accepted, not written: it stays until a send is answered with the write
             left += 1
         elif remote_client.landed(status) or not remote_client.keep(status):
             sent += 1 if remote_client.landed(status) else 0
-            try:
-                path.unlink()      # landed, or refused for good (the transcript is gone): never resent
-            except OSError:
-                pass
+            spool.remove(path, stamp)   # landed, or refused for good (the transcript is gone): never resent — unless
+            #                             a newer firing of the session replaced the entry during the post
         else:
             left += 1
     return f"; spool: sent {sent}, {left} waiting" if sent or left else ""

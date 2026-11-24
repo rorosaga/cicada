@@ -30,6 +30,19 @@ bank of that server's memory (another memory behind the same address; a bank swi
 resend where a live capture would go). A refused entry is *held* (``held_at``): counted as waiting for another memory,
 never in front of this server's turns, retried at most every :data:`HOLD_RETRY_S`; and the address's remembered bank
 is forgotten, so new entries stop carrying it. A capture that lands teaches the address its bank again.
+
+**An entry follows the bank, not the address** (review of the B3 change): a copy's follower also sends an entry whose
+target names the bank this copy follows (``banks``), whatever address it was captured for — the home moved, or a
+home's address changed, and the memory is the same. An entry for another bank, or for no known bank at another
+address, still waits for its own server. A computer that becomes the home drains the same entries into its own
+backend (``home_move``).
+
+**Marking an entry never overwrites a newer one**: a post is sent with no lock held (it can take seconds), and a
+newer snapshot of the same session may replace the entry meanwhile. Marking it (accepted, held) and removing it
+therefore re-check, under one short spool-wide ``flock`` that :func:`put` also takes around its replace, that the
+file is still the one that was sent (``signature``: mtime and inode); the lock is held for a rename, never across a
+post, and a hook that cannot get it within :data:`MARK_WAIT_S` skips the mark (the entry stays, a resend is
+idempotent) rather than hang.
 """
 from __future__ import annotations
 
@@ -39,6 +52,7 @@ import json
 import os
 import secrets
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urlsplit
@@ -55,6 +69,9 @@ HOLD_RETRY_S = 600.0
 #: write, loses nothing: a resend is idempotent (one episode per session, by content hash). It is not sent again
 #: sooner than this, giving the write time to finish (B3, 2026-11-24).
 ACCEPT_CONFIRM_S = 30.0
+#: The spool-wide lock :func:`put`, a mark and a removal take around one rename; a hook never waits longer than this.
+MARK_LOCK = ".mark.lock"
+MARK_WAIT_S = 1.0
 
 
 def spool_dir(home: Path) -> Path:
@@ -180,25 +197,94 @@ def _due(entry: dict, now: float | None = None) -> bool:
     return True
 
 
-def _hold(path: Path, entry: dict) -> None:
-    """Mark an entry held (its bank refused), in place and atomically; its body is unchanged."""
-    _stamp(path, {**entry, "held_at": time.time()})
+def signature(path: Path) -> tuple[int, int] | None:
+    """Which file this is: its mtime and inode. A newer snapshot of a session replaces the entry with a new file, so a
+    changed signature (or none: it is gone) means the entry that was sent is not the one that is there now."""
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_ino
 
 
-def _accept(path: Path, entry: dict) -> None:
+@contextmanager
+def _marking(folder: Path):
+    """The spool-wide lock around one rename. Yields whether it is held; never blocks past :data:`MARK_WAIT_S`."""
+    fd = None
+    held = False
+    try:
+        fd = os.open(folder / MARK_LOCK, os.O_WRONLY | os.O_CREAT, 0o600)
+        end = time.monotonic() + MARK_WAIT_S
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                held = True
+                break
+            except OSError:
+                if time.monotonic() >= end:
+                    break
+                time.sleep(0.005)
+    except OSError:
+        pass
+    try:
+        yield held
+    finally:
+        if fd is not None:
+            os.close(fd)      # closing releases the flock
+
+
+def _hold(path: Path, entry: dict, stamp) -> None:
+    """Mark an entry held (its bank refused), in place and atomically, only if it is still the file that was sent."""
+    _stamp(path, {**entry, "held_at": time.time()}, stamp)
+
+
+def _accept(path: Path, entry: dict, stamp) -> None:
     """The server answered 202 to this entry's resend: keep it, due again after :data:`ACCEPT_CONFIRM_S`."""
-    _stamp(path, {**entry, "accepted_at": time.time()})
+    _stamp(path, {**entry, "accepted_at": time.time()}, stamp)
 
 
 def due(entry: dict, now: float | None = None) -> bool:
     return _due(entry, now)
 
 
-def accept(path: Path, entry: dict) -> None:
-    _accept(path, entry)
+def accept(path: Path, entry: dict, stamp) -> None:
+    """Mark ``entry`` accepted unless ``path`` is no longer the file ``stamp`` (its :func:`signature`, taken before the
+    send) names: a newer snapshot survives and an entry dropped meanwhile is not brought back."""
+    _accept(path, entry, stamp)
 
 
-def _stamp(path: Path, entry: dict) -> None:
+def remove(path: Path, stamp) -> bool:
+    """Unlink ``path`` only if it is still the file ``stamp`` names. True when it was removed."""
+    with _marking(path.parent) as held:
+        if not held or stamp is None or signature(path) != stamp:
+            return False
+        try:
+            path.unlink()
+        except OSError:
+            return False
+        return True
+
+
+def _atomic(path: Path, obj) -> None:
+    """Write ``obj`` as JSON to ``path`` atomically (an unconditional write: the counters)."""
+    tmp = path.parent / f".{path.name}.{secrets.token_hex(4)}.tmp"
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            os.write(fd, json.dumps(obj).encode("utf-8"))
+        finally:
+            os.close(fd)
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def _stamp(path: Path, entry: dict, stamp) -> None:
+    """Rewrite ``path`` with ``entry`` — only while it is still the file ``stamp`` names, checked under the spool's
+    lock together with the replace (no gap for :func:`put` to land in)."""
     tmp = path.parent / f".{path.name}.{secrets.token_hex(4)}.tmp"
     try:
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -206,7 +292,11 @@ def _stamp(path: Path, entry: dict) -> None:
             os.write(fd, json.dumps(entry).encode("utf-8"))
         finally:
             os.close(fd)
-        os.replace(tmp, path)
+        with _marking(path.parent) as held:
+            if held and stamp is not None and signature(path) == stamp:
+                os.replace(tmp, path)
+                return
+        tmp.unlink()
     except OSError:
         try:
             tmp.unlink()
@@ -236,10 +326,16 @@ def _target_of(entry: dict) -> dict | None:
     return target if isinstance(target, dict) and isinstance(target.get("base"), str) and target["base"] else None
 
 
-def _for(target: dict | None, base: str | None) -> bool:
+def _for(target: dict | None, base: str | None, banks=()) -> bool:
     """Whether an entry may go to ``base``: one that names no server (written before targets, or while no address was
-    set) goes wherever this machine points; one that names a server goes only there."""
-    return target is None or base is None or same_server(target["base"], base)
+    set) goes wherever this machine points; one that names a server goes only there — or, when its target names the
+    id of one of ``banks`` (the memory this computer follows or holds), wherever that memory is now: a session
+    follows its bank, not the address its home had. An entry that names another bank, or no bank at another address,
+    waits for its own server."""
+    if target is None or base is None or same_server(target["base"], base):
+        return True
+    bank_id = target.get("bank_id")
+    return bool(bank_id) and bank_id in banks
 
 
 def _name(key: str | None, target: dict | None = None) -> str:
@@ -269,7 +365,8 @@ def put(home: Path, route: str, body: dict, *, key: str | None = None, transcrip
         os.write(fd, data)
     finally:
         os.close(fd)
-    os.replace(tmp, path)
+    with _marking(folder):          # a mark or a removal re-checks the file under this lock; held for the rename only
+        os.replace(tmp, path)
     dropped = _trim(folder, keep=path.name)
     if dropped:
         _count(home, "dropped", dropped)   # never silent: the home is told (counts only), the log says so too
@@ -319,7 +416,7 @@ def _read(path: Path) -> dict | None:
         return None
 
 
-def waiting(home: Path, base: str | None) -> dict:
+def waiting(home: Path, base: str | None, banks=()) -> dict:
     """What waits, by the server it was meant for: ``{"here": n, "elsewhere": {host: n}}``. ``here`` is what a flush to
     ``base`` would send; ``base`` None (this machine is no client now) makes every entry ``elsewhere``, an entry that
     names no server under ``""``. Counts only; nothing of a body is read out."""
@@ -331,7 +428,7 @@ def waiting(home: Path, base: str | None) -> dict:
     for path in paths:
         entry = _read(path) or {}
         target = _target_of(entry)
-        if base is not None and _for(target, base) and not _held(entry):
+        if base is not None and _for(target, base, banks) and not _held(entry):
             here += 1
             continue
         host = host_of(target["base"]) if target else ""
@@ -341,12 +438,12 @@ def waiting(home: Path, base: str | None) -> dict:
     return {"here": here, "elsewhere": elsewhere}
 
 
-def pending_for(home: Path, base: str | None) -> int:
+def pending_for(home: Path, base: str | None, banks=()) -> int:
     """How many entries a flush to ``base`` would try now: this server's, plus a held one whose retry is due."""
     count, now = 0, time.time()
     for path in entries(home):
         entry = _read(path) or {}
-        if (base is None or _for(_target_of(entry), base)) and _due(entry, now):
+        if (base is None or _for(_target_of(entry), base, banks)) and _due(entry, now):
             count += 1
     return count
 
@@ -367,7 +464,7 @@ def _count(home: Path, reason: str, n: int = 1) -> None:
     except (OSError, ValueError):
         data = {}
     data[reason] = int(data.get(reason) or 0) + n
-    _stamp(folder / COUNTERS_FILE, data)
+    _atomic(folder / COUNTERS_FILE, data)
 
 
 def counts(home: Path, *, other_than: str | None = None) -> dict:
@@ -437,14 +534,14 @@ def _trim(folder: Path, *, keep: str) -> int:
 
 def flush(home: Path, send: Callable[[str, dict], int | None], *, deadline: float,
           keep: Callable[[int | None], bool], size_of: Callable[[str | None, int], int],
-          base: str | None = None, only_routes: frozenset | None = None) -> tuple[int, int, int]:
+          base: str | None = None, only_routes: frozenset | None = None, banks=()) -> tuple[int, int, int]:
     """Send the posts waiting for ``base`` oldest first until one does not land or the budget ends; posts meant for
     another server are never sent here (``base`` None: every post, the behaviour before targets). ``only_routes``
-    sends only entries for those routes (a copy's follower sends a session and a turn, never a local capture's path). ``send(route,
+    sends only entries for those routes (a copy's follower sends a session and a turn, never a local capture's path). ``banks``: ids of the memory this computer follows or holds — an entry for one of them goes to ``base`` whatever address it was captured for (:func:`_for`). ``send(route,
     body)`` returns the HTTP status or None. ``(sent, dropped_as_final, left for base)``. One flusher at a time (a
     non-blocking ``flock``): a second hook firing meanwhile leaves the queue to the first."""
     folder = spool_dir(home)
-    left = (lambda: pending_for(home, base)) if base is not None else (lambda: pending(home))
+    left = (lambda: pending_for(home, base, banks)) if base is not None else (lambda: pending(home))
     try:
         lock_fd = os.open(folder / ".flush.lock", os.O_WRONLY | os.O_CREAT, 0o600)
     except OSError:
@@ -455,7 +552,7 @@ def flush(home: Path, send: Callable[[str, dict], int | None], *, deadline: floa
         except OSError:
             return 0, 0, left()
         sent, final = _flush_locked(home, send, deadline=deadline, keep=keep, size_of=size_of, base=base,
-                                    only_routes=only_routes)
+                                    only_routes=only_routes, banks=banks)
         return sent, final, left()
     finally:
         os.close(lock_fd)
@@ -468,7 +565,7 @@ def flush(home: Path, send: Callable[[str, dict], int | None], *, deadline: floa
 _STOP_ALL = (None, 401, 403)
 
 
-def _flush_locked(home, send, *, deadline, keep, size_of, base, only_routes=None) -> tuple[int, int]:
+def _flush_locked(home, send, *, deadline, keep, size_of, base, only_routes=None, banks=()) -> tuple[int, int]:
     sent = final = 0
     turns_waiting = False
     for path in entries(home):
@@ -478,7 +575,7 @@ def _flush_locked(home, send, *, deadline, keep, size_of, base, only_routes=None
         if is_turn and turns_waiting:
             continue
         try:
-            stamp = path.stat().st_mtime_ns
+            stamp = signature(path)
             entry = json.loads(path.read_text(encoding="utf-8"))
             route, body = entry["route"], entry["body"]
         except (OSError, ValueError, KeyError, TypeError):
@@ -488,7 +585,7 @@ def _flush_locked(home, send, *, deadline, keep, size_of, base, only_routes=None
                 pass
             continue
         target = _target_of(entry)
-        if not _for(target, base):
+        if not _for(target, base, banks):
             continue               # meant for another server: it waits for that one (D1, G202)
         if only_routes is not None and route not in only_routes:
             continue
@@ -504,11 +601,7 @@ def _flush_locked(home, send, *, deadline, keep, size_of, base, only_routes=None
         if status == 202:
             # Accepted, not written (the server was still at it): this entry stays until a send is answered with the
             # finished write (200/201), so a write that then failed, or a server that restarted, loses nothing (B3).
-            try:
-                if path.stat().st_mtime_ns == stamp:
-                    _accept(path, entry)
-            except OSError:
-                pass
+            _accept(path, entry, stamp)     # only while it is still the file that was sent
             continue
         if status is not None and 200 <= status < 300:
             sent += 1
@@ -519,7 +612,7 @@ def _flush_locked(home, send, *, deadline, keep, size_of, base, only_routes=None
         elif mismatch(status, text):
             # Another memory answers at this address: hold the entry for its own, never block this server's lane,
             # and stop stamping new entries with the refused bank (review of #408).
-            _hold(path, entry)
+            _hold(path, entry, stamp)
             forget_bank(home, base, (target or {}).get("bank_id"))
             continue
         elif held:
@@ -532,9 +625,5 @@ def _flush_locked(home, send, *, deadline, keep, size_of, base, only_routes=None
         else:
             final += 1
             _count(home, "rejected")   # refused for good: the home is told how many (counts only), never silent
-        try:
-            if path.stat().st_mtime_ns == stamp:   # a newer post for the same session replaced it meanwhile: keep that
-                path.unlink()
-        except OSError:
-            pass
+        remove(path, stamp)   # a newer post for the same session replaced it meanwhile: that one is kept
     return sent, final
