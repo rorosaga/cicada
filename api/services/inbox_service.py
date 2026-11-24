@@ -276,7 +276,9 @@ def _item_from_file(
         from api.services import inbox_wording
 
         spoken_q = extra.get("spoken_question")
-        title, question = inbox_wording.without_slug(title, spoken_q), inbox_wording.without_slug(question, spoken_q)
+        title = inbox_wording.without_slug(title, spoken_q)
+        # A question the file never stored stays None (``without_slug`` answers "" for nothing): the wire says "no question".
+        question = inbox_wording.without_slug(question, spoken_q) if question is not None else None
         item_body = inbox_wording.without_slug(item_body)
     elif kind == "clarification" and not (item_body or "").strip():
         item_body = _came_up_in(extra.get("cause"), now)
