@@ -933,6 +933,30 @@ class SqliteVecIndexer:
         norms[norms == 0] = 1.0
         return [float(x) for x in (docs @ qvec) / norms]
 
+    def similarities(self, queries: list[str], texts: list[str], *, kind: str = "episodes") -> list[list[float]]:
+        """:meth:`similarity` for several ``queries`` at once: one row per query, one score per text. The texts are
+        embedded ONCE, however many queries there are (the second look names several things to look for and ranks the
+        same turns by each). The same rule as :meth:`similarity`: a model on this machine, or
+        :class:`SimilarityUnavailable`; computed now, never stored."""
+        if not texts or not queries:
+            return [[] for _ in queries]
+        info = self.index_info(kind)
+        recorded = (info or {}).get("model")
+        if not _named(recorded) or not runs_on_device(recorded):
+            raise SimilarityUnavailable("no on-device model for this table")
+        embed_fn, _model = self._query_embed_fn(kind, info)
+        qvecs = [self._query_vector(q, kind) for q in queries]
+        passages = getattr(embed_fn, "passages", None)
+        if callable(passages):
+            embed_fn = passages(wait=PASSAGE_LOAD_WAIT_S)
+        docs = self._checked(embed_fn(list(texts), is_query=False), len(texts))
+        dnorm = np.linalg.norm(docs, axis=1)
+        dnorm[dnorm == 0] = 1.0
+        out: list[list[float]] = []
+        for qvec in qvecs:
+            out.append([float(x) for x in (docs @ qvec) / (dnorm * (float(np.linalg.norm(qvec)) or 1.0))])
+        return out
+
     def nearness(self, query: str, passages: "dict[str, list[str]]", *, kind: str = "episodes") -> dict[str, np.ndarray]:
         """Per group of fixed ``passages``, each one's cosine to ``query``, under :meth:`similarity`'s rule (a model on
         this machine, or :class:`SimilarityUnavailable`). The passages are embedded once per model, so a caller with

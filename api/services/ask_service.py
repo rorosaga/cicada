@@ -39,6 +39,8 @@ from api.services.claims import current_day, is_current, is_event, is_record, pa
 
 RetrieveFn = Callable[[str, int], list[dict]]
 LlmFn = Callable[[str], str]
+#: The planning call (:func:`plan_looks`): the message in (:func:`plan_message`), the model's raw reply out.
+PlanFn = Callable[[str], str]
 
 # Body excerpt length carried into each citation (enough to audit the claim,
 # short enough not to dump the whole page into the response).
@@ -154,6 +156,12 @@ Sleep has not consolidated: it is the person's record word for word, shown whole
 matching passages when long (``…`` marks where text was left out, not that memory is cut). Answer from it \
 as from any line; when the answer rests on such a line, say it is not yet confirmed by Sleep. A line of \
 WHAT WAS SAID carries the same mark and means the same.
+13. Commit to what the lines point to. When they show an answer without stating it in the question's own words (a \
+person named for the thing asked, an item that fits what a list asks for, a day worked out from a relative phrase and \
+the day it was said), give that answer first and say in a clause what the record leaves unconfirmed; never open with \
+what memory does not say and then name the answer. A list or a count takes every distinct item the lines show, one \
+line being enough for an item: name each and give the count they support. Say memory does not hold the answer only \
+when no line bears on the question.
 
 Return ONLY a JSON object with exactly these keys:
 {
@@ -883,12 +891,14 @@ def _person_names(entities: list[dict]) -> set[str]:
 
 def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None = None,
                   source_words: bool = False, owner_name: str | None = None,
-                  searched: "ask_sources.Searched | None" = None, shown: dict | None = None) -> str:
+                  searched: "ask_sources.Searched | None" = None, shown: dict | None = None,
+                  looks: list[str] | None = None) -> str:
     """The model's context. ``source_words`` adds WHAT WAS SAID (:mod:`ask_sources`): the conversations' own words
     behind the claims and lines shown, read from ``memory_path`` now — off for a caller without the person's
     verbatim words (a remote connector without ``sources``). ``searched`` (with ``source_words`` only) adds OTHER
     CONVERSATIONS: the turns of the conversations the question's own words find, past what the pages point at;
-    ``shown`` receives ``{"conversations": {episode_id: {title, day}}}`` for them."""
+    ``shown`` receives ``{"conversations": {episode_id: {title, day}}}`` for them. ``looks`` (the second look): what
+    a planning step says the answer would be said in; the turns nearest them are added after OTHER CONVERSATIONS."""
     terms = _focus(ask_sources.question_terms(query), [e for e in entities if not e.get("linked_from")])
     enumerate_ = getattr(searched, "shape", None) == ask_sources.SHAPE_ENUMERATE
     inference = ask_sources.asks_inference(query)
@@ -996,6 +1006,26 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
                         f"{how}):\n" + ask_sources.render(more, with_episode=True))
     else:
         more = []
+    if source_words and memory_path is not None and looks:
+        try:
+            seen_lines = ask_sources.shown_turns(excerpts + more)
+            looked = ask_sources.second_look(memory_path, looks, taken=seen_lines, owner_name=owner_name,
+                                             deep=unread_budget)
+        except Exception as exc:  # noqa: BLE001 — the words are context; their absence never fails an answer
+            logger.debug(f"ask second look skipped ({type(exc).__name__})")
+            looked = []
+        if looked:
+            if shown is not None:
+                shown["conversations"] = {**(shown.get("conversations") or {}), **{
+                    k: v for k, v in _conversation_refs(looked).items()
+                    if k not in (shown.get("conversations") or {})}}
+            context += ("\n\nALSO FOUND (word for word; the question was split into the kinds of thing its answer "
+                        "would be said in and each was searched for by meaning, so these lines are other "
+                        "conversations' words the question's own words never matched — each names its "
+                        "conversation's id, oldest first. Read them as OTHER CONVERSATIONS: a line counts only when "
+                        "it plainly speaks of what the question asks, and a list or a count takes every distinct "
+                        "item the lines above and below show):\n" + ask_sources.render(looked, with_episode=True))
+            more = more + looked
     if source_words:
         timing = _time_block(query, searched, excerpts + more, memory_path)
         if timing:
@@ -1254,6 +1284,93 @@ def _gap_response(query: str) -> dict:
         "used_entities": [],
         "conversations": [],
     }
+
+
+#: The second look's planning call (2026-11-24). A question whose answer is spread over several conversations asks for
+#: things no word or embedding of the question ranks ("which cities…" finds no "a short trip to Rome"): the model is
+#: asked only what to look for, never the answer, and never sees the record. Any language, no example of the benchmark.
+PLAN_SYSTEM_PROMPT = """You help search a person's saved conversations. You are given a question about what someone \
+said, did, owns or likes, and WHAT MEMORY ALREADY HOLDS: short summaries of the pages most about it (they may be \
+missing). You do not answer the question and you have not seen the conversations.
+
+Name up to {phrases} things to look for: short phrases (two to six words) that a line of those conversations holding \
+part of the answer would plausibly say. Give the concrete kinds of thing the question asks for — the places, titles, \
+names, events, activities, objects or numbers its answer would be made of — written the way a person says them in a \
+chat ("started learning the cello", "my sister's wedding in June"), never the question's own words, and never a \
+person's name (every line is about someone already). Use the summaries to see what kinds of thing this person's record \
+contains, and name those kinds; never invent a specific the summaries and the question do not suggest. When the question \
+asks for a list or a count, give several different kinds of instance, not one thing reworded. Write the phrases in the \
+language the conversations are most likely held in (the question's own language unless it says otherwise).
+
+Return ONLY a JSON object: {{"looks": ["phrase", "..."]}}"""
+
+#: What the planning call is shown of the pages Ask retrieved: this many summaries, each cut to this many characters.
+PLAN_SUMMARIES = 3
+PLAN_SUMMARY_CHARS = 420
+
+#: How long the planning call may take: past it the question is answered as before, so the second look can never be
+#: the reason an Ask runs long (the caller waits :data:`ask_failure.ASK_WAIT_S` for the whole answer).
+PLAN_TIMEOUT_S = 25.0
+
+
+def plan_message(question: str, entities: list[dict] | None = None) -> str:
+    """What the planning call reads: the question, and the lead of the first few pages Ask retrieved (never the
+    person's words, claims or lines): the kinds of thing the record holds, so the phrases name them."""
+    held = [" ".join(str(e["summary"]).split())[:PLAN_SUMMARY_CHARS] for e in (entities or [])
+            if e.get("summary") and not e.get("linked_from")][:PLAN_SUMMARIES]
+    if not held:
+        return question
+    return f"QUESTION:\n{question}\n\nWHAT MEMORY ALREADY HOLDS:\n" + "\n".join(f"- {h}" for h in held)
+
+
+def plan_looks(question: str, plan_fn: PlanFn | None, entities: list[dict] | None = None) -> list[str]:
+    """What the question's answer would be said in, as short phrases (:data:`PLAN_SYSTEM_PROMPT`); ``[]`` with no
+    ``plan_fn`` and on any failure — an unreadable or slow plan is a leg fewer, never a failed Ask. The message goes to
+    the engine the person chose, like the answer's; it is never logged."""
+    if plan_fn is None:
+        return []
+    try:
+        parsed = json_parse.parse_json_object(plan_fn(plan_message(question, entities)))
+    except Exception as exc:  # noqa: BLE001 — the plan is context; its absence never fails an answer
+        logger.debug(f"ask plan skipped ({type(exc).__name__})")
+        return []
+    return ask_sources.clean_looks(parsed.get("looks") if isinstance(parsed, dict) else None)
+
+
+def _default_plan_fn(settings: Settings | None = None) -> PlanFn:
+    """The planning call on the engine ``settings`` chose, through the provider seam (so the sensitive-text door and the
+    usage ledger hold for it as for every other call). Bounded by :data:`PLAN_TIMEOUT_S`."""
+    import litellm
+
+    from api.config import get_settings
+    from api.services.providers import resolve_llm_fn
+
+    settings = settings or get_settings()
+    llm_fn = resolve_llm_fn(settings, model=settings.litellm_model, completion=litellm.completion, stage="ask_plan")
+    system = PLAN_SYSTEM_PROMPT.format(phrases=ask_sources.LOOK_PHRASES)
+
+    def _call(message: str) -> str:
+        response = llm_fn(
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": message}],
+            response_format={"type": "json_object"},
+            timeout=PLAN_TIMEOUT_S,
+        )
+        return response.choices[0].message.content or ""
+
+    return _call
+
+
+def scoped_plan_fn(resolved: Settings) -> PlanFn:
+    """:func:`_default_plan_fn` in its own self-purging breaker scope, as :func:`scoped_llm_fn` does for the answer."""
+    import uuid
+
+    from api.services import agent_engine
+
+    def plan_fn(question: str) -> str:
+        with agent_engine.use_scope(f"ask:{uuid.uuid4().hex}"):
+            return _default_plan_fn(resolved)(question)
+
+    return plan_fn
 
 
 def _default_llm_fn(settings: Settings | None = None, *, extra_body: dict | None = None) -> LlmFn:
@@ -1536,6 +1653,7 @@ def answer_query(
     no_engine: bool | None = None,
     source_words: bool = True,
     search_fn: Callable[[Path, str], "ask_sources.Searched"] | None = None,
+    plan_fn: PlanFn | None = None,
 ) -> dict:
     """Synthesize an auditable, gap-aware answer; what it says about the person is grounded in retrieved memory.
 
@@ -1549,6 +1667,10 @@ def answer_query(
     ``search_fn(memory_path, query)``: the conversations the question's words find (default
     :func:`ask_sources.search`, the derived indexes only); their matching turns reach the model as OTHER
     CONVERSATIONS, past what the pages point at — with ``source_words`` only. Injected by hermetic tests.
+
+    ``plan_fn`` (the second look, :func:`plan_looks`): one short model call that names what the question's answer
+    would be said in; each phrase is searched by meaning and the nearest turns reach the model as ALSO FOUND — with
+    ``source_words`` only. ``None`` (the default, and every caller that has not been given one) makes no such call.
 
     Returns a dict with: ``answer``, ``confidence`` (0..1 float), ``citations``
     (entity-level, each ``{entity_id, entity_name, file_path, snippet,
@@ -1638,9 +1760,10 @@ def answer_query(
     for _eid in retrieved_ids:
         page_reads.count(memory_path, _eid, "ask")
     shown: dict = {}
+    looks = plan_looks(query, plan_fn, entities) if (plan_fn is not None and source_words) else []
     prompt = _build_prompt(query, entities, memory_path=memory_path, source_words=source_words,
                            owner_name=_owner_name(memory_path, entities, people) if source_words else None,
-                           searched=searched, shown=shown)
+                           searched=searched, shown=shown, looks=looks)
     conversations: dict[str, dict] = shown.get("conversations") or {}
     if not entities and not watched and not saved and not conversations:
         # The words found nothing a turn holds: still nothing to ground on.

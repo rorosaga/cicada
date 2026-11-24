@@ -2194,6 +2194,133 @@ def _scored_turns(memory_path: Path, episodes: list[str], pattern, weights: dict
     return candidates
 
 
+#: The second look (2026-11-24): a question whose answer is spread over several conversations names things no word
+#: or embedding of the QUESTION ranks ("which cities…" finds no "a short trip to Rome"). A planning step names what
+#: to look for as short phrases in the words a conversation would use (:func:`ask_service.plan_looks`); each phrase is
+#: searched on its own by meaning, and the turns nearest any of them are shown beside the others. The limits below
+#: are the room it takes.
+LOOK_PHRASES = 6
+LOOK_PHRASE_CHARS = 120
+#: The nearest chunks of the vector index read for each phrase.
+LOOK_CHUNKS = 8
+#: The most turns embedded for one question (each clipped to :data:`SIMILAR_CHARS`): 200 short texts ≈ 0.5 s warm.
+LOOK_POOL = 200
+LOOK_LINES = 12
+LOOK_CHARS = 4000
+LOOK_LINE_CHARS = 300
+#: A conversation shows at most this many of the second look's lines: the point is to find the OTHER trips, books,
+#: places, not to read one conversation again.
+LOOK_PER_EPISODE = 2
+#: A line counts only when it is this near the best line the phrases found (cosine): the rest of a pool is whatever
+#: sat beside the best turn, and it would fill the room with lines about nothing.
+LOOK_SPREAD = 0.1
+
+
+def clean_looks(looks) -> list[str]:
+    """The phrases a plan named, trimmed to short plain strings: at most :data:`LOOK_PHRASES`, none repeated."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in looks if isinstance(looks, (list, tuple)) else []:
+        text = " ".join(str(item or "").split())[:LOOK_PHRASE_CHARS].strip(" \"'")
+        key = text_fold.fold(text)
+        if len(text) >= 3 and key not in seen:
+            seen.add(key)
+            out.append(text)
+    return out[:LOOK_PHRASES]
+
+
+def second_look(memory_path: Path, looks: list[str], *, taken: set[tuple[str, int]] | None = None,
+                owner_name: str | None = None, indexer=None, lines: int = LOOK_LINES, chars: int = LOOK_CHARS,
+                deep: dict | None = None, trace: dict | None = None) -> list[Excerpt]:
+    """The turns nearest to any of ``looks`` (what a planning step says the question's answer would be said in), from
+    the conversations the vector index finds nearest each phrase, oldest first — none already shown (``taken``), at
+    most :data:`LOOK_PER_EPISODE` per conversation. Read from the derived indexes and the episode files only: never
+    a write, never the phrases or the question in a log. Needs the on-device search model that built the index (the
+    turns are embedded now, as for :func:`_similarity`); with none, or on any failure, ``[]``."""
+    from api.services import history_index
+
+    looks = clean_looks(looks)
+    if not looks:
+        return []
+    taken = set(taken or ())
+    try:
+        if indexer is None:
+            from api.services.vector_index import SqliteVecIndexer
+
+            indexer = SqliteVecIndexer(memory_path)
+        # Each phrase's nearest chunks, best first, taken in turns (one phrase never fills the pool).
+        per_phrase: list[list[tuple[str, str]]] = []
+        for look in looks:
+            rows = indexer.search_kinds(look, {"episodes": LOOK_CHUNKS}).get("episodes", [])
+            chunks = []
+            for row in rows:
+                ep = Path(str((row.get("metadata") or {}).get("file_path") or "")).stem
+                if evidence.is_episode_id(ep) and str(row.get("text") or "").strip():
+                    chunks.append((ep, str(row["text"])))
+            per_phrase.append(chunks)
+        docs: dict[str, tuple] = {}
+        pool: list[tuple[str, int, object]] = []
+        seen: set[tuple[str, int]] = set()
+        for k in range(LOOK_CHUNKS):
+            for chunks in per_phrase:
+                if k >= len(chunks) or len(pool) >= LOOK_POOL:
+                    continue
+                ep, passage = chunks[k]
+                if ep not in docs:
+                    doc = evidence.source_document(memory_path, ep)
+                    if doc is None or history_index.is_index_only(doc[0]):
+                        docs[ep] = None
+                        continue
+                    fm, text = doc
+                    gaps = evidence.gap_ranges(fm, text)
+                    docs[ep] = (fm, text, [t for t in evidence.turns(text, stamps=evidence.turn_stamps(fm),
+                                                                     override=authorship.of(fm), gaps=gaps)
+                                           if t.role != evidence.GAP_KIND])
+                if docs[ep] is None:
+                    continue
+                fm, text, turns = docs[ep]
+                head = passage.strip()[:160]
+                at = text.find(head) if head else -1
+                if at < 0:
+                    continue
+                end = at + len(passage.strip())
+                for i, turn in enumerate(turns):
+                    # A turn already shown stays in the pool: it is what "near" is measured against, never chosen.
+                    if (turn.start < end and turn.end > at and (ep, i) not in seen
+                            and len(pool) < LOOK_POOL and text[turn.content_start:turn.end].strip()):
+                        seen.add((ep, i))
+                        pool.append((ep, i, turn))
+        if not pool:
+            return []
+        texts = [" ".join(docs[ep][1][turn.content_start:turn.end].split())[:SIMILAR_CHARS] for ep, _i, turn in pool]
+        scores = indexer.similarities(looks, texts, kind="episodes")
+    except Exception as exc:  # noqa: BLE001 — a leg fewer; never the question or a phrase in a log
+        logger.debug(f"ask second look skipped ({type(exc).__name__})")
+        return []
+    best = [max(col) for col in zip(*scores)]
+    if trace is not None:   # a measuring aid: the pool and each turn's best score
+        trace["pool"] = [(ep, i, docs[ep][1][turn.content_start:turn.end], best[n]) for n, (ep, i, turn) in enumerate(pool)]
+        trace["scores"] = scores
+        trace["roles"] = [t.role for _e, _i, t in pool]
+    order = sorted(range(len(pool)), key=lambda n: (pool[n][2].role == "assistant", -best[n], n))
+    kept: list[tuple] = []
+    per_ep: dict[str, int] = {}
+    floor = max(best) - LOOK_SPREAD
+    for n in order:
+        ep, i, turn = pool[n]
+        if best[n] < floor or (ep, i) in taken:
+            continue
+        if per_ep.get(ep, 0) >= LOOK_PER_EPISODE:
+            continue
+        per_ep[ep] = per_ep.get(ep, 0) + 1
+        kept.append((best[n], 0, i, ep, turn, None))
+        if len(kept) >= lines * 2:
+            break
+    terms = set().union(*(search_terms(look) for look in looks))
+    return _take(kept, docs, terms, owner_name, max_excerpts=lines, total_chars=chars, taken=taken, deep=deep,
+                 excerpt_chars=LOOK_LINE_CHARS, context=False)
+
+
 def render(excerpts: list[Excerpt], *, with_episode: bool = False) -> str:
     """The prompt section: one line per excerpt, dated, with who said it; the turn it answers above a short reply.
     ``with_episode`` names each line's conversation (``[ep_…]``) — the search leg's lines, which no page cites."""

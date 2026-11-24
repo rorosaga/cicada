@@ -149,6 +149,10 @@ def _config(args) -> dict:
         "banks_from": str(Path(args.banks_from).absolute()) if args.banks_from else "",
         "reuse_from": str(Path(args.reuse_from).absolute()) if args.reuse_from else "",
         "wrong_bank": str(Path(args.wrong_bank).absolute()) if args.wrong_bank else "",
+        "replay_from": str(Path(args.replay_from).absolute()) if getattr(args, "replay_from", None) else "",
+        "replay_qids": getattr(args, "replay_qids", "") or "",
+        "second_look": bool(getattr(args, "second_look", False)),
+        "plans_from": str(Path(args.plans_from).absolute()) if getattr(args, "plans_from", None) else "",
     }
 
 
@@ -226,7 +230,11 @@ def run(args) -> int:
                                       "sleep_schedule", "batch_size", "concurrency")},
                "fake_engine": bool(cfg.get("fake_engine")),
                "reuse_from": str(Path(cfg["reuse_from"]) / "units" / uid) if cfg.get("reuse_from") else "",
-               "wrong_bank": cfg.get("wrong_bank") or _other_bank(run_dir, cfg, uid)}
+               "wrong_bank": cfg.get("wrong_bank") or _other_bank(run_dir, cfg, uid),
+               "replay_from": str(Path(cfg["replay_from"]) / "units" / uid) if cfg.get("replay_from") else "",
+               "replay_qids": cfg.get("replay_qids") or "",
+               "second_look": bool(cfg.get("second_look")),
+               "plans_from": str(Path(cfg["plans_from"]) / "units" / uid) if cfg.get("plans_from") else ""}
         if args.gate:
             while subprocess.run(args.gate, shell=True, check=False).returncode != 0:   # noqa: S602 — the person's own
                 time.sleep(60)
@@ -361,6 +369,15 @@ def parser() -> argparse.ArgumentParser:
     r.add_argument("--reuse-from", help="an earlier run folder: a question whose Ask prompt is byte-identical keeps "
                    "that run's answer and verdict (no call); only the changed prompts are read again")
     r.add_argument("--wrong-bank", help="the wrong-bank control reads this bank instead of another unit's")
+    r.add_argument("--replay-from", help="an earlier run folder: Ask's ANSWER step alone is run again over that run's "
+                   "stored prompts (no retrieval, nothing else read), so a change to the answer instructions is "
+                   "measured with the context held fixed")
+    r.add_argument("--replay-qids", help="with --replay-from: only these question ids (comma list, or @file one per line)")
+    r.add_argument("--second-look", action="store_true",
+                   help="Ask makes its planning call and searches what it names (ask_service.plan_looks); each "
+                        "question's plan, seconds and tokens are kept in the unit's plans.jsonl")
+    r.add_argument("--plans-from", help="an earlier run folder whose plans.jsonl answers the planning call (reach "
+                                        "runs only: a graded run always calls, so its seconds and tokens are real)")
     r.add_argument("--embedding-model", default="", help="pin the search model id (default: what the home has)")
     r.add_argument("--concurrency", type=int, default=3, help="concurrent plan calls (CICADA_AGENT_MAX_CONCURRENCY)")
     r.add_argument("--gate", help="a shell command run before each unit; the unit starts once it exits 0 (e.g. a "

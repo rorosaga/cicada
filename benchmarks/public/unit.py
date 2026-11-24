@@ -390,6 +390,13 @@ async def run_unit(job: dict) -> int:
 
         search_index.ensure_fresh(bank, wait=True)   # what the running backend keeps fresh; never a half-built index
     prompts = Checkpoint(out / "prompts.jsonl")
+    planner = None
+    if job.get("second_look"):
+        from api.services import ask_service
+
+        cached = _jsonl(Path(job["plans_from"]) / "plans.jsonl") if job.get("plans_from") else {}
+        planner = Planner(Checkpoint(out / "plans.jsonl"), calls,
+                          None if job.get("plans_from") else ask_service._default_plan_fn(answer_settings), cached)
     if "doors" in paths:
         # What each door hands an agent, with no model call: the words reaching it, per question.
         paths = [p for p in paths if p != "doors"]
@@ -410,7 +417,7 @@ async def run_unit(job: dict) -> int:
             if q["qid"] not in reached.rows:
                 with Runtime(_clock(q["question_date"] or unit["clock"]), settings).frozen():
                     started = time.perf_counter()
-                    text = ask_prompt_text(bank, q["question"])
+                    text = ask_prompt_text(bank, q["question"], planner)
                     reached.add({"key": q["qid"], "qid": q["qid"], "category": q["category"], "abstention": q["abstention"],
                                  "prompt_chars": len(text), "ms": round((time.perf_counter() - started) * 1000, 1),
                                  "prompt": text, **evidence_shown(unit, q, text)})
@@ -421,7 +428,16 @@ async def run_unit(job: dict) -> int:
     old_prompts = _jsonl(earlier / "prompts.jsonl") if earlier else {}
     old_answers = _jsonl(earlier / "answers.jsonl") if earlier else {}
     old_judged = _jsonl(earlier / "judgments.jsonl") if earlier else {}
-    answer_fn = make_answerers(bank, answer_settings, transcript, wrong_bank=job.get("wrong_bank"),
+    replay = None
+    if job.get("replay_from"):
+        replay = {k.split("|", 1)[0]: r["prompt"] for k, r in _jsonl(Path(job["replay_from"]) / "prompts.jsonl").items()
+                  if r.get("prompt")}
+        raw = job.get("replay_qids") or ""
+        wanted = {x.strip() for x in (Path(raw[1:]).read_text().splitlines() if raw.startswith("@") else raw.split(","))
+                  if x.strip()}
+        todo = [t for t in todo if t[0]["qid"] in replay and (not wanted or t[0]["qid"] in wanted)]
+    answer_fn = make_answerers(bank, answer_settings, transcript, wrong_bank=job.get("wrong_bank"), planner=planner,
+                               replay=replay,
                                same_as={k.split("|", 1)[0]: r.get("prompt") for k, r in old_prompts.items()
                                         if k.endswith("|ask") and k in old_answers and k in old_judged})
 
@@ -461,6 +477,9 @@ async def run_unit(job: dict) -> int:
             extra = {"prompt_chars": len(prompt) if prompt is not None else 0,
                      "model_called": prompt is not None, "context_ms": seen.get("context_ms"),
                      **evidence_shown(unit, q, prompt or "")}
+            if seen.get("plan"):
+                extra |= {"plan_seconds": seen["plan"].get("seconds"), "plan_tokens": seen["plan"].get("tokens"),
+                          "plan_raw": seen["plan"].get("raw")}
             prompts.add({"key": f"{q['qid']}|{path}", "prompt": prompt})
         if path in ("recall", "hook", "agent-recall", "agent-hook"):
             # What an agent holding only this door's words read: the note's own size beside the call's tokens.
@@ -553,7 +572,36 @@ AGENT_PROMPT = ("Answer the person as well as you can from general knowledge. WH
                 'one or two sentences. Reply with JSON: {"answer": "<your answer>"}')
 
 
-def ask_prompt_text(bank: Path, question: str) -> str:
+class Planner:
+    """Ask's planning call (``ask_service.plan_looks``) for a run: live on the plan, with seconds and tokens kept per
+    question in ``plans.jsonl``, or read back from an earlier run's file (a reach run, which spends no call)."""
+
+    def __init__(self, store: Checkpoint, calls: "Calls", live, cached: dict[str, dict] | None = None):
+        self.store, self.calls, self.live, self.cached = store, calls, live, cached or {}
+        self.seen = threading.local()   # this thread's last plan: what the answer row keeps
+
+    @staticmethod
+    def key(question: str) -> str:
+        import hashlib
+        return hashlib.sha1(question.encode("utf-8")).hexdigest()[:16]
+
+    def __call__(self, question: str) -> str:
+        key = self.key(question)
+        row = self.cached.get(key) or self.store.rows.get(key)
+        if row is None and self.live is None:
+            return ""   # an earlier run's plans were asked for and this question has none: no plan, as when it failed
+        if row is None:
+            before = getattr(self.calls.spent, "total", 0)
+            started = time.perf_counter()
+            raw = self.live(question)
+            row = {"key": key, "raw": raw, "seconds": round(time.perf_counter() - started, 2),
+                   "tokens": getattr(self.calls.spent, "total", 0) - before}
+            self.store.add(row)
+        self.seen.last = row
+        return row["raw"]
+
+
+def ask_prompt_text(bank: Path, question: str, plan_fn=None) -> str:
     """The prompt Ask would send for ``question`` over ``bank``, captured with no model call ("" when it sends none)."""
     from api.services import ask_service
 
@@ -563,7 +611,7 @@ def ask_prompt_text(bank: Path, question: str) -> str:
         seen["prompt"] = prompt
         return json.dumps({"answer": "", "confidence": 0, "gaps": [], "used_entities": []})
 
-    ask_service.answer_query(bank, question, top_k=6, llm_fn=llm, no_engine=False)
+    ask_service.answer_query(bank, question, top_k=6, llm_fn=llm, no_engine=False, plan_fn=plan_fn)
     return seen.get("prompt") or ""
 
 
@@ -594,7 +642,8 @@ def door_reach(bank: Path, unit: dict, q: dict) -> dict:
 
 
 def make_answerers(bank: Path, settings, transcript: str, *, wrong_bank: str | None = None,
-                   same_as: dict[str, str] | None = None) -> dict:
+                   same_as: dict[str, str] | None = None, planner: "Planner | None" = None,
+                   replay: dict[str, str] | None = None) -> dict:
     from api.services import ask_service, providers
 
     def ask_over(memory: Path, question: str, same: str | None = None) -> dict:
@@ -611,10 +660,25 @@ def make_answerers(bank: Path, settings, transcript: str, *, wrong_bank: str | N
                 raise SamePrompt(prompt)
             return real(prompt)
 
-        response = ask_service.answer_query(memory, question, top_k=6, llm_fn=llm, no_engine=False)
+        if planner is not None:
+            planner.seen.last = None
+        response = ask_service.answer_query(memory, question, top_k=6, llm_fn=llm, no_engine=False,
+                                            plan_fn=planner if memory == bank else None)
+        if planner is not None and getattr(planner.seen, "last", None):
+            seen["plan"] = planner.seen.last
         return {**response, "_bench": seen}
 
+    def replayed(prompt: str) -> dict:
+        """The answer step alone, over a stored prompt: what the model says to it under today's instructions."""
+        from api.services import json_parse
+
+        seen = {"prompt": prompt, "context_ms": 0.0}
+        parsed = json_parse.parse_json_object(ask_service._default_llm_fn(settings)(prompt))
+        return {**(parsed if isinstance(parsed, dict) else {"answer": ""}), "_bench": seen}
+
     def ask(question: str, qid: str) -> dict:
+        if replay is not None:
+            return replayed(replay[qid])
         return ask_over(bank, question, (same_as or {}).get(qid))
 
     def wrong(question: str, _qid: str) -> dict:
