@@ -52,6 +52,7 @@ enum SourceHeadLine {
     static func ways(_ streams: [ResolvedStream]) -> [StreamHow] { ways(streams.map(\.stream)) }
 
     static func ways(_ streams: [SourceStream]) -> [StreamHow] {
+        let streams = streams.filter { !$0.isDerived }   // a place posts go says nothing about how the source is read
         let on = streams.filter { $0.state == .on }
         let chosen = (on.isEmpty ? streams.filter { $0.state == .off } : on).map(\.how)
         var seen = Set<StreamHow>()
@@ -295,6 +296,29 @@ enum SourceStreamItems {
             ?? (held.count == 1 ? held.first : nil)
         guard let chosen, chosen.stream.folderCount > 0 else { return nil }
         return chosen
+    }
+
+    /// G246 (ruling 81) — the page that stands for what the selection shows: the chosen folder's own page, else the list's.
+    /// The backend names it (`SourceStream.page`, `folderPages`) only once it exists, so while the posts-as-rows switch is
+    /// off, for a list of works, a stream with nothing in it or a folder with no page, there is none and no link is drawn.
+    /// `folder` is meaningful only on a stream that keeps folders. All, the watched history and a stream-less page: nil.
+    struct PageLink: Equatable {
+        let id: String
+        let isFolder: Bool
+        var title: String { isFolder ? Copy.Lists.openFolderPage : Copy.Lists.openListPage }
+        var help: String { isFolder ? Copy.Lists.openFolderPageHelp : Copy.Lists.openListPageHelp }
+    }
+
+    static func pageLink(_ selection: String?, folder: String?, streams: [ResolvedStream]) -> PageLink? {
+        if showsHistory(selection, streams: streams) { return nil }
+        let held = tabbed(streams)
+        let chosen = effective(selection, streams: streams).flatMap { id in held.first { $0.id == id } }
+            ?? (held.count == 1 ? held.first : nil)
+        guard let stream = chosen?.stream else { return nil }
+        if let folder, !folder.isEmpty {
+            return stream.folderPages[folder].map { PageLink(id: $0, isFolder: true) }
+        }
+        return stream.page.map { PageLink(id: $0, isFolder: false) }
     }
 
     /// The folder names the menu offers: the channel's own collections when the backend files them, else the folders the

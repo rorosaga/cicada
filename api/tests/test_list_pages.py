@@ -403,17 +403,16 @@ def test_a_list_page_is_the_same_dict_for_the_card_and_for_the_blocks_an_agent_i
     list_pages.sync(bank)
     page = page_of(bank, "list-x-bookmarks")
     built = page_blocks.build(bank, "list-x-bookmarks", fm=page.frontmatter, claims=[], relevance=None)
-    kinds = (*page_blocks.wanted("blocks", remote=False), "list")
+    kinds = page_blocks.wanted("blocks", remote=False)
+    assert "list" in kinds, "the agent doors' `include` names it (both schemas advertise it)"
     again = page_blocks.for_page(bank, "list-x-bookmarks", kinds)
     assert built["list"] is not None and built["list"] == again["list"]
     assert "list" in built["order"] and "list" in again["order"]
     text = page_blocks.words(again, kinds)
     assert "1 saved" in text and "A post 1" in text and "never stored on the page" in text
-    # the agent doors' `include` enum does not name it until the second track edits both schemas: nothing leaks early
-    assert "list" not in page_blocks.INCLUDE and "list" not in page_blocks.wanted("list", remote=False)
-    asked = page_blocks.wanted("blocks", remote=False)
-    served = page_blocks.for_caller(page_blocks.for_page(bank, "list-x-bookmarks", asked), asked, verbatim=True)
-    assert "list" not in served["order"] and served["list"] is None
+    assert "list" in page_blocks.INCLUDE and "list" in page_blocks.REMOTE_INCLUDE
+    served = page_blocks.for_caller(again, kinds, verbatim=True)
+    assert "list" in served["order"] and served["list"] == built["list"]
 
 
 def test_a_caller_without_sources_gets_no_words_of_what_was_saved(bank, on):
@@ -421,7 +420,7 @@ def test_a_caller_without_sources_gets_no_words_of_what_was_saved(bank, on):
     list_pages.sync(bank)
     page = page_of(bank, "list-x-bookmarks")
     blocks = page_blocks.build(bank, "list-x-bookmarks", fm=page.frontmatter, claims=[], relevance=None)
-    kinds = (*page_blocks.wanted("blocks", remote=True), "list")
+    kinds = page_blocks.wanted("blocks", remote=True)
     masked = page_blocks.for_caller(blocks, kinds, verbatim=False)
     assert masked["list"]["count"] == 1 and masked["list"]["recent"] == [] and masked["list"]["why"] is None
     assert masked["list"]["recentWithheld"] is True

@@ -109,8 +109,13 @@ holds its key and is never made again or woken). It is never a stream member, a 
 writer runs only on the home (a replica refuses), never into a demo bank, inside write admission and the page lock, one commit per
 batch under `cicada` (`sync/list_pages`), retried while Sleep holds the pages. **Dark, it writes nothing**: no file is born while
 `HIDE_POSTS` is off, so no reader of the pages folder can show one; the first sync after the flip makes every list's page. Its
-triggers are the backend's start and a read of `GET /sources/streams` (a background no-op until the flip); the triggers after a list
-read lands and after Sleep join them with the agent doors' change.
+triggers are the backend's start, a read of `GET /sources/streams`, a list read recorded (`cicada_record_saved_list`, after its own commit, only when
+it saved something), a save noticed in a site (`POST /sources/site-save`, after the save is stored) and the end of a Sleep run (beside the file
+pages' writer, after the write flag is down): each asks `list_pages.start_sync` with a short settle, so a burst is one run, in the writer's own
+commit, inside write admission, retried a minute later when Sleep holds the pages (all a no-op until the flip, on a replica and on a demo bank).
+No operation of the person's today removes a post list's source (turning a list off keeps its page, forgetting the followed accounts is a different
+list), so `retire_source` has no caller yet; a list whose stream leaves the table is retired by `sync` itself. An agent's write to such a page is
+refused on every door (`mcp.md`, "A list of saved posts' own page, for an agent").
 
 **Provenance never makes a hub.** Stage 5.6 makes any tag shared by `hub_tag_min_members` (5) active pages a
 `topic-<tag>` hub with a `member of` edge to each, and the media writer used to put `sanitize_id(folder)` in `tags`

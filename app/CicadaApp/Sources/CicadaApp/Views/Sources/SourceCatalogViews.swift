@@ -526,7 +526,7 @@ struct SourceCatalogDetail: View {
 
     @ViewBuilder
     private var readsBlock: some View {
-        let streams = pageStreams
+        let streams = pageStreams.filter { !$0.stream.isDerived }   // G246: "Saved another way" is no read, only a tab
         if !streams.isEmpty {
             TimelineView(.periodic(from: .now, by: SourceRowText.refreshInterval)) { context in
                 SourceReadsBlock(streams: streams, results: check?.results ?? [:], checking: check?.checking ?? [],
@@ -597,7 +597,7 @@ struct SourceCatalogDetail: View {
     private var showsConnectStep: Bool {
         guard hasBackendStreams else { return true }
         if Self.connectorChannel(in: mine) != nil { return true }
-        return pageStreams.contains { SourceStreamRow.control($0) == .setup }
+        return pageStreams.contains { !$0.stream.isDerived && SourceStreamRow.control($0) == .setup }
     }
 
     @ViewBuilder

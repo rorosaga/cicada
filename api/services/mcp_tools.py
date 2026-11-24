@@ -2116,6 +2116,7 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
             [f"{named} saved post(s) given who posted them (trigger: {ctx.trigger})"] if named else [])
         agent_commits.commit_write(memory_path, subject=ctx.commit_subject, lines=lines, paths=paths,
                                    author=ctx.author, session=ctx.session_id)
+        _list_pages_catch_up(memory_path)
     extra = (f" {dropped} row(s) were not {p.name} posts and were left out." if dropped else "") + (
         f" {own} row(s) were the person's own posts and were left out: only a post they reposted is kept." if own else "")
     stop = ""
@@ -2141,6 +2142,15 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     return (f"Recorded the person's {p.name} {p.label}. {created} new post(s) saved; {duplicates} already in memory"
             + (f" ({listed} now on this list too)" if listed else "") + f". {saved_words.recorded_posts()}"
             f"{more}{stop}{folders_said()}{started}{extra}{unkept}")
+
+
+def _list_pages_catch_up(memory_path: Path) -> None:
+    """A list read landed: ask the list pages' writer (G246, ruling 81) to catch up, in the background and in its own
+    commit — a list whose first item arrived gets its page. A no-op before the flip, on a replica and on a demo bank; it
+    never runs inside this call's own write, waits out Sleep's window and tries again when held. Never raises."""
+    from api.services import list_pages
+
+    list_pages.start_sync(memory_path, delay_s=list_pages.SETTLE_S)
 
 
 def _record_follows(memory_path: Path, rows: list, p, *, continuing: bool, wants_more: bool, at_end: bool, who: dict,
@@ -3310,6 +3320,33 @@ def _page_digest(ctx: ToolContext, path: Path, text: str, fm: dict, total: int) 
     return "".join(head) + prose + footer
 
 
+def _list_line(memory_path: Path, entity_id: str, *, rows: bool = False) -> dict | None:
+    """``list_pages.line_for`` or None: the words a list of saved posts' own page is read with (G246, ruling 81)."""
+    from api.services import list_pages
+
+    return list_pages.line_for(memory_path, entity_id, rows=rows)
+
+
+def _list_page_refusal(memory_path: Path, *refs) -> "Reply | None":
+    """G246 (ruling 81): an agent's write to a list of saved posts' own page — a fact, an edit, a merge, a split, a link — is
+    refused with one sentence, whichever door it came by (every door runs this body). One check (``list_pages.is_list``) over
+    each page a reference names, by id or by name; None when none is a list's page."""
+    from api.services import bank_index, list_pages
+    from api.services.id_utils import resolve_entity_file
+
+    entities = Path(memory_path) / "entities"
+    for ref in refs:
+        text = str(ref or "").strip()
+        if not text:
+            continue
+        page = resolve_entity_file(memory_path, text)
+        stem = page.stem if page is not None else _entity_id_for_name(entities, text)
+        entry = bank_index.file(Path(memory_path), "entities", f"{stem}.md") if stem else None
+        if entry is not None and list_pages.is_list(entry.frontmatter):
+            return Reply(list_pages.AGENT_REFUSAL, code="refused")
+    return None
+
+
 def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None, whole: bool = False,
                   include=None) -> str:
     """Return the full entity page for one entity (Pass 2), its claims ledger after it when it has one
@@ -3366,6 +3403,9 @@ def recall_detail(ctx: ToolContext, entity_id: str, *, start: int | None = None,
             edited = _corrected_sources_line(memory_path, page_text)
             if edited:     # G244 (ruling 76): derived on read, never written; trust and the speaker are unchanged
                 text = text.rstrip("\n") + "\n\n" + edited + "\n"
+            listed = _list_line(memory_path, cid, rows=ctx.raw_excerpts) if fm.get("type") == "media" else None
+            if listed:     # G246: a list of saved posts says so — its count and rows are the saves', never this page's text
+                text = text.rstrip("\n") + "\n\n" + listed["words"] + "\n"
             heard = None if ctx.is_remote and not ctx.raw_excerpts else media_pages.transcript_line(memory_path, cid)
             if heard:      # ROR-117: how much transcript a recording's page has — never a word of it
                 text = text.rstrip("\n") + "\n\n" + heard + "\n"
@@ -4316,6 +4356,8 @@ def write_claim(
     memory_path = ctx.memory_path()
     if (refusal := _demo_refusal(memory_path)) is not None:
         return refusal
+    if (refusal := _list_page_refusal(memory_path, subject)) is not None:
+        return refusal
     if not observer_accepted(observer):
         # Hyrum audit A3: the schema's pattern was advertised and never checked, so any string was recorded as
         # the belief's holder. Refused before anything is read or written; the reply names the accepted values.
@@ -4606,6 +4648,8 @@ def add_source(ctx: ToolContext, subject: str, ref: str, predicate: str | None =
     # other, so the demo refusal covers this tool too — one bank per call.
     if (refusal := _demo_refusal(memory_path)) is not None:
         return refusal
+    if (refusal := _list_page_refusal(memory_path, subject, entity)) is not None:
+        return refusal
     ref_text = (ref or "").strip()
     if not ref_text:
         return Reply("Nothing added — `ref` is empty.", code="refused")
@@ -4719,6 +4763,8 @@ def change_source(ctx: ToolContext, subject: str, ref: str, predicate: str | Non
 
     memory_path = ctx.memory_path()
     if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    if (refusal := _list_page_refusal(memory_path, subject, entity)) is not None:
         return refusal
     verb = (action or "").strip().lower()
     if verb not in ("update", "remove"):
@@ -4891,6 +4937,8 @@ def edit_page(ctx: ToolContext, subject: str, reason: str, edits=None, section: 
     Refused, writing nothing: a demo bank, Sleep holding the pages, a remote app, words not on the page."""
     from api.services import page_edits
 
+    if (refusal := _list_page_refusal(ctx.memory_path(), subject)) is not None:
+        return refusal
     if ctx.is_remote:
         return "Page edits aren't available to a remote app; record the correction as a claim instead."
     memory_path = ctx.memory_path()
@@ -5002,6 +5050,8 @@ def merge_pages(ctx: ToolContext, page: str, into: str, reason: str) -> str:
     memory_path = ctx.memory_path()
     if (refusal := _demo_refusal(memory_path)) is not None:
         return refusal
+    if (refusal := _list_page_refusal(memory_path, page, into)) is not None:
+        return refusal
     clean = _join_reason(reason)
     if not clean:
         return Reply("Nothing changed — give a `reason` in one sentence; it becomes the commit message.",
@@ -5055,6 +5105,8 @@ def undo_join(ctx: ToolContext, page: str, reason: str = "") -> str:
     memory_path = ctx.memory_path()
     if (refusal := _demo_refusal(memory_path)) is not None:
         return refusal
+    if (refusal := _list_page_refusal(memory_path, page)) is not None:
+        return refusal
     entity_id = _join_page_id(memory_path, page)
     if entity_id is None:
         return Reply(f"No page named '{page}' — nothing changed. Use the page's id.", code="not_found")
@@ -5082,6 +5134,8 @@ def split_page(ctx: ToolContext, page: str, reason: str = "", sentences=None, cl
         # no page (scopes fail closed); it can still propose a split by sentence numbers it already holds.
         return Reply(READ_SCOPE_REFUSAL, code="refused")
     if not preview and (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    if (refusal := _list_page_refusal(memory_path, page)) is not None:
         return refusal
     entity_id = _join_page_id(memory_path, page)
     if entity_id is None:
@@ -5198,6 +5252,8 @@ def create_project(ctx: ToolContext, name: str, description: str | None = None, 
 
     memory_path = ctx.memory_path()
     if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    if (refusal := _list_page_refusal(memory_path, name)) is not None:
         return refusal
     if ctx.sleep_running():
         return Reply(PROJECT_SLEEPING, code="sleep_writing")
@@ -5341,6 +5397,8 @@ def link_entity(ctx: ToolContext, project: str, entity: str, remove: bool = Fals
         return Reply("Say why in `reason` (one sentence). Nothing changed.", code="invalid_arguments")
     if not str(entity or "").strip():
         return Reply("Name the page as `entity` (its id or name).", code="invalid_arguments")
+    if (refusal := _list_page_refusal(memory_path, entity)) is not None:
+        return refusal
     if ctx.sleep_running():
         return Reply(PROJECT_SLEEPING, code="sleep_writing")
     stem, miss = _project_page(memory_path, project)
@@ -5999,6 +6057,13 @@ def _render_entity_summary(entities_dir: Path, hit: dict, *, ranked_ids: frozens
     saved = saved_lookup.page_hit(entities_dir.parent, eid) if etype == "media" else None
     if saved is not None and not saved.read:
         said = f"saved {saved.day}" if saved.day else "saved"   # ruling 62: nobody said it; its day is when it was saved
+    # G246 (ruling 81): a list of saved posts says it is one, with the count and the newest day from the saves now — never
+    # "last said" and never the page's own sentence as if it were what the list holds.
+    listing = _list_line(entities_dir.parent, eid) if etype == "media" else None
+    shown_type = etype
+    if listing is not None:
+        shown_type = "list of saved posts"
+        said = f"{listing['count']} saved" + (f", newest {listing['newest']}" if listing["newest"] else "")
     related = fm.get("related", []) or []
 
     truncated = _type_aware_truncate(body, etype, max_chars=body_max, collapse=body_max is not None)
@@ -6007,10 +6072,12 @@ def _render_entity_summary(entities_dir: Path, hit: dict, *, ranked_ids: frozens
     qualifier = same_name.qualifier(entities_dir.parent, eid)
     lines = [
         # A qualifier that is the type word itself is said once: "### <name-a> (tool, …)".
-        (f"### {name} ({etype}, {said})" if qualifier == same_name.TYPE_WORDS.get(etype)
-         else f"### {same_name.display(name, qualifier)} ({etype}, {said})") + (f" — id `{eid}`" if qualifier else ""),
+        (f"### {name} ({shown_type}, {said})" if qualifier == same_name.TYPE_WORDS.get(etype)
+         else f"### {same_name.display(name, qualifier)} ({shown_type}, {said})") + (f" — id `{eid}`" if qualifier else ""),
     ]
     call = more_call(eid) if more_call else None
+    if listing is not None:
+        lines.append(listing["words"] + (f" {call} lists the newest." if call else ""))
     if saved is not None and saved.url:
         # Ruling 62: a saved page's link and what it is, so an agent can look further from recall alone.
         lines.append(f"Link: {saved.url}" + saved_words.link_suffix(saved.state))

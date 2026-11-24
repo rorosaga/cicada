@@ -287,6 +287,31 @@ final class SourcePageStreamsTests: XCTestCase {
         XCTAssertTrue(found, "the Agents page")
     }
 
+    /// G246 (ruling 81, Track 3) — "Saved another way" is a place posts go: a tab of the Items with its count, never a Reads
+    /// row's worth of words about how the source is read, and no setup to ask for.
+    func testSavedAnotherWayIsATabAndSaysNothingAboutHowTheSourceIsRead() throws {
+        let another = SourceStream(id: "x.another-way", label: "Saved another way", kind: .saved, how: .app, owner: .backend,
+                                   control: .setup, state: .on, health: .read, count: 4, depth: .read)
+        XCTAssertTrue(another.isDerived)
+        XCTAssertFalse(SourceStream(id: "x.bookmarks", label: "Bookmarks").isDerived)
+        let derived = ResolvedStream(source: "x", stream: another, word: .read, fix: nil, reader: nil)
+        let base = try streams("x")
+        XCTAssertEqual(SourceHeadLine.text(account: nil, streams: base + [derived], app: nil),
+                       SourceHeadLine.text(account: nil, streams: base, app: nil), "the head's line is the lists' alone")
+        XCTAssertEqual(SourceHeadLine.ways(base + [derived]), SourceHeadLine.ways(base))
+        // Off lists, one derived stream that is on: still the ways a source could read, not an empty line.
+        let off = base.map { r -> ResolvedStream in
+            var s = r.stream; s.state = .off
+            return ResolvedStream(source: r.source, stream: s, word: .off, fix: nil, reader: nil)
+        }
+        XCTAssertEqual(SourceHeadLine.ways(off + [derived]), SourceHeadLine.ways(off))
+        let tabs = SourceStreamItems.tabs(base.filter { $0.stream.kind.isList && ($0.stream.count ?? 0) > 0 } + [derived])
+        XCTAssertEqual(tabs.last?.label, "Saved another way")
+        XCTAssertEqual(tabs.last?.count, 4)
+        XCTAssertTrue(try Self.source("Views/Sources/SourceCatalogViews.swift").contains("!$0.stream.isDerived"),
+                      "the Reads block and the connect step leave it out")
+    }
+
     func testNotionLeftTheFileGroupAndIsItsLiveConnection() {
         let notion = SourceCatalog.fixed.first { $0.id == "notion" }
         XCTAssertEqual(notion?.group, .accounts)

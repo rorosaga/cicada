@@ -81,6 +81,16 @@ enum KeepAsPageOffer: Equatable, Sendable {
 }
 
 enum KeepAsPage {
+    /// The state a row of a list was told (`ChannelItem.keep`: `row` or `kept`; the backend says `kept` only when the
+    /// person's click is the one thing holding the page, so the way back is open). Any other word, or none, offers nothing.
+    static func seeded(_ word: String?, page: String) -> KeepAsPageState {
+        switch word {
+        case "row": KeepAsPageState(state: "row", canUndo: false, becauseOf: [], mediaEntityId: page)
+        case "kept": KeepAsPageState(state: "kept", canUndo: true, becauseOf: [], mediaEntityId: page)
+        default: .none
+        }
+    }
+
     /// The one control a state offers, or nil: nothing for a work, a link not saved, a post some other reason holds a
     /// page for, a kept post that cannot go back, or any link while the switch is off.
     static func offer(_ state: KeepAsPageState?) -> KeepAsPageOffer? {
