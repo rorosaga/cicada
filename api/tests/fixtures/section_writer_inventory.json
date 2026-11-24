@@ -281,6 +281,18 @@
       "disposition": "fresh_frontmatter_untracked"
     },
     {
+      "function": "_set_sources",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_write_retired",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
       "function": "_write_scenario",
       "method": "write",
       "frontmatter": "fm",
