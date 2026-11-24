@@ -1521,6 +1521,14 @@
       "disposition": "preserve_frontmatter_guarded"
     }
   ],
+  "services/keep_as_page.py": [
+    {
+      "function": "_stamp_episode",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
   "services/inbox_actor.py": [
     {
       "function": "write_record",

@@ -1092,20 +1092,26 @@ struct GraphResponse: Codable, Sendable {
     // §3: distinct-observer roster so the observer filter bar can populate its
     // segments without a separate call. Optional/decode-tolerant.
     let observers: [String]
+    /// G246 (ruling 81) — how many saved posts the server draws as a row under their list instead of as a node. 0 from
+    /// an older backend and while the posts-as-rows switch is off, so nothing is said; Home says the number once
+    /// (`HiddenPostsNote`).
+    let hiddenPosts: Int
 
-    enum CodingKeys: String, CodingKey { case nodes, links, observers }
+    enum CodingKeys: String, CodingKey { case nodes, links, observers, hiddenPosts }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         nodes = try c.decodeIfPresent([GraphNode].self, forKey: .nodes) ?? []
         links = try c.decodeIfPresent([GraphEdge].self, forKey: .links) ?? []
         observers = try c.decodeIfPresent([String].self, forKey: .observers) ?? []
+        hiddenPosts = try c.decodeIfPresent(Int.self, forKey: .hiddenPosts) ?? 0
     }
 
-    init(nodes: [GraphNode] = [], links: [GraphEdge] = [], observers: [String] = []) {
+    init(nodes: [GraphNode] = [], links: [GraphEdge] = [], observers: [String] = [], hiddenPosts: Int = 0) {
         self.nodes = nodes
         self.links = links
         self.observers = observers
+        self.hiddenPosts = hiddenPosts
     }
 }
 

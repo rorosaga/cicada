@@ -558,7 +558,7 @@ def _build_full(memory_path: Path, include_posts: bool = False) -> GraphResponse
     nodes.extend(facet_nodes)
     links.extend(facet_links)
 
-    resp = GraphResponse(nodes=nodes, links=links, observers=sorted(all_observers))
+    resp = GraphResponse(nodes=nodes, links=links, observers=sorted(all_observers), hidden_posts=len(hidden))
     slot.update(key=key, value=resp)
     return resp
 
@@ -596,7 +596,7 @@ def _apply_filters(
         kept_links = [
             l for l in full.links if l.source in kept_ids and l.target in kept_ids
         ]
-        return GraphResponse(nodes=kept_nodes, links=kept_links, observers=full.observers)
+        return GraphResponse(nodes=kept_nodes, links=kept_links, observers=full.observers, hidden_posts=full.hidden_posts)
 
     def keep(n: GraphNode) -> bool:
         if n.is_hub:
@@ -614,7 +614,7 @@ def _apply_filters(
     kept_nodes = [n for n in nodes if keep(n)]
     kept_ids = {n.id for n in kept_nodes}
     kept_links = [l for l in full.links if l.source in kept_ids and l.target in kept_ids]
-    return GraphResponse(nodes=kept_nodes, links=kept_links, observers=full.observers)
+    return GraphResponse(nodes=kept_nodes, links=kept_links, observers=full.observers, hidden_posts=full.hidden_posts)
 
 
 def _claim_edge_row(claim, page_stem: str) -> dict | None:

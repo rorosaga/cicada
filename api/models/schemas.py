@@ -2702,6 +2702,9 @@ class GraphResponse(CamelModel):
     # M5b: distinct observer roster across the graph, so the observer filter bar
     # can populate its segments without a second call. Additive/optional.
     observers: list[str] = []
+    # G246 (ruling 81): how many saved posts are drawn as a row under their list instead of as a node. 0 until the
+    # posts-as-rows switch is on (and with ``include_posts``), so the app shows nothing; Home says the number in one line.
+    hidden_posts: int = 0
 
 
 # --- Search ---

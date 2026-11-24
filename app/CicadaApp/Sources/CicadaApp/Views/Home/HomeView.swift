@@ -102,6 +102,7 @@ struct HomeView: View {
                                 // first keystroke replaces them too.
                                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(HomeLayout.blockGap)) {
                                     HomeExportWaitStrip()   // ROR-126: the worm waiting on an export, per provider
+                                    HiddenPostsStrip()      // G246: the posts that moved under their lists, said once
                                     ForEach(Array(arrangement.order.enumerated()), id: \.element) { index, id in
                                         // ROR-118 — Today and Last read are one quiet group when they sit together.
                                         block(id, today: today, gettingStartedVisible: gettingStartedVisible,

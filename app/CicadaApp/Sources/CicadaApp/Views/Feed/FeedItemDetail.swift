@@ -55,6 +55,9 @@ struct FeedItemDetail: View {
                 whySection
                 savedFromSection
             }
+            // G246 — "Keep as a page" on a saved post drawn as a row (and "Back to a row" once the click holds its
+            // page): the backend decides, and says nothing for any link while the posts-as-rows switch is off.
+            if !isVideo { KeepAsPageControl(url: item.url) }
             // G191 v3 — a bookmark's page: why it was saved (every time), editable, and Remove.
             if BookmarkHistory.isBookmark(item) {
                 BookmarkReasonsSection(item: item, onRemoved: onClose)
