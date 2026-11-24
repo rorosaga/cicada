@@ -258,7 +258,8 @@ def test_a_feed_item_is_no_time_signal_whichever_date_it_carries(tmp_path):
         "ep_2023-05-01_001": {"source": "article", "origin": "rss", "published_at": "2023-05-01T06:30:00+00:00"},
         "ep_2026-10-20_001": {"source": "url", "origin": "rss"},                 # a poll-dated item from before
         "ep_2026-10-20_002": {"source": "url", "published_at": "2024-01-01T00:00:00+00:00"},   # an uploaded feed file
-        "ep_2026-10-20_003": {"source": "url", "origin": "chrome-bookmark"},     # a save stays a signal
+        # a save the person gave a reason for stays a signal (a bare one is none: ruling 80, `test_saves_no_pages`)
+        "ep_2026-10-20_003": {"source": "url", "origin": "chrome-bookmark", "has_note": True},
         "ep_2026-10-20_004": {"source": "claude-code", "origin": "claude-code"},
     }
     for eid, extra in rows.items():

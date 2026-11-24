@@ -3007,6 +3007,30 @@ async def _commit_media(
 # --- Sleep-cycle media edge injection (CRITIC FIX) ---
 
 
+def _pages_a_save_names(memory_path: Path, episode_id: str, targets: set[str]) -> set[str] | None:
+    """Of the pages ``targets``, the ones the saved item ``episode_id``'s own text states in full (an exact title or
+    alias, at most five: ``saved_reading.named_in_full``), or ``None`` when the episode is no saved item (a
+    conversation, a note), which keeps the rule it always had. An unreadable save names nothing."""
+    from api.services import saved_reading
+
+    entry = bank_index.file(memory_path, "episodes", f"{episode_id}.md")
+    if entry is None or not saved_reading.applies(entry.frontmatter):
+        return None
+    try:
+        content = entry.body()
+    except Exception:  # noqa: BLE001 — a save that cannot be read names no page
+        return set()
+    pages: dict[str, tuple[str, list[str]]] = {}
+    for target in targets:
+        page = bank_index.file(memory_path, "entities", f"{target}.md")
+        if page is None:
+            continue
+        aliases = page.frontmatter.get("aliases")
+        pages[target] = (str(page.frontmatter.get("name") or ""),
+                         [str(a) for a in aliases if a] if isinstance(aliases, list) else [])
+    return set(saved_reading.named_in_full(content, pages))
+
+
 def inject_media_edges(memory_path: Path, changes: list[dict]) -> int:
     """Wire ``media —about→ existing-entity`` edges, bypassing the promotion gate.
 
@@ -3046,6 +3070,7 @@ def inject_media_edges(memory_path: Path, changes: list[dict]) -> int:
         return 0
 
     new_edges: list[dict] = []
+    named_by_save: dict[str, set[str] | None] = {}   # a save's episode -> the pages its own text states in full
     for filepath in entities_dir.glob("media-*.md"):
         parsed = markdown_parser.parse(filepath)
         fm = parsed.frontmatter or {}
@@ -3053,7 +3078,16 @@ def inject_media_edges(memory_path: Path, changes: list[dict]) -> int:
             continue
         media_id = filepath.stem
         for ep in fm.get("source_episodes") or []:
-            for target_id in episode_to_entities.get(ep, set()):
+            targets = episode_to_entities.get(ep, set())
+            if not targets:
+                continue
+            # Ruling 80 (e), G245: a save's page links to another page only where the save itself names that page in
+            # full, at most five — never to every name Sleep read in a post. Any other episode (a conversation about
+            # the link) is as before.
+            if ep not in named_by_save:
+                named_by_save[ep] = _pages_a_save_names(memory_path, ep, targets)
+            named = named_by_save[ep]
+            for target_id in sorted(targets if named is None else named):
                 if target_id == media_id:
                     continue
                 new_edges.append({

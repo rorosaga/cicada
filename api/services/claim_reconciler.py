@@ -36,7 +36,7 @@ from typing import Callable
 from loguru import logger
 
 from api.models.schemas import DecayClass
-from api.services import decay_policy, episode_time, phone_numbers, predicates
+from api.services import decay_policy, episode_time, phone_numbers, predicates, saves_bounded
 from api.services.id_utils import sanitize_id
 from api.services.claims import (HAPPENED, MILESTONE, Claim, Evidence, event_cardinality, is_event, is_record,
                                  is_value_claim, same_value_attribute, stated_end)
@@ -1252,6 +1252,10 @@ def reconcile_stage3(
     depends_on = getattr(endings_fn, "depends_on", None)
     onset_fn = getattr(endings_fn, "onset", None)
     premise_pairs: list[tuple[Claim, str]] = []
+    # G245 (ruling 80, Track 2c): what saves alone say about a page is bounded (`saves_bounded`) — read lazily, only
+    # for a claim somebody else's observer holds, so a pass with none pays nothing.
+    saves = saves_bounded.for_bank(memory_path) if memory_path else None
+    from_saves: set[str] = set()   # the subjects a save-only claim was placed on this pass
     for new in incoming_claims:
         sub = new.subject
         referenced_subjects.add(sub)
@@ -1297,6 +1301,16 @@ def reconcile_stage3(
         if ending is not None and _place_ending(new, ending, slot, settings, today, audit, untimed, ended_by, scoped,
                                                 _on_other_pages(reconciled, sub, scoped)) is not False:
             continue
+        if saves is not None and str(new.observer or "").startswith("external:") and saves_bounded.is_save_only(new, saves):
+            # What two authors say alike is one fact with both their sources, not one claim per author (a claim's slot
+            # is keyed by its observer): the first author's claim takes the second's evidence.
+            twin = saves_bounded.fold_target(new, slot, saves)
+            if twin is not None:
+                _reinforce(twin, new, today=today, untimed=untimed)
+                audit.append({"action": "save_folded", "kept": twin.id, "dropped": new.id})
+                from_saves.add(sub)
+                continue
+            from_saves.add(sub)
         # A predicate an ending also ends (`also_ends`, or a qualified label) reads that canonical's departures.
         canonical = (ended_by(new.predicate) if ended_by else None) or new.predicate
         over = getattr(endings_fn, "over", {}).get(canonical, frozenset())
@@ -1326,6 +1340,12 @@ def reconcile_stage3(
                 delattr(c, "_lift_check")
                 if c.faded_by_age:
                     _lift_to_repeat_floor(c, sub, settings, decay_class_fn, subject_fn, untimed, today)
+
+    for sub in sorted(from_saves):
+        # At most `MAX_OPEN_CLAIMS` open claims on a page rest on saves alone: the oldest by the post's own day are
+        # closed (never deleted; git holds them), and the count rides the run's report.
+        for c in saves_bounded.cap(reconciled.get(sub, []), saves, today=today):
+            audit.append({"action": "save_capped", "closed": c.id})
 
     if depends_on is not None:
         # W7: a working relationship closes with the job it rests on — linked once every claim is placed.

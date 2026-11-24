@@ -51,8 +51,8 @@ from typing import Callable
 
 from loguru import logger
 
-from api.services import (episode_revision, markdown_parser, owner_identity, pending_store, phone_numbers, telemetry,
-                          value_alignment, value_ended)
+from api.services import (episode_revision, markdown_parser, owner_identity, pending_store, phone_numbers, saves_bounded,
+                          telemetry, value_alignment, value_ended)
 from api.services.claim_reconciler import reconcile_stage3
 from api.services.claims import Claim, is_event, parse_claims, route_values_to_their_thing, write_claims
 from api.services.entity_extractor import entities_to_claims
@@ -327,7 +327,8 @@ def _settle_store(
     line is handed new claims in the pass that retires it. Each store call is
     guarded (R-HP10): a failure is logged and costs only the hold — what could
     not be held is counted page-less by the caller. Returns R-HP12's counts."""
-    counts = {"claims_held": 0, "claims_hold_capped": 0, "claims_released": 0, "claims_waiting": 0}
+    counts = {"claims_held": 0, "claims_hold_capped": 0, "claims_released": 0, "claims_waiting": 0,
+              "saves_held_capped": 0}
     done = [rel for rel in releases if all(c.subject in written for c in rel.claims)]
     try:
         pending_store.release(memory_path, [rel.name for rel in done])
@@ -346,6 +347,9 @@ def _settle_store(
             **({"reserved": reserved} if reserved else {}))
         counts["claims_held"] = sum(o.held for o in outcomes.values())
         counts["claims_hold_capped"] = sum(o.capped for o in outcomes.values())
+        # G245: of those, the claims a line only saves named was refused past its three (`saves_bounded.MAX_HELD_CLAIMS`).
+        counts["saves_held_capped"] = pending_store.saves_refused(
+            memory_path, {s: o.capped for s, o in outcomes.items() if o.capped})
     except Exception as e:  # noqa: BLE001 - unheld claims are counted page-less, never lost silently
         logger.warning(f"page-less claims not held: {type(e).__name__}: {e}")
     try:
@@ -502,6 +506,7 @@ def run_claim_pipeline(
     "subjects_written": int, "subjects_skipped": int, "claims_page_less": int,
     "page_less_subjects": [ids], "relabelled_events": int, "claims_held": int,
     "claims_hold_capped": int, "claims_released": int, "claims_waiting": int,
+    "saves_folded": int, "saves_closed": int, "saves_held_capped": int,
     "revision_closed": {page id: [the revised episodes that closed a claim on it]}}`` (G104).
     ``claims_page_less`` counts claims neither written nor held (G141 PJ-0b);
     ``page_less_subjects`` stays in memory only (R-CS3: a subject id is a slug
@@ -610,6 +615,12 @@ def run_claim_pipeline(
     )
     audit.extend(number_audit)
     audit.extend(routed)
+    # G245 (ruling 80, Track 2c): what a save's words were kept to, counted so it is never silent (`saves_bounded`).
+    saves_folded = sum(1 for a in audit if a.get("action") == "save_folded")
+    saves_closed = sum(1 for a in audit if a.get("action") == "save_capped")
+    if saves_folded or saves_closed:
+        logger.info(f"Claim pipeline: {saves_folded} save-derived claim(s) folded into one another author already said, "
+                    f"{saves_closed} older one(s) closed past the {saves_bounded.MAX_OPEN_CLAIMS} a page keeps")
     withdrawn = episode_revision.settle(reconciled, revision_plan, revisions or {}, today, audit)
     if revisions:
         superseded = sum(1 for a in audit if a.get("action") == "revised")
@@ -736,7 +747,8 @@ def run_claim_pipeline(
         f"Claim pipeline: {len(incoming)} emitted, "
         f"{subjects_written} pages written ({claims_written} claims), "
         f"{claims_page_less} claim(s) on {subjects_skipped} subject(s) without a page not written, "
-        f"{hold['claims_held']} held for a pending name ({hold['claims_hold_capped']} over the cap), "
+        f"{hold['claims_held']} held for a pending name ({hold['claims_hold_capped']} over the cap, "
+        f"{hold['saves_held_capped']} of them a name only saves named), "
         f"{hold['claims_released']} released onto their page, {hold['claims_waiting']} waiting, "
         f"{sources_attached} cited links attached as sources, "
         f"{len(nudges)} claim nudges"
@@ -754,6 +766,9 @@ def run_claim_pipeline(
         "claims_page_less": claims_page_less,
         "page_less_subjects": sorted(page_less_subjects),
         "relabelled_events": relabelled,
+        # G245: save-derived claims folded into the same fact another author said, and older ones closed past a page's twelve.
+        "saves_folded": saves_folded,
+        "saves_closed": saves_closed,
         "revision_closed": revision_closed,
         # G104 slice 3 (T3): which claim each revision closed (`revision_cascade`) and the held claims withdrawn.
         "revised_out": dict(revision_plan.revised_out),
