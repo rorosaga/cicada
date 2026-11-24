@@ -2681,12 +2681,15 @@ async def _settle_unborn(
             return True
         match = _pick_match(u.name, judged)
         # Review of #545 (B2): only when nothing came back same or unsure — "unsure" about one page holds and asks.
-        whole = _part_of_page(judged, u.name) if match is None else None
-        if whole is not None:
-            # 2026-11-24 (G148): one small-model answer is not enough to join a part onto a page for good; the engine's
-            # main model reads the part's own conversations beside the page first (`part_landing`).
-            if not await _part_confirmed(u, whole, cache, settings, memory_path):
-                whole = None
+        whole = None
+        # 2026-11-24 (G148): one small-model answer is not enough to join a part onto a page for good, nor to write that
+        # page an "includes" claim: the engine's main model reads the part's own conversations beside the page first
+        # (`part_landing`). With a match already (same or unsure) the part verdicts are only scrubbed, never landed.
+        for page in _parts_of_pages(judged, u.name):
+            if await _part_confirmed(u, page, cache, settings, memory_path):
+                if match is None:
+                    whole = page
+                    break
             if cancel_check is not None and cancel_check():
                 return True
         placed = None
@@ -2822,12 +2825,17 @@ def _related_unborn(judged: list[tuple[dict, str]]) -> tuple[dict, str] | None:
                  and entity_relations.relation_of(decision) in ("part_of", "has_part")), None)
 
 
-def _part_of_page(judged: list[tuple[dict, str]], name: str) -> dict | None:
-    """The first page (on disk or born this batch) the judge called the name a part of, in judging order — never one
+def _parts_of_pages(judged: list[tuple[dict, str]], name: str) -> list[dict]:
+    """Every page (on disk or born this batch) the judge called the name a part of, in judging order — never one
     whose own name carries the mention's whole name (the direction guard, `entity_relations.plausible`)."""
-    return next((c for c, decision in judged
-                 if entity_relations.relation_of(decision) == "part_of" and c.get("source") in ("existing", "created")
-                 and entity_relations.plausible("part_of", name, _candidate_display_name(c))), None)
+    return [c for c, decision in judged
+            if entity_relations.relation_of(decision) == "part_of" and c.get("source") in ("existing", "created")
+            and entity_relations.plausible("part_of", name, _candidate_display_name(c))]
+
+
+def _part_of_page(judged: list[tuple[dict, str]], name: str) -> dict | None:
+    """The first of them (`_parts_of_pages`)."""
+    return next(iter(_parts_of_pages(judged, name)), None)
 
 
 def _same_repository_candidate(entity: dict, siblings, existing: list[dict], created_by_id: dict[str, dict],

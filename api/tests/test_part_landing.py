@@ -14,7 +14,7 @@ EP, TS = "ep_2026-11-10_001", "2026-11-10T10:00:00+00:00"
 EP2, TS2 = "ep_2026-11-12_001", "2026-11-12T10:00:00+00:00"
 
 
-def _resolve(tmp_path, monkeypatch, *, second: str | Exception, judged="related:part_of"):
+def _resolve(tmp_path, monkeypatch, *, second: str | Exception, judged="related:part_of", also_same=False):
     memory = _bank(tmp_path)
     _episode(memory, EP2, TS2, "user: the shelf is a separate job with its own budget")
     page = {"id": "cedar-canoe", "frontmatter": {"name": "Cedar Canoe", "type": "project", "status": "active",
@@ -24,11 +24,18 @@ def _resolve(tmp_path, monkeypatch, *, second: str | Exception, judged="related:
     part["summary"] = "A shelf in the garage."
     asked: list[str] = []
 
+    other = {"id": "river-barge", "frontmatter": {"name": "River Barge", "type": "project", "status": "active",
+                                                  "source_episodes": [EP]},
+             "body": "## Summary\nA barge the person restores.\n"}
+
+    def verdict(name):
+        return "same" if also_same and name == "River Barge" else judged
+
     async def judge(*_a, **k):
-        return judged
+        return verdict(k.get("existing_name"))
 
     async def batch(new_name, new_type, new_description, entries, settings, *, new_connections=""):
-        return [judged for _ in entries]
+        return [verdict(e["name"]) for e in entries]
 
     async def ask(settings, system, prompt):
         asked.append(prompt)
@@ -41,7 +48,7 @@ def _resolve(tmp_path, monkeypatch, *, second: str | Exception, judged="related:
     monkeypatch.setattr(entity_resolver, "_llm_judge_batch", batch)
     monkeypatch.setattr(entity_resolver, "_same_name_ask", ask)
     out = asyncio.run(entity_resolver.resolve(
-        [{"episode_id": EP2, "entities": [part], "relationships": []}], [page], _settings(memory)))
+        [{"episode_id": EP2, "entities": [part], "relationships": []}], [page, other] if also_same else [page], _settings(memory)))
     return out, asked
 
 
@@ -83,3 +90,14 @@ def test_the_prompt_names_both_sides_and_cuts_a_long_conversation():
     prompt = part_landing.prompt_for("B name", "B summary", "x" * 50, "A name", "## Summary\nA body\n```claims\n{}\n```")
     assert "B name" in prompt and "B summary" in prompt and "A name" in prompt and "A body" in prompt
     assert "```claims" not in prompt, "the page's claim fence is not read"
+
+
+def test_a_part_verdict_beside_a_same_match_writes_no_includes_claim_when_refused(tmp_path, monkeypatch):
+    """The pair judge called the name a part of one page and the same as another: the name joins the other, and the
+    part verdict, were it left in the judge's cache, would write the first page an "includes" claim (`_judged_relations`)
+    for a part no second reading confirmed (measured 2026-11-24: a kitchen joined to another kitchen while the flat
+    renovation in another city was written to include it)."""
+    out, asked = _resolve(tmp_path, monkeypatch, second="no", also_same=True)
+    assert len(asked) == 1
+    assert [c["id"] for c in out["changes"] if c["action"] == "update"] == ["river-barge"]
+    assert not [r for r in out["relations"] if r["source_page"] == "cedar-canoe"]

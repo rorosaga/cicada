@@ -1,0 +1,218 @@
+{
+ "about": "Invented, not in English. Counter-stories added 2026-11-24 (G148, wrong whole): a roof that belongs to a friend's cabin beside the person's own barn conversion (Italian), a seating plan that belongs to a sister's wedding beside the person's own birthday party (German). Each conversation that speaks of the part names its whole; nothing may be folded into the other thing.",
+ "owner": "Imke Rosales",
+ "conversations": [
+  {
+   "id": "i1",
+   "phase": 1,
+   "day": -60,
+   "title": "Il fienile di famiglia",
+   "turns": [
+    "Sto ristrutturando il fienile di famiglia a Sondrio: pavimenti, finestre e impianto elettrico. Il budget è di 30mila euro.",
+    "Un bel lavoro. Quando finisci?",
+    "Spero entro l'autunno."
+   ],
+   "lang": "it"
+  },
+  {
+   "id": "i2",
+   "phase": 1,
+   "day": -50,
+   "title": "Finestre del fienile",
+   "turns": [
+    "Ho ordinato le finestre per il fienile, in larice, con consegna fra sei settimane.",
+    "Hai confrontato più preventivi?",
+    "Sì, tre, e questo era il migliore."
+   ],
+   "lang": "it"
+  },
+  {
+   "id": "i3",
+   "phase": 1,
+   "day": -58,
+   "title": "La baita di un amico",
+   "turns": [
+    "Aiuto un amico a rifare la sua baita in Val Masino: la baita è sua, io do una mano nei fine settimana.",
+    "Che lavori fate?",
+    "Per ora smontiamo le vecchie travi del tetto."
+   ],
+   "lang": "it"
+  },
+  {
+   "id": "i4",
+   "phase": 1,
+   "day": -49,
+   "title": "Ponteggi alla baita",
+   "turns": [
+    "Questo fine settimana alla baita del mio amico abbiamo montato i ponteggi per il tetto.",
+    "Com'è andata?",
+    "Bene, in due giorni era tutto pronto."
+   ],
+   "lang": "it"
+  },
+  {
+   "id": "i5",
+   "phase": 2,
+   "day": -12,
+   "title": "Il tetto della baita",
+   "turns": [
+    "Con il mio amico stiamo finendo il tetto della baita: mancano le tegole sul lato nord.",
+    "Quando le mettete?",
+    "Sabato, se non piove."
+   ],
+   "lang": "it"
+  },
+  {
+   "id": "i6",
+   "phase": 3,
+   "day": -5,
+   "title": "Budget del fienile",
+   "turns": [
+    "Per il fienile il budget è salito a 33mila euro a causa delle finestre in larice.",
+    "È un aumento importante.",
+    "Sì, ma ne vale la pena."
+   ],
+   "lang": "it"
+  },
+  {
+   "id": "d1",
+   "phase": 1,
+   "day": -60,
+   "title": "Hochzeit meiner Schwester",
+   "turns": [
+    "Meine Schwester heiratet im Mai, und ich organisiere die Hochzeit mit ihr: Saal, Catering und Musik.",
+    "Das ist viel Arbeit. Wie viele Gäste?",
+    "Wir rechnen mit achtzig."
+   ],
+   "lang": "de"
+  },
+  {
+   "id": "d2",
+   "phase": 1,
+   "day": -50,
+   "title": "Saal für die Hochzeit",
+   "turns": [
+    "Für die Hochzeit meiner Schwester habe ich den Saal im Gasthof Linde gebucht.",
+    "Gut gelaufen?",
+    "Ja, und das Catering ist auch schon angefragt."
+   ],
+   "lang": "de"
+  },
+  {
+   "id": "d3",
+   "phase": 1,
+   "day": -57,
+   "title": "Mein Geburtstag",
+   "turns": [
+    "Ich plane meine eigene Geburtstagsfeier im Garten, zwanzig Gäste, im Juni.",
+    "Wird das ein Grillfest?",
+    "Ja, mit Lampions und Kuchen."
+   ],
+   "lang": "de"
+  },
+  {
+   "id": "d4",
+   "phase": 1,
+   "day": -49,
+   "title": "Geburtstag: Einladungen",
+   "turns": [
+    "Für meine Geburtstagsfeier habe ich einen Grill gemietet und die Einladungen verschickt.",
+    "Haben schon alle geantwortet?",
+    "Noch nicht."
+   ],
+   "lang": "de"
+  },
+  {
+   "id": "d5",
+   "phase": 2,
+   "day": -10,
+   "title": "Sitzordnung",
+   "turns": [
+    "Die Sitzordnung für meine Schwester ist fertig, der Tisch für die Eltern steht ganz vorn.",
+    "Und die Band?",
+    "Die steht auch schon."
+   ],
+   "lang": "de"
+  },
+  {
+   "id": "d6",
+   "phase": 3,
+   "day": -4,
+   "title": "Zusagen",
+   "turns": [
+    "Für meine Geburtstagsfeier haben fast alle zugesagt, es werden achtzehn Gäste.",
+    "Dann reicht der Garten gut.",
+    "Ja, genau."
+   ],
+   "lang": "de"
+  }
+ ],
+ "gold": {
+  "points": [],
+  "updates": [],
+  "forbid": [],
+  "people": {
+   "same": [],
+   "apart": [],
+   "apart_facts": [],
+   "one": []
+  },
+  "pages": {
+   "expected": [],
+   "not_expected": []
+  },
+  "dated": [],
+  "secret": "",
+  "apart_values": [],
+  "roles": [],
+  "fading": []
+ },
+ "expect": {
+  "stories": [
+   {
+    "id": "baita",
+    "whole": "baita|cabin|chalet|friend",
+    "facts": [
+     "tegole|lato nord|tiles|north side"
+    ],
+    "others": [
+     "fienile|barn"
+    ],
+    "why": "the roof is the friend's cabin's, named in the conversation"
+   },
+   {
+    "id": "fienile",
+    "whole": "fienile|barn",
+    "facts": [
+     "33mila|33,?000|33k|33 thousand"
+    ],
+    "others": [
+     "baita|cabin|chalet"
+    ],
+    "why": ""
+   },
+   {
+    "id": "hochzeit",
+    "whole": "hochzeit|wedding|schwester|sister",
+    "facts": [
+     "sitzordnung|seating|eltern|parents"
+    ],
+    "others": [
+     "geburtstag|birthday"
+    ],
+    "why": "the seating plan is the sister's wedding's, named in the conversation"
+   },
+   {
+    "id": "geburtstag",
+    "whole": "geburtstag|birthday",
+    "facts": [
+     "achtzehn|eighteen|\\b18\\b|zugesagt"
+    ],
+    "others": [
+     "hochzeit|wedding|schwester|sister"
+    ],
+    "why": ""
+   }
+  ]
+ }
+}
