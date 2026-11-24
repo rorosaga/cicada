@@ -31,12 +31,12 @@ struct PageQuestionsStrip: View {
                         }
                     }
                 }
-                Text(item.askText)
+                PageLineText(item.askText)
                     .font(CicadaTheme.detailBodyFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                 if let reason = item.askReason, !reason.isEmpty {
-                    Text(reason)
+                    PageLineText(reason)
                         .font(CicadaTheme.metaFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -45,9 +45,9 @@ struct PageQuestionsStrip: View {
                     ForEach(CatchupAnswers.chips(item, open: store.visibleInbox).filter { $0.role != .skip }) { chip in
                         switch chip.role {
                         case .answer:
-                            NeutralButton(title: chip.label, size: .compact) { answer(item, chip) }
+                            NeutralButton(title: PageLine.plain(chip.label, links: store.links), size: .compact) { answer(item, chip) }
                         case .notNow, .skip:
-                            TextButton(title: chip.label) { answer(item, chip) }
+                            TextButton(title: PageLine.plain(chip.label, links: store.links)) { answer(item, chip) }
                         }
                     }
                     TextButton(title: Copy.Catchup.openFull) { openInList(item.id) }

@@ -170,7 +170,7 @@ struct BandLayout: Equatable {
     static func threadY(_ row: Int) -> CGFloat { 56 + CGFloat(row) * 12 }
 
     static func make(_ t: ProjectTimeline, state: ProjectState.Output, width: CGFloat, today: ISODay,
-                     locale: Locale = .autoupdatingCurrent) -> BandLayout {
+                     locale: Locale = .autoupdatingCurrent, links: PageLinkIndex = .empty) -> BandLayout {
         let items = t.items.filter { $0.kind != "created" }
         var span = ProjectsModel.span(t, planned: state.planned, today: today)
         var earlier: [ProjectItem] = []
@@ -251,12 +251,12 @@ struct BandLayout: Equatable {
             return (item, day)
         }.sorted { $0.1 < $1.1 }
         for (item, day) in dated where item.kind == "happening" && item.status != "ongoing" {
-            let words = ProjectsModel.firstWords(item.text)
+            let words = ProjectsModel.firstWords(item.text, links: links)
             place(Node(key: .item(item.id), mark: .done, x: x(day), lane: .track, label: words,
                        when: RelativeDay.phrase(day, today: today, locale: locale)), prefer: .track)
         }
         for (item, day) in dated where item.kind == "moment" || item.kind == "history" {
-            let words = ProjectsModel.firstWords(item.text)
+            let words = ProjectsModel.firstWords(item.text, links: links)
             place(Node(key: .item(item.id), mark: item.kind == "moment" ? .said : .history, x: x(day), lane: .below,
                        label: words, when: RelativeDay.phrase(day, today: today, locale: locale)), prefer: .below)
         }
@@ -272,12 +272,12 @@ struct BandLayout: Equatable {
             let when = quiet ? "\(Copy.Projects.sinceDay(absolute(since))) · \(Copy.Projects.quietDays(quietDays))"
                 : (since == today ? Copy.Projects.startedToday : Copy.Projects.sinceDay(absolute(since)))
             threads.append(Thread(key: .thread(th.claimId), x0: x(max(since, span.start)), x1: x(today),
-                                  solid: min(max(solid, 0), 1), cap: .open, row: row, label: th.text, when: when))
+                                  solid: min(max(solid, 0), 1), cap: .open, row: row, label: PageLine.plain(th.text, links: links), when: when))
         }
         for item in items where threads.count < threadRows && item.kind == "happening" && item.status == "ongoing" {
             guard let to = ISODay(item.claim?.validTo), let from = ISODay(item.claim?.validFrom ?? item.day) else { continue }
             threads.append(Thread(key: .item(item.id), x0: x(max(from, span.start)), x1: x(to), solid: 1, cap: .done,
-                                  row: threads.count, label: item.text, when: Copy.Projects.ongoingUntil(absolute(to))))
+                                  row: threads.count, label: PageLine.plain(item.text, links: links), when: Copy.Projects.ongoingUntil(absolute(to))))
         }
 
         // Months, plus the start's month when the first tick sits past 7 % (the mock).

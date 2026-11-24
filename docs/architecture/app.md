@@ -2444,7 +2444,9 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   deletes a link's brackets and ref half only (`MarkupScan.links`), never inserts. Fixed in the app, not the API: a snippet's
   offsets and the page names are known only here, and the MCP tools, CLI and `/v1` return page text as stored. A lint
   (`PageLineLintTests`) fails a view that draws a registered page-text field without the door; a new field is one line in
-  its list. `PageQuestionsStrip` (the entity page's own text path) is its one known gap. `PageLineTests`.
+  its list. No known gap since 2026-11-24: the entity page's question strip, a fact under one of the page's sources
+  and a project's band labels, hover words and thread lines (`BandLayout.make(links:)`,
+  `ProjectsModel.firstWords(_:links:)`) take the door too. `PageLineTests`.
   **Related** list items are `RelatedCard`s (picture, the page's name, the words after the dash); the tab bar's
   scroll view fades what has scrolled under it over 16 pt (`fadedTopEdge`; nothing at rest, so a page's first line is whole). A page whose prose cites nothing yet draws its beliefs as one paragraph of sentences
   (`PageBeliefSentences`): an inference worded "It seems that …", an ended one "(until March 2025)"; past twelve, "N

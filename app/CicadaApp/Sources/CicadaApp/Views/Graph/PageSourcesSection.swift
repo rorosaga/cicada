@@ -179,11 +179,12 @@ private struct BackedFactRow: View {
     let fact: PageSourceFact
     let open: () -> Void
     @State private var hovering = false
+    @Environment(Store.self) private var store: Store?
 
     var body: some View {
         Button(action: open) {
             HStack(alignment: .firstTextBaseline, spacing: CicadaTheme.spacingSM) {
-                Text(renderWikilinks(fact.text))
+                Text(renderWikilinks(fact.text, links: store.links))
                     .font(CicadaTheme.metaFont)
                     .foregroundStyle(hovering ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
                     .lineLimit(2)
