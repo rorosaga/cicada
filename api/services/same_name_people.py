@@ -362,6 +362,24 @@ def read(parsed: object, entries: list[Entry], name: str = "") -> Reading | None
 # ---------------------------------------------------------------- placing the batch
 
 
+def doubted_together(reading: Reading, entries: list[Entry], identities: list[Identity]) -> set[tuple[str, str]]:
+    """The pairs of people on record, held in doubt against each other, whose filed conversations the reading puts in
+    one group: one person who was doubted. The reading is not a join (ruling 74a: `same_name_tend` reads the two pages
+    again, twice, for a located link); it is the reason to look. This holds when the whole name reads as one person
+    too, which is the usual way a doubt ends: a later conversation says both things of one person."""
+    held: dict[int, set[int]] = {}
+    for e in entries:
+        if e.identity is not None and e.letter in reading.cluster_of:
+            held.setdefault(reading.cluster_of[e.letter], set()).add(e.identity)
+    found: set[tuple[str, str]] = set()
+    for members in held.values():
+        for kx in members:
+            for ky in members:
+                if kx < ky and identities[ky].ref in identities[kx].doubt_with:
+                    found.add(tuple(sorted((identities[kx].ref, identities[ky].ref))))   # type: ignore[arg-type]
+    return found
+
+
 def decide(reading: Reading, entries: list[Entry], identities: list[Identity],
            first_seen: dict[str, int]) -> tuple[dict[str, Destination], Plan]:
     """The reading → where each new conversation goes, and what the re-read says about the people already on record.
@@ -401,14 +419,11 @@ def decide(reading: Reading, entries: list[Entry], identities: list[Identity],
                             flags.review = True
                             flags.review_reasons.append("doubt-held")
                             flags.review_pairs.add(tuple(sorted((identities[ka].ref, identities[kb].ref))))
-    for c in clusters:
-        held = filed_of[c]
-        for kx in held:
-            for ky in held:
-                if kx < ky and identities[ky].ref in identities[kx].doubt_with:
-                    flags.review = True
-                    flags.review_reasons.append("doubt-may-be-one")
-                    flags.review_pairs.add(tuple(sorted((identities[kx].ref, identities[ky].ref))))
+    together = doubted_together(reading, entries, identities)
+    if together:
+        flags.review = True
+        flags.review_reasons.extend("doubt-may-be-one" for _ in together)
+        flags.review_pairs |= together
     plain = any(identity.plain for identity in identities)
     fresh_clusters: dict[int, list[str]] = {}
     for e in entries:
@@ -493,6 +508,11 @@ async def plan(name: str, mentions: list[Mention], identities: list[Identity],
         if second is not None and not second.single:
             reading = second
     if reading.single:
+        # One person, and it may be two who were held in doubt: nothing moves here, the pair is looked at again.
+        result.review_pairs = doubted_together(reading, entries, shown)
+        if result.review_pairs:
+            result.review = True
+            result.review_reasons = ["doubt-may-be-one"] * len(result.review_pairs)
         return result
     moves, flags = decide(reading, entries, shown, {m.episode: i for i, m in enumerate(judged)})
     result.review, result.review_reasons = flags.review, flags.review_reasons
