@@ -451,6 +451,8 @@ async def _poll_connectors_safely(memory_path: Path) -> None:
         if getattr(adapter, "TIER", 1) == 2:
             continue    # ruling 47 tier 2 runs on its own schedule and yields to Sleep; never inside a Sleep run
         try:
+            if not source_polls.poll_floor_open(memory_path, adapter):
+                continue    # a billed API (X) is not polled twice inside its floor, by the job and the tail alike
             result = await adapter.sync(memory_path)
             if result.get("status") == "ok" and result.get("new"):
                 logger.info(f"{adapter.LABEL}: pulled {result['new']} new saved item(s)")

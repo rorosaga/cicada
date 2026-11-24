@@ -329,3 +329,70 @@ def test_an_engine_free_run_records_no_sleep_run(bank, monkeypatch):
     _run(sleep_cycle.run(SimpleNamespace(memory_path=bank), "cycle-quiet", user_triggered=False, tail_only=True,
                          engine_free=True))
     assert sleep_runs.all_runs(bank) == {}
+
+
+# --- a billed connector has a floor ----------------------------------------------------------------------------------
+
+
+def _ago(hours: float) -> str:
+    from datetime import datetime, timedelta, timezone
+
+    return (datetime.now(timezone.utc) - timedelta(hours=hours)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def test_x_is_not_polled_by_a_timer_three_hours_after_its_last_sync_but_a_free_connector_is(bank, monkeypatch):
+    """X bills the whole first page on every poll; the 3 h job must not turn a nightly poll into eight."""
+    calls: list = []
+    _fake_connectors(monkeypatch, calls, connected=("x", "reddit"))
+    sync_state.record_sync(bank, "x", count=1, at=_ago(3))
+    sync_state.record_sync(bank, "reddit", count=1, at=_ago(3))
+    out = _run(source_polls.scheduled_poll(bank))
+    assert [c for c, _ in calls] == ["reddit"], "X sits inside its floor, Reddit has none"
+    assert "x" not in out["connectors"]
+    source_polls.reset_for_tests()
+    calls.clear()
+    _run(sleep_cycle._poll_connectors_safely(bank))          # Sleep's tail honours the same floor
+    assert "x" not in [c for c, _ in calls] and "reddit" in [c for c, _ in calls]
+
+
+def test_x_is_polled_again_once_its_floor_has_passed_or_it_never_ran(bank, monkeypatch):
+    calls: list = []
+    _fake_connectors(monkeypatch, calls, connected=("x",))
+    _run(source_polls.scheduled_poll(bank))                    # no row at all: the first poll runs
+    assert [c for c, _ in calls] == ["x"]
+    source_polls.reset_for_tests()
+    sync_state.record_sync(bank, "x", count=1, at=_ago(21))
+    _run(source_polls.scheduled_poll(bank))
+    assert [c for c, _ in calls] == ["x", "x"]
+
+
+def test_a_recent_failed_attempt_also_holds_a_billed_connector_back(bank, monkeypatch):
+    calls: list = []
+    _fake_connectors(monkeypatch, calls, connected=("x",))
+    sync_state.record_sync(bank, "x", count=1, at=_ago(30))
+    sync_state.record_error(bank, "x", "boom", at=_ago(2))
+    _run(source_polls.scheduled_poll(bank))
+    assert calls == []
+
+
+def test_two_timer_polls_three_hours_apart_reach_xs_fetch_once(bank, monkeypatch):
+    """The real X adapter and the real run_sync, with only the fetch counted."""
+    from api.services.connectors import x
+
+    fetches: list = []
+
+    async def fetch(fn):
+        fetches.append(1)
+        return [], {}
+
+    monkeypatch.setenv("CICADA_ALLOW_CONNECTOR_FETCH", "on")
+    monkeypatch.setattr(x, "is_connected", lambda: True)
+    monkeypatch.setattr(x, "sync", lambda mp, **kw: base.run_sync("x", mp, fetch, is_connected=lambda: True, **kw))
+    for cid, a in ADAPTERS.items():
+        if cid != "x":
+            monkeypatch.setattr(a, "is_connected", lambda: False)
+    _run(source_polls.scheduled_poll(bank))
+    assert len(fetches) == 1 and "x" in sync_state.read_sync_state(bank)
+    source_polls.reset_for_tests()          # three hours on: the job's stamp is past, the row's is not
+    _run(source_polls.scheduled_poll(bank))
+    assert len(fetches) == 1

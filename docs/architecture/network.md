@@ -622,7 +622,10 @@ the panel draws them as one line, `ConnectorSetupState.readsLine`, the token's p
   registries' own poll then runs over what was fetched as one admitted transaction (`run_admitted`, refused if Sleep began
   meanwhile — nothing saved, no cursor moved); a connector's ingest and commit are admitted the same way
   (`base.INGEST_ADMISSION`, set only by this job; a click and Sleep's own tail leave it off). Each commit is the existing
-  one (`Feed poll`, `Calendar poll`, the media commit), authored `user`. A demo bank is never polled. It starts no agent and
+  one (`Feed poll`, `Calendar poll`, the media commit), authored `user`. **A billed connector has a floor:** X bills the
+  whole first page on every poll, so an adapter with `MIN_POLL_INTERVAL_HOURS` (X: 20) is polled on a timer, this job's or
+  Sleep's tail's, only when its last sync or failed attempt is that old (`source_polls.poll_floor_open`); a Sync now click
+  ignores it, Reddit and Pinterest (free) have none. A demo bank is never polled. It starts no agent and
   no browser.
 - **Errors** on the Sources row are the adapter's sentence or "<service> answered HTTP <status>" — never a URL, body or
   token (`sync_state.json` is in the bank and committed).

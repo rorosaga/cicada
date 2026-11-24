@@ -18,6 +18,10 @@ they never updated. :func:`scheduled_poll` is their own job, every ``SCHEDULE_HO
   stamping and commit are untouched).
 * **Each commit alone, under its true author.** The registries' ``Feed poll`` / ``Calendar poll`` commits and a
   connector's media commit are the existing ones, authored ``user`` as the Sleep tail's poll authors them.
+* **A billed connector has a floor.** X's API bills the whole first page on every poll, new items or not, so an adapter
+  that defines ``MIN_POLL_INTERVAL_HOURS`` (X: 20) is polled on a timer only when its last sync or failed attempt on the
+  row is at least that old — in this job and in Sleep's tail alike (``poll_floor_open``). Reddit and Pinterest are free
+  and have none. The person's own Sync now click never asks it.
 * **No double work with Sleep's tail.** A kind this job polled in the last ``FRESH_FOR`` is not polled again by the
   tail (``polled_lately``); a poll that was gate-skipped or refused is never stamped. The stamp lives in memory: a
   restart costs at most one extra poll (the ingest dedups).
@@ -28,7 +32,7 @@ subscribed URL, through ``net_guard`` for the feeds.
 from __future__ import annotations
 
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +63,32 @@ def polled_lately(memory_path: Path, kind: str) -> bool:
     """Did this job poll ``kind`` on this bank within ``FRESH_FOR``? The Sleep tail asks before its own poll."""
     at = _polled.get(_key(memory_path), {}).get(kind)
     return at is not None and time.monotonic() - at < FRESH_FOR.total_seconds()
+
+
+def poll_floor_open(memory_path: Path, adapter, *, now: datetime | None = None) -> bool:
+    """May a timer poll ``adapter`` now? Always, unless it is billed per read and defines ``MIN_POLL_INTERVAL_HOURS``:
+    then only when its last sync, or its last failed attempt (which may already have been billed), on the row in
+    ``sync_state`` is that old. An unreadable or missing stamp opens the floor."""
+    hours = getattr(adapter, "MIN_POLL_INTERVAL_HOURS", 0)
+    if not hours:
+        return True
+    from api.services import sync_state
+
+    try:
+        entry = sync_state.read_sync_state(memory_path).get(adapter.CHANNEL_ID) or {}
+    except Exception:  # noqa: BLE001
+        return True
+    now = now or datetime.now(timezone.utc)
+    latest = None
+    for field in ("last_sync", "last_error_at"):
+        try:
+            at = datetime.fromisoformat(str(entry[field]).replace("Z", "+00:00"))
+        except (KeyError, ValueError):
+            continue
+        if at.tzinfo is None:
+            at = at.replace(tzinfo=timezone.utc)
+        latest = at if latest is None or at > latest else latest
+    return latest is None or now - latest >= timedelta(hours=hours)
 
 
 def reset_for_tests() -> None:
@@ -119,7 +149,7 @@ async def _poll_connectors(memory_path: Path) -> dict[str, Any]:
             if getattr(adapter, "TIER", 1) == 2:
                 continue    # tier 2 has its own job
             try:
-                if not adapter.is_connected():
+                if not adapter.is_connected() or not poll_floor_open(memory_path, adapter):
                     continue
                 result = await adapter.sync(memory_path)
             except Exception as exc:  # noqa: BLE001
