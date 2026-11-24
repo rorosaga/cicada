@@ -324,8 +324,8 @@ async def run_names(case: dict, repeats: int, llm_fn, make_settings) -> dict:
                     row["outcomes"][f"{name}: joined " + ("right" if want == "same" else "WRONG")] += 1
                 elif rule == "revisit_apart":
                     row["apart_made"] += 1
-                    row["apart_wrong"] += want != "different"
-                    row["outcomes"][f"{name}: closed apart " + ("right" if want == "different" else "WRONG")] += 1
+                    row["apart_wrong"] += want not in ("different", "either")    # "either": a close or a question left are both right
+                    row["outcomes"][f"{name}: closed apart " + ("right" if want in ("different", "either") else "WRONG")] += 1
                 else:
                     row["left"] += 1
                     row["outcomes"][f"{name}: left" + (f" ({rule})" if rule else "")] += 1

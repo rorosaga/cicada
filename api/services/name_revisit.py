@@ -53,9 +53,19 @@ the page (`pending_store.apart_of`); the same question is not raised again for t
 an alias; and NO relation is written, so a part is never placed (G148's open problem, not this step's). Taking it back is the
 generic undo: the question returns and is the person's. It closes only on two reads that agree on "different" with a line located (never fuzzy) in a turn of the person's own or a
 named speaker's that says the name (never the held line's own text, the page's text or an assistant's turn: Sleep wrote the
-first two and an agent repeats them), and never when ANY such turn holds both names in one sentence, whatever sits between
-them (a name the page shares with another page counts as the page's for this check): the person has related them, and a
-doubt is left to the person. Never a person (who someone is stays the person's).
+first two and an agent repeats them), and never when a sentence of ANY such turn could be PRESENTING the two as one thing
+(`_presented_as_one`: the names adjacent, or joined only by a marker of equivalence, :data:`MARKERS`: "I mean", "or", "/", "=", "aka",
+"i.e.", "that is", "also called", "known as", "short for", "o sea", "es decir", a bracket straight after the first name; a name
+the page shares with another page counts as the page's for this check). A sentence that names both with anything else
+between them, a preposition, a verb, a possessive, other nouns ("the <A> for <B>", "<A> in <B>", "<B>'s <A>", "<A> is part of
+<B>"), says they are two and holds nothing back: a part of a project is named with its project in one sentence, nearly always.
+Never a person (who someone is stays the person's).
+
+**A turn too long to show.** The whole turn is kept for locating a quote and for every check the code makes (the join's sentence
+checks and the close's block read every sentence of it); the reader is shown the sentences that hold either name, each with the
+sentence before and after, in order, a cut mark between pieces (`cut_ranges`, `question_revisit.Turn`), up to the same cap, and
+a line the reader was not shown is never the located one. Past the cap the question is left, ``turn_too_long``. The two-pages
+path (`question_revisit`) is unchanged: it still refuses a turn that long.
 
 **A page that has faded.** A question whose page was archived since, about a name not said after the page's last mention
 (each conversation by its own date against `last_referenced`; `said_after`), is retired with no read under ``target_faded``
@@ -153,6 +163,16 @@ OPENERS = frozenset("(=")
 #: Punctuation that may stand between them; a full stop, a semicolon, a slash, an ampersand, a plus or a line break may not.
 LINK_PUNCT = frozenset(",()\"'“”‘’—–-=:*_`[]<>")
 _CLOSERS = frozenset(".!)\"”'’…")
+#: What may stand between two names that a sentence could be PRESENTING as one thing (`_presented_as_one`, the close's block): the
+#: phrases of identity of :data:`PHRASES` and the looser ones a person says in passing. Only these withhold a close; any other
+#: word between the names (a preposition, a verb, a possessive, another noun) relates them as two.
+MARKERS = PHRASES | frozenset({
+    ("i", "mean"), ("or",), ("i", "e"), ("that", "is"), ("also", "known", "as"), ("known", "as"), ("short", "for"),
+    ("o",), ("o", "sea"), ("es", "decir"), ("tambien", "llamado"), ("tambien", "llamada"), ("tambien", "conocido", "como"),
+    ("alias",), ("aka",), ("a", "k", "a"), ("or", "rather"), ("o", "mejor", "dicho"),
+})
+#: An article straight before the second name ("known as the <Page>") is no word between two things.
+_ARTICLES = frozenset("the a an my our el la los las un una mi".split())
 #: Words that open a phrase and carry no name.
 _FUNCTION = frozenset("""the a an of for and or with to in on at by from de del la el los las y o con para por en un una""".split())
 
@@ -255,6 +275,83 @@ def _linked_sentence(sentence: str, a_names: list[str], b_names: list[str]) -> b
     return following not in NOT_AFTER
 
 
+def _spans(sentence: str, a_names: list[str], b_names: list[str]):
+    """``(toks, word_at, a spans, b spans)`` of one sentence: whole-word occurrences of each side's names as ranges of word
+    indices, one inside a longer span of the other side (or the same words) dropped."""
+    toks = [(t, text_fold.fold(t)) for t in _tokens(sentence)]
+    word_at = [i for i, (t, _f) in enumerate(toks) if re.match(r"\w", t)]
+    folded = [toks[i][1] for i in word_at]
+    occ: dict[str, set[tuple[int, int]]] = {"a": set(), "b": set()}
+    for side, names in (("a", a_names), ("b", b_names)):
+        for name in names:
+            occ[side].update(_occurrences(folded, qr._key(name).split()))
+    every, same = occ["a"] | occ["b"], occ["a"] & occ["b"]
+    kept = {side: sorted(s for s in occ[side] if s not in same and not any(o != s and o[0] <= s[0] and s[1] <= o[1] for o in every))
+            for side in occ}
+    return toks, word_at, kept["a"], kept["b"]
+
+
+def _presented_as_one(sentence: str, a_names: list[str], b_names: list[str]) -> bool:
+    """Could this ONE sentence be presenting the two names as one thing? Only when some occurrence of each stands next to the
+    other (no word between them: "A, B", "A (B)", "A / B", "A = B") or has only a marker of equivalence between (:data:`MARKERS`:
+    "I mean", "or", "aka", "i.e.", "that is", "also called", "known as", "short for", "o sea", "es decir"...; an article before the
+    second name is no word; a bare "is", "is a", "is the" only when the sentence ends with the second name). Anything else between them, a
+    preposition, a verb, a possessive, another noun ("<A> for <B>", "<A> in <B>", "<B>'s <A>", "<A> is part of <B>"), relates them
+    as two and holds nothing back. Reads the words and nothing else; a doubt here only withholds a close, which is always allowed."""
+    toks, word_at, a_spans, b_spans = _spans(sentence, a_names, b_names)
+    for a in a_spans:
+        for b in b_spans:
+            if a[0] < b[1] and b[0] < a[1]:
+                continue
+            first, second = (a, b) if a[1] <= b[0] else (b, a)
+            between = toks[word_at[first[1] - 1] + 1:word_at[second[0]]]
+            words = [f for t, f in between if re.match(r"\w", t)]
+            punct = [t for t, _f in between if not re.match(r"\w", t)]
+            if not words:
+                return True
+            said = tuple(words[:-1] if words[-1] in _ARTICLES else words)
+            if tuple(words) in MARKERS or said in MARKERS or (said == () and "(" in punct):
+                return True
+            if said in BARE:
+                tail = toks[word_at[second[1] - 1] + 1:]
+                if not [f for t, f in tail if re.match(r"\w", t)] and all(t in _CLOSERS for t, _f in tail):
+                    return True
+    return False
+
+
+def cut_ranges(text: str, a_names: list[str], b_names: list[str], cap: int | None = None) -> list[tuple[int, int]] | None:
+    """What of a long turn the reader is shown (the held-name path only): every sentence that holds either name with the
+    sentence before and the one after, in order, as character ranges of ``text`` (neighbours that touch are one piece; a
+    cut between pieces, or at either end, is marked on display). ``None`` when no sentence holds a name or the shown part, marks
+    included, is still over the cap: the question is then left with the same reason as a turn that cannot be shown. The turn
+    itself stays whole for every check the code makes; a line the reader was not shown is never the located one."""
+    cap = qr.TURN_CHARS if cap is None else cap
+    rs, pos = [], 0
+    for m in _SENTENCE.finditer(text):
+        rs.append((pos, m.start()))
+        pos = m.end()
+    rs.append((pos, len(text)))
+    rs = [(s, e) for s, e in rs if text[s:e].strip()]
+    keep: set[int] = set()
+    for i, (s, e) in enumerate(rs):
+        if any(qr._hits(a_names, b_names, text[s:e])):
+            keep.update((i - 1, i, i + 1))
+    idx = sorted(k for k in keep if 0 <= k < len(rs))
+    if not idx:
+        return None
+    pieces: list[tuple[int, int]] = []
+    for n, k in enumerate(idx):
+        s, e = rs[k]
+        if n and k == idx[n - 1] + 1:
+            pieces[-1] = (pieces[-1][0], e)
+        else:
+            pieces.append((s, e))
+    marks = len(pieces) - 1 + (pieces[0][0] > 0 and text[:pieces[0][0]].strip() != "") + (pieces[-1][1] < len(text.rstrip()))
+    if sum(e - s for s, e in pieces) + marks * (len(qr.CUT_MARK) + 2) > cap:
+        return None
+    return pieces
+
+
 def pair_sentences(text: str, a_names: list[str], b_names: list[str]) -> list[str]:
     """The sentences of ``text`` that hold both names (`question_revisit._names_both`: the longer spelling first)."""
     return [s for s in sentences(text) if qr._names_both(a_names, b_names, s)]
@@ -300,10 +397,13 @@ def _own_turns(case: "NameCase"):
 
 
 def _names_together(case: "NameCase") -> bool:
-    """Does any turn of the person's own or a named speaker's, shown for this name, hold both names in ONE sentence, whatever
-    sits between them? Then the person has related them, and a model's "different" is not Sleep's to close."""
+    """Does a sentence of a turn of the person's own or a named speaker's, shown for this name, hold both names in a way that
+    could present them as one thing (`_presented_as_one`)? Then the person may have related them, and a model's "different" is
+    not Sleep's to close. A sentence that names both with anything else between them (a part, a place, a possessive) says they are
+    two and holds nothing back. Reads every sentence of the whole turn, shown or not."""
     names = [*case.b.names, *case.page_names]
-    return any(pair_sentences(t.text, case.a.names, names) for t in _own_turns(case))
+    return any(_presented_as_one(s, case.a.names, names)
+               for t in _own_turns(case) for s in pair_sentences(t.text, case.a.names, names))
 
 
 def _all_linked(case: "NameCase") -> bool:
@@ -318,7 +418,8 @@ def _quote_says_one(case: "NameCase", quote: str) -> bool:
     of identity (`linked`), and so is every such sentence of the person's other turns."""
     from api.services import evidence
 
-    turn = next((t for t in _own_turns(case) if evidence.locate(t.text, quote) is not None), None)
+    turn = next((t for t in _own_turns(case)
+                 if (hit := evidence.locate(t.text, quote)) is not None and t.shows(*hit)), None)
     return turn is not None and linked(turn.text, case.a.names, case.b.names) and _all_linked(case)
 
 
@@ -497,7 +598,7 @@ def name_case(memory_path: Path, path: Path, fm: dict, *, today: str | None = No
     episodes, why = qr._conversations(memory_path, fm, a, b)
     if why:
         return None, why
-    turns, why = qr._turns_for(memory_path, episodes, a, b)
+    turns, why = qr._turns_for(memory_path, episodes, a, b, cut=cut_ranges)
     if why:
         return None, why
     generic = _common_nouns(tfm, b_names, turns)
@@ -508,14 +609,14 @@ def name_case(memory_path: Path, path: Path, fm: dict, *, today: str | None = No
             return None, "page_name_shared"
         b = qr._side(memory_path, target_id, tfm, b_names)
         b.all_names = [n for n in b.all_names if n not in generic]
-        turns, why = qr._turns_for(memory_path, episodes, a, b)
+        turns, why = qr._turns_for(memory_path, episodes, a, b, cut=cut_ranges)
         if why:
             return None, why
     every = full_name_join._names_of(tfm)
     if not person and set(every) != set(b_names):
         # What the person said with a name the page shares or a common noun is still the person relating the name to the page:
         # those turns are shown and they stop a close (never a join: they hold no name of the page for this purpose).
-        extra, why = qr._turns_for(memory_path, episodes, a, qr._side(memory_path, target_id, tfm, every))
+        extra, why = qr._turns_for(memory_path, episodes, a, qr._side(memory_path, target_id, tfm, every), cut=cut_ranges)
         if why:
             return None, why
         known = {(t.episode, t.text) for t in turns}
@@ -560,6 +661,7 @@ Rules:
 - A wrong "same" puts one thing's facts on another thing's page; a question left costs little. Sharing a word, a family, a maker or a project is NOT being the same thing. A part of a page's thing is not the thing. When in doubt: "cannot_tell".
 - Both names in one turn is not one thing: the words must say they are one thing. A turn that lists them, compares them, or says one belongs to, uses, replaces or runs on the other says they are TWO.
 - Only the person's own turns and a named speaker's turns can say it: what an assistant said, a note an agent saved and text relayed from an app are never the words that present two names as one thing.
+- A "[…]" in a long turn marks where part of it was left out: never copy across one, and a line must be copied from the shown words.
 - Decide only from what is shown. What you know about the names yourself is no evidence.
 
 Answer in JSON only: {{"answers": [{{"name": <number>, "verdict": "same" | "different" | "cannot_tell", "said_turn": <number or null>, "said": "words copied" | null, "here": "words copied" | null, "there": "words copied" | null, "relation": "part" | "sibling" | "unrelated" | "other" | null, "line": "words copied" | null, "reason": "one short sentence"}}, ...]}}
@@ -606,7 +708,7 @@ def build_prompt(cases: list[NameCase], speaker: str | None, mode: str = "first"
         one = [t for t in case.turns if not t.both]
 
         def shown(group):
-            return "\n".join(f"[{t.n}] ({t.day or 'undated'}, {t.role}) {t.text}" for t in group) or "(none)"
+            return "\n".join(f"[{t.n}] ({t.day or 'undated'}, {t.role}) {t.display()}" for t in group) or "(none)"
 
         blocks.append(f"NAME {k}: \"{case.a.name.replace(chr(34), '')}\"\nWhat the memory holds about it:\n{qr._lines(case.a.texts)}\n"
                       f"Its turns naming it AND the page:\n{shown(both)}\nIts turns naming only it:\n{shown(one)}")

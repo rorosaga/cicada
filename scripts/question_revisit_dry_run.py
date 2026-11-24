@@ -18,8 +18,9 @@ One stable line per open question the step would look at, in the order it looks 
   name as an alias of the page and lands what is held (``revisit_same``, only when a sentence of the person's own that holds
   both names is their statement that they are one thing, and no other sentence of theirs that holds both says otherwise);
   ``would_apart`` closes it as the person's "No, different" does (``revisit_apart``: the held lines stay held under their own
-  name, nothing lands, no relation is written; never when any turn of the person's own holds both names in one sentence, and
-  its line must be the person's own words). ``would_retire`` (``target_faded``, no model read) retires a question about a page
+  name, nothing lands, no relation is written; never when a sentence of the person's own could present the two as one, adjacent or joined only by a marker such as
+  "I mean" or "or", and its line must be the person's own words). A turn too long to show is read whole by the code and shown to
+  the reader in pieces around the names (cut marks between). ``would_retire`` (``target_faded``, no model read) retires a question about a page
   that has since been archived when nothing was said about the name after the page's last mention (each conversation by its
   own date): nothing is written, the held lines stay held, undoable. A name said after that last mention is read like any other
   but is never joined (``read:unsure``): a person's own "yes" would leave the lines on an archived page nobody sees. Questions
@@ -34,7 +35,7 @@ The reasons a pair is ``left:<why>`` without a read: ``same_title`` (two pages w
 person held with no page could be whom a short name means), ``page_is_someone_in_full`` (a short-name page that carries
 another full name), ``two_full_names`` (two full names sharing no spelling), ``kept_apart``, ``in_a_doubt``,
 ``alias_removed``, ``too_many_conversations`` (more conversations hold both names than can be shown: never cut),
-``index_not_ready``, ``too_many_turns``, ``turn_too_long``, ``nothing_ties_them``, ``read_already`` (answered, nothing
+``index_not_ready``, ``too_many_turns``, ``turn_too_long`` (even the pieces around the names pass the cap), ``nothing_ties_them``, ``read_already`` (answered, nothing
 changed; a read that produced nothing usable is read again up to twice). For a name with no page also: ``held_against_a_page``,
 ``said_apart``, ``kept_apart``, ``person_and_a_thing``, ``not_a_name`` (a reference or a pronoun), ``name_of_a_page`` (a page
 already answers to it), ``title_of_another_page``, ``alias_removed``, ``not_this_name`` (a correspondent or a same-name

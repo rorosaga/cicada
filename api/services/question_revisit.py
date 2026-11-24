@@ -101,6 +101,8 @@ LOOK_AGAIN_DAYS = 3
 MAX_BOTH_TURNS = 6
 MAX_CONTEXT_TURNS = 4
 TURN_CHARS = 1500
+#: Marks where part of a long turn was left out of what the reader is shown (`Turn.display`).
+CUT_MARK = "[…]"
 MAX_CONVERSATIONS = 24
 #: Conversations that hold both names are every one shown, first (a denial lives in one of them); more than this is no read
 #: (a counted skip, never a cut), and so are more index candidates than this are worth checking whole-word.
@@ -184,6 +186,21 @@ class Turn:
     role: str       # person | assistant | speaker
     text: str
     both: bool
+    #: ``None``: the whole turn is shown. Else the character ranges of ``text`` the reader is shown (a long turn on the held-name
+    #: path, `name_revisit.cut_ranges`): ``text`` stays the whole turn for every code check; a line is evidence only inside a range.
+    ranges: list | None = None
+
+    def display(self) -> str:
+        """What the reader is shown: the whole turn, or its shown pieces in order with a visible cut mark between them."""
+        if self.ranges is None:
+            return self.text
+        body = f" {CUT_MARK} ".join(self.text[s:e] for s, e in self.ranges)
+        return (f"{CUT_MARK} " if self.ranges and self.ranges[0][0] > 0 else "") + body + (
+            f" {CUT_MARK}" if self.ranges and self.ranges[-1][1] < len(self.text) else "")
+
+    def shows(self, start: int, end: int) -> bool:
+        """Was the span ``text[start:end]`` shown to the reader? A line the reader was not shown is never the located one."""
+        return self.ranges is None or any(s <= start and end <= e for s, e in self.ranges)
 
 
 @dataclass
@@ -363,21 +380,26 @@ def _conversations(memory_path: Path, fm: dict, a: Side, b: Side) -> tuple[list[
     return found[:MAX_CONVERSATIONS], ""
 
 
-def _turns_for(memory_path: Path, episodes: list[str], a: Side, b: Side) -> tuple[list[Turn], str]:
+def _turns_for(memory_path: Path, episodes: list[str], a: Side, b: Side, *, cut=None) -> tuple[list[Turn], str]:
     """``(turns, "")`` — every turn naming both, then a few naming one — or ``([], why)``: a turn naming both that is too
-    long, or more of them than are shown, is no read (never a silent cut that could hide the turn that says two)."""
+    long, or more of them than are shown, is no read (never a silent cut that could hide the turn that says two).
+    ``cut`` (the held-name path only; ``cut(text, a_names, b_names)`` -> the ranges of a long turn to show, or ``None`` when
+    even those pass :data:`TURN_CHARS`): a long turn is kept whole for every code check and shown in pieces."""
     both: list[Turn] = []
     context: list[Turn] = []
     for eid in episodes:
         day = _episode_day(memory_path, eid)
         for role, text in _turn_rows(memory_path, eid):
             on_a, on_b = _hits(a.names, b.names, text)
+            ranges = None
+            if (on_a or on_b) and len(text) > TURN_CHARS and cut is not None:
+                ranges = cut(text, a.names, b.names)
             if on_a and on_b:
-                if len(text) > TURN_CHARS:
+                if len(text) > TURN_CHARS and ranges is None:
                     return [], "turn_too_long"
-                both.append(Turn(0, eid, day, role, text, True))
-            elif (on_a or on_b) and len(text) <= TURN_CHARS:
-                context.append(Turn(0, eid, day, role, text, False))
+                both.append(Turn(0, eid, day, role, text, True, ranges))
+            elif (on_a or on_b) and (len(text) <= TURN_CHARS or ranges is not None):
+                context.append(Turn(0, eid, day, role, text, False, ranges))
         if len(both) > MAX_BOTH_TURNS:
             return [], "too_many_turns"
     # What was said since is what a read must see: the newest few of the turns that name one side only.
@@ -581,7 +603,7 @@ def _quote_span(memory_path: Path, case: Case, quote: str) -> tuple[Turn, str, d
         if turn.role not in _OWN_WORDS:
             continue
         hit = evidence.locate(turn.text, quote)
-        if hit is None:
+        if hit is None or not turn.shows(*hit):
             continue
         start, end = hit
         first = turn.text.rfind("\n", 0, start) + 1
@@ -632,8 +654,8 @@ def located(memory_path: Path, case: Case, parsed: dict, speaker: str | None = N
     here, there = " ".join(str(parsed.get("here") or "").split()), " ".join(str(parsed.get("there") or "").split())
     if here and there and here.lower() != "null" and there.lower() != "null":
         own = [t for t in case.turns if t.role in _OWN_WORDS]
-        a_texts = [*case.a.texts, *[t.text for t in own if _hits(case.a.names, case.b.names, t.text)[0]]]
-        b_texts = [*case.b.texts, *[t.text for t in own if _hits(case.a.names, case.b.names, t.text)[1]]]
+        a_texts = [*case.a.texts, *[t.display() for t in own if _hits(case.a.names, case.b.names, t.text)[0]]]
+        b_texts = [*case.b.texts, *[t.display() for t in own if _hits(case.a.names, case.b.names, t.text)[1]]]
         flipped = snp._located(here, b_texts) and snp._located(there, a_texts) and not snp._located(here, a_texts)
         ours, theirs = (case.b, case.a) if flipped else (case.a, case.b)
         if (snp._squash(here) != snp._squash(there)

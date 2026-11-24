@@ -682,3 +682,172 @@ def test_a_turn_relating_the_name_to_a_name_the_page_shares_still_stops_a_close(
     _commit(memory, "world")
     report, _ = _look(memory, _judge(_different(turn, relation="unrelated")))
     assert report.settled == 0 and len(_open(memory)) == 1
+
+
+# --------------------------------------------------------------------------- round 2: the close's block is narrow
+
+
+#: A sentence of the person's that could be PRESENTING the two as one thing (adjacent, or joined only by a marker): it withholds a close.
+PRESENTED = [
+    "Swift, I mean Quartzline, is the thing we deploy on Fridays.",
+    "Swift or Quartzline, whichever you call it, ships on Fridays.",
+    "Swift / Quartzline ships on Fridays.",
+    "Swift = Quartzline in the deploy notes.",
+    "Swift aka Quartzline ships on Fridays.",
+    "Swift, i.e. Quartzline, ships on Fridays.",
+    "Swift, that is Quartzline, ships on Fridays.",
+    "Swift (Quartzline) ships on Fridays.",
+    "Swift, also called Quartzline, ships on Fridays.",
+    "Swift, also known as Quartzline, ships on Fridays.",
+    "Swift is known as Quartzline.",
+    "Swift is short for Quartzline.",
+    "Swift, o sea Quartzline, sale los viernes.",
+    "Swift, es decir Quartzline, sale los viernes.",
+    "Swift o Quartzline, da igual, sale los viernes.",
+    "Swift, también llamado Quartzline, sale los viernes.",
+    "Swift alias Quartzline sale los viernes.",
+    "Quartzline, I mean Swift, ships on Fridays.",
+    "Swift, I mean the Quartzline, ships on Fridays.",
+    "Swift is Quartzline.",
+]
+#: A sentence that names both with anything else between them relates them as two: it holds nothing back.
+RELATED_AS_TWO = [
+    "The Swift module for Quartzline ships on Fridays.",
+    "Swift in Quartzline broke again yesterday.",
+    "Quartzline's Swift is the new retry thing.",
+    "Swift is part of Quartzline and ships with it.",
+    "I wired Swift into Quartzline last week.",
+    "Swift is not Quartzline, it only runs beside it.",
+    "Swift talks to Quartzline over a queue.",
+]
+
+
+@pytest.mark.parametrize("line", PRESENTED)
+def test_a_sentence_that_could_present_the_two_as_one_is_seen_as_such(line):
+    assert name_revisit._presented_as_one(line, ["Swift"], ["Quartzline"])
+
+
+@pytest.mark.parametrize("line", RELATED_AS_TWO)
+def test_a_sentence_that_names_both_with_anything_between_holds_nothing_back(line):
+    assert not name_revisit._presented_as_one(line, ["Swift"], ["Quartzline"])
+
+
+@pytest.mark.parametrize("line", PRESENTED)
+def test_a_judge_that_always_says_different_closes_nothing_when_a_sentence_could_present_them_as_one(memory, line):
+    _world(memory, "Swift", line, held="Swift is mentioned in a planning call.")
+    report, _ = _look(memory, _judge(_different(line, relation="unrelated")))
+    assert report.settled == 0 and len(_open(memory)) == 1
+
+
+@pytest.mark.parametrize("line", RELATED_AS_TWO)
+def test_a_part_of_the_project_named_in_one_sentence_with_the_page_is_closed(memory, line):
+    _world(memory, "Swift", line, held="Swift is mentioned in a planning call.")
+    report, rows = _look(memory, _judge(_different(line, relation="part")))
+    assert report.settled == 1 and _open(memory) == [] and _aliases(memory) == []
+    assert [r["what"] for r in rows] == ["closed_apart"]
+    assert "quartzline" in pending_store.apart_of(memory, "Swift")
+
+
+@pytest.mark.parametrize("line", RELATED_AS_TWO)
+def test_a_judge_that_always_says_same_joins_nothing_on_a_sentence_that_relates_them_as_two(memory, line):
+    _world(memory, "Swift", line, held="Swift is mentioned in a planning call.")
+    report, _ = _look(memory, _judge(_same(line)))
+    held = pending_store.held_line(memory, "Swift")
+    assert report.settled == 0 and _aliases(memory) == [] and held is not None and not held.apart_pages() and len(_open(memory)) == 1
+
+
+def test_the_evidence_for_a_close_is_still_the_persons_own_turn_and_two_reads_must_agree(memory):
+    line = "The Swift module for Quartzline ships on Fridays."
+    _target(memory)
+    _episode(memory, "ep_2026-11-14_001", f"user: Planning call today.\nassistant: {line}\n")
+    _hold(memory, "Swift", "ep_2026-11-14_001", "Swift is mentioned in a planning call.")
+    _ask(memory, "Swift", "ep_2026-11-14_001")
+    _commit(memory, "world")
+    assert _look(memory, _judge(_different(line, relation="part")))[0].settled == 0      # an assistant's turn is no evidence
+
+
+def test_a_close_needs_both_reads_to_say_different(memory):
+    line = "Swift talks to Quartzline over a queue."
+    _world(memory, "Swift", line, held="Swift is mentioned in a planning call.")
+    unsure = {"answers": [{"name": 1, "verdict": "cannot_tell", "reason": "r"}]}
+    assert _look(memory, _judge(_different(line, relation="part"), unsure))[0].settled == 0
+
+
+# --------------------------------------------------------------------------- round 2: a long turn is shown in pieces
+
+
+def _filler(n: int, tag: str = "f") -> str:
+    return " ".join(f"Filler sentence {tag}{i} is only about lunch and the weather today." for i in range(n))
+
+
+def _long_world(memory: Path, before: int, middle: str, after: int, name: str = "Swift") -> Path:
+    turn = f"{_filler(before, 'b')} {middle} {_filler(after, 'a')}"
+    assert len(turn) > qr.TURN_CHARS
+    return _world(memory, name, turn, held=f"{name} is mentioned in a planning call.")
+
+
+def test_a_long_pasted_turn_with_the_name_in_the_middle_is_read_in_pieces_and_a_part_is_closed(memory):
+    middle = "The Swift module for Quartzline ships on Fridays."
+    _long_world(memory, 20, middle, 20)
+    calls: list[str] = []
+    report, rows = _look(memory, _judge(_different(middle, relation="part"), calls=calls))
+    assert report.settled == 1 and [r["what"] for r in rows] == ["closed_apart"]
+    prompt = calls[0]
+    assert middle in prompt and qr.CUT_MARK in prompt
+    assert "Filler sentence b0 " not in prompt and "Filler sentence a19 " not in prompt     # the far parts are not shown
+    assert "Filler sentence b19 " in prompt and "Filler sentence a0 " in prompt                # one sentence each side is
+
+
+def test_a_denial_far_from_the_first_mention_is_still_shown_and_both_ends_are_marked(memory):
+    first = "Swift came up in the standup."
+    denial = "Swift is not Quartzline, it only talks to it."
+    turn = f"{first} {_filler(15, 'm')} {denial} {_filler(15, 'z')}"
+    assert len(turn) > qr.TURN_CHARS
+    _world(memory, "Swift", turn, held="Swift is mentioned in a planning call.")
+    calls: list[str] = []
+    _look(memory, _judge({"answers": [{"name": 1, "verdict": "cannot_tell", "reason": "r"}]}, calls=calls))
+    prompt = calls[0]
+    assert first in prompt and denial in prompt and prompt.count(qr.CUT_MARK) >= 2
+    assert "Filler sentence m7 " not in prompt
+
+
+@pytest.mark.parametrize("crosses_the_cut,settled", [(True, 0), (False, 1)])
+def test_a_quote_from_a_part_that_was_cut_is_refused(memory, crosses_the_cut, settled):
+    middle = "The Swift module for Quartzline ships on Fridays."
+    _long_world(memory, 20, middle, 20)
+    line = f"Filler sentence b19 is only about lunch and the weather today. {middle}"
+    if crosses_the_cut:
+        line = f"Filler sentence b18 is only about lunch and the weather today. {line}"    # b18 was never shown to the reader
+    report, _ = _look(memory, _judge(_different(line, relation="part")))
+    assert report.settled == settled and len(_open(memory)) == 1 - settled
+
+
+def test_the_cut_never_hides_what_the_code_checks(memory):
+    middle = "Swift, I mean Quartzline, is the thing we deploy."
+    _long_world(memory, 20, middle, 20)
+    report, _ = _look(memory, _judge(_different(middle, relation="part")))
+    assert report.settled == 0 and len(_open(memory)) == 1       # the whole turn is read for the block, shown or not
+
+
+def test_a_turn_that_is_too_long_even_in_pieces_leaves_the_question_with_the_same_reason(memory):
+    many = " ".join(f"Swift runs job {i} next to Quartzline for the nightly batch of work." for i in range(40))
+    path = _world(memory, "Swift", many)
+    case, why = name_revisit.name_case(memory, path, dict(markdown_parser.parse(path).frontmatter))
+    assert case is None and why == "turn_too_long"
+
+
+def test_cut_ranges_keep_each_naming_sentence_with_its_neighbours_in_order():
+    text = " ".join(["Aaa one is here."] * 3 + ["Swift is here."] + ["Bbb two is here."] * 6 + ["Quartzline is here too."] + ["Ccc end is here."] * 3)
+    ranges = name_revisit.cut_ranges(text, ["Swift"], ["Quartzline"], cap=10_000)
+    pieces = [text[s:e] for s, e in ranges]
+    assert len(pieces) == 2 and "Swift is here." in pieces[0] and "Quartzline is here too." in pieces[1]
+    turn = qr.Turn(1, "ep", "2026-11-14", "person", text, True, ranges)
+    assert turn.display().count(qr.CUT_MARK) == 3 and not turn.shows(0, 5) and turn.shows(*ranges[0])
+
+
+def test_the_two_pages_path_still_refuses_a_turn_that_is_too_long(memory):
+    long_turn = f"{_filler(30)} Swift and Quartzline came up. {_filler(30, 'a')}"
+    _episode(memory, "ep_2026-11-14_001", f"user: {long_turn}\nassistant: Ok.\n")
+    a = qr.Side("swift", "Swift", ["Swift"], [], [])
+    b = qr.Side("quartzline", "Quartzline", ["Quartzline"], [], [])
+    assert qr._turns_for(memory, ["ep_2026-11-14_001"], a, b) == ([], "turn_too_long")

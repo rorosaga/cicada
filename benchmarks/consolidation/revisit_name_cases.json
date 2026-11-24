@@ -175,7 +175,7 @@
    {
     "name": "Quartzline importer",
     "turn": "The Quartzline importer feeds Quartzline with the nightly data and I restart it separately.",
-    "expect": "none"
+    "expect": "different"
    }
   ],
   "pages": []
@@ -216,7 +216,7 @@
    {
     "name": "Quartzline CLI",
     "turn": "Quartzline CLI and Quartzline API ship together but they are different tools.",
-    "expect": "none"
+    "expect": "different"
    }
   ],
   "pages": []
@@ -257,7 +257,7 @@
    {
     "name": "Tern 5",
     "turn": "Tern 5 is the newer model; Tern 4 is still what the team uses for summaries.",
-    "expect": "none"
+    "expect": "different"
    }
   ],
   "pages": []
@@ -339,7 +339,7 @@
    {
     "name": "Quartzline importer",
     "turn": "The Quartzline importer feeds Quartzline with the nightly data and I restart it separately.",
-    "expect": "none"
+    "expect": "different"
    },
    {
     "name": "Job Runner",
@@ -385,12 +385,12 @@
    {
     "name": "Kestrel",
     "turn": "Kestrel is Quartzline's backend.",
-    "expect": "none"
+    "expect": "different"
    },
    {
     "name": "Wren",
     "turn": "Wren is Quartzline? No. Wren is not Quartzline.",
-    "expect": "none"
+    "expect": "either"
    },
    {
     "name": "Plover",
@@ -400,12 +400,12 @@
    {
     "name": "Heron",
     "turn": "Is Heron also Quartzline?",
-    "expect": "none"
+    "expect": "either"
    },
    {
     "name": "Finch",
     "turn": "If Finch is Quartzline then we ship.",
-    "expect": "none"
+    "expect": "either"
    },
    {
     "name": "Sparrow",
@@ -415,17 +415,17 @@
    {
     "name": "Linnet",
     "turn": "Linnet is for Quartzline.",
-    "expect": "none"
+    "expect": "either"
    },
    {
     "name": "Avocet",
     "turn": "Avocet es como Quartzline.",
-    "expect": "none"
+    "expect": "either"
    },
    {
     "name": "Pipit",
     "turn": "Pipit, also Quartzline, are both due Friday.",
-    "expect": "none"
+    "expect": "either"
    },
    {
     "name": "Siskin",
@@ -536,5 +536,82 @@
     ]
    }
   ]
+ },
+ {
+  "id": "part-of-a-project-sentences",
+  "group": "part",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Nightwatch",
+    "turn": "The Nightwatch for Quartzline pages me when a job fails.",
+    "expect": "different"
+   },
+   {
+    "name": "Gantry",
+    "turn": "Gantry in Quartzline broke again yesterday.",
+    "expect": "different"
+   },
+   {
+    "name": "Brazier",
+    "turn": "Quartzline's Brazier is the new retry queue.",
+    "expect": "different"
+   },
+   {
+    "name": "Anvil",
+    "turn": "Anvil is part of Quartzline and ships with it.",
+    "expect": "different"
+   },
+   {
+    "name": "Ember",
+    "turn": "I wired Ember into Quartzline last week.",
+    "expect": "different"
+   }
+  ],
+  "pages": []
+ },
+ {
+  "id": "same-sentences-the-close-must-not-close",
+  "group": "single",
+  "page": {
+   "id": "quartzline",
+   "name": "Quartzline",
+   "type": "project",
+   "facts": [
+    "Quartzline is the scheduling service the team deploys on Fridays.",
+    "Quartzline stores its jobs in a Postgres table called runs."
+   ]
+  },
+  "names": [
+   {
+    "name": "Cobalt",
+    "turn": "Cobalt, I mean Quartzline, is the thing we deploy on Fridays.",
+    "expect": "none"
+   },
+   {
+    "name": "Garnet",
+    "turn": "Garnet or Quartzline, whichever you call it, ships on Fridays.",
+    "expect": "none"
+   },
+   {
+    "name": "Onyx",
+    "turn": "Onyx / Quartzline ships on Fridays.",
+    "expect": "none"
+   },
+   {
+    "name": "Jasper",
+    "turn": "Jasper, i.e. Quartzline, ships on Fridays.",
+    "expect": "none"
+   }
+  ],
+  "pages": []
  }
 ]
