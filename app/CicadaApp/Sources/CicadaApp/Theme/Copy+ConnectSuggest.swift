@@ -37,6 +37,9 @@ extension Copy {
             }
         }
 
+        /// G221 (ruling 77b) — the offer came from a save the person just made on a site that is not connected.
+        static let keepsSave = "Yes keeps this save. Only saves you click are read."
+
         // MARK: - Settings → General
 
         static let settingTitle = "Suggest connecting apps"
