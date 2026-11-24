@@ -265,7 +265,10 @@ EXTRACTION GUIDELINES:
 - Extract entities that are meaningful to the user's life, work, or goals. Skip trivial mentions.
 - An entity's name is a name: what the thing is called, something a person could say again in another conversation. What
   someone does, knows or is good at, said as a phrase ("maintains <x> checklists for <y>"), is a key_fact on whoever does
-  it or on the thing it is for, never an entity of its own. Write a name as it was said, with nothing added to it.
+  it or on the thing it is for, never an entity of its own. Write a name as it was said, with nothing added to it. The one
+  exception: two different people of one conversation who share a name are each written "<name> (what tells them apart)",
+  in the conversation's own words ("<name> (cousin)", "<name> (finance lead)"), never with it in front of the name or after it, and the
+  same way every time they are named.
 - A detail of the assistant's answer is not an entity: a function or variable in a code example, a
   command, a library, tool or place the assistant only suggested or listed. Extract it only when the
   user engaged with it — used it, asked about it by name, chose it, built it, went there.
@@ -300,6 +303,8 @@ EXTRACTION GUIDELINES:
 - Relationships are critical — capture every meaningful connection between entities with a specific
   verb phrase in the active voice, source first (e.g. "works at", "built with", "supervised by", "depends on",
   "evaluated against", "dropped", "due"). Use short verb phrases, not full sentences or generic "related to".
+  What the user's own line says they did with a named thing (read, saw, visited, bought, took), said in passing in a
+  conversation about something else, is one too, from the user to that thing — never only a key_fact.
 - WHO SOMEONE IS TO THE USER ("my partner X", "my cousin X") is a relationship of its own ("partner of", "cousin of"),
   whatever the conversation is about; an act they share ("travels with") is never a substitute.
 - A ROLE IN A LABEL BELONGS TO THE SOURCE. "<source> <label> <target>" must read as a true sentence, so a label that

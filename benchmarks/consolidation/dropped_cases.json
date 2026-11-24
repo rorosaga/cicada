@@ -1,0 +1,628 @@
+[
+ {
+  "id": "en-book",
+  "owner": "Priya Anand",
+  "day": -8,
+  "lang": "en",
+  "kind": "book",
+  "polarity": "said",
+  "thing": [
+   "quiet ledger"
+  ],
+  "turns": [
+   "I lead a team of four engineers and we never look back at how a sprint went. Can you help me design a short weekly review?",
+   "Sure. Keep it to 30 minutes: what went well, what slowed us down, one change for next week. Want an agenda template?",
+   "Yes please. I finished The Quiet Ledger by Gideon Marsh yesterday, and its chapter on retrospectives is where I got the idea. Keep the agenda to three items.",
+   "Here is a three-item agenda: wins, blockers, one experiment."
+  ],
+  "date_offset": -1
+ },
+ {
+  "id": "en-film",
+  "owner": "Priya Anand",
+  "day": -5,
+  "lang": "en",
+  "kind": "film",
+  "polarity": "said",
+  "thing": [
+   "salt meridian"
+  ],
+  "turns": [
+   "I'm picking a projector for the living room, budget around 600 dollars. What should I look at?",
+   "Look at native brightness, throw distance and whether it has a lens shift. For a bright room you want at least 2,500 lumens.",
+   "Good to know. We watched Salt Meridian on it at my sister's place on Saturday, which is what made me want one. Anything that handles dark scenes well?",
+   "Projectors with a high contrast ratio and a dynamic iris handle dark scenes best."
+  ]
+ },
+ {
+  "id": "en-place",
+  "owner": "Priya Anand",
+  "day": -12,
+  "lang": "en",
+  "kind": "place",
+  "polarity": "said",
+  "thing": [
+   "trieste"
+  ],
+  "turns": [
+   "Sorry for the slow replies this week, I only just got back from Trieste. Can you remind me how to write a VLOOKUP that ignores blanks?",
+   "Of course. Wrap it in IFERROR, or use XLOOKUP with a not-found value of an empty string.",
+   "XLOOKUP it is. And how do I make it match on two columns?",
+   "Concatenate the two columns into one helper column and look up on that."
+  ]
+ },
+ {
+  "id": "en-course",
+  "owner": "Priya Anand",
+  "day": -20,
+  "lang": "en",
+  "kind": "course",
+  "polarity": "said",
+  "thing": [
+   "hollis"
+  ],
+  "turns": [
+   "What temperature should I fire stoneware glaze to? I have a small electric kiln.",
+   "Most stoneware glazes mature at cone 6, about 1,220 degrees Celsius, but check the glaze label first.",
+   "Thanks. I completed the Hollis Institute pottery course in June, they only taught us cone 10 gas firing, so this is all new to me.",
+   "Electric kilns usually top out at cone 6 to 8, so your cone 6 plan is the sensible one."
+  ]
+ },
+ {
+  "id": "en-purchase",
+  "owner": "Priya Anand",
+  "day": -4,
+  "lang": "en",
+  "kind": "purchase",
+  "polarity": "said",
+  "thing": [
+   "veltro"
+  ],
+  "turns": [
+   "My kettle is covered in white scale. What is the safest way to descale it?",
+   "Boil equal parts water and white vinegar, let it sit for 20 minutes, then rinse and boil clean water twice.",
+   "Worked well. I bought a Veltro espresso grinder yesterday and I want to keep the whole kitchen from clogging up with scale. Does hard water hurt grinders?",
+   "No, grinders are dry. Scale only matters for the machine itself."
+  ],
+  "date_offset": -1
+ },
+ {
+  "id": "en-race",
+  "owner": "Priya Anand",
+  "day": -3,
+  "lang": "en",
+  "kind": "race",
+  "polarity": "said",
+  "thing": [
+   "harbourside"
+  ],
+  "turns": [
+   "Can you suggest a ten minute stretching routine for tight hamstrings?",
+   "Try a seated forward fold, a standing hamstring stretch and a supine strap stretch, holding each for 30 seconds.",
+   "Great. I ran the Harbourside 10k on Sunday in 52:10 and they have been tight since. Should I stretch before or after a run?",
+   "After a run, when the muscles are warm. Before it, use dynamic movements instead."
+  ],
+  "also": [
+   "52:10"
+  ]
+ },
+ {
+  "id": "en-doctor",
+  "owner": "Priya Anand",
+  "day": -6,
+  "lang": "en",
+  "kind": "doctor",
+  "polarity": "said",
+  "thing": [
+   "okonkwo"
+  ],
+  "turns": [
+   "How do I stop a spreadsheet from converting my part numbers like 1-3 into dates?",
+   "Format the column as text before typing, or put an apostrophe before each entry.",
+   "Thanks. I saw Dr Okonkwo about my knee yesterday, so I'll be doing this from the sofa for a while. Can I set the format for a whole column at once?",
+   "Yes, select the column header and set the number format to Text."
+  ],
+  "date_offset": -1
+ },
+ {
+  "id": "en-decision",
+  "owner": "Priya Anand",
+  "day": -10,
+  "lang": "en",
+  "kind": "decision",
+  "polarity": "said",
+  "thing": [
+   "freelanc"
+  ],
+  "turns": [
+   "Can you help me draft a payment-reminder email for an overdue invoice?",
+   "Certainly: polite, short, with the invoice number, the amount and a new due date.",
+   "I've decided to stop taking on freelance clients after December, so this will be one of the last I send. Can you make the tone friendly but firm?",
+   "Here is a friendly but firm version with a seven day deadline."
+  ]
+ },
+ {
+  "id": "es-book",
+  "owner": "Mateo Quiroga",
+  "day": -7,
+  "lang": "es",
+  "kind": "book",
+  "polarity": "said",
+  "thing": [
+   "casa de los espejos"
+  ],
+  "turns": [
+   "Estoy intentando organizar mi horario de estudio para los exámenes de marzo. ¿Cómo lo repartirías?",
+   "Divide el día en bloques de 50 minutos con descansos de 10, y deja las materias difíciles para la mañana.",
+   "Buena idea. Por cierto, ya me leí «La casa de los espejos» de Ana Velarde y me dio ganas de leer más novela este año. ¿Cuántos bloques al día recomiendas?",
+   "Entre cinco y seis bloques al día es razonable."
+  ]
+ },
+ {
+  "id": "es-place",
+  "owner": "Mateo Quiroga",
+  "day": -9,
+  "lang": "es",
+  "kind": "place",
+  "polarity": "said",
+  "thing": [
+   "oaxaca"
+  ],
+  "turns": [
+   "Se me sale la cadena de la bicicleta cada dos pedaladas. ¿Qué reviso?",
+   "Revisa el desviador, la tensión de la cadena y si algún eslabón está rígido.",
+   "Lo miré. El mes pasado estuve en Oaxaca y la dejé guardada sin usar, quizá por eso. ¿Hay que engrasarla?",
+   "Sí, limpia la cadena con desengrasante y aplica lubricante nuevo."
+  ]
+ },
+ {
+  "id": "es-course",
+  "owner": "Mateo Quiroga",
+  "day": -6,
+  "lang": "es",
+  "kind": "course",
+  "polarity": "said",
+  "thing": [
+   "nolasco",
+   "soldadura"
+  ],
+  "turns": [
+   "Quiero armar un presupuesto mensual sencillo. ¿Por dónde empiezo?",
+   "Anota tus ingresos fijos, luego los gastos fijos y reserva un porcentaje para ahorro.",
+   "Perfecto. Terminé el curso de soldadura del instituto Nolasco el viernes y ahora tengo que comprar herramientas. ¿Cuánto debería reservar para eso?",
+   "Reserva un fondo aparte; para herramientas básicas unos 300 euros suele alcanzar."
+  ]
+ },
+ {
+  "id": "es-purchase",
+  "owner": "Mateo Quiroga",
+  "day": -11,
+  "lang": "es",
+  "kind": "purchase",
+  "polarity": "said",
+  "thing": [
+   "rayo gris"
+  ],
+  "turns": [
+   "Me cobraron una comisión en el banco que no entiendo. ¿Cómo la reclamo?",
+   "Pide el desglose por escrito y presenta una reclamación en el servicio de atención al cliente.",
+   "Gracias. Me compré una bicicleta Rayo Gris con esa tarjeta y quiero asegurarme de que el cargo no fue el problema. ¿Qué documento adjunto?",
+   "Adjunta el extracto de la cuenta y el recibo de la compra."
+  ]
+ },
+ {
+  "id": "fr-book",
+  "owner": "Hélène Bastide",
+  "day": -5,
+  "lang": "fr",
+  "kind": "book",
+  "polarity": "said",
+  "thing": [
+   "heures pales"
+  ],
+  "turns": [
+   "Je dois écrire un mail à mon propriétaire pour signaler une fuite sous l'évier. Pouvez-vous m'aider ?",
+   "Bien sûr. Décrivez le problème, la date où vous l'avez remarquée et demandez une intervention sous huit jours.",
+   "Merci. J'ai fini «Les Heures Pâles» de Marion Doucet hier soir, donc j'ai enfin le temps de m'en occuper. Je le tutoie ou je le vouvoie ?",
+   "Vouvoyez-le, c'est la norme dans un courrier de ce type."
+  ],
+  "date_offset": -1
+ },
+ {
+  "id": "fr-place",
+  "owner": "Hélène Bastide",
+  "day": -14,
+  "lang": "fr",
+  "kind": "place",
+  "polarity": "said",
+  "thing": [
+   "bergen"
+  ],
+  "turns": [
+   "J'ai une présentation de dix minutes sur notre bilan trimestriel. Comment structurer le début ?",
+   "Ouvrez avec le chiffre clé, puis annoncez le plan en trois parties.",
+   "D'accord. Je suis allée à Bergen en août et j'y ai raconté la même chose en vingt minutes, c'était trop long. Combien de diapositives pour dix minutes ?",
+   "Environ cinq à sept diapositives."
+  ]
+ },
+ {
+  "id": "fr-course",
+  "owner": "Hélène Bastide",
+  "day": -4,
+  "lang": "fr",
+  "kind": "course",
+  "polarity": "said",
+  "thing": [
+   "secourisme",
+   "psc1"
+  ],
+  "turns": [
+   "Je mets à jour mon CV, pouvez-vous me proposer une structure claire ?",
+   "En-tête, résumé de deux lignes, expériences par ordre antichronologique, formations, compétences.",
+   "Merci. J'ai validé ma formation de secourisme (PSC1) la semaine dernière, je veux la mettre en avant. Dans quelle section ?",
+   "Dans la section formations, avec la date d'obtention."
+  ]
+ },
+ {
+  "id": "fr-race",
+  "owner": "Hélène Bastide",
+  "day": -2,
+  "lang": "fr",
+  "kind": "race",
+  "polarity": "said",
+  "thing": [
+   "rouen"
+  ],
+  "turns": [
+   "Quelle est une bonne séance de récupération après une longue sortie ?",
+   "Marche active, étirements légers et hydratation, puis une nuit complète.",
+   "Merci. J'ai couru le semi de Rouen en 1h58 dimanche et j'ai les jambes lourdes. Est-ce que je peux courir demain ?",
+   "Préférez un footing très léger de vingt minutes ou du vélo."
+  ],
+  "also": [
+   "1h58"
+  ]
+ },
+ {
+  "id": "en-book-assistant-said",
+  "owner": "Priya Anand",
+  "day": -8,
+  "lang": "en",
+  "kind": "book",
+  "polarity": "counter",
+  "thing": [
+   "salt ledger"
+  ],
+  "turns": [
+   "I need a book to read on a long train ride. Any suggestions about economics for beginners?",
+   "I'd suggest The Salt Ledger by Imre Dunn. It is well liked and quite readable.",
+   "I haven't read it. Is it long?",
+   "About 280 pages, so it fits a long journey."
+  ],
+  "wrong": [
+   "read",
+   "finish",
+   "complet",
+   "enjoy",
+   "love"
+  ],
+  "ok": [
+   "recommend",
+   "suggest",
+   "consider",
+   "plan",
+   "want",
+   "interest",
+   "ask"
+  ]
+ },
+ {
+  "id": "en-film-asked",
+  "owner": "Priya Anand",
+  "day": -5,
+  "lang": "en",
+  "kind": "film",
+  "polarity": "counter",
+  "thing": [
+   "glass harbor",
+   "glass harbour"
+  ],
+  "turns": [
+   "Is Glass Harbor worth watching? I haven't seen it, I only saw the trailer.",
+   "It is a slow thriller with strong reviews. If you like quiet pacing, it is worth an evening.",
+   "Okay, maybe on the weekend. What else is on that streaming service?",
+   "There are a few documentaries and two crime series."
+  ],
+  "wrong": [
+   "watch",
+   "saw",
+   "seen",
+   "view"
+  ],
+  "ok": [
+   "consider",
+   "plan",
+   "want",
+   "interest",
+   "curious",
+   "intend",
+   "trailer"
+  ]
+ },
+ {
+  "id": "en-book-sister",
+  "owner": "Priya Anand",
+  "day": -8,
+  "lang": "en",
+  "kind": "book",
+  "polarity": "counter",
+  "thing": [
+   "amber stair"
+  ],
+  "turns": [
+   "My sister finished The Amber Stair last week and won't stop talking about it. Can you give me a two-line summary without spoilers?",
+   "It is a family saga set in a lighthouse town, told over three generations.",
+   "Thanks, that is enough to nod along at dinner. I'm not reading it myself, I'm mid way through my taxes.",
+   "Good luck with the taxes."
+  ],
+  "wrong": [
+   "read",
+   "finish",
+   "complet",
+   "enjoy",
+   "love"
+  ],
+  "ok": [
+   "sister",
+   "consider",
+   "interest"
+  ]
+ },
+ {
+  "id": "es-place-plan",
+  "owner": "Mateo Quiroga",
+  "day": -6,
+  "lang": "es",
+  "kind": "place",
+  "polarity": "counter",
+  "thing": [
+   "lisboa",
+   "lisbon"
+  ],
+  "turns": [
+   "El año que viene quiero ir a Lisboa con mi pareja. ¿Qué mes me conviene?",
+   "Mayo o septiembre: buen clima y menos turistas que en verano.",
+   "Mayo entonces. ¿Cuántos días me recomiendas?",
+   "Cuatro o cinco días para ver lo principal sin prisa."
+  ],
+  "wrong": [
+   "estuv",
+   "visit",
+   "fue a",
+   "viaj",
+   "was in",
+   "went",
+   "visited",
+   "vive",
+   "lives"
+  ],
+  "ok": [
+   "plan",
+   "want",
+   "quiere",
+   "intend",
+   "consider",
+   "propos"
+  ]
+ },
+ {
+  "id": "fr-course-suggested",
+  "owner": "Hélène Bastide",
+  "day": -7,
+  "lang": "fr",
+  "kind": "course",
+  "polarity": "counter",
+  "thing": [
+   "secourisme",
+   "psc1"
+  ],
+  "turns": [
+   "Je cherche une idée pour compléter mon CV avant l'été.",
+   "Vous pourriez passer une formation de secourisme (PSC1), elle est courte et très appréciée.",
+   "Je vais y réfléchir, pour l'instant je n'ai pas le temps. Autre chose ?",
+   "Un certificat de langue, par exemple."
+  ],
+  "wrong": [
+   "valid",
+   "termin",
+   "complet",
+   "obten",
+   "suivi",
+   "passed",
+   "graduat",
+   "attend",
+   "assist",
+   "particip"
+  ],
+  "ok": [
+   "consider",
+   "plan",
+   "want",
+   "intend",
+   "interest",
+   "envisag",
+   "suggest",
+   "propos"
+  ]
+ },
+ {
+  "id": "es-purchase-considering",
+  "owner": "Mateo Quiroga",
+  "day": -9,
+  "lang": "es",
+  "kind": "purchase",
+  "polarity": "counter",
+  "thing": [
+   "rayo gris"
+  ],
+  "turns": [
+   "Estoy pensando en comprar una bicicleta Rayo Gris, pero no estoy segura de que valga lo que cuesta. ¿Qué opinas?",
+   "Depende del uso: para ciudad es más que suficiente, para montaña quizá no.",
+   "Es para ir al trabajo, unos ocho kilómetros. Todavía no he comprado nada.",
+   "Entonces te basta con un modelo de gama media."
+  ],
+  "wrong": [
+   "compr",
+   "bought",
+   "owns",
+   "adquir",
+   "purchas"
+  ],
+  "ok": [
+   "consider",
+   "plan",
+   "want",
+   "intend",
+   "interest",
+   "pens",
+   "evalu"
+  ]
+ },
+ {
+  "id": "fr-race-brother",
+  "owner": "Hélène Bastide",
+  "day": -2,
+  "lang": "fr",
+  "kind": "race",
+  "polarity": "counter",
+  "thing": [
+   "rouen"
+  ],
+  "turns": [
+   "Mon frère a couru le semi de Rouen en 1h58 dimanche et il veut maintenant viser 1h50. Comment l'aider ?",
+   "Quelques séances de fractionné par semaine et une sortie longue progressive.",
+   "Je lui transmettrai. Moi je ne cours pas, je l'encourage depuis le canapé.",
+   "C'est déjà un beau soutien."
+  ],
+  "wrong": [
+   "cour",
+   "ran",
+   "run",
+   "particip",
+   "finish",
+   "termin"
+  ],
+  "ok": [
+   "encourag",
+   "support",
+   "soutien",
+   "coach",
+   "help",
+   "aide"
+  ]
+ },
+ {
+  "id": "fx-book-recs",
+  "fixture": "fixture.json",
+  "conv": "c10",
+  "lang": "en",
+  "kind": "book",
+  "polarity": "said",
+  "thing": [
+   "design of everyday"
+  ],
+  "note": "the benchmark's own P18 conversation: a book already read, said while asking for other recommendations"
+ },
+ {
+  "id": "en-film-listed",
+  "owner": "Priya Anand",
+  "day": -9,
+  "lang": "en",
+  "kind": "film",
+  "polarity": "said",
+  "thing": [
+   "salt meridian"
+  ],
+  "turns": [
+   "Can you suggest two slow, atmospheric films for a rainy weekend?",
+   "Two good picks: Salt Meridian by Oda Reyes, a quiet sea-voyage drama, and The Lantern Year by Joss Imani, a gentle village story.",
+   "I've already seen Salt Meridian, it was great. Is The Lantern Year similar in pace?",
+   "Slightly slower, and warmer in tone."
+  ],
+  "shape": "listed"
+ },
+ {
+  "id": "es-book-listed",
+  "owner": "Mateo Quiroga",
+  "day": -13,
+  "lang": "es",
+  "kind": "book",
+  "polarity": "said",
+  "thing": [
+   "puerto de ceniza"
+  ],
+  "turns": [
+   "¿Qué novelas históricas me recomiendas para el verano?",
+   "Dos opciones: «El puerto de ceniza» de Lola Armendáriz y «Las hijas del faro» de Julián Orozco.",
+   "«El puerto de ceniza» ya lo leí el año pasado y me encantó. ¿Cómo es la otra?",
+   "Es más lenta, pero con mejores personajes."
+  ],
+  "shape": "listed"
+ },
+ {
+  "id": "fr-book-listed",
+  "owner": "Hélène Bastide",
+  "day": -6,
+  "lang": "fr",
+  "kind": "book",
+  "polarity": "said",
+  "thing": [
+   "maree haute",
+   "marée haute"
+  ],
+  "turns": [
+   "Pouvez-vous me conseiller deux romans policiers pour les vacances ?",
+   "Deux idées : «Marée haute» de Sylvie Rochas et «Le Dernier Passeur» de Aimé Tessier.",
+   "J'ai déjà lu «Marée haute», je l'ai adoré. Et «Le Dernier Passeur», c'est dans le même style ?",
+   "Un peu plus sombre, avec un rythme plus rapide."
+  ],
+  "shape": "listed"
+ },
+ {
+  "id": "en-place-listed",
+  "owner": "Priya Anand",
+  "day": -15,
+  "lang": "en",
+  "kind": "place",
+  "polarity": "said",
+  "thing": [
+   "valparaiso"
+  ],
+  "turns": [
+   "Which coastal towns would you suggest for a long weekend in South America?",
+   "Valparaíso in Chile for the hillside streets, or Paraty in Brazil for the old harbour.",
+   "I have already been to Valparaíso, two years ago. How easy is Paraty without a car?",
+   "Very easy, the centre is pedestrian and buses connect from Rio."
+  ],
+  "shape": "listed"
+ },
+ {
+  "id": "es-course-listed",
+  "owner": "Mateo Quiroga",
+  "day": -10,
+  "lang": "es",
+  "kind": "course",
+  "polarity": "said",
+  "thing": [
+   "escuela vidal",
+   "vidal"
+  ],
+  "turns": [
+   "Quiero aprender fotografía. ¿Qué cursos me sirven para empezar?",
+   "Puedes mirar el curso de la Escuela Vidal, que dura ocho semanas, o uno en línea de la plataforma Lumen.",
+   "El de la Escuela Vidal ya lo hice, terminé en septiembre. ¿Qué tal el de Lumen para seguir?",
+   "Lumen tiene un nivel intermedio con proyectos finales."
+  ],
+  "shape": "listed"
+ }
+]

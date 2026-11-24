@@ -350,3 +350,31 @@ def test_an_empty_list_is_recorded_as_read_empty_not_as_a_failure(reading):
     last = saved_lists.last(memory, "x")
     assert last["outcome"] == "read" and last["items"] == 0 and last.get("read_at")
     assert saved_lists.status(memory)["lists"]["x"]["state"] == "read"
+
+
+def test_a_saved_post_keeps_who_posted_it_and_one_kept_before_gains_it(reading):
+    """Measured 2026-11-24 on a list of 76: a post that showed words lost its author (it only ever titled a post
+    with none), and a LinkedIn link names nobody. The author is the save's channel; a save kept before gains it on
+    the next read of its list, once, and a page that already names one keeps it."""
+    server, memory = reading
+    _on("x")
+    # POST_B was kept before the author was stored; POST_A is new.
+    OLD = "https://x.com/i/web/status/1000000000000000002"
+    idx = media_ingestor.load_url_index(memory)
+    media_ingestor.write_prepared(media_ingestor.PreparedItem(
+        media_ingestor.RawItem(url=OLD, title="An older save", folder="Bookmarks", origin="x-bookmarks",
+                               defer_enrich=True), None), memory, idx)
+    media_ingestor.save_url_index(memory, idx)
+    assert not _page_of(memory, OLD)[1].frontmatter["media"].get("channel")
+
+    rows = [{"url": POST_A, "author": "alice_example", "text": "Notes on indexes"},
+            {"url": POST_B, "author": "bob_example", "text": "An older save"}]
+    _record(server, "x", items=rows)
+    entry, page = _page_of(memory, POST_A)
+    assert page.frontmatter["media"]["channel"] == "@alice_example"
+    assert "**Channel:** @alice_example" in (memory / "episodes" / f"{entry['episode_id']}.md").read_text()
+    assert _page_of(memory, OLD)[1].frontmatter["media"]["channel"] == "@bob_example"
+    # Read again under another name: the page keeps the one it holds, and nothing is rewritten.
+    before = (memory / "entities" / f"{_page_of(memory, OLD)[0]['media_entity_id']}.md").read_text()
+    _record(server, "x", items=[{"url": POST_B, "author": "carol_example", "text": "An older save"}], continues=True)
+    assert (memory / "entities" / f"{_page_of(memory, OLD)[0]['media_entity_id']}.md").read_text() == before

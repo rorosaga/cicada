@@ -86,6 +86,11 @@ cannot see a one-in-ten defect; both cost cents and need only `ANTHROPIC_API_KEY
 
 - `same_name_battery.py`: 71 labelled single judge inputs (46 one person, 25 two), each replayed N times through the real
   `same_name_people.plan`. Scored as a false split (one person cut in two) or a missed split (two kept as one).
+- `dropped_battery.py` (with `dropped_cases.json`, 28 invented conversations plus the benchmark's own book conversation):
+  a fact the person says in passing inside a conversation about something else (a book finished, a film, a trip, a course,
+  a purchase, a race, a doctor's visit, a decision; English, Spanish, French; and counter-cases that must not become the
+  person's act), replayed N times through the real `entity_extractor.extract`, scored as claim / status / prose / dropped
+  and, for counter-cases, written as the person's act. `rescore OUT` judges saved answers with no model.
 - `same_name_stories.py`: 30 invented stories (English, Spanish, French) of a name that comes up over several batches:
   two people both new in one batch, one established first, a page that already holds two, two that nothing tells
   apart, a doubt a later conversation settles, one person in many settings, one whose life moves on, one with a thin
