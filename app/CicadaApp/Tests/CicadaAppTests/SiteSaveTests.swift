@@ -157,7 +157,7 @@ final class SiteSaveTests: XCTestCase {
         XCTAssertEqual(SiteSaveRule.item(share), .failure(.notTheSaveSlot))
     }
 
-    func testASiteThePersonDidNotConnectIsNeverRead() {
+    func testOnlyTheSitesHandedToTheRuleAreRead() {
         let feed = timeline(save: "b", counts: "")
         XCTAssertEqual(SiteSaveRule.item(feed, sites: [.instagram]), .failure(.unknownSite))
         XCTAssertNotNil(try? SiteSaveRule.item(feed, sites: [.x]).get())
@@ -260,8 +260,9 @@ final class SiteSaveTests: XCTestCase {
         XCTAssertNil(SiteSaveWatcher.before(hover: nil, atClick: timeline(save: "x", counts: "", clicked: 2)))
     }
 
-    /// A noticed save is stored under the site's own source first, then asked about like a confirmed bookmark; with
-    /// the question switched off, or a backend that cannot take the save, nothing is asked.
+    /// A noticed save is stored under the site's own source first, then asked about like a confirmed bookmark, with
+    /// the bookmark question's switch on or off (the site's own connection is its switch); with a backend that cannot
+    /// take the save, nothing is asked.
     @MainActor
     func testANoticedSaveIsStoredThenAskedAboutUnderItsOwnSource() async {
         let item = SiteSaveItem(site: "x", origin: "x-bookmarks", url: "https://x.com/alpha_user/status/19",
@@ -281,11 +282,11 @@ final class SiteSaveTests: XCTestCase {
         let saved = await api.saved
         XCTAssertEqual(saved, ["x https://x.com/alpha_user/status/19"])
 
-        // With the question switched off the save is still stored (the person connected the site); nobody is asked.
+        // The bookmark question's switch is not the site's: connecting the site turned its question on.
         let offAPI = SiteSaveFakeAPI()
         let off = center(enabled: false, api: offAPI)
         await off.siteSaved(item)
-        XCTAssertNil(off.state)
+        XCTAssertEqual(off.state?.item?.url, item.url)
         let stored = await offAPI.saved
         XCTAssertEqual(stored.count, 1)
 

@@ -50,11 +50,11 @@ def _url(vid):
 
 def test_off_by_default_needs_the_sheet_and_counts_only_while_agent_reading_is_on(tmp_path, monkeypatch):
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
-    assert reading_settings.snapshot()["youtubeLists"] == {"watchLater": False, "history": False}
+    assert reading_settings.snapshot()["youtubeLists"] == {"watchLater": False, "history": False, "playlists": False, "liked": False}
     with pytest.raises(reading_settings.SettingsError):
         reading_settings.update(youtube_lists_={"watch_later": True})          # no "I understand" yet
     with pytest.raises(reading_settings.SettingsError):
-        reading_settings.update(acknowledge=True, youtube_lists_={"liked": True})   # not a list
+        reading_settings.update(acknowledge=True, youtube_lists_={"starred": True})   # not a list
     reading_settings.update(acknowledge=True, youtube_lists_={"watch_later": True})
     assert reading_settings.snapshot()["youtubeLists"]["watchLater"] is True
     # Agent reading is on by default once the sheet is accepted (2026-10-22); the person's off still wins.
@@ -117,7 +117,7 @@ def test_refusals_write_nothing(reading, monkeypatch):
     before = porcelain(memory)
     assert _record(server, "watch_later", videos=[{"url": _url(VID_A)}]).startswith("Not recorded: the person has not")
     _on("watch_later")
-    assert _record(server, "liked").startswith("Error: list must be")
+    assert _record(server, "starred").startswith("Error: list must be")
     assert _record(server, "watch_later", "maybe").startswith("Error: outcome")
     assert _record(server, "watch_later").startswith("Error: a read needs `videos`")
     monkeypatch.setattr(demo_guard, "is_demo", lambda path: True)

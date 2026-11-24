@@ -586,8 +586,8 @@ is then that stream's or folder's. A stream that is the whole channel (a history
 row (a media page of a list origin) gains `lists` (the labels of the lists it is on: its page's `folder:` and
 `collections:`), `folders` (the site's own, `save_folders`, minus any already a list), `depth` (`kept` = indexed, no model
 has read it; `read` = Sleep read its save, or the person's own agent recorded a read or watch of the link; a mention
-later adds `asked` and `watched`) and `posted` (the post's own day when the url-index row carries `posted_at` or
-`published_at`; the row's `day` stays the day it was kept). `folder` is never logged (`main._REDACTED_PARAMS`).
+later adds `asked` and `watched`) and `posted` (the post's own day: the `posted` the record tool kept in the save's episode frontmatter, else a
+url-index `posted_at` or `published_at`; the row's `day` stays the day it was kept). `folder` is never logged (`main._REDACTED_PARAMS`).
 **Where an item lives (G161, ROR-111, shape `g161-17`).** A row on `GET /sources/channels/{id}/items` whose item records
 a place carries `place`: its kind alone (`notes`, `github`, `web`), never the URL or a note's id, so a list stays titles
 only. `GET /sources/channels/{id}/items/{item}/place` answers one listed item on the person's click:

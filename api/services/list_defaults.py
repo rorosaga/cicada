@@ -67,10 +67,12 @@ def apply(memory_path: Path) -> list[str]:
     if not reading_settings.agent_enabled():
         return []
     defaultable = set(reading_settings.DEFAULT_ON_SAVED_LISTS)
-    decided = (set(reading_settings.youtube_lists()) | set(reading_settings.youtube_lists_off())
+    youtube_defaultable = set(reading_settings.DEFAULT_ON_YOUTUBE_LISTS)
+    decided = ({k for k in (set(reading_settings.youtube_lists()) | set(reading_settings.youtube_lists_off()))
+                if k in youtube_defaultable}
                | {f"s:{k}" for k in (set(reading_settings.saved_lists()) | set(reading_settings.saved_lists_off()))
                   if k in defaultable})
-    if len(decided) >= len(reading_settings.YOUTUBE_LISTS) + len(reading_settings.DEFAULT_ON_SAVED_LISTS):
+    if len(decided) >= len(youtube_defaultable) + len(reading_settings.DEFAULT_ON_SAVED_LISTS):
         return []
     # A list turned on here was never read, so it holds no pause to lift.
     return reading_settings.apply_list_defaults(detected=detected(memory_path), read_before=read_before())

@@ -398,9 +398,12 @@ final class SaveWhyCenter {
         armBound(SaveWhyPolicy.confirmBound)
     }
 
-    private func decide(_ result: BookmarkSyncResult, live: Bool, ours: Bool) -> SaveWhyPolicy.Decision {
+    private func decide(_ result: BookmarkSyncResult, live: Bool, ours: Bool,
+                        site: Bool = false) -> SaveWhyPolicy.Decision {
+        // A save inside a site is asked about because the person connected that site: the bookmark switch, which a
+        // site's Yes never turns on, does not gate it (found 2026-11-24: "Saving on X will ask why" could be false).
         SaveWhyPolicy.decide(.init(
-            enabled: prefs.enabled, live: live, result: result, now: now(), lastAsked: prefs.lastAsked,
+            enabled: site || prefs.enabled, live: live, result: result, now: now(), lastAsked: prefs.lastAsked,
             mutedHosts: prefs.mutedHosts, writing: !ours && state?.isWriting == true, lastURL: prefs.lastURL,
             lastAddedAt: prefs.lastAddedAt))
     }
@@ -623,10 +626,10 @@ final class SaveWhyCenter {
 
     /// A bookmark sync (or an early look) finished. Asks only when `SaveWhyPolicy` says so; otherwise does nothing —
     /// except that a refusal withdraws an unconfirmed panel on that browser.
-    func noticed(_ result: BookmarkSyncResult, live: Bool, early: Int? = nil) async {
+    func noticed(_ result: BookmarkSyncResult, live: Bool, early: Int? = nil, site: Bool = false) async {
         let channels = Set(result.sources.compactMap(\.channel) + result.fresh.map(\.channel))
         let ours = channels.contains { unconfirmedOn($0) }
-        let decision = decide(result, live: live, ours: ours)
+        let decision = decide(result, live: live, ours: ours, site: site)
         lastDecision = decision
         guard case .ask(let item) = decision else {
             if live, ours, case .skip(let reason) = decision, Self.withdraws(reason) {
@@ -658,8 +661,8 @@ final class SaveWhyCenter {
     }
 
     /// G221 — a save the person just made inside a site (`SiteSaveWatcher`): saved under that site's own source
-    /// first, then asked about like a bookmark the browser's file confirmed. The same rules decide (the switch, a
-    /// muted site, one save one question); a save the backend cannot take now (Sleep is writing, an older backend)
+    /// first, then asked about like a bookmark the browser's file confirmed. The same rules decide (a muted site,
+    /// one save one question) except the bookmark switch: connecting the site is what turns its question on. A save the backend cannot take now (Sleep is writing, an older backend)
     /// is not asked about, since there would be nothing to hold the answer.
     func siteSaved(_ item: SiteSaveItem, text: String = "", folder: String? = nil) async {
         let reply: SiteSaveReply
@@ -678,7 +681,7 @@ final class SaveWhyCenter {
         ])
         result.fresh = [fresh]
         result.freshTotal = 1
-        await noticed(result, live: true)
+        await noticed(result, live: true, site: true)
     }
 
     /// G221 — the person took a post off their list on the site. Never asked about; the save stays, marked.

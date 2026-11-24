@@ -28,14 +28,13 @@ final class PageLineLintTests: XCTestCase {
         "p.summary", "side.summary", "node.summary", "subject?.summary",           // a page's summary line
         "claim.text",                                                              // a belief
         "ClustersModel.line(", "ClustersModel.tileLine(", "ClustersModel.detail(", // a list row's one line
+        "fact.text",                                                               // a fact under one of the page's sources
+        "(w.who, w.text", "quietLine(q.text", "nextInline(next.text",             // a project's thread lines
     ]
 
-    /// Files another change owns, with the reason. Each is a gap to close, never a place to add to: the entity page's
-    /// own text path is being reworked in its own PR (the page-text worker's `Views/Graph/Page*`), so this change leaves
-    /// it alone and says so.
-    private static let knownGaps = [
-        "PageQuestionsStrip.swift",   // the entity page's questions strip: askText and its chips, drawn raw
-    ]
+    /// Files another change owns, with the reason. Each is a gap to close, never a place to add to. Empty since the
+    /// entity page's question strip took the door (2026-11-24).
+    private static let knownGaps: [String] = []
 
     /// Lines that name a field without drawing page text (a count, a guard, a key).
     private static let exempt = [".isEmpty", ".count", "== nil", "!= nil", "key:", "id:", "Copy."]
