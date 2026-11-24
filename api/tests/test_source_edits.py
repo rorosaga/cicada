@@ -185,7 +185,8 @@ def test_a_record_that_arrives_after_the_sync_attaches_to_the_episode_that_holds
     fs.sync(bank, folder, [_file("NOTES.md", V2, mtime=T0 + 60)], [])
     _commit(bank)
     ep = _only(bank)
-    out = source_edits.receive(bank, _edit(bank, folder, "NOTES.md", V2, at=_at()))
+    at = _at()   # one stamp for both posts: "the same post" has the same `at` (two `_at()` calls straddle a second boundary on a loaded runner)
+    out = source_edits.receive(bank, _edit(bank, folder, "NOTES.md", V2, at=at))
     assert (out.status, out.episodes) == ("attached", [ep.frontmatter["id"]])
     assert out.paths == [f"episodes/{ep.frontmatter['id']}.md"] and source_edits.held_count(bank) == 0
     (c,) = _only(bank).frontmatter["contributions"]
@@ -193,7 +194,7 @@ def test_a_record_that_arrives_after_the_sync_attaches_to_the_episode_that_holds
     assert "July" in ep.body[lo:hi] and "Owner" not in ep.body[lo:hi]      # against the body git held before
     assert c["content_hash"] == ep.frontmatter["content_hash"] and "model" not in c
     # The same post again is the same contribution.
-    again = source_edits.receive(bank, _edit(bank, folder, "NOTES.md", V2, at=_at()))
+    again = source_edits.receive(bank, _edit(bank, folder, "NOTES.md", V2, at=at))
     assert again.episodes == out.episodes and again.paths == []
     assert len(_only(bank).frontmatter["contributions"]) == 1
 
@@ -621,7 +622,8 @@ def test_a_citation_reference_says_who_edited_the_source_and_an_unedited_one_say
     ep = _corrected_episode(bank, folder)
     ref = page_citations._Sources(bank).ref(ep.frontmatter["id"])
     wire = page_citations._ref_dict(ref)
-    assert wire["editedBy"] == {"harness": "claude-code", "model": "claude-opus-5-5", "at": _at()}
+    assert wire["editedBy"] == {"harness": "claude-code", "model": "claude-opus-5-5",
+                              "at": ep.frontmatter["contributions"][0]["at"]}   # the stored stamp, never a second `_at()` (a second boundary flakes)
     assert "(edited by claude-code · claude-opus-5-5)" in page_citations.ref_words(wire)
     plain = page_citations._ref_dict(page_citations._Ref(n=1, key="k", kind="conversation"))
     assert "editedBy" not in plain and "edited by" not in page_citations.ref_words({**plain, "title": "t"})
