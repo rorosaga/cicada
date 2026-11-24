@@ -308,6 +308,46 @@ def test_a_closing_call_that_repeats_only_rows_the_pass_met_still_ends_the_pass_
     assert _rows(bank)["acct_9"]["missed"] == 1 and not _rows(bank)["acct_0"].get("missed")
 
 
+def test_a_closing_empty_call_with_the_end_said_ends_the_pass_in_the_tool_and_the_list_status(reading):
+    server, memory = reading
+    _on()
+    everyone = [f"acct_{i}" for i in range(10)]
+    _record(server, [_acct(h.title(), h) for h in everyone], reached_end=True)        # the first whole read: the reference
+    _record(server, [_acct(h.title(), h) for h in everyone[:9]])                     # a new read of nine, no end yet
+    assert "pass" in _held(memory)
+    out = _record(server, [], continues=True, reached_end=True)
+    assert "is empty" not in out and "The whole list is kept" in out, out
+    held = _held(memory)
+    assert "pass" not in held and held["whole_count"] == 9 and _rows(memory)["acct_9"]["missed"] == 1
+    assert saved_lists.whole(memory, KEY) is True
+    # the same closing call again: no pass is open in the directory, so it judges nobody
+    again = _record(server, [], continues=True, reached_end=True)
+    assert "did not begin here" in again, again
+    assert _rows(memory)["acct_9"]["missed"] == 1 and not _rows(memory)["acct_9"].get("gone_on")
+
+
+def test_a_closing_call_with_repeats_and_a_stray_row_is_no_failed_read(reading):
+    server, memory = reading
+    _on()
+    everyone = [f"acct_{i}" for i in range(10)]
+    _record(server, [_acct(h.title(), h) for h in everyone], reached_end=True)
+    _record(server, [_acct(h.title(), h) for h in everyone[:9]])
+    out = _record(server, [_acct("Acct 1", "acct_1"), {"name": "Reserved", "url": f"{X}/settings"}], continues=True,
+                  reached_end=True)
+    assert "the read failed" not in out and "The whole list is kept" in out, out
+    assert saved_lists.last(memory, KEY)["outcome"] == "read"
+
+
+def test_a_call_that_says_it_continues_when_no_pass_is_open_is_never_a_whole_read(reading):
+    server, memory = reading
+    _on()
+    everyone = [f"acct_{i}" for i in range(10)]
+    _record(server, [_acct(h.title(), h) for h in everyone], reached_end=True)
+    out = _record(server, [_acct(h.title(), h) for h in everyone[:3]], continues=True, reached_end=True)
+    assert "did not begin here" in out, out
+    assert not [r for r in _rows(memory).values() if r.get("missed")] and _held(memory)["whole_count"] == 10
+
+
 def test_a_read_over_several_calls_is_one_pass_and_a_new_read_drops_the_one_that_stopped(bank):
     everyone = [f"acct_{i}" for i in range(10)]
     _read(bank, everyone, DAY1)

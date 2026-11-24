@@ -1965,7 +1965,10 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
                 f". Record each with `folder` set to its name and `continues=true`. They count with this read, not "
                 "again.")
 
-    if isinstance(items, list) and not items:
+    # A closing call of a read over several calls may carry no row at all (the page showed nothing new): for the accounts
+    # list that is still the end of the pass, so it reaches the directory, not the empty-list branch (G245).
+    closes_pass = p.kind == "accounts" and continuing and at_end
+    if isinstance(items, list) and not items and not closes_pass:
         # The list is there and has nothing in it: a read of an empty list, not a failed page (sources-truth).
         # An empty list has no further end to reach.
         saved_lists.note(memory_path, key, "read", items=0, new=0, continues=continuing, reached_end=not folder_name, **who)
@@ -1975,7 +1978,7 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
                 + (f" in \u201c{folder_name}\u201d" if folder_name else "")
                 + ". Nothing was written; it is checked again later." + folders_said() + started + unkept)
     rows = items if isinstance(items, list) else []
-    if not rows:
+    if not rows and not (closes_pass and isinstance(items, list)):
         return Reply("Error: a read needs `items` — the posts the list showed, each {url, author, text}; send "
                      "`items: []` for a list that is empty. Record `failed` only if you could not read the page.",
                      code="invalid_arguments")
@@ -2000,8 +2003,8 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
                 f"(Sources → Goodreads).{left}{unkept}")
     if p.kind == "accounts":
         # G245 (ruling 79 (b)): the accounts the person follows — a directory outside every bank, like the connections.
-        return _record_follows(memory_path, rows, p, continuing=continuing, at_end=at_end, who=who, unkept=unkept,
-                               started=started)
+        return _record_follows(memory_path, rows, p, continuing=continuing, wants_more=wants_more, at_end=at_end,
+                               who=who, unkept=unkept, started=started)
     if p.kind == "people":
         # G245 (ruling 78 (c)): people, not posts. The rows merge into the people directory outside every bank
         # (`linkedin_people.record_read`): nothing is written into the bank, so Sleep running is no reason to refuse; the
@@ -2137,16 +2140,18 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
             f"{more}{stop}{folders_said()}{started}{extra}{unkept}")
 
 
-def _record_follows(memory_path: Path, rows: list, p, *, continuing: bool, at_end: bool, who: dict, unkept: str,
-                    started: str) -> str:
+def _record_follows(memory_path: Path, rows: list, p, *, continuing: bool, wants_more: bool, at_end: bool, who: dict,
+                    unkept: str, started: str) -> str:
     """The ``x-following`` branch of ``cicada_record_saved_list`` (ruling 79 (b)): nothing is written into the bank, so Sleep
     running is no reason to refuse. Counts only in the reply, the log and the ledger; never a name."""
     from api.services import follows_people, saved_lists
 
     site = follows_people.site_of_platform(p.key)
     read_day = datetime.now(timezone.utc).date().isoformat()
-    out = follows_people.record_read(memory_path.name, site.key, rows, read_day, continues=continuing, reached_end=at_end)
-    if out.dropped and not out.seen:
+    # The caller's own word, not the list status's: a call that says it continues a read the directory never saw start can
+    # never close one as whole, even when the status no longer counts its pass as open.
+    out = follows_people.record_read(memory_path.name, site.key, rows, read_day, continues=wants_more, reached_end=at_end)
+    if out.dropped and not out.accounts:
         saved_lists.note(memory_path, p.key, "failed", **who)
         return (f"Recorded: the read failed. None of the rows was an account's own profile link on {site.name}, so nothing "
                 f"was kept; the list is offered again later. Open {site.name}'s Following list and read that." + unkept)
