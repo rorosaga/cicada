@@ -295,6 +295,8 @@ def _item(video: SavedVideo, records: list[Record], row: dict | None) -> dict:
     if row is not None:
         item["want"] = row["want"]
         item["queueState"] = row["state"]
+        if row.get("origin") == "mention":
+            item["origin"] = "mention"   # ruling 78 (e): the person talked about it, nobody asked
         if row.get("claimed_by") and row["state"] == "claimed":
             item["claimedBy"] = row["claimed_by"]
         if row.get("attempts"):

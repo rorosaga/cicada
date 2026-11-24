@@ -1274,7 +1274,7 @@ the folder, and `covers` claims from the title's own words. Recall found the sam
 - **What is lean: `history_index.kind` `saved`.** A bare save, by its own record, never by what its body says: the saving
   door's page link (`media_entity_id` and `url`: a browser bookmark, a single saved link, a feed item, a connector poll, an
   open Safari tab, any import through the media writer), an older `*-bookmark` episode, or a tab group (`source: tab-group`).
-  A list save stays `list` (ruling 30). **Not lean:** a save with a reason or note (`has_note`, `saved_why`,
+  A list save stays `list` (ruling 30; ruling 78 (e) wakes one the person names, below). **Not lean:** a save with a reason or note (`has_note`, `saved_why`,
   `saved_why_earlier`, a `## Saved because`, `## User note`, `## Why it was saved` or an agent's `## Note` section, the last
   because it says why the link matters though it is never the person's words); a book's record (`book`); an agent's report
   that carries the page's link (`video-watch`, `page-read`) and Cicada's own checks; a conversation; a save anyone already
@@ -1311,6 +1311,31 @@ the folder, and `covers` claims from the title's own words. Recall found the sam
   or they give a reason, the existing `saved_why`, note and Telegram doors (`mark_person_words`). **A retrieval hit is none of
   these:** nothing on a read path writes. An agent's `cicada_record_read` is its own read, with its own episode and claim, so
   Sleep does not read the same thing again. A save's text stays `page` (`authorship.of`), never the person's words.
+- **Depth on mention (ruling 78 (e), owner 2026-11-24; G245; `saved_mentions`, `mention_asks`).** Owner: saves stay light,
+  "but those that i actually go ahead and talk about are way more important", with "a clear logic … to not bloat cicada
+  memory … but making it aware and powerful to go deeper". **Amends ruling 30 point 1 and ruling 62 point 3 for a mentioned
+  list save.** (1) *The wake reaches a save from a platform's list* (`history_index.kind` `list`): only the person's own
+  located words (`said-the-link`, `said-the-title`; never `page-mentioned`, which `history_index.wake` refuses for a list
+  save, never a retrieval hit) stamp `read_asked`, which takes it out of `list` too (`kind` reads `read_asked` before the
+  origin) and queues it for one normal Sleep read, at most 5 a conversation as before. It newly reaches 11 origins
+  (`youtube-playlist`, `instagram-saved`, `tiktok-saved`, `x-likes`, `x-bookmarks`, `linkedin-saved`, `spotify-saved`,
+  `github-starred`, `pinterest-saved`, `substack-saved`, `reddit-saved`; Reddit's Saved posts, Saved comments and Upvoted
+  folders), and leaves out two records that are no save (`github-owned`, Reddit's Joined communities,
+  `history_index.mentionable`). A list save nobody named is still indexed and read by no model (`test_more_lists_g245`
+  holds the gate unchanged). A reason the person gave already made a list save theirs to read (`PERSON_KEYS`), unchanged.
+  (2) *The same mention leaves an ask for the person's own agent* — a row in a queue, nothing more (`mention_asks.offer`,
+  after the batch, in the same step): a provider video (`video_state.saved_videos`) goes on the video queue as a
+  transcript job, a post on a walled site on the reading queue; each marked `origin: mention` with the settings key of the
+  list it came from. Honoured (listed, leased, counted, recordable, `reading_queue.authorizes`) only while agent reading
+  and that list are on (`mention_asks.gate`); turning either off hides it at once and the settings route's `sweep` removes
+  it, so turning the switch back on never brings it back; the person removes it where their own asks are listed. **At
+  most 5 a day a bank across both queues and 50 waiting**, kept in `$CICADA_HOME/mention_asks/<bank>.json` (a day, a
+  count and the hashes of links already offered, so a removal holds against every later mention; no url, never in a bank).
+  A waiting mention ask **never expires** (an expiry would turn `asked` back into `kept` unannounced; the two bounds keep
+  it small); once an agent answers, the row ages out like any outcome. Not asked: a link already read or watched by an
+  agent, a link with a row already, a public page that is not a provider video, a save whose list is off, a demo bank.
+  Cicada starts no agent and downloads nothing; the agent that answers records what those doors record today (a summary
+  and short quotes; frames stay its own work).
 - **Existing items.** The first run after this lands retires what waits, in the existing `Indexed without a model <date>` `cicada`
   commits of at most 500 files, before ids freeze, with no engine and nothing else touched; the tail embeds what it indexed.
   Between the upgrade and that run they are already out of every waiting count (`waits_for_model`, `/sleep/queue`,

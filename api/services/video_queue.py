@@ -38,6 +38,11 @@ gate. Its mtime (and the count of leases and expiries that have come due, see
 * **The saved videos are read under the lock** (ruling 34, F2): a snapshot read
   before it could lack a video saved and queued meanwhile, and the orphan drop
   would take that fresh row.
+* **A mention ask** (ruling 78 (e), owner 2026-11-24) is a ``queued`` row marked ``origin: mention`` with the key of the
+  list the save came from (``list``), left by ``mention_asks`` for a video the person talked about — never by an agent or
+  the person's click. It is an ask for the person's own agent, honoured (listed, leased, counted) only while agent
+  reading and that list are on; the person's own ``put`` or hand-off on the same video makes it theirs (the mark goes).
+  It does not expire while queued, like any queued row.
 * **A lease lives at most :data:`MAX_LEASE_PERIODS` lease periods from its claim**
   (ruling 34, F4): a session that keeps calling no longer holds a video forever.
 
@@ -81,6 +86,8 @@ METHODS = ("auto", "captions", "link")
 
 _BANK_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _TOKEN = re.compile(r"^[0-9a-f]{32}$")
+ORIGIN_MENTION = "mention"
+_LIST_KEY = re.compile(r"^[a-z0-9][a-z0-9:_-]{0,39}$")
 #: The fields one lease carries; every path that ends a lease drops them all.
 _LEASE_FIELDS = ("claimed_by", "claimed_at", "lease_until", "session", "lease_token")
 
@@ -193,6 +200,8 @@ def _clean_row(raw) -> dict | None:
     token = raw.get("lease_token")
     if isinstance(token, str) and _TOKEN.match(token):
         row["lease_token"] = token
+    if raw.get("origin") == ORIGIN_MENTION and _LIST_KEY.match(str(raw.get("list") or "")):
+        row["origin"], row["list"] = ORIGIN_MENTION, str(raw["list"])
     failed = raw.get("failed")
     if isinstance(failed, dict):
         row["failed"] = {"code": clean_code(failed.get("code")), "reason": str(failed.get("reason") or "")[:MAX_REASON_CHARS],
@@ -391,7 +400,18 @@ def view(memory_path: Path, now: datetime | None = None, *, records=None,
     rows, batches = _cached(memory_path)
     rows, batches, _ = _settle(rows, batches, _now(now), records=records or _records_fn(memory_path),
                                holding=holding)
-    return rows, batches
+    return _honoured(rows), batches
+
+
+def _honoured(rows: list[dict]) -> list[dict]:
+    """The rows that count right now: a mention ask only while agent reading and its list are on (ruling 78 (e)). The
+    person's own rows are never touched by a setting."""
+    if not any(r.get("origin") == ORIGIN_MENTION for r in rows):
+        return rows
+    from api.services import mention_asks
+
+    gate = mention_asks.gate()
+    return [r for r in rows if r.get("origin") != ORIGIN_MENTION or gate(r)]
 
 
 def _sleep_holds() -> bool:
@@ -521,6 +541,9 @@ def _upsert(rows: list[dict], key: str, want: str, now: datetime) -> dict:
         row = {"key": key, "want": want, "state": "queued", "requested_at": _iso(now), "attempts": 0}
         rows.append(row)
         return row
+    # The person's own ask on a video the backend had asked about: it is theirs now, whatever a setting says.
+    row.pop("origin", None)
+    row.pop("list", None)
     if want == "watch":
         row["want"] = "watch"
     if row["state"] == "failed":
@@ -545,6 +568,51 @@ def put(memory_path: Path, key: str, want: str, *, now: datetime | None = None,
         row = _upsert(rows, key, want, moment)
         _write(target, rows, batches)
     return dict(row)
+
+
+def offer_mention(memory_path: Path, key: str, list_key: str, *, now: datetime | None = None,
+                  holding: Callable[[], bool] | None = None) -> bool:
+    """Leave a mention ask (ruling 78 (e)) for a saved video the person talked about: one ``queued`` ``transcript`` row
+    marked ``origin: mention``. **Only ``mention_asks`` calls this.** ``False`` and nothing written when the key is not a
+    saved video, already has a row (the person's own ask, a failure, an earlier mention), or the file is full: it
+    never changes a row that exists. A transcript, not a watch: the lighter ask an agent without a way to see frames can
+    still answer, and a record with frames closes it as well (§4.3)."""
+    if not _LIST_KEY.match(str(list_key or "")):
+        return False
+    moment = _now(now)
+    with _locked(memory_path) as target:
+        saved = _saved(memory_path)
+        if key not in saved:
+            return False
+        rows, batches, _ = _open(memory_path, moment, saved, holding)
+        if any(r["key"] == key for r in rows) or len(rows) >= MAX_ROWS:
+            return False
+        rows.append({"key": key, "want": "transcript", "state": "queued", "requested_at": _iso(moment), "attempts": 0,
+                     "origin": ORIGIN_MENTION, "list": str(list_key)})
+        _write(target, rows, batches)
+    return True
+
+
+def drop_mentions(memory_path: Path, *, keep: Callable[[dict], bool], now: datetime | None = None,
+                  holding: Callable[[], bool] | None = None) -> int:
+    """Remove every mention ask ``keep`` says no to (a setting turned off), the way Remove does, and return how many.
+    A row an agent has leased is left to finish: its lease lapses on its own clock and it is dropped after."""
+    moment = _now(now)
+    if _stat(memory_path) is None:
+        return 0
+    with _locked(memory_path) as target:
+        rows, batches, changed = _open(memory_path, moment, _saved(memory_path), holding)
+        gone = {r["key"] for r in rows if r.get("origin") == ORIGIN_MENTION and r["state"] != "claimed" and not keep(r)}
+        if not gone:
+            if changed:
+                _write(target, rows, batches)
+            return 0
+        for batch in batches.values():
+            batch["keys"] = [k for k in batch["keys"] if k not in gone]
+            batch["done"] = [k for k in batch["done"] if k not in gone]
+            batch["updated_at"] = _iso(moment)
+        _write(target, [r for r in rows if r["key"] not in gone], batches)
+    return len(gone)
 
 
 def remove(memory_path: Path, key: str, *, now: datetime | None = None,
@@ -668,7 +736,8 @@ def claim(memory_path: Path, *, session: str | None, harness: str | None, limit=
         saved = _saved(memory_path)
         rows, batches, _ = _open(memory_path, moment, saved, holding)
         _refresh(rows, session, moment)
-        queued = sorted((r for r in rows if r["state"] == "queued" and r["key"] in saved), key=lambda r: (r.get("requested_at") or "", r["key"]))
+        queued = sorted((r for r in _honoured(rows) if r["state"] == "queued" and r["key"] in saved),
+                        key=lambda r: (r.get("requested_at") or "", r["key"]))
         leased = []
         for row in queued[:wanted]:
             row["state"] = "claimed"

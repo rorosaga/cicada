@@ -863,7 +863,9 @@ def reading_queue(ctx: ToolContext, limit=None) -> str:
         # A title came from a third-party page: one line, scrubbed, so it can never forge a row.
         title = episode_scrub.scrub(" ".join(str(e.title or "").split()))[0]
         title_part = f" \u2014 {title[:80]}" if title and not media_ingestor.is_placeholder_title(e.url, title) else ""
-        how = f"asked {e.since}" if e.origin == "ask" else "a site the person allowed"
+        how = (f"asked {e.since}" if e.origin == "ask" else
+               f"the person talked about this {e.since}; nobody asked" if e.origin == "mention" else
+               "a site the person allowed")
         # Vision item 1 (2026-10-28): the person's reason for saving it is what to read for. Their own words, so a
         # connection sees it only with the `sources` scope (`raw_excerpts`), like every verbatim word of theirs.
         why_part = ""
@@ -1330,6 +1332,8 @@ def _video_lines(rows: list[dict], saved: dict, *, state_words: bool = False, to
         if video.channel:
             bits.append(_one_line(video.channel, 120))
         bits.append("a watch job" if row["want"] == "watch" else "a transcript job")
+        if row.get("origin") == "mention":
+            bits.append("the person talked about this; nobody asked")   # ruling 78 (e)
         if video.duration_s:
             bits.append(video_chapters.stamp(video.duration_s))
         if state_words:

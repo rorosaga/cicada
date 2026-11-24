@@ -110,7 +110,7 @@ person cannot see which of their 40 saved videos an agent has actually read.
 - N-c. No watching from Sleep, and nothing video-related in the nightly tail. Sleep reads a watch
   record like any other episode.
 - N-d. No second control on the Sleep page. G125 R10 (one Consolidate) is untouched (§4.7).
-- N-e. No auto-queueing by default. Saving a video queues nothing (open question Q3).
+- N-e. No auto-queueing by default. Saving a video queues nothing (open question Q3). *Amended 2026-11-24 (TODO ruling 78 (e)): a video the person talks about leaves one ask for their own agent, marked `origin: mention`, only while agent reading and its list are on, at most 5 a day; saving still queues nothing.*
 - N-f. Not the general "fast scraper vs. agent with a browser" question. That is a sibling spec.
   Here a browser method is **not offered for YouTube at all** (§4.8, §5, Q8).
 
@@ -122,7 +122,7 @@ person cannot see which of their 40 saved videos an agent has actually read.
 |---|---|---|
 | R-VU1 | **State is about the event, not the belief.** A video is *watched* when a watch **episode** with a basis exists. A withdrawn `describes` claim does not un-watch it. | The agent did watch. What was withdrawn is a claim. The belief layer keeps its own rule (a `describes` claim with a `media` span); the two differ in two cases (§9). |
 | R-VU2 | **`basis` is the agent's word.** Cicada cannot verify it, so the app says "an agent recorded that it watched", never "Cicada watched". **A record with no basis is its own state, never `watched`.** | Cicada sees no frames and reads no captions, and today's records could as well have come from captions. Provenance never claims more than it holds. |
-| R-VU3 | **The queue holds user requests only, and lives outside the bank.** `$CICADA_HOME/video_queue/<bank>.json`, never an entity, never decays, never committed. | A request is an intent, not a memory. A dirty bank file is swept into the next `git add -A` writer's commit under the wrong author (the G85-class smear); committing every click is noise. |
+| R-VU3 | **The queue holds user requests only, and lives outside the bank.** *Amended 2026-11-24 (TODO ruling 78 (e)): and the ask the person's own words about a saved video caused (`origin: mention`); an agent plants none.* `$CICADA_HOME/video_queue/<bank>.json`, never an entity, never decays, never committed. | A request is an intent, not a memory. A dirty bank file is swept into the next `git add -A` writer's commit under the wrong author (the G85-class smear); committing every click is noise. |
 | R-VU4 | **The run control lives in the Feed's Videos view.** The Sleep page only *reads* the queue and links to it. | G125 R10 gives the Sleep page one trigger; no click on art changes what the machine does. |
 | R-VU5 | **A run is always a user trigger and never on a schedule.** | Same shape as TODO ruling 4: a scheduled path never spends plan quota. |
 | R-VU6 | **Sizes are words and minutes.** "Light", "Medium", "Heavy", plus total minutes. No dollars, no tokens. | Ruling 12 shows prices on the Sleep page's Details and engine menu only; this is a different surface and a much rougher estimate. |

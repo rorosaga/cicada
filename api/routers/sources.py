@@ -66,6 +66,7 @@ from api.services import (
     entity_picture,
     feed_registry,
     media_ingestor,
+    mention_asks,
     notes_sync,
     reading_asks,
     reading_hosts,
@@ -1236,7 +1237,7 @@ async def list_sources(
         reading_enabled = reading_settings.agent_enabled()
         reading_allowed = tuple(reading_settings.allowed_sites())
         try:
-            ask_rows = {r["url_hash"]: r for r in reading_asks.all_rows(memory_path)}
+            ask_rows = {r["url_hash"]: r for r in reading_queue.honoured_rows(reading_asks.all_rows(memory_path))}
         except ValueError:
             ask_rows = {}
         reading_paused = reading_queue.paused_sites(list(ask_rows.values()))
@@ -1751,7 +1752,7 @@ async def list_channel_items(
         etag = sync_service.etag_for(
             memory_path, "sources", "episodes", "entities", "photos",
             extra=(f"{channel_items.SHAPE}|{channel_id}|{offset}|{limit}|{q or ''}|{collection or ''}"
-                   f"|{stream or ''}|{folder or ''}"),
+                   f"|{stream or ''}|{folder or ''}|{mention_asks.stamp(memory_path)}"),
         )
         if (early := sync_service.conditional(request, response, etag)) is not None:
             return early
