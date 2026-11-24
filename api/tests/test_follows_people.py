@@ -183,7 +183,7 @@ def test_a_read_keeps_a_name_a_handle_a_link_and_a_day_and_nothing_else_outside_
     rows = _rows(memory)
     assert set(rows) == {"erin_example", "acme_labs", "bare_handle"}
     assert set(rows["erin_example"]) == {"handle", "name", "url", "first_seen", "since", "last_seen"}, "no bio, count or picture"
-    assert rows["erin_example"]["url"] == f"{X}/erin_example" and rows["erin_example"]["first_seen"] == date.today().isoformat()
+    assert rows["erin_example"]["url"] == f"{X}/erin_example" and rows["erin_example"]["first_seen"] == datetime.now(timezone.utc).date().isoformat()
     blob = (people_directory.path(memory.name, "follows-x.json")).read_text()
     for secret in ("Builds things", "12000", "avatar", "hiring", "follows_back"):
         assert secret not in blob
@@ -295,6 +295,17 @@ def test_a_call_that_carries_on_a_read_this_list_never_saw_start_can_never_end_o
     stray = _read(bank, everyone[:3], DAY3, cont=True)      # `continues` with no pass open here
     assert stray.partial and not stray.finished and stray.marked_gone == 0
     assert not [r for r in _rows(bank).values() if r.get("missed")]
+
+
+def test_a_closing_call_that_repeats_only_rows_the_pass_met_still_ends_the_pass_and_judges_it(bank):
+    everyone = [f"acct_{i}" for i in range(10)]
+    _read(bank, everyone, DAY1)
+    _read(bank, everyone[:9], DAY2, end=False)                     # a new read of nine
+    closing = _read(bank, everyone[:5], DAY2, end=True, cont=True)   # scrolled on, nothing new: the end, said
+    assert closing.finished and closing.trusted and closing.seen == 0 and closing.accounts == 5
+    held = _held(bank)
+    assert "pass" not in held and held["whole_count"] == 9 and held["whole_on"] == DAY2
+    assert _rows(bank)["acct_9"]["missed"] == 1 and not _rows(bank)["acct_0"].get("missed")
 
 
 def test_a_read_over_several_calls_is_one_pass_and_a_new_read_drops_the_one_that_stopped(bank):

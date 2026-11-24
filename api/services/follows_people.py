@@ -287,7 +287,8 @@ rename = people_directory.rename
 @dataclass
 class ReadReport:
     """What one agent read of the Following list did to the directory — counts only, never a name."""
-    seen: int = 0          # distinct valid accounts this call showed
+    seen: int = 0          # distinct valid accounts this call showed that the pass had not met yet
+    accounts: int = 0      # every row of this call that was an account's own profile link, new to the pass or not
     added: int = 0
     updated: int = 0       # a changed display name, or an account back after being gone
     unchanged: int = 0
@@ -352,6 +353,7 @@ def record_read(bank: str, site_key: str, items: list, read_day: str, *, continu
                 report.dropped += 1
                 continue
             handle, url = got
+            report.accounts += 1
             row_id = hashlib.sha256(handle.lower().encode("utf-8")).hexdigest()[:12]
             if row_id in seen:
                 continue
@@ -383,8 +385,10 @@ def record_read(bank: str, site_key: str, items: list, read_day: str, *, continu
             report.rows.append(old)
         report.seen = len(report.rows)
         report.passed = len(seen)
-        if not report.seen and not report.full:
-            return report   # nothing here was an account (a page that was not the list): nothing is kept, no pass opened
+        if not seen and not report.full:
+            return report   # no account in this pass at all (a page that was not the list): nothing is kept, no pass opened
+        # A call that shows only accounts the pass already met (the natural "scrolled on, nothing new, that was the end")
+        # still counts: it can say the end, and the pass is judged on what it has.
         report.over_cap = over
         pass_state = {"at": _now_iso(now), "calls": calls + 1, "seen": sorted(seen), "partial": partial,
                       "over_cap": over}
