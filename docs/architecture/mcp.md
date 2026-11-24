@@ -114,6 +114,22 @@ so in any language; a passage repeating a quoted turn is dropped; a turn says "t
 an agent holding only recall's words, haiku, one run each: right 47 → 56 (10 gained, 2 lost, p = .04), tokens per right answer 9,220 → 7,421,
 characters p50 2,777 → 2,211.
 
+**A thing said once is found by the words that were said (owner 2026-11-24).** The owner, asked whether Sleep may stop
+asking a person known only by a description their name until they come up again: "if i ask claude about 'the Portuguese guitar teacher'
+it should be able to find the mention easily, as claude code memory does, even if it was mentioned once". Measured
+(`benchmarks/consolidation/findability.py`, 11 invented stories, 4 not in English, a person or a thing said once; a
+real Sleep on the plan; then 150 conversations of noise and 12 decoys Sleep had not read; `cicada_recall` and `cicada_ask`
+over the real stdio server, each asked three ways: the person's own words, a rewording and a partial): found 64 of 66
+before, 65 of 66 after, in every state a once-said mention is in after Sleep: a page titled by the description, a line held
+with no page, a conversation Sleep has not read, a quiet saved page. Without the question the mention is as findable as
+with it. One defect, now fixed: recall's lead turns (`_turn_excerpts`) were the OLDEST four of the best eight turns Ask's
+search leg gathered, so a conversation the words found was lost to four older ones that shared a word or that the meaning leg added
+(a single word asked of 160 conversations; the conversation was found by the word leg and dropped at the cut). They are now the best four,
+the person's first, shown oldest first. On LoCoMo (2 conversations, 231 questions, no model, nothing slept): recall hands
+over an answer turn for 112 → 138 questions and 118 → 148 answer turns, p50 characters 2,229 → 2,131; Ask, the hook and pending are
+byte for byte as before (206 of 231). Still missed: a rewording that shares no word with a title-only saved page ("that guide I
+saved about the seashore" for "The Tide Pool Handbook"): the page holds only its title, so no leg has anything to match.
+
 **What a reply costs (ROR-100 slice 1, 2026-11-08; `benchmarks/perf/reply_tokens.py`, no model call).** Measured on a
 read-only clone of a 9,000-page bank, 40 prompts, tokens by cl100k_base: the SessionStart note 1,816 (the contract is
 982 of it), the UserPromptSubmit injection median 88 / p90 163, `cicada_recall` median 2,024 / p90 2,836,
