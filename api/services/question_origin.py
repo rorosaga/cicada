@@ -29,7 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 #: The wire shape (``InboxItem.asked_by``): bump when a step, a ``how`` or a field is added or reworded.
-SHAPE = "asked1"
+SHAPE = "asked2"
 
 RULE, MODEL, AGENT, CHECK = "rule", "model", "agent", "check"
 HOWS = (RULE, MODEL, AGENT, CHECK)
@@ -40,6 +40,8 @@ STEPS: dict[str, tuple[str, str]] = {
     "shared_name_check": (RULE, "Sleep's shared-name check"),
     "same_name_review": (MODEL, "Sleep's same-name review"),
     "conflict_check": (RULE, "Sleep's conflict check"),
+    "page_read": (MODEL, "Sleep's read of a page"),
+    "still_check": (RULE, "Sleep's check for what may have ended"),
     "wording_check": (RULE, "Sleep's wording check"),
     "decay_check": (RULE, "Sleep's decay check"),
     "number_check": (RULE, "Sleep's phone number check"),
@@ -71,7 +73,7 @@ _TRIGGERS = {
     "maintenance/placeholder-people": "unnamed_check",
 }
 #: ``asks`` — a clarification that asks for one thing (`role_people`, `meeting_speakers`, `source_proposals`).
-_ASKS = {"name": "unnamed_check", "speaker": "meeting_read", "sources": "link_suggestions"}
+_ASKS = {"name": "unnamed_check", "speaker": "meeting_read", "sources": "link_suggestions", "still": "still_check"}
 #: ``kind`` — only the kinds ONE step writes; a kind several steps write is never read from here.
 _KINDS = {
     "decay": "decay_check",
@@ -123,8 +125,11 @@ def _step(fm: dict, kind: str) -> str | None:
     trigger = _text(fm.get("trigger"))
     if trigger in _TRIGGERS:
         return _TRIGGERS[trigger]
+    # A conflict with no trigger: the claim path always stamps one, so this is the page writer's (`inbox_generator`),
+    # which carries no predicate or the literal "description" and is raised by a model reading the page against a
+    # conversation (`conflict_resolver._detect_contradiction`). Any other bare conflict names no writer: nothing.
     if kind == "conflict":
-        return "conflict_check"
+        return "page_read" if _text(fm.get("predicate")) in ("", "description") else None
     # A clarification or a duplicate question a conversation raised, written by the Stage 1 / Stage 2 reads with the
     # conversation they read stamped on it. Without that conversation nothing here says who wrote it.
     if kind in ("clarification", "merge_suggestion") and _text(fm.get("source_episode")) and fm.get("uncertainty_type"):
