@@ -74,12 +74,12 @@ def _header(memory_path: Path, subdir: str, name: str) -> dict:
     return dict(entry.frontmatter or {}) if entry is not None else {}
 
 
-def _conversation(memory_path: Path, name: str) -> SleepConsolidatedConversation:
+def _conversation(memory_path: Path, name: str, own_device: str | None = None) -> SleepConsolidatedConversation:
     from api.services import episode_copy
     from api.services.sleep_cycle import queue_origin
 
     fm = _header(memory_path, "episodes", name)
-    facets = episode_copy.row_facets(fm) if fm else {"site": None, "device": None, "meeting": None}
+    facets = episode_copy.row_facets(fm, own_device) if fm else {"site": None, "device": None, "meeting": None}
     return SleepConsolidatedConversation(
         id=str(fm.get("id") or name[:-3]),
         title=(str(fm.get("title")).strip() or None) if fm.get("title") else None,
@@ -273,7 +273,10 @@ async def build(memory_path: Path, commits: list[str], settles: list[str] | None
     shelved = [e for e, on in archived.items() if on and e not in removed]
     made = [e for e in created if e not in removed and e not in shelved]
     changed = [e for e in updated if e not in removed and e not in shelved]
-    conversations = sorted((_conversation(memory_path, n) for n in episodes),
+    from api.services import episode_copy
+
+    own_device = episode_copy.own_device_id()
+    conversations = sorted((_conversation(memory_path, n, own_device) for n in episodes),
                            key=lambda c: (c.timestamp or "", c.id))
     run_eps = frozenset(c.id for c in conversations)
     made_ids, t2 = _capped(made)

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // MARK: - The opened card (owner 2026-11-24)
@@ -72,22 +73,26 @@ struct RunPageChipFace: View {
     }
 
     var body: some View {
-        HStack(spacing: CicadaTheme.scaled(6)) {
+        // No spacing of its own: a part that is not drawn must take no gap either (a picture still on its way is a
+        // zero-width host, and `HStack` spacing would have left its 6 pt behind it).
+        HStack(spacing: 0) {
             if let dot = Self.dot(page.change) {
                 Circle().fill(dot)
                     .frame(width: CicadaTheme.scaled(Tag.dotSize), height: CicadaTheme.scaled(Tag.dotSize))
+                    .padding(.trailing, Self.gap)
                     .accessibilityHidden(true)
             }
             if hasPicture {
                 let well = EntityPictureLayout.frame(type, size: CicadaTheme.scaled(16))
                 // `EntityPicture` is 20 pt at the least (C11); the chip's 16 is that, drawn at four fifths. A page that
                 // is not a person takes its slot only once its image has really arrived (a missing file draws no empty
-                // well), a person's initials are the picture.
+                // well and no gap), a person's initials are the picture.
                 EntityPicture(id: page.id, name: label, type: type, size: 20, imageArrived: $imageArrived)
                     .scaleEffect(0.8)
                     .frame(width: slotShown ? well.width : 0, height: well.height)
                     .opacity(slotShown ? 1 : 0)
                     .clipped()
+                    .padding(.trailing, slotShown ? Self.gap : 0)
                     .accessibilityHidden(true)
             }
             Text(label)
@@ -106,6 +111,7 @@ struct RunPageChipFace: View {
     }
 
     static let height: CGFloat = 24
+    static var gap: CGFloat { CicadaTheme.scaled(6) }
 }
 
 /// A chip that shows what the read changed on its page: a click opens the diff under the conversation's chips, which
@@ -146,6 +152,14 @@ struct RunPagePreview: View {
 
     static let shown = 6
 
+    /// The previewed pages in words, each with what the read did to it (the dot's twin for VoiceOver), and how many more.
+    static func spoken(_ pages: [SleepConsolidated.Page], total: Int, names: EntityNames) -> String? {
+        let named = pages.prefix(shown).map { Copy.RunCard.pageLabel(RunItemGroups.pageLabel($0, names: names), $0.change ?? .updated) }
+        guard !named.isEmpty else { return nil }
+        let rest = total - named.count
+        return (named + (rest > 0 ? [Copy.RunCard.morePages(rest)] : [])).joined(separator: "; ")
+    }
+
     var body: some View {
         let names = store?.entityNames ?? .empty
         let chips = pages.prefix(Self.shown).map { (page: $0, label: RunItemGroups.pageLabel($0, names: names)) }
@@ -161,6 +175,7 @@ struct RunPagePreview: View {
         HStack(spacing: CicadaTheme.scaled(6)) {
             ForEach(Array(shown.enumerated()), id: \.offset) { _, chip in
                 RunPageChipFace(page: chip.page, label: chip.label)
+                    .help(Copy.RunCard.pageHelp(chip.label, chip.page.change ?? .updated, canShow: false))
             }
             if total > shown.count {
                 Text(Copy.RunCard.morePages(total - shown.count))
@@ -240,8 +255,12 @@ struct RunItemsView: View {
                                      onSelectEntity: onSelectEntity)
         let counts = RunItemsModel.counts(items, machineId: machineId)
         let kinds = RunItemsModel.filterKinds(counts)
-        if !kinds.isEmpty { filterTabs(kinds, counts: counts) }
-        let layout = RunItemsModel.body(items, filter: filter, machineId: machineId)
+        // A machine change can leave the picked kind with no page, or hide the tabs: draw by what can be seen.
+        let shownFilter = RunItemsModel.effectiveFilter(filter, kinds: kinds)
+        let partial = RunItemsModel.countsArePartial(items, machineId: machineId)
+        if partial { note(Copy.RunCard.countsPartial) }
+        if !kinds.isEmpty { filterTabs(kinds, counts: counts, selected: shownFilter) }
+        let layout = RunItemsModel.body(items, filter: shownFilter, machineId: machineId)
         ForEach(layout.sources) { source in
             RunSourceCard(source: source, context: context, openPage: $openPage, showingAll: $showingAll)
         }
@@ -249,21 +268,26 @@ struct RunItemsView: View {
             RunLeftoverCard(pages: layout.leftover, attributed: layout.attributed, context: context,
                             openPage: $openPage, showingAll: $showingAll)
         }
+        if !layout.unlisted.isEmpty {
+            RunLeftoverCard(pages: layout.unlisted, attributed: true, kind: .unlisted, context: context,
+                            openPage: $openPage, showingAll: $showingAll)
+        }
         if layout.isEmpty { note(Copy.RunCard.nothingListed) }
         if machineId == nil { questions(items) }
-        if items.truncated { note(Copy.RunCard.moreNotListed) }
+        if items.truncated && !partial { note(Copy.RunCard.moreNotListed) }
     }
 
     /// All · New · Updated · Archived · Removed, with counts, only the kinds that happened (and none when one kind is
     /// all there is). Single-select; a second tap returns to All (DR-45). Never the accent.
-    private func filterTabs(_ kinds: [SleepConsolidated.Change], counts: [SleepConsolidated.Change: Int]) -> some View {
+    private func filterTabs(_ kinds: [SleepConsolidated.Change], counts: [SleepConsolidated.Change: Int],
+                            selected: SleepConsolidated.Change?) -> some View {
         var tabs: [TextTab<SleepConsolidated.Change>] = [
             TextTab(id: nil, label: Copy.RunCard.filterAll, count: counts.values.reduce(0, +))
         ]
         for kind in kinds {
             tabs.append(TextTab(id: kind, label: Copy.RunCard.filterWord(kind), count: counts[kind]))
         }
-        return TextTabs(tabs: tabs, selection: Binding(get: { filter }, set: { filter = $0; openPage = nil }))
+        return TextTabs(tabs: tabs, selection: Binding(get: { selected }, set: { filter = $0; openPage = nil }))
             .accessibilityLabel(Copy.RunCard.filterLabel)
             .padding(.horizontal, Self.inset - CicadaTheme.scaled(2))
             .padding(.top, CicadaTheme.scaled(2))
@@ -392,9 +416,8 @@ struct RunSourceCard: View {
     var body: some View {
         let all = showingAll.contains(source.id)
         let rows = all ? source.rows : Array(source.rows.prefix(RunBodyLimits.conversations))
-        // A row draws its own mark only when it differs from the source's (a saved link's site, a call app); the slot is
-        // kept for every row of a source that has one, so titles stay on one edge.
-        let slot = source.rows.contains { RunItemsModel.rowMark($0.conversation) != nil }
+        // A row draws its own mark only when it differs from the source's (a saved link's site, a call app) and only when
+        // there is a real one to draw; a row with none has no slot, its title on the row's leading edge.
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             HStack(spacing: Self.gap) {
                 StudyListCard.mark(source.origin, size: Self.markSize)
@@ -411,7 +434,7 @@ struct RunSourceCard: View {
             .accessibilityElement(children: .combine)
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(10)) {
                 ForEach(rows) { row in
-                    RunConversationRow(row: row, hasMarkSlot: slot, context: context, openPage: $openPage,
+                    RunConversationRow(row: row, context: context, openPage: $openPage,
                                        showingAll: $showingAll)
                 }
                 if source.rows.count > RunBodyLimits.conversations {
@@ -430,16 +453,27 @@ struct RunSourceCard: View {
 /// Reader.
 struct RunConversationRow: View {
     let row: RunItemsModel.Row
-    let hasMarkSlot: Bool
     let context: RunBodyContext
     @Binding var openPage: String?
     @Binding var showingAll: Set<String>
 
     @Environment(ProvenanceRouter.self) private var reader: ProvenanceRouter?
+    @Environment(Store.self) private var store: Store?
     @State private var hovering = false
+    /// A saved link's own site icon, once the backend has served one (cached per site; a miss stays a miss).
+    @State private var siteIcon: NSImage?
 
     private var c: SleepConsolidated.Conversation { row.conversation }
     private var markSide: CGFloat { CicadaTheme.scaled(16) }
+    private var rowMark: RunItemsModel.RowMark? { RunItemsModel.rowMark(c) }
+    /// The mark that really exists: a call app's, a family's bundled mark, or the site's fetched icon. Never a letter.
+    private var hasMarkSlot: Bool {
+        switch rowMark {
+        case .callApp?: true
+        case .site(let key)?: RunItemsModel.siteMarkDraws(site: key, favicon: siteIcon != nil)
+        case nil: false
+        }
+    }
 
     private var meta: String? {
         let machine = context.machineId == nil ? MachinesStrip.deviceName(c.device, in: context.machines) : nil
@@ -478,6 +512,7 @@ struct RunConversationRow: View {
             .onHover { hovering = $0 }
             .help(c.id)
             .accessibilityLabel(Copy.RunCard.openConversation(label))
+            .task(id: "\(store?.bank ?? "")|\(c.id)") { await loadSiteIcon() }
             if !row.pages.isEmpty {
                 RunPageChips(pages: row.pages, groupId: c.id, context: context, openPage: $openPage,
                              showingAll: $showingAll)
@@ -486,11 +521,23 @@ struct RunConversationRow: View {
         }
     }
 
+    private func loadSiteIcon() async {
+        guard case .site(let key)? = rowMark, let store else { return }
+        siteIcon = await SiteIconStore.shared.image(site: key, bank: store.bank, entity: nil, saved: .episode(c.id))
+    }
+
     @ViewBuilder
     private var mark: some View {
-        switch RunItemsModel.rowMark(c) {
+        switch rowMark {
         case .site(let key)?:
-            SavedLinkMark(mark: .site(key: key, label: key, door: .episode(c.id)), size: .inline)
+            // The site's own icon or a bundled family mark; the monogram rung (`SiteIcon`'s fallback) is not drawn here.
+            if let siteIcon {
+                Image(nsImage: siteIcon).resizable().interpolation(.high).scaledToFit()
+                    .clipShape(CicadaTheme.shape(CicadaTheme.scaled(SiteIconLayout.cornerRadius)))
+                    .accessibilityHidden(true)
+            } else if case .bundled(let name) = SiteIconLayout.rung(favicon: false, site: key) {
+                LogoImage(name: name, size: markSide).accessibilityHidden(true)
+            }
         case .callApp(let app)?:
             OriginMark(origin: app, size: markSide)
                 .help(c.meeting?.app ?? "")
@@ -505,19 +552,24 @@ struct RunConversationRow: View {
 /// named in plain words and wearing Cicada's own mark. From an older backend (which cannot say who fed what) the same
 /// card holds every page, and says "Pages changed".
 struct RunLeftoverCard: View {
+    enum Kind { case upkeep, unlisted }
+
     let pages: [SleepConsolidated.Page]
     let attributed: Bool
+    var kind: Kind = .upkeep
     let context: RunBodyContext
     @Binding var openPage: String?
     @Binding var showingAll: Set<String>
 
     static let groupId = "upkeep"
+    static let unlistedGroupId = "unlisted"
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
             HStack(spacing: RunSourceCard.gap) {
-                OriginMark(origin: "cicada", size: RunSourceCard.markSize)
-                Text(attributed ? Copy.RunCard.upkeepTitle : Copy.RunCard.pagesTitle)
+                if kind == .upkeep { OriginMark(origin: "cicada", size: RunSourceCard.markSize) }
+                Text(kind == .unlisted ? Copy.RunCard.unlistedTitle
+                        : attributed ? Copy.RunCard.upkeepTitle : Copy.RunCard.pagesTitle)
                     .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(1)
@@ -527,9 +579,9 @@ struct RunLeftoverCard: View {
                     .monospacedDigit()
                     .foregroundStyle(CicadaTheme.textTertiary)
             }
-            .help(attributed ? Copy.RunCard.upkeepHelp : "")
+            .help(kind == .unlisted ? Copy.RunCard.unlistedHelp : attributed ? Copy.RunCard.upkeepHelp : "")
             .accessibilityElement(children: .combine)
-            RunPageChips(pages: pages, groupId: Self.groupId, context: context, openPage: $openPage,
+            RunPageChips(pages: pages, groupId: kind == .unlisted ? Self.unlistedGroupId : Self.groupId, context: context, openPage: $openPage,
                          showingAll: $showingAll)
         }
         .softCard(ground: .nested, inset: .roomy, fillsWidth: true)
@@ -579,6 +631,7 @@ struct RunPageChips: View {
             if let open, !open.gone {
                 RunPageChange(page: open, label: RunItemGroups.pageLabel(open, names: names), commits: commits(open),
                               onOpen: { context.onSelectEntity?(open.id) })
+                    .id(key(open))
                     .transition(.opacity)
             }
         }

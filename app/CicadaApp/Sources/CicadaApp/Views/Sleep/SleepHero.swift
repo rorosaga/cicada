@@ -287,8 +287,8 @@ struct SleepControlRow: View {
         HStack(spacing: CicadaTheme.spacingXS) {
             // The owner's quick switch (R-HS8, R-HS9). It stays while a cycle runs: a change applies to the next one
             // (G80). It names the person's own engine and model — never another.
-            RunBarEngine(short: level != .full)
-            RunBarSchedule(page: page, room: room, glyphOnly: level == .scheduleGlyph)
+            RunBarEngine(short: level.engineIsShort)
+            RunBarSchedule(page: page, room: room, glyphOnly: !level.schedule)
             if showsOptionsLink { optionsButton }
             Spacer(minLength: CicadaTheme.spacingSM)
             if paused != nil, !sleepVM.isRunning {
@@ -296,7 +296,7 @@ struct SleepControlRow: View {
                     Task { await sleepVM.endRun() }
                 }
             }
-            primaryButton
+            primaryButton(short: level.primaryIsShort)
         }
     }
 
@@ -308,19 +308,19 @@ struct SleepControlRow: View {
 
     /// The row's one primary: Pause or Cancel while a cycle runs, Continue while one waits paused, else Consolidate.
     @ViewBuilder
-    private var primaryButton: some View {
+    private func primaryButton(short: Bool) -> some View {
         if sleepVM.isRunning {
             if draining { pauseButton } else { cancelButton }
         } else if let paused {
             continueButton(paused)
         } else {
-            consolidateButton
+            consolidateButton(short: short)
         }
     }
 
     private var buttonRow: some View {
             HStack(spacing: CicadaTheme.spacingSM) {
-                primaryButton
+                primaryButton(short: false)
                 // The owner's quick switch (R-HS8, R-HS9). It stays while a cycle runs: a change
                 // applies to the next one (G80). It names the person's own engine and model — never another.
                 EngineLabelButton(size: .compact)   // D6: a label that opens Settings → Intelligence (UI-A)
@@ -391,8 +391,8 @@ struct SleepControlRow: View {
     /// shared `PrimaryActionButton` so its ink follows the key-window rule. It
     /// lifts on hover because it is the one thing on the page that starts
     /// something; Cancel beside it stays quiet.
-    private var consolidateButton: some View {
-        PrimaryActionButton(title: Copy.consolidateNow, systemImage: "moon.fill") {
+    private func consolidateButton(short: Bool = false) -> some View {
+        PrimaryActionButton(title: short ? Copy.SleepPage.consolidateShort : Copy.consolidateNow, systemImage: "moon.fill") {
             Task {
                 await sleepVM.triggerManually()
                 await store.refresh([.status, .channels])

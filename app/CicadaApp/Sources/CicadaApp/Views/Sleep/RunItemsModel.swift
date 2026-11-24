@@ -51,6 +51,20 @@ enum RunItemsModel {
         !conversations(items, machineId: machineId).isEmpty
     }
 
+    /// The filter the card draws by: the one picked while its kind is still among the tabs, else All. A machine change
+    /// can leave the picked kind with no page (or hide the tabs altogether), and a filter nobody can see must not hold
+    /// the card empty.
+    static func effectiveFilter(_ filter: Change?, kinds: [Change]) -> Change? {
+        guard let filter, kinds.contains(filter) else { return nil }
+        return filter
+    }
+
+    /// Whether a narrowed card's numbers are partial: the server caps each list, so with a machine selected the counts
+    /// are tallied from what is listed, not from the run's whole counts.
+    static func countsArePartial(_ items: SleepConsolidated, machineId: String?) -> Bool {
+        machineId != nil && items.truncated
+    }
+
     // MARK: The numbers
 
     /// How many pages of each kind: the server's whole counts for every machine, else what the narrowed lists hold.
@@ -131,9 +145,12 @@ enum RunItemsModel {
         var sources: [Source]
         /// Pages no conversation of the run stands behind, in reading order.
         var leftover: [SleepConsolidated.Page]
+        /// Pages a conversation of the run fed that the server did not list (it caps each list): not upkeep, so never in
+        /// `leftover`, and with no conversation row to sit under, a group of their own.
+        var unlisted: [SleepConsolidated.Page] = []
         /// False for an older backend: the leftover is then every page, and says so in its name.
         var attributed: Bool
-        var isEmpty: Bool { sources.isEmpty && leftover.isEmpty }
+        var isEmpty: Bool { sources.isEmpty && leftover.isEmpty && unlisted.isEmpty }
     }
 
     /// The sources, largest first (ties keep the conversations' order), each with its conversations and their pages.
@@ -159,15 +176,22 @@ enum RunItemsModel {
             .map { Source(origin: $0.element, rows: byOrigin[$0.element] ?? []) }
         // A page with nobody behind it: with every machine shown, those no listed conversation fed (or all of them from
         // an older backend); with one machine selected there is no such group — its conversations' pages only.
-        let leftover: [SleepConsolidated.Page]
+        // A run past the server's cap lists some of its conversations only: a page that names a conversation the list
+        // lacks was fed by someone, so it is no upkeep (`unlisted`).
+        var leftover: [SleepConsolidated.Page]
+        var unlisted: [SleepConsolidated.Page] = []
         if machineId != nil {
             leftover = []
         } else if attributed {
             leftover = kept.filter { page in !items.conversations.contains { feeds($0, page) } }
+            if items.truncated {
+                unlisted = leftover.filter { !$0.episodes.isEmpty }
+                leftover = leftover.filter { $0.episodes.isEmpty }
+            }
         } else {
             leftover = kept
         }
-        return Body(sources: sources, leftover: leftover, attributed: attributed)
+        return Body(sources: sources, leftover: leftover, unlisted: unlisted, attributed: attributed)
     }
 
     // MARK: A conversation row
@@ -184,6 +208,14 @@ enum RunItemsModel {
         if SavedLinkMarkModel.applies(site: c.site), let site = c.site { return .site(site) }
         if let app = MeetingApp.origin(for: c.meeting?.app) { return .callApp(app) }
         return nil
+    }
+
+    /// Whether a saved link's site mark has anything to draw in a run's row: its fetched icon or a family's bundled
+    /// mark — never `SiteIcon`'s monogram rung (owner: no letter or glyph stands in for a picture). A row with none
+    /// draws no slot at all.
+    static func siteMarkDraws(site: String, favicon: Bool,
+                              markExists: (String) -> Bool = LogoImage.exists(name:)) -> Bool {
+        SiteIconLayout.rung(favicon: favicon, site: site, markExists: markExists) != .monogram
     }
 
     /// The row's quiet meta: the machine's name when it is not this one, and the day when it is not the run's own.

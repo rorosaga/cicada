@@ -188,3 +188,44 @@ def test_every_roster_page_reads_as_its_own_fictional_thing(tmp_path):
     assert len(set(lines)) == len(lines)
     for line in lines:
         assert "synthetic" not in line.lower() and "cicada" not in line.lower(), line
+
+
+def test_the_demos_runs_show_source_conversation_and_pages(tmp_path):
+    """G125: an opened run on the Sleep page lists each conversation with the pages it fed, so the demo's pages record
+    the conversations that fed them (`source_episodes`, the way a real page does) — consistent with the run that made
+    or changed them — and its history holds all four kinds of change: made, updated, archived, removed."""
+    import asyncio
+    import subprocess
+
+    from api.services import sleep_consolidated
+
+    bank = demo(tmp_path, index=False, showcase=True, retired=True, today=None)
+    log = subprocess.run(["git", "-C", str(bank), "log", "--reverse", "--format=%H\x1f%s"], check=True,
+                         capture_output=True, text=True).stdout.splitlines()
+    runs = [line.split("\x1f") for line in log
+            if line.split("\x1f")[1].startswith("Sleep cycle") and not line.endswith("(decay)")]
+    kinds: dict[str, int] = {"created": 0, "updated": 0, "archived": 0, "removed": 0}
+    attributed = 0
+    for sha, _subject in runs:
+        items = asyncio.run(sleep_consolidated.build(bank, [sha]))
+        run_ids = {c.id for c in items.conversations}
+        for page in [*items.created, *items.updated, *items.archived, *items.removed]:
+            kinds[page.change] += 1
+            assert set(page.episodes) <= run_ids, (page.id, "a page names only conversations this run read")
+        for c in items.conversations:
+            for pid in c.pages:   # every conversation's page resolves to a listed page that names it back
+                row = next(p for p in [*items.created, *items.updated, *items.archived, *items.removed] if p.id == pid)
+                assert c.id in row.episodes
+        attributed += sum(1 for c in items.conversations if c.pages)
+    assert all(kinds.values()), kinds
+    assert attributed >= 20, "most of the demo's conversations feed a page"
+    # The scenario's own run (a rover-arm night): its pages name the conversations the claims were read from.
+    scenario = next(sha for sha, _s in runs if "entities/rover-arm-project.md" in subprocess.run(
+        ["git", "-C", str(bank), "show", "--name-only", "--format=", sha], check=True, capture_output=True,
+        text=True).stdout and "entities/hana-example.md" in subprocess.run(
+        ["git", "-C", str(bank), "show", "--name-only", "--format=", sha], check=True, capture_output=True,
+        text=True).stdout)
+    items = asyncio.run(sleep_consolidated.build(bank, [scenario]))
+    by_id = {p.id: p for p in [*items.created, *items.updated]}
+    assert by_id["hana-example"].episodes, "a made page names the conversation that fed it"
+    assert by_id["bob-example"].change == "updated" and by_id["bob-example"].episodes

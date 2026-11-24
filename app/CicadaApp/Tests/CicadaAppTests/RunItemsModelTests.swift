@@ -195,6 +195,76 @@ final class RunItemsModelTests: XCTestCase {
         XCTAssertEqual(ConsolidationHistoryCard.listed(cards, items: [:], machineId: nil).count, 1)
     }
 
+    func testAFailedCardIsListedUnderAFilterAndAPendingOneIsNot() throws {
+        let entry = try JSONDecoder().decode(SleepHistoryEntry.self,
+                                             from: Data(contentsOf: Self.fixtures.appendingPathComponent("sleep-history-run.json")))
+        let cards = RunCardModel.cards([entry], locale: us)
+        let key = try XCTUnwrap(cards.first).key
+        XCTAssertEqual(ConsolidationHistoryCard.listed(cards, items: [:], machineId: "device-a", itemsFailed: [key]).count, 1,
+                       "a card whose items could not be fetched is unknown, not empty: it is listed and asks again")
+        XCTAssertEqual(ConsolidationHistoryCard.listed(cards, items: [:], machineId: "device-a", itemsFailed: []).count, 0)
+        XCTAssertFalse(ConsolidationHistoryCard.settled(cards, items: [:], itemsFailed: []), "still loading")
+        XCTAssertTrue(ConsolidationHistoryCard.settled(cards, items: [:], itemsFailed: [key]))
+        XCTAssertTrue(ConsolidationHistoryCard.settled(cards, items: [key: try items()], itemsFailed: []))
+    }
+
+    /// A filter whose kind the narrowed card no longer has must not hold the card empty.
+    func testAPickedKindThatIsGoneFallsBackToAll() throws {
+        let items = try items()
+        let counts = RunItemsModel.counts(items, machineId: "device-a")
+        let kinds = RunItemsModel.filterKinds(counts)
+        XCTAssertEqual(RunItemsModel.effectiveFilter(.created, kinds: kinds), .created)
+        XCTAssertNil(RunItemsModel.effectiveFilter(.archived, kinds: kinds), "no archived page for this machine")
+        XCTAssertNil(RunItemsModel.effectiveFilter(.created, kinds: []), "tabs hidden: nothing can be filtered")
+        XCTAssertNil(RunItemsModel.effectiveFilter(nil, kinds: kinds))
+        let all = RunItemsModel.body(items, filter: RunItemsModel.effectiveFilter(.archived, kinds: kinds),
+                                     machineId: "device-a")
+        XCTAssertFalse(all.isEmpty)
+        XCTAssertTrue(RunItemsModel.body(items, filter: .archived, machineId: "device-a").isEmpty,
+                      "the raw filter would have shown nothing")
+    }
+
+    /// A run past the server's cap: a page fed by a conversation the list lacks is no upkeep, and a machine's numbers
+    /// say they are partial.
+    func testAPageFedByAnUnlistedConversationIsNotUpkeep() throws {
+        let capped = try JSONDecoder().decode(SleepConsolidated.self, from: Data("""
+        {"commits": ["a"], "truncated": true,
+         "conversations": [{"id": "ep1", "origin": "claude-code", "title": "T", "pages": ["p1"], "device": "device-a"}],
+         "created": [{"id": "p1", "change": "created", "episodes": ["ep1"]},
+                     {"id": "p2", "change": "created", "episodes": ["ep9"]},
+                     {"id": "p3", "change": "updated", "episodes": []}],
+         "counts": {"conversations": 450}}
+        """.utf8))
+        let body = RunItemsModel.body(capped, filter: nil, machineId: nil)
+        XCTAssertEqual(body.unlisted.map(\.id), ["p2"], "fed by a conversation past the cap")
+        XCTAssertEqual(body.leftover.map(\.id), ["p3"], "no conversation behind it at all: upkeep")
+        XCTAssertFalse(body.isEmpty)
+        XCTAssertTrue(RunItemsModel.countsArePartial(capped, machineId: "device-a"))
+        XCTAssertFalse(RunItemsModel.countsArePartial(capped, machineId: nil), "every machine: the server's whole counts")
+        var whole = capped
+        whole.truncated = false
+        XCTAssertFalse(RunItemsModel.countsArePartial(whole, machineId: "device-a"))
+        XCTAssertEqual(RunItemsModel.body(whole, filter: nil, machineId: nil).unlisted, [])
+    }
+
+    func testAClosedCardNamesItsPagesAndSourcesForVoiceOver() throws {
+        let entry = try JSONDecoder().decode(SleepHistoryEntry.self,
+                                             from: Data(contentsOf: Self.fixtures.appendingPathComponent("sleep-history-run.json")))
+        let card = try XCTUnwrap(RunCardModel.cards([entry], locale: us).first)
+        let items = try items()
+        let preview = RunItemsModel.preview(items)
+        let spoken = try XCTUnwrap(RunPagePreview.spoken(preview.pages, total: preview.total, names: .empty))
+        XCTAssertTrue(spoken.contains("new page"), "the green dot's words")
+        let gone = preview.pages.filter { $0.change == .archived || $0.change == .removed }
+        let goneSpoken = try XCTUnwrap(RunPagePreview.spoken(gone, total: gone.count, names: .empty))
+        XCTAssertTrue(goneSpoken.contains("archived") && goneSpoken.contains("removed"), "grey and red dots in words too")
+        let label = card.accessibilityLabel(summary: "S", pages: spoken, sources: ["Claude Code"], locale: us)
+        XCTAssertTrue(label.contains(spoken))
+        XCTAssertTrue(label.contains(Copy.RunCard.readFrom(["Claude Code"])))
+        XCTAssertFalse(card.accessibilityLabel(summary: "S", locale: us).contains("new page"))
+        XCTAssertNil(RunPagePreview.spoken([], total: 0, names: .empty))
+    }
+
     // MARK: Structure
 
     /// What the page no longer holds, and what it must (owner 2026-11-24).
@@ -214,5 +284,20 @@ final class RunItemsModelTests: XCTestCase {
         let end = try XCTUnwrap(page.range(of: "/// Beside an open item", range: start.upperBound..<page.endIndex))
         XCTAssertFalse(page[start.upperBound..<end.lowerBound].contains("SleepLayout.contentWidth"),
                        "Past sleeps is the Queue's column, not the 760 pt text column")
+    }
+
+    /// A run's conversation row draws a saved link's site mark only when there is a real one: its fetched icon or a
+    /// bundled family mark. The letter monogram (`SiteIcon`'s last rung) is never drawn here — no slot, the title on
+    /// the row's leading edge.
+    func testASiteMarkDrawsOnlyARealIconNeverTheMonogram() {
+        let shipped: (String) -> Bool = { _ in true }
+        let none: (String) -> Bool = { _ in false }
+        XCTAssertFalse(RunItemsModel.siteMarkDraws(site: "docs.example.com", favicon: false, markExists: shipped),
+                       "an unknown site with no stored icon draws nothing")
+        XCTAssertTrue(RunItemsModel.siteMarkDraws(site: "docs.example.com", favicon: true, markExists: shipped))
+        XCTAssertTrue(RunItemsModel.siteMarkDraws(site: "reddit", favicon: false, markExists: shipped),
+                      "a family whose mark ships draws it")
+        XCTAssertFalse(RunItemsModel.siteMarkDraws(site: "reddit", favicon: false, markExists: none),
+                       "a family whose file is missing draws nothing, not a letter")
     }
 }

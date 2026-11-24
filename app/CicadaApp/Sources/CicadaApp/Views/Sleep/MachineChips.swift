@@ -98,7 +98,7 @@ struct MachineChip: View {
     }
 }
 
-/// How a waiting card names the machine it came from (`MachinesStrip.originName`): set on the Queue's list while no
+/// How a waiting card names the machine it came from (`MachinesStrip.originName`): set once on the Sleep page (the Queue's list and the room's pile popover) while no
 /// machine is the filter and there are two or more, read by `EpisodeCard` for its meta line; nothing by default.
 private struct EpisodeMachineNameKey: EnvironmentKey {
     static let defaultValue: (EpisodeQueueItem) -> String? = { _ in nil }

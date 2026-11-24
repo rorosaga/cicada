@@ -111,7 +111,7 @@ enum Copy {
     static let keepAwakeWriteFailed = "Couldn't change this — nothing changed."
     static let scheduleWriteFailed = "Couldn't change the schedule — nothing changed."
     static let openInSources = "Open in Sources ›"
-    static func moreInDetails(_ n: Int) -> String { "+\(UsageFormat.count(n)) more in Waiting" }
+    static func moreInDetails(_ n: Int) -> String { "+\(UsageFormat.count(n)) more in Queue" }
     /// The lamp popover's line while the lamp is off (§7.2): what a scheduled
     /// run WOULD use, shown before the person lights it (ruling 4 at the
     /// moment of choice).

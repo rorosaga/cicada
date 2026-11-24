@@ -512,6 +512,11 @@ struct SleepView: View {
         }
         .listKeys(move: { move($0, in: tab) }, enter: { false }, escape: { escape() })
         .focused($focus, equals: .list)
+        // A card says the machine it came from while every machine shows and there are two or more. Set once for the whole
+        // page, so the Queue's cards and the room's pile popover (a different branch of the tree) say it the same way.
+        .environment(\.episodeMachineName, { [machines = sleepVM.machines, filtered = selectedMachine != nil] in
+            filtered ? nil : MachinesStrip.originName(of: $0, in: machines)
+        })
     }
 
     /// The page's eyebrow (DR-25, DR-26 — the first item, where the title used to be), with the staleness chip at its
@@ -569,10 +574,6 @@ struct SleepView: View {
                              showsRun: showsRunBlock(page), runPaused: sleepVM.isPaused,
                              ownerReady: ownerReady(page), onRetryParked: retryParked,
                              onSeeOwnerPage: ownerEntityId.map { id in { onSelectEntity?(id) } })
-                // A card says the machine it came from while every machine shows and there are two or more.
-                .environment(\.episodeMachineName, { [machines = sleepVM.machines, filtered = machine != nil] in
-                    filtered ? nil : MachinesStrip.originName(of: $0, in: machines)
-                })
                 .padding(.horizontal, plan.gutter)
                 .padding(.top, CicadaTheme.spacingSM)
         case .saved:

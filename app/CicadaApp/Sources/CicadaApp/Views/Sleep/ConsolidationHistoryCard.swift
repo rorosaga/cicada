@@ -185,7 +185,7 @@ struct ConsolidationHistoryCard: View {
 
     var body: some View {
         let cards = RunCardModel.cards(entries, details: runDetails)
-        let listed = Self.listed(cards, items: items, machineId: machineId)
+        let listed = Self.listed(cards, items: items, machineId: machineId, itemsFailed: itemsFailed)
         // Say it once (owner 2026-10-19): what no card recorded is not said on every card.
         let layout = PastNightsLayout(entries)
         Group {
@@ -195,7 +195,14 @@ struct ConsolidationHistoryCard: View {
                     .foregroundStyle(CicadaTheme.textTertiary)
                     .padding(.horizontal, CicadaTheme.scaled(10))
                     .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
-            } else if listed.isEmpty, let machineName, cards.allSatisfy({ items[$0.key] != nil || itemsFailed.contains($0.key) }) {
+            } else if listed.isEmpty, machineName != nil, !Self.settled(cards, items: items, itemsFailed: itemsFailed) {
+                // The filter is waiting on its cards' items: say so, never draw nothing.
+                Text(Copy.RunCard.loading)
+                    .font(CicadaTheme.bodyFont)
+                    .foregroundStyle(CicadaTheme.textTertiary)
+                    .padding(.horizontal, CicadaTheme.scaled(10))
+                    .frame(minHeight: CicadaTheme.scaled(RowMetrics.oneLine))
+            } else if listed.isEmpty, let machineName {
                 Text(Copy.RunCard.nothingFrom(machineName))
                     .font(CicadaTheme.bodyFont)
                     .foregroundStyle(CicadaTheme.textSecondary)
@@ -216,20 +223,34 @@ struct ConsolidationHistoryCard: View {
                 }
             }
         }
-        // A filter needs every card's items to decide whether it read from the machine: ask once per filter, never per row.
-        .task(id: machineId) {
+        // A filter needs every card's items to decide whether it read from the machine: ask for every card without items
+        // when the filter or the set of cards changes (a run that finishes while it is on is asked for too), never per row.
+        .task(id: LoadKey(machineId: machineId, cards: cards.map(\.key))) {
             guard machineId != nil else { return }
             for card in cards where items[card.key] == nil { onLoadItems(card.key) }
         }
     }
 
-    /// The cards to draw: all of them, or with a machine selected those whose items say they read from it (a card whose
-    /// items have not arrived is not listed yet, and none that failed is).
-    static func listed(_ cards: [RunCardModel], items: [SleepConsolidatedKey: SleepConsolidated], machineId: String?)
-        -> [RunCardModel] {
+    private struct LoadKey: Hashable {
+        let machineId: String?
+        let cards: [SleepConsolidatedKey]
+    }
+
+    /// Whether every card's items have arrived or failed (a filter can then say there is nothing, truthfully).
+    static func settled(_ cards: [RunCardModel], items: [SleepConsolidatedKey: SleepConsolidated],
+                        itemsFailed: Set<SleepConsolidatedKey>) -> Bool {
+        cards.allSatisfy { items[$0.key] != nil || itemsFailed.contains($0.key) }
+    }
+
+    /// The cards to draw: all of them, or with a machine selected those whose items say they read from it. A card whose
+    /// items have not arrived is not listed yet; one whose items failed is listed, saying "Not recorded", because the
+    /// answer is unknown and a card that cannot be checked is not one that read nothing — and its appearing asks again.
+    static func listed(_ cards: [RunCardModel], items: [SleepConsolidatedKey: SleepConsolidated], machineId: String?,
+                       itemsFailed: Set<SleepConsolidatedKey> = []) -> [RunCardModel] {
         guard machineId != nil else { return cards }
         return cards.filter { card in
-            items[card.key].map { RunItemsModel.hasConversations($0, machineId: machineId) } ?? false
+            if let loaded = items[card.key] { return RunItemsModel.hasConversations(loaded, machineId: machineId) }
+            return itemsFailed.contains(card.key)
         }
     }
 

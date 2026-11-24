@@ -233,7 +233,7 @@ func pileAccessibilityLabel(sourceCount: Int) -> String {
 /// and What's waiting can never describe one source two ways. The folded
 /// remainder has no single row, so it says where its books are.
 func spineAccessibilityLabel(spec: BookSpec, row: StudyRow?) -> String {
-    guard let row, !spec.isRemainder else { return "\(spec.count) more on the pile, in Waiting" }
+    guard let row, !spec.isRemainder else { return "\(spec.count) more on the pile, in the Queue" }
     return StudyListCard.rowAccessibilityLabel(row)
 }
 

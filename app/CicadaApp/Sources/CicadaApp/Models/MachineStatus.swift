@@ -18,8 +18,9 @@ struct MachineStatus: Codable, Equatable, Identifiable {
     var catchUp: MachineAwaySync?
     /// 2026-11-24 (all additive; an older backend sends none of them and the defaults read as "nothing to say"):
     /// the machine that runs Sleep and writes this memory; whether it keeps a copy of it; how many changes its copy is
-    /// behind and how many conversations it reported but has not sent (nil: unknown); a removed device whose
-    /// conversations still wait keeps a row, `revoked`.
+    /// behind and how many conversations it reported but has not sent (`unsent`; nil: that machine has not said — a
+    /// backend without the machine-queue change (G132, 2026-11-24) never sends it, and the light then says nothing
+    /// about it); a removed device whose conversations still wait keeps a row, `revoked`.
     var home: Bool
     var keepsCopy: Bool
     var behind: Int?
@@ -92,7 +93,7 @@ enum MachinesStrip {
     enum Light: Equatable { case ok, attention, quiet }
 
     /// Not heard from (or removed) is grey, whatever it last reported; a machine that is heard from is amber while it
-    /// is syncing, its copy is behind, or it reported conversations it has not sent, else green.
+    /// is syncing, its copy is behind, or (once a backend reports it) it holds conversations it has not sent, else green.
     static func light(_ machine: MachineStatus) -> Light {
         guard machine.connected, !machine.revoked else { return .quiet }
         let syncing = machine.catchUp?.isReading == true

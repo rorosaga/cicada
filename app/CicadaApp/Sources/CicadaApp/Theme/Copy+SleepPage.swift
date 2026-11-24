@@ -11,6 +11,10 @@ extension Copy {
         static func scheduleEvery(_ hours: Int) -> String { "Every \(UsageFormat.count(hours)) h" }
         static let scheduleAfterImports = "After imports"
 
+        /// The run bar's primary when the column is too narrow for `Copy.consolidateNow` (its `.accessibilityLabel` and
+        /// `.help` keep the full words).
+        static let consolidateShort = "Consolidate"
+
         /// The tab row's trailing menu: what is not a Sleep list folds in here (Saved, Videos).
         static let moreHelp = "Saved and videos"
         static let moreAccessibility = "More lists"

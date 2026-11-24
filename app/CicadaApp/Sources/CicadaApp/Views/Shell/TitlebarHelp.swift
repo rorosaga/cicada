@@ -141,7 +141,7 @@ enum ListHelp {
     /// sleeps" in the page's own popover.
     static let sleepLists = Page(
         title: "Sleep's lists",
-        subtitle: "Waiting, what you saved, your videos and past reads. Open a saved item to see why it was saved and where it came from.",
+        subtitle: "The queue, what you saved, your videos and past sleeps. Open a saved item to see why it was saved and where it came from.",
         keys: [
             .init(key: "⌘F", does: "Find in Saved or Videos"),
             .init(key: "↑ ↓", does: "Move through the list"),

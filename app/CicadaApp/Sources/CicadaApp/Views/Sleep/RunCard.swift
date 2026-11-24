@@ -166,9 +166,13 @@ struct RunCardModel: Equatable, Identifiable {
     }
 
     /// Everything the card's head draws, in words, for VoiceOver.
-    func accessibilityLabel(summary shown: String? = nil, locale: Locale = .autoupdatingCurrent) -> String {
+    /// `pages` is what a closed card's chips say (the dots are colour, so the words ride here), `sources` the origins its
+    /// marks show.
+    func accessibilityLabel(summary shown: String? = nil, pages: String? = nil, sources: [String] = [],
+                            locale: Locale = .autoupdatingCurrent) -> String {
         var parts = [whenText()]
-        parts += [starter, catchUp, shown ?? summary, engineWords, usageLine(locale: locale), durationText, outcome.words]
+        parts += [starter, catchUp, shown ?? summary, sources.isEmpty ? nil : Copy.RunCard.readFrom(sources), pages,
+                  engineWords, usageLine(locale: locale), durationText, outcome.words]
             .compactMap { $0 }
         return parts.joined(separator: ", ")
     }
@@ -257,6 +261,7 @@ struct RunCardView: View {
     @State private var hovering = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(AppRouter.self) private var router: AppRouter?
+    @Environment(Store.self) private var store: Store?
 
     /// What the card says it did: the items' own counts once they have loaded (they carry archived and removed pages,
     /// and narrow to a machine), else the history's figures.
@@ -335,7 +340,10 @@ struct RunCardView: View {
         .onHover { hovering = $0 }
         .help(card.catchUp ?? "")
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(card.accessibilityLabel(summary: summary))
+        .accessibilityLabel(card.accessibilityLabel(
+            summary: summary,
+            pages: isOpen ? nil : RunPagePreview.spoken(preview.pages, total: preview.total, names: store?.entityNames ?? .empty),
+            sources: origins.map { OriginIconography.label(for: $0) }))
         .accessibilityValue(isOpen ? Copy.Lists.expanded : Copy.Lists.collapsed)
         // DR-60: an assistive press opens the card in one frame, whatever event came last.
         .modifier(AssistivePress(action: { RunCardMotion.assistive(onToggle) }))
@@ -357,7 +365,7 @@ struct RunCardView: View {
 }
 
 /// The sources a consolidation read, as their real marks (DR-52), overlapping like a stack of faces, most-read first;
-/// a fourth source and beyond is a "+N" on the last place. Drawn only once the items say what it read.
+/// a fourth source and beyond is a "+N" after the last mark. Drawn only once the items say what it read.
 struct RunSourceMarks: View {
     let origins: [String]
 
@@ -365,31 +373,34 @@ struct RunSourceMarks: View {
     static var mark: CGFloat { CicadaTheme.scaled(20) }
     static var step: CGFloat { CicadaTheme.scaled(15) }
     static var knock: CGFloat { CicadaTheme.scaled(2) }
+    static var moreGap: CGFloat { CicadaTheme.scaled(4) }
 
     var body: some View {
         let shown = origins.count > Self.places ? Array(origins.prefix(Self.places - 1)) : origins
         let extra = origins.count - shown.count
-        let places = shown.count + (extra > 0 ? 1 : 0)
-        ZStack(alignment: .topLeading) {
-            ForEach(Array(shown.enumerated()), id: \.element) { i, origin in
-                tile { StudyListCard.mark(origin, size: Self.mark) }
-                    .offset(x: CGFloat(i) * Self.step)
-                    .zIndex(Double(Self.places - i))
-            }
-            if extra > 0 {
-                tile {
-                    Text(Copy.RunCard.moreSources(extra))
-                        .font(CicadaTheme.badgeFont)
-                        .monospacedDigit()
-                        .foregroundStyle(CicadaTheme.textSecondary)
+        // The marks overlap like a stack of faces; the "+N" is not one of them — it follows the last mark with a gap, so
+        // no mark can cover its plus.
+        HStack(spacing: Self.moreGap) {
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(shown.enumerated()), id: \.element) { i, origin in
+                    tile { StudyListCard.mark(origin, size: Self.mark) }
+                        .offset(x: CGFloat(i) * Self.step)
+                        .zIndex(Double(Self.places - i))
                 }
-                .offset(x: CGFloat(shown.count) * Self.step)
+            }
+            .frame(width: Self.mark + 2 * Self.knock + CGFloat(max(shown.count - 1, 0)) * Self.step,
+                   height: Self.mark + 2 * Self.knock, alignment: .topLeading)
+            if extra > 0 {
+                Text(Copy.RunCard.moreSources(extra))
+                    .font(CicadaTheme.metaFont)
+                    .monospacedDigit()
+                    .foregroundStyle(CicadaTheme.textSecondary)
+                    .lineLimit(1)
+                    .fixedSize()
             }
         }
-        .frame(width: Self.mark + 2 * Self.knock + CGFloat(max(places - 1, 0)) * Self.step,
-               height: Self.mark + 2 * Self.knock, alignment: .topLeading)
         .help(origins.isEmpty ? "" : Copy.RunCard.readFrom(origins.map { OriginIconography.label(for: $0) }))
-        .accessibilityHidden(true)   // the card's label says what it read
+        .accessibilityHidden(true)   // the card's label says what it read (`accessibilityLabel(sources:)`)
     }
 
     /// One place: the mark (or a stand-in) on a quiet tile, knocked out of the card by 2 pt so overlaps stay legible.

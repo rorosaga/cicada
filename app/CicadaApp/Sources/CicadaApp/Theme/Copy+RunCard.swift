@@ -111,6 +111,11 @@ extension Copy {
         /// The pages no conversation of this run stands behind: decay's archives and Sleep's own upkeep.
         static let upkeepTitle = "Memory upkeep"
         static let upkeepHelp = "Pages Sleep changed on its own, with no conversation of this read behind them"
+        /// Pages a conversation past the server's list fed: not upkeep, and no row to sit under.
+        static let unlistedTitle = "From conversations not listed"
+        static let unlistedHelp = "Pages made or changed by conversations of this read that are not listed here"
+        /// With one machine selected on a run the server listed in part: the numbers cover what is listed.
+        static let countsPartial = "Counts cover only the conversations listed here."
         /// An older backend does not say which conversation fed which page: one group names them all.
         static let pagesTitle = "Pages changed"
         static func conversationsIn(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
@@ -158,7 +163,7 @@ extension Copy {
 
         /// Short labels the copy lints read.
         static let labels = [filterAll, filterCreated, filterUpdated, filterArchived, filterRemoved, upkeepTitle,
-                             pagesTitle, openPageAction, startedByYou, startedBySchedule, finished, reading, pausedPlanLimit, pausedReserve, paused,
+                             unlistedTitle, countsPartial, pagesTitle, openPageAction, startedByYou, startedBySchedule, finished, reading, pausedPlanLimit, pausedReserve, paused,
                              stopped, failed, detailsTitle]
     }
 }

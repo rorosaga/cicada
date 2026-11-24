@@ -9,14 +9,22 @@ import SwiftUI
 // no ring of their own (a hover fill only); the bar's ring is the only one. The primary lives in `SleepControlRow`
 // (`SleepHero.swift`, the one file that starts a run); this file holds the quiet parts and their words.
 
-/// How much of the bar's labels fit: `ViewThatFits` tries them in order and the primary is never shortened.
+/// How much of the bar's labels fit: `ViewThatFits` tries them in order. The engine is what the person asked to see,
+/// so its full label survives longest: the schedule gives way first, then the primary's word, the engine last. The
+/// primary itself never goes (owner 2026-11-24).
 enum RunBarLevel: CaseIterable, Equatable {
-    /// Every label in full: "Claude plan · haiku", "Daily at 3:00 AM".
+    /// Every label in full: "Claude plan · haiku", "Daily at 3:00 AM", "Consolidate now".
     case full
-    /// The engine as its mark and model only.
-    case engineShort
-    /// The schedule as its moon and its switch only.
+    /// The schedule as its moon and its switch only (its words move to `.help`).
     case scheduleGlyph
+    /// Also the primary in its shorter word ("Consolidate").
+    case primaryShort
+    /// Last: the engine as its mark and model only.
+    case engineShort
+
+    var schedule: Bool { self == .full }
+    var primaryIsShort: Bool { self == .primaryShort || self == .engineShort }
+    var engineIsShort: Bool { self == .engineShort }
 }
 
 /// The bar's words, pure (`SleepRunBarTests`). The full sentence the schedule used to be a row for is its `.help` and

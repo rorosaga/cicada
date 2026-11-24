@@ -121,7 +121,7 @@ extension Copy {
             "Filed \(conversations(n, locale))."
         }
         static func parkedLine(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
-            "\(conversations(n, locale).capitalizedFirst) could not be read. They wait at the foot of Waiting."
+            "\(conversations(n, locale).capitalizedFirst) could not be read. They wait at the foot of the Queue."
         }
         static func newSinceYouStarted(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
             "\(count(n, locale)) new since you started"

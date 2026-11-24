@@ -161,6 +161,25 @@ def snapshot(memory_path: Path, *, asking_device: str | None = None, now: dateti
                "home": shared and device.id == group.get("home_id"), "keepsCopy": keeps, "behind": behind,
                "revoked": not device.active}
         (rows if device.active else removed).append(row)
+    # A copy's own store does not hold the computers it follows: the home and its other devices live in the mirrored
+    # registry (`home_move.registry`), so without them a copy would show one machine and never say which one runs Sleep.
+    me_id = group.get("me")
+    for r in sorted((r for r in registry.values() if isinstance(r, dict)), key=lambda r: str(r.get("id"))):
+        rid = r.get("id")
+        if (not rid or rid in known or rid == me_id or r.get("revoked_at")
+                or r.get("kind") not in (None, "full")):
+            continue
+        known.add(rid)
+        sighting = seen.get(rid) or {}
+        keeps, behind = home_move.copy_facts(r, pin, home_seq)
+        last = last_seen(r.get("copy_at"), r.get("last_used_at"), sighting.get("lastSeen"))
+        is_home = rid == group.get("home_id")
+        rows.append({"id": rid, "name": r.get("name") or "Another computer", "role": "device", "current": False,
+                     "connected": bool(group.get("home_online")) if is_home else is_connected(last, keeps, now),
+                     "how": sighting.get("how"), "lastSeenAt": _iso(last), "queue": counts.get(rid, 0),
+                     "parked": parked.get(rid, 0), "kind": "full", "keyBound": False, "keyBoundAt": None,
+                     "catchUp": catching.get(rid), "home": is_home, "keepsCopy": keeps, "behind": behind,
+                     "revoked": False})
     # Conversations stamped with a device the store no longer knows at all still wait: a row each, so they sum.
     for device_id in sorted(k for k in counts if k is not None and k not in known):
         removed.append({"id": device_id, "name": "Removed device", "role": "device", "current": False,

@@ -15,8 +15,40 @@ final class SleepRunBarTests: XCTestCase {
         XCTAssertEqual(RunBarText.schedule(ScheduleConfig(mode: "after_import", hour: 0, minute: 0), locale: en), "After imports")
     }
 
-    func testTheBarDropsWordsInOrderAndNeverThePrimary() {
-        XCTAssertEqual(RunBarLevel.allCases, [.full, .engineShort, .scheduleGlyph])
+    /// The engine is the thing the person asked to see, so its full label goes last: the schedule gives way to its moon
+    /// and switch, then the primary to its shorter word, and only then the engine to its mark and model. The primary
+    /// itself is never dropped.
+    func testTheBarDropsWordsInOrderAndTheEngineLast() {
+        XCTAssertEqual(RunBarLevel.allCases, [.full, .scheduleGlyph, .primaryShort, .engineShort])
+        XCTAssertEqual(RunBarLevel.allCases.map(\.schedule), [true, false, false, false])
+        XCTAssertEqual(RunBarLevel.allCases.map(\.primaryIsShort), [false, false, true, true])
+        XCTAssertEqual(RunBarLevel.allCases.map(\.engineIsShort), [false, false, false, true])
+        XCTAssertEqual(Copy.SleepPage.consolidateShort, "Consolidate")
+        XCTAssertTrue(Copy.consolidateNow.hasPrefix(Copy.SleepPage.consolidateShort), "the short word is the long one's start")
+    }
+
+    private func engineResponse(model: String) -> SleepEngineResponse {
+        SleepEngineResponse(
+            mode: "agent", model: model, disambiguationModel: "", source: "prefs",
+            candidates: [SleepEngineCandidate(id: "agent", label: "Claude plan", available: true, connected: true,
+                                              models: ["haiku"], detail: nil)],
+            preview: SleepEnginePreviews(manual: SleepEnginePreview(engine: "claude-cli", model: model, why: "chosen"),
+                                         scheduled: SleepEnginePreview(engine: "claude-cli", model: model, why: "ruling 4")))
+    }
+
+    /// The engine's label in full, the model alone when the bar is short, the full label again when there is no model to
+    /// say, and nothing at all before the preview is known (a guessed engine is worse than silence).
+    func testTheEngineLabelFallsBackToTheFullLabelWhenThereIsNoModel() {
+        XCTAssertEqual(RunBarText.engine(engineResponse(model: "haiku"), short: false), "Claude plan · haiku")
+        XCTAssertEqual(RunBarText.engine(engineResponse(model: "haiku"), short: true), "haiku")
+        XCTAssertEqual(RunBarText.engine(engineResponse(model: ""), short: true),
+                       EngineQuickMenuModel.buttonLabel(engineResponse(model: "")),
+                       "an empty model says the full label, never an empty word")
+        XCTAssertNil(RunBarText.engine(nil, short: true))
+        XCTAssertNil(RunBarText.engine(nil, short: false))
+        let noPreview = SleepEngineResponse(mode: "auto", model: "", disambiguationModel: "", source: "default",
+                                            candidates: [], preview: nil)
+        XCTAssertNil(RunBarText.engine(noPreview, short: true))
     }
 
     /// A key wears its provider's mark (read from the model it runs); the key glyph only when that is unknown.

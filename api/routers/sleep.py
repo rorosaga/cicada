@@ -412,6 +412,7 @@ async def sleep_queue(
     in_batch = set(ds.live.ids) if ds is not None and not ds.batch_counted else set()
     rows: list[SleepQueueItem] = []
     kept = 0
+    own_device = episode_copy.own_device_id()
     for f in bank_index.files(settings.memory_path, "episodes"):
         fm = f.frontmatter
         ep_id = str(fm.get("id", f.stem))
@@ -439,7 +440,7 @@ async def sleep_queue(
             title=(str(fm["title"]) if fm.get("title") else None), state=st, reason=reason,
             attempts=attempts,
             batch=ds.live.index if (ds is not None and ep_id in in_batch) else None,
-            device=str(fm.get("device") or "") or None,
+            device=episode_copy.wire_device(fm.get("device"), own_device),
         ))
     rows.sort(key=lambda r: _episode_sort_key({"timestamp": r.timestamp, "id": r.id}))
     return SleepQueueResponse(total=len(rows), offset=offset, items=rows[offset:offset + limit], kept=kept)
@@ -448,11 +449,12 @@ async def sleep_queue(
 #: Bumped when a row of `GET /sleep/episodes` gains a field or changes for the same files (folded into its ETag).
 #: episodes-5: `site` is the link's own host, not its registrable domain (owner 2026-11-23).
 #: episodes-6: `openKind` / `openValue` — where the original opens (owner 2026-11-23).
+#: episodes-10: `device` is `null` for a conversation stamped with this computer's own id (it was a copy, then the home).
 #: episodes-9: `meeting` (call app, length, invitees) and a meeting's preview as its summary's plain words (owner
 #: 2026-11-23).
 #: episodes-7: `change` — new, updated or removed at its source (owner 2026-11-23).
 #: episodes-8: `chat` — the chat a sitting belongs to (owner 2026-11-23).
-EPISODES_SHAPE = "episodes-9"   # episodes-4: a recorder's meetings group under it (`queue_origin`); episodes-3: `device` (G212); episodes-2: `site` (owner 2026-10-20)
+EPISODES_SHAPE = "episodes-10"   # episodes-4: a recorder's meetings group under it (`queue_origin`); episodes-3: `device` (G212); episodes-2: `site` (owner 2026-10-20)
 
 
 @router.get("/sleep/episodes", response_model=list[EpisodeQueueItem])
@@ -487,13 +489,14 @@ async def sleep_episodes(
 def _episode_items(mp, window) -> list[EpisodeQueueItem]:
     """One row per episode file in ``window`` (cached headers): the Waiting list's rows and the kept list's."""
     roots = episode_copy.folder_roots(mp)
+    own_device = episode_copy.own_device_id()
     items: list[EpisodeQueueItem] = []
     for ep in episode_rows(window):   # a file gone since the listing is skipped, never a 500
         body = ep["body"]
         fm = ep["frontmatter"]
         kind, value = episode_copy.copy_target(fm, body, roots)
         opens = episode_copy.open_target(fm, body, roots)
-        facets = episode_copy.row_facets(fm)
+        facets = episode_copy.row_facets(fm, own_device)
         items.append(
             EpisodeQueueItem(
                 id=ep["id"],
