@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from datetime import date
@@ -177,6 +178,9 @@ def main() -> int:
     parser.add_argument("--model", default="sonnet")
     parser.add_argument("--judge", default="haiku")
     parser.add_argument("--clock", type=date.fromisoformat, default=date(2026, 11, 24))
+    parser.add_argument("--engine", choices=("plan", "key"), default="plan",
+                        help="plan: the signed-in Claude plan, no key read (default); key: the Claude key in --key-file")
+    parser.add_argument("--key-file", type=Path, default=Path("~/.cicada/secrets.env"))
     parser.add_argument("--trace", action="store_true")
     parser.add_argument("--ask", type=Path, help="ask each story's question on this finished leg's bank, then stop")
     parser.add_argument("--repeats", type=int, default=1, help="with --ask: asks per question")
@@ -200,7 +204,13 @@ def main() -> int:
     with contextlib.ExitStack() as stack:
         if a.trace:
             Trace(a.out / "trace.jsonl").install(stack)
-        snap = bench.run_leg(a.model, a.out, clock=a.clock, engine="plan", judge=a.judge, person="e2e")
+        if a.engine == "key":
+            from benchmarks.consolidation.same_name_e2e import key_from
+
+            os.environ["ANTHROPIC_API_KEY"] = key_from(a.key_file)   # inherited by the engine's call, never printed
+        else:
+            os.environ.pop("ANTHROPIC_API_KEY", None)   # the plan leg is the plan's: `claude -p` would bill a key it finds
+        snap = bench.run_leg(a.model, a.out, clock=a.clock, engine=a.engine, judge=a.judge, person="e2e")
     expect = json.loads(fixture.read_text(encoding="utf-8")).get("expect") or {}
     result = check(a.out / "bank", expect)
     result.update(questions=snap.get("questions"), calls=snap["usage"]["calls"])

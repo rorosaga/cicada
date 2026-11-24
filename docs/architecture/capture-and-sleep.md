@@ -3655,8 +3655,8 @@ and the part's later progress ("the hull is fully stripped") never reached the c
 a part never names it, and a part's own names are never its aliases (`_Unborn.part`). A part the pair judge reads as
 `different` for lack of evidence (an "onboarding flow" that names no app) is still its own name: a placement over the whole
 list of the person's things was measured and dropped, because it also joined a restoration with another restoration and one
-kitchen with another's (a wrong join is worse than a missed one). `benchmarks/consolidation/reference_by_part.py` and its two
-fixtures are the measure. **An organisation/tool alias lead** (G209,
+kitchen with another's (a wrong join is worse than a missed one). `benchmarks/consolidation/reference_by_part.py` is the measure: its two
+fixtures (stories and counter-stories) and the one-story `reference_by_part_canoe.json` this case was measured on (later progress on the whole's page in 1 of 6 real Sleeps before, 6 of 6 after). **An organisation/tool alias lead** (G209,
 2026-10-27: a page that lists another page's name as an alias) now meets the judge once before it is asked; only `same`
 or `unsure` asks, a relation is written as above. Any other verdict (a relation, `different`, a rejected or related pair)
 also proposes removing the alias behind the lead (`wrong_aliases`, a `page_edit` the person applies or leaves —
