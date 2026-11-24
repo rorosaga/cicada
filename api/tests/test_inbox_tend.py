@@ -1320,7 +1320,8 @@ def test_a_passing_name_is_never_one_tied_to_the_persons_life(memory):
     _commit(memory)
     assert _decide(memory, "inbox-005") == (None, "owners_page")
     # A relation question is the person's to answer, and a name with a page belongs to its page.
-    _entity(memory, "sister", type="person", name="Sister", unnamed=True)
+    _entity(memory, "sister", type="person", name="Sister", unnamed=True,
+            source_episodes=["ep_2026-01-01_001", "ep_2026-01-02_001"])
     _item(memory, "inbox-006", kind="clarification", asks="name", entity_id="sister", entity_name="Sister",
           source_episode="ep_2026-06-05_001")
     _entity(memory, "example-song", type="media", name="Example Song")
