@@ -11,8 +11,8 @@ from api.services import claims, claims_ledger, markdown_parser
 DAY_BEFORE, DAY = "2026-10-01", "2026-10-02"
 
 
-def _git(repo, *args):
-    return subprocess.run(["git", *args], cwd=str(repo), check=True, capture_output=True, text=True).stdout
+def _git(repo, *args, stdin=None):
+    return subprocess.run(["git", *args], cwd=str(repo), check=True, capture_output=True, text=True, input=stdin).stdout
 
 
 def claim_entry(page: str, i: int, *, decayed=DAY_BEFORE, confidence=0.8, text=None, **more) -> dict:
@@ -101,7 +101,9 @@ def big_run(tmp_path, *, pages: int = 2000, per_page: int = 3, faded_every: int 
         manifest.append(f"entities/{pid}.md: updated (source: n/a, trigger: sleep/decay)")
     _git(memory, "add", "-A")
     message = "Sleep cycle 2026-10-02 (batch 1 of 1)\n\n" + "\n".join(manifest) + "\n"
-    _git(memory, "commit", "-qm", message)
+    # The message goes in on stdin: 2,000 manifest lines as one argument is past Linux's 128 KB limit for a single
+    # argument (E2BIG), which a Mac does not have.
+    _git(memory, "commit", "-q", "-F", "-", stdin=message)
     return memory, _git(memory, "rev-parse", "HEAD").strip()
 
 
