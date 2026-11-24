@@ -951,6 +951,26 @@
       "disposition": "fresh_frontmatter_untracked"
     }
   ],
+  "services/list_pages.py": [
+    {
+      "function": "_write_chunk",
+      "method": "write_new",
+      "frontmatter": "_frontmatter(w, today)",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "_write_chunk",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_archive",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
   "services/owner_identity.py": [
     {
       "function": "ensure_owner_entity",

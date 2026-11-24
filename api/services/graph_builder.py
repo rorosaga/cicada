@@ -9,7 +9,7 @@ import yaml
 from loguru import logger
 
 from api.models.schemas import GraphLink, GraphNode, GraphResponse
-from api.services import (bank_index, claim_contexts, decay_policy, entity_picture, fact_sources, logo_service,
+from api.services import (bank_index, claim_contexts, decay_policy, entity_picture, fact_sources, list_pages, logo_service,
                           media_kinds, predicates, quiet_pages, saved_posts, same_name)
 from api.services.claims import is_current, parse_claims, strip_claims_block
 from api.services.id_utils import sanitize_id
@@ -175,6 +175,8 @@ def _cache_key(memory_path: Path, entities_dir: Path, edges_file: Path, hubs_dir
         # G246: a reason stamped on a save moves neither the pages folder nor the edges, yet it changes which posts are
         # rows; this moves only when the set of earned posts does ("" until the flip).
         saved_posts.stamp(memory_path),
+        # G246: a list's page is drawn while it holds something and moves with its count (``list_pages``; "" until the flip).
+        list_pages.stamp(memory_path),
     )
 
 
@@ -193,6 +195,9 @@ def _build_full(memory_path: Path, include_posts: bool = False) -> GraphResponse
     # G246: the posts drawn as a row, decided before the first node (a post's edges count toward its targets' degree).
     hidden = frozenset() if include_posts else saved_posts.hidden_ids(memory_path)
     earned = saved_posts.earned_ids(memory_path)
+    # G246: a list of saved posts is a node only while it holds something (empty or renamed folders draw nothing), with the
+    # count it holds; empty until the flip, so a list page is never a node before it.
+    lists = list_pages.state(memory_path).drawn
 
     pending_ids = _load_pending_entity_ids(memory_path)
     raw_links = _load_edges(memory_path)
@@ -273,6 +278,12 @@ def _build_full(memory_path: Path, include_posts: bool = False) -> GraphResponse
             except Exception:  # noqa: BLE001
                 pass
             continue
+        if list_pages.is_list(fm) and eid not in lists:
+            try:
+                same_rows.append((eid, fm, summarize(body), parse_claims(body)))
+            except Exception:  # noqa: BLE001
+                pass
+            continue
         entity_ids.add(eid)
         try:
             page_claims = parse_claims(body)
@@ -330,6 +341,7 @@ def _build_full(memory_path: Path, include_posts: bool = False) -> GraphResponse
                 last_referenced=entity_picture.day(fm.get("last_referenced")),
                 quiet=quiet,
                 byline=book_byline(fm),
+                member_count=lists[eid].count if eid in lists else 0,
                 media_kind=media_kinds.kind_of(fm),
                 origin=media_kinds.origin_of(fm) if media_kinds.kind_of(fm) else None,
                 media_channel=media_kinds.channel_of(fm) if media_kinds.kind_of(fm) else None,
@@ -461,6 +473,7 @@ def _build_full(memory_path: Path, include_posts: bool = False) -> GraphResponse
                 *(("quiet",) if node.quiet else ()),
                 *(("qualifier", node.qualifier) if node.qualifier else ()),
                 *(("byline", node.byline) if node.byline else ()),
+                *(("members", node.member_count) if node.member_count else ()),
             )
 
     # Filter canonical edges to endpoints that exist (drops legacy dangling slugs).
@@ -474,6 +487,13 @@ def _build_full(memory_path: Path, include_posts: bool = False) -> GraphResponse
         if link.target in entity_ids and (link.source, link.target, link.label) not in drawn:
             drawn.add((link.source, link.target, link.label))
             links.append(link)
+
+    # G246: an earned post joined to the list it is saved in, and a folder's page to its list's page — computed here, on
+    # every build, never stored (a link of the same kind as a source's, which a list of relationships skips).
+    for source, target, label in list_pages.read_time_edges(memory_path, entity_ids, earned):
+        if (source, target, label) not in drawn:
+            drawn.add((source, target, label))
+            links.append(GraphLink(source=source, target=target, label=label, kind="source"))
 
     # M5b: tag each edge with the backing claim's id + context when a valid claim
     # matches (subject, normalized-label, object). Additive — leaves context/

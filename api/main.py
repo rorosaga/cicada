@@ -260,6 +260,11 @@ async def lifespan(app: FastAPI):
     from api.services import media_pages
 
     media_pages.start_sync(settings.memory_path, delay_s=media_pages.SETTLE_S)
+    # The small page of each list of saved posts (G246, ruling 81): made once a list holds something, in the background;
+    # a no-op until `saved_posts.HIDE_POSTS` is on, on a replica and on a demo bank.
+    from api.services import list_pages
+
+    list_pages.start_sync(settings.memory_path, delay_s=list_pages.SETTLE_S)
 
     logger.info(f"Memory path: {settings.memory_path}")
     logger.info(f"LLM model: {settings.litellm_model}")

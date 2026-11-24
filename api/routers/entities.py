@@ -608,7 +608,9 @@ def _build_media_block(frontmatter: dict, body: str, *, entity_id: str | None = 
     # A book added with no ISBN (an Apple Books or Goodreads entry) has no catalogue link either: its page still needs
     # the block, or the app never learns it is a book and draws no head, cover or description (app-fixes-1109).
     is_book = media.get("kind") == "book"
-    if not media_type or not (url or is_file or is_book):
+    # G246 (ruling 81): a list of saved posts has no link either; its block (`kind: list`) is how the card knows to read it.
+    is_list = media.get("kind") == "list"
+    if not media_type or not (url or is_file or is_book or is_list):
         return None
 
     description = None

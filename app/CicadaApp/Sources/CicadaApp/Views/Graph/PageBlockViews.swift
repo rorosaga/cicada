@@ -20,6 +20,7 @@ struct PageInShort: View {
     /// exists still shows.
     static func isDrawn(relevance: EntityRelevance?, media: MediaBlock?) -> Bool {
         if media?.isFile == true { return false }
+        if media?.isList == true { return false }   // G246: a list says what it is in its own head
         if media?.isBook == true, (relevance?.tense ?? "none") == "none" { return false }
         return true
     }

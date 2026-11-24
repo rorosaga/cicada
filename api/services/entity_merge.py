@@ -435,6 +435,11 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
 
     lpar, wpar = markdown_parser.parse(lp), markdown_parser.parse(wp)
     lfm, wfm = dict(lpar.frontmatter), dict(wpar.frontmatter)
+    from api.services import list_pages
+
+    if list_pages.is_list(lfm) or list_pages.is_list(wfm):
+        # G246 (ruling 81): a list's page stands for the list itself, whose address (`list:`) would be orphaned.
+        raise ValueError(f"a list's own page is never merged: {loser_id}, {winner_id}")
     winner_name = str(wfm.get("name", winner_id))
     loser_name = str(lfm.get("name", loser_id))
     # G230: the repository pages whose back-link (`github.projects`) this merge changes, read before anything moves.

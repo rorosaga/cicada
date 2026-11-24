@@ -1,7 +1,7 @@
 {
   "_comment": "Shared by test_page_blocks.py and PageBlocksTests.swift: the `blocks` of GET /entities/{id} (page_blocks.build). Regenerate with CICADA_REGEN_FIXTURES=1.",
   "blocks": {
-    "shape": "blocks-7",
+    "shape": "blocks-8",
     "order": [
       "relevance",
       "summary",
@@ -221,6 +221,7 @@
           "last": "2026-10-12"
         }
       ]
-    }
+    },
+    "list": null
   }
 }

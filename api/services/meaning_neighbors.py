@@ -51,7 +51,10 @@ def signature(memory_path: Path) -> tuple:
     # G246: a saved post drawn as a row is no page, so it takes no neighbour's slot; the set of them is part of the key
     # ("" until the flip, so the key is what it was).
     held = saved_posts.stamp(memory_path)
-    return (NEIGHBORS_K, MIN_SIMILARITY, *parts, *((held,) if held else ()))
+    from api.services import list_pages
+
+    lists = list_pages.stamp(memory_path)
+    return (NEIGHBORS_K, MIN_SIMILARITY, *parts, *((held,) if held else ()), *((lists,) if lists else ()))
 
 
 def _read_vectors(memory_path: Path) -> tuple[list[str], np.ndarray, str | None]:
@@ -141,7 +144,10 @@ def neighbors(memory_path: Path) -> dict:
         if hit and hit[0] == sig:
             return hit[1]
         ids, mat, model = _read_vectors(memory_path)
-        ids, mat = _without(ids, mat, saved_posts.hidden_ids(memory_path))
+        # A list's own page (G246) is not near anything in meaning: it holds no words of its own.
+        from api.services import list_pages
+
+        ids, mat = _without(ids, mat, saved_posts.hidden_ids(memory_path) | list_pages.drawn_ids(memory_path))
         result = {"model": model, "k": NEIGHBORS_K, "embedded": len(ids),
                   "pairs": nearest_pairs(ids, mat) if ids else []}
         _cache[key] = (sig, result)

@@ -88,6 +88,30 @@ the event loop); while Sleep holds the pages nothing is appended and the next im
 agent's Watch later read appends inside its own admission and page lock. A list the page already holds changes
 nothing.
 
+**A list of saved posts has one small page of its own (G246, ruling 81, owner 2026-11-24: "maybe a small entity page that has all
+the saved posts would be good … i want to somehow see saved things somewhere even if i haven't referred to them yet";
+`list_pages`, behind `saved_posts.HIDE_POSTS`, off).** This amends the paragraph above only to the extent that a list of *posts*
+(a site's bookmarks, likes, reposts, saved posts — X, Instagram, LinkedIn, Reddit, Pinterest, TikTok) and each folder, collection
+or board such a site files saves into (`save_folders`) may have a page about the list itself; the page is no tag, no `member of`
+edge and no hub, and a list of works (a YouTube playlist, a Substack list) and a browser's own bookmark folder get none.
+`list_pages` is the **one writer**: `type: media`, `media: {kind: list, media_type: list}` (no link), `origin: list` (never a
+list's own origin, or the page would be a member of its own stream), an id `list-<stream>[--<folder slug>-<hash>]` (a pure function
+of the list, so two computers agree; never `media-`, which `inject_media_edges` and `link_enrichment` glob), `tags: []`, the list's
+address in a `list:` block (`site`, `stream`, `folder`, `source` — the origin whose mark the page wears —, `label`, `named`) and one
+fixed sentence for a body ("Posts you bookmarked on X."). **Nothing that can go stale is on the page:** its count, newest day,
+last read (outside every bank, per Mac), a folder's reason and its newest rows are read from the saves every time the page is
+served (`list_pages.block`, one `channel_items.items` read, so the number is the one the cards say). It is born when the list's
+first item arrives and not before, written again only when the list's own name changes (a name the person gave stands), and
+archived with `retired_by: source-removed` when its source is removed (`retire_source`, one undoable commit; a page in any status
+holds its key and is never made again or woken). It is never a stream member, a hub member, a file or a link count
+(`source_overview.is_files_media` reads its origin), quiet, merged (`entity_merge` and `page_join` refuse), asked about
+(`inbox_service._subject_quiet`) or given facts by Sleep (`entity_resolver` treats it as a file page: its name is no one's). The
+writer runs only on the home (a replica refuses), never into a demo bank, inside write admission and the page lock, one commit per
+batch under `cicada` (`sync/list_pages`), retried while Sleep holds the pages. **Dark, it writes nothing**: no file is born while
+`HIDE_POSTS` is off, so no reader of the pages folder can show one; the first sync after the flip makes every list's page. Its
+triggers are the backend's start and a read of `GET /sources/streams` (a background no-op until the flip); the triggers after a list
+read lands and after Sleep join them with the agent doors' change.
+
 **Provenance never makes a hub.** Stage 5.6 makes any tag shared by `hub_tag_min_members` (5) active pages a
 `topic-<tag>` hub with a `member of` edge to each, and the media writer used to put `sanitize_id(folder)` in `tags`
 (the Netscape parser the raw folder name), beside the media type and the capture door's origin — so every list,

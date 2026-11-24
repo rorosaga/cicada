@@ -71,6 +71,14 @@ repointed}`; 400 nothing picked or a type outside the set, 404 no such page or n
 or already undone. History rows (`?summary=true`) add `join` and `undoable`. `GET /entities/{retired-id}` answers the
 page it became, `X-Cicada-Redirected-From: <retired-id>` (`page_redirects`).
 
+**A list of saved posts' block (G246, ruling 81; `page_blocks` `blocks-8`).** `blocks.list` is present on a list's own page only (`list_pages.block`,
+`media.kind: list`): `{site, stream, folder, channel, label, source, count, newest, lastReadAt, why, recent}` read from the saves on every serve and never
+stored on the page — `count` and `newest` are the items route's `all` and `latest` for `stream=`/`folder=`, `lastReadAt` this Mac's last read of the list (outside
+every bank), `why` the folder's reason in the person's words, `recent` the five newest rows (`title`, `author`, `posted`, `saved`, `host`) for an agent and the CLI (the app
+draws its cards from the items route under the same address). It rides the card (`order` lists `list`), and is pinned on both sides by `api/tests/fixtures/list_block.json`
+(`test_list_pages.py`, `ListPageCardTests.swift`). It is **not yet an `include` kind**: the agent doors' schemas enumerate `page_blocks.KINDS` and the kind joins it, with both schemas, in the
+change that words it for an agent (`for_caller` already strips `recent` and `why` for a caller without `sources`, flagging `recentWithheld`). `EntityMedia` of such a page has an empty `url` and `kind: list`.
+`GET /sources/streams` asks the list pages' writer to catch up in the background and writes nothing itself (a no-op until the flip, on a replica and on a demo bank).
 **The card's blocks and its ETag (vision item 5, 2026-10-28; `page_blocks`).** `GET /entities/{id}` carries
 `blocks: {shape, order, relevance, sources, coordinates, looks, ongoing, ongoingTotal, history}` — which blocks the
 page has (`order`, in the page order the redesign proposal draws: why it matters, where to check, the type block,
