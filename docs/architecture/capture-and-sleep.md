@@ -3994,6 +3994,19 @@ listed as an alias. Four gaps caused it, each closed:
   no page are open at once (`MAX_HELD_ALIAS_QUESTIONS`), so a first Sleep over a long pending store never floods the
   inbox; dismissing a "Possible duplicate" card records the pair in `_merge_rejected.yaml`, like "not the same", so
   the line re-read from the store is not asked again.
+- **A person met only in saves joins a page on an exact name or alias alone, and asks nothing (G245, ruling 80's plan, Track 2c;
+  `saves_bounded`, `entity_resolver._from_saves_alone`).** A person's name every conversation of which — this batch's and
+  any an earlier run parked it from (`PendingEntity.episodes()`) — is a saved item with no words of the person's (no
+  `## Why it was saved`, `## Saved because`, `## User note`, or a person's `## Note`) skips the judge, the first-name-across
+  rule, the same-name planning (`_plan_same_name_people` leaves a save's mention out) and the G209 "account" lead. It joins
+  only the page TITLED exactly so, or the one person page that lists it among its aliases (`_exact_person_match`; the guards
+  of the direct match stand: a recording's page, a name two pages answer to, a page the person said it is not): a post's
+  "Sam" beside the page "Sam Example" matches neither, writes no alias, fact or source there, and is held. A bare name that is
+  a page's whole title still joins it: that page IS named so. The held name raises no "who is this?", no "same person?"
+  (`_held_alias_questions` skips a line only saves named) and no lead question, and keeps at most 3 held claims
+  (`storage.md`, "What a save may add"). A single conversation of the person's own — now, or in the line an earlier run
+  parked — makes the name theirs and every rule as it was. Counted as `saves_names_held` (names only saves carried that no
+  page took) in the run's report.
 - **A held full name meets the page its given name titles (benchmarks/newuser 2026-10-23).** A held name with no alias
   that names a page asks the same question when it is a full name as written (two to four capitalised name words, no
   handle, digit or parenthesis), it has no page of its own, and its given name (folded) is the whole title of exactly

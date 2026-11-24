@@ -479,10 +479,17 @@ def hold(
     (head-stable, R-HP3). One read and at most one write for the whole cycle,
     and nothing is written when nothing changed — a bank with no store never
     gains one. Returns an outcome for every subject offered a non-empty list:
-    ``(0, 0)`` for one with no line."""
+    ``(0, 0)`` for one with no line.
+
+    G245 (ruling 80, Track 2c): a line every one of whose sources is a save with no words of the person's holds at most
+    ``saves_bounded.MAX_HELD_CLAIMS`` claims (a name nobody talked about does not collect a post's worth of facts). What
+    that limit refuses is in ``capped`` like any refusal (:func:`saves_refused` says how many were such)."""
     offers = {s: list(c) for s, c in offers.items() if c}
     if not offers:
         return {}
+    from api.services import saves_bounded
+
+    saves = saves_bounded.for_bank(memory_path)
     with _LOCK:
         entries = load(memory_path)
         by_slug: dict[str, PendingEntity] = {}
@@ -497,13 +504,16 @@ def hold(
                 continue
             by_id = {d.get("id"): d for d in line.held_claims}
             held = capped = 0
+            limit = cap
+            if cap > saves_bounded.MAX_HELD_CLAIMS and saves.all_of(line.episodes()):
+                limit = saves_bounded.MAX_HELD_CLAIMS
             for claim in claims:
                 data = claim.to_dict()
                 prior = by_id.get(claim.id)
                 if prior is not None:
                     changed = _merge_into(prior, data) or changed
                     held += 1
-                elif len(line.held_claims) >= cap:
+                elif len(line.held_claims) >= limit:
                     capped += 1
                 else:
                     line.held_claims.append(data)
@@ -514,6 +524,21 @@ def hold(
         if changed:
             save(memory_path, entries)
         return out
+
+
+def saves_refused(memory_path: Path, refused: dict[str, int]) -> int:
+    """Of the claims :func:`hold` refused per subject (``{slug: how many}``), how many were refused by the limit on a
+    line nothing but saves named (G245): the number a run reports as ``saves_held_capped``. Zero when no line is one."""
+    refused = {s: n for s, n in refused.items() if n}
+    if not refused:
+        return 0
+    from api.services import saves_bounded
+
+    saves = saves_bounded.for_bank(memory_path)
+    with _LOCK:
+        lines = {sanitize_id(e.name): e for e in load(memory_path)}
+    return sum(n for subject, n in refused.items()
+               if subject in lines and saves.all_of(lines[subject].episodes()))
 
 
 def reanchor_held(memory_path: Path, move: Callable[[list[Claim]], int]) -> int:

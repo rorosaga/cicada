@@ -848,6 +848,24 @@ no `has_note`, and the tweet's `created_at` is its `posted` day. Episodes writte
 origin `x-bookmarks` or `pinterest`) are put right by `connector_text.repair`, committed alone before the index's own commit
 so a later wake finds no revision; it is **report-only** behind `connector_text.REPAIR` until the coordinator reads
 `python -m api.scripts.connector_text_dry_run --bank <path>` (counts only; `--ids` adds episode ids).
+**What a save may add, and how much (G245, ruling 80's plan, Track 2c; `saves_bounded`).** A claim "rests on saves alone"
+when its observer is somebody else's (`external:<author>`, never given to a claim with a span in the person's own words)
+and every conversation it cites is a saved item, a save he wrote a reason on included (the claim is still the author's);
+one conversation of his also citing it makes it his. Three bounds, each one line to undo, derived on read from the episodes'
+own records (an episode that cannot be read is no save), nothing stored. (1) **At most 12 open such claims on one page**
+(`MAX_OPEN_CLAIMS`, in `claim_reconciler.reconcile_stage3` after the pass's placements, on the subjects a save-only claim
+was placed on): the newest by the post's own day (`posted`, else `published_at`, else the save's day) stay, an older one is
+closed with `valid_to` the day it was set aside, never deleted (git holds it; a re-read of it stays closed like any closed
+claim), and a claim the person stated, or one a conversation of his also cites, is never counted or closed. (2) **The same
+fact from several authors is one claim**: a claim's slot is keyed by its observer, so before placement a save-only claim
+with the predicate, context and object of an open save-only claim by another author is folded into it (`_reinforce`: every
+author's evidence and source, the first author's observer) instead of opening one per author. (3) **A name only saves
+carried keeps at most 3 held claims** (`pending_store.hold`, `saves_bounded.MAX_HELD_CLAIMS`): a line every one of whose
+conversations (`PendingEntity.episodes()`) is a save with no words of the person's takes a fourth at no price but the count; a
+line any conversation of his names keeps `MAX_HELD_CLAIMS` of 50, and a claim already held is never evicted. Nothing is
+silent: the claim pipeline returns `saves_folded` and `saves_closed` (the `save_folded` and `save_capped` audit entries) and
+`saves_held_capped` (of `claims_hold_capped`, what a saves-only line refused), Stage 2 returns `saves_names_held`, and Sleep
+carries all four into the `sleep_run` ledger row; each is also in a log line (the claim pipeline's for folded and closed, its hold summary for held-capped, Stage 2's complete line for `saves_names_held`) — integers, never a name or a word.
 **An agent's saved note is the agent's words (ruling 50, owner 2026-10-29).** A note an agent saved through a tool door
 — `cicada_save_episode` over stdio (`source: mcp`), the remote connector (`mcp-remote`), or `cicada save` from an
 agent's shell (`cli` with the harness or session it ran in; the CLI stamps a Codex sandbox's harness too) — is known by
