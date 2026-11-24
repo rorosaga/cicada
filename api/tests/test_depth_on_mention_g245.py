@@ -191,6 +191,46 @@ def test_a_mentioned_provider_video_goes_on_the_video_queue_as_a_transcript_job(
     assert item["origin"] == "mention" and item["queueState"] == "claimed"
 
 
+REDDIT_A = "https://www.reddit.com/r/example/comments/abc123/a_post_about_vector_stores/"
+
+
+@pytest.mark.parametrize("origin, folder, url, key", [
+    ("x-bookmarks", "", POST_A, "x"),                       # a bookmark filed in no folder: the most common save
+    ("x-bookmarks", "Bookmarks", POST_A, "x"),              # the export's own folder
+    ("reddit-saved", "r/example", REDDIT_A, "reddit"),      # the connector files a save under its community
+    ("instagram-saved", "A collection of mine", IG_A, "instagram"),
+])
+def test_every_list_save_the_person_names_leaves_the_same_ask_whatever_its_folder(reading, origin, folder, url, key):
+    """The class: a save on a list whose switch is on gets its ask when the person's own words name it — whichever way the
+    index reads its record (a bare save, a list save, a woken one)."""
+    _, memory = reading
+    _on(key)
+    ep = _list_save(memory, url, "Notes on vector indexes at laptop scale", origin=origin, folder=folder)
+    assert _mentioned(memory, url) == [f"episodes/{ep}.md"]
+    [row] = reading_asks.all_rows(memory)
+    assert (row["origin"], row["list"], row["state"]) == ("mention", key, "waiting") and row["url_hash"] == _hash(url)
+    assert mention_asks.asked_today(memory) == 1
+    # Said again, it is never a second ask; a list that is off leaves none.
+    _mentioned(memory, url)
+    assert len(reading_asks.all_rows(memory)) == 1
+
+
+def test_a_save_in_no_folder_that_nobody_named_or_whose_list_is_off_gets_nothing(reading):
+    _, memory = reading
+    _on("x")
+    _list_save(memory, POST_A, "Notes on vector indexes at laptop scale", origin="x-bookmarks", folder="")
+    saved_mentions.wake_mentioned(memory, [_say(memory, "nothing about any save")], at=AT)
+    assert reading_asks.all_rows(memory) == []
+    reading_settings.update(saved_lists_={"x": False})
+    _mentioned(memory, POST_A)
+    assert reading_asks.all_rows(memory) == []
+    # A bookmark of a browser is no list of a site: named, it wakes, and asks nothing.
+    _on("x")
+    _list_save(memory, POST_B, "Another quite different title words", origin="chrome-bookmark", folder="Bookmarks")
+    _mentioned(memory, POST_B)
+    assert reading_asks.all_rows(memory) == []
+
+
 def test_a_mention_leaves_no_ask_while_agent_reading_or_that_list_is_off(reading):
     _, memory = reading
     _x_like(memory)
