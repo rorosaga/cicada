@@ -1,0 +1,103 @@
+{
+ "about": "Invented. A father and his son: the person's own turn names both in one sentence ('Teo's father, Teodor Brandt'). Whatever Stage 1 and Stage 2 do with the pair, Sleep must not join them.",
+ "owner": "Mira Kolar",
+ "conversations": [
+  {
+   "id": "f01",
+   "phase": 1,
+   "day": -40,
+   "title": "Station",
+   "turns": [
+    "Teo's father, Teodor Brandt, picked us up at the station after the match. He drives a taxi in Linz and talked about retiring next year.",
+    "That was kind of him.",
+    "It was. He tells the same three jokes every time."
+   ]
+  },
+  {
+   "id": "f02",
+   "phase": 1,
+   "day": -39,
+   "title": "Flatmate",
+   "turns": [
+    "My flatmate Olek works nights at the bakery on Linden Street, so we barely see each other during the week.",
+    "That must make sharing a flat easy.",
+    "It does, and he brings home bread."
+   ]
+  },
+  {
+   "id": "f03",
+   "phase": 1,
+   "day": -36,
+   "title": "Race",
+   "turns": [
+    "I signed up for the Linz half marathon in June, my goal is to finish under two hours.",
+    "That is a good goal.",
+    "I run three mornings a week now."
+   ]
+  },
+  {
+   "id": "f04",
+   "phase": 2,
+   "day": -20,
+   "title": "Onboarding review",
+   "turns": [
+    "Teo asked me to review the onboarding designs at Kestrel before they go to the product lead, I told him Friday.",
+    "Sounds like a trusted role.",
+    "He says the old screens had three bugs."
+   ]
+  },
+  {
+   "id": "f05",
+   "phase": 2,
+   "day": -12,
+   "title": "Climbing",
+   "turns": [
+    "Climbing with Teo on Saturday, he wants to try the overhang route at the gym.",
+    "Sounds like a good session.",
+    "He is training for a bouldering competition in March and climbs four times a week."
+   ]
+  },
+  {
+   "id": "f06",
+   "phase": 2,
+   "day": -6,
+   "title": "Bakery",
+   "turns": [
+    "Olek brought home leftover croissants from the bakery again, the freezer is full.",
+    "A good problem to have.",
+    "He says the night shift is wearing him down though."
+   ]
+  }
+ ],
+ "gold": {
+  "points": [],
+  "updates": [],
+  "forbid": [],
+  "people": {
+   "same": [],
+   "apart": [],
+   "apart_facts": [],
+   "one": []
+  },
+  "pages": {
+   "expected": [],
+   "not_expected": []
+  },
+  "dated": [],
+  "secret": "",
+  "apart_values": [],
+  "roles": [],
+  "fading": []
+ },
+ "expect": {
+  "one": [
+   "teo"
+  ],
+  "not_joined": [
+   {
+    "alias": "Teodor Brandt",
+    "page": "teo"
+   }
+  ]
+ }
+}

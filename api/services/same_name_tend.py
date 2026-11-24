@@ -551,6 +551,39 @@ def main_tier(resolved):
     return resolved.model_copy(update=updates) if updates else resolved
 
 
+async def main_engine(settings, *, user_triggered: bool):
+    """``(settings, "")``: the engine's settings with its main model standing in for the small tier, or ``(None, why)`` —
+    no engine, or a scheduled run the person's plan switch does not allow (ruling 4b). Nothing is sent here."""
+    from api.services import engine_select, web_lookup
+
+    try:
+        resolved, _why = await engine_select.resolve_settings(settings, user_triggered=user_triggered)
+    except Exception as exc:  # noqa: BLE001
+        logger.info(f"same-name review: no engine ({type(exc).__name__})")
+        return None, "no_engine"
+    if engine_select.no_engine(resolved):
+        return None, "no_engine"
+    mode = str(getattr(resolved, "llm_mode", "byok") or "byok").strip().lower()
+    if mode in engine_select.SUBSCRIPTION_MODES and not user_triggered \
+            and not engine_select.scheduled_plan_allowed(web_lookup._registry(settings)):
+        return None, "scheduled_plan"   # ruling 4b: a scheduled run reaches a plan only through the switch
+    return main_tier(resolved), ""
+
+
+async def main_judge(settings, *, user_triggered: bool):
+    """``(judge, "")``: the main model as the second look's call, or ``(None, why)`` (`main_engine`)."""
+    from api.services import entity_resolver
+
+    strong, why = await main_engine(settings, user_triggered=user_triggered)
+    if strong is None:
+        return None, why
+
+    async def judge(system: str, prompt: str) -> object:
+        return await entity_resolver._same_name_ask(strong, system, prompt)
+
+    return judge, ""
+
+
 async def run_tail(memory_path: Path, settings, *, user_triggered: bool, judge=None, today: date | None = None) -> Report:
     """Sleep's tail step: what Stage 2 flagged, looked at again by the engine's main model. Nothing flagged: no engine is
     resolved and nothing is sent. A scheduled run reaches a plan only through the person's switch (ruling 4b), a plan
@@ -573,26 +606,10 @@ async def run_tail(memory_path: Path, settings, *, user_triggered: bool, judge=N
                 report.skip("error")
         return report
     if judge is None:
-        from api.services import engine_select, entity_resolver, web_lookup
-
-        try:
-            resolved, _why = await engine_select.resolve_settings(settings, user_triggered=user_triggered)
-        except Exception as exc:  # noqa: BLE001
-            logger.info(f"same-name review: no engine ({type(exc).__name__})")
-            report.skip("no_engine")
+        judge, why = await main_judge(settings, user_triggered=user_triggered)
+        if judge is None:
+            report.skip(why)
             return report
-        if engine_select.no_engine(resolved):
-            report.skip("no_engine")
-            return report
-        mode = str(getattr(resolved, "llm_mode", "byok") or "byok").strip().lower()
-        if mode in engine_select.SUBSCRIPTION_MODES and not user_triggered \
-                and not engine_select.scheduled_plan_allowed(web_lookup._registry(settings)):
-            report.skip("scheduled_plan")   # ruling 4b: a scheduled run reaches a plan only through the switch
-            return report
-        strong = main_tier(resolved)
-
-        async def judge(system: str, prompt: str) -> object:
-            return await entity_resolver._same_name_ask(strong, system, prompt)
 
     try:
         return await tend(memory_path, judge, today=today)
