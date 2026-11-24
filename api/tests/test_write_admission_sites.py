@@ -489,6 +489,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "PUT /settings/owner": (ADMITTED, None),
     "PUT /settings/editors": (OUTSIDE, None),         # G198: $CICADA_HOME/editors.json, never the bank
     "POST /sources/folders": (ADMITTED, None),
+    "POST /sources/keep-as-page": (ADMITTED, None),   # G246: the one stamp on a post's save, committed alone as the person
     "PUT /sources/folders/{folder_id}": (HELD, None),
     "DELETE /sources/folders/{folder_id}": (REGISTRY, None),
     "POST /sources/folders/{folder_id}/sync": (HELD, None),

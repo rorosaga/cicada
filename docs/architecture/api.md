@@ -692,6 +692,8 @@ reason to the link's title, host and path (never its query) by EmbeddingGemma **
 (`onnx_embedder.find(PREFERRED_ID)`; never a download, a bundled-model fallback or a metered embedding service), else
 `basis: none`. Nothing written, nothing logged.
 
+**G246 (ruling 81, Track K).** `GET /sources/keep-as-page?url=` → `{state: none|row|kept|page, canUndo, becauseOf[], mediaEntityId}` (always `none` while `saved_posts.HIDE_POSTS` is off) and `POST /sources/keep-as-page {url, kept=true}` → `{status: kept|undone|unchanged, state…, episodeId}`: 404 for a link not saved or a save with no page, 409 in a demo bank, while Sleep holds the pages, or for "Back to a row" when another sign holds the page; `FORWARD` on a replica, `_DEMO_GATE`d, admitted. `GET /graph` gained `hiddenPosts` (an int, 0 while off and with `include_posts`); no ETag moved, since neither field changes while the constant is off.
+
 **G191 v3 bookmark writes** (both 409 in a demo bank and while Sleep holds the pages, both committed alone as
 `Cicada-Author: user`): `PUT /sources/saved-why` `{url, at, reasons[], project?, text?}` changes the one answer given at
 `at` (404 when there is none; its `at` and `addedAt` kept, `editedAt` stamped; 2026-10-19: an edit that changes nothing —

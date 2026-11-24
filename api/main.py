@@ -60,6 +60,7 @@ from api.routers import (
     skills,
     videos,
     sleep,
+    save_keep,
     sources,
     state,
     status,
@@ -479,6 +480,7 @@ app.include_router(intake.router, tags=["intake"])
 app.include_router(agents.router, tags=["agents"])
 app.include_router(agent_methods.router, tags=["agent-methods"])
 app.include_router(sources.router, tags=["sources"])
+app.include_router(save_keep.router, tags=["sources"])
 app.include_router(state.router, tags=["state"])
 app.include_router(banks.router, tags=["banks"])
 app.include_router(settings_router.router, tags=["settings"])
