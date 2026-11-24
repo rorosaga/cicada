@@ -153,4 +153,16 @@ final class PageLineTests: XCTestCase {
                        "Lead about Alpha Project.")
         XCTAssertNil(PageLine.firstLine("  \n ", links: index))
     }
+
+    /// A project mark's hover words count a link as its page's name: six words of brackets cut mid-link showed half
+    /// a link before 2026-11-24.
+    func testAProjectMarksHoverWordsReadALinkAsItsName() {
+        let words = ProjectsModel.firstWords("Met [[alpha-project|the long running thing]] team and agreed the plan for next week",
+                                             links: index)
+        XCTAssertFalse(words.contains("["), words)
+        XCTAssertFalse(words.contains("]"), words)
+        XCTAssertTrue(words.hasPrefix("Met Alpha Project team"), words)
+        XCTAssertTrue(words.hasSuffix("…"), words)
+        XCTAssertEqual(ProjectsModel.firstWords("Short and plain"), "Short and plain")
+    }
 }
