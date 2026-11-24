@@ -3159,6 +3159,26 @@ def undo(memory_path: Path, item_id: str) -> tuple[str, list[str], list[str], di
             _write_bytes(target, data)
         paths.append(rel)
         lines.append(f"{rel}: updated (source: {item_id}, trigger: inbox/sleep-settle/undone)")
+    if rec.get("rule") == "full_name_one":
+        # Ruling 74b: taking back Sleep's join of a held full name is the person saying they are two people. The
+        # question does not come back: the pair is kept apart by the writer their own "No, different" uses
+        # (`inbox_service.reject_effects`), inside this one undo, so nothing asks or joins them again.
+        from types import SimpleNamespace
+
+        other = str(fm.get("merge_target_hint") or "")
+        effects = inbox_service.reject_effects(SimpleNamespace(memory_path=memory_path), fm,
+                                               str(fm.get("entity_id") or ""), other, [other])
+        for line in effects:
+            rel = line.split(": ", 1)[0]
+            if rel not in paths:
+                paths.append(rel)
+            lines.append(line.replace("trigger: inbox/merge_suggestion/rejected", "trigger: inbox/sleep-settle/undone"))
+        rec_path.unlink()
+        bank_index.invalidate(memory_path)
+        markdown_parser.invalidate_pages(os.path.realpath(memory_path))
+        paths.append(record_rel)
+        lines.append(f"{record_rel}: removed (source: {item_id}, trigger: inbox/sleep-settle/undone)")
+        return item_id, paths, lines, rec
     inbox_dir = _inbox(memory_path)
     restored = item_id
     if (inbox_dir / f"{restored}.md").exists():   # never replace a question that took the number since

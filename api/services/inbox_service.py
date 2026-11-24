@@ -3220,6 +3220,22 @@ def _keep_apart(settings, fm: dict, pages: list[str]) -> list[str] | None:
     return []   # nothing held under the name any more: a later mention is a new question, never a name-wide verdict
 
 
+def reject_effects(settings, fm: dict, entity_id: str, other: str, pages: list[str], *, source: str = "") -> list[str]:
+    """What the person's "No, different" on a merge question writes (the one writer; ruling 74b's undo uses it too): the
+    held mention kept apart on its own pending line (`_keep_apart`), else the pair in `_merge_rejected.yaml` and any alias
+    that names the other taken off (`uncross_aliases`). Returns the manifest lines; the caller removes the question."""
+    from api.services import merge_rejections
+
+    if (kept := _keep_apart(settings, fm, pages)) is not None:
+        return kept
+    merge_rejections.add_rejected(settings.memory_path, entity_id, other)
+    # "Two people": an alias on either page that names the other is wrong, and leaves (`uncross_aliases`).
+    crossed = merge_rejections.uncross_aliases(settings.memory_path, entity_id, other)
+    trigger = f"source: {source}, " if source else ""
+    return [f"{merge_rejections.FILE}: updated ({trigger}trigger: inbox/merge_suggestion/rejected)",
+            *[f"{rel}: updated ({trigger}trigger: inbox/merge_suggestion/rejected)" for rel in crossed]]
+
+
 async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, bool, list[str]]:
     """Port of the clarifications.py logic (answer / dismiss / merge / reject / skip).
 
@@ -3258,19 +3274,9 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
 
         none = same_name_pick.is_another(request.option_key) and same_name_pick.applies(parsed.frontmatter)
         pages = same_name_pick.rejected_ids(parsed.frontmatter) if none else [other]
-        if (kept := _keep_apart(settings, parsed.frontmatter, pages)) is not None:
-            path.unlink()
-            return entity_id, False, kept
-        merge_rejections.add_rejected(settings.memory_path, entity_id, other)
-        # "Two people": an alias on either page that names the other is wrong, and leaves (`uncross_aliases`).
-        crossed = merge_rejections.uncross_aliases(settings.memory_path, entity_id, other)
+        lines = reject_effects(settings, parsed.frontmatter, entity_id, other, pages, source=path.stem)
         path.unlink()
-        return (
-            entity_id,
-            False,
-            [f"{merge_rejections.FILE}: updated (source: {path.stem}, trigger: inbox/merge_suggestion/rejected)",
-             *[f"{rel}: updated (source: {path.stem}, trigger: inbox/merge_suggestion/rejected)" for rel in crossed]],
-        )
+        return entity_id, False, lines
 
     source_episode = str(parsed.frontmatter.get("source_episode", "") or "").strip()
     source_timestamp = str(

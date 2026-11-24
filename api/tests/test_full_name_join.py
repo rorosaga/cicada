@@ -172,21 +172,63 @@ def test_the_second_read_is_framed_to_look_for_two_people(memory):
         assert "Teodor Brandt" in prompt and "my old teammate" in prompt and "Teo works at Kestrel" in prompt
 
 
-def test_undoing_the_join_puts_the_question_back_and_sleep_never_joins_the_pair_again(memory):
-    _world(memory)
+def _stage2_asks(memory: Path) -> list:
+    """What Stage 2's held-name route would raise now (`_held_alias_questions`), engine-free."""
+    from api.services import clarification_manager, entity_resolver
+
+    existing = []
+    for page in (memory / "entities").glob("*.md"):
+        parsed = markdown_parser.parse(page)
+        existing.append({"id": page.stem, "frontmatter": dict(parsed.frontmatter), "body": parsed.body})
+    return entity_resolver._held_alias_questions([], existing, {}, clarification_manager.ClarificationManager(memory), memory)
+
+
+@pytest.mark.parametrize("held_mention", [False, True])
+def test_undoing_the_join_is_the_person_saying_they_are_two(memory, held_mention):
+    """Ruling 74b: the pages and the held line come back as they were; the pair is kept apart by the writer the person's
+    own "No, different" uses; no question comes back, and nothing asks or joins them again."""
+    path = _world(memory)
+    if held_mention:   # the shape Stage 2 marks a question about a held mention with (`entity_resolver.HELD_MENTION_KEY`)
+        page = markdown_parser.parse(path)
+        markdown_parser.write(path, {**page.frontmatter, "held_mention": True}, page.body)
+        _commit(memory, "marked")
+    assert len(_stage2_asks(memory)) == 1, "before: Stage 2's held-name route would raise this pair"
     before = (memory / "entities" / "teo.md").read_bytes()
     store_before = (memory / "pending_entities.jsonl").read_bytes()
     assert _tend(memory, _judge(_one())).joined == 1
+    commits = len(_git(memory, "log", "--format=%h").split())
     restored, paths, lines, rec = inbox_tend.undo(memory, "inbox-001")
     _commit(memory, "undo")
-    assert restored == "inbox-001" and rec["rule"] == "full_name_one"
+    assert rec["rule"] == "full_name_one" and restored == "inbox-001"
     assert (memory / "entities" / "teo.md").read_bytes() == before
-    assert (memory / "pending_entities.jsonl").read_bytes() == store_before
-    assert markdown_parser.parse(memory / "inbox" / "inbox-001.md").frontmatter[inbox_tend.UNDONE_KEY] == "undone"
+    assert not (memory / "inbox" / "inbox-001.md").exists() and not (memory / "inbox" / "settled" / "inbox-001.md").exists()
+    line = pending_store.held_line(memory, "Teodor Brandt")
+    assert line is not None and line.held_claims, "the held line is back with its claims"
+    if held_mention:
+        assert "teo" in pending_store.apart_of(memory, "Teodor Brandt")
+    else:
+        assert merge_rejections.is_rejected(memory, "teodor-brandt", "teo")
+        assert (memory / "pending_entities.jsonl").read_bytes() == store_before
+    assert len(_git(memory, "log", "--format=%h").split()) == commits + 1, "one commit for the undo"
+    # nothing asks and nothing joins, from either side
+    assert _stage2_asks(memory) == []
     judge = _judge(_one())
     report = _tend(memory, judge)
-    assert report.joined == 0 and judge.calls == [] and report.skipped.get("policy:undone") == 1
-    assert (memory / "entities" / "teo.md").read_bytes() == before
+    assert report.joined == 0 and judge.calls == [] and _open(memory) == []
+
+
+def test_the_undo_route_says_the_pair_is_kept_apart_and_other_rules_still_reopen(memory):
+    from api.routers import inbox as inbox_router
+
+    _world(memory)
+    assert _tend(memory, _judge(_one())).joined == 1
+    out = run(inbox_router.undo_settled("inbox-001", settings=_Settings(memory)))
+    assert out == {"status": "kept_apart", "id": "inbox-001"}
+    sha = _git(memory, "log", "--grep=Sleep's settle undone", "-1", "--format=%h").strip()
+    assert sha, "one commit, the person's"
+    touched = _git(memory, "show", "--name-only", "--format=", sha).split()
+    assert "entities/teo.md" in touched and "_merge_rejected.yaml" in touched and "inbox/settled/inbox-001.md" in touched
+    assert _git(memory, "status", "--porcelain").strip() == ""
 
 
 # --------------------------------------------------------------------------- the reads must both stand
