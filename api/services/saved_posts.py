@@ -205,15 +205,31 @@ def _lit_by_claims(entry, kind_of) -> bool:
     return found
 
 
-def _page_signs(entry, episodes: dict, kind_of) -> set[str]:
-    """The signs from a post's own frontmatter, its own episodes and its own claims."""
+def _saves_by_page(episodes) -> dict[str, list]:
+    """``{page id: its save episodes}`` by the ``media_entity_id`` each carries. A note given on a link that is already
+    saved is written as a new episode (``media_ingestor.write_note_episode``) that names its page but is listed in the
+    page's ``source_episodes`` only when a later Sleep touches the page, so the page's own list alone misses it."""
+    out: dict[str, list] = {}
+    for episode in episodes:
+        fm = episode.frontmatter
+        page = str(fm.get(quiet_pages.SAVE_KEY) or "").strip() if isinstance(fm, dict) else ""
+        if page:
+            out.setdefault(page, []).append(episode)
+    return out
+
+
+def _page_signs(entry, episodes: dict, kind_of, saves: dict | None = None) -> set[str]:
+    """The signs from a post's own frontmatter, its own episodes and its own claims. Its own episodes are the ones its
+    ``source_episodes`` lists and the ones that name it (``saves``, by ``media_entity_id``)."""
     fm = entry.frontmatter
     out: set[str] = set()
     if fm.get("human_edited") is True or fm.get("corrections"):
         out.add("edited")
-    for episode_id in dict.fromkeys(quiet_pages.episode_ids(fm.get("source_episodes")
-                                                           if isinstance(fm.get("source_episodes"), list) else [])):
-        found = episodes.get(episode_id)
+    owned = list(dict.fromkeys(quiet_pages.episode_ids(fm.get("source_episodes")
+                                                       if isinstance(fm.get("source_episodes"), list) else [])))
+    mine = [episodes.get(episode_id) for episode_id in owned]
+    mine += [e for e in (saves or {}).get(entry.stem, []) if e.stem not in owned]
+    for found in mine:
         if found is not None and found.frontmatter.get(quiet_pages.SAVE_KEY):
             out |= episode_signs(found)
     if quiet_pages.lit_by_episodes(fm, kind_of):
@@ -280,7 +296,8 @@ def _build(entities, episodes) -> State:
     kind_of = lambda eid: quiet_pages.episode_kind(  # noqa: E731
         by_episode[eid].frontmatter if eid in by_episode else None) if eid else None
     posts = {e.stem: e for e in entities if is_post(e.frontmatter)}
-    signs: dict[str, set[str]] = {pid: _page_signs(entry, by_episode, kind_of) for pid, entry in posts.items()}
+    saves = _saves_by_page(episodes)
+    signs: dict[str, set[str]] = {pid: _page_signs(entry, by_episode, kind_of, saves) for pid, entry in posts.items()}
     for e in entities:
         fm = e.frontmatter
         if not isinstance(fm, dict):

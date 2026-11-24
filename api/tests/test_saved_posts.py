@@ -274,6 +274,28 @@ def test_an_agents_note_a_folders_reason_and_sleeps_reading_earn_nothing(bank, s
     assert bank.signs(bank.post(save=save)) == set()
 
 
+def test_a_note_given_on_an_already_saved_link_earns_the_page_before_sleep_lists_its_episode(bank):
+    """``write_note_episode`` names its page by ``media_entity_id`` and leaves ``source_episodes`` to a later Sleep."""
+    pid = bank.post()
+    bank.episode("ep_2026-11-22_001", {"has_note": True, "media_entity_id": pid, "origin": "web"})
+    bank_index.invalidate()
+    assert bank.signs(pid) == {"note"} and pid not in saved_posts.verdict(bank.root).rows
+
+
+def test_a_repeat_save_by_an_agent_session_or_another_page_earns_nothing(bank):
+    pid = bank.post()
+    other = bank.post("media-other", url=X.replace("1", "2"))
+    bank.episode("ep_2026-11-22_001", {"has_note": True, "media_entity_id": pid, "session_id": "s"})
+    bank.episode("ep_2026-11-22_002", {"has_note": True, "media_entity_id": "media-elsewhere"})
+    bank_index.invalidate()
+    assert bank.signs(pid) == set() and bank.signs(other) == set()
+
+
+def test_a_note_listed_by_the_page_and_naming_it_counts_once(bank):
+    pid = bank.post(save={"has_note": True})
+    assert bank.signs(pid) == {"note"} and len(saved_posts.verdict(bank.root).signs[pid]) == 1
+
+
 def test_an_agent_that_read_or_watched_it_earns_nothing(bank):
     read = "ep_2026-11-22_001"
     bank.episode(read, {"source": "page-read", "media_entity_id": "media-a-post", "session_id": "s"})
