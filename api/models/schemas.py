@@ -698,6 +698,42 @@ class PageBlockHistory(CamelModel):
     contributors: list[PageBlockContributor] = []
 
 
+class PageBlockListRow(CamelModel):
+    """One of a list's newest saves (``list_pages.block``): the words as the list's own row has them."""
+
+    title: str = ""
+    author: Optional[str] = None
+    posted: Optional[str] = None
+    saved: Optional[str] = None
+    host: Optional[str] = None
+
+
+class PageBlockListWhy(CamelModel):
+    """The person's own reason for a whole folder, read now from ``save_folders`` (never stored on the page)."""
+
+    text: str
+    at: Optional[str] = None
+
+
+class PageBlockList(CamelModel):
+    """G246 (ruling 81): what a list of saved posts holds, read from the saves each time the page is served — its count,
+    its newest day, when this Mac last read it, a folder's reason and its newest rows. ``stream``, ``folder`` and
+    ``channel`` are the items route's own address for the same rows; ``source`` the origin whose mark the page wears."""
+
+    site: str = ""
+    stream: str
+    folder: Optional[str] = None
+    channel: str = ""
+    label: str = ""
+    source: str = ""
+    count: int = 0
+    newest: Optional[str] = None
+    last_read_at: Optional[str] = None
+    why: Optional[PageBlockListWhy] = None
+    recent: list[PageBlockListRow] = []
+    recent_withheld: bool = False
+
+
 class PageBlocks(CamelModel):
     """``page_blocks.build``: ``order`` names the blocks this page has, in the order a page reads them; each present
     block's data rides its own key (an absent block is null or empty). Derived on read, never stored, never fetched.
@@ -715,6 +751,8 @@ class PageBlocks(CamelModel):
     sources: Optional[PageBlockSources] = None
     citations: Optional["PageBlockCitations"] = None
     history: Optional[PageBlockHistory] = None
+    # G246: last in the class on purpose — a field named ``list`` would shadow the builtin for every annotation after it.
+    list: Optional[PageBlockList] = None
 
 
 class SourceCorrection(CamelModel):
@@ -2664,6 +2702,9 @@ class GraphResponse(CamelModel):
     # M5b: distinct observer roster across the graph, so the observer filter bar
     # can populate its segments without a second call. Additive/optional.
     observers: list[str] = []
+    # G246 (ruling 81): how many saved posts are drawn as a row under their list instead of as a node. 0 until the
+    # posts-as-rows switch is on (and with ``include_posts``), so the app shows nothing; Home says the number in one line.
+    hidden_posts: int = 0
 
 
 # --- Search ---

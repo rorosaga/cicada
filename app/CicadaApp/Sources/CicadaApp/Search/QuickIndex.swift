@@ -137,10 +137,11 @@ struct QuickIndex: Sendable {
 }
 
 extension QuickIndex {
-    /// Graph nodes minus facets, hubs and media pages (R-SU5).
+    /// Graph nodes minus facets, hubs and media pages (R-SU5) — except a list of saved posts' own page (G246, ruling 81):
+    /// the media rows below are one per saved link, and a list has none, so this is how find opens it.
     static func entityDocs(_ nodes: [GraphNode]) -> [Doc] {
         nodes.compactMap { node in
-            guard !node.isFacet, !node.isHub, node.type != .hub, node.type != .media else { return nil }
+            guard !node.isFacet, !node.isHub, node.type != .hub, node.type != .media || node.mediaKind == "list" else { return nil }
             var fields = [QuickMatch.Field(node.name, weight: QuickMatch.Weight.name)]
             // G227: the qualifier is a word the person may type ("<name-a> IDE").
             if let qualifier = node.qualifier { fields.append(QuickMatch.Field(qualifier, weight: QuickMatch.Weight.keyword)) }
@@ -149,9 +150,13 @@ extension QuickIndex {
             if let summary = node.summary, !summary.isEmpty {
                 fields.append(QuickMatch.Field(summary, weight: QuickMatch.Weight.body))
             }
+            let isList = node.type == .media && node.mediaKind == "list"
             let row = FindRow(key: FindRowKey(kind: .entity, id: node.id), group: .entities, title: node.name,
-                              qualifier: node.qualifier, detail: node.summary.flatMap(firstLine), badge: node.type.label,
-                              mark: .entity(id: node.id, name: node.name, type: node.type),
+                              qualifier: node.qualifier, detail: node.summary.flatMap(firstLine),
+                              badge: isList ? Copy.Lists.listBadge : node.type.label,
+                              // A list wears its site's real mark (DR-52), never a stand-in.
+                              mark: isList && !(node.origin ?? "").isEmpty ? .origin(node.origin ?? "")
+                                  : .entity(id: node.id, name: node.name, type: node.type),
                               tieBreak: Double(node.degree), destination: .entity(id: node.id),
                               secondary: .entityInClusters(id: node.id))
             return Doc(row: row, fields: fields)

@@ -57,3 +57,7 @@ CommandLineToolTests/testTheCopyIsProviderNeutral
 TraceRecorderTests/testAnExcludedAppRecordsNothingNotEvenATitleOrAScreenshot
 TraceRecorderTests/testPausedNothingIsCapturedNotEvenATitle
 TraceNoNetworkTests
+
+## A saved post kept as a page (G246, ruling 81): nothing is offered until the switch is on, and the line names no internal word
+KeepAsPageTests/testNothingIsOfferedForAWorkAPostWithAPageOrWhileTheSwitchIsOff
+KeepAsPageTests/testTheLineNamesNoInternalWordAndNoProvider

@@ -3480,10 +3480,13 @@ def _another_id(name: str, existing_ids: set[str], creates: dict[str, dict]) -> 
 
 def _is_file_page(page: dict | None) -> bool:
     """A recording, video, memo or photo's page (``media_pages``, ROR-117): a file's name is no one's name, so a person's
-    mention never joins it — by title, close spelling or alias — and it is never the key a person's name resolves to."""
-    from api.services import media_pages
+    mention never joins it — by title, close spelling or alias — and it is never the key a person's name resolves to.
+    A list of saved posts' own page (``list_pages``, G246) is the same: "X: Bookmarks" is no one's name, so a conversation
+    about "my bookmarks" never lands words on it."""
+    from api.services import list_pages, media_pages
 
-    return page is not None and media_pages.is_file_page(page.get("frontmatter"))
+    fm = page.get("frontmatter") if page is not None else None
+    return page is not None and (media_pages.is_file_page(fm) or list_pages.is_list(fm))
 
 
 def _is_person(entity: dict) -> bool:

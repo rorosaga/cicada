@@ -71,6 +71,14 @@ repointed}`; 400 nothing picked or a type outside the set, 404 no such page or n
 or already undone. History rows (`?summary=true`) add `join` and `undoable`. `GET /entities/{retired-id}` answers the
 page it became, `X-Cicada-Redirected-From: <retired-id>` (`page_redirects`).
 
+**A list of saved posts' block (G246, ruling 81; `page_blocks` `blocks-8`).** `blocks.list` is present on a list's own page only (`list_pages.block`,
+`media.kind: list`): `{site, stream, folder, channel, label, source, count, newest, lastReadAt, why, recent}` read from the saves on every serve and never
+stored on the page — `count` and `newest` are the items route's `all` and `latest` for `stream=`/`folder=`, `lastReadAt` this Mac's last read of the list (outside
+every bank), `why` the folder's reason in the person's words, `recent` the five newest rows (`title`, `author`, `posted`, `saved`, `host`) for an agent and the CLI (the app
+draws its cards from the items route under the same address). It rides the card (`order` lists `list`), and is pinned on both sides by `api/tests/fixtures/list_block.json`
+(`test_list_pages.py`, `ListPageCardTests.swift`). It is **not yet an `include` kind**: the agent doors' schemas enumerate `page_blocks.KINDS` and the kind joins it, with both schemas, in the
+change that words it for an agent (`for_caller` already strips `recent` and `why` for a caller without `sources`, flagging `recentWithheld`). `EntityMedia` of such a page has an empty `url` and `kind: list`.
+`GET /sources/streams` asks the list pages' writer to catch up in the background and writes nothing itself (a no-op until the flip, on a replica and on a demo bank).
 **The card's blocks and its ETag (vision item 5, 2026-10-28; `page_blocks`).** `GET /entities/{id}` carries
 `blocks: {shape, order, relevance, sources, coordinates, looks, ongoing, ongoingTotal, history}` — which blocks the
 page has (`order`, in the page order the redesign proposal draws: why it matters, where to check, the type block,
@@ -683,6 +691,8 @@ share `api/tests/fixtures/saved_why_reasons.json`. New, read-only (`NONE` in the
 reason to the link's title, host and path (never its query) by EmbeddingGemma **only when it is already installed**
 (`onnx_embedder.find(PREFERRED_ID)`; never a download, a bundled-model fallback or a metered embedding service), else
 `basis: none`. Nothing written, nothing logged.
+
+**G246 (ruling 81, Track K).** `GET /sources/keep-as-page?url=` → `{state: none|row|kept|page, canUndo, becauseOf[], mediaEntityId}` (always `none` while `saved_posts.HIDE_POSTS` is off) and `POST /sources/keep-as-page {url, kept=true}` → `{status: kept|undone|unchanged, state…, episodeId}`: 404 for a link not saved or a save with no page, 409 in a demo bank, while Sleep holds the pages, or for "Back to a row" when another sign holds the page; `FORWARD` on a replica, `_DEMO_GATE`d, admitted. `GET /graph` gained `hiddenPosts` (an int, 0 while off and with `include_posts`); no ETag moved, since neither field changes while the constant is off.
 
 **G191 v3 bookmark writes** (both 409 in a demo bank and while Sleep holds the pages, both committed alone as
 `Cicada-Author: user`): `PUT /sources/saved-why` `{url, at, reasons[], project?, text?}` changes the one answer given at

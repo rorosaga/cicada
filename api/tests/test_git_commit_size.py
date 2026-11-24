@@ -135,10 +135,11 @@ def test_commit_changes_and_a_kept_apart_commit_carry_a_giant_message(bank, argv
     _assert_inside_the_limits(argv_seen)
 
 
-#: Messages past the bound (~130 KB) in the endings git treats differently: a final newline or none, trailing blanks
-#: and blank runs that git's own cleanup removes, a line that looks like a comment.
+#: Messages past the module's bound and under Linux's limit for one argument (128 KiB), so the `-m` reference commit
+#: can be made on Linux too, in the endings git treats differently: a final newline or none, trailing blanks and blank
+#: runs that git's own cleanup removes, a line that looks like a comment.
 def _big_messages():
-    body = "\n".join(f"entities/{LONG}-{i:05d}.md: updated (trigger: t)" for i in range(1400))
+    body = "\n".join(f"entities/{LONG}-{i:05d}.md: updated (trigger: t)" for i in range(870))
     return [f"Subject\n\n{body}\n\nCicada-Author: x", f"Subject\n\n{body}\n\nCicada-Author: x\n",
             f"Subject\n\n\n\n{body}   \n\n\n\n# not a comment  \n\nCicada-Author: x  \n\n", f"  {body}"]
 
@@ -153,7 +154,7 @@ def test_the_commit_objects_are_the_ones_dash_m_makes(bank, monkeypatch):
     tree = _git(bank, "write-tree").strip()
     head = _git(bank, "rev-parse", "HEAD").strip()
     for msg in _big_messages():
-        assert len(msg.encode()) > git_service.ARG_BYTES_MAX
+        assert git_service.ARG_BYTES_MAX < len(msg.encode()) < 128 * 1024 - 1024, "past the bound, and `-m` still fits on Linux"
         direct = _git(bank, "commit-tree", tree, "-p", head, "-m", msg).strip()
         through = git_service._git_env_sync(bank, dict(os.environ), "commit-tree", tree, "-p", head, "-m", msg).strip()
         assert through == direct, "commit-tree: the file form made a different commit object"

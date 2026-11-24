@@ -2847,6 +2847,20 @@ actor APIClient {
         }
     }
 
+    /// G246 — what a saved link's card may offer for "Keep as a page" (`GET /sources/keep-as-page`): `none` for
+    /// everything but a post drawn as a row or one the person's click holds, and for every link until the switch is on.
+    func keepAsPageState(url: String) async throws -> KeepAsPageState {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?/#")
+        let u = url.addingPercentEncoding(withAllowedCharacters: allowed) ?? url
+        return try await get("/sources/keep-as-page?url=\(u)")
+    }
+
+    /// G246 — keep a saved post as a page (`kept: true`) or send it back to a row (`POST /sources/keep-as-page`).
+    func keepAsPage(url: String, kept: Bool) async throws -> KeepAsPageReply {
+        try await post("/sources/keep-as-page", body: ["url": url, "kept": kept])
+    }
+
     /// G191 v3 — forget a bookmark in Cicada (`POST /sources/bookmarks/remove`): the page archived, never deleted.
     func removeBookmark(url: String) async throws {
         let _: BookmarkRemoveReply = try await post("/sources/bookmarks/remove", body: ["url": url])

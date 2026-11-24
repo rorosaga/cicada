@@ -579,6 +579,8 @@ mood sprite beside it (DR-13 keeps the study room the one illustration, so this 
 asked for by name, 2026-11-06); a request still `asked`, or `manual`, is not a wait (`ExportAgentRules.waitingVendors`),
 and the menu bar's lines follow the same rule. A sniff of that provider's export clears both the wait and the request.
 
+**Keep as a page (G246, ruling 81, Track K; dark: it draws only once `saved_posts.HIDE_POSTS` is on).** A saved post drawn as a row under its list wears one `NeutralButton` (compact, DR-40): "Keep as a page", and "Back to a row" while its own click is the only thing holding its page (`KeepAsPageControl`, `KeepAsPageModel`, `Models/KeepAsPage.swift`). The control asks `GET /sources/keep-as-page` and draws nothing for any answer but `row` or a `kept` with `canUndo`, so the app holds no rule about which saves are posts; it is wired into the Feed's detail (`FeedItemDetail`, not for a video) and takes `KeepAsPageControl(url:)` anywhere a row opens. A click posts, flashes the result in words and asks the Store for `.graph` and `.sources`; a refusal shows the server's sentence, "busy" its own. **Home's dated line** (`HiddenPostsStrip`, `HiddenPostsNote`): when `GET /graph` carries `hiddenPosts` > 0, one quiet row above the blocks says "N saved posts now show under their lists (since <day>). Open one to keep it as a page." with a "Got it" button; the day is the first day this Mac read a number, the line goes after 30 days or at "Got it", the record is this Mac's own (`UserDefaults`, one per memory, never the bank) and a number back at 0 clears it. Not wired yet (the files were fenced while the saves stack merged): the stream rows and cards in `SourceStreamItems.swift` and `SourcePageStreams.swift` — a card's menu takes `KeepAsPageControl(url: item.url)` or a `KeepAsPageModel` of its own.
+
 **Choosing what to bring in (ruling 58b).** The intake preview and the Welcome's staged exports show `ExportChoiceView`:
 a start date (`Everything`, or a date within the exports' own range) and a tick per new or grown chat, with a filter,
 *Select all/none* and "n of m chats". `IntakePreview.since` / `.deselected` are the choice; `chatImportCount` is the
@@ -2409,6 +2411,18 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   shouldn't be added manually, always sync"): linking a repository to a project happens on either page. *Starred*
   counts the starred pages. The lists are read on open and after each connect, install check or sync
   (`generation`), never a Store domain.
+  **A list of saved posts' card (G246, ruling 81, owner 2026-11-24; `Views/Graph/ListPageCard.swift`, DR-37, 38, 52, 74, 78, 81, 60/61, 71;
+  dark until the backend's `saved_posts.HIDE_POSTS` is on).** `EntityDetailCard.pageBlock` draws it for a `media` page whose
+  `media.kind` is `list` and whose `blocks.list` arrived (`MediaBlock.isList`, `PageBlocks.ListBlock`): the site's real mark
+  (`OriginMark`, the block's `source`) beside the one line the page holds about itself ("Posts you bookmarked on X."; the rendered body
+  is not drawn again), a quiet line "N saved · newest <day> · last read <day>" (every part but the count optional: this Mac's last read of the
+  list is read now from outside the bank, never stored), for a folder the reason the person gave it ("Why this folder", their words, here and
+  nowhere else), then **the five newest items as the Sources page's own cards** (`SourceStreamCards(key: SourceListKey.make(channel, stream:, folder:), cap: 5)`,
+  the items route narrowed by stream and folder) and a plain "All N", which opens the whole list in the column's place under `SourceDrillHead`
+  ("‹ X: Bookmarks", Esc returns, DR-81). A list with nothing in it draws nothing. No picture and no glyph beyond the mark; the why-it-matters
+  slot is not drawn for it. It is reached from Clusters (the Media menu's "Lists" kind), the graph (one node per non-empty list, its earned posts joined
+  to it, `features.md`) and find (`QuickIndex.entityDocs` lets a list's page in beside the pages: every other media page reaches the palette as a saved link,
+  and a list has none; its row wears the site's mark and the badge "List").
   **A repository page's card** (`Views/Graph/RepositoryCard.swift`) sits where a paper's card and a saved link's
   preview sit, above the article: `GET /entities/{id}/repository` is asked for a `media` page whose kind is unknown
   (the graph stub) or `repository` (a 404 for any other is nil), on its own task because the README may be read first.

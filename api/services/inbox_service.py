@@ -558,9 +558,18 @@ def _subject_quiet(memory_path: Path, entity_id: str) -> bool:
     if not entity_id:
         return False
     filepath = resolve_entity_file(memory_path, entity_id)
+    if filepath is None:
+        return False
+    # G246: a list of saved posts has a page of its own and is never asked about (it is never quiet, so this is its own
+    # exclusion: a question is held, unserved, for any page that is one).
+    from api.services import list_pages
+
+    entry = bank_index.file(Path(memory_path), "entities", filepath.name)
+    if entry is not None and list_pages.is_list(entry.frontmatter):
+        return True
     # G246: a saved post the person gave a reason to is an ordinary page (`page_is_dimmed`): it may be asked about; a post
     # drawn as a row never is.
-    return filepath is not None and quiet_pages.page_is_dimmed(memory_path, filepath.stem)
+    return quiet_pages.page_is_dimmed(memory_path, filepath.stem)
 
 
 def _fold_anchor(memory_path: Path, fm: dict) -> str:
