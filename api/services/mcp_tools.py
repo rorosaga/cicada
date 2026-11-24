@@ -1598,17 +1598,26 @@ YOUTUBE_LIST_SLEEPING = ("Not recorded: Cicada is consolidating memory right now
 
 
 @_holding_pages
-def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=None, via: str | None = None) -> str:
+def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=None, via: str | None = None,
+                        playlist_names=None) -> str:
     """``cicada_record_youtube_list`` (G71 / G166, owner 2026-10-16): what the person's own agent read on their YouTube
-    Watch later or watch-history page, in their signed-in browser, after the person turned that list on.
+    Watch later, watch-history, playlists or liked-videos page, in their signed-in browser, after the person turned that
+    list on.
 
     Refusals, in order, write nothing: a demo bank, agent reading off, an unknown list or outcome, a list the person
-    has not turned on. ``needs_login`` / ``blocked`` pause both lists for a week (no bank write); ``failed`` is noted.
-    A ``read``: **Watch later** rows become saves where saved videos go (``media_ingestor`` — one ``url_index`` row
-    per video, so one already saved by Takeout, a bookmark or a link is a duplicate, never a second page); **history**
-    rows go to ``watch_history`` (one episode per day; the page's day, merged with what Chrome or Takeout wrote for
-    that video that day). Only YouTube video pages are kept. Committed as the harness."""
-    from api.services import media_ingestor, reading_settings, video_urls, watch_history, youtube_lists
+    has not turned on. ``needs_login`` / ``blocked`` pause every YouTube list for a week (no bank write); ``failed`` is
+    noted. A ``read``: **Watch later**, **Liked videos** and **playlists** rows become saves where saved videos go
+    (``media_ingestor`` — one ``url_index`` row per video, so one already saved by Takeout, a bookmark, a link or another
+    list is a duplicate, never a second page, and gains this list on its page's ``collections:``); a playlist's own name
+    is the save's folder (``playlist`` on each row, G245). **History** rows go to ``watch_history`` (one episode per
+    day; the page's day, merged with what Chrome or Takeout wrote for that video that day). Only YouTube video pages are
+    kept. Committed as the harness.
+
+    G245: the playlists index is one call with ``playlist_names`` and no videos — it keeps their count and answers
+    which (at most ``folder_pass.FOLDERS_PER_PASS``, least recently read first) to open; each playlist's page is a call
+    whose rows carry ``playlist``. The reply says when a call reached videos already in memory (a later read stops
+    there)."""
+    from api.services import folder_pass, media_ingestor, reading_settings, save_folders, video_urls, watch_history, youtube_lists
     from api.services.media_ingestor import MediaMeta, PreparedItem, RawItem
 
     memory_path = ctx.memory_path()
@@ -1618,7 +1627,7 @@ def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=N
         return _READING_OFF
     name = str(list_name or "").strip().lower().replace(" ", "_")
     if name not in youtube_lists.LISTS:
-        return Reply("Error: list must be watch_later or history.", code="invalid_arguments")
+        return Reply(f"Error: list must be one of {', '.join(youtube_lists.LISTS)}.", code="invalid_arguments")
     outcome = str(outcome or "").strip().lower()
     if outcome not in youtube_lists.OUTCOMES:
         return Reply(f"Error: outcome must be one of {', '.join(youtube_lists.OUTCOMES)}.", code="invalid_arguments")
@@ -1629,28 +1638,48 @@ def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=N
     if outcome in youtube_lists.PAUSING:
         youtube_lists.note(memory_path, name, outcome)
         return ("Recorded: YouTube needs the person to sign in (or blocked the page). Stop: do not sign in, type "
-                "credentials or try another route. Both YouTube lists are paused for a week, or until the person "
+                "credentials or try another route. Every YouTube list is paused for a week, or until the person "
                 "turns one on again.")
     if outcome == "failed":
         youtube_lists.note(memory_path, name, outcome)
         return "Recorded: the read failed. Nothing was written; the list is offered again later."
+    names = save_folders.clean_names(playlist_names) if playlist_names is not None else None
+    if names is not None and name != "playlists":
+        return Reply("Error: `playlist_names` is for the playlists list only.", code="invalid_arguments")
+
+    def open_next() -> str:
+        youtube_lists.note_folders(memory_path, name, names or [])
+        if not names:
+            return " No playlists on this account; nothing more to open."
+        nxt = youtube_lists.next_folders(memory_path, names, name)
+        return (f" {len(names)} playlist(s). Open these next, one page each, least recently read first (at most "
+                f"{folder_pass.FOLDERS_PER_PASS}): " + "; ".join(f"\u201c{n}\u201d" for n in nxt) +
+                ". Record each with `playlist` set to its name on every row.")
+
     if isinstance(videos, list) and not videos:
-        # An empty Watch later or history is a read: the list is there and has nothing in it (not a failed page).
+        # An empty list is a read: the list is there and has nothing in it (not a failed page).
+        if name == "playlists" and names:
+            # The index alone: it names the playlists, it is not yet a read of any of them.
+            return "Recorded the person's YouTube playlists index." + open_next()
         youtube_lists.note(memory_path, name, "read", videos=0)
+        if name == "playlists" and names is not None:
+            youtube_lists.note_folders(memory_path, name, names)
         return "Recorded: that YouTube list is empty. Nothing was written; it is checked again later."
     rows = videos if isinstance(videos, list) else []
     if not rows:
         return Reply("Error: a read needs `videos` — the videos the page showed, each {url, title, channel"
-                + (", watched_on" if name == "history" else "") + "}; send `videos: []` for a list that is empty. Record `failed` only if you could not read the page.",
+                + (", watched_on" if name == "history" else ", playlist" if name == "playlists" else "")
+                + "}; send `videos: []` for a list that is empty. Record `failed` only if you could not read the page.",
                 code="invalid_arguments")
     if len(rows) > MAX_YOUTUBE_LIST_VIDEOS:
         return Reply(f"Error: at most {MAX_YOUTUBE_LIST_VIDEOS} videos in one call; record the rest in a second call.",
                      code="invalid_arguments")
     if ctx.sleep_answer:
         return YOUTUBE_LIST_SLEEPING
-    dropped = 0
+    dropped = unnamed = 0
     paths: list[str] = []
     lines: list[str] = []
+    stop = ""
     if name == "history":
         watches = []
         for row in rows:
@@ -1669,34 +1698,46 @@ def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=N
     else:
         idx = media_ingestor.load_url_index(memory_path)
         created = duplicates = listed = 0
-        seen: set[str] = set()
+        seen: set[tuple[str, str]] = set()
+        known: list[bool] = []
+        read_playlists: list[str] = []
         for row in rows:
             row = row if isinstance(row, dict) else {}
             found = watch_history.watch_url(row.get("url"))
             if found is None or found[0] != "youtube":
                 dropped += 1
                 continue
-            if found[1] in seen:
-                continue
             url = found[1]
-            seen.add(url)
+            if name == "playlists":
+                # A playlist is the save's folder; the same video in two playlists is one page on both lists.
+                folder = save_folders.clean_name(row.get("playlist"))
+                if folder is None:
+                    unnamed += 1
+                    continue
+            else:
+                folder = youtube_lists.FOLDERS[name]
+            if (url, folder) in seen:
+                continue
+            seen.add((url, folder))
+            if folder not in read_playlists:
+                read_playlists.append(folder)
             title = watch_history.clean_title(row.get("title"))
             channel = " ".join(str(row.get("channel") or "").split())[:120] or None
-            item = RawItem(url=url, title=title or None, channel=channel, folder="Watch later",
-                           origin="youtube-playlist")
+            item = RawItem(url=url, title=title or None, channel=channel, folder=folder, origin="youtube-playlist")
             ref = video_urls.resolve(url)
             meta = MediaMeta(title=title or media_ingestor._fallback_title(url), site="youtube.com",
                              channel=channel, media_type="youtube", provider=ref.provider if ref else None)
-            # Inside this tool's admission and page lock (`_holding_pages`): a repeat appends Watch later to its page.
+            # Inside this tool's admission and page lock (`_holding_pages`): a repeat appends the list to its page.
             res = media_ingestor.write_prepared(PreparedItem(item, meta), memory_path, idx, append_list=True)
             if res.status == "created":
                 created += 1
                 paths += [f"entities/{res.media_entity_id}.md", f"episodes/{res.episode_id}.md"]
             else:
                 duplicates += 1
-                if res.collection_added:   # saved before from another list: its page now lists Watch later too
+                if res.collection_added:   # saved before from another list: its page now lists this one too
                     listed += 1
                     paths.append(f"entities/{res.media_entity_id}.md")
+            known.append(res.status != "created" and not res.collection_added)
         # `write_prepared`'s contract: every caller saves the index. A duplicate adds its alias rows too
         # (`index_aliases`), so it is saved whenever a row was written, and committed when its bytes moved
         # (backend hunt, 2026-10-16: it was saved only when a video was new, dropping a duplicate's aliases).
@@ -1708,17 +1749,31 @@ def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=N
             index_changed = (index_file.read_bytes() if index_file.is_file() else None) != before_index
         if index_changed:
             paths.append("sources/url_index.json")
+        where = f" {label}" if name != "playlists" else " playlist"
         lines = ([f"sources/url_index.json: updated (trigger: {ctx.trigger})"] if index_changed else []) + (
-            [f"{created} Watch later video(s) saved (trigger: {ctx.trigger})"] if created else []) + (
-            [f"{listed} saved video(s) now list Watch later (trigger: {ctx.trigger})"] if listed else [])
+            [f"{created}{where} video(s) saved (trigger: {ctx.trigger})"] if created else []) + (
+            [f"{listed} saved video(s) now list {label} (trigger: {ctx.trigger})"] if listed else [])
         youtube_lists.note(memory_path, name, "read", videos=len(seen))
-        said = (f"{created} new Watch later video(s) saved; {duplicates} already in memory "
-                "(saved before by a Takeout, a bookmark or a link).")
+        if name == "playlists":
+            for folder in read_playlists:
+                youtube_lists.stamp_folder(memory_path, name, folder)
+        said = (f"{created} new {label} video(s) saved; {duplicates} already in memory "
+                "(saved before by a Takeout, a bookmark, a link or another list)."
+                if name != "playlists" else
+                f"{created} new playlist video(s) saved in {len(read_playlists)} playlist(s); {duplicates} already in "
+                "memory (saved before by a Takeout, a bookmark, a link or another list).")
+        if folder_pass.known_ground(known):
+            stop = (f" Known ground: {sum(known)} of these {len(known)} video(s) were already in memory, so you have "
+                    "caught up with this list; stop scrolling it. A later read starts again from the top.")
+        if names is not None:
+            stop += open_next()
     if paths:
         agent_commits.commit_write(memory_path, subject=ctx.commit_subject, lines=lines, paths=paths,
                                    author=ctx.author, session=ctx.session_id)
     extra = f" {dropped} row(s) were not YouTube video pages and were left out." if dropped else ""
-    return f"Recorded the person's YouTube {label}. {said}{extra}"
+    if unnamed:
+        extra += f" {unnamed} row(s) named no playlist and were left out: set `playlist` on every row."
+    return f"Recorded the person's YouTube {label}. {said}{stop}{extra}"
 
 
 #: At most this many items in one ``cicada_record_saved_list`` call (a few screens of a list, never a whole archive).
@@ -1751,25 +1806,56 @@ def _one_line(value, limit: int) -> str:
     return (words[:limit].rstrip() + "…") if len(words) > limit else words
 
 
+def _truthy(value) -> bool:
+    return value is True or str(value or "").strip().lower() in ("true", "1", "yes")
+
+
+def _give_posted(memory_path: Path, episode_id: str, day: str) -> bool:
+    """A post kept before its list showed the day it was posted (an export has none) gains that day, in place and once:
+    the episode's frontmatter alone, under its lock (G245). ``True`` when the file changed."""
+    from api.services import episode_staging
+
+    path = memory_path / "episodes" / f"{episode_id}.md"
+    if not episode_id or "/" in episode_id or not path.is_file():
+        return False
+
+    def edit(fm: dict) -> bool:
+        if fm.get("posted"):
+            return False
+        fm["posted"] = day
+        return True
+
+    return episode_staging.amend_frontmatter(path, edit)
+
+
 @_holding_pages
 def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None, via: str | None = None,
-                      handle: str | None = None, profile_url: str | None = None) -> str:
+                      handle: str | None = None, profile_url: str | None = None, continues=None,
+                      folder: str | None = None, folder_names=None) -> str:
     """``cicada_record_saved_list`` (G206, redesign 2026-10-22): what the person's own agent read on their saved list
-    on X (Bookmarks), Instagram (Saved), LinkedIn (Saved posts) or, since G232, Reddit (Saved), Pinterest (Saved Pins)
-    or TikTok (Favorites), and, since ROR-128, Spotify (Library) or Goodreads (shelves), in their signed-in browser, after
-    the person turned that list on. A Goodreads read is books, held for the person's choice (``goodreads_waiting``).
+    on X (Bookmarks, Likes), Instagram (Saved, Likes), LinkedIn (Saved posts) or, since G232, Reddit (Saved, Upvoted),
+    Pinterest (Saved Pins) or TikTok (Favorites), and, since ROR-128, Spotify (Library) or Goodreads (shelves), in their
+    signed-in browser, after the person turned that list on. A Goodreads read is books, held for the person's choice
+    (``goodreads_waiting``).
 
     Refusals, in order, write nothing: a demo bank, agent reading off, an unknown platform or outcome, a list the
-    person has not turned on, the day's reads spent. ``needs_login`` / ``blocked`` pause that list for a week (no bank
-    write) and ask the person to sign in (G205); ``failed`` is noted. A ``read``: each post becomes a save where saved
-    links go (``media_ingestor``, one ``url_index`` row per post with its other spellings as aliases — a post saved
-    before by an archive, a connector or a link is a duplicate, never a second page), under the list's own origin, so
-    it is indexed and never read by a model (ruling 30). Nothing is fetched. Committed as the harness.
+    person has not turned on, the day's reads spent. ``needs_login`` / ``blocked`` pause that site's lists for a week (no
+    bank write) and ask the person to sign in (G205); ``failed`` is noted. A ``read``: each post becomes a save where
+    saved links go (``media_ingestor``, one ``url_index`` row per post with its other spellings as aliases — a post saved
+    before by an archive, a connector, a link or another list is a duplicate, never a second page; from another list it
+    gains this list on its page's ``collections:``), under the list's own origin, so it is indexed and never read by a
+    model (ruling 30). Nothing is fetched. Committed as the harness.
 
     ROR-114: ``handle`` and ``profile_url`` are the person's own handle and profile link as the signed-in page showed
     them. A link is kept only if it is ``https`` on that platform's own host; either is kept beside the list's status
-    (machine state, never a bank), and one that does not pass is left out and said so."""
-    from api.services import media_ingestor, reading_settings, save_folders, saved_lists
+    (machine state, never a bank), and one that does not pass is left out and said so.
+
+    G245 (ruling 78): **a read is a pass.** Its calls are tied by ``continues`` (every call after the first) and the
+    whole pass counts once against the day's bound; a folder's own page is a call with ``folder`` (its name), after the
+    All page named the site's folders in ``folder_names`` and the reply said which to open (at most
+    ``saved_lists.FOLDERS_PER_PASS``, least recently read first). A row's ``posted`` is the post's own day when the page
+    showed one. The reply says when the call reached posts already in memory, so a later read stops there."""
+    from api.services import folder_pass, media_ingestor, reading_settings, save_folders, saved_at, saved_lists
     from api.services.media_ingestor import MediaMeta, PreparedItem, RawItem
 
     memory_path = ctx.memory_path()
@@ -1784,36 +1870,66 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     if outcome not in saved_lists.OUTCOMES:
         return Reply(f"Error: outcome must be one of {', '.join(saved_lists.OUTCOMES)}.", code="invalid_arguments")
     p = saved_lists.PLATFORMS[key]
+    listing = f"{p.name} {p.label}" if p.base else f"saved {p.name} posts"
     if not saved_lists.allowed(key):
-        return Reply(f"Not recorded: the person has not asked their agent to keep their saved {p.name} posts current "
+        return Reply(f"Not recorded: the person has not asked their agent to keep their {listing} current "
                      "(Sources). Nothing was read into memory.", code="refused")
+    folder_name = save_folders.clean_name(folder) if folder else None
+    if folder_name and not p.folders:
+        return Reply(f"Error: {p.name} {p.label} has no folders to open; leave `folder` out.", code="invalid_arguments")
+    names = save_folders.clean_names(folder_names) if folder_names is not None else None
     who = {"handle": saved_lists.clean_handle(handle), "profile_url": saved_lists.clean_profile_url(key, profile_url)}
     unkept = (" The handle was not kept: send it as one word, as the page shows it." if handle and not who["handle"]
               else "") + (f" The profile link was not kept: it must be an https link on {p.name}'s own site."
                           if profile_url and not who["profile_url"] else "")
+    # A folder's own page is always a continuation; so is a call that says so. It carries on only a pass that is open
+    # (counted, recent, with calls to spare): otherwise it is a new read, counted and bound like any (G245).
+    wants_more = _truthy(continues) or bool(folder_name)
+    continuing = wants_more and saved_lists.pass_open(memory_path, key)
+    started = (" This call asked to continue a read, but none was open (it ended, or used its "
+               f"{saved_lists.PASS_CALLS} calls), so it counted as a new read." if wants_more and not continuing else "")
     if outcome in saved_lists.PAUSING:
         saved_lists.note(memory_path, key, outcome, **who)
         _ask_sign_in_for_list(ctx, memory_path, p)
         return (f"Recorded: {p.name} needs the person to sign in (or blocked the page). Stop: do not sign in, type "
-                f"credentials or try another route. Their {p.name} list is paused for a week, or until the person "
+                f"credentials or try another route. Their {p.name} lists are paused for a week, or until the person "
                 "signs in and says so in Cicada." + unkept)
     if outcome == "failed":
         saved_lists.note(memory_path, key, outcome, **who)
         return "Recorded: the read failed. Nothing was written; the list is offered again later." + unkept
+
+    def folders_said() -> str:
+        """What the All page's ``folder_names`` bought: the count kept, and which folders to open next."""
+        if names is None:
+            return ""
+        if not p.folders:
+            return f" {p.name} {p.label} has no folders; `folder_names` was ignored."
+        saved_lists.note_folders(memory_path, key, names)
+        if not names:
+            return " No folders on this list; nothing more to open."
+        nxt = saved_lists.next_folders(memory_path, names, key)
+        return (f" {len(names)} folder(s) on this list. Open these next, one page each, least recently read first "
+                f"(at most {saved_lists.FOLDERS_PER_PASS}): " + "; ".join(f"\u201c{n}\u201d" for n in nxt) +
+                f". Record each with `folder` set to its name and `continues=true`. They count with this read, not "
+                "again.")
+
     if isinstance(items, list) and not items:
         # The list is there and has nothing in it: a read of an empty list, not a failed page (sources-truth).
-        saved_lists.note(memory_path, key, "read", items=0, **who)
-        return (f"Recorded: the person's {p.name} {p.label} is empty. Nothing was written; it is checked again "
-                "later." + unkept)
+        saved_lists.note(memory_path, key, "read", items=0, continues=continuing, **who)
+        if folder_name:
+            saved_lists.stamp_folder(memory_path, key, folder_name)
+        return (f"Recorded: the person's {p.name} {p.label} is empty"
+                + (f" in \u201c{folder_name}\u201d" if folder_name else "")
+                + ". Nothing was written; it is checked again later." + folders_said() + started + unkept)
     rows = items if isinstance(items, list) else []
     if not rows:
         return Reply("Error: a read needs `items` — the posts the list showed, each {url, author, text}; send "
                      "`items: []` for a list that is empty. Record `failed` only if you could not read the page.",
                      code="invalid_arguments")
     if len(rows) > MAX_SAVED_LIST_ITEMS:
-        return Reply(f"Error: at most {MAX_SAVED_LIST_ITEMS} items in one call; record the rest in a second call.",
-                     code="invalid_arguments")
-    if saved_lists.reads_today(memory_path) >= saved_lists.DAILY_READS:
+        return Reply(f"Error: at most {MAX_SAVED_LIST_ITEMS} items in one call; record the rest in a second call "
+                     "with `continues=true`.", code="invalid_arguments")
+    if not continuing and saved_lists.reads_today(memory_path) >= saved_lists.DAILY_READS:
         return Reply(f"Not recorded: {saved_lists.DAILY_READS} saved-list reads have been recorded today, the most "
                      "Cicada takes in a day. Nothing was saved; the list is offered again tomorrow.", code="refused")
     if key == "goodreads":
@@ -1822,7 +1938,7 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
         from api.services import goodreads_waiting
 
         out = goodreads_waiting.hold(memory_path, rows)
-        saved_lists.note(memory_path, key, "read", items=out["held"] + out["known"], **who)
+        saved_lists.note(memory_path, key, "read", items=out["held"] + out["known"], continues=continuing, **who)
         left = (f" {out['dropped']} row(s) were not books (no id or title) and were left out." if out["dropped"] else "") + (
             f" {out['full']} more book(s) did not fit; the rest are offered after the person chooses." if out["full"] else "")
         return (f"Recorded the person's Goodreads shelves. {out['held']} new book(s) wait for the person to choose which "
@@ -1831,8 +1947,9 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     if ctx.sleep_answer:
         return SAVED_LIST_SLEEPING
     idx = media_ingestor.load_url_index(memory_path)
-    created = duplicates = listed = dropped = refiled = 0
+    created = duplicates = listed = dropped = refiled = dated = 0
     seen: set[str] = set()
+    known: list[bool] = []
     paths: list[str] = []
     for row in rows:
         row = row if isinstance(row, dict) else {}
@@ -1846,33 +1963,45 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
         seen.add(url)
         text = _one_line(row.get("text"), SAVED_TEXT_MAX)
         author = _one_line(row.get("author"), 60)
-        if key == "x" and author and not author.startswith("@") and " " not in author:
+        if p.site == "x.com" and author and not author.startswith("@") and " " not in author:
             author = "@" + author
         title = (_one_line(text, SAVED_TITLE_MAX) if text
                  else f"Post by {author}" if author else media_ingestor._fallback_title(url))
+        posted = saved_at.posted_day(row.get("posted"))
         # The list's own origin and folder make the save index-only (`history_index.kind`): no note, no reason —
         # the post's words are the post's, never the person's.
         item = RawItem(url=url, title=title, folder=p.folder, origin=p.origin, aliases=list(aliases),
-                       preview=text or None, defer_enrich=True)
+                       preview=text or None, defer_enrich=True, posted=posted)
         meta = MediaMeta(title=title, description=text, site=media_ingestor._site_of(url),
                          media_type=media_ingestor._classify(url))
         res = media_ingestor.write_prepared(PreparedItem(item, meta), memory_path, idx, append_list=True)
         if res.status == "created":
             created += 1
             paths += [f"entities/{res.media_entity_id}.md", f"episodes/{res.episode_id}.md"]
+            dated += int(bool(posted))
         else:
             duplicates += 1
             if res.collection_added:
                 listed += 1
                 paths.append(f"entities/{res.media_entity_id}.md")
+            if posted and _give_posted(memory_path, res.episode_id, posted):
+                dated += 1
+                if f"episodes/{res.episode_id}.md" not in paths:
+                    paths.append(f"episodes/{res.episode_id}.md")
         # G221: the site's own folders the row says the post is filed in — on that one save, in place (a post saved
-        # before is not saved again), and readable when a folder carries the person's reason.
-        if row.get("folders"):
-            filed = save_folders.file_save(memory_path, res.episode_id, p.origin, add=row.get("folders"))
-            if filed["path"] and filed["path"] not in paths:
-                paths.append(filed["path"])
-                if res.status != "created":
-                    refiled += 1
+        # before is not saved again), and readable when a folder carries the person's reason. A folder's own page
+        # (G245) files every post it shows in that folder.
+        moved = False
+        in_folders = ([folder_name] if folder_name else []) + list(row.get("folders") or [])
+        if in_folders:
+            filed = save_folders.file_save(memory_path, res.episode_id, p.origin, add=in_folders)
+            if filed["path"]:
+                moved = res.status != "created"
+                if filed["path"] not in paths:
+                    paths.append(filed["path"])
+                    if res.status != "created":
+                        refiled += 1
+        known.append(res.status != "created" and not res.collection_added and not moved)
     index_file = memory_path / "sources" / "url_index.json"
     index_changed = False
     if created or duplicates:
@@ -1887,17 +2016,28 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
         saved_lists.note(memory_path, key, "failed", **who)
         return (f"Recorded: the read failed. None of the {dropped} row(s) were {p.name} posts, so nothing was written; "
                 f"the list is offered again later. Open {p.name}'s {p.label} page and read that list." + unkept)
-    saved_lists.note(memory_path, key, "read", items=len(seen), **who)
+    saved_lists.note(memory_path, key, "read", items=len(seen), continues=continuing, **who)
+    if folder_name:
+        saved_lists.stamp_folder(memory_path, key, folder_name)
     if paths:
         lines = ([f"sources/url_index.json: updated (trigger: {ctx.trigger})"] if index_changed else []) + (
             [f"{created} saved {p.name} post(s) (trigger: {ctx.trigger})"] if created else []) + (
             [f"{listed} saved link(s) now list {p.name} {p.label} (trigger: {ctx.trigger})"] if listed else []) + (
-            [f"{refiled} saved post(s) filed in more folders (trigger: {ctx.trigger})"] if refiled else [])
+            [f"{refiled} saved post(s) filed in more folders (trigger: {ctx.trigger})"] if refiled else []) + (
+            [f"{dated} saved post(s) given the day they were posted (trigger: {ctx.trigger})"] if dated else [])
         agent_commits.commit_write(memory_path, subject=ctx.commit_subject, lines=lines, paths=paths,
                                    author=ctx.author, session=ctx.session_id)
     extra = f" {dropped} row(s) were not {p.name} posts and were left out." if dropped else ""
-    return (f"Recorded the person's {p.name} {p.label}. {created} new post(s) saved; {duplicates} already in memory. "
-            f"Saved posts are kept for lookup, not read.{extra}{unkept}")
+    stop = ""
+    if folder_pass.known_ground(known):
+        stop = (f" Known ground: {sum(known)} of these {len(known)} post(s) were already in memory"
+                + (f" and filed in \u201c{folder_name}\u201d" if folder_name else "")
+                + ", so you have caught up with this list; stop scrolling it. A later read starts again from the top.")
+    more = (f" Filed in \u201c{folder_name}\u201d." if folder_name else "") + (
+        " This call continued the read: it was not counted again today." if continuing else "")
+    return (f"Recorded the person's {p.name} {p.label}. {created} new post(s) saved; {duplicates} already in memory"
+            + (f" ({listed} now on this list too)" if listed else "") + f". Saved posts are kept for lookup, not read."
+            f"{more}{stop}{folders_said()}{started}{extra}{unkept}")
 
 
 #: At most this many rows in one ``cicada_record_substack_list`` call (a few screens of a list, never a whole archive).

@@ -1112,7 +1112,10 @@ API gives no one Watch later or watch history, so there are three doors, and the
   reads on turning on, launch, a bank switch, Sync now and every 10 minutes when the file's size or time moved (a stat).
 - **Door 3, the person's own agent (`mcp.md`, "YouTube lists").** It reads Watch later and the history page in the
   person's signed-in browser and records through `cicada_record_youtube_list`: Watch later rows as saves (a video
-  already saved is a duplicate), history rows as days (the page's day).
+  already saved is a duplicate), history rows as days (the page's day). Since G245 (ruling 78b) it may also read, once the
+  person turns each on, the playlists index and each playlist's page (a playlist's name is the save's folder; at most 12 a
+  read, least recently read first) and the Liked videos list (`list=LL`, folder `Liked videos`): saves under the same
+  `youtube-playlist` origin, index-only, one page on every list a video is on.
 - **Door 4, activity traces (G218, below).** A YouTube page an allowed Chromium browser showed in front for at least 20 s
   is a watch with `via: traces` and `dwell_s` (the day's seconds in front for that video, counted from the traces
   store; the larger figure wins, so any arrival order gives the same day; the body says "N min on screen"). It covers
@@ -1246,8 +1249,11 @@ So watch history and list saves are a record to look up, never a conversation to
   summary (`source: watch-history-month`), and a save from a platform's saved list: origin `youtube-playlist` (a
   Takeout playlist, Watch later included, or the agent's read of Watch later), `instagram-saved`, `tiktok-saved`,
   `x-likes`, `linkedin-saved`, and `reddit-saved` / `x-bookmarks` only under the folder the export reader names
-  (`Saved posts`/`Saved comments`, `Bookmarks`) — the Reddit and X connectors share those origins under other
-  folders. A save carrying the person's own note is read (no list door carries a note; one that did is stamped
+  (`Saved posts`/`Saved comments`/`Upvoted`, `Bookmarks`) — the Reddit and X connectors share those origins under other
+  folders. G245's browser lists write under the same labels (`x-likes`/`Likes`, `instagram-saved`/`Liked posts`,
+  `reddit-saved`/`Upvoted`, `youtube-playlist`/`Liked videos` or the playlist's name), so an export's row and the browser's
+  are one row, and a gate test walks every list through this predicate; a post on two lists is one page whose
+  `collections:` names both (`mcp.md`, "More lists, folders, catching up and a post's own day"). A save carrying the person's own note is read (no list door carries a note; one that did is stamped
   `has_note` and queued). Every other bare save is lean, the same way (*The lean pass*, ruling 62, below). **The
   person's words always win:** a list save whose frontmatter carries `saved_why`, `saved_why_earlier` or `has_note`
   is never index-only, so when they later say why they saved it (`saved_why.attach`/`edit` — e.g. a bookmark of a

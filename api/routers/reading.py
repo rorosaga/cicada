@@ -56,10 +56,10 @@ class SettingsUpdate(BaseModel):
     exploreSignedIn: bool | None = None
     #: A patch ``{site: bool}``: true never explores that site (D3), false lifts it.
     neverExplore: dict[str, bool] | None = None
-    #: G71 (2026-10-16): a patch ``{watch_later|history: bool}`` — the YouTube lists the person's own agent keeps
+    #: G71 (2026-10-16): a patch ``{watch_later|history|playlists|liked: bool}`` — the YouTube lists the person's own agent keeps
     #: current from their signed-in browser. Turning one on lifts a ``needs_login`` pause (Try again).
     youtubeLists: dict[str, bool] | None = None
-    #: G206 (2026-10-22): a patch ``{x|instagram|linkedin: bool}`` — the saved lists on those sites the person's own
+    #: G206 (2026-10-22): a patch ``{x|x-likes|instagram|instagram-likes|linkedin|reddit|reddit-upvoted|…: bool}`` — the saved lists on those sites the person's own
     #: agent keeps current from their signed-in browser (the Sources page's switch). Turning one on lifts its pause.
     savedLists: dict[str, bool] | None = None
     #: G89 (2026-11-04): a patch ``{saved|liked|history|subscriptions: bool}`` — the Substack lists the person's own agent

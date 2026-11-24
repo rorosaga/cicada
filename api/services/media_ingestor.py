@@ -143,6 +143,9 @@ class RawItem:
     # creator, album, kind, milliseconds and URI. A row carrying it has origin ``spotify-history`` and every door
     # takes it off the save path (``listening_history.split``); it never becomes a saved link.
     play: dict | None = None
+    # G245: the post's OWN day, when a saved list showed one beside it (the person's agent reads it off the page); the
+    # save's own day stays ``added``. Written to the episode as ``posted`` (a bare ``YYYY-MM-DD``), never guessed.
+    posted: str | None = None
 
 
 @dataclass
@@ -2231,6 +2234,8 @@ def write_media_episode(
         frontmatter["added_at"] = validated_instant
     if published:
         frontmatter[episode_time.PUBLISHED_KEY] = published
+    if posted := saved_at.posted_day(item.posted):
+        frontmatter["posted"] = posted
     if item.origin:
         frontmatter["origin"] = item.origin
     if item.session_id:
