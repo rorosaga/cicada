@@ -64,6 +64,11 @@ extension SourceCatalogRow {
         status == .connected && countsAsConnected && !needsYou && browser?.state != .notReadYet
     }
 
+    /// What the header counts (G245, owner 2026-11-24: "0 connected" over a card that said "On · waits for your agent"):
+    /// every source the person has on, one reader once (ROR-41). It is not `isConnectedHere`, which is the Connected
+    /// group's rule (something was read) and stays so; a source on with nothing read yet says so on its own card.
+    var isOn: Bool { status == .waitingForAgent || (status == .connected && countsAsConnected) }
+
     var section: SourceGridSection { needsYou ? .needsYou : .shelf(entry.shelf) }
 
     /// The word and dot for a row or a tile. A permission taken away reads Needs access over Off or Connected.

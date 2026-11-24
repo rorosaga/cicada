@@ -148,7 +148,7 @@ struct SourcesPageView: View {
         let trailingOpen = provenance.isPresented || chatPanel.isPresented
         ProgressiveColumns(hasDetail: detailOpen, hasTrailing: trailingOpen,
                            navWidth: ShellMetrics.navWidth(labelled: labelledSidebar)) { plan in
-            EyebrowRow(eyebrow: Eyebrow.text(Copy.sources, Copy.Catalog.eyebrow(SourceCatalog.connectedCount(catalog))),
+            EyebrowRow(eyebrow: Eyebrow.text(Copy.sources, Copy.Catalog.eyebrow(SourceCatalog.onCount(catalog))),
                        horizontalPadding: !detailOpen && !trailingOpen ? plan.gutter : CicadaTheme.spacingXL) {
                 // The page's top right holds only what applies to the whole list, and only while no source is open (a
                 // source's page is about that source): the one button that asks every connection how it is doing
