@@ -311,6 +311,29 @@ def test_a_chosen_notion_page_keeps_its_parents_and_is_listed_by_last_edited(not
     assert channel_items.items(notion_bank, "notion-api", collection=folder["id"])["total"] == 1
 
 
+def test_a_page_already_in_the_bank_learns_its_parents_with_no_word_moved(notion_bank, monkeypatch):
+    scope.write("notion-api", "chosen", [{"id": ROOT, "title": "Projects", "kind": "page"}])
+    real_chain = notion_mcp._chain
+    monkeypatch.setattr(notion_mcp, "_chain", lambda *a, **k: [])
+    asyncio.run(notion.sync(notion_bank, http_fn=_Mcp()))
+
+    def stored():
+        out = {}
+        for path in (notion_bank / "episodes").glob("*.md"):
+            p = markdown_parser.parse(path)
+            out[str(p.frontmatter["source_id"])] = p.frontmatter
+        return out
+
+    before = stored()[f"notion:{PAGE_A}"]
+    assert "notion_path" not in before
+    monkeypatch.setattr(notion_mcp, "_chain", real_chain)
+    tier2.forget_cursor("notion-api", notion_bank)
+    asyncio.run(notion.sync(notion_bank, http_fn=_Mcp()))
+    after = stored()[f"notion:{PAGE_A}"]
+    assert after["notion_path"] == ["Projects"] and after["notion_path_ids"] == [ROOT]
+    assert after["processed"] == before["processed"] and after["content_hash"] == before["content_hash"]
+
+
 def test_the_cursor_of_an_older_format_reads_every_page_once_more():
     assert notion_mcp.FORMAT >= 3
     assert notion_mcp._Run({"fmt": 2, "known": {PAGE_A: "x"}}, {"mode": scope.EVERYTHING, "items": []}).known == {}

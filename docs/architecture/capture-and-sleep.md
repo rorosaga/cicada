@@ -592,7 +592,7 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   `notion_path_ids` (the parents it sits under, outermost first, the database last), read from the page's own
   `<ancestor-path>` block — nothing is fetched to name a parent, and on a **chosen** scope only parents inside what the
   person picked are kept (a teamspace page above the chosen root is dropped). The REST path files a row by its database
-  alone. `FORMAT` 3 re-reads each page once to learn them. `notion-api` has a collections tree (`channel_items._notion_tree`:
+  alone. `FORMAT` 3 re-reads each page once to learn them: a page whose words did not move gets the three keys in frontmatter alone (`episode_staging.FILING_KEYS`, like `provider_project`), never re-queued. `notion-api` has a collections tree (`channel_items._notion_tree`:
   one unnamed account, folders by parent chain, `unfiled` counting pages read before their parents were kept) and lists by
   `notion_last_edited`, not the created day. Favourites and the Private/Shared split are not read. *The `<ancestor-path>`
   tag shape is the one the stripper already names; it is covered by a fixture, not yet seen against live Notion.*
