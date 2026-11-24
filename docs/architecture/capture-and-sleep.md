@@ -2410,7 +2410,25 @@ description (a thin one is the plain person's, as before). **A second reading** 
 join hides: it reads the speaker being named in both descriptions, or "a later move", as a link), or divides them against a
 person on record with three or more filed conversations, the same prompt is put to the main model once and its grouping replaces
 the small judge's when it divides them; its answer failing, unreadable or calling it one person leaves the small judge's
-reading, so a located split is never lost to it. A single new conversation against a person on record is not read again. `plan`
+reading, so a located split is never lost to it. A single new conversation against a person on record is not read again.
+**On a plan the judge is told no answer shape (2026-11-24).** A call's `stage` label picks three things: the model tier
+(`model_for_stage`: "disambiguation" is the small one on every engine), the plan guard and the metering. It no longer picks the
+answer shape an engine forces. Until now the Claude plan (`agent_engine`) and the ChatGPT plan (`codex_engine`) forced the pair
+judge's schema (`decision` / `decisions`) on every call labelled "disambiguation", and the same-name judge, which shares that
+label for its small model, was forced into it: its answer (`people` / `pairs`, a verdict, a list of lines) came back as
+`{"decision": "same", "reason": "<the real answer as a string>"}`, which `same_name_people.read`, `settle_pair` and `holds_two`
+could not read, so on a plan, the default, two people of one first name were placed as one person (measured: a story's aunt and
+climbing partner on one page in the one real Sleep run before the fix) and no doubt was held, joined or asked. The benchmark had
+only run on a key, where no schema is forced. Now a schema is forced only on a call that **states** a shape
+(`resolve_llm_fn(..., shape=)`, `engine_schemas.SHAPES`: `pair` by the two pair-judge calls in `entity_resolver`, `extraction`
+and `quick_read` by Stage 1's call, which keep their behaviour: Claude's behind its flag, Codex's strict one for `extraction`
+only); every other call, the same-name judge included, is told only to answer JSON, as on a key, and a misspelt shape raises where
+it is written. The Cursor, OpenCode and Grok engines never forced a shape (their stage label only picks the model). **An
+answer that does not have the shape asked for is never a verdict** and is counted: `Plan.unreadable` (the Stage 2 log line
+"N same-name answer(s) were not in the shape asked for and were skipped", a count, no name), the tail's `unreadable` skip
+(`Report.skipped`, apart from `not_read` which is a real answer that stood on nothing), and a log line for a split's leftover prose.
+The name is placed as if no judge had answered, as it is for a failed call. `api/tests/test_answer_shape.py` has the table: every
+`resolve_llm_fn` call in the services forces no schema unless it is one of the listed callers that state their shape. **A doubt the small judge could not quote a contrast for is read once by the main model (2026-11-24, `same_name_people.lone_doubt`).** With the plan call made as a key's is (same prompt, JSON only, no forced shape), the small judge still divided one real person in 12 of 92 battery replays (13%; a partner who took a job in another city): every pair of its people stood on `cannot_tell` with quotes located and no contrast. No difference in the call was found to account for it: varying one thing at a time on the failing cases (no `--effort`, `--effort high`, no context guard, no JSON-only suffix, the main model as the judge) gave 0 of 8 each against 1 of 8 for the unchanged call, and the unchanged call itself measured 8, 3 and 0 of 36 in three runs within the hour, so the rate is the small model's sampling on borderline descriptions, not the plan's call (a key's call draws it too; whether it does at that rate is for a key run to say). The fix is a read, not a call shape: when the small judge's whole answer is located doubts and nothing else (`lone_doubt`: no `different`, no unlocated verdict, no two descriptions of one conversation), the main model reads the same prompt once, and **only a reading that finds one person lifts the doubt**; one that divides, fails or is unreadable leaves the small judge's doubt as it was, never deeper. It costs nothing when the small judge says one person or quotes a contrast, and one main-model call when it doubts (17 of 29 two-person replays and 16 of 92 one-person replays made a main-model call, for any of the rules that ask for one). Measured on the plan: one person cut in two 0 of 128 replays (0 of 92 on the 46 one-person cases, 0 of 36 on the nine that had failed; the doubt rule fired 5 times in those 36), two people kept apart 29 of 29, and the three-name Sleep story right in 2 of 2 real Sleeps. `plan`
 **never changes a page that exists**. When its re-read shows
 that a page's own conversations fall in two groups (`page-holds-two-people`), or that two people held in doubt fall in one
 (`doubt-may-be-one`; **also when the whole name reads as one person**, which is the usual way a doubt ends, 2026-11-24:

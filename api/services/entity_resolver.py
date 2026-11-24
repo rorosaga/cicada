@@ -1221,6 +1221,9 @@ async def _same_name_ask(settings: Settings, system: str, prompt: str) -> object
     from api.services.providers import resolve_llm_fn
 
     disambig_model = getattr(settings, "litellm_disambiguation_model", "") or settings.litellm_model
+    # The label picks the small model and the metering; no `shape`: this judge's answers (`people`/`pairs`, a verdict, a
+    # list of lines) are not the pair judge's `decision`, and an engine told that shape answered the real one inside a
+    # string (2026-11-24, the Claude plan).
     llm_fn = resolve_llm_fn(settings, model=disambig_model, completion=litellm.acompletion, stage="disambiguation")
     response = await _on_engine_loop(llm_fn(
         messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}],
@@ -1496,13 +1499,19 @@ async def _plan_same_name_people(
     split = 0
     review_pages: set[str] = set()
     review_pairs: set[tuple[str, str]] = set()
+    unreadable = 0
     for name_lower, outcome in results:
         for key, destination in outcome.moves.items():
             moves[(same_name_people.split_key(key)[0], origin[key])] = destination
             split += 1
         review_pages |= outcome.review_pages
         review_pairs |= outcome.review_pairs
+        unreadable += outcome.unreadable
     _settle_unplaced_qualified()
+    if unreadable:
+        # An answer that was not the groups asked for is no verdict: the name is placed as if no judge had answered, and
+        # that is said (a count, never a name or a word of a description; 2026-11-24).
+        logger.warning(f"Stage 2: {unreadable} same-name answer(s) were not in the shape asked for and were skipped")
     logger.info(f"Stage 2: {len(results)} bare name(s) compared across conversations, {split} conversation(s) "
                 f"placed with another person of the same name, {len(review_pages)} page(s) and {len(review_pairs)} "
                 "pair(s) to look at again")   # counts only, never a name
@@ -3981,7 +3990,7 @@ async def _llm_judge_same_entity(
         from api.services.providers import resolve_llm_fn
 
         llm_fn = resolve_llm_fn(
-            settings, model=disambig_model, completion=litellm.acompletion, stage="disambiguation"
+            settings, model=disambig_model, completion=litellm.acompletion, stage="disambiguation", shape="pair"
         )
         response = await _on_engine_loop(llm_fn(
             messages=[{"role": "system", "content": _DISAMBIG_SYSTEM}, {"role": "user", "content": prompt}],
@@ -4125,7 +4134,7 @@ async def _llm_judge_batch(
         from api.services.providers import resolve_llm_fn
 
         llm_fn = resolve_llm_fn(
-            settings, model=disambig_model, completion=litellm.acompletion, stage="disambiguation"
+            settings, model=disambig_model, completion=litellm.acompletion, stage="disambiguation", shape="pair"
         )
         response = await _on_engine_loop(llm_fn(
             messages=[{"role": "system", "content": _DISAMBIG_SYSTEM}, {"role": "user", "content": prompt}],

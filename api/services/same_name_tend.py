@@ -410,6 +410,8 @@ async def tend(memory_path: Path, judge, *, today: date | None = None,
             report.looked += 1
             name = str(page_conversations(memory_path, ref)[0])
             split = await snr.holds_two(name, page, judge, speaker)   # an engine failure leaves the flag for the next run
+            if split.unreadable:
+                report.skip("unreadable")   # an answer in the wrong shape: the page was not read (2026-11-24)
             if not split.episodes:
                 same_name_doubts.clear_flags(memory_path, pages=[ref])
                 continue
@@ -490,7 +492,7 @@ async def tend(memory_path: Path, judge, *, today: date | None = None,
                 # on: that is not "the record does not say", so nothing is asked and the pair's one question is kept.
                 # The doubt stays; the next conversation that names the name flags it again.
                 same_name_doubts.clear_flags(memory_path, pairs_=[(a, b)])
-                report.skip("not_read")
+                report.skip("unreadable" if verdict.unreadable else "not_read")   # a wrong-shaped answer is counted apart (2026-11-24)
                 continue
             if verdict.verdict != "same" and verdict.leaning == "two":
                 # Owner 2026-11-23: the fewer the asks the better. They read like two people and nothing says they

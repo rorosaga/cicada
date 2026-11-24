@@ -95,7 +95,7 @@ def test_a_lone_candidate_keeps_the_one_pair_prompt(monkeypatch):
 def test_the_schemas_take_both_answer_shapes():
     from api.services import agent_engine, engine_schemas
 
-    claude = agent_engine.SCHEMA_BY_STAGE["disambiguation"]
+    claude = agent_engine.SCHEMA_BY_SHAPE["pair"]
     assert claude["properties"]["decision"]["enum"] == ["same", "different", "unsure", "related"]
     assert claude["properties"]["decisions"]["items"]["required"] == ["entry", "decision"]
     strict = engine_schemas.disambiguation_schema(strict=True)

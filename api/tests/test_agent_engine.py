@@ -272,10 +272,10 @@ def test_complete_appends_a_json_only_instruction_when_no_schema_is_registered(a
     assert agent_engine.JSON_ONLY_SUFFIX in sp_token
 
 
-def test_complete_uses_the_registered_schema_for_disambiguation(agent_runner, agent_envelopes):
+def test_complete_uses_the_registered_schema_for_the_pair_shape(agent_runner, agent_envelopes):
     runner = agent_runner(agent_envelopes["structured"])
     agent_engine.complete(messages=[{"role": "user", "content": "B"}],
-                          model="haiku", stage="disambiguation", want_json=True, runner=runner)
+                          model="haiku", stage="disambiguation", shape="pair", want_json=True, runner=runner)
     argv = runner.calls[0]["argv"]
     schema = json.loads(argv[argv.index("--json-schema") + 1])
     assert schema["properties"]["decision"]["enum"] == ["same", "different", "unsure", "related"]
@@ -489,7 +489,7 @@ def test_the_stage1_schema_ships_only_behind_its_flag(agent_runner, agent_envelo
     msgs = [{"role": "user", "content": "x"}]
     agent_engine.complete(messages=msgs, model="sonnet", stage="extraction", want_json=True, runner=runner)
     assert "--json-schema" not in runner.calls[0]["argv"]
-    agent_engine.complete(messages=msgs, model="sonnet", stage="extraction", want_json=True,
+    agent_engine.complete(messages=msgs, model="sonnet", stage="extraction", shape="extraction", want_json=True,
                           runner=runner, policy=agent_engine.CallPolicy(extraction_schema=True))
     argv = runner.calls[1]["argv"]
     schema = json.loads(argv[argv.index("--json-schema") + 1])

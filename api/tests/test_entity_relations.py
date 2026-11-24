@@ -80,7 +80,7 @@ def test_both_prompts_offer_related_and_say_a_part_is_never_the_same():
     for prompt in (entity_resolver._DISAMBIG_PROMPT, entity_resolver._DISAMBIG_BATCH_PROMPT):
         assert '"related"' in prompt and "A part is never the same as its whole" in prompt
         assert entity_relations.PROMPT_LINES in prompt
-    schema = agent_engine.SCHEMA_BY_STAGE["disambiguation"]["properties"]
+    schema = agent_engine.SCHEMA_BY_SHAPE["pair"]["properties"]
     assert schema["relation"]["enum"] == list(entity_relations.RELATIONS)
 
 

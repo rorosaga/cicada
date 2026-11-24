@@ -520,10 +520,13 @@ def test_a_page_in_two_doubts_is_never_joined_by_sleep(bank):
                                     RuntimeError("down"), "not json"],
                          ids=["empty", "no facts", "unlocated link", "unlocated contrast", "judge failed", "text"])
 def test_a_read_that_failed_asks_nothing_and_keeps_the_pairs_one_question(bank, answer):
-    """A question is for "everything was read and it does not say". A failed or unreadable read is not that."""
+    """A question is for "everything was read and it does not say". A failed or unreadable read is not that. An answer
+    with no verdict word of this call's shape at all is counted as `unreadable` (2026-11-24), the rest as `not_read`."""
     _doubt_bank(bank)
     report = _run(same_name_tend.tend(bank, _judge(answer), today=DAY))
-    assert (report.asked, report.merged, report.apart) == (0, 0, 0) and report.skipped == {"not_read": 1}
+    wrong_shape = answer == {} or isinstance(answer, str)
+    assert (report.asked, report.merged, report.apart) == (0, 0, 0)
+    assert report.skipped == {"unreadable" if wrong_shape else "not_read": 1}
     assert not list((bank / "inbox").glob("inbox-*.md"))
     assert same_name_doubts.pairs(bank) == {("marc", "marc-2"): {"since": "2026-11-01"}}, "still in doubt, never asked"
     assert same_name_doubts.flagged(bank) == (set(), set()) and _git(bank, "status", "--porcelain").strip() == ""
