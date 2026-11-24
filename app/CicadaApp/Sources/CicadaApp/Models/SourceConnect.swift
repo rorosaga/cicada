@@ -44,7 +44,7 @@ enum SourceConnect {
         var ackCurrent = false
         /// Lists already turned on (`ReadingAgentModel.savedListsOn`).
         var savedListsOn: Set<String> = []
-        /// Sites whose saves are already noticed on this Mac (`SiteSavePrefs().connected`).
+        /// Sites whose saves are already noticed on this Mac (`SiteSavePrefs.noticed`).
         var siteSavesOn: Set<String> = []
         /// Readers already on, by channel (`LocalReaders.on`).
         var readersOn: [String: Bool] = [:]

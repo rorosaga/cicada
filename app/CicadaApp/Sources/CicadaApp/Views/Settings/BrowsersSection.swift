@@ -197,8 +197,16 @@ struct SaveWhySwitchRow: View {
 /// connection when the person is on the site; this is where it is seen and undone. A missing Accessibility permission
 /// is named with its one click, never asked for by a prompt.
 struct SiteSaveSwitches: View {
-    @State private var connected: Set<String> = Set(SiteSavePrefs().connected.map(\.key))
+    @Environment(ConnectSuggestCenter.self) private var center: ConnectSuggestCenter?
+    /// Bumped after a switch is set, so the rows read the flag again.
+    @State private var version = 0
     @State private var trusted = AXIsProcessTrusted()
+
+    /// The sites noticed: what was set, else on while the source is set up (`SiteSavePrefs.noticing`).
+    private var connected: Set<String> {
+        _ = version
+        return Set(SiteSavePrefs().noticed(status: { center?.status($0) }).map(\.key))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
@@ -209,7 +217,7 @@ struct SiteSaveSwitches: View {
                 ForEach(SiteSaveSite.all, id: \.key) { site in
                     Toggle(isOn: Binding(get: { connected.contains(site.key) }, set: { on in
                         SiteSavePrefs().setConnected(site.key, on)
-                        if on { connected.insert(site.key) } else { connected.remove(site.key) }
+                        version += 1
                         trusted = AXIsProcessTrusted()
                         NotificationCenter.default.post(name: SiteSaveSwitches.changed, object: nil)
                     })) {
@@ -237,7 +245,7 @@ struct SiteSaveSwitches: View {
             }
         }
         .onAppear {
-            connected = Set(SiteSavePrefs().connected.map(\.key))
+            version += 1
             trusted = AXIsProcessTrusted()
         }
     }

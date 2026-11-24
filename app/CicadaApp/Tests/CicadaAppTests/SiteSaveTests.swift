@@ -203,11 +203,11 @@ final class SiteSaveTests: XCTestCase {
 
     func testThisMacRemembersConnectionsAndLabelsPerSite() {
         let prefs = SiteSavePrefs(defaults: TestDefaults.suite("SiteSaveTests.\(UUID().uuidString)")!)
-        XCTAssertTrue(prefs.connected.isEmpty)
+        XCTAssertTrue(prefs.noticed(status: { _ in .off }).isEmpty)
         prefs.setConnected("x", true)
-        XCTAssertEqual(prefs.connected.map(\.key), ["x"])
+        XCTAssertEqual(prefs.noticed(status: { _ in .off }).map(\.key), ["x"])
         prefs.setConnected("x", false)
-        XCTAssertTrue(prefs.connected.isEmpty)
+        XCTAssertTrue(prefs.noticed(status: { _ in .off }).isEmpty)
         prefs.learn("x", was: "a", now: "b", outcome: .saved)
         XCTAssertEqual(prefs.labels("x").says(was: "a", now: "b"), .saved)
         XCTAssertNil(prefs.labels("instagram").says(was: "a", now: "b"))
