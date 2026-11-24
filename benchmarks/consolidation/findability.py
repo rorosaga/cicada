@@ -165,6 +165,58 @@ def state_of(bank: Path, story: dict, pages: list[dict] | None = None) -> dict:
     return {"state": label, "pages": on_pages, "held": held, "unread": unread, "read": read}
 
 
+# Decoys and noise for a bigger memory: each line is said in a conversation Sleep has not read, near a story's words
+# (another teacher, another van, another place that closes) and never carrying a story's fact.
+DECOYS = [
+    ("en", "My cousin's piano teacher moved to Lisbon last spring and now teaches online on Mondays, the lessons are about jazz standards."),
+    ("en", "The neighbour with the blue scooter lent me a ladder on Saturday, he works at the post office."),
+    ("en", "The physiotherapist at the gym on Elm Road has a cancellation list, I put my name down for a knee check."),
+    ("en", "There is a tiny sushi place near Harbour station that opens at noon, we sat at the counter."),
+    ("en", "I read a handbook on bird migration over the weekend, the chapter on swifts was the best."),
+    ("en", "The label maker at the office jams every second day, facilities said they would replace it in March."),
+    ("es", "La profesora de inglés de mi sobrino dice que debería leer más, le recomendó cuentos cortos."),
+    ("es", "El libro sobre volcanes que me prestó Julia tiene unas fotos preciosas del Teide."),
+    ("de", "Der Tischler im Baumarkt hat mir erklärt, wie man Buchenholz richtig ölt."),
+    ("de", "Das Café am Bahnhof hat montags geschlossen, wir sind dann zum Bäcker gegangen."),
+    ("fr", "Le plombier du bureau a changé le robinet de la cuisine en dix minutes, c'était simple."),
+    ("fr", "La boulangerie près de la gare ferme à midi le dimanche, il faut y aller tôt."),
+]
+_TOPICS = [
+    "my bike needs new brake pads", "planning the budget for the garden", "a recipe for lentil soup", "the train to Vienna was late",
+    "reading about glaciers", "my sister's birthday gift", "learning to play chess openings", "the quarterly numbers for the warehouse",
+    "a podcast about the Roman roads", "the new running shoes", "repainting the hallway", "booking a dentist appointment",
+    "the film we saw on Friday", "tuning the piano before the party", "the leak in the shed roof", "a list of movies to watch",
+    "my neighbour's dog barks at night", "the guitar I saw in a shop window", "a teacher who inspired me at school",
+    "the new bakery on the corner", "ordering labels for the jam jars", "swimming at the lake in summer", "the printer at work is broken",
+]
+
+
+def scale(src: Path, dst: Path, count: int, clock: date) -> dict:
+    """``dst`` = a copy of ``src`` plus ``count`` conversations Sleep has not read (noise on many topics, and a decoy near
+    each story). A bigger memory is what a person has; a dozen conversations make everything easy to find."""
+    import random
+
+    from benchmarks.consolidation import run as bench
+    from benchmarks.engine_parity import _leg_environment, _refuse_real_paths
+
+    _refuse_real_paths(dst)
+    if not dst.exists():
+        shutil.copytree(src, dst, ignore=shutil.ignore_patterns("findability-*.jsonl"))
+    rng = random.Random(7)
+    convs = []
+    for i in range(count):
+        a, b = rng.sample(_TOPICS, 2)
+        convs.append({"id": f"n{i:03d}", "phase": 3, "day": -rng.randint(1, 80), "title": f"Chat {i}", "lang": "en",
+                      "turns": [f"I was thinking about {a} today, and also {b}.", "Tell me more about it.",
+                                f"Mostly {b}; I will decide after the weekend."]})
+    for j, (lang, line) in enumerate(DECOYS):
+        convs.append({"id": f"d{j:02d}", "phase": 3, "day": -rng.randint(1, 80), "title": f"Note {j}", "lang": lang,
+                      "turns": [line, "Understood."]})
+    with _leg_environment(dst / "home", dst / "bank"):
+        made = bench.stage(dst / "bank", convs, clock, "Bench intake, noise")
+    return made
+
+
 def _run(out: Path) -> dict:
     home, bank = out / "home", out / "bank"
     real = shutil.which("claude")
@@ -211,12 +263,65 @@ def ask(out: Path, fixture: Path, tag: str, tools: tuple[str, ...], only: set[st
     return path
 
 
+def own_episodes(bank: Path, data: dict) -> dict[str, list[str]]:
+    """The episode each story was said in: the one whose text holds the story's first line (a distractor never does)."""
+    from api.services import markdown_parser
+
+    first = {}
+    for c in [*data["conversations"], *data.get("unread", [])]:
+        for s in data["stories"]:
+            if s["id"] == c["id"]:
+                first[s["id"]] = _fold(c["turns"][0])
+    found: dict[str, list[str]] = {sid: [] for sid in first}
+    for path in sorted((bank / "episodes").glob("*.md")):
+        body = _fold(markdown_parser.parse(path).body)
+        for sid, line in first.items():
+            if line in body:
+                found[sid].append(path.stem)
+    return found
+
+
+def _without_owner_page(text: str, owner: str) -> str:
+    """The reply with the owner's page block taken out: in a memory of thousands of conversations that page holds a
+    handful of its hundreds of facts, so a fact found only there is not a find."""
+    out, skip = [], False
+    for line in text.split("\n"):
+        if line.startswith("### "):
+            skip = line.startswith(f"### {owner}")
+        elif line.startswith("**Related conversation excerpts") or line.startswith("<<<") or line.startswith("```"):
+            skip = False
+        if not skip:
+            out.append(line)
+    return "\n".join(out)
+
+
+def strict_hit(row: dict, story: dict, eps: list[str], pages: list[str], owner: str) -> bool:
+    """A find that does not lean on the owner's page: recall holds a fact word outside it or names the story's own
+    conversation; an Ask answer names the story's own conversation or cites its page."""
+    text = row["text"]
+    if row["isError"]:
+        return False
+    if any(e in text for e in eps):
+        return True
+    if row["tool"] == "cicada_ask":
+        low = _fold(text)
+        return any(f"[[{p}]]" in text or _fold(p) in low for p in pages if len(p) > 3)   # `pages`: the page's name and its id
+    low = _fold(_without_owner_page(text, owner))
+    return any(w in low for g in story["expect"] for w in g)
+
+
+def _page_names_of(pages: list[dict], ids: list[str]) -> list[str]:
+    return [x for p in pages if p["id"] in ids for x in (p["id"], str(p["name"]))]
+
+
 def table(out: Path, fixture: Path, tag: str) -> str:
     data = json.loads(fixture.read_text(encoding="utf-8"))
     bank = out / "bank"
     rows = [json.loads(x) for x in (out / f"findability-{tag}.jsonl").read_text().splitlines() if x.strip()]
     pages = _pages(bank)
-    lines = ["story  kind    lang state              | recall own/reword/part | ask own/reword/part"]
+    eps = own_episodes(bank, data)
+    owner = data["owner"]
+    lines = ["story  kind    lang state              | recall own/reword/part | ask own/reword/part   (strict: Y = found without the owner's page)"]
     totals: dict[str, list[int]] = {}
     for s in data["stories"]:
         st = state_of(bank, s, pages)["state"]
@@ -225,10 +330,11 @@ def table(out: Path, fixture: Path, tag: str) -> str:
             marks = []
             for w in WORDINGS:
                 r = next((x for x in rows if x["story"] == s["id"] and x["wording"] == w and x["tool"] == tool), None)
-                marks.append("." if r is None else ("Y" if r["hit"] else "-"))
+                ok = r is not None and strict_hit(r, s, eps.get(s["id"], []), _page_names_of(pages, state_of(bank, s, pages)["pages"]), owner)
+                marks.append("." if r is None else ("Y" if ok else "-"))
                 if r is not None:
                     t = totals.setdefault(f"{st}|{tool}|{w}", [0, 0])
-                    t[0] += int(r["hit"]); t[1] += 1
+                    t[0] += int(ok); t[1] += 1
             cells.append("/".join(marks))
         lines.append(f"{s['id']:5}  {s['kind']:6}  {s['lang']:4} {st:18} | {cells[0]:22} | {cells[1]}")
     lines.append("")
@@ -236,14 +342,16 @@ def table(out: Path, fixture: Path, tag: str) -> str:
     for st in sorted({k.split("|")[0] for k in totals}):
         parts = []
         for tool in TOOLS:
-            parts.append("/".join(f"{totals.get(f'{st}|{tool}|{w}', [0, 0])[0]}/{totals.get(f'{st}|{tool}|{w}', [0, 0])[1]}" for w in WORDINGS))
+            parts.append("  ".join(f"{totals.get(f'{st}|{tool}|{w}', [0, 0])[0]}/{totals.get(f'{st}|{tool}|{w}', [0, 0])[1]}" for w in WORDINGS))
         lines.append(f"  {st:18} {parts[0]:24} | {parts[1]}")
     return "\n".join(lines)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("verb", choices=("build", "ask", "table", "state"))
+    ap.add_argument("verb", choices=("build", "ask", "table", "state", "scale"))
+    ap.add_argument("--src", type=Path)
+    ap.add_argument("--count", type=int, default=150)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--fixture", type=Path, default=FIXTURE)
     ap.add_argument("--tag", default="before")
@@ -261,6 +369,8 @@ def main() -> int:
         os.environ.pop("ANTHROPIC_API_KEY", None)
         tools = tuple(f"cicada_{t}" for t in a.tools.split(","))
         ask(a.out, a.fixture, a.tag, tools, set(a.only.split(",")) if a.only else None)
+    elif a.verb == "scale":
+        print(json.dumps(scale(a.src, a.out, a.count, a.clock)))
     elif a.verb == "state":
         data = json.loads(a.fixture.read_text(encoding="utf-8"))
         pages = _pages(a.out / "bank")
