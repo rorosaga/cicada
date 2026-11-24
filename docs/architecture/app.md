@@ -2409,6 +2409,18 @@ standard page's **content** slot with one call, `ThisMacSourceContent(entry:chan
   shouldn't be added manually, always sync"): linking a repository to a project happens on either page. *Starred*
   counts the starred pages. The lists are read on open and after each connect, install check or sync
   (`generation`), never a Store domain.
+  **A list of saved posts' card (G246, ruling 81, owner 2026-11-24; `Views/Graph/ListPageCard.swift`, DR-37, 38, 52, 74, 78, 81, 60/61, 71;
+  dark until the backend's `saved_posts.HIDE_POSTS` is on).** `EntityDetailCard.pageBlock` draws it for a `media` page whose
+  `media.kind` is `list` and whose `blocks.list` arrived (`MediaBlock.isList`, `PageBlocks.ListBlock`): the site's real mark
+  (`OriginMark`, the block's `source`) beside the one line the page holds about itself ("Posts you bookmarked on X."; the rendered body
+  is not drawn again), a quiet line "N saved · newest <day> · last read <day>" (every part but the count optional: this Mac's last read of the
+  list is read now from outside the bank, never stored), for a folder the reason the person gave it ("Why this folder", their words, here and
+  nowhere else), then **the five newest items as the Sources page's own cards** (`SourceStreamCards(key: SourceListKey.make(channel, stream:, folder:), cap: 5)`,
+  the items route narrowed by stream and folder) and a plain "All N", which opens the whole list in the column's place under `SourceDrillHead`
+  ("‹ X: Bookmarks", Esc returns, DR-81). A list with nothing in it draws nothing. No picture and no glyph beyond the mark; the why-it-matters
+  slot is not drawn for it. It is reached from Clusters (the Media menu's "Lists" kind), the graph (one node per non-empty list, its earned posts joined
+  to it, `features.md`) and find (`QuickIndex.entityDocs` lets a list's page in beside the pages: every other media page reaches the palette as a saved link,
+  and a list has none; its row wears the site's mark and the badge "List").
   **A repository page's card** (`Views/Graph/RepositoryCard.swift`) sits where a paper's card and a saved link's
   preview sit, above the article: `GET /entities/{id}/repository` is asked for a `media` page whose kind is unknown
   (the graph stub) or `repository` (a 404 for any other is nil), on its own task because the README may be read first.

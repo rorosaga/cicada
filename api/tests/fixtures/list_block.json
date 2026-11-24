@@ -1,0 +1,61 @@
+{
+  "_comment": "Shared by test_list_pages.py and ListPageCardTests.swift: the `list` block of GET /entities/{id} (list_pages.block). Regenerate with CICADA_REGEN_FIXTURES=1.",
+  "lists": {
+    "list-x-bookmarks": {
+      "site": "x",
+      "stream": "x.bookmarks",
+      "folder": null,
+      "channel": "x",
+      "label": "Bookmarks",
+      "source": "x-bookmarks",
+      "count": 3,
+      "newest": "2026-11-09",
+      "lastReadAt": null,
+      "why": null,
+      "recent": [
+        {
+          "title": "A post 3",
+          "saved": "2026-11-09",
+          "host": "x.com"
+        },
+        {
+          "title": "A post 2",
+          "saved": "2026-11-04",
+          "host": "x.com"
+        },
+        {
+          "title": "A post 1",
+          "saved": "2026-11-01",
+          "host": "x.com"
+        }
+      ]
+    },
+    "list-x-bookmarks-folder": {
+      "site": "x",
+      "stream": "x.bookmarks",
+      "folder": "Trips",
+      "channel": "x",
+      "label": "Bookmarks",
+      "source": "x-bookmarks",
+      "count": 2,
+      "newest": "2026-11-04",
+      "lastReadAt": null,
+      "why": {
+        "text": "ideas for next spring",
+        "at": "2026-11-10"
+      },
+      "recent": [
+        {
+          "title": "A post 2",
+          "saved": "2026-11-04",
+          "host": "x.com"
+        },
+        {
+          "title": "A post 1",
+          "saved": "2026-11-01",
+          "host": "x.com"
+        }
+      ]
+    }
+  }
+}

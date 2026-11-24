@@ -662,8 +662,13 @@ final class GraphViewModel {
     /// False when the full body could not be read (the card then says so, with a retry — never a spinner forever).
     @discardableResult
     func loadFullEntity(id: String) async -> Bool {
-        guard let fullEntity = await store.entity(id) else { return false }
+        guard var fullEntity = await store.entity(id) else { return false }
         if let idx = entities.firstIndex(where: { $0.id == id }) {
+            // A media page's kind, origin and channel come with the graph's node, not with the page: opening the page must
+            // not take its mark away from Clusters' row (G246: a list's page lost the site's mark the moment it opened).
+            fullEntity.mediaKind = fullEntity.mediaKind ?? entities[idx].mediaKind
+            fullEntity.origin = fullEntity.origin ?? entities[idx].origin
+            fullEntity.mediaChannel = fullEntity.mediaChannel ?? entities[idx].mediaChannel
             entities[idx] = fullEntity
             // The body just grew from the node summary to the full page, and
             // Clusters searches it (G136 S5) — refold on the next keystroke

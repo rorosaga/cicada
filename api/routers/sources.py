@@ -65,6 +65,7 @@ from api.services import (
     channel_registry,
     entity_picture,
     feed_registry,
+    list_pages,
     media_ingestor,
     mention_asks,
     notes_sync,
@@ -1632,7 +1633,11 @@ async def get_source_streams(request: Request, response: Response, settings: Set
     the stores that already hold them; nothing existing is replaced (`source_streams`).
 
     The ETag is a digest of the body (the `/reading/settings` precedent): a pause lapsing, a read landing or a check
-    stamped changes it with no clock of its own. Read-only, writes nothing, never a Store domain."""
+    stamped changes it with no clock of its own. Never a Store domain. It writes no page itself: it asks the list pages'
+    writer (`list_pages`, G246) to catch up in the background — a list whose first item has arrived gets its page —
+    which does nothing before the flip, on a replica or on a demo bank."""
+    list_pages.start_sync(settings.memory_path, delay_s=list_pages.SETTLE_S)
+
     def build() -> dict:
         with sync_ticker.request_scans(settings.memory_path):   # one listing per directory for every pass below
             rows, connected, feed_fetch = _stream_rows(settings)

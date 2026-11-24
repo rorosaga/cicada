@@ -96,6 +96,11 @@ def post_site(url: str) -> str | None:
     return None
 
 
+def is_post_site(key: str) -> bool:
+    """Is ``key`` (a source group's id: ``x``, ``instagram``…) a site whose lists hold posts? What ``list_pages`` asks."""
+    return key in POST_SITES
+
+
 def _media(fm: dict) -> dict:
     media = fm.get("media")
     return media if isinstance(media, dict) else {}

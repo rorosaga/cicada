@@ -101,6 +101,61 @@ struct PageBlocks: Codable, Equatable {
         var items: [Source]?
     }
 
+    /// G246 (ruling 81) — what a list of saved posts holds, read from the saves each time the page is served (never stored
+    /// on the page): how many, the newest day, when THIS Mac last read the list, a folder's reason in the person's words,
+    /// and the address the cards read (`channel`, `stream`, `folder` → `SourceListKey`). `source` is the origin whose real
+    /// mark the page wears. `recent` is for agents and the CLI: the app draws its own five cards from the items route.
+    struct ListBlock: Codable, Equatable {
+        struct Why: Codable, Equatable {
+            var text: String
+            var at: String?
+        }
+
+        var site: String
+        var stream: String
+        var folder: String?
+        var channel: String
+        var label: String
+        var source: String
+        var count: Int
+        var newest: String?
+        var lastReadAt: String?
+        var why: Why?
+
+        enum CodingKeys: String, CodingKey { case site, stream, folder, channel, label, source, count, newest, lastReadAt, why }
+
+        init(site: String = "", stream: String, folder: String? = nil, channel: String = "", label: String = "",
+             source: String = "", count: Int = 0, newest: String? = nil, lastReadAt: String? = nil, why: Why? = nil) {
+            self.site = site
+            self.stream = stream
+            self.folder = folder
+            self.channel = channel
+            self.label = label
+            self.source = source
+            self.count = count
+            self.newest = newest
+            self.lastReadAt = lastReadAt
+            self.why = why
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            site = (try? c.decodeIfPresent(String.self, forKey: .site)) ?? ""
+            stream = try c.decode(String.self, forKey: .stream)
+            folder = (try? c.decodeIfPresent(String.self, forKey: .folder)) ?? nil
+            channel = (try? c.decodeIfPresent(String.self, forKey: .channel)) ?? ""
+            label = (try? c.decodeIfPresent(String.self, forKey: .label)) ?? ""
+            source = (try? c.decodeIfPresent(String.self, forKey: .source)) ?? ""
+            count = (try? c.decodeIfPresent(Int.self, forKey: .count)) ?? 0
+            newest = (try? c.decodeIfPresent(String.self, forKey: .newest)) ?? nil
+            lastReadAt = (try? c.decodeIfPresent(String.self, forKey: .lastReadAt)) ?? nil
+            why = (try? c.decodeIfPresent(Why.self, forKey: .why)) ?? nil
+        }
+
+        /// The key the list's cards and its "All N" read under (`SourceListKey.make`).
+        var listKey: String { SourceListKey.make(channel.isEmpty ? site : channel, stream: stream, folder: folder) }
+    }
+
     struct Contributor: Codable, Equatable {
         var author: String
         var kind: String?
@@ -276,9 +331,11 @@ struct PageBlocks: Codable, Equatable {
     var sources: Sources?
     var citations: Citations?
     var history: History?
+    /// G246 — a list of saved posts' own block; nil on every other page and from an older backend.
+    var list: ListBlock?
 
     enum CodingKeys: String, CodingKey {
-        case shape, order, relevance, summary, ongoing, ongoingTotal, marks, coordinates, looks, sources, citations, history
+        case shape, order, relevance, summary, ongoing, ongoingTotal, marks, coordinates, looks, sources, citations, history, list
     }
 
     init(from decoder: Decoder) throws {
@@ -295,6 +352,7 @@ struct PageBlocks: Codable, Equatable {
         sources = (try? c.decodeIfPresent(Sources.self, forKey: .sources)) ?? nil
         citations = (try? c.decodeIfPresent(Citations.self, forKey: .citations)) ?? nil
         history = (try? c.decodeIfPresent(History.self, forKey: .history)) ?? nil
+        list = (try? c.decodeIfPresent(ListBlock.self, forKey: .list)) ?? nil
     }
 }
 
