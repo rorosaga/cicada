@@ -570,7 +570,7 @@ that name them** — `saved_lists.PLATFORMS` (a key with a `base` attribute grou
 `youtube_lists.LISTS`, `substack_lists.LISTS` — so a list added there appears with no second edit; everything else is the
 static table in `source_streams._static_specs`, its state from the channel rows and the connectors. `how` is the way in
 use: a connector the person connected (X, Reddit, Pinterest) makes the same stream `account`. **`count` is list
-membership** (`id_utils.page_lists`: a post bookmarked first and liked later counts on both), from one pass over the media
+membership** (`id_utils.page_lists`: a post bookmarked first and liked later counts on both; a post first kept by another door, a plain saved link, counts on a list that later saw it when its own site — `reading_hosts.site_of` of its `media.url` — is the list's source AND its lists name the list's label, never a browser bookmark folder's, so a label two sites share is never one site's alone; the items route's `stream` filter takes the same members), from one pass over the media
 pages kept under `bank_index.derived`, never a scan per request; a history's is its days, LinkedIn's connections' the
 kept directory's size. **A count of zero with no last read is `null`** (unknown: nobody has read it; a read that found nothing records its day, so "read and empty" stays `0`) — the app draws no number for it. `folderCount` counts the site's own folders (`save_folders`; a playlist is one). The route
 writes nothing and is a plain read on a copy.
@@ -596,7 +596,7 @@ about plus `checked: [{stream, result}]`, `result` one of `requested`, `signed_o
 **Items by stream and folder (G245, shape `g161-23`).** `GET /sources/channels/{id}/items` takes `stream` (a stream id;
 404 for an unknown one) and `folder` (a name, any case, within it — a bookmark folder, a collection, a playlist): `all`
 is then that stream's or folder's. A stream that is the whole channel (a history, Notes) keeps every row. A saved-list
-row (a media page of a list origin) gains `lists` (the labels of the lists it is on: its page's `folder:` and
+row (a media page of a list origin, or a member of a list another door kept first) gains `lists` (the labels of the lists it is on: its page's `folder:` and
 `collections:`), `folders` (the site's own, `save_folders`, minus any already a list), `depth` (deepest first, ruling 78 (e):
 `watched` = the person's own agent recorded a watch of the link; `asked` = the person talked about it and an ask waits for
 their agent on the video or reading queue, honoured now (`mention_asks.waiting_hashes`, one read of each queue file per

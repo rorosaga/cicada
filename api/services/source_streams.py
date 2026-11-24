@@ -48,6 +48,7 @@ from api.services import (
     history_index,
     id_utils,
     media_ingestor,
+    reading_hosts,
     reading_settings,
     saved_at,
     saved_lists,
@@ -392,6 +393,9 @@ class Members:
     #: stream id -> {folder name casefolded: (name, members)} for the streams that file into folders.
     playlists: dict[str, dict[str, tuple[str, int]]]
     origin_counts: Counter
+    #: page id -> the streams that hold it (the inverse of ``members``), so a row's own lists can be named by the streams it
+    #: is really on, whichever door first kept it.
+    streams_of: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 def _site_origins(group_specs: list[Spec], source: str) -> frozenset[str]:
@@ -400,6 +404,37 @@ def _site_origins(group_specs: list[Spec], source: str) -> frozenset[str]:
     for spec in group_specs:
         origins |= set(spec.origins)
     return frozenset(origins)
+
+
+#: The hosts a source's own posts live on, for the sources whose list tables do not name them (the saved lists name theirs
+#: in ``Platform.profile_hosts``).
+_SITE_HOSTS = {"youtube": ("youtube.com", "youtu.be"), "substack": ("substack.com",)}
+
+
+def _sites_of(source: str) -> frozenset[str]:
+    """The site keys (``reading_hosts.site_of``) a source's posts are on: X's ``x``, YouTube's ``youtube.com``. A page kept by
+    another door belongs to a source's list only on its own site AND the list's label, because a label alone ("Bookmarks",
+    "Saved") is a name several sites use."""
+    hosts: list[str] = list(_SITE_HOSTS.get(source, ()))
+    for key, platform in saved_lists.PLATFORMS.items():
+        if key == source or getattr(platform, "base", None) == source:
+            hosts += [platform.site, *platform.profile_hosts]
+    return frozenset(site for h in hosts if (site := reading_hosts.site_of(h)))
+
+
+#: The origins whose pages are filed under the browser's own folders (a Chrome bookmark folder, a Safari tab group), never
+#: under a site's list: a folder called "Bookmarks" there is no list of a site.
+_BROWSER_ORIGINS = frozenset(o for spec in source_overview.CATALOG if spec.kind == "browser" for o in spec.origins)
+
+
+def _page_site(fm: dict) -> str:
+    media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
+    return reading_hosts.site_of(str(media.get("url") or ""))
+
+
+def _on_site(origin: str, fm: dict, sites: frozenset[str]) -> bool:
+    """Is a page of ANOTHER origin (a saved link, a link before pages carried one) on this source's own site?"""
+    return origin not in _BROWSER_ORIGINS and bool(sites) and _page_site(fm) in sites
 
 
 def _signature(specs: list[Spec]) -> str:
@@ -443,6 +478,8 @@ def _build_members(entries, plan) -> Members:
     held: dict[str, set[str]] = {s.id: set() for _src, _o, specs in plan for s in specs}
     playlists: dict[str, dict[str, list]] = {s.id: {} for _src, _o, specs in plan for s in specs if s.folders == "playlists"}
     origin_counts: Counter = Counter()
+    sites = {source: _sites_of(source) for source, _o, _s in plan}
+    streams_of: dict[str, list[str]] = {}
     for f in entries:
         fm = f.frontmatter or {}
         if fm.get("type") != "media" or source_overview.is_hidden(fm):
@@ -450,11 +487,14 @@ def _build_members(entries, plan) -> Members:
         origin = str(fm.get("origin") or "").strip()
         origin_counts[origin] += 1
         lists = id_utils.page_lists(fm)
-        for _source, origins, specs in plan:
-            if origin not in origins:
+        for source, origins, specs in plan:
+            # Counts are list membership, not a post's first origin: a post first kept as a saved link and later seen on
+            # the site's list is on that list too (its page's own site and the list's label say so).
+            if origin not in origins and not _on_site(origin, fm, sites[source]):
                 continue
             for spec in _classify(specs, origin, lists):
                 held[spec.id].add(f.stem)
+                streams_of.setdefault(f.stem, []).append(spec.id)
                 if spec.id in playlists:
                     own = {_cf(s.list_label) for s in specs if s.match == "label" and s.list_label}
                     for name in lists:
@@ -462,7 +502,8 @@ def _build_members(entries, plan) -> Members:
                             slot = playlists[spec.id].setdefault(_cf(name), [name, 0])
                             slot[1] += 1
     return Members({k: frozenset(v) for k, v in held.items()},
-                   {k: {c: (v[0], v[1]) for c, v in names.items()} for k, names in playlists.items()}, origin_counts)
+                   {k: {c: (v[0], v[1]) for c, v in names.items()} for k, names in playlists.items()}, origin_counts,
+                   {k: tuple(v) for k, v in streams_of.items()})
 
 
 # --- one pass over the episodes ----------------------------------------------------------------------------------------
@@ -886,14 +927,14 @@ def folder_matches(memory_path: Path, rows: list[dict], pages: dict[str, dict], 
 
 
 def _list_display_names() -> dict[tuple[str, str], str]:
-    """``(origin, folded list name)`` -> the label of the stream that list is, for the lists whose stored name is not
-    the stream's own name (``Saved Items`` -> ``Saved posts``); a list that already carries it is not in the map."""
+    """``(stream id, folded list name)`` -> the label of the stream that list is, for the lists whose stored name is not the
+    stream's own name (``Saved Items`` -> ``Saved posts``); a list that already carries it is not in the map. Keyed by the
+    stream, not the page's origin, so a post first kept by another door is named the same way. Built once a request."""
     out: dict[tuple[str, str], str] = {}
     for group in groups():
         for spec in group.specs:
-            if spec.counts == "members" and spec.origin and spec.list_label and spec.label \
-                    and _cf(spec.list_label) != _cf(spec.label):
-                out[(spec.origin, _cf(spec.list_label))] = spec.label
+            if spec.counts == "members" and spec.list_label and spec.label and _cf(spec.list_label) != _cf(spec.label):
+                out[(spec.id, _cf(spec.list_label))] = spec.label
     return out
 
 
@@ -908,19 +949,23 @@ def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], post
 
     eps = episodes(memory_path)
     origins = list_origins()
+    streams_of = members(memory_path).streams_of
     asked = mention_asks.waiting_hashes(memory_path)
+    names = _list_display_names()
     out: dict[str, dict] = {}
     for row in rows:
         if row.get("kind") != "media":
             continue
         fm = pages.get(row.get("id")) or {}
-        if str(fm.get("origin") or "").strip() not in origins:
+        # A row of a list: a post of a list's own origin, or one another door kept first that a list holds (the same
+        # membership the counts and the ``stream`` filter use).
+        on = streams_of.get(row.get("id"), ())
+        if str(fm.get("origin") or "").strip() not in origins and not on:
             continue
         lists = id_utils.page_lists(fm)
         held = {_cf(n) for n in lists}
         # A list is drawn under the stream's own name (LinkedIn's saved posts were filed under the export's "Saved Items").
-        names = _list_display_names()
-        lists = list(dict.fromkeys(names.get((str(fm.get("origin") or "").strip(), _cf(n)), n) for n in lists))
+        lists = list(dict.fromkeys(next((names[(sid, _cf(n))] for sid in on if (sid, _cf(n)) in names), n) for n in lists))
         folders = [n for n in eps.folders_of.get(str(row.get("_episode") or ""), ()) if _cf(n) not in held]
         h = media_ingestor.url_hash(str(row["_url"])) if row.get("_url") else ""
         read = row.get("id") in eps.read_pages or (bool(h) and h in eps.agent_read)
