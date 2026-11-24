@@ -7,6 +7,7 @@ Hermetic: fakes only, placeholder ids, no live Notion or Linear.
 from __future__ import annotations
 
 import asyncio
+import os
 import json as jsonlib
 import time
 
@@ -86,7 +87,13 @@ def bank(tmp_path, monkeypatch):
     monkeypatch.setenv("CICADA_MEMORY_PATH", str(memory))
     monkeypatch.setattr(sleep_cycle, "is_writing", lambda: False)
     config.get_settings.cache_clear()
+    # A sign-in stores its token with `secrets.set_secret`, which writes `os.environ` directly (outside `monkeypatch`):
+    # left behind, `NOTION_TOKEN` made `notion-api` read as connected in whatever test ran next in the same process
+    # (`test_source_channels::test_get_sources_channels_returns_every_known_channel` failed only in a large run).
+    environ_before = dict(os.environ)
     yield memory
+    os.environ.clear()
+    os.environ.update(environ_before)
     config.get_settings.cache_clear()
 
 

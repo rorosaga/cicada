@@ -245,7 +245,12 @@ final class RoomFeedTests: XCTestCase {
         for file in try SleepNumbersLintTests.sleepSources() {
             let lines = try code(file)
             for needle in ["sniffIntake(", "importIntake(", "uploadSaved(", "NSOpenPanel", "APIClient.shared"] {
-                XCTAssertFalse(lines.contains { $0.contains(needle) }, "\(file.lastPathComponent) reaches past the router: \(needle)")
+                // The Sleep page's own cards read the API directly (#787 the run detail's page diffs, #802 what is kept for
+                // lookup): a `fetch…` call is a read and can feed nothing. Anything else on `APIClient.shared` — a post, an
+                // upload — in this folder would be a second way in, and still fails here.
+                XCTAssertFalse(lines.contains { $0.contains(needle) && !(needle == "APIClient.shared"
+                                   && $0.contains("APIClient.shared.fetch")) },
+                               "\(file.lastPathComponent) reaches past the router: \(needle)")
             }
             if lines.contains(where: { $0.contains(".accept(urls:") }) { accepting.append(file.lastPathComponent) }
             if lines.contains(where: { $0.contains(".onDrop(") }) { dropping.append(file.lastPathComponent) }

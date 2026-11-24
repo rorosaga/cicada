@@ -324,6 +324,10 @@ struct PlaceMap: View {
     }
 
     private func read() async {
+        // The place is read after the first layout, never inside it: a `.task` the system starts at once (macOS 27
+        // begins its body as the view appears, in the layout pass) gives the pass back before it touches state or asks.
+        await Task.yield()
+        guard !Task.isCancelled else { return }
         phase = PlacePhase.initial(served)
         nearby = []
         still = nil

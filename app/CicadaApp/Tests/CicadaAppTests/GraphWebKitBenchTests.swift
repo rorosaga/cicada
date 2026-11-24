@@ -74,7 +74,7 @@ final class GraphWebKitBenchTests: XCTestCase {
         guard ProcessInfo.processInfo.environment["CICADA_APP_BENCH"] == "1" else {
             throw XCTSkip("set CICADA_APP_BENCH=1 to print the WebKit numbers")
         }
-        let page = try XCTUnwrap(Bundle.cicadaResources.url(forResource: "graph/index", withExtension: "html"))
+        let page = try XCTUnwrap(Bundle.cicadaResources.cicadaResource("index", ext: "html", in: "graph"))
         let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1200, height: 800))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -144,7 +144,7 @@ final class GraphWebKitBenchTests: XCTestCase {
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("graph/graph-bank-shape.js")
         let generator = try String(contentsOf: generatorURL, encoding: .utf8)
-        let page = try XCTUnwrap(Bundle.cicadaResources.url(forResource: "graph/index", withExtension: "html"))
+        let page = try XCTUnwrap(Bundle.cicadaResources.cicadaResource("index", ext: "html", in: "graph"))
         let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1200, height: 800))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)

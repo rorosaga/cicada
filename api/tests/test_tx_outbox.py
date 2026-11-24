@@ -124,6 +124,10 @@ SAME_BY_CONTENT = {
     # G43 (#644): each recording is staged under an id made from its source and its own key, and the same bytes posted
     # again answer `unchanged` (`media_files.record_media`) — a resend days later is the same write, whatever the key.
     "POST /files/voice-memos",
+    # G244 (ruling 76): an agent's edit of a source is a hash-matched record — held once per (folder, path, sha, harness,
+    # session) and attached once per episode, so the same post days later answers the same episodes and writes nothing
+    # (`source_edits.hold` "the same record twice is one"; test_source_edits `test_the_same_record_twice_is_held_once`).
+    "POST /capture/source-edit",
 }
 
 
