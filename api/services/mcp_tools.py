@@ -1004,7 +1004,7 @@ def _record_settle(ctx: ToolContext, memory_path: Path, item_id, source, option_
     item_path = memory_path / "inbox" / f"{item_id}.md"
     c = web_settle.candidate(memory_path, item_path, facts, agent=True) if item_path.exists() else None
     if c is None:
-        return Reply("Not recorded: that question is not one a lookup may settle — it is about a person, the person's own "
+        return Reply("Not recorded: that question is not one a web check may settle — it is about a person, the person's own "
                 "files, projects or life, or something only their conversations know, or it is no longer open. It "
                 "stays for the person.", code="refused")
     if c.scope == "repo" and not page_editors.is_trusted(ctx.author, remote=ctx.is_remote):
@@ -3924,7 +3924,7 @@ def _book_preview(number: str) -> str:
         _run_async(lambda: book_lookup.resolve([number]))
         hit = book_lookup.cached(number)
     if not hit or not hit.get("found"):
-        why = ("no source knows this number" if hit else "the lookup could not be reached (or network lookups are off)")
+        why = ("no source knows this number" if hit else "the book source could not be reached (or Cicada's online fetching is turned off)")
         return f"No edition to show for {number}: {why}. Check the number, or ask the person."
     lines = [f"ISBN {number}: {hit.get('title') or '?'}" + (f" — {hit['subtitle']}" if hit.get("subtitle") else ""),
              "Authors: " + (", ".join(hit.get("authors") or []) or "unknown")]
@@ -3958,8 +3958,8 @@ def _book_add(ctx: ToolContext, number: str) -> str:
                     f"({out.get('entityId')}). It carries no reading status; say so if the person told you one. "
                     "Its description comes from a public source and is not the person's words.")
     note = "was already requested" if repeat else "is queued"
-    return (f"The book {note} (ISBN {number}). Its page appears once the lookup answers "
-            "(or after the next Sleep if network lookups are off).")
+    return (f"The book {note} (ISBN {number}). Its page appears once the book's details arrive "
+            "(or after the next Sleep if Cicada's online fetching is turned off).")
 
 
 @_holding_pages

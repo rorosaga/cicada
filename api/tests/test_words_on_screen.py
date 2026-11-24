@@ -304,3 +304,64 @@ def test_the_docs_say_what_the_changed_fields_mean_now():
     source = open(__import__("api.models.schemas", fromlist=["x"]).__file__).read()
     assert source.count("Ruling 80 (meaning changed from ruling 62's \"kept for lookup\")") == 2, "both `kept` fields say so"
     assert SourceOverview.model_fields["kept_per_night"].default == 0
+
+
+# ---- the same words, outside the saves (G245/G246 leftovers) ---------------------------------------------------------
+
+#: Files whose sentences reach a person or an agent and once said "lookup" for a web check or for what Cicada keeps.
+_SENTENCE_FILES = ("web_settle.py", "public_handle.py", "mcp_tools.py", "watch_history.py", "page_blocks.py")
+_HOUSE_WORDS = ("lookup", "look up", "index-only", "indexed", "lean read")
+
+
+def _shown_strings(path):
+    """Every string constant of a module that is not a docstring: what the code can say, never what it explains."""
+    import ast
+
+    tree = ast.parse(open(path).read())
+    docs = {id(n.body[0].value) for n in ast.walk(tree)
+            if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n.body
+            and isinstance(n.body[0], ast.Expr) and isinstance(n.body[0].value, ast.Constant)}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docs:
+            yield node.lineno, node.value
+
+
+def test_web_check_and_book_and_citation_sentences_use_no_house_word():
+    import os
+
+    from api import services
+
+    root = os.path.dirname(services.__file__)
+    for name in _SENTENCE_FILES:
+        for line, text in _shown_strings(os.path.join(root, name)):
+            lowered = text.lower()
+            if " " not in text.strip() or "_lookup" in lowered:      # an identifier, a key or an env name, not a sentence
+                continue
+            for word in _HOUSE_WORDS:
+                assert word not in lowered, f"{name}:{line} says {word!r}: {text[:90]!r}"
+
+
+def test_the_refusals_about_a_web_check_say_a_web_check():
+    from api.services import public_handle, web_settle
+
+    source = open(web_settle.__file__).read() + open(public_handle.__file__).read() + open(mcp_tools.__file__).read()
+    assert source.count("a web check may") >= 5
+    assert "A web check settles a pair only with how the two are related" in source
+    assert "the book source could not be reached" in source and "the book's details arrive" in source
+
+
+def test_what_a_watched_day_and_a_citation_count_say_is_plain():
+    from api.services import page_blocks, watch_history
+
+    assert "a record of what was watched, not a conversation" in open(watch_history.__file__).read()
+    assert "from the web," in open(page_blocks.__file__).read()
+
+
+def test_the_traces_page_says_kept_to_search_never_to_look_up():
+    import pathlib
+
+    swift = pathlib.Path(__file__).resolve().parents[2] / "app/CicadaApp/Sources/CicadaApp/Theme/Copy+Traces.swift"
+    text = swift.read_text().lower()
+    for word in ("to look up", "lookup", "indexed", "index-only"):
+        assert word not in text, word
+    assert "you and your agent can search" in text and "kept to search, never read by a model" in text

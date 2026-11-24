@@ -1044,7 +1044,7 @@ def settle(
     if via_source:
         scopes = ("source",)
     if c is None or c.scope not in scopes:
-        raise NotSettleable("That question is not one a lookup may answer: it is about a person, the person's own "
+        raise NotSettleable("That question is not one a web check may answer: it is about a person, the person's own "
                             "files, projects or life, or something only their conversations know. It stays for them.")
     if c.kind == PAIR:
         raise NotSettleable("A \"same as\" question is settled by how the two are related (`settle_pair`), never "
@@ -1202,11 +1202,11 @@ def settle_pair(
     facts = facts or bank_facts(memory_path)
     c = candidate(memory_path, item_path, facts)
     if c is None or c.kind != PAIR or c.scope != "public" or not c.other_id or c.handle is not None:
-        raise NotSettleable("That question is not one a lookup may answer: one side is a person, the person's own "
+        raise NotSettleable("That question is not one a web check may answer: one side is a person, the person's own "
                             "project, file or life. It stays for them.")
     relation = entity_relations.clean(relation)
     if relation not in entity_relations.RELATIONS and relation != entity_relations.DIFFERENT:
-        raise NotSettleable("A lookup settles a pair only with how the two are related; the same thing stays for "
+        raise NotSettleable("A web check settles a pair only with how the two are related; the same thing stays for "
                             "the person to merge.")
     ref, host = check_ref(ref, c.scope)
     quote = clean_quote(quote)
