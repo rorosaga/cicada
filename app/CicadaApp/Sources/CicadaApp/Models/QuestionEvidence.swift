@@ -48,10 +48,14 @@ enum QuestionEvidence {
             EpisodeTurn(index: $0.index, start: $0.start, contentStart: $0.contentStart, end: $0.end, role: $0.role,
                         marker: $0.marker, speaker: $0.speaker, ts: $0.ts, speakerKind: $0.speakerKind)
         }
-        let doc = EpisodeText(episode: cause.episodeId ?? "", text: cause.excerpt, title: cause.conversationTitle ?? "",
+        var doc = EpisodeText(episode: cause.episodeId ?? "", text: cause.excerpt, title: cause.conversationTitle ?? "",
                               timestamp: cause.timestamp, harness: cause.harness, origin: cause.origin,
                               conversationId: cause.conversationId, turns: turns, source: cause.source,
                               correspondent: cause.correspondent)
+        // What the Reader's rows read from the document to attribute a turn: a relayed person's turn is headed
+        // "relayed by <app>" and a meeting names every run. Whatever the rows need, the card's document carries.
+        doc.relay = cause.relay
+        doc.meeting = cause.meeting
         guard ReaderChat.isChat(doc) else { return nil }
         let scalars = ScalarText(doc.text)
         let marks: [Range<Int>] = cause.mentionOffsets.compactMap { pair in
@@ -64,7 +68,8 @@ enum QuestionEvidence {
                                          othersStyle: .found, timeZone: timeZone)
         blocks = edged(blocks, cuts: Dictionary(uniqueKeysWithValues: cause.turns.map { ($0.index, ($0.cutBefore, $0.cutAfter)) }))
         // The whole window is on screen: nothing folds behind "Show more" (the server capped every turn already).
-        var rows = ReaderChat.rows(blocks: blocks, doc: doc, keepOpen: Set(turns.map(\.index)), timeZone: timeZone)
+        var rows = ReaderChat.rows(blocks: blocks, doc: doc, keepOpen: Set(turns.map(\.index)), namesOtherSide: true,
+                                   timeZone: timeZone)
         rows.removeAll { if case .day = $0.kind { true } else { false } }
         if let first = rows.first {
             rows[0] = ReaderChat.Row(id: first.id, kind: first.kind, gap: .none)

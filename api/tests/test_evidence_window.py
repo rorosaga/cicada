@@ -137,3 +137,24 @@ def test_no_mention_is_the_first_sentences():
     text = "One. Two sentence here. " + "More words follow here. " * 60
     q = w.sentences(text, None)
     assert q.text.startswith("One.") and q.offsets == [] and q.cut_after and q.text.endswith(".")
+
+
+def test_a_summary_turn_is_never_a_neighbour_and_a_mention_in_it_is_no_chat_window():
+    text = _chat(("assistant", "Summary (written by Hex)\n- Sam Example joined."), ("user", "Hello there."),
+                 ("assistant", "Is Sam Example the same one?"))
+    turns = evidence.turns(text)
+    s = text.rindex("Sam Example")
+    q = w.chat(text, turns, (s, s + 11), skip=turns[0].index)
+    assert q is not None and turns[0].index not in [t.index for t in q.turns]
+    first = text.index("Sam Example")
+    assert w.chat(text, turns, (first, first + 11), skip=turns[0].index) is None
+
+
+def test_a_sentence_quote_shrinks_before_a_held_secret_and_is_none_when_the_mention_is_held():
+    text = "Sam Example is a friend. The secret is hunter2 and nothing else. More words follow here."
+    secret = text.index("hunter2")
+    span = (0, 11)
+    q = w.sentences(text, span, held=((secret, secret + 7),))
+    assert q.text == "Sam Example is a friend." and "hunter2" not in q.text
+    assert w.sentences(text, (secret, secret + 7), held=((secret, secret + 7),)).text == ""
+    assert w.sentences(text, None, held=((2, 5),)).text == ""

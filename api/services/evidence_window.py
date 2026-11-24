@@ -26,7 +26,7 @@ import re
 from dataclasses import dataclass, field
 
 #: The shape of what this module puts on the inbox wire (`InboxCause.turns`, the cuts); it joins `GET /inbox`'s ETag.
-SHAPE = "cause2"
+SHAPE = "cause3"
 
 #: How long a quote of whole sentences grows to, and the most it grows to when the next sentence would fit.
 TARGET = 300
@@ -238,13 +238,24 @@ def _highlights(text: str, base: list[tuple[int, int]], names: list[str]) -> lis
 
 
 def sentences(text: str, span: tuple[int, int] | None, *, lo: int = 0, hi: int | None = None,
-              names: list[str] | None = None) -> Quote:
-    """``span`` and the whole sentences around it — or, with no ``span``, the document's first sentences."""
+              names: list[str] | None = None, held: tuple = ()) -> Quote:
+    """``span`` and the whole sentences around it — or, with no ``span``, the document's first sentences.
+
+    A secret ``held`` (G235) is never in the quote: when the grown window reaches one, the quote shrinks to the mention's
+    own sentence, and when even that does (or the mention itself is held) there is no quote at all (empty ``text``)."""
+    from api.services import source_spans
+
     hi = len(text) if hi is None else hi
     if span is None:
         a, b = head(text, lo, hi, CAP)
+        if source_spans.overlaps_held(a, b, held):
+            return Quote(text="", start=a)
         return Quote(text=text[a:b], start=a, cut_before=False, cut_after=_after(text, b, hi))
     a, b = around(text, span[0], span[1], lo, hi)
+    if source_spans.overlaps_held(a, b, held):
+        a, b = around(text, span[0], span[1], lo, hi, target=0)
+        if source_spans.overlaps_held(a, b, held):
+            return Quote(text="", start=a)
     window = text[a:b]
     base = [(span[0] - a, span[1] - a)]
     return Quote(text=window, offsets=_highlights(window, base, names or []), start=a,
@@ -269,16 +280,17 @@ def _written(marker: str | None) -> bool:
 
 
 def chat(text: str, turns, span: tuple[int, int], *, held: tuple = (), names: list[str] | None = None,
-         display=None) -> Quote | None:
+         display=None, skip: int | None = None) -> Quote | None:
     """The turn holding ``span`` with its neighbours, whole where they fit. ``None`` when the mention's turn cannot be
     shown (it overlaps a held secret, or it is Cicada's own gap line); the caller then falls back to a plain quote.
 
     ``display(turn)`` gives ``(speaker, speaker_kind)`` for a turn (a meeting's speaker names, ROR-142); it is read
-    only for the turns that are shown."""
+    only for the turns that are shown. ``skip`` is the index of a turn that is no bubble (a meeting's recorder summary,
+    which the Reader draws as its header card): never a neighbour, and a mention in it is no conversation window."""
     from api.services import source_spans
 
     s, e = span
-    live = [t for t in turns if t.role != "gap" and t.end > t.content_start]
+    live = [t for t in turns if t.role != "gap" and t.end > t.content_start and t.index != skip]
     inside = [i for i, t in enumerate(live) if t.start < e and s < max(t.end, t.start + 1)]
     if not inside:
         return None

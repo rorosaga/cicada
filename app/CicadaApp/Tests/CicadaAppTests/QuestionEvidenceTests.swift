@@ -92,6 +92,68 @@ final class QuestionEvidenceTests: XCTestCase {
         XCTAssertEqual([s, e], [42, 45], "a plain excerpt still sits at start + offset")
     }
 
+    // MARK: What the Reader says for the same turn (relay, meeting; owner 2026-11-24)
+
+    private func messages(_ chat: QuestionEvidence.Chat) -> [ReaderChat.Message] {
+        chat.rows.compactMap { row -> ReaderChat.Message? in
+            if case let .message(m) = row.kind { return m } else { return nil }
+        }
+    }
+
+    /// A relayed conversation (rulings 32, 57) forces every role to `assistant`; the markers still say who spoke.
+    private func relayedCause(relay: String) -> String {
+        #"""
+        {"episodeId":"ep_2026-08-20_005","timestamp":"2026-08-20T10:00:00+00:00","harness":"chatgpt","origin":"chatgpt",
+         "tier":"item","spanKind":"derived",\#(relay)
+         "excerpt":"Is Sam Example the same one?\nI cannot tell from here.",
+         "mentionOffsets":[[3,14]],"focus":[3,14],
+         "turns":[{"index":1,"start":0,"contentStart":0,"end":28,"role":"assistant","marker":"user","speaker":"ChatGPT"},
+                  {"index":2,"start":29,"contentStart":29,"end":53,"role":"assistant","marker":"assistant","speaker":"ChatGPT"}]}
+        """#
+    }
+
+    func testARelayedPersonTurnIsHeadedWithTheRelayNotTheAgentsName() throws {
+        let relay = #""relay":{"app":"chatgpt","label":"ChatGPT"},"#
+        let chat = try XCTUnwrap(QuestionEvidence.chat(try XCTUnwrap(item(relayedCause(relay: relay)).cause), timeZone: utc))
+        let person = try XCTUnwrap(messages(chat).first { $0.side == .person })
+        XCTAssertEqual(person.speaker, Copy.Provenance.relayedBy("ChatGPT"), "the Reader says the same for the same turn")
+        XCTAssertEqual(person.header?.name, Copy.Provenance.relayedBy("ChatGPT"))
+        XCTAssertEqual(messages(chat).first { $0.side == .other }?.header?.name, "ChatGPT",
+                       "the other side is named beside its mark where no Reader header names it")
+    }
+
+    func testARelayedConversationWithoutItsRelayDecodesAndStillDraws() throws {
+        // A snapshot from before `relay` rode the wire: it decodes to nil, never fails the card.
+        let chat = try XCTUnwrap(QuestionEvidence.chat(try XCTUnwrap(item(relayedCause(relay: "")).cause), timeZone: utc))
+        XCTAssertNil(try XCTUnwrap(item(relayedCause(relay: "")).cause).relay)
+        XCTAssertEqual(messages(chat).count, 2)
+    }
+
+    func testAMeetingNamesEveryRunSoASecondRunOfTheSameVoiceKeepsItsName() throws {
+        let cause = #"""
+        {"episodeId":"ep_2026-08-20_006","timestamp":"2026-08-20T10:00:00+00:00","origin":"hex","tier":"item","spanKind":"derived",
+         "meeting":{"recorder":"hex","summaryTurn":1,"app":"zoom"},
+         "excerpt":"Is Sam Example here?\nYes.\nThen we start.",
+         "mentionOffsets":[[3,14]],"focus":[3,14],
+         "turns":[{"index":2,"start":0,"contentStart":0,"end":20,"role":"speaker","marker":"speaker:ana-example","speaker":"Ana Example","speakerKind":"named"},
+                  {"index":3,"start":21,"contentStart":21,"end":25,"role":"user","marker":"user"},
+                  {"index":4,"start":26,"contentStart":26,"end":40,"role":"speaker","marker":"speaker:ana-example","speaker":"Ana Example","speakerKind":"named"}]}
+        """#
+        let chat = try XCTUnwrap(QuestionEvidence.chat(try XCTUnwrap(item(cause).cause), timeZone: utc))
+        let others = messages(chat).filter { $0.side == .other }
+        XCTAssertEqual(others.map { $0.header?.name }, ["Ana Example", "Ana Example"], "A, you, A: the second run says who")
+        let plain = cause.replacingOccurrences(of: #""meeting":{"recorder":"hex","summaryTurn":1,"app":"zoom"},"#, with: "")
+        let bare = try XCTUnwrap(QuestionEvidence.chat(try XCTUnwrap(item(plain).cause), timeZone: utc))
+        XCTAssertEqual(messages(bare).filter { $0.side == .other }.map { $0.header?.name }, ["Ana Example", nil],
+                       "without the meeting the rows would drop the second run's name: the class this test pins")
+    }
+
+    func testTheOtherSideIsNamedBesideItsMarkOnceInAOneToOneChat() throws {
+        let chat = try XCTUnwrap(QuestionEvidence.chat(try XCTUnwrap(item(chatCause).cause), timeZone: utc))
+        XCTAssertEqual(messages(chat).first { $0.side == .other }?.header?.name, "Claude Code")
+        XCTAssertNotEqual(messages(chat).first { $0.side == .other }?.header?.avatar, ReaderChat.Avatar.none)
+    }
+
     func testASummaryTheGraphClippedEndsAtAWholeWord() {
         let clipped = String(("Sam Example is a researcher in the lab who works on retrieval and memory systems for agents, and who also " +
             "maintains the shared evaluation harness the whole group uses every week, including the nightly regression runs").prefix(200))

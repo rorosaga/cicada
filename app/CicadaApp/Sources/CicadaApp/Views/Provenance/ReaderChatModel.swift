@@ -255,8 +255,12 @@ enum ReaderChat {
     ///
     /// `newFrom` is the first turn Sleep has not read (`ReaderChanges.firstTurn`): the boundary line sits above it,
     /// whenever a turn comes before it.
+    ///
+    /// `namesOtherSide`: the Reader names a one-to-one chat's other side once, in its own header, so its first run
+    /// carries no name; a quote of that chat elsewhere (the question card) has no such header, so its first run says
+    /// who spoke beside the mark.
     static func rows(blocks: [ReaderBlock], doc: EpisodeText, expanded: Set<Int> = [], keepOpen: Set<Int> = [],
-                     newFrom: Int? = nil,
+                     newFrom: Int? = nil, namesOtherSide: Bool = false,
                      now: Date = Date(), locale: Locale = .autoupdatingCurrent,
                      timeZone: TimeZone = .autoupdatingCurrent) -> [Row] {
         let turnsByIndex = Dictionary(doc.turns.map { ($0.index, $0) }, uniquingKeysWith: { a, _ in a })
@@ -279,7 +283,7 @@ enum ReaderChat {
         var out: [Row] = []
         var day: DateComponents?
         var last: (side: Side, speaker: String, date: Date?)?
-        var lastOtherName: String? = namedParty(doc)
+        var lastOtherName: String? = namesOtherSide ? nil : namedParty(doc)
         var lastPersonName: String?
         // Ruling 32: a relayed person's turn is on their side but is not "You" — the model relayed it.
         let relayed = doc.relay.map { relay in

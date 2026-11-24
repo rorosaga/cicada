@@ -604,7 +604,7 @@ by whole sentences to about 300 characters, never across a blank line, cut at a 
 `cutBefore`/`cutAfter` saying words remain. `mentionOffsets` hold every place the mention's words and, on a same-one
 question, either side's names are said (the first is the question's); `focus` is the mention's place in the episode's own
 text (what "Show in conversation" lands on; a stitched excerpt has no `start`). A turn or sentence overlapping what
-`source_spans` holds as a secret (G235) is left out, and a mention that does is no conversation window. The wire shape rides
+`source_spans` holds as a secret (G235) is left out, and a mention that does is no conversation window; the sentence quote honours the same hold (it shrinks to the mention's own sentence, and is empty when even that reaches a secret). **The card attributes a turn as the Reader does:** the cause carries the episode's `relay` (`provenance._relay`: a relayed person's turn is headed "Relayed by <app>", never the agent's name) and `meeting` (`meeting_transcripts.meeting_wire`: every run named; the recorder's summary turn is never a bubble or a neighbour, and a mention in it is a plain quote), the app puts both on the `EpisodeText` it builds, and the first run of the other side is named beside its mark (`ReaderChat.rows(namesOtherSide:)`, the Reader unchanged). A window that raises falls back to the sentence quote, never losing the question. The wire shape rides
 the inbox ETag (`evidence_window.SHAPE`); a question stored before it has no `turns` and draws as a quote. **Offsets are
 recomputed on every read and never stored**. Nothing resolves →
 `tier: none` and a literal `[ no source recorded ]`, served — never a hidden card.

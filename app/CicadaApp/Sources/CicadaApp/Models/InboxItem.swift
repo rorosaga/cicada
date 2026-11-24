@@ -249,12 +249,16 @@ struct InboxCause: Codable, Hashable {
     var cutAfter = false
     var source: String?
     var correspondent: String?
+    /// What the Reader's rows read from the document to say who spoke (`EpisodeText.relay` / `.meeting`): a relayed
+    /// person's turn is "relayed by <app>", never the agent's name, and a meeting names every run. Nil for any other.
+    var relay: EpisodeRelay?
+    var meeting: EpisodeMeeting?
     var focus: [Int]?
 
     enum CodingKeys: String, CodingKey {
         case episodeId, timestamp, conversationId, harness, origin, conversationTitle
         case excerpt, mentionOffsets, start, end, tier, spanKind
-        case turns, cutBefore, cutAfter, source, correspondent, focus
+        case turns, cutBefore, cutAfter, source, correspondent, relay, meeting, focus
     }
 
     init(from decoder: Decoder) throws {
@@ -276,6 +280,8 @@ struct InboxCause: Codable, Hashable {
         cutAfter = (try? c.decodeIfPresent(Bool.self, forKey: .cutAfter)) ?? false
         source = (try? c.decodeIfPresent(String.self, forKey: .source)) ?? nil
         correspondent = (try? c.decodeIfPresent(String.self, forKey: .correspondent)) ?? nil
+        relay = (try? c.decodeIfPresent(EpisodeRelay.self, forKey: .relay)) ?? nil
+        meeting = (try? c.decodeIfPresent(EpisodeMeeting.self, forKey: .meeting)) ?? nil
         focus = (try? c.decodeIfPresent([Int].self, forKey: .focus)) ?? nil
     }
 }

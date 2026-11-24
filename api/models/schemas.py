@@ -2990,6 +2990,10 @@ class InboxCause(CamelModel):
     cut_after: bool = False
     source: Optional[str] = None
     correspondent: Optional[str] = None
+    #: What the Reader's rows read from the document to say who spoke (``EpisodeText.relay`` / ``.meeting``): a relayed
+    #: person's turn is "relayed by <app>", a meeting names every run. Null for any other conversation and for a note.
+    relay: Optional["EpisodeRelay"] = None
+    meeting: Optional["EpisodeMeeting"] = None
     #: The mention's own place in the episode's text, ``[start, end]`` in code points — what "Show in conversation"
     #: lands on. Null with no mention. (``start`` is the excerpt's own origin and is null for a conversation.)
     focus: Optional[list[int]] = None

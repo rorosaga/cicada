@@ -26,6 +26,7 @@ Three rules, all from the G115 ruling:
 
 from __future__ import annotations
 
+import logging
 import re
 import threading
 from collections import OrderedDict
@@ -34,6 +35,8 @@ from pathlib import Path
 
 from api.services import bank_index, evidence, evidence_window, inbox_questions
 from api.services.id_utils import sanitize_id
+
+_log = logging.getLogger(__name__)
 
 NO_SOURCE = "[ no source recorded ]"
 EXCERPT_RADIUS = 240
@@ -51,6 +54,10 @@ class Excerpt:
     #: More words come before / after what is shown (a sentence-aligned cut, never a quote that just stops).
     cut_before: bool = False
     cut_after: bool = False
+    #: What the Reader's rows read from the document to attribute a turn, for a conversation (`provenance._relay`,
+    #: `meeting_transcripts.meeting_wire`): the relay record and the meeting's facts, as the Reader's wire has them.
+    relay: dict | None = None
+    meeting: dict | None = None
 
 
 @dataclass
@@ -74,6 +81,10 @@ class Cause:
     cut_after: bool = False
     source: str | None = None
     correspondent: str | None = None
+    #: The episode's relay record and meeting facts, so the card's rows attribute a turn as the Reader does (a relayed
+    #: person's turn is "relayed by <app>", never the agent's name; a meeting names every run). Null for any other.
+    relay: dict | None = None
+    meeting: dict | None = None
     #: Where the mention is in the episode's own text (absolute scalar offsets), whatever the excerpt was cut from —
     #: what "Show in conversation" lands on. ``start + mention_offsets[0]`` is the same place for a plain excerpt only.
     focus: list | None = None
@@ -87,6 +98,7 @@ class Cause:
             "start": self.start, "end": self.end, "tier": self.tier, "span_kind": self.span_kind,
             "turns": [asdict(t) for t in self.turns], "cut_before": self.cut_before, "cut_after": self.cut_after,
             "source": self.source, "correspondent": self.correspondent, "focus": self.focus,
+            "relay": self.relay, "meeting": self.meeting,
         }
 
 
@@ -298,41 +310,69 @@ class InboxContext:
 
     def _cut(self, ep, ep_id: str, body: str, span: tuple[int, int] | None, names: tuple[str, ...]) -> "Excerpt":
         """The words shown for one mention (owner 2026-11-24): a conversation as its turns, anything else as whole
-        sentences (`evidence_window`); a mention that cannot be shown whole falls back to sentences."""
+        sentences (`evidence_window`); a mention that cannot be shown whole falls back to sentences. A secret held
+        (G235) is in neither: the window never reaches one, and the question loses its quote before it loses itself."""
         if not body:
             return Excerpt(excerpt="")
-        if span is None:
-            q = evidence_window.sentences(body, None)
-            return Excerpt(excerpt=q.text, start=q.start, end=(q.start or 0) + len(q.text), cut_after=q.cut_after)
+        fm: dict = {}
+        held: tuple = ()
+        override = None
+        gaps: tuple = ()
         if evidence.is_episode_id(ep_id):
+            from api.services import authorship, source_spans
+
             # The cached frontmatter never holds the `turns` sidecar (who spoke when); this read has it, cached by stamp.
-            quote = self._conversation(bank_index.with_turns(ep) or {}, ep_id, body, span, names)
-            if quote is not None:
-                return Excerpt(excerpt=quote.text, mention_offsets=quote.offsets, turns=quote.turns,
-                               cut_before=quote.cut_before, cut_after=quote.cut_after)
-        q = evidence_window.sentences(body, span, names=list(names))
+            fm = bank_index.with_turns(ep) or {}
+            override = authorship.of(fm)
+            gaps = evidence.gap_ranges(fm, body)
+            held = source_spans.held_ranges(ep_id, fm, body, override=override, gaps=gaps)
+        if span is None:
+            q = evidence_window.sentences(body, None, held=held)
+            return Excerpt(excerpt=q.text, start=q.start, end=(q.start or 0) + len(q.text), cut_after=q.cut_after)
+        if fm:
+            try:
+                found = self._conversation(fm, body, span, names, held, override, gaps)
+            except Exception as exc:  # noqa: BLE001 — one odd episode loses its chat, never the question
+                _log.warning("inbox: a conversation window failed (%s); the quote stands", type(exc).__name__)
+                found = None
+            if found is not None:
+                return found
+        q = evidence_window.sentences(body, span, names=list(names), held=held)
         return Excerpt(excerpt=q.text, mention_offsets=q.offsets, start=q.start, end=(q.start or 0) + len(q.text),
                        cut_before=q.cut_before, cut_after=q.cut_after)
 
-    def _conversation(self, fm: dict, ep_id: str, body: str, span: tuple[int, int], names: tuple[str, ...]):
+    def _conversation(self, fm: dict, body: str, span: tuple[int, int], names: tuple[str, ...], held: tuple,
+                      override, gaps: tuple) -> "Excerpt | None":
         """The turns around ``span`` when the episode reads as a chat, else ``None``. One parse of the markers the
-        Reader's own turns come from (`provenance.episode_document`'s inputs), no model, nothing written."""
-        from api.services import authorship, meeting_transcripts, source_spans
+        Reader's own turns come from (`provenance.episode_document`'s inputs), no model, nothing written. It also
+        carries what the Reader's rows read from the document to say who spoke (``relay``, the meeting's facts), the
+        same values the Reader computes, so a card never attributes a turn differently from the Reader."""
+        from api.services import meeting_transcripts, provenance
 
-        override = authorship.of(fm)
-        gaps = evidence.gap_ranges(fm, body)
         turns = evidence.turns(body, stamps=evidence.turn_stamps(fm), override=override, gaps=gaps)
         if not evidence_window.conversation(turns, fm):
             return None
         meeting = fm.get("meeting") if meeting_transcripts.is_meeting(fm) else None
+        summary = None
+        if meeting is not None:
+            first = next(iter(turns), None)
+            if first is not None and first.role == "assistant" \
+                    and meeting_transcripts.is_summary_turn(body[first.content_start:first.end]):
+                summary = first.index
 
         def display(turn):
             if meeting is not None and turn.role == "speaker":
                 return meeting_transcripts.speaker_display(turn.marker, meeting)
             return turn.speaker, None
 
-        held = source_spans.held_ranges(ep_id, fm, body, override=override, gaps=gaps)
-        return evidence_window.chat(body, turns, span, held=held, names=list(names), display=display)
+        quote = evidence_window.chat(body, turns, span, held=held, names=list(names), display=display, skip=summary)
+        if quote is None:
+            return None
+        relay = provenance._relay(fm)
+        return Excerpt(excerpt=quote.text, mention_offsets=quote.offsets, turns=quote.turns,
+                       cut_before=quote.cut_before, cut_after=quote.cut_after,
+                       relay=relay.model_dump() if relay is not None else None,
+                       meeting=meeting_transcripts.meeting_wire(fm, summary_turn=summary))
 
     def _excerpt(self, ep, ep_id: str, claim, name: str, entity_id: str,
                  names: tuple[str, ...] = ()) -> tuple["Excerpt", str, tuple[int, int] | None]:
@@ -485,6 +525,7 @@ class InboxContext:
                 excerpt=ex.excerpt, mention_offsets=ex.mention_offsets, start=ex.start, end=ex.end,
                 span_kind=span_kind, focus=list(at) if at is not None and ex.mention_offsets else None,
                 turns=ex.turns, cut_before=ex.cut_before, cut_after=ex.cut_after,
+                relay=ex.relay, meeting=ex.meeting,
                 source=_opt(efm.get("source")),
                 correspondent=_opt(correspondent.get("name")) if isinstance(correspondent, dict) else None,
             )
