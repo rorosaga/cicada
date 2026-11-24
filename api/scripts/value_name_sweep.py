@@ -45,7 +45,8 @@ def _rows(path: Path) -> list[dict]:
         for line in path.read_text(encoding="utf-8").splitlines():
             if line.strip():
                 row = json.loads(line)
-                rows[str(row.get("page") or row.get("line"))] = row
+                if isinstance(row, dict) and (row.get("page") or row.get("line")):
+                    rows[str(row.get("page") or row.get("line"))] = row
     return list(rows.values())
 
 
@@ -170,7 +171,11 @@ def cmd_apply(args) -> int:
     if not plan.is_dir():
         print(json.dumps({"error": "--plan is the plan directory"}))
         return 2
-    vrows, nrows = _rows(plan / "values.jsonl"), _rows(plan / "names.jsonl")
+    try:
+        vrows, nrows = _rows(plan / "values.jsonl"), _rows(plan / "names.jsonl")
+    except ValueError as exc:
+        print(json.dumps({"error": f"the plan directory holds a file that is not JSON lines ({type(exc).__name__})"}))
+        return 2
     if args.passes == "values":
         nrows = []
     elif args.passes == "names":
@@ -208,6 +213,9 @@ def cmd_apply(args) -> int:
                 raise
     except value_sweep.SleepRunning as exc:
         print(json.dumps({"refused": str(exc), "why": backend_problem()}))
+        return 3
+    except git_service.GitError as exc:
+        print(json.dumps({"failed": f"git could not commit ({type(exc).__name__}); every file written was put back, nothing changed"}))
         return 3
     except value_sweep.NoGit as exc:
         print(json.dumps({"refused": str(exc)}))

@@ -216,13 +216,18 @@ def _member(line: va.Line, words: str = "") -> dict:
 
 
 def state_hash(members: list[dict], claims_by_id: dict) -> str:
-    """What the plan saw of the claims in a group: their id, predicate, object and end. A change to any is a changed page."""
+    """What the plan saw of the claims in a group: their id, predicate, object and end, AND every other claim of the slots the
+    members sit in (a value added to a member's slot after the plan changes what a join would leave current). A change to any
+    is a changed page."""
     parts = []
     for m in members:
         c = claims_by_id.get(m["claim"])
         parts.append([m["claim"], getattr(c, "predicate", None), str(getattr(c, "object", None)), getattr(c, "valid_to", None),
                       getattr(c, "superseded_by", None)])
-    return hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest()[:16]
+    slots = {getattr(claims_by_id.get(m["claim"]), "predicate", None) for m in members}
+    neighbours = sorted([c.id, c.predicate, str(c.object), c.valid_to, c.superseded_by]
+                        for c in claims_by_id.values() if c.predicate in slots and c.id not in {m["claim"] for m in members})
+    return hashlib.sha256(json.dumps([parts, neighbours], sort_keys=True).encode()).hexdigest()[:16]
 
 
 class _Recorder:

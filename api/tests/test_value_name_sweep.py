@@ -623,8 +623,8 @@ def test_a_failed_commit_puts_the_pending_store_and_the_doubts_file_back(tmp_pat
         _git(bank, "add", "--", *paths)
         raise git_service.GitError("index.lock exists")
     monkeypatch.setattr(git_service, "commit_paths_sync", broken)
-    with pytest.raises(git_service.GitError):
-        _tool_apply(bank, tmp_path, rows)
+    rc, out = _tool_apply(bank, tmp_path, rows)
+    assert rc == 3 and "put back" in out["failed"]
     assert (bank / "pending_entities.jsonl").read_bytes() == before and not (bank / "_same_name_doubts.yaml").exists()
     assert _git(bank, "status", "--porcelain") == ""
 
@@ -779,3 +779,26 @@ def test_a_value_plan_that_failed_on_a_page_is_read_again_by_the_same_command_an
         tool.main(args)
     text = (out / "review.txt").read_text()
     assert "NOT READ" not in text and "JOIN" in text
+
+
+def test_a_value_added_to_a_members_slot_after_the_plan_is_a_changed_page(tmp_path):
+    """The reviewer's case: a later value of c2's slot arrived after the plan; joining c2 into c1's slot would leave two current."""
+    bank, row = _planned(tmp_path)
+    path = bank / "entities" / f"{PAGE}.md"
+    parsed = markdown_parser.parse(path)
+    claims = parse_claims(parsed.body)
+    claims.append(_claim("c3", "value-of-card-price", "6 euros", "2026-11-15"))
+    markdown_parser.write(path, parsed.frontmatter, write_claims(parsed.body, claims))
+    _git(bank, "commit", "-qam", "a later value")
+    result = _apply(bank, [row])
+    assert result.skipped == {"changed_since_plan": 1} and not result.committed
+
+
+def test_a_plan_file_with_a_null_row_or_a_line_that_is_not_json_does_not_crash_apply(tmp_path):
+    bank, row = _planned(tmp_path)
+    plan = tmp_path / "plan"
+    plan.mkdir()
+    (plan / "values.jsonl").write_text("null\n" + json.dumps(row) + "\n")
+    assert tool.main(["apply", "--bank", str(bank), "--plan", str(plan), "--check"]) == 0
+    (plan / "values.jsonl").write_text("{not json\n")
+    assert tool.main(["apply", "--bank", str(bank), "--plan", str(plan), "--check"]) == 2
