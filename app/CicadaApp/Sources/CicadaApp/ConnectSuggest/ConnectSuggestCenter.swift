@@ -216,6 +216,14 @@ final class ConnectSuggestCenter {
     /// takes the save too, so a Yes pressed after it keeps it.
     func offer(saved save: SiteSaveCandidate, site: SiteSaveSite, pid: pid_t, bundleId: String) {
         let target = ConnectSuggestApps.site(site.key)
+        guard save.offers else {
+            // The person took it off again before answering: the offer lets go of it (and never shows for an unsave).
+            if state?.target == target, !connected {
+                held.removeAll { $0.item == save.item }
+                state?.keepsSave = held.contains { $0.outcome == .saved }
+            }
+            return
+        }
         if let open = state, open.target == target {
             guard !connected else {
                 onHeld([save])      // Yes was already pressed: the site is connected, the save is kept

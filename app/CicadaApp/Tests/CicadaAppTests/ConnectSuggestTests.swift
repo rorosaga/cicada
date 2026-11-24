@@ -591,6 +591,14 @@ final class ConnectSuggestTests: XCTestCase {
         XCTAssertEqual(center.held, [second, first])
         XCTAssertEqual(presenter.shows, 2)
 
+        // A post taken off again before the answer is let go, and an unsave alone never shows an offer.
+        let third = candidate("https://github.com/alpha/delta")
+        center.offer(saved: third, site: site, pid: 7, bundleId: "com.google.Chrome")
+        center.offer(saved: candidate("https://github.com/alpha/delta", .unsaved), site: site, pid: 7,
+                     bundleId: "com.google.Chrome")
+        XCTAssertEqual(center.held, [second, first])
+        XCTAssertEqual(center.state?.keepsSave, true)
+
         // Yes connects at the press (the confirmation is never said before it is true); the saves follow it.
         clock.now = clock.now.addingTimeInterval(1)
         center.input(.yes)
@@ -622,6 +630,9 @@ final class ConnectSuggestTests: XCTestCase {
             XCTAssertNil(center.state)
             XCTAssertTrue(center.held.isEmpty)
             XCTAssertEqual(kept, 0)
+            center.offer(saved: candidate("https://github.com/alpha/beta", .unsaved), site: site, pid: 7,
+                         bundleId: "com.google.Chrome")
+            XCTAssertNil(center.state, "an unsave never shows an offer")
             // A save right after is not offered again inside the wait, and nothing is held with no panel.
             center.offer(saved: candidate("https://github.com/alpha/gamma"), site: site, pid: 7,
                          bundleId: "com.google.Chrome")

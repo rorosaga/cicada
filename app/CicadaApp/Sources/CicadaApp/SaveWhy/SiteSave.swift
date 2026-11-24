@@ -768,6 +768,8 @@ struct SiteSaveCandidate: Equatable, Sendable {
     /// A click that put the post on the list, or changed the control in a direction nothing settled, brings the
     /// offer; an unsave or a click that changed nothing does not.
     var offers: Bool { outcome == .saved || outcome == .changed }
+    /// Whether the offer hears of it at all: an unsave is told too, so a save it holds for that post is let go.
+    var matters: Bool { offers || outcome == .unsaved }
 }
 
 /// Watches the pointer and the person's clicks in the front browser and reports a save. One global monitor while a
@@ -931,48 +933,50 @@ final class SiteSaveWatcher {
         rest = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(Self.restDelay * 1_000_000_000))
             guard !Task.isCancelled, let self, self.armedPid == pid else { return }
-            // The front tab's address is read only while an offer may still show: for the offer itself, and to know
-            // whether a save click on this page could bring it (ruling 77b).
-            var front: SiteSaveSite?
-            if self.offers() {
-                front = await Task.detached(priority: .utility) { SiteSaveReader.frontSite(pid: pid) }.value
-                guard !Task.isCancelled, self.armedPid == pid else { return }
-                if let site = front, !self.sites().contains(where: { $0.key == site.key }), let bundle = self.armedBundle {
-                    if site.key != self.lastSite, self.onSite?(site, pid, bundle) ?? true { self.lastSite = site.key }
-                } else {
-                    self.lastSite = front?.key
-                }
-            }
-            self.candidate = front.flatMap { site in self.candidates().first { $0.key == site.key } }
+            // The page itself is read only on a connected site, or on the candidate's own page (ruling 77b; the
+            // candidate is the one the last rest found, so this read waits on nothing).
             let sites = self.watched()
-            // The page itself is read only on a connected site, or on a candidate's own page.
-            guard !sites.isEmpty else {
+            if sites.isEmpty {
                 self.hovered = nil
                 self.hoveredMenu = nil
-                return
-            }
-            if !self.askedWeb {
-                self.askedWeb = true
-                Task.detached(priority: .utility) { SiteSaveReader.askForWebContent(pid: pid) }
-            }
-            let reading = await Task.detached(priority: .utility) {
-                await SiteSaveReader.settledRead(pid: pid, at: point)
-            }.value
-            guard !Task.isCancelled, self.armedPid == pid else { return }
-            if let reading, case let .success(item) = SiteSaveRule.item(reading, sites: sites) {
-                self.hovered = Hover(item: item, reading: reading, point: point, at: SaveWhyTimings.now())
             } else {
-                self.hovered = nil
-            }
-            let menus = sites.filter { $0.menu != nil }
-            if self.hovered == nil, !menus.isEmpty {
-                let menu = await Task.detached(priority: .utility) {
-                    await SiteSaveReader.settledReadMenu(pid: pid, at: point, sites: menus)
+                let reading = await Task.detached(priority: .utility) {
+                    await SiteSaveReader.settledRead(pid: pid, at: point)
                 }.value
                 guard !Task.isCancelled, self.armedPid == pid else { return }
-                self.hoveredMenu = menu.map { MenuHover(reading: $0, at: SaveWhyTimings.now()) }
+                if let reading, case let .success(item) = SiteSaveRule.item(reading, sites: sites) {
+                    self.hovered = Hover(item: item, reading: reading, point: point, at: SaveWhyTimings.now())
+                } else {
+                    self.hovered = nil
+                }
+                let menus = sites.filter { $0.menu != nil }
+                if self.hovered == nil, !menus.isEmpty {
+                    let menu = await Task.detached(priority: .utility) {
+                        await SiteSaveReader.settledReadMenu(pid: pid, at: point, sites: menus)
+                    }.value
+                    guard !Task.isCancelled, self.armedPid == pid else { return }
+                    self.hoveredMenu = menu.map { MenuHover(reading: $0, at: SaveWhyTimings.now()) }
+                } else {
+                    self.hoveredMenu = nil
+                }
+            }
+            // The front tab's address is read only while an offer may still show: for the offer itself, and to know
+            // whether a save click on this page could bring it.
+            guard self.offers() else {
+                self.candidate = nil
+                return
+            }
+            let front = await Task.detached(priority: .utility) { SiteSaveReader.frontSite(pid: pid) }.value
+            guard !Task.isCancelled, self.armedPid == pid else { return }
+            if let site = front, !self.sites().contains(where: { $0.key == site.key }), let bundle = self.armedBundle {
+                if site.key != self.lastSite, self.onSite?(site, pid, bundle) ?? true { self.lastSite = site.key }
             } else {
-                self.hoveredMenu = nil
+                self.lastSite = front?.key
+            }
+            self.candidate = front.flatMap { site in self.candidates().first { $0.key == site.key } }
+            if self.candidate != nil, !self.askedWeb {
+                self.askedWeb = true
+                Task.detached(priority: .utility) { SiteSaveReader.askForWebContent(pid: pid) }
             }
         }
     }
@@ -1019,7 +1023,7 @@ final class SiteSaveWatcher {
 
     /// A save click on a site that is not connected: handed to the connect offer when it is one that offers.
     private func offer(_ found: SiteSaveCandidate, pid: pid_t) {
-        guard found.offers, let site = SiteSaveSite.named(found.item.site), let bundle = armedBundle else { return }
+        guard found.matters, let site = SiteSaveSite.named(found.item.site), let bundle = armedBundle else { return }
         SiteSaveReader.logger.info("""
             save control on \(site.key, privacy: .public), not connected: \(found.outcome.rawValue, privacy: .public)
             """)

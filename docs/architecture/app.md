@@ -1627,13 +1627,13 @@ settled it and milliseconds, never a link or a label.
 
 *A save on a site that is not connected (ruling 77b, owner 2026-11-24).* Before 77b nothing was read until the
 connection, so the first saves on a site passed unseen (found live: three in one evening). Now the watcher also reads
-the **candidate**: the one site the front tab is on, when it is not connected and a save click there could still bring
+the **candidate**: the one site the front tab was on at the pointer's last rest, when it is not connected and a save click there could still bring
 its offer (`ConnectSuggestPolicy.listens`: the offer switch on, the site not answered No or Yes, not shown its last
 time, not inside a wait a save click cannot pass). It is read exactly as a connected site is (the rest, the click, the
 menu), and the page tree is asked for the first time the pointer rests on such a page. A click that saved, or changed
 the control in a direction nothing settled, becomes a `SiteSaveCandidate` — the post, the outcome, the post's words,
-the list, and what the click would have taught (`Lesson`) — handed to `ConnectSuggestCenter.offer(saved:)`; an unsave
-or a click that changed nothing is dropped. **Nothing is written before Yes:** no label learned, no post hash kept, no
+the list, and what the click would have taught (`Lesson`) — handed to `ConnectSuggestCenter.offer(saved:)`; a click
+that changed nothing is dropped, and an unsave only makes an open offer let go of that post (it never shows one). **Nothing is written before Yes:** no label learned, no post hash kept, no
 request sent. The offer shows at that moment (or, when that site's offer is already up, takes the save), holds up to
 eight saves in memory and says "Yes keeps this save" when one of them is a save. Yes connects the site at the press
 (`onYes`, then `SiteSaveSwitches.changed`), and when the panel's confirmation has shown, `onHeld` keeps each lesson
