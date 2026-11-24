@@ -111,7 +111,7 @@ def test_complete_writes_private_per_call_files_and_deletes_them(codex_events):
 
     parsed = codex_engine.complete(
         messages=[{"role": "system", "content": "EXTRACT"}, {"role": "user", "content": "transcript"}],
-        model="gpt-5.6-luna", stage="extraction", want_json=True, runner=runner)
+        model="gpt-5.6-luna", stage="extraction", shape="extraction", want_json=True, runner=runner)
     assert seen["instructions"] == "EXTRACT" and seen["mode"] == "600" and seen["stdin"] == "transcript"
     assert seen["schema"] == engine_schemas.extraction_schema(strict=True)
     assert all(not p.exists() for p in seen["paths"])

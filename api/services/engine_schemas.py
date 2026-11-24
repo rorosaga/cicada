@@ -17,7 +17,7 @@ Two dialects:
   included (G118: a declared,
   typed field degrades fewer relationships to ``reasoning``), and
   ``additionalProperties`` stays true so a key the prompt adds later survives
-  (the field-stripping fear recorded beside ``agent_engine.SCHEMA_BY_STAGE``).
+  (the field-stripping fear recorded beside ``agent_engine.SCHEMA_BY_SHAPE``).
   No ``maxLength``: an over-long quote would cost a schema retry, and the
   G118 locator already copes with length.
 * ``strict=True`` — OpenAI structured outputs via ``codex exec
@@ -31,6 +31,22 @@ from __future__ import annotations
 from api.models.schemas import AGENT_PRODUCIBLE_DECAY_CLASSES, PRODUCIBLE_ENTITY_TYPES
 
 DRAFT_07 = "http://json-schema.org/draft-07/schema#"
+
+#: The answer shapes a plan engine can be TOLD (2026-11-24). A call states the one its caller parses
+#: (``resolve_llm_fn(..., shape=...)``); a call that names none is only told to answer JSON. The label a call carries
+#: (``stage``) never picks one: it picks the model tier, the plan guard and the metering, and a second judge reusing the
+#: first one's label for its tier was forced into the first one's answer (the same-name judge on a plan: its
+#: ``people`` / ``verdict`` answers came back as ``{"decision": "same", "reason": "<the real answer as a string>"}``).
+#: ``pair``: Stage 2's one-pair ``decision`` / batch ``decisions`` (:func:`disambiguation_schema`). ``extraction`` and
+#: ``quick_read``: Stage 1's, and the quick read after capture (G207), which the engines treat on their own terms.
+SHAPES = ("pair", "extraction", "quick_read")
+
+
+def check_shape(shape: str | None) -> str | None:
+    """``shape`` as a call may state it: one of :data:`SHAPES` or nothing. Anything else is a bug at the call site."""
+    if shape is not None and shape not in SHAPES:
+        raise ValueError(f"unknown answer shape {shape!r}: one of {', '.join(SHAPES)}")
+    return shape
 
 
 def entity_types() -> list[str]:
@@ -96,7 +112,7 @@ def extraction_schema(*, strict: bool) -> dict:
 
 
 def disambiguation_schema(*, strict: bool) -> dict:
-    """The Codex twin of ``agent_engine.SCHEMA_BY_STAGE["disambiguation"]`` (a literal there): a one-pair
+    """The Codex twin of ``agent_engine.SCHEMA_BY_SHAPE["pair"]`` (a literal there): a one-pair
     ``decision`` or a batch's ``decisions``."""
     from api.services import entity_relations
 

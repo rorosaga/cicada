@@ -177,6 +177,9 @@ class Plan:
     second: bool = False   # the main model read it again
     review_pages: set[str] = field(default_factory=set)             # pages that may hold two people
     review_pairs: set[tuple[str, str]] = field(default_factory=set)  # people in doubt that may be one
+    #: Answers a judge gave that did not have the shape this step asked for (2026-11-24): no groups to read. Never a
+    #: verdict; the name is placed as if no judge had answered, and the count is logged (never a word of the person's).
+    unreadable: int = 0
 
 
 @dataclass(frozen=True)
@@ -754,6 +757,8 @@ async def _plan(name: str, mentions: list[Mention], identities: list[Identity],
         parsed = None
     reading = read(parsed, entries, name) if parsed is not None else None
     if reading is None:
+        if parsed is not None:
+            result.unreadable += 1   # an answer, but not the groups asked for: counted, never a verdict
         if sibling_fallback is None:
             return result
         return _place(result, sibling_fallback, entries, shown, judged)
@@ -764,7 +769,10 @@ async def _plan(name: str, mentions: list[Mention], identities: list[Identity],
     if strong is not None and ((reading.single and len(judged) >= 2)
                                or any(len(i.shown()) >= CONFIRM_ITEMS for i in shown) and not reading.single):
         try:
-            second = read(await strong(SYSTEM, prompt), entries, name)
+            second_answer = await strong(SYSTEM, prompt)
+            second = read(second_answer, entries, name)
+            if second is None and second_answer is not None:
+                result.unreadable += 1
         except asyncio.CancelledError:
             raise
         except engine_errors.EngineError:
