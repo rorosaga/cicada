@@ -593,3 +593,60 @@ def test_the_tool_door_passes_the_pass_arguments_through(reading, monkeypatch):
                                                        "folder": "A", "folder_names": ["A"], "reached_end": True})
     assert seen == {"continues": True, "folder": "A", "folder_names": ["A"], "reached_end": True}
     assert json.dumps(seen)
+
+
+# --- X moved its bookmarks page (seen live 2026-11-24): the words survive a redirect and a renamed page ---------------------
+
+_X_LISTS = ("x", "x-likes", "x-reposts", "x-following")
+
+
+def _only(*keys):
+    reading_settings.update(saved_lists_={k: (k in keys) for k in saved_lists.PLATFORMS})
+
+
+def test_the_x_bookmarks_queue_names_the_list_by_what_it_holds_and_survives_a_redirect(reading):
+    server, memory = reading
+    _only("x")
+    out = _queue(server)
+    assert "the posts the person bookmarked" in out and "https://x.com/i/bookmarks" in out
+    assert "a page called History" in out and "one tab beside Likes" in out and "read the Bookmarks tab and no other" in out
+    assert "If X has moved this list" in out and "follow it to the list that holds exactly these posts" in out
+    assert "record `failed` and stop" in out and "never read another page in its place" in out
+    assert "bookmark folders; X may list them in a menu on the Bookmarks tab" in out and "`folder_names`" in out
+    assert saved_lists.PLATFORMS["x"].url == "https://x.com/i/bookmarks", "the address is the starting point, kept in the table"
+
+
+def test_the_x_likes_queue_says_which_tab_and_where_to_go_when_the_address_fails(reading):
+    server, memory = reading
+    _only("x-likes")
+    out = _queue(server)
+    assert "the posts the person liked" in out and "the Likes tab of the page X calls History" in out
+    assert "or lands on Bookmarks" in out and "the person's own profile, then its Likes tab" in out
+    assert "Read that tab and no other" in out and "holds only their likes" in out
+    assert "If X has moved this list" in out and "folder" not in out.lower().replace("folder_names", "")
+
+
+def test_the_x_reposts_and_following_words_do_not_hang_on_a_tab_name_or_an_address(reading):
+    server, memory = reading
+    _only("x-reposts")
+    out = _queue(server)
+    assert "their own profile" in out and "on the tab that shows their posts" in out
+    assert "never their own posts" in out and "never anyone else's profile" in out
+    lines = " ".join(saved_lists._accounts_lines(memory, saved_lists.PLATFORMS["x-following"], True))
+    assert "the person's own profile, then its Following list" in lines and "never an account's profile" in lines
+
+
+def test_every_x_address_lives_in_the_one_table_and_no_queue_code_names_one():
+    import inspect
+
+    for key in _X_LISTS:
+        assert saved_lists.PLATFORMS[key].site == "x.com", key
+    body = inspect.getsource(saved_lists.queue_lines) + inspect.getsource(saved_lists._timeline_lines)
+    assert "x.com" not in body and "/i/" not in body and "History" not in body
+
+
+def test_how_a_x_read_is_recorded_and_matched_did_not_change():
+    for key, post in (("x", POST_A), ("x-likes", POST_B), ("x-reposts", POST_C)):
+        assert saved_lists.canonical(key, post + "?s=20")[0] == post
+    assert saved_lists.PLATFORMS["x"].origin == "x-bookmarks" and saved_lists.PLATFORMS["x"].folder == "Bookmarks"
+    assert saved_lists.PLATFORMS["x-likes"].origin == "x-likes" and saved_lists.PLATFORMS["x-likes"].folder == "Likes"

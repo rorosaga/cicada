@@ -82,6 +82,9 @@ class Platform:
     #: Does the site file this list's posts in folders of their own (X bookmark folders, Instagram collections), each
     #: on its own page? Only then does a read include the folder pass (:data:`FOLDERS_PER_PASS`).
     folders: bool = False
+    #: How the queue names those folders and says where the site keeps them (only read when :attr:`folders`). A site's
+    #: own wording lives here, in the one table, never in the queue's code.
+    folder_words: str = "collections"
     #: What the agent reads of each post, when the list shows less or more than words (Instagram's grid).
     reads: str = "its author as the page shows it, and the words the post shows"
     #: What the list holds (:data:`LIST_KINDS`). The record tool and the queue branch on this, never on a key.
@@ -111,11 +114,19 @@ class Platform:
 LIST_KINDS = ("posts", "people", "accounts", "books")
 
 PLATFORMS: dict[str, Platform] = {
-    # Measured 2026-11-24: X now files Bookmarks under History, so this address lands on ``/i/history`` (tabs Bookmarks
-    # and Likes); the old address still opens it.
+    # Seen live 2026-11-24: X now files Bookmarks under History, so this address redirects to ``/i/history``, a page titled
+    # "History" with two tabs, Bookmarks and Likes, the Bookmarks tab carrying a menu (probably the folders). The words
+    # below name the list by what it holds, give the address as the place to start, and say the site may show it as a
+    # tab of a bigger page, so a redirect or a renamed page does not lose the agent. A live look must still confirm what
+    # ``docs/architecture/mcp.md`` ("What a live look must still confirm") lists. Nothing here changes how a read is
+    # recorded or matched: a post's own address did not change.
     "x": Platform("x", "X", "Bookmarks", "https://x.com/i/bookmarks",
-                  " (X may show it as History, Bookmarks tab, at /i/history: the same list)", "x-bookmarks", "Bookmarks",
-                  "x.com", "to read your bookmarks", ("x.com", "twitter.com"), folders=True),
+                  " — the posts the person bookmarked. Start at that address: X may send it on to a page called History "
+                  "(/i/history), where Bookmarks is one tab beside Likes; read the Bookmarks tab and no other, whatever "
+                  "the address becomes. If it opens nothing like that, find Bookmarks in X's own menu",
+                  "x-bookmarks", "Bookmarks", "x.com", "to read your bookmarks", ("x.com", "twitter.com"), folders=True,
+                  folder_words="bookmark folders; X may list them in a menu on the Bookmarks tab, or behind a Folders "
+                               "link on that page"),
     # G245 (ruling 78b, owner 2026-11-24): the person's own Likes tab — a page that holds only that list. Files under the
     # X archive's like.js origin and label, so a like the archive brought in and the same like read here are one row;
     # a post already kept from Bookmarks gains "Likes" on its page's `collections:` instead of a second page. Off until
@@ -123,8 +134,10 @@ PLATFORMS: dict[str, Platform] = {
     # Measured 2026-11-24: History's Likes tab is ``/i/history/likes``, a page of its own; the profile's Likes tab is
     # the way in where that address does not open.
     "x-likes": Platform("x-likes", "X", "Likes", "https://x.com/i/history/likes",
-                        " (History, Likes tab; if that address does not open, the person's own profile, then its Likes "
-                        "tab: the page that holds only their likes)",
+                        " — the posts the person liked: the Likes tab of the page X calls History, a page of its own that "
+                        "holds only their likes. If that address does not open, or lands on Bookmarks, open History and "
+                        "choose its Likes tab; failing that, the person's own profile, then its Likes tab. Read that tab "
+                        "and no other",
                         "x-likes", "Likes", "x.com", "to read your likes", ("x.com", "twitter.com"), base="x"),
     # G245 (owner 2026-11-24, "Should reposts be kept as their own list?": "1. yes?"): the posts the person reposted. X has
     # no page that holds only those: they are rows of the person's OWN profile timeline, between their own posts, so this is
@@ -136,7 +149,8 @@ PLATFORMS: dict[str, Platform] = {
     # key in ``reading_settings.SAVED_LISTS`` and the tool's enum); what was kept stays kept.
     "x-reposts": Platform(
         "x-reposts", "X", "Reposts", "https://x.com/",
-        " (the person's own profile, Posts tab: it mixes their own posts with the posts they reposted)", "x-reposts",
+        " (the person's own profile, on the tab that shows their posts, called Posts when measured: it mixes their own "
+        "posts with the posts they reposted)", "x-reposts",
         "Reposts", "x.com", "to read your reposts", ("x.com", "twitter.com"), base="x",
         reads="the original post's author as the page shows it, and the words the post shows",
         cadence=timedelta(days=3), max_screens=folder_pass.FIRST_READ_SCREENS),
@@ -833,11 +847,15 @@ def queue_lines(memory_path: Path, *, can_record: bool, now: datetime | None = N
     if p.bounded:
         return _timeline_lines(memory_path, p, can_record)
     lines = [f"- The person's {p.name} {p.label}: {p.url}{p.how} — read each post's link, {p.reads}."]
+    lines.append(f"If {p.name} has moved this list (the address redirects, the page has another name, or the list is a tab "
+                 "of a bigger page), follow it to the list that holds exactly these posts. If you cannot find that list, "
+                 + ("record `failed` and stop" if can_record else "stop and tell the person")
+                 + ": never read another page in its place.")
     lines.append(f"{screens_words(memory_path, p.key)} Add `posted` (YYYY-MM-DD) to a row only when the page shows the "
                  "post's own date as a day; leave it out for \"3 days ago\" or nothing.")
     if p.folders:
         lines.append(
-            f"If {p.name} lets the person keep these posts in folders ({'bookmark folders' if p.key == 'x' else 'collections'}), "
+            f"If {p.name} lets the person keep these posts in folders ({p.folder_words}), "
             f"each folder is its own page: after the All page, send the folders' names as `folder_names` (an empty list "
             f"when there are none, which is common), and the reply names the {FOLDERS_PER_PASS} at most to open next. "
             "Open each and record it with `folder=\"<its name>\"` and `continues=true` (scroll at most "

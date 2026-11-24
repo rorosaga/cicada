@@ -914,8 +914,14 @@ else, below).
   reply says `Known ground` — a run of 3 posts in a row (a short call: all of them) already on that list and, for a folder page,
   already filed there. Nothing about the lists is claimed to be complete: a post unsaved or unliked on the site stays kept here.
 * **What the live lists showed (measured 2026-11-24, values redacted).** X files Bookmarks under History: the old
-  address lands on `/i/history`, whose second tab, Likes, is `/i/history/likes` (the `x-likes` list starts there, the
-  profile's Likes tab its fallback). On LinkedIn's Saved posts, 5 of 76 results showed no link to their post, only the
+  address lands on `/i/history`, a page titled History with two tabs, Bookmarks and Likes; the Bookmarks tab has a menu,
+  probably the folders. The queue therefore names each X list by what it holds, gives the address as the place to start,
+  says the site may show it as a tab of a page called History, and tells the agent to follow a moved list to the one that
+  holds exactly those posts, or record `failed` and stop, never read another page in its place; every address and the
+  site's own folder wording live in `saved_lists.PLATFORMS` alone, and how a read is recorded and matched is unchanged (a
+  post's own address did not change). **A live look must still confirm:** (1) where likes live now (`/i/history/likes`
+  as a page of its own, or only a tab of `/i/history`, or the profile's Likes tab); (2) whether the folders menu is on
+  the Bookmarks tab and what it is called; (3) that the profile's Posts tab is still where reposts show. On LinkedIn's Saved posts, 5 of 76 results showed no link to their post, only the
   author's profile: the queue tells the agent to build it from the result's own `data-chameleon-result-urn`; 1 of 76 was a
   saved article (`urn:li:article`), which `canonical` now takes. A refusal while the backend is too busy to answer says so
   ("consolidating memory right now, or too busy to say"): the stdio probe cannot tell the two apart and fails closed.
