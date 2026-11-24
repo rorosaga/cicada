@@ -92,9 +92,9 @@ async def list_projects(request: Request, response: Response, settings: Settings
 
 async def _list_projects(request: Request, response: Response, settings: Settings):
     mp, tz = settings.memory_path, _tz()
-    etag = sync_service.etag_for(mp, "entities", "episodes", "inbox",
-                                 extra=f"projects|{project_timeline.PROJECT_SHAPE}|{git_service.AUTHOR_SHAPE}|{tz}"
-                                       f"|{project_timeline.owner_token(mp)}")
+    etag = await sync_service.etag_for_async(mp, "entities", "episodes", "inbox",
+                                             extra=f"projects|{project_timeline.PROJECT_SHAPE}|{git_service.AUTHOR_SHAPE}|{tz}"
+                                                   f"|{project_timeline.owner_token(mp)}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     index_state = await run_in_threadpool(_index_state, mp)
@@ -121,9 +121,9 @@ async def _project_timeline(project_id: str, request: Request, response: Respons
         except ValueError:
             raise HTTPException(400, "since must be a date (YYYY-MM-DD)")
     stem = _project_stem(mp, project_id)
-    etag = sync_service.etag_for(mp, "entities", "episodes", "inbox",
-                                 extra=f"project|{stem}|{since_day or ''}|{project_timeline.PROJECT_SHAPE}|{git_service.AUTHOR_SHAPE}|{tz}"
-                                       f"|{project_timeline.owner_token(mp)}")
+    etag = await sync_service.etag_for_async(mp, "entities", "episodes", "inbox",
+                                             extra=f"project|{stem}|{since_day or ''}|{project_timeline.PROJECT_SHAPE}|{git_service.AUTHOR_SHAPE}|{tz}"
+                                                   f"|{project_timeline.owner_token(mp)}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     index_state = await run_in_threadpool(_index_state, mp)
@@ -577,9 +577,9 @@ async def get_project_conversations(project_id: str, request: Request, response:
 
     mp, tz = settings.memory_path, _tz()
     stem = _project_stem(mp, project_id)
-    etag = sync_service.etag_for(mp, "entities", "episodes", "inbox",
-                                 extra=f"project-conversations|{stem}|{offset}|{limit}|"
-                                       f"{project_timeline.PROJECT_SHAPE}|{tz}")
+    etag = await sync_service.etag_for_async(mp, "entities", "episodes", "inbox",
+                                             extra=f"project-conversations|{stem}|{offset}|{limit}|"
+                                                   f"{project_timeline.PROJECT_SHAPE}|{tz}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     index_state = await run_in_threadpool(_index_state, mp)

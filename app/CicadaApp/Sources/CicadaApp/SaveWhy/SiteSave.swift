@@ -841,6 +841,7 @@ final class SiteSaveWatcher {
     /// moment alone is asked again at the next rest.
     var onSite: ((SiteSaveSite, pid_t, String) -> Bool)?
     private var lastSite: String?
+    private var watching: String?
     /// The sites not connected whose save click may still bring the offer (ruling 77b; none: no such page is read).
     var candidates: () -> [SiteSaveSite] = { [] }
     /// The person clicked the save control of a site they have not connected.
@@ -903,16 +904,29 @@ final class SiteSaveWatcher {
         }
     }
 
+    /// Whether the app in front is watched for saves, and if not, why: only a browser Cicada reads, only while a site is
+    /// connected or an offer may show, and only with Accessibility already given (ruling 77: never asked for here). The
+    /// bookmark watch's own switches (`BrowserWatcher`) play no part: a save inside a site is not a bookmark file.
+    enum Arming: Equatable { case watches, notWatched, noAccessibility }
+    static func arming(bundle: String?, wanted: Bool, trusted: Bool) -> Arming {
+        guard let bundle, browsers.contains(bundle), wanted else { return .notWatched }
+        return trusted ? .watches : .noAccessibility
+    }
+
     private func frontmostChanged(_ app: NSRunningApplication?) {
-        guard let app, let bundle = app.bundleIdentifier, Self.browsers.contains(bundle), isWanted() else {
+        let wanted = isWanted()
+        switch Self.arming(bundle: app?.bundleIdentifier, wanted: wanted, trusted: wanted ? trusted() : true) {
+        case .notWatched:
             disarm()
             return
-        }
-        guard trusted() else {
+        case .noAccessibility:
             SiteSaveReader.logger.info("a browser is in front; Accessibility is not granted, so nothing is watched")
             disarm()
             return
+        case .watches:
+            break
         }
+        guard let app, let bundle = app.bundleIdentifier else { return }
         SiteSaveReader.logger.info("watching the front browser")
         let pid = app.processIdentifier
         if armedPid == pid, monitor != nil { return }
@@ -935,6 +949,7 @@ final class SiteSaveWatcher {
         armedPid = nil
         armedBundle = nil
         lastSite = nil
+        watching = nil
         candidate = nil
         askedWeb = false
         pending?.cancel()
@@ -994,9 +1009,18 @@ final class SiteSaveWatcher {
             let front = await Task.detached(priority: .utility) { SiteSaveReader.frontSite(pid: pid) }.value
             guard !Task.isCancelled, self.armedPid == pid else { return }
             if let site = front, !self.sites().contains(where: { $0.key == site.key }), let bundle = self.armedBundle {
+                self.watching = nil
                 if site.key != self.lastSite, self.onSite?(site, pid, bundle) ?? true { self.lastSite = site.key }
             } else {
                 self.lastSite = front?.key
+                // A connected site's page is in front: said once per visit, in ids alone, so a save that is not noticed
+                // can be told from a page that was never watched.
+                if let front, self.watching != front.key {
+                    self.watching = front.key
+                    SiteSaveReader.logger.info("watching for saves on \(front.key, privacy: .public)")
+                } else if front == nil {
+                    self.watching = nil
+                }
             }
             self.candidate = front.flatMap { site in self.candidates().first { $0.key == site.key } }
             if self.candidate != nil, !self.askedWeb {
@@ -1189,6 +1213,18 @@ final class SiteSaveWatcher {
     }
 }
 
+/// G221 (ruling 77, owner 2026-11-24: "i just bookmarked an x post and nothing happened with the notch") — when a site
+/// is connected. The page shows a site as set up the moment its saved list is on; noticing the person's own save clicks
+/// there ("Saves you make", `SiteSavePrefs`) used to be a second flag only the notch's Yes or a switch ever set, so a
+/// list turned on from the Sources page left a dead site: a save click read nowhere, offered nowhere, asked about nowhere.
+/// Now the two cannot disagree: a source that is not Off is noticed unless the person turned that off for the site, and
+/// a source that is Off is the connect offer's (77b), by the same word.
+enum SiteSaveNoticing {
+    /// The source is set up in the active memory: connected, waiting on a first read or an agent, or on a sign-in. The
+    /// same test the connect offer uses to leave a site alone (`ConnectSuggestPolicy.decide`'s `.setUp`).
+    static func setUp(_ status: SourceCatalogStatus?) -> Bool { status.map { $0 != .off } ?? false }
+}
+
 /// What this Mac has learned and been told about noticing saves on sites: which sites the person connected and each
 /// site's two labels (`SiteSaveRule.Labels`). An offer turned down is the connect offer's own memory. Per Mac (`UserDefaults`), like the
 /// bookmark watch's own switches: the browser it watches is this Mac's.
@@ -1199,9 +1235,34 @@ struct SiteSavePrefs {
     static func connectedKey(_ site: String) -> String { "cicada.siteSaves.connected.\(site)" }
     static func labelsKey(_ site: String) -> String { "cicada.siteSaves.labels.\(site)" }
 
-    func isConnected(_ site: String) -> Bool { defaults.bool(forKey: Self.connectedKey(site)) }
+    /// What the person (or a Yes) set for a site: nil when nothing ever did. The distinction is the point — "never set"
+    /// follows the source (`noticing`), "off" is the person's own word and stands whatever the source does.
+    func explicit(_ site: String) -> Bool? { defaults.object(forKey: Self.connectedKey(site)) as? Bool }
     func setConnected(_ site: String, _ on: Bool) { defaults.set(on, forKey: Self.connectedKey(site)) }
-    var connected: [SiteSaveSite] { SiteSaveSite.all.filter { isConnected($0.key) } }
+
+    /// Whether this Mac notices the person's own save clicks on a site (G221, ruling 77): what was set, else on exactly
+    /// when the site's source is set up — its saved list on, however it was turned on (`SiteSaveNoticing.setUp`). So a
+    /// connected site is never silent unless the person turned "Saves you make" off for it themselves, and an install
+    /// whose lists were on before this was read needs no step. `status` is the catalogue's word for the site's source
+    /// (nil until it is read: nothing is assumed).
+    func noticing(_ site: String, status: SourceCatalogStatus?) -> Bool {
+        explicit(site) ?? SiteSaveNoticing.setUp(status)
+    }
+
+    /// The sites with a save control that are noticed now.
+    func noticed(status: (String) -> SourceCatalogStatus?) -> [SiteSaveSite] {
+        SiteSaveSite.all.filter { noticing($0.key, status: status($0.key)) }
+    }
+
+    /// The same, read from the Sources catalogue's rows (the page's own word for each source), as the keys the streams
+    /// overlay and the connect plan take.
+    func noticedKeys(rows: [SourceCatalogRow]) -> Set<String> {
+        let status = Dictionary(rows.map { ($0.id, $0.status) }, uniquingKeysWith: { first, _ in first })
+        return Set(noticed(status: { status[$0] }).map(\.key))
+    }
+
+    /// The sites the person turned "Saves you make" off for: the one thing that keeps a connected site quiet.
+    var turnedOff: Set<String> { Set(SiteSaveSite.all.map(\.key).filter { explicit($0) == false }) }
 
     func labels(_ site: String) -> SiteSaveRule.Labels {
         defaults.data(forKey: Self.labelsKey(site)).flatMap { try? JSONDecoder().decode(SiteSaveRule.Labels.self, from: $0) }

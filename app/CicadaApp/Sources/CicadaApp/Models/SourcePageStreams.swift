@@ -115,6 +115,8 @@ enum SourceStreamRow {
     /// it goes when the source's streams differ in that. Nil says nothing; an unavailable stream says why instead.
     static func line(_ stream: SourceStream, among streams: [SourceStream] = []) -> String? {
         if stream.state == .unavailable, let why = stream.why, !why.isEmpty { return why }
+        // "Saves you make", off by the person's own word while the source is on: the row says that is why.
+        if stream.how == .click, stream.state == .off, let why = stream.why, !why.isEmpty { return why }
         var parts: [String] = []
         if stream.folderCount > 0 { parts.append(Copy.Streams.folders(stream.folderCount)) }
         if stream.how == .click {
@@ -149,10 +151,16 @@ enum SourceStreamRow {
         return stream.depth == .read ? Copy.Streams.depthRead : Copy.Streams.depthIndex
     }
 
+    /// The browsers a save inside a site is seen in: the ones Cicada reads (`SiteSaveWatcher.browsers`).
+    static var supportedBrowserNames: String {
+        BrowserInventory.catalog.filter(\.supported).map(\.name).joined(separator: ", ")
+    }
+
     /// The hover: that the newest are read, that older ones come with the site's export (the window's drop), and that
     /// unsaving at the site does not remove one here — said for a list read in the browser, nothing for the rest.
     static func help(_ stream: SourceStream) -> String? {
         if stream.state == .unavailable, let why = stream.why, !why.isEmpty { return why }
+        if stream.how == .click { return Copy.Streams.savesSeenIn(supportedBrowserNames) }
         guard stream.how == .browser, stream.kind.isList else { return nil }
         return Copy.Streams.browserReach
     }

@@ -82,7 +82,7 @@ async def get_state(
     state = await run_in_threadpool(state_dictionary.read_state, memory_path)
     state = state_dictionary.with_live_engine(state, settings)
     eng = (state or {}).get("engine") or {}
-    etag = sync_service.etag_for(
+    etag = await sync_service.etag_for_async(
         memory_path, "entities", "inbox", "episodes", "git_head",
         extra=f"state={_state_mtime_ns(settings)};engine={eng.get('engine')}/{eng.get('model')}",
     )
@@ -128,7 +128,7 @@ async def get_state(
         last_cycle_at=last_cycle_at,
         newest_unprocessed_at=debt.newest_unprocessed_at,
     )
-    state["stale"] = state.get("inputs_version") != state_dictionary.inputs_version(memory_path)
+    state["stale"] = state.get("inputs_version") != await run_in_threadpool(state_dictionary.inputs_version, memory_path)
     state.pop("body", None)
     return state
 

@@ -5645,12 +5645,16 @@ def _turn_excerpts(memory_path: Path, query: str) -> list:
         # One file, never a scan: the name only labels a turn, and a cold recall reads a handful of pages.
         owner = owner_identity.owner_name(memory_path, scan=False)
         found = ask_sources.search(memory_path, query)
+        # 2026-11-24: the best RECALL_TURNS turns, the person's first (`person_first`, by a turn's role), shown oldest
+        # first. They were once the oldest four of the best eight, so a conversation the words found, newer than four
+        # others the meaning leg added, never reached the reply (a single word asked of 160 conversations lost the one
+        # that held it to an older, unrelated four).
         pool = ask_sources.gather_search(memory_path, query, found, owner_name=owner, max_episodes=RECALL_TURN_EPISODES,
-                                         max_excerpts=RECALL_TURNS * 2, total_chars=RECALL_TURNS * 2 * RECALL_TURN_CHARS,
-                                         deep={"left": 0}, excerpt_chars=RECALL_TURN_CHARS)
+                                         max_excerpts=RECALL_TURNS, total_chars=RECALL_TURNS * 2 * RECALL_TURN_CHARS,
+                                         deep={"left": 0}, excerpt_chars=RECALL_TURN_CHARS, person_first=True)
         # A question about what has come up lately keeps the newest, not the oldest, of what fits.
         pool = sorted(pool, key=lambda e: e.order, reverse=bool(found.lately))
-        return sorted(sorted(pool, key=lambda e: e.role == "assistant")[:RECALL_TURNS], key=lambda e: e.order)
+        return sorted(pool[:RECALL_TURNS] if found.lately else pool, key=lambda e: e.order)
     except Exception as exc:  # noqa: BLE001 — a leg fewer; the passages below still answer (no query logged)
         from loguru import logger
 

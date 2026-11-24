@@ -1209,6 +1209,29 @@ async def _typo_join_safely(memory_path: Path, settings: Settings, *, user_trigg
                     + (f", skipped {report.skipped}" if report.skipped else ""))
 
 
+async def _alias_collisions_safely(memory_path: Path, settings: Settings, *, user_triggered: bool, no_model: bool) -> None:
+    """G21 (2026-11-24, `alias_collisions`): two pages that go by one name — one lists the other's title among its aliases —
+    settled by what the record says (a saved link is quiet, a pair held as two things loses the alias), else read by the
+    engine's main model (at most a few pairs a run, twice each): two things lose the alias as one undoable Sleep settle, one
+    thing is asked ONCE, anything else is held quietly. People are never read (ruling 74). No pair of the shape: no engine
+    and no commit. Counts only. Never raises."""
+    from api.services import alias_collisions
+
+    if not (memory_path / ".git").exists():
+        return
+    try:
+        if no_model:
+            report = await alias_collisions.tend(memory_path, settings, None, no_model=True)
+        else:
+            report = await alias_collisions.run_tail(memory_path, settings, user_triggered=user_triggered)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Alias collisions failed: {type(exc).__name__}")
+        return
+    if report.looked or report.removed or report.asked or report.held or report.quiet:
+        logger.info(f"Alias collisions: {report.looked} read, {report.removed} alias(es) removed, {report.asked} asked, "
+                    f"{report.held} held, {report.quiet} quiet" + (f", skipped {sum(report.skipped.values())}" if report.skipped else ""))
+
+
 async def _arrival_refusals_safely(memory_path: Path) -> None:
     """G245 (arrival join): each "Not them" the person said to a first name joined to someone who had no page, whose full name
     now belongs to a page, becomes a refused pair of pages — before the same-name review, so 74 / 74a / 74b hold it the same
@@ -1947,6 +1970,8 @@ async def _run_engine_independent_tail(
             await _full_name_join_safely(memory_path, settings, user_triggered=user_triggered)
             # Ruling 74c (2026-11-24): a name that is plainly one person's page written two ways.
             await _typo_join_safely(memory_path, settings, user_triggered=user_triggered)
+        # G21 (2026-11-24): two pages that go by one name; the engine-free half runs with no model too.
+        await _alias_collisions_safely(memory_path, settings, user_triggered=user_triggered, no_model=no_model)
         # G245 (owner 2026-11-24): a first-name page and the person who newly appeared the same week — decided and reported
         # here (`arrival_join.LIVE` false writes nothing); a write is its own commit, before the rematches attach.
         await _arrival_join_safely(memory_path, settings, user_triggered=user_triggered, no_model=no_model)

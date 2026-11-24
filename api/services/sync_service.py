@@ -6,6 +6,7 @@ it or subscribe to ``/sync/events`` and refresh only what changed.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import time
@@ -403,6 +404,14 @@ def etag_for(memory_path: Path, *keys: str, extra: str = "") -> str:
     if extra:
         parts["_extra"] = extra
     return '"' + _digest(parts) + '"'
+
+
+async def etag_for_async(memory_path: Path, *keys: str, extra: str = "") -> str:
+    """:func:`etag_for` for a handler on the event loop (G238, 2026-11-24). It lists and stats every file of the folders
+    its keys name (and parses the inbox's), 70-140 ms each at 6,600 pages, 3,500 conversations and 700 inbox files on an
+    idle Mac and seconds under load — all of it while every other request, `/healthz` included, waited. The worker
+    thread inherits the request's context (the pinned bank, ``asyncio.to_thread``)."""
+    return await asyncio.to_thread(etag_for, memory_path, *keys, extra=extra)
 
 
 def conditional(request: Request, response: Response, etag: str) -> Response | None:

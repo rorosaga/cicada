@@ -43,13 +43,13 @@ async def list_inbox(
         # G227: `same_name.SHAPE` — items gained `entityDisplayName`, `mergeTargetDisplayName` and `sameTitle`,
         # derived from the entity files this ETag already covers; the bump makes every client take one 200.
         # `same_name_pick.SHAPE`: a same-title question is served with one option per page plus "none" (2026-10-29).
-        etag = sync_service.etag_for(settings.memory_path, "inbox", "entities", "episodes",
-                                     extra=f"{kind or ''}|{_served_day()}|{same_name.SHAPE}|{same_name_pick.SHAPE}|{inbox_wording.SHAPE}"
-                                           # Ruling 70: the order's one non-bank input, the day-cut read counts (today's
-                                           # reads count from tomorrow, so it moves at most with the day), and the wire shape.
-                                           f"|{question_order.SHAPE}|{question_order.stamp(settings.memory_path)}"
-                                           # 2026-11-24: the cause carries a conversation's turns and a quote's cuts.
-                                           f"|{evidence_window.SHAPE}")
+        etag = await sync_service.etag_for_async(settings.memory_path, "inbox", "entities", "episodes",
+                                                 extra=f"{kind or ''}|{_served_day()}|{same_name.SHAPE}|{same_name_pick.SHAPE}|{inbox_wording.SHAPE}"
+                                                       # Ruling 70: the order's one non-bank input, the day-cut read counts (today's
+                                                       # reads count from tomorrow, so it moves at most with the day), and the wire shape.
+                                                       f"|{question_order.SHAPE}|{question_order.stamp(settings.memory_path)}"
+                                                       # 2026-11-24: the cause carries a conversation's turns and a quote's cuts.
+                                                       f"|{evidence_window.SHAPE}")
         if (early := sync_service.conditional(request, response, etag)) is not None:
             return early
         # Off the event loop (inbox lag, 2026-10-17): the read parses every inbox file and the pages they name, and a

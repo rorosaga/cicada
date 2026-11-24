@@ -17,6 +17,7 @@ naming the folder; otherwise the skill is "local" — on this Mac, origin unknow
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -308,12 +309,14 @@ async def snapshot(*, base: Path | None = None, bank: Path | None = None, run_to
         if own not in installed_names and skill_store.own_bundle(own) is not None:
             suggested.append(_own_suggestion(own))
 
+    # The one bank-wide read here (every page's header, one parse per held skill): off the loop (G238, 2026-11-24).
+    noticed_rows = await asyncio.to_thread(noticed, bank, chosen, personal) if bank else []
     return {
         "agents": [{"id": a.id, "label": a.label, "folder": f"~/{a.own}"} for a in agents],
         "installed": rows,
         "suggested": suggested,
         "drafts": [_draft_view(d, personal, chosen) for d in skill_store.drafts()],
-        "noticed": noticed(bank, chosen, personal) if bank else [],
+        "noticed": noticed_rows,
         "plugins": plugin_rows,
         "weight": weights,
         "requests": [{**r, "authorLabel": skill_catalog_label(str(r.get("author") or ""))}

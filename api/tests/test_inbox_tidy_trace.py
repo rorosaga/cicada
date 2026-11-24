@@ -293,7 +293,8 @@ def test_apply_refuses_a_forged_answer_to_a_name_question(memory):
     with a free ``answer`` and no quote — never; and not even as ``said_on_record`` without the person's own words."""
     from api.services import role_people
 
-    _entity(memory, "partner", type="person", name="Partner", status="active", **{role_people.UNNAMED_KEY: True})
+    _entity(memory, "partner", type="person", name="Partner", status="active", source_episodes=["ep_2026-01-01_001", "ep_2026-01-02_001"],
+            **{role_people.UNNAMED_KEY: True})
     _item(memory, "inbox-010", kind="clarification", asks="name", entity_id="partner", entity_name="Partner",
           question="What's the name of your partner?", options=[{"key": "decline", "label": "Rather not say"}])
     _commit(memory)
@@ -404,7 +405,8 @@ def test_apply_refuses_the_persons_words_that_do_not_say_the_name(memory):
     never names a relation-titled page, and the engine's own reading (`_answer_decision`) agrees."""
     from api.services import role_people
 
-    _entity(memory, "sister", type="person", name="Sister", status="active", **{role_people.UNNAMED_KEY: True})
+    _entity(memory, "sister", type="person", name="Sister", status="active", source_episodes=["ep_2026-01-01_001", "ep_2026-01-02_001"],
+            **{role_people.UNNAMED_KEY: True})
     _entity(memory, "carol-example", type="person", name="Carol Example", status="active")
     _item(memory, "inbox-011", kind="clarification", asks="name", entity_id="sister", entity_name="Sister",
           question="What's the name of your sister?", options=[{"key": "decline", "label": "Rather not say"}])
@@ -468,7 +470,8 @@ def test_apply_refuses_an_answer_made_only_of_filler_words(memory):
     """Re-review of #393: "the" is in every quote — a name or a free answer of fillers alone says nothing."""
     from api.services import role_people
 
-    _entity(memory, "sister", type="person", name="Sister", status="active", **{role_people.UNNAMED_KEY: True})
+    _entity(memory, "sister", type="person", name="Sister", status="active", source_episodes=["ep_2026-01-01_001", "ep_2026-01-02_001"],
+            **{role_people.UNNAMED_KEY: True})
     _item(memory, "inbox-013", kind="clarification", asks="name", entity_id="sister", entity_name="Sister",
           question="What's the name of your sister?", options=[{"key": "decline", "label": "Rather not say"}])
     _entity(memory, "example-gadget", type="tool", name="Example Gadget", status="active")

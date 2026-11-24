@@ -131,6 +131,11 @@ def test_a_part_of_a_project_lands_on_it_never_a_question(tmp_path, monkeypatch)
     memory = _bank(tmp_path)
     mention = _entity("Faster loading PR", "project", EP, TS)
     mention["aliases"] = ["#999"]
+
+    async def second_reading(settings, system, prompt):   # the main model's second reading (`part_landing`) agrees
+        return {"verdict": "part", "reason": "x"}
+
+    monkeypatch.setattr(entity_resolver, "_same_name_ask", second_reading)
     out = _resolve(memory, [{"episode_id": EP, "entities": [mention], "relationships": []}],
                    [_project_page("example-app", "Example App")], monkeypatch, "related:part_of")
     assert _asked(memory) == []

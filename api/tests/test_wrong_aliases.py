@@ -201,8 +201,9 @@ def test_sleep_never_adds_the_name_of_a_related_or_rejected_page_as_an_alias(tmp
     kept = conflict_resolver._new_aliases(memory, "example-db-cloud",
                                           ["Example DB", "Other Tool", "EDC", "the database"])
     assert kept == ["EDC"]
-    # A name with no page, or a page the record does not hold apart, is an ordinary alias.
-    assert conflict_resolver._new_aliases(memory, "example-db", ["Other Tool", "Mongo"]) == ["Other Tool", "Mongo"]
+    # A name with no page is an ordinary alias; a name that is another live page's title is that page's, held apart or not
+    # (a title outranks an alias, `alias_collisions`, 2026-11-24: Stage 2 already weighed the pair before this write).
+    assert conflict_resolver._new_aliases(memory, "example-db", ["Other Tool", "Mongo"]) == ["Mongo"]
     # The relation is seen from either page.
     assert conflict_resolver._new_aliases(memory, "example-db", ["Example DB Cloud"]) == []
 

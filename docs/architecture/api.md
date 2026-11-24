@@ -1199,6 +1199,17 @@ waited behind it (2.6 s measured). The build runs in `run_in_threadpool` and the
 under the ETag it was built for (the one a 304 already trusts), for five minutes at most because relevance decays with
 the day. Warm `?sort=relevance` 1,938 → 128 ms; a page read during a rebuild waits ≤ 565 ms, not 2.6 s.
 
+**Nothing that scales with the bank runs on the event loop in a handler (G238, 2026-11-24).** An ETag walks the folders its
+keys name (a listing and a stat of every file, the inbox parsed): 70 to 140 ms at 6,600 pages, 3,500 conversations and
+700 inbox files on an idle Mac, and the stack sample of a starved backend sat in exactly that `scandir` loop. An `async def`
+handler asks `await sync_service.etag_for_async(...)` (a worker thread, the request's context with it) and a helper that
+already is a function goes through `run_in_threadpool`; `test_etag_off_loop.py` fails on a bare `sync_service.etag_for(`
+in a coroutine. `GET /sleep/episodes` and `/sleep/kept` read their rows in a function on a thread (a body per row, 200 ms at
+3,500), `GET /state` its `inputs_version`, `GET /skills` its noticed pages and `GET /sync/transport` the tailnet probe (a
+`tailscale` subprocess, 2 s bound). Found by running a scratch backend on a synthetic memory of that size with a heartbeat on
+the loop and a thread sampling its stack whenever the heartbeat was 50 ms late. Left on the loop: the fork of `git remote
+get-url` under `GET /contributors` (about 70 ms, scales with the process, not the bank).
+
 **`POST /sources/site-save` and `POST /sources/site-unsave` (G221, ruling 77, 2026-11-23)** — a save the person made
 inside a site, noticed by the app from the control they clicked (`app.md`, "A save inside a site"). Body
 `{site, url, text?, folders?, removeFolders?}`: `site` is `x`, `instagram`, `tiktok`, `reddit` (and any other key of

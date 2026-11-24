@@ -33,6 +33,9 @@ words are already the question's cause or one option's evidence).
   knows them and Settings shows them, so they are never asked;
 * ``followup`` — one on a page not in the person's list, never started or taken out (ruling 56, ``not_started``):
   retired with nothing written;
+* ``clarification`` asking a person known only by a description for their name, on a page that rests on one conversation
+  (owner 2026-11-24, ``name_once``): retired with nothing written; asked again, new, when they come up in a second
+  conversation (`role_people.ensure_question`); undone, it is theirs and Sleep never retires it again;
 * everything else — a clarification, a follow-up on a project they started, a proposed edit — stays for the person (move
   1 aside).
 
@@ -124,12 +127,17 @@ RULES: dict[str, str] = {
     "already_a_name": "The record already answers it: that name is one of this page's names",
     "names_one_page": "Both values name one person, spelled two ways",
     "not_started": "It is not one of your projects",
+    "name_once": "They have come up once; their name is asked if they come up again",
     "same_value": "The same value, said two ways",
     "moved_on": "It moved: the latest is current, the earlier ones are kept as past",
     "own_bookkeeping": "About Cicada's own counters, which Cicada already knows",
     "already_described": "Sleep already read what it is; nothing was changed",
     "not_fading": "It is not fading any more; nothing was changed",
     "source_corrected": "The words it asked about were corrected",
+    # 2026-11-24 (`alias_collisions`): two pages that go by one name.
+    "alias_apart": "Two different things: one no longer lists the other's name as its own",
+    "alias_quiet": "A saved link shares the name; it is no question about your memory",
+    "alias_doubt": "Sleep could not tell whether they are one thing; nothing was changed",
 }
 #: What the settled list says each retired "same as?" question became (owner 2026-11-04, `pair_evidence`).
 RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
@@ -137,9 +145,11 @@ RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
 #: The rules that read only the bank: re-run inside each settle, which goes ahead only when they still agree.
 #: The rules whose settle is a join Sleep read twice: taking one back is the person saying they are two (74b, 74c).
 JOINS = frozenset({"full_name_one", "typo_one"})
+#: The settle that took a name off a page (`alias_collisions`): taking it back is the person keeping the name.
+ALIAS_RULES = frozenset({"alias_apart"})
 ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "seed_fold", "one_off", "newest_evidence",
                          "multi_valued", "in_passing", "newest_words", "own_settings", "named_account",
-                         "owner_unsaid", "no_pair_evidence", "two_signals", "not_started", "same_value", "moved_on",
+                         "owner_unsaid", "no_pair_evidence", "two_signals", "not_started", "name_once", "same_value", "moved_on",
                          "own_bookkeeping", "already_described", "not_fading", "source_corrected",
                          "already_one_page", "already_a_name", "names_one_page"})
 #: The judged kinds (owner, 2026-10-17: the inbox keeps only what genuinely needs the person).
@@ -355,6 +365,21 @@ def guard_holds(memory_path: Path, d: "Decision") -> bool:
     return all(_hash(Path(memory_path) / rel) == digest for rel, digest in (d.guard or {}).items())
 
 
+def _first_mention_name(memory_path: Path, fm: dict) -> bool | None:
+    """``True`` when this name question is about an unnamed person page that rests on fewer than two conversations
+    (`role_people.heard_again`), else ``None``. A page that cannot be read, a person who declined and a page the question
+    does not name are never this rule's."""
+    from api.services import role_people
+
+    page = _page(memory_path, str(fm.get("entity_id") or ""))
+    if page is None:
+        return None
+    pfm = page[1]
+    if not pfm.get(role_people.UNNAMED_KEY) or pfm.get(role_people.DECLINED_KEY) or pfm.get("owner"):
+        return None
+    return None if role_people.heard_again(memory_path, pfm) else True
+
+
 def _is_owner_page(fm: dict | None) -> bool:
     return bool((fm or {}).get("owner"))
 
@@ -419,6 +444,13 @@ def _merge_rule(memory_path: Path, item_id: str, fm: dict) -> tuple[Decision | N
     if mention_type and target_type and mention_type != target_type:
         return None, "judgement"
     name = _fold_name(fm.get("entity_name") or fm.get("entity_mention") or mention_fm.get("name"))
+    if (mention is not None and fm.get("fold_page") is not True and name != _fold_name(target[1].get("name"))
+            and name in _names(target[1])):
+        # 2026-11-24 (`alias_collisions`, G21): two PAGES that meet only because one lists the other's title as an alias are
+        # not "the same name, spelled differently": the resolver refuses a fold of a page that is no flagged page question
+        # ("the fold is the person's call"), so settling it here only left the question open — and read as a join in the
+        # dry run. The tending of alias collisions owns the pair: it reads both pages, then removes the alias, asks once, or holds.
+        return None, "alias_collision"
     if name and name in _names(target[1]):
         return Decision(item_id, "merge_suggestion", "same_spelling",
                         {"action": "merge", "merge_target": target[0].stem},
@@ -771,6 +803,14 @@ def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
         if meeting_speakers.gone(memory_path, fm):
             return Decision(item_id, kind, "subject_gone", None, answer="Retired", guard=_guard(memory_path, "")), ""
         return None, "needs_person"
+    if kind == "clarification" and str(fm.get("asks") or "") == "name":
+        # Owner 2026-11-24: someone known only by a description is not asked about on a first mention. One asked before
+        # that rule, whose page still rests on one conversation, is retired with nothing written (the page, its
+        # claims and its title stay); `role_people.ensure_question` raises it again, new, once they come up again.
+        held = _first_mention_name(memory_path, fm)
+        if held is not None:
+            return Decision(item_id, kind, "name_once", None, answer="Not asked yet: they have come up once",
+                            guard=_guard(memory_path, str(fm.get("entity_id") or ""))), ""
     page_state = _page_state(memory_path, fm)
     if page_state == "missing" or _gone(memory_path, fm):
         return Decision(item_id, kind, "subject_gone", None, answer="Retired",
@@ -2697,6 +2737,7 @@ VETTED_RULES: dict[str, tuple[frozenset[str] | None, frozenset]] = {
     "no_pair_evidence": (frozenset({"merge_suggestion"}), frozenset({None})),
     "two_signals": (frozenset({"merge_suggestion"}), frozenset({"merge"})),
     "not_started": (frozenset({"followup"}), frozenset({None})),
+    "name_once": (frozenset({"clarification"}), frozenset({None})),
     "same_value": (frozenset({"conflict"}), frozenset({"resolve"})),
     "moved_on": (frozenset({"conflict"}), frozenset({"resolve"})),
     "own_bookkeeping": (frozenset({"conflict"}), frozenset({None})),
@@ -3193,6 +3234,25 @@ def undo(memory_path: Path, item_id: str) -> tuple[str, list[str], list[str], di
             _write_bytes(target, data)
         paths.append(rel)
         lines.append(f"{rel}: updated (source: {item_id}, trigger: inbox/sleep-settle/undone)")
+    if rec.get("rule") in ALIAS_RULES:
+        # 2026-11-24 (`alias_collisions`): taking back the removal of a name is the person keeping it. The page is back as it
+        # was (above); the name is marked kept so it is never removed or proposed for removal again, and the question does
+        # not come back (it was never theirs to answer: Sleep read two things).
+        from api.services import wrong_aliases
+
+        for row in rec.get("alias_apart") or []:
+            page = memory_path / "entities" / f"{str((row or {}).get('page') or '')}.md"
+            if page.is_file() and wrong_aliases.remember_kept(page, [str((row or {}).get("alias") or "")]):
+                rel = page.relative_to(memory_path).as_posix()
+                if rel not in paths:
+                    paths.append(rel)
+                    lines.append(f"{rel}: updated (source: {item_id}, trigger: inbox/sleep-settle/undone)")
+        rec_path.unlink()
+        bank_index.invalidate(memory_path)
+        markdown_parser.invalidate_pages(os.path.realpath(memory_path))
+        paths.append(record_rel)
+        lines.append(f"{record_rel}: removed (source: {item_id}, trigger: inbox/sleep-settle/undone)")
+        return item_id, paths, lines, rec
     if rec.get("rule") in JOINS:
         # Ruling 74b: taking back Sleep's join of a held full name is the person saying they are two people. The
         # question does not come back: the pair is kept apart by the writer their own "No, different" uses

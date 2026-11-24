@@ -126,7 +126,7 @@ def _state(memory_path) -> dict:
 @router.get("/explore/state")
 async def get_explore_state(request: Request, response: Response, settings: Settings = Depends(get_settings)):
     memory_path = settings.memory_path
-    etag = _etag(memory_path, "state")
+    etag = await run_in_threadpool(_etag, memory_path, "state")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     return await run_in_threadpool(_state, memory_path)
@@ -144,7 +144,7 @@ def _candidates(memory_path) -> dict:
 @router.get("/explore/candidates")
 async def get_explore_candidates(request: Request, response: Response, settings: Settings = Depends(get_settings)):
     memory_path = settings.memory_path
-    etag = _etag(memory_path, "candidates")
+    etag = await run_in_threadpool(_etag, memory_path, "candidates")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     return await run_in_threadpool(_candidates, memory_path)
@@ -253,7 +253,7 @@ async def get_explore_prompt(settings: Settings = Depends(get_settings)):
 async def get_captures(entity_id: str, request: Request, response: Response,
                        settings: Settings = Depends(get_settings)):
     memory_path = settings.memory_path
-    etag = sync_service.etag_for(memory_path, "captures", extra=f"captures|{entity_id}|{SHAPE}")
+    etag = await sync_service.etag_for_async(memory_path, "captures", extra=f"captures|{entity_id}|{SHAPE}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
 
@@ -309,7 +309,7 @@ async def get_capture_page_thumb(entity_id: str, capture_id: str, index: int, re
 async def get_site_maps(request: Request, response: Response, settings: Settings = Depends(get_settings)):
     """Every explored site's map, summarised: the site, its page count and when it was last seen."""
     memory_path = settings.memory_path
-    etag = sync_service.etag_for(memory_path, "captures", extra=f"sites|{SHAPE}")
+    etag = await sync_service.etag_for_async(memory_path, "captures", extra=f"sites|{SHAPE}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
 
@@ -326,7 +326,7 @@ async def get_site_map(site: str, request: Request, response: Response, settings
     """One site's map (``site_map.wire``) by its name (``bob-example.org``). 404 when it was never explored."""
     memory_path = settings.memory_path
     name = reading_hosts.site_of(site)
-    etag = sync_service.etag_for(memory_path, "captures", extra=f"site|{name}|{SHAPE}")
+    etag = await sync_service.etag_for_async(memory_path, "captures", extra=f"site|{name}|{SHAPE}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     smap = await run_in_threadpool(site_map.read, memory_path, name)

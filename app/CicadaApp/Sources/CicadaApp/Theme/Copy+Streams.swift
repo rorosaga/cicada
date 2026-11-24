@@ -39,6 +39,10 @@ extension Copy {
 
         /// The "Saves you make" row, when macOS has not been given Accessibility (ruling 77: never prompted for).
         static let accessibilityWhy = "Seeing a save needs Accessibility, which Cicada never asks for on its own."
+        /// The "Saves you make" row, off because the person turned it off while the source itself is on.
+        static let savesTurnedOff = "You turned this off, so saves you make here are not noticed."
+        /// The row's hover: which browsers a save is seen in (the ones Cicada reads; others are named on the Browsers page).
+        static func savesSeenIn(_ browsers: String) -> String { "Seen in \(browsers), on this Mac." }
         static let openAccessibility = "Open Accessibility settings"
         /// A reader that needs a permission the person can give from Settings.
         static let permissionWhy = "macOS has not given Cicada access to read it."

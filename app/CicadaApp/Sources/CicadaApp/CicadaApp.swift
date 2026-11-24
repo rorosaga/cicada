@@ -115,6 +115,7 @@ struct CicadaApp: App {
     /// G221 — a save made inside a site the person connected (X, Instagram, GitHub, TikTok), noticed from the control
     /// they clicked.
     @State private var siteSaves = SiteSaveWatcher()
+    @State private var siteSavesNoticing = SiteSaveNoticingWatch()
     /// G191 v3 — the menu bar's bookmark history.
     @State private var bookmarkHistory = BookmarkHistoryController()
     /// G133 / G134: watched folders and Wispr Flow, read by the app (the backend
@@ -538,7 +539,7 @@ struct CicadaApp: App {
                 return SourceConnect.State(
                     status: connectSuggest.status(entry.id) ?? .off, agentEnabled: readingAgent.enabled,
                     ackCurrent: !readingAgent.needsFirstUseSheet, savedListsOn: readingAgent.savedListsOn,
-                    siteSavesOn: Set(SiteSavePrefs().connected.map(\.key)),
+                    siteSavesOn: Set(SiteSavePrefs().noticed(status: connectSuggest.status).map(\.key)),
                     readersOn: Self.localReaders(calendar: calendarReader, contacts: contactsReader,
                                                  tabGroups: tabGroups, watchHistory: watchHistory,
                                                  browsers: browserWatcher, notes: notesWatcher,
@@ -560,7 +561,7 @@ struct CicadaApp: App {
                                         browsers: browserWatcher).start(entry)
                 }),
             accessibilityGranted: { AXIsProcessTrusted() },
-            noticing: { SiteSavePrefs().isConnected($0) },
+            noticing: { [connectSuggest] in SiteSavePrefs().noticing($0, status: connectSuggest.status($0)) },
             openPermission: { [appRouter] _ in
                 appRouter.showMainWindow()
                 appRouter.openSettings(.privacy, row: .permissions)
@@ -657,21 +658,25 @@ struct CicadaApp: App {
         saveWhy.pastPicks = { [store] in SaveWhySuggest.picks(from: store.sources.value ?? []) }
         bookmarkBubbles.start()
         // G221 — only the sites the person connected are watched (Sources, or the notch's own offer).
-        siteSaves.sites = { SiteSavePrefs().connected }
+        // "Connected" is the source's own word (`SiteSavePrefs.noticing`): a site whose list is on is noticed unless the
+        // person turned "Saves you make" off for it.
+        siteSaves.sites = { [connectSuggest] in SiteSavePrefs().noticed(status: connectSuggest.status) }
         // Watched while a site is connected, or while one may still be offered (the notch's own switch).
         siteSaves.offers = { [connectSuggest] in connectSuggest.store.enabled }
         siteSaves.isWanted = { [connectSuggest] in
-            !SiteSavePrefs().connected.isEmpty || connectSuggest.store.enabled
+            !SiteSavePrefs().noticed(status: connectSuggest.status).isEmpty || connectSuggest.store.enabled
         }
         siteSaves.onSite = { [connectSuggest] site, pid, bundle in
-            connectSuggest.offer(site: site, connected: SiteSavePrefs().isConnected(site.key), pid: pid,
-                                 bundleId: bundle)
+            let connected = SiteSavePrefs().noticing(site.key, status: connectSuggest.status(site.key))
+            return connectSuggest.offer(site: site, connected: connected, pid: pid, bundleId: bundle)
         }
         // Ruling 77b — a site that is not connected is read only while a save click there could still bring its
         // offer: the switch on, and the site neither declined nor inside a wait such a click cannot pass.
         siteSaves.candidates = { [connectSuggest] in
             let prefs = SiteSavePrefs()
-            return SiteSaveSite.all.filter { !prefs.isConnected($0.key) && connectSuggest.listens(site: $0.key) }
+            return SiteSaveSite.all.filter {
+                !prefs.noticing($0.key, status: connectSuggest.status($0.key)) && connectSuggest.listens(site: $0.key)
+            }
         }
         siteSaves.onCandidate = { [connectSuggest] save, site, pid, bundle in
             connectSuggest.offer(saved: save, site: site, pid: pid, bundleId: bundle)
@@ -692,6 +697,13 @@ struct CicadaApp: App {
             [siteSaves] _ in MainActor.assumeIsolated { siteSaves.refresh() }
         }
         startConnectSuggest()
+        // After `startConnectSuggest`, which wires the catalogue's word the set is read from. A list turned on (or off)
+        // anywhere changes what is noticed: the watcher looks again when the source's word does.
+        siteSavesNoticing.read = { [connectSuggest] in
+            Set(SiteSavePrefs().noticed(status: connectSuggest.status).map(\.key))
+        }
+        siteSavesNoticing.changed = { [siteSaves] in siteSaves.refresh() }
+        siteSavesNoticing.start()
         // G191 v3 — the app's own diff needs a "before" for each watched browser: read once now, so the
         // first bookmark after launch is named from the file without waiting for the backend.
         if saveWhy.prefs.enabled {

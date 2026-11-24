@@ -1193,8 +1193,8 @@ async def get_entity_sources_overview(
     page = resolve_entity_file(memory_path, entity_id)
     if page is None or not page.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
-    etag = sync_service.etag_for(memory_path, "entities", "episodes",
-                                 extra=f"{page_sources.SHAPE}|{page.stem}|{current_day()}")
+    etag = await sync_service.etag_for_async(memory_path, "entities", "episodes",
+                                             extra=f"{page_sources.SHAPE}|{page.stem}|{current_day()}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     return await run_in_threadpool(page_sources.overview, memory_path, page)
@@ -1264,7 +1264,8 @@ async def get_entity_links(
     page = resolve_entity_file(memory_path, entity_id)
     if page is None or not page.exists():
         raise HTTPException(404, f"Entity {entity_id} not found")
-    etag = sync_service.etag_for(memory_path, "entities", "sources", "design", extra=f"{page_links.SHAPE}|{page.stem}")
+    etag = await sync_service.etag_for_async(
+        memory_path, "entities", "sources", "design", extra=f"{page_links.SHAPE}|{page.stem}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
 

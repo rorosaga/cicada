@@ -56,7 +56,7 @@ async def summary(
     # The UTC date is part of the answer: a rolling range ("last 30 days"), a
     # streak and a calendar all move at UTC midnight with no new event to bump
     # the "telemetry" component — without it the app 304s into yesterday.
-    etag = sync_service.etag_for(memory_path, "telemetry", "git_head", extra=f"{range_}:{today}")
+    etag = await sync_service.etag_for_async(memory_path, "telemetry", "git_head", extra=f"{range_}:{today}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     return ConsumptionSummary(**await consumption_stats.summary(memory_path, range_=range_, today=today))
@@ -71,7 +71,7 @@ async def calendar(
 ):
     memory_path = settings.memory_path
     today = _utc_today()
-    etag = sync_service.etag_for(memory_path, "telemetry", "git_head", extra=f"{weeks}:{today}")
+    etag = await sync_service.etag_for_async(memory_path, "telemetry", "git_head", extra=f"{weeks}:{today}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     days = await consumption_stats.calendar(memory_path, weeks=weeks, today=today)
@@ -87,7 +87,7 @@ async def stats(
 ):
     memory_path = settings.memory_path
     today = _utc_today()
-    etag = sync_service.etag_for(memory_path, "telemetry", "git_head", extra=f"{range_}:{today}")
+    etag = await sync_service.etag_for_async(memory_path, "telemetry", "git_head", extra=f"{range_}:{today}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     data = await consumption_stats.stats(memory_path, range_=range_, today=today)
@@ -109,7 +109,7 @@ async def feedback(
     # on the bank's git state (unlike /summary and /stats), so "git_head"
     # isn't part of this ETag; the "feedback:" extra prefix keeps it distinct
     # from /summary's ETag for the same range and day.
-    etag = sync_service.etag_for(memory_path, "telemetry", extra=f"feedback:{range_}:{today}")
+    etag = await sync_service.etag_for_async(memory_path, "telemetry", extra=f"feedback:{range_}:{today}")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     data = await consumption_stats.feedback(memory_path, range_=range_, today=today)

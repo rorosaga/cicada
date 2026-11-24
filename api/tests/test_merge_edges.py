@@ -184,7 +184,8 @@ def _door_inbox_fold_page(tmp_path):
 
 def _door_name_answer_merge(tmp_path):
     memory = _bank(tmp_path, "partner", "bob-example",
-                   old_fm={"name": "Partner", "unnamed": True, "owner_roles": ["partner"]},
+                   old_fm={"name": "Partner", "unnamed": True, "owner_roles": ["partner"],
+                           "source_episodes": ["ep_2026-01-01_001", "ep_2026-01-02_001"]},
                    new_fm={"name": "Bob Example"})
     path = role_people.ensure_question(memory, "partner", owner_fm={"name": "Alpha Owner"})
     _git(memory, "add", "-A")
@@ -195,7 +196,8 @@ def _door_name_answer_merge(tmp_path):
 
 def _door_name_answer_rename(tmp_path):
     memory = _bank(tmp_path, "partner", "bob-example",
-                   old_fm={"name": "Partner", "unnamed": True, "owner_roles": ["partner"]}, new_fm=None)
+                   old_fm={"name": "Partner", "unnamed": True, "owner_roles": ["partner"],
+                           "source_episodes": ["ep_2026-01-01_001", "ep_2026-01-02_001"]}, new_fm=None)
     path = role_people.ensure_question(memory, "partner", owner_fm={"name": "Alpha Owner"})
     _git(memory, "add", "-A")
     _git(memory, "commit", "-q", "-m", "q")

@@ -149,6 +149,60 @@ def names_other_thing(memory_path: Path | None, page_id: str, alias: str) -> boo
         return False
 
 
+def title_key(text) -> str:
+    """The comparison key of a page's title or an alias: case, accents and punctuation set aside (``text_fold``)."""
+    from api.services import text_fold
+
+    return " ".join(text_fold.words(str(text or "")))
+
+
+def _title_index(entries) -> dict[str, list[tuple[str, str]]]:
+    index: dict[str, list[tuple[str, str]]] = {}
+    for entry in entries:
+        fm = entry.frontmatter or {}
+        if str(fm.get("status") or "active") in ("archived", "dropped"):
+            continue
+        kind = "person" if fm.get("owner") is True else str(fm.get("type") or "").strip().lower()
+        for text in {fm.get("name"), entry.stem.replace("-", " ")}:
+            key = title_key(text)
+            if key and all(held != entry.stem for held, _t in index.get(key, ())):
+                index.setdefault(key, []).append((entry.stem, kind))
+    return index
+
+
+def titled_pages(memory_path: Path, name: str) -> list[tuple[str, str]]:
+    """``(page id, type)`` of every live page whose title (or whose id's words) is ``name`` — owner's page typed
+    ``person``. Derived from the bank's cached headers, rebuilt only when a page changes."""
+    from api.services import bank_index
+
+    key = title_key(name)
+    if not key:
+        return []
+    index = bank_index.derived(Path(memory_path), "entities", "wrong_aliases.titles", _title_index)
+    return list(index.get(key, ()))
+
+
+def title_of_other_page(memory_path: Path | None, page_id: str, alias, own_type: str = "", *,
+                        exclude: tuple[str, ...] = ()) -> bool:
+    """Is ``alias`` the TITLE of another live page, so that it is that page's name and not a second name for this one?
+    A title outranks an alias (G21; 2026-11-24): of the 129 alias-to-page collisions on one real bank, 62 were two
+    things plainly, and the rest one thing held twice — and the second kind belongs to a question about the pair, not
+    to an alias that quietly points two pages at one name. Never a person's (ruling 74 owns every pair of people: two
+    may share a first name) and never on a page of the owner's; a saved link's `media` page is quiet and takes no name
+    either way. Cheap: one dict lookup on a derived index. Sleep's alias writers ask this before adding a NEW name."""
+    if memory_path is None or not page_id or not str(alias or "").strip():
+        return False
+    if str(own_type or "").strip().lower() in ("person", "media"):
+        return False
+    try:
+        for other, kind in titled_pages(Path(memory_path), str(alias)):
+            if other != page_id and other not in exclude and kind not in ("person", "media"):
+                return True
+    except Exception:  # noqa: BLE001 — an unreadable bank: the alias goes on by the usual rule
+        return False
+    return False
+
+
 def remember_kept(page_path: Path, aliases) -> bool:
     """The person left a proposal to remove these aliases: keep them, and never propose it again. True if written."""
     try:

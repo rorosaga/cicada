@@ -136,7 +136,7 @@ async def list_backlog(project_id: str, request: Request, response: Response, st
     stem, fm = _project(mp, project_id)
     if status is not None and status not in backlog.STATUSES:
         raise HTTPException(400, f"status is one of {', '.join(backlog.STATUSES)}")
-    etag = _etag(mp, "list", stem, status or "")
+    etag = await run_in_threadpool(_etag, mp, "list", stem, status or "")
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     tz = _tz()
@@ -159,7 +159,7 @@ async def get_backlog_item(project_id: str, item_id: str, request: Request, resp
     iid = backlog.normalize_id(item_id)
     if iid is None:
         raise HTTPException(404, f"{item_id!r} isn't an item id")
-    etag = _etag(mp, "item", stem, iid)
+    etag = await run_in_threadpool(_etag, mp, "item", stem, iid)
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     item = await run_in_threadpool(backlog.get_item, mp, stem, iid)

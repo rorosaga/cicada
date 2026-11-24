@@ -1990,5 +1990,25 @@
       "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"
     }
+  ],
+  "services/alias_collisions.py": [
+    {
+      "function": "_write_settle",
+      "method": "write",
+      "frontmatter": "{**qfm, 'settled': rec}",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "ask_sync",
+      "method": "write",
+      "frontmatter": "{**parsed.frontmatter, **fields}",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "ask_sync",
+      "method": "write",
+      "frontmatter": "{**fields, 'created_date': today}",
+      "disposition": "fresh_frontmatter_untracked"
+    }
   ]
 }

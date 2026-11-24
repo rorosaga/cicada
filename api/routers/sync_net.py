@@ -34,7 +34,8 @@ async def get_transport():
     backend listens for the person's devices (the bind shown in words)."""
     from api.services import sync_direct_listen
 
-    return {**sync_transport.stats(), "listen": sync_direct_listen.wire()}
+    # `wire` may run the tailnet's `tailscale funnel status` (2 s bound, then kept 5 minutes): off the loop (G238).
+    return {**sync_transport.stats(), "listen": await run_in_threadpool(sync_direct_listen.wire)}
 
 
 class RelaySetting(BaseModel):

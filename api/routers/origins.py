@@ -23,7 +23,7 @@ async def get_origins(
     settings: Settings = Depends(get_settings),
 ):
     with sync_ticker.request_scans(settings.memory_path):   # one listing per folder for ETag and count (speed 2026-10-29)
-        etag = sync_service.etag_for(settings.memory_path, "episodes", "entities")
+        etag = await sync_service.etag_for_async(settings.memory_path, "episodes", "entities")
         if (early := sync_service.conditional(request, response, etag)) is not None:
             return early
         origins = await run_in_threadpool(origin_stats.aggregate_origins, settings.memory_path)

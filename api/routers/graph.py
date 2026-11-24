@@ -64,7 +64,7 @@ async def get_graph(
     settings: Settings = Depends(get_settings),
 ):
     extra = f"{types}|{statuses}|{min_confidence}|{tags}|{include_hubs}|{hubs_only}|{NODE_SHAPE}"
-    etag = sync_service.etag_for(
+    etag = await sync_service.etag_for_async(
         # "logos": `has_logo` rides every node's content_hash but lives in the
         # machine-global logo cache, not in the bank — see sync_service.
         # "photos" (G159, review B1): a person's public-profile photo lives outside the bank too; a fetch or a miss
