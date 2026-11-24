@@ -829,6 +829,25 @@ a turn marker inside it (an agent's `assistant:` note) still reads as a marker. 
 returns the declared `evidence_kind`, else `evidence.SAVE_KIND`, and every reader passes that as `override` (Stage 1,
 promotion, project birth, ruling 42, the card rule, the Reader, search hits, the inbox tend). Spans already stored keep
 their kind; the repair is a dry run awaiting the owner.
+**A save a model reads is read as its author's (G245, owner 2026-11-24, `saved_reading`).** Stage 1 is told it is a saved
+item whose "I", "my" and "the user" are the author's, dated by when it was posted (`posted`, else a feed's `published_at`;
+`source_dates.saved_note`: older than 90 days is written as of its month, no date is never written as current) and not by
+the day the person saved it; a claim whose located evidence is only the item's own words is observed by `external:<the
+save's channel, else its site, else its link's host>` — per author, so two authors' claims never share a belief slot — and
+is dated by the post day (`valid_from`); only a claim with a span in a section of the person's own words (`## Saved
+because`, `## Why it was saved`, `## User note`, a `## Note` that is not an agent's `assistant:` line — by heading, never by
+a line that reads like a turn marker, which `media_ingestor` quotes when it writes a description) is theirs. Nothing the
+post says lands on the owner's page (an owner or self-reference entity is dropped when the save holds no words of the
+person's; when it holds some, the entity keeps only the facts, aliases and status quote their own text contains as whole
+words and loses its summary, history, links, questions and tags, which nothing locates; an endpoint of a relationship or
+value is kept only on the person's own located words), no person page gains an alias from a post unless the person's words
+say it (as a whole word, never inside another),
+at most 8 entities are taken from one save, and a save raises no question (`ask_person` dropped). **A connector's post is a
+description, never a note (X and Pinterest):** the text rides `RawItem.preview` into `## Description`, the episode carries
+no `has_note`, and the tweet's `created_at` is its `posted` day. Episodes written the old way (`## User note` + `has_note`,
+origin `x-bookmarks` or `pinterest`) are put right by `connector_text.repair`, committed alone before the index's own commit
+so a later wake finds no revision; it is **report-only** behind `connector_text.REPAIR` until the coordinator reads
+`python -m api.scripts.connector_text_dry_run --bank <path>` (counts only; `--ids` adds episode ids).
 **An agent's saved note is the agent's words (ruling 50, owner 2026-10-29).** A note an agent saved through a tool door
 — `cicada_save_episode` over stdio (`source: mcp`), the remote connector (`mcp-remote`), or `cicada save` from an
 agent's shell (`cli` with the harness or session it ran in; the CLI stamps a Codex sandbox's harness too) — is known by
