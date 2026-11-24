@@ -104,3 +104,78 @@ cannot see a one-in-ten defect; both cost cents and need only `ANTHROPIC_API_KEY
   defect only the real path has; run this before landing a change to who a mention belongs to. Its fixture
   (`same_name_e2e_join.json`) is a doubt a later conversation links, beside a pair nothing links and one person whose
   life moves on; `expect` names the first names that must end as one page and as two.
+
+## The saves battery (G245, ruling 80's plan, Track M)
+
+`saves_fixture.py` and `saves_battery.py` measure what reading a save costs and what it writes, before anything reads one
+on purpose (the owner, 2026-11-24: "if i save it already has a reason"; every save will be read, as the page's and the
+author's words, never his). The bank is invented: an owner called Alex Example, four seeded pages (a friend "Sam Example",
+a colleague "Riley Example", an employer "Helio Example", a notes app "Quillnote") standing on two older conversations each,
+eight waiting conversations, and **288 saves** written by the production capture writers (`media_ingestor.write_prepared` with
+a stand-in page description in place of the fetch, `tab_groups.sync`), so each is stored as dev stores it. The saves are natural
+English with `example.com` links, grouped by the trap each one sets: 50 posts that each state one fact about the one existing
+page; six posts on one topic by different authors; an author whose name equals a person page; a stranger's "Sam" while a friend
+"Sam Example" has a page; first names with no page; a post about an existing company and a 2021 post stating a present-tense
+fact; posts saying "I", "my" and "the user"; three title-only bookmarks; the same link on two lists; two tab groups; two feed
+items; two open Safari tabs; two saves with his own reason; two 40-day-old bookmarks; four connector tweets (two in today's shape,
+the text in `note`, two in the shape the plan gives them, the text as the description); and a bulk list of 200 undated rows.
+
+    api/.venv/bin/python -m benchmarks.consolidation.saves_battery selfcheck           # no model: fixture, capture, a stand-in Sleep
+    api/.venv/bin/python -m benchmarks.consolidation.saves_battery run --leg baseline --out OUT/baseline
+    api/.venv/bin/python -m benchmarks.consolidation.saves_battery run --leg single   --out OUT/single1
+    api/.venv/bin/python -m benchmarks.consolidation.saves_battery report OUT/baseline OUT/single1 OUT/single2
+    api/.venv/bin/python -m benchmarks.consolidation.saves_battery rescore OUT/single1  # measure again, no model
+
+**Isolation** is the verify-cicada skill's: scratch `HOME`, `CICADA_HOME`, bank and ledger, capture, recall and every fetch off,
+and the engine's `claude` is the skill's `plan-claude` shim (the real HOME for that one child, the pinned argv, one model,
+`haiku`). It reads nothing of anyone's. Only the web-lookup steps are off (`web_check_per_run`, `web_context_per_run` 0): the shim
+lets one model through and a search is not what is measured.
+
+**Legs.** *baseline*: dev as it is: the index reads bookmarks, list rows, tab groups and open tabs at capture; Sleep reads what dev
+reads today (the saves with a reason, a feed item, a connector tweet whose text rides `note`). *single*: the same bank, then every save the index read is
+woken with `history_index.wake`, the function a mention calls (`read_asked` stamped, `processed` false), except the 200 list rows,
+which stay in the pile (`--wake-bulk` wakes them: about 200 more reads). Sleep then reads each save once, alone, with **today's**
+reading. That proves what a model call per save costs, and what today's Stage 1 writes from a save: the gate failures are the work
+of the content tracks (2a to 2c), not a verdict on the plan. It does not prove the reading ruling 80 will build (no saved-item
+note, no `external:` observer, no owner guard, no caps exist yet), and it does not prove pacing (the day's allowance, class order,
+the pile): every woken save waits at once, and the "waiting saves after the bulk list" count is taken on a copy with all 287 woken.
+`read_asked` is read by nothing in Stage 1, so a woken save is read exactly as one that simply waits will be. *grouped*: a stub: it
+needs Track 3 (`feat/grouped-save-read`) and says so.
+
+**What it counts** (`battery.json`, `report`): calls, gross input, cache and **output tokens by stage** from the scratch ledger
+(`benchmarks/perf/ledger.py`), and the marginal cost of a save (single minus baseline, over the extra saves read); pages made and
+whether each is quiet; claims by observer; open save-derived claims per page; claims on the owner's page (split into "saved X"
+acts and what a post says); claims on seeded person pages without the exact name; located evidence against `reasoning`; held names
+per 100 saves; questions with only a save behind them; the 2021 fact written as current; the decay status of pages born from old
+saves; waiting saves if all were woken; and ruling 62's retrieval cases (12 messages: the saved lookup by words, and the hook's
+note; the meaning cases are not run, the search model is not loaded). A claim "from a save with no words of his" is any claim citing a save outside the
+`own-reason` group. Twelve gates read these counts (`saves_battery.gates`, one of them, the grouped read's, not run); they are counts, never a score.
+
+**Baseline numbers (2026-11-24, haiku, the Claude plan; claude-haiku-5-5 in the ledger).** One run of the baseline, two of the
+single leg. Two runs of a small model share few exact claims, so read ranges.
+
+- *Baseline*: 14 episodes read (8 conversations, 6 saves): 43 calls, 209k input tokens gross (124k from the prompt cache), 36.7k output
+  tokens, 113 s. Nothing else is read: 281 saves stay indexed. Stage 1 alone: 14 calls, 10.5k input and 1.36k output tokens a call.
+- *Single read*: 95 episodes (8 conversations, 87 saves): 203 and 218 calls, 1.27M and 1.31M input tokens gross (988k and 1.03M from the cache),
+  **186k and 182k output tokens**, 573 s and 582 s. **A save costs, on top of the baseline, 2.0 to 2.2 calls, 13.1k to 13.6k input tokens gross
+  (10.7k to 11.2k of them cache reads) and 1.79k to 1.84k output tokens**, by stage (two runs): extraction 1.00 call, 10.5k in, 0.98k to 1.04k out;
+  merge 0.27 to 0.35 calls, 0.28k to 0.29k out; fact fold 0.16 to 0.20 calls, 0.22k to 0.27k out; disambiguation 0.36 to 0.46 calls,
+  0.15k to 0.19k out; conflict, value match, skills and "in short" together about 0.2 calls and 0.1k out. Output is about 14 percent of the gross input tokens and, priced as the plan estimates (3.6: 70 to 85 percent of the
+  dollars), most of the cost; the plan's own guess was 2 calls, 10.8k input and 2k output a save, close on calls (2.0 to 2.2 against 2.25) and output (1.8k against 2k), a quarter higher on input (13.4k against 10.8k).
+  Extraction writes 1,083 and 1,039 output tokens a call in the two runs (the baseline's 1.36k is its longer conversations).
+- *The baseline fails* (as the plan expects): claims on the owner's page from a save with no words of his (5: four from the two connector tweets in
+  today's shape, one from a feed item; the two in the fixed shape and the indexed bookmarks put none), claims that are not `external:` (5),
+  waiting saves after the bulk list (287 against a day's 25, counted if all were woken). It passes the rest: no pages from saves, 12/12 retrieval
+  by words and 11/12 by the hook (the hook never brings up a list row, and a feed item has no page). The 2021 gate cannot fail on it (Sleep read
+  none of the posts that carry it).
+- *Single read fails* (today's reading, both runs): 10 and 11 claims on the owner's page that are not "saved X" (a stranger's "my day starts at four" as
+  Alex's `daily start time`, "friend of Sam", "joined the logistics team", tab groups read as his plans), plus 33 and 32 "saved X" acts; 8 pages made from
+  saves alone, all quiet (a page for each post author and one called `sam`, never joined to the friend page: that is the stranger-Sam case); 103 and 104 claims on saves
+  alone, none `external:` (every one observer `agent`); **31 to 36 open save-derived claims on the one page 50 posts name** (the cap is 12); 28.7 and 29.9 held names per 100
+  saves read (under 250, so the entity cap stays 8); one question with only a save behind it (at most 2 allowed); the 2021 fact written as current
+  **in one run of two** (CEO, 40 employees, Porto, all `valid_from` the day Sleep ran, because today's note dates a save the day it was taken in); retrieval after
+  Sleep one tab group short of before (a read tab group leaves the lookup: plan 0.11). Zero claims or aliases land on the friend "Sam Example" without his
+  exact name, in both runs. Located evidence: 93 to 95 percent of spans on a save-derived claim are located, the rest `reasoning`.
+- *Not measured*: grouped reads; the meaning cases of ruling 62; the plan's pacing and class order; dollars (the plan has no price; the ledger says subscription).
+  A second baseline run was not made. Tab groups and the open tab are read as the owner's tabs: counted, not judged wrong.
+
