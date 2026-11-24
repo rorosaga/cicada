@@ -263,17 +263,9 @@ struct ReviewCardView: View {
             }
             .padding(.top, CicadaTheme.scaled(16))
         }
-        if ReviewContext.showsQuote(item), let segments = QuoteSegments.of(item, links: store.links) {
-            CitedPassage(segments: segments)
-                .quoteBlock()
-                .padding(.top, CicadaTheme.scaled(16))
-            Text(InboxSourceLine.full(item))
-                .font(CicadaTheme.metaFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .help(InboxSourceLine.help(item) ?? "")
-                .padding(.top, CicadaTheme.spacingXS)
+        if ReviewContext.showsQuote(item), QuestionEvidence.of(item, links: store.links) != .none {
+            // The card's own evidence component (one door for every kind, owner 2026-11-24); no Reader beside this view.
+            QuestionEvidenceView(item: item, opensConversation: false)
         }
     }
 

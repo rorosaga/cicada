@@ -67,6 +67,7 @@ enum NoteText {
                 case .focus: .current
                 case .other: .other
                 case .mention: .mention
+                case .found: .found
                 case .changed: .changed
                 }
                 piece(min(wash.range.upperBound, hi), mark)

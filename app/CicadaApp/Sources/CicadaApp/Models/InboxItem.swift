@@ -168,14 +168,69 @@ extension InboxOption: Codable {
     }
 }
 
+/// One turn of a conversation excerpt (`InboxCauseTurn`): `EpisodeTurn`'s shape, its offsets into the cause's `excerpt`,
+/// and which edge of it was cut (a long turn is cut at a sentence, never mid-word, and the card says so).
+struct InboxCauseTurn: Codable, Hashable {
+    var index: Int
+    var start: Int
+    var contentStart: Int
+    var end: Int
+    var role: String = "user"
+    var marker: String?
+    var speaker: String?
+    var ts: String?
+    var speakerKind: String?
+    var cutBefore = false
+    var cutAfter = false
+
+    init(index: Int, start: Int, contentStart: Int, end: Int, role: String = "user", marker: String? = nil,
+         speaker: String? = nil, ts: String? = nil, speakerKind: String? = nil,
+         cutBefore: Bool = false, cutAfter: Bool = false) {
+        self.index = index
+        self.start = start
+        self.contentStart = contentStart
+        self.end = end
+        self.role = role
+        self.marker = marker
+        self.speaker = speaker
+        self.ts = ts
+        self.speakerKind = speakerKind
+        self.cutBefore = cutBefore
+        self.cutAfter = cutAfter
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case index, start, contentStart, end, role, marker, speaker, ts, speakerKind, cutBefore, cutAfter
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        index = try c.decodeIfPresent(Int.self, forKey: .index) ?? 0
+        start = try c.decodeIfPresent(Int.self, forKey: .start) ?? 0
+        contentStart = try c.decodeIfPresent(Int.self, forKey: .contentStart) ?? start
+        end = try c.decodeIfPresent(Int.self, forKey: .end) ?? start
+        role = try c.decodeIfPresent(String.self, forKey: .role) ?? "user"
+        marker = (try? c.decodeIfPresent(String.self, forKey: .marker)) ?? nil
+        speaker = (try? c.decodeIfPresent(String.self, forKey: .speaker)) ?? nil
+        ts = (try? c.decodeIfPresent(String.self, forKey: .ts)) ?? nil
+        speakerKind = (try? c.decodeIfPresent(String.self, forKey: .speakerKind)) ?? nil
+        cutBefore = (try? c.decodeIfPresent(Bool.self, forKey: .cutBefore)) ?? false
+        cutAfter = (try? c.decodeIfPresent(Bool.self, forKey: .cutAfter)) ?? false
+    }
+}
+
 /// Why an item exists (G97): the conversation and sentence that raised it,
 /// resolved server-side at read. `mentionOffsets` index the EXCERPT as
-/// Unicode-scalar offsets (Python `str` indices); `start`/`end` are the
-/// EXCERPT WINDOW's absolute offsets into the episode body
-/// (`inbox_context.excerpt_around` — G118 slice 2 corrected this comment,
-/// which used to call them the mention's), so the mention itself sits at
-/// `start + mentionOffsets[0]` (R-PB16). `tier == "none"` carries the literal
-/// `[ no source recorded ]` in `excerpt` — shown, never hidden.
+/// Unicode-scalar offsets (Python `str` indices); for a plain excerpt `start`/`end` are the
+/// EXCERPT WINDOW's absolute offsets into the episode body (G118 slice 2),
+/// so the mention itself sits at `start + mentionOffsets[0]` (R-PB16). A
+/// conversation's excerpt (owner 2026-11-24) is whole turns stitched together
+/// (`turns` says where each begins and who spoke it): it has no origin in the
+/// episode, `start`/`end` are nil, and `focus` is where the mention is in the
+/// episode's own text (what "Show in conversation" lands on). `cutBefore` /
+/// `cutAfter` say more words come before / after the excerpt. `tier == "none"`
+/// carries the literal `[ no source recorded ]` in `excerpt` — shown, never hidden.
+/// Every field after `spanKind` is new with `cause2`: a snapshot stored before it decodes with the defaults.
 struct InboxCause: Codable, Hashable {
     var episodeId: String?
     var timestamp: String?
@@ -189,10 +244,17 @@ struct InboxCause: Codable, Hashable {
     var end: Int?
     var tier: String = "none"
     var spanKind: String = "derived"
+    var turns: [InboxCauseTurn] = []
+    var cutBefore = false
+    var cutAfter = false
+    var source: String?
+    var correspondent: String?
+    var focus: [Int]?
 
     enum CodingKeys: String, CodingKey {
         case episodeId, timestamp, conversationId, harness, origin, conversationTitle
         case excerpt, mentionOffsets, start, end, tier, spanKind
+        case turns, cutBefore, cutAfter, source, correspondent, focus
     }
 
     init(from decoder: Decoder) throws {
@@ -209,6 +271,12 @@ struct InboxCause: Codable, Hashable {
         end = try c.decodeIfPresent(Int.self, forKey: .end)
         tier = try c.decodeIfPresent(String.self, forKey: .tier) ?? "none"
         spanKind = try c.decodeIfPresent(String.self, forKey: .spanKind) ?? "derived"
+        turns = (try? c.decodeIfPresent([InboxCauseTurn].self, forKey: .turns)) ?? []
+        cutBefore = (try? c.decodeIfPresent(Bool.self, forKey: .cutBefore)) ?? false
+        cutAfter = (try? c.decodeIfPresent(Bool.self, forKey: .cutAfter)) ?? false
+        source = (try? c.decodeIfPresent(String.self, forKey: .source)) ?? nil
+        correspondent = (try? c.decodeIfPresent(String.self, forKey: .correspondent)) ?? nil
+        focus = (try? c.decodeIfPresent([Int].self, forKey: .focus)) ?? nil
     }
 }
 
@@ -649,6 +717,13 @@ extension InboxCause {
     /// opens its conversation at the top; tier `none` has nothing to open.
     func readerTarget(subjectId: String?) -> ReaderTarget? {
         guard tier != "none", let episodeId, !episodeId.isEmpty else { return nil }
+        // A conversation's excerpt is whole turns stitched together, so it has no origin in the episode: the server
+        // says where the mention is (`focus`). A plain excerpt still sits at `start + mentionOffsets[0]`.
+        if let focus, focus.count == 2, focus[0] >= 0, focus[1] > focus[0] {
+            return ReaderTarget(episode: episodeId,
+                                focus: .span(start: focus[0], end: focus[1], hash: nil, derived: spanKind != "asserted"),
+                                subjectId: subjectId, knownTitle: conversationTitle, knownHarness: harness)
+        }
         if let start, let pair = mentionOffsets.first, pair.count == 2, pair[0] >= 0, pair[1] > pair[0] {
             return ReaderTarget(episode: episodeId,
                                 focus: .span(start: start + pair[0], end: start + pair[1], hash: nil,

@@ -29,10 +29,10 @@ from __future__ import annotations
 import re
 import threading
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from api.services import bank_index, inbox_questions
+from api.services import bank_index, evidence, evidence_window, inbox_questions
 from api.services.id_utils import sanitize_id
 
 NO_SOURCE = "[ no source recorded ]"
@@ -46,6 +46,11 @@ class Excerpt:
     mention_offsets: list[list[int]] = field(default_factory=list)
     start: int | None = None
     end: int | None = None
+    #: A conversation's window (`evidence_window.chat`): one entry per turn shown, as offsets into ``excerpt``.
+    turns: list = field(default_factory=list)
+    #: More words come before / after what is shown (a sentence-aligned cut, never a quote that just stops).
+    cut_before: bool = False
+    cut_after: bool = False
 
 
 @dataclass
@@ -62,6 +67,16 @@ class Cause:
     start: int | None = None
     end: int | None = None
     span_kind: str = "derived"
+    #: What reads the excerpt as a conversation (owner 2026-11-24): the turns shown, who spoke each (``EpisodeTurn``'s
+    #: shape plus the two cuts), and the episode's own ``source`` and ``correspondent`` so the app names the other side.
+    turns: list = field(default_factory=list)
+    cut_before: bool = False
+    cut_after: bool = False
+    source: str | None = None
+    correspondent: str | None = None
+    #: Where the mention is in the episode's own text (absolute scalar offsets), whatever the excerpt was cut from —
+    #: what "Show in conversation" lands on. ``start + mention_offsets[0]`` is the same place for a plain excerpt only.
+    focus: list | None = None
 
     def to_wire(self) -> dict:
         return {
@@ -70,6 +85,8 @@ class Cause:
             "conversation_title": self.conversation_title, "excerpt": self.excerpt,
             "mention_offsets": [list(p) for p in self.mention_offsets],
             "start": self.start, "end": self.end, "tier": self.tier, "span_kind": self.span_kind,
+            "turns": [asdict(t) for t in self.turns], "cut_before": self.cut_before, "cut_after": self.cut_after,
+            "source": self.source, "correspondent": self.correspondent, "focus": self.focus,
         }
 
 
@@ -279,15 +296,54 @@ class InboxContext:
                 self._bodies[ep.stem] = ""
         return self._bodies[ep.stem]
 
-    def _excerpt(self, ep, ep_id: str, claim, name: str, entity_id: str) -> tuple["Excerpt", str]:
+    def _cut(self, ep, ep_id: str, body: str, span: tuple[int, int] | None, names: tuple[str, ...]) -> "Excerpt":
+        """The words shown for one mention (owner 2026-11-24): a conversation as its turns, anything else as whole
+        sentences (`evidence_window`); a mention that cannot be shown whole falls back to sentences."""
+        if not body:
+            return Excerpt(excerpt="")
+        if span is None:
+            q = evidence_window.sentences(body, None)
+            return Excerpt(excerpt=q.text, start=q.start, end=(q.start or 0) + len(q.text), cut_after=q.cut_after)
+        if evidence.is_episode_id(ep_id):
+            # The cached frontmatter never holds the `turns` sidecar (who spoke when); this read has it, cached by stamp.
+            quote = self._conversation(bank_index.with_turns(ep) or {}, ep_id, body, span, names)
+            if quote is not None:
+                return Excerpt(excerpt=quote.text, mention_offsets=quote.offsets, turns=quote.turns,
+                               cut_before=quote.cut_before, cut_after=quote.cut_after)
+        q = evidence_window.sentences(body, span, names=list(names))
+        return Excerpt(excerpt=q.text, mention_offsets=q.offsets, start=q.start, end=(q.start or 0) + len(q.text),
+                       cut_before=q.cut_before, cut_after=q.cut_after)
+
+    def _conversation(self, fm: dict, ep_id: str, body: str, span: tuple[int, int], names: tuple[str, ...]):
+        """The turns around ``span`` when the episode reads as a chat, else ``None``. One parse of the markers the
+        Reader's own turns come from (`provenance.episode_document`'s inputs), no model, nothing written."""
+        from api.services import authorship, meeting_transcripts, source_spans
+
+        override = authorship.of(fm)
+        gaps = evidence.gap_ranges(fm, body)
+        turns = evidence.turns(body, stamps=evidence.turn_stamps(fm), override=override, gaps=gaps)
+        if not evidence_window.conversation(turns, fm):
+            return None
+        meeting = fm.get("meeting") if meeting_transcripts.is_meeting(fm) else None
+
+        def display(turn):
+            if meeting is not None and turn.role == "speaker":
+                return meeting_transcripts.speaker_display(turn.marker, meeting)
+            return turn.speaker, None
+
+        held = source_spans.held_ranges(ep_id, fm, body, override=override, gaps=gaps)
+        return evidence_window.chat(body, turns, span, held=held, names=list(names), display=display)
+
+    def _excerpt(self, ep, ep_id: str, claim, name: str, entity_id: str,
+                 names: tuple[str, ...] = ()) -> tuple["Excerpt", str, tuple[int, int] | None]:
         """The cut for one candidate, remembered per episode state (speed 2026-10-29: reading 235 episode bodies and
         lower-casing each to find a name was ~30 % of a load). The key is everything the cut reads: the episode's
-        path and ``(mtime, size)``, the claim's span rows into it, the name and the id."""
+        path and ``(mtime, size)``, the claim's span rows into it, the name, the id and the other spellings to mark."""
         spans = None
         if claim is not None:
             spans = tuple((e.start, e.end, e.hash) for e in (getattr(claim, "evidence", None) or [])
                           if getattr(e, "is_span", lambda: False)() and e.episode == ep_id)
-        key = (str(ep.path), ep.mtime_ns, ep.size, ep_id, spans, name, entity_id)
+        key = (str(ep.path), ep.mtime_ns, ep.size, ep_id, spans, name, entity_id, names)
         with _EXCERPTS_LOCK:
             hit = _EXCERPTS.get(key)
             if hit is not None:
@@ -301,7 +357,7 @@ class InboxContext:
                 span_kind = "asserted"
         if span is None:
             span = locate_mention(body, name, entity_id)
-        out = (excerpt_around(body, span), span_kind)
+        out = (self._cut(ep, ep_id, body, span, names), span_kind, span)
         with _EXCERPTS_LOCK:
             _EXCERPTS[key] = out
             while len(_EXCERPTS) > _EXCERPTS_MAX:
@@ -352,6 +408,18 @@ class InboxContext:
         found = pair_evidence.pair_episode(self.memory_path, a_names, b_names, fresh=False)
         return found if found and found != item_ep else None
 
+    def _pair_names(self, fm: dict) -> tuple[str, ...]:
+        """Every spelling of the two sides of a "same one?" question, so the words that name either are marked in the
+        quote (owner 2026-11-24: "the part where [the name] is mentioned … highlighted"). Empty for any other kind."""
+        from api.services import pair_evidence
+
+        a_id, b_id = str(fm.get("entity_id") or ""), str(fm.get("merge_target_hint") or "")
+        if str(fm.get("kind") or "") != "merge_suggestion" or not b_id:
+            return ()
+        names = pair_evidence.side_names(self.memory_path, a_id, str(fm.get("entity_name") or ""))
+        names += pair_evidence.side_names(self.memory_path, b_id, "")
+        return tuple(dict.fromkeys(n for n in names if len(n) >= 3))
+
     def cause_for(self, fm: dict, options: list[dict]) -> Cause:
         """The three tiers of G97, first hit wins (R1)."""
         # G129 slice 2: a `removal` item was raised by a browser sync, not a
@@ -400,12 +468,14 @@ class InboxContext:
             if eps:
                 candidates.append(("entity", str(eps[-1]), None))
 
+        names = self._pair_names(fm)
         for tier, ep_id, claim in candidates:
             ep = self.episode(ep_id)
             if ep is None:
                 continue
-            ex, span_kind = self._excerpt(ep, ep_id, claim, name, entity_id)
+            ex, span_kind, at = self._excerpt(ep, ep_id, claim, name, entity_id, names)
             efm = ep.frontmatter
+            correspondent = efm.get("correspondent")
             return Cause(
                 tier=tier, episode_id=ep.stem,
                 timestamp=_opt(efm.get("timestamp")),
@@ -413,13 +483,16 @@ class InboxContext:
                 harness=_opt(efm.get("harness")), origin=_opt(efm.get("origin")) or _opt(efm.get("source")),
                 conversation_title=_opt(efm.get("title")),
                 excerpt=ex.excerpt, mention_offsets=ex.mention_offsets, start=ex.start, end=ex.end,
-                span_kind=span_kind,
+                span_kind=span_kind, focus=list(at) if at is not None and ex.mention_offsets else None,
+                turns=ex.turns, cut_before=ex.cut_before, cut_after=ex.cut_after,
+                source=_opt(efm.get("source")),
+                correspondent=_opt(correspondent.get("name")) if isinstance(correspondent, dict) else None,
             )
         return Cause()
 
 
 #: Excerpts cut, keyed on what they were cut from (`InboxContext._excerpt`); bounded, process-local, disposable.
-_EXCERPTS: "OrderedDict[tuple, tuple[Excerpt, str]]" = OrderedDict()
+_EXCERPTS: "OrderedDict[tuple, tuple[Excerpt, str, tuple[int, int] | None]]" = OrderedDict()
 _EXCERPTS_LOCK = threading.Lock()
 _EXCERPTS_MAX = 4096
 
@@ -464,7 +537,15 @@ def cause_line(cause: Cause | dict | None, today: str) -> str:
     c = cause if isinstance(cause, dict) else cause.to_wire()
     if c.get("tier", "none") == "none":
         return NO_SOURCE
-    excerpt = re.sub(r"\s+", " ", str(c.get("excerpt") or "")).strip()
+    raw = str(c.get("excerpt") or "")
+    turns = c.get("turns") or []
+    if raw and turns:
+        # A conversation's excerpt carries no markers (the app draws each turn by its own side); an agent still reads who
+        # said what, as it did when the excerpt was raw text.
+        raw = " ".join(
+            f"{t.get('marker') or t.get('role') or 'user'}: {raw[int(t.get('content_start', 0)):int(t.get('end', 0))]}"
+            for t in turns if isinstance(t, dict))
+    excerpt = re.sub(r"\s+", " ", raw).strip()
     if len(excerpt) > 200:
         excerpt = excerpt[:199].rstrip() + "…"
     where = [f'from "{c["conversation_title"]}"' if c.get("conversation_title") else f"from {c.get('episode_id')}"]

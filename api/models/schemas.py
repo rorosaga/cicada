@@ -2980,6 +2980,39 @@ class InboxCause(CamelModel):
     end: Optional[int] = None
     tier: str = "none"
     span_kind: str = "derived"
+    #: Owner 2026-11-24 — a conversation as its turns. ``turns`` is non-empty only when the excerpt is one: the
+    #: excerpt is then whole turns (a long one cut at a sentence, ``cut_before`` / ``cut_after`` on the turn), and
+    #: ``mention_offsets`` / each turn's offsets index it. ``source`` and ``correspondent`` are the episode's own, for
+    #: naming the other side the way the Reader does. Empty / null from a backend before this, and for a note.
+    turns: list["InboxCauseTurn"] = []
+    #: More words come before / after the excerpt in the source (a plain excerpt is cut at a sentence, never mid-word).
+    cut_before: bool = False
+    cut_after: bool = False
+    source: Optional[str] = None
+    correspondent: Optional[str] = None
+    #: The mention's own place in the episode's text, ``[start, end]`` in code points — what "Show in conversation"
+    #: lands on. Null with no mention. (``start`` is the excerpt's own origin and is null for a conversation.)
+    focus: Optional[list[int]] = None
+
+
+class InboxCauseTurn(CamelModel):
+    """One turn of a conversation excerpt (`evidence_window.Turn`): ``EpisodeTurn``'s shape, with offsets into the
+    cause's ``excerpt`` and the two cuts."""
+
+    index: int
+    start: int
+    content_start: int
+    end: int
+    role: str = "user"
+    marker: Optional[str] = None
+    speaker: Optional[str] = None
+    ts: Optional[str] = None
+    speaker_kind: Optional[str] = None
+    cut_before: bool = False
+    cut_after: bool = False
+
+
+InboxCause.model_rebuild()
 
 
 class InboxCheckTarget(CamelModel):

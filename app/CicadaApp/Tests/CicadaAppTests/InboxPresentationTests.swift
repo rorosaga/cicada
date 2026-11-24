@@ -178,7 +178,8 @@ final class InboxPresentationTests: XCTestCase {
                                                     .init(text: " the store", mark: .plain)])
         XCTAssertFalse(QuoteSegments.isDerived(asserted))
         let derived = try caused(#"{"episodeId":"ep_1","excerpt":"Discussed swapping the store","mentionOffsets":[[10,18]],"start":0,"tier":"claim","spanKind":"derived"}"#)
-        XCTAssertEqual(QuoteSegments.of(derived)?[1], .init(text: "swapping", mark: .mention))
+        XCTAssertEqual(QuoteSegments.of(derived)?[1], .init(text: "swapping", mark: .found),
+                       "a name found by searching is washed and semibold, never underlined (owner 2026-11-24)")
         XCTAssertTrue(QuoteSegments.isDerived(derived))
         let none = try caused(#"{"excerpt":"[ no source recorded ]","tier":"none"}"#)
         XCTAssertNil(QuoteSegments.of(none), "no source → no quote block at all")

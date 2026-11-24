@@ -300,3 +300,48 @@ def test_inbox_etag_moves_when_an_episode_or_entity_changes(client, memory):
     r2 = client.get("/inbox", headers={"If-None-Match": etag})
     assert r2.status_code == 200 and r2.headers["etag"] != etag
     assert r2.json()[0]["cause"]["excerpt"]
+
+
+# ---------- a conversation reads as one, a note as whole sentences (owner 2026-11-24) ----------
+
+
+def test_a_chat_cause_carries_its_turns_and_a_merge_marks_both_names(memory):
+    body = (
+        "user: Then do you think Samuel Example could join the lab trip?\n"
+        "assistant: I am not sure. Is Sam Example the same person as Samuel Example?\n"
+        "user: No idea, ask me later.\n"
+    )
+    _episode(memory, "ep_2026-08-20_002", body, correspondent={"name": "Agent Example"})
+    _entity(memory, "samuel-example", "Samuel Example", episodes=[], etype="person")
+    _entity(memory, "sam-example", "Sam Example", episodes=[], etype="person")
+    _item(memory, "inbox-002", {"kind": "merge_suggestion", "entity_id": "sam-example", "entity_name": "Sam Example",
+                                 "merge_target_hint": "samuel-example", "title": "Same person?",
+                                 "source_episode": "ep_2026-08-20_002", "suggested_classification": "person"})
+    [item] = inbox_service.load_inbox(memory)
+    cause = item.cause
+    assert [t.role for t in cause.turns] == ["user", "assistant", "user"]
+    assert cause.correspondent == "Agent Example"
+    marked = [cause.excerpt[a:b] for a, b in cause.mention_offsets]
+    assert marked[0] == "Sam Example" and marked.count("Samuel Example") == 2
+    assert cause.focus == [body.index("Sam Example"), body.index("Sam Example") + len("Sam Example")]
+    assert cause.start is None and not cause.cut_before and not cause.cut_after
+    mid = cause.turns[1]
+    assert cause.excerpt[mid.content_start:mid.end].startswith("I am not sure.")
+
+
+def test_a_note_cause_is_whole_sentences_and_a_cut_is_said(memory):
+    filler = "The weekly notes cover plans for the quarter and the budget. " * 12
+    note = filler + "Alpha Project moved to the second milestone. Bob Example approved it." + filler
+    _episode(memory, "ep_2026-08-20_003", note, harness=None, origin="notes")
+    _entity(memory, "alpha-project", "Alpha Project", episodes=[])
+    _item(memory, "inbox-003", {"kind": "clarification", "entity_id": "alpha-project",
+                                 "entity_name": "Alpha Project", "title": "Who is Alpha Project?",
+                                 "source_episode": "ep_2026-08-20_003", "uncertainty_type": "unclear"})
+    [item] = inbox_service.load_inbox(memory)
+    cause = item.cause
+    assert cause.turns == [] and cause.cut_before and cause.cut_after
+    assert cause.excerpt.startswith("The weekly notes") and cause.excerpt.endswith(".")
+    s, e = cause.mention_offsets[0]
+    assert cause.excerpt[s:e] == "Alpha Project"
+    assert note[cause.start:cause.start + len(cause.excerpt)] == cause.excerpt
+    assert cause.focus == [s + cause.start, e + cause.start]

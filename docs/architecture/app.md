@@ -3784,11 +3784,13 @@ what the answers do (`InboxGroupExplainer`, `Copy.Inbox.kindExplainer`). *Densit
 once and the rows under it leave theirs out (the slot stays, so the questions line up); groups sit `spacingLG` apart;
 *Review one at a time* shows only while its group is open, so a closed inbox is kinds and counts alone. *Motion:* a
 group's body is one block (`InboxListBlock`) that grows out of its header and fades in (`disclosureReveal()`), the
-groups below easing down with it. **Possible duplicate** (`MergeBody`, `MergePair`): the two sides side by side — "Name
-from a conversation" and "Existing page", each with its `EntityPicture`, type and the graph's one-line summary, or "No
-page yet" for a name below the promotion bar — then what each answer does (Merge files the name under the existing page
-as another name, or folds its page into it; Keep separate is remembered; each answer can be undone in its window), then
-**Merge** (the one neutral button), *Keep separate* and *Skip* (text buttons). Describing it, merging with another page
+groups below easing down with it. **Possible duplicate** (`MergeBody`, `MergePair`; cut down 2026-11-24, §9): the question names both sides and the evidence
+above it marks the name where it was said, so the card shows only who the existing page is — one line, no tiles: its
+`EntityPicture`, name, type and the graph's summary in whole words (`MergePair.wholeWords`: the graph clips it at 200
+characters, often mid-word; it ends at a sentence or a word with "…") — then **Merge** (the one neutral button; its hover
+says what it does, Merge files the name under the existing page as another name or folds its page into it, and how sure
+Cicada was), *Keep separate* (remembered) and *Skip* (text buttons). The three lines that said what each answer does and
+the guess row are gone: the buttons and the Undo row say it. Describing it, merging with another page
 and the Keep-as-canonical picker with its "A → B" line wait under *Something else* (open from the start when Sleep named
 no page); a page typed there becomes the existing side ("Page you named", found by id or name) and Merge's sentence names
 it, so the card always shows what will be sent; every resolution sent is the one it sent before. **Confirm N links** (`WhereToCheckReviewCard`,

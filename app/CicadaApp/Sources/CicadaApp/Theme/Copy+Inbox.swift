@@ -179,7 +179,6 @@ extension Copy.Inbox {
     /// Merge's sentence is what the backend's merge does (`inbox_service._resolve_clarification`): the name becomes
     /// another name of the existing page, and a page of its own folds into it.
     enum Duplicate {
-        static let newName = "Name from a conversation"
         static let existingPage = "Existing page"
         /// The page the person typed under "Something else" — what Merge will now use (review of #481).
         static let typedPage = "Page you named"
@@ -192,8 +191,6 @@ extension Copy.Inbox {
         static func mergeFolds(_ mention: String, _ existing: String) -> String {
             "Merge folds \u{201C}\(mention)\u{201D} into \(existing): its facts, links and mentions move there, and its name stays as another name."
         }
-        static let keepWords = "Keep separate, and Cicada won't suggest this pair again."
-        static let undoWords = "Each answer can be undone for a few seconds after."
         static let noTarget = "Cicada didn't say which page this could be. Name it below."
         static let somethingElse = "Something else"
         static let somethingElseHelp = "Describe it instead, merge with a different page, or keep the other name"
