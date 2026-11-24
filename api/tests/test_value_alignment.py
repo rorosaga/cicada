@@ -291,3 +291,109 @@ def test_without_words_the_prompts_are_exactly_what_they_were():
     judge = _Judge(_says(1, 2), YES)
     value_alignment.align([new], {"shop-example": [old]}, judge)
     assert "own words" not in judge.prompts[1] and "{note}" not in judge.prompts[1]
+
+
+# --- The second reading (2026-11-24): a refused new line is read once more, then never again ---------------------------
+
+def _refused_pair():
+    old = _value("c_old", "preferred editor", "Vim", "2026-09-26", "ep_2026-09-26_001")
+    new = _value("c_new", "daily editor", "Zed", "2026-11-01", "ep_2026-11-01_001")
+    return old, new
+
+
+NULL = {"answers": [{"line": 1, "same_as": None}]}
+
+
+def test_a_line_the_first_reading_refused_is_read_once_more_and_joined_when_the_second_reader_says_yes_twice():
+    old, new = _refused_pair()
+    first, second = _Judge(NULL), _Judge(_says(1, 2), YES)
+    audit = value_alignment.align([new], {"shop-example": [old]}, first, reread=second)
+    assert len(first.prompts) == 1 and len(second.prompts) == 2       # the page again, then the one join it proposed
+    assert "A first reading found no other line" in second.prompts[0]
+    assert "NEW" in second.prompts[0] and "daily editor: Zed" in second.prompts[0]
+    assert new.predicate == old.predicate == "value-of-preferred-editor"
+    assert audit == [{"action": "value_aligned", "claim": "c_new", "from": "value-of-daily-editor",
+                      "to": "value-of-preferred-editor", "reading": "second"}]
+
+
+def test_a_join_the_first_check_refused_is_read_again_too():
+    old, new = _refused_pair()
+    first, second = _Judge(_says(1, 2), NO), _Judge(_says(1, 2), YES)
+    value_alignment.align([new], {"shop-example": [old]}, first, reread=second)
+    assert len(first.prompts) == 2 and len(second.prompts) == 2 and new.predicate == old.predicate
+
+
+def test_the_second_reader_needs_both_its_answers_and_a_no_leaves_the_values_apart():
+    old, new = _refused_pair()
+    for second in (_Judge(NULL), _Judge(_says(1, 2), NO), _Judge(_says(1, 2), {}), _Judge({}), _Judge({"answers": [3]})):
+        assert value_alignment.align([new], {"shop-example": [old]}, _Judge(NULL), reread=second) == []
+        assert new.predicate == "value-of-daily-editor"
+
+
+def test_a_join_the_first_reading_made_is_never_read_again_and_no_second_call_is_made():
+    old, new = _refused_pair()
+    second = _Judge()
+    value_alignment.align([new], {"shop-example": [old]}, _Judge(_says(1, 2), YES), reread=second)
+    assert second.prompts == [] and new.predicate == old.predicate
+
+
+def test_without_a_second_reader_the_first_reading_is_exactly_what_it_was():
+    old, new = _refused_pair()
+    first = _Judge(NULL)
+    assert value_alignment.align([new], {"shop-example": [old]}, first) == [] and len(first.prompts) == 1
+
+
+def test_the_second_reading_lists_the_lines_the_first_joined_no_more_and_never_renumbers_the_first():
+    a = _value("c_a", "preferred editor", "Vim", "2026-09-26", "ep_2026-09-26_001")
+    b = _value("c_b", "monthly rent", "900 euros", "2026-09-26", "ep_2026-09-26_001")
+    n1 = _value("c_n1", "coffee order", "flat white", "2026-11-01", "ep_2026-11-01_001")
+    n2 = _value("c_n2", "daily editor", "Zed", "2026-11-02", "ep_2026-11-02_002")
+    ask = value_alignment.questions([n1, n2], {"shop-example": [a, b]})[0]
+    n1.predicate = "value-of-monthly-rent"       # as if the first reading had joined this one
+    second = value_alignment.refused(ask)
+    assert [ln.predicate for ln in second.lines if ln.incoming] == ["value-of-daily-editor"]
+    assert "value-of-coffee-order" not in [ln.predicate for ln in second.lines]
+    assert [ln.n for ln in second.lines] == list(range(1, len(second.lines) + 1))
+    assert value_alignment.refused(value_alignment.Ask("x", [value_alignment.Line(1, "value-of-a", ("", ""))])) is None
+
+
+def test_two_values_one_conversation_stated_are_never_joined_by_the_second_reading_either():
+    old = _value("c_old", "price per card", "4 euros", "2026-09-26", "ep_2026-09-26_001")
+    new = _value("c_new", "print price", "18 euros", "2026-09-26", "ep_2026-09-26_001")
+    second = _Judge(_says(1, 2), YES)
+    value_alignment.align([new], {"shop-example": [old]}, _Judge(), reread=second)
+    assert second.prompts == [] and new.predicate == "value-of-print-price"
+
+
+def test_second_readings_and_their_checks_are_bounded_per_batch(monkeypatch):
+    monkeypatch.setattr(value_alignment, "MAX_REREADS", 2)
+    monkeypatch.setattr(value_alignment, "MAX_REREAD_CHECKS", 1)
+    incoming, existing = [], {}
+    for i in range(5):
+        subject = f"thing-{i}"
+        existing[subject] = [_value(f"o{i}", "preferred editor", "Vim", "2026-09-26", f"ep_2026-09-26_{i:03d}", subject)]
+        incoming.append(_value(f"n{i}", "daily editor", "Zed", "2026-11-01", f"ep_2026-11-01_{i:03d}", subject))
+    second = _Judge(*[_says(1, 2) for _ in range(5)], YES, YES, YES, YES, YES)
+    value_alignment.align(incoming, existing, _Judge(), reread=second)
+    reads = [p for p in second.prompts if "A first reading found no other line" in p]
+    assert len(reads) == 2 and len(second.prompts) - len(reads) <= 1
+
+
+def test_a_second_reader_that_fails_costs_the_second_reading_never_the_batch():
+    old, new = _refused_pair()
+
+    def broken(_prompt):
+        raise RuntimeError("engine down")
+
+    assert value_alignment.align([new], {"shop-example": [old]}, _Judge(NULL), reread=broken) == []
+    assert new.predicate == "value-of-daily-editor"
+
+
+def test_a_value_the_second_reading_joined_closes_the_older_like_any_other(tmp_path):
+    old, new = _refused_pair()
+    value_alignment.align([new], {"shop-example": [old]}, _Judge(NULL), reread=_Judge(_says(1, 2), YES))
+    predicates.install_predicate_map(tmp_path)
+    reconciled, _n, _a = reconcile_stage3([new], {"shop-example": [old]}, _Settings(tmp_path),
+                                          cardinality_fn=lambda _p: False, now_date="2026-11-23", decay=False)
+    by_id = {c.id: c for c in reconciled["shop-example"]}
+    assert by_id["c_old"].valid_to == "2026-11-01" and by_id["c_old"].superseded_by == "c_new"

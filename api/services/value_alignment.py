@@ -24,6 +24,12 @@ newly read value is ever renamed.
 **Calls:** none on a page that gains no new attribute or has nothing to join it to; otherwise one per page per batch (at
 most `MAX_ASKS` pages, `MAX_LINES` lines each) plus one check per proposed join (at most `MAX_CHECKS` a batch). Joins are
 rare, so checks are few. Never on the capture path.
+
+**A second reading (2026-11-24):** a pair this step refuses is never seen again (only a NEW attribute is asked about,
+and the newer value is not new next time), so when the first reading and its check leave a NEW line alone, the page is
+read once more by a second reader (`REREAD`; the cycle's main model) and each join it proposes is checked by that same
+reader: one more call per such page (at most `MAX_REREADS`) and one per proposal (at most `MAX_REREAD_CHECKS`). Nothing
+is stored: the value is old after this batch, so each pair is read twice at most.
 """
 from __future__ import annotations
 
@@ -47,6 +53,10 @@ MAX_LINE_CHARS = 160
 MAX_CHECKS = 40
 #: The person's own words shown beside a value: one located span, cut to this many characters.
 MAX_WORDS_CHARS = 240
+#: The second reading (2026-11-24): pages whose refused new lines are read once more, and the joins it proposes that
+#: are checked, per batch. Past either the rest keep what the first reading decided.
+MAX_REREADS = 24
+MAX_REREAD_CHECKS = 24
 
 PROMPT = """One person's memory page for ONE thing lists values stated about it, one line each: the attribute as it was \
 worded when stated (conversations word it differently, sometimes in another language), its value, and the date it was \
@@ -89,6 +99,29 @@ includes (with or without tax), its scope or period (this year or last), its rol
 end, a minimum or a maximum), or its kind (a price, a count, a date)? When unsure, they are different.
 
 Reply with JSON only: {{"why": "<what is measured in each, a few words>", "same_attribute": true or false}}"""
+
+
+#: The second reading's prompt: the same lines, but the first reading found no line for the NEW ones, so it is asked to
+#: look again for the one way it errs: a different name for the same property. The rails are the same as the first's.
+REREAD = """One person's memory page for ONE thing lists values stated about it, one line each: the attribute as it was \
+worded when stated (conversations word it differently, sometimes in another language), its value, and the date it was \
+said. Lines marked NEW were just read; the others are already on the page.
+
+A first reading found no other line for the NEW lines below. Read them again. A property of a thing is often named in \
+quite different words each time it is stated (a price and a cost, a language and a stack, a place of work and an \
+employer, a launch and a release), and a person who says it again with a different value is replacing the old value, \
+whether or not they say so. For each NEW line, name the OTHER line that states the very same property of this thing, \
+so that the later value makes the earlier one out of date. Do not name a line that measures something else: what it is \
+of (a flat or its garage), what it includes (with or without tax or flights), its scope or period (this year or last), \
+its role (a target or an actual, a start or an end, a minimum or a maximum, a current value or an offer), or its kind \
+(a price, a count, a date). When truly unsure, answer null.
+
+{note}THING: {name}
+LINES:
+{lines}
+
+Reply with JSON only, one answer per NEW line: {{"answers": [{{"line": <NEW line number>, "same_as": <the other \
+line's number, or null>}}]}}"""
 
 
 @dataclass
@@ -234,10 +267,22 @@ def _sentence(line: Line) -> str:
     return out + (f'\n   they said: "{line.words}"' if line.words else "")
 
 
-def prompt(ask: Ask) -> str:
+def prompt(ask: Ask, template: str = PROMPT) -> str:
     rows = [f"{line.n}. {'NEW ' if line.incoming else ''}{_sentence(line)}" for line in ask.lines]
     note = WORDS_NOTE if any(line.words for line in ask.lines) else ""
-    return PROMPT.format(name=ask.subject.replace("-", " "), lines="\n".join(rows), note=note)
+    return template.format(name=ask.subject.replace("-", " "), lines="\n".join(rows), note=note)
+
+
+def refused(ask: Ask) -> Ask | None:
+    """The page as it stands after the first reading, for a second one: the NEW lines no join took (their claims still
+    carry the predicate they came with) stay NEW, every other line is listed as it is, a joined NEW line left out
+    (it is the older one's now). ``None`` when no NEW line was refused, or nothing is left for one to be. Copies, so
+    the first reading's lines are never renumbered; each keeps its claims, so a join renames the real ones."""
+    kept = [ln for ln in ask.lines if not ln.incoming or all(c.predicate == ln.predicate for c in ln.claims)]
+    if not any(ln.incoming for ln in kept) or len(kept) < 2:
+        return None
+    lines = [Line(i, ln.predicate, ln.key, ln.claims, ln.incoming, ln.words) for i, ln in enumerate(kept, 1)]
+    return Ask(ask.subject, lines)
 
 
 def proposals(reply: dict, ask: Ask) -> list[tuple[Line, Line]]:
@@ -316,16 +361,21 @@ def rename(group: list[Line]) -> list[tuple[str, str, str]]:
 
 
 def align(incoming: list, existing_by_subject: dict, judge: Callable[[str], dict] | None,
-          memory_path=None) -> list[dict]:
+          memory_path=None, reread: Callable[[str], dict] | None = None) -> list[dict]:
     """Rename the batch's new values onto the attribute they restate: one judge call per page that needs it, then one
     check per join it proposes. ``judge`` takes a prompt and returns the parsed JSON object (``{}`` for none). Mutates
     ``incoming``; returns audit entries. ``memory_path`` lets each listed value carry the person's own words from its
     span (`Words`); without it the judge reads the claims' sentences alone. A failed call costs the batch its joins from then on, never a claim (Stage 3
-    then runs as it did before this step)."""
+    then runs as it did before this step).
+
+    ``reread`` (2026-11-24) is a second reader, the cycle's main model: a page whose NEW lines the first reading and
+    its check left alone is read once more, the lines it proposes are checked by the same reader, and a join needs its
+    yes to both. The newer value is then no longer new, so no later batch asks about the pair again: each pair is read
+    twice at most, ever, and nothing is stored to know it."""
     if judge is None:
         return []
     audit: list[dict] = []
-    asked = checked = 0
+    asked = checked = reread_asks = reread_checked = reread_joined = 0
     try:
         for ask in questions(incoming, existing_by_subject, Words(memory_path) if memory_path else None):
             asked += 1
@@ -339,21 +389,40 @@ def align(incoming: list, existing_by_subject: dict, judge: Callable[[str], dict
             for group in groups(kept):
                 for claim_id, was, now in rename(group):
                     audit.append({"action": "value_aligned", "claim": claim_id, "from": was, "to": now})
+            second = refused(ask) if reread is not None and reread_asks < MAX_REREADS else None
+            if second is None:
+                continue
+            reread_asks += 1
+            kept = []
+            for new, other in proposals(reread(prompt(second, REREAD)), second):
+                if reread_checked >= MAX_REREAD_CHECKS:
+                    break
+                reread_checked += 1
+                if confirmed(new, other, second, reread):
+                    kept.append((new, other))
+            for group in groups(kept):
+                for claim_id, was, now in rename(group):
+                    reread_joined += 1
+                    audit.append({"action": "value_aligned", "claim": claim_id, "from": was, "to": now,
+                                  "reading": "second"})
     except Exception as exc:  # noqa: BLE001 - no judge answer means no alignment, never a lost batch
         logger.info(f"value alignment: a call failed ({type(exc).__name__}); the rest of the batch keeps its words")
     if asked:
-        logger.info(f"value alignment: {asked} page(s) asked, {checked} join(s) checked, {len(audit)} value(s) joined")
+        logger.info(f"value alignment: {asked} page(s) asked, {checked} join(s) checked, {len(audit) - reread_joined} "
+                    f"value(s) joined; second reading: {reread_asks} page(s), {reread_checked} checked, "
+                    f"{reread_joined} joined")
     return audit
 
 
-def judge_for(settings) -> Callable[[str], dict] | None:
+def judge_for(settings, *, main: bool = False) -> Callable[[str], dict] | None:
     """Sleep's small judge as a ``prompt -> dict`` call, or ``None`` when no engine can answer. The engine the cycle
-    resolved, on its small tier (`in_short.small_tier`): the same bill as Stage 2's judge, never a different one."""
+    resolved, on its small tier (`in_short.small_tier`): the same bill as Stage 2's judge, never a different one.
+    ``main=True`` is the same engine on the model the cycle itself reads with (the second reading's)."""
     try:
         from api.services import in_short, providers
         from api.services.engine_select import CLI_MODES
 
-        small = in_short.small_tier(settings)
+        small = settings if main else in_short.small_tier(settings)
         if str(getattr(small, "llm_mode", "")).lower() in CLI_MODES:
             llm_fn = providers.resolve_llm_fn(small, stage=STAGE, is_async=False)
         else:
