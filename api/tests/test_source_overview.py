@@ -499,4 +499,6 @@ def test_the_pinterest_saved_list_origin_is_the_pinterest_row_not_an_unnamed_imp
 
     origins = {o for spec in source_overview.CATALOG for o in spec.origins}
     for key, platform in saved_lists.PLATFORMS.items():
+        if not platform.origin:   # connections (G245): people kept outside every bank, no saved link and no origin
+            continue
         assert platform.origin in origins, f"{key}'s saved list files under {platform.origin}, which no overview row names"

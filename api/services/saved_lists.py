@@ -123,6 +123,14 @@ PLATFORMS: dict[str, Platform] = {
                                "link to its post still names it in its own `data-chameleon-result-urn`, "
                                "`urn:li:activity:<number>`: its link is then "
                                "`https://www.linkedin.com/feed/update/<that urn>/`)"),
+    # G245 (ruling 78 (c), owner 2026-11-24: "who i have connected with and in chronological order which to me is super
+    # important"): the person's connections, read from the connections page (sorted by recently added) into the people
+    # directory OUTSIDE every bank (`linkedin_people.record_read`) — never a save, never a page, never a model's read, so
+    # no origin and no folder label. It shares LinkedIn's address rules, handle, profile link and pause; off until turned on.
+    "linkedin-connections": Platform(
+        "linkedin-connections", "LinkedIn", "Connections", "https://www.linkedin.com/mynetwork/invite-connect/connections/",
+        " (sorted by Recently added)", "", "", "linkedin.com", "to read your connections", ("linkedin.com",),
+        base="linkedin"),
     # G232 (owner 2026-11-04: "offer the website connection through browser harness, just like a toggle switch …
     # Same for TikTok, same for Pinterest, same for Reddit"). Each files under its export's own origin and folder, so
     # a post the export (or Reddit's connector) brought in is the same row, and every one is index-only (ruling 30).
@@ -648,6 +656,8 @@ def queue_lines(memory_path: Path, *, can_record: bool, now: datetime | None = N
     p = PLATFORMS[keys[0]]
     if p.key == "goodreads":
         return _goodreads_lines(can_record)
+    if p.key == "linkedin-connections":
+        return _connections_lines(memory_path, can_record)
     lines = [f"- The person's {p.name} {p.label}: {p.url}{p.how} — read each post's link, {p.reads}."]
     lines.append(f"{screens_words(memory_path, p.key)} Add `posted` (YYYY-MM-DD) to a row only when the page shows the "
                  "post's own date as a day; leave it out for \"3 days ago\" or nothing.")
@@ -674,6 +684,26 @@ def queue_lines(memory_path: Path, *, can_record: bool, now: datetime | None = N
 def _what(p: Platform) -> str:
     """What the list is called in a sentence: the saved posts of a site's first list, the list's own name for a second."""
     return f"{p.label.lower()}" if p.base else "saved posts"
+
+
+def _connections_lines(memory_path: Path, can_record: bool) -> list[str]:
+    """LinkedIn's connections page: who the person connected with, and when (G245, ruling 78 (c)). People, not posts —
+    kept outside every bank in the people directory, never read by a model."""
+    p = PLATFORMS["linkedin-connections"]
+    tail = ("Record it with `cicada_record_saved_list(platform=\"linkedin-connections\", outcome, items=[{name, "
+            "profile_url, headline, connected}], via)`: `profile_url` is the member's own `/in/` link (a row with none is "
+            "left out), `headline` the line under the name as shown, `connected` the date the page shows for that row — "
+            "give an exact day as YYYY-MM-DD, otherwise the page's own words (\"3 weeks ago\"), never a guess. When a read "
+            "takes more than one call, set `continues=true` on every call after the first. If LinkedIn asks you to sign "
+            "in, do not sign in or type credentials: record `needs_login` and stop."
+            if can_record else
+            "If LinkedIn asks you to sign in, do not sign in or type credentials: stop and tell the person.")
+    return ["The person asked their agent to keep who they are connected with current in Cicada. Open this page in their "
+            "own signed-in browser session: read only the connections list, never a profile, the contact info overlay, "
+            "their feed or messages, and never click anything that changes a connection (no message, remove or follow).",
+            f"- The person's LinkedIn connections: {p.url}{p.how} — per row: the person's name, their profile link, the "
+            "headline under the name, and when you connected as the page shows it.",
+            screens_words(memory_path, p.key) + " Rows already kept are no reason to stop on a first read.", tail]
 
 
 def _goodreads_lines(can_record: bool) -> list[str]:

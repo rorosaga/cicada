@@ -34,6 +34,7 @@ it).
 | `cicada save "<content>"` | Stage a note for the next Sleep (content `-` reads stdin). |
 | `cicada handshake` | The contract and the current state, for an agent arriving cold. |
 | `cicada timeline` | What changed in memory, day by day. |
+| `cicada linkedin connections` | Who the person connected with on LinkedIn, newest first, in a date range. |
 | `cicada page merge <page> <into> <reason>` | Merge a page into another one, with your reason. |
 | `cicada page undo <page>` | Take back the newest merge or split on a page. |
 | `cicada page split <page>` | Split what is about another thing off a page, with your reason. |
@@ -43,7 +44,7 @@ it).
 | `cicada status` | Which memory this command uses, and whether the app's backend agrees. |
 | `cicada commands` | Every command, and the MCP tool each one mirrors. |
 
-- **Options:** get: `--start`, `--include`, `--from`, `--count`, `--line-numbers`; project: `--since`, `--tz`; continue: `--session`, `--before`; save: `--title`; timeline: `--since`; page undo: `--reason`; page split: `--reason`, `--sentences`, `--claim`, `--source`, `--episode`, `--references`, `--name`, `--page-type`, `--preview`; skills propose: `--source`, `--skill`, `--agent`; skills create: `--reason`. `get` also takes `<entity-id>:<start>[:<end>]`; `save` reads the
+- **Options:** get: `--start`, `--include`, `--from`, `--count`, `--line-numbers`; project: `--since`, `--tz`; continue: `--session`, `--before`; save: `--title`; timeline: `--since`; linkedin connections: `--since`, `--until`, `--limit`; page undo: `--reason`; page split: `--reason`, `--sentences`, `--claim`, `--source`, `--episode`, `--references`, `--name`, `--page-type`, `--preview`; skills propose: `--source`, `--skill`, `--agent`; skills create: `--reason`. `get` also takes `<entity-id>:<start>[:<end>]`; `save` reads the
   text from stdin when it is `-`.
 - **`--json`** (before or after the command) prints one envelope: `{schema, command, ok, code, bank, data,
   text, warnings, version}`. `text` is what the matching MCP tool says; `data` is the structured part.

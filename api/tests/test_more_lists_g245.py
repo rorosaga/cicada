@@ -87,7 +87,8 @@ def _seed(memory, url, *, origin, folder):
 def test_the_new_lists_are_keys_with_a_base_and_none_is_ever_on_by_default():
     assert tuple(saved_lists.PLATFORMS) == reading_settings.SAVED_LISTS
     bases = {k: p.base for k, p in saved_lists.PLATFORMS.items() if p.base}
-    assert bases == {"x-likes": "x", "instagram-likes": "instagram", "reddit-upvoted": "reddit"}
+    assert bases == {"x-likes": "x", "instagram-likes": "instagram", "linkedin-connections": "linkedin",
+                     "reddit-upvoted": "reddit"}
     assert not set(bases) & set(reading_settings.DEFAULT_ON_SAVED_LISTS)
     assert not {"playlists", "liked"} & set(reading_settings.DEFAULT_ON_YOUTUBE_LISTS)
     assert reading_settings.YOUTUBE_LISTS == tuple(youtube_lists.LISTS)
@@ -133,7 +134,7 @@ def test_every_saved_list_label_is_index_only_by_its_own_origin_and_folder():
     """The gate: a list's origin and folder label are what ``history_index.kind`` reads, so a list that forgot to register
     would be read by a model."""
     for key, p in saved_lists.PLATFORMS.items():
-        if key == "goodreads":   # books, held for the person's pick: no save at all
+        if key in ("goodreads", "linkedin-connections"):   # books and people, kept outside the bank: no save at all
             continue
         assert history_index.kind({"origin": p.origin, "folder": p.folder}) == "list", key
     for name, folder in youtube_lists.FOLDERS.items():

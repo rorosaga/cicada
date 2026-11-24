@@ -793,6 +793,7 @@ def apply_changes(changes: list[dict], memory_path) -> None:
     # was most of a Sleep batch on a 2,000-page bank.
     edges_by_entity: dict[str, list[dict]] | None = None
     untimed_ids: frozenset[str] | None = None   # the bank's memory-export ids, read on the first settle
+    linkedin = None   # the kept LinkedIn connections, read on the first person born (`linkedin_people.Attacher`)
     for change in changes:
         write_progress.update(1)
         entity_id = change["id"]
@@ -896,6 +897,17 @@ def apply_changes(changes: list[dict], memory_path) -> None:
             if change.get("settle"):
                 untimed_ids = _untimed_once(untimed_ids, memory_path)
                 _settle(frontmatter, change["settle"], untimed_ids)
+            if entity_type == "person":
+                # G245 (ruling 78, owner 2026-11-24): the person gets the page, never the connection — the kept LinkedIn
+                # connection that matches the person being born attaches in this same write, not at the night's tail.
+                # Refusals (a same-name doubt, two connections or two pages of one name) write nothing.
+                from api.services import linkedin_people
+
+                try:
+                    linkedin = linkedin or linkedin_people.Attacher(memory_path)
+                    frontmatter, body = linkedin.attach(frontmatter, body, entity_id)
+                except Exception as exc:  # noqa: BLE001 — the page is still born; the tail's rematch retries
+                    logger.warning(f"Stage 5: a LinkedIn connection was not attached ({type(exc).__name__})")
             markdown_parser.write(filepath, frontmatter, body)
 
         elif action == "update" and filepath.exists():

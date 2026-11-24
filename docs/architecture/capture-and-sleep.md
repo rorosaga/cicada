@@ -731,12 +731,57 @@ the final reply sits, and Cursor's may be null, while the posted strings already
   bank at `$CICADA_HOME/people/<bank>/linkedin-connections.json` (`people_directory`, beside Contacts' waiting cards; 0600; an older export never replaces a newer one;
   the folder goes when its bank is moved to the trash and follows a rename, so a new bank of the same name inherits
   nothing;
-  `GET /sources/linkedin-connections` gives its day and size, never a name), and Sleep's engine-free tail matches it
+  `GET /sources/linkedin-connections` gives its day and size, never a name; **the one route that names them is
+  `GET /sources/linkedin-connections/list`**, below), and Sleep's engine-free tail matches it
   against the night's pages (`_rematch_linkedin_safely`, after source links, before any poll; its own `cicada` commit,
   `sleep/linkedin-connections`, dirty pages skipped, undone on a failed commit; never in a demo bank) — so a person who gets a page later
   gains their link and facts then, and nothing is ever said about anyone without one. Nothing is fetched: the link is
   where to look the person up; the profile-photo rung may use it only once the person takes the source (its own
   off-by-default gate, `person_photo`, unchanged).
+  **The way in without a file, and the date (G245, ruling 78 (c), owner 2026-11-24: "who i have connected with and in
+  chronological order which to me is super important").** The person's own agent opens LinkedIn's connections page
+  (sorted by recently added) in their own signed-in browser and records `{name, profile_url, headline, connected}` per row
+  (`cicada_record_saved_list`, platform `linkedin-connections`, base `linkedin`, off until turned on, the connections page only —
+  never a profile, never the contact-info overlay, no email field; `mcp.md`). `linkedin_people.record_read` **merges** the rows
+  into the directory above by profile link: it never deletes a row, never moves `exported_on` (an export's own day; a read keeps
+  `read_on` beside it, and the tail's day is `exported_on`, else `read_on`), keeps the finer day, and keeps a row only a read knows
+  through a later export (`src: read`). `connected` is an ISO day when the page shows one, else the page's own words
+  ("3 weeks ago"), from which `parse_connected` stores a **day and a precision** (`day` · `week` · `month`; a year is
+  counted to the month) computed from the day it was read — nothing relative is stored; words it does not read (another
+  language) leave the row undated, and the reply says how many. The `headline` is kept as the page showed it (never split into a
+  company and a position, so a read writes no `works-at` or `role`; only the export's columns do), and a `connected-on` claim for
+  a week or month precision says "around <day> (known to the week)". No model reads it. **The list the app draws:**
+  `GET /sources/linkedin-connections/list` (`query`, `since`, `until`, `offset`, `limit` ≤ 200) — newest first, each row's name,
+  headline, link, day, precision and **the matched page's id when there is exactly one** (one page index per request, the same
+  rules as the tail below), an ETag that is a digest of the body (not a Store domain: the app caches it in memory). **This
+  amends "the directory's API gives its day and size, never a name" for this one route:** local API only (absent from `/mcp`,
+  `/v1` and every remote door), 409 on a demo bank, nothing written, wiped by `DELETE /sources/linkedin-connections` and by
+  trashing the bank. On a copy it answers from that computer's own directory and is not in `GET_FROM_HOME`, as the Contacts
+  page's book (`contacts_book`); the home's reads reach it through the tool's `replica: home` row. The stream
+  `linkedin.connections` in `GET /sources/streams` counts the directory.
+  **The person gets the page, never the connection (owner 2026-11-24: "a linkedin connection doesnt need a page just for
+  the sake of having a page, the person is what gets a page"; ruling 78 (f) withdrawn).** A connection never makes a page:
+  not on a single full-name mention, not on two (the rule that a page needs 2+ conversations, the exchanges rule or a link
+  the person made is untouched, and the owner has **not** ruled on promoting from one mention of a connection — nothing
+  here does). What changed is *when the match lands*: `linkedin_people.Attacher` attaches the kept connection that matches
+  the person **in the write that births their page** — Sleep's Stage 5 create (`conflict_resolver.apply_changes`, one
+  instance per batch, the directory and the page index read once, every page born since added so two pages of one name
+  born in one batch see each other) and an agent's first claim about a new person (`agentic_write._ensure_subject_page`) —
+  not at the night's tail, which still catches a page made some other way (by hand, a split, a page dirty at the tail).
+  The link is a `sources:` entry exactly as the tail writes it, with `works-at` / `role` (an export's columns) and
+  `connected-on` as dated claims observed `external:linkedin`. So **one person across the two directories** needs no new
+  rule: a waiting Contacts card and a waiting connection with the same full name are the same lead — the card's existing
+  promotion (the person's own full-name words, exactly one card) makes the page under the card's name, and the page is
+  born with the card's sources and the connection's link; a held name in the pending store that equals exactly one
+  connection's full name carries nothing into the bank while it waits, and its page, when a second conversation or the
+  usual bar births it, is born with the link. **Never the wrong person (`_hits`):** a name-only match is refused — written
+  nowhere, counted (`Report.doubted` for a doubt, `ambiguous` for two) and never named — when the bank holds a same-name
+  doubt for that name (`same_name_doubts`: a doubted pair or a flagged one; a page's names and a held line's own name
+  count), when two connections or two pages share it (a page born the same name as one already there counts), or when the
+  page names a different profile; a link the person or an identified agent listed (`match: link`) is not a name-only match.
+  The tail, the export's import and the list's matched page apply the same rules. A link the person removed
+  (`sources_removed`) stays removed at birth too. Not built: pages for pages made by hand reach their connection only at
+  the night's tail; a split page (a doubt by definition) is refused.
 - **Meeting transcripts — Hex, any recorder's folder (G95, owner ruling 2026-11-03: "Meetings ofc should also be
   consolidated in memory").** A meeting folder is a watched folder of `kind: meetings` (`folder_source.register(kind=,
   recorder=)`; set on the first add, never flipped — a folder added before G95 has no `kind` and is notes
@@ -3684,6 +3729,9 @@ listed as an alias. Four gaps caused it, each closed:
   such page, a waiting card is used **only once the usual rules promote the mention** — the page is then born under
   the card's name with its photo and sources (`WaitingIndex.by_id`); below the bar nothing is made (owner
   2026-10-20). Never the owner's card or page, never a relation-only mention.
+  **LinkedIn rides the same birth (G245, owner 2026-11-24).** The kept LinkedIn connection that matches a person being
+  born attaches in that write, and a waiting card and a waiting connection of one full name are one lead — the page
+  born from the card has both. A connection alone never promotes; see *LinkedIn connections* above.
   **A first name heard elsewhere is asked, never joined.** A one-word person name heard outside a chat (a harness
   session, an export, a note, a calendar entry) that begins exactly one full-name person page heard in a chat —
   on disk or born this batch — is never joined on the first name: a judge's `same` or `unsure` becomes the question,

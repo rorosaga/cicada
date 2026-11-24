@@ -97,11 +97,14 @@ def test_the_exposed_agent_commands_are_slice_one_and_the_timeline():
     agent = {r.name for r in cli_map.exposed() if not r.app}
     assert agent == {"recall", "get", "project", "continue", "save", "handshake", "status", "commands", "timeline",
                      "skills list", "skills propose", "skills create",
+                     # G245 (ruling 78 (c)): the person's connections by date, read here and never remote.
+                     "linkedin connections",
                      # G227 follow-up (coordinator 2026-10-29): merge and split — G198's trust list decides, as on MCP.
                      "page merge", "page split", "page undo"}
     assert cli_map.exposed_tools() == frozenset({"cicada_recall", "cicada_recall_detail", "cicada_project",
                                                  "cicada_continue", "cicada_save_episode", "cicada_handshake",
-                                                 "cicada_timeline", "cicada_skills", "cicada_propose_skill",
+                                                 "cicada_timeline", "cicada_linkedin_connections", "cicada_skills",
+                                                 "cicada_propose_skill",
                                                  "cicada_create_skill", "cicada_merge_pages",
                                                  "cicada_split_page", "cicada_undo_join"})
     assert all(r.tool is None for r in cli_map.exposed() if r.app)

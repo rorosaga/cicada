@@ -131,6 +131,10 @@ ROWS: tuple[Row, ...] = (
     Row(("ask",), "cicada_ask", "Answer a direct question from memory, with citations.",
         (_p("query"), _f("top_k", "int"))),
     Row(("timeline",), "cicada_timeline", "What changed in memory, day by day.", (_f("since"),), exposed=True),
+    # G245 (ruling 78 (c)): the person's connections by date, from the directory outside every bank (the home's, on a copy).
+    Row(("linkedin", "connections"), "cicada_linkedin_connections",
+        "Who the person connected with on LinkedIn, newest first, in a date range.",
+        (_f("since"), _f("until"), _f("limit", "int")), exposed=True, replica="home"),
     Row(("hub",), "cicada_open_hub", "A topic index page.", (_p("hub"),)),
     Row(("perspective",), "cicada_get_perspective", "Beliefs about one subject, by observer.",
         (_p("subject"), _f("observer"), _f("context"), _f("history", "bool"))),

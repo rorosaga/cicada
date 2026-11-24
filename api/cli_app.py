@@ -1557,6 +1557,22 @@ def cmd_timeline(boot, args) -> Result:
     return Result(text=str(mcp_tools.timeline(ctx, args.since)), data=None, warnings=_warn(boot))
 
 
+def cmd_linkedin_connections(boot, args) -> Result:
+    """G245 (ruling 78 (c)): who the person connected with on LinkedIn, newest first, in a date range — the MCP tool's body,
+    read from the directory outside every bank at this moment (on a client, the server's) and written nowhere."""
+    from api.services import cli_map, mcp_tools
+
+    arguments = {k: v for k, v in (("since", args.since), ("until", args.until), ("limit", args.limit)) if v is not None}
+    if getattr(boot, "client", False):
+        return Result(text=str(door(boot, "cicada_linkedin_connections", arguments)), data=None, warnings=_warn(boot))
+    path = boot.pin.path
+    ctx = mcp_tools.ToolContext(memory_path=lambda: path, session_id="", harness="unknown", read_surface="cli",
+                                available=cli_map.exposed_tools())
+    reply = mcp_tools.linkedin_connections_read(ctx, arguments.get("since"), arguments.get("until"),
+                                                arguments.get("limit"))
+    return Result(text=str(reply), data=None, warnings=_warn(boot))
+
+
 # --- skills (the Skills page, 2026-10-15) -------------------------------------------------------------------
 
 def _wait_job(boot, job: dict | None, what: str) -> dict:
@@ -1895,7 +1911,7 @@ COMMANDS = {
     "picture set": cmd_picture_set, "picture initials": cmd_picture_initials, "picture clear": cmd_picture_clear,
     "bank list": cmd_bank_list, "bank use": cmd_bank_use, "bank create": cmd_bank_create,
     "bank rename": cmd_bank_rename, "bank delete": cmd_bank_delete,
-    "timeline": cmd_timeline,
+    "timeline": cmd_timeline, "linkedin connections": cmd_linkedin_connections,
     "skills check": cmd_skills_check, "skills add": cmd_skills_add, "skills install": cmd_skills_install,
     "skills update": cmd_skills_update, "skills update-all": cmd_skills_update_all, "skills on": cmd_skills_on,
     "skills off": cmd_skills_off, "skills refresh": cmd_skills_refresh, "skills remove": cmd_skills_remove,

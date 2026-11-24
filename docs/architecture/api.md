@@ -574,6 +574,19 @@ membership** (`id_utils.page_lists`: a post bookmarked first and liked later cou
 pages kept under `bank_index.derived`, never a scan per request; a history's is its days, LinkedIn's connections' the
 kept directory's size. `folderCount` counts the site's own folders (`save_folders`; a playlist is one). The route
 writes nothing and is a plain read on a copy.
+**`GET /sources/linkedin-connections/list` (G245, ruling 78 (c), owner 2026-11-24).** The person's LinkedIn connections in the
+order they were made — `query` (words of a name or headline), `since`, `until` (days, inclusive; an undated row is outside any
+range), `offset`, `limit` (≤ 200) → `{rows: [{id, name, headline, url, day, precision, page}], total, offset, next, kept,
+exportedOn, readOn, bank}`; `precision` is `day`, `week` or `month` (a page that said "3 weeks ago" is a day counted back from
+the day it was read), `page` the one person page the row is when there is exactly one (the tail's matching rules, one index of
+the pages per request). **The one route that names a connection**, so it amends the sentence that the directory's API gives
+"its day and size, never a name" for it alone (`GET /sources/linkedin-connections` still does): the local API only (never on
+`/mcp`, `/v1` or any remote door), 409 on a demo bank, nothing written, wiped by `DELETE /sources/linkedin-connections` and by
+trashing the bank. A copy answers from its own directory and the route is not in `replica_routes.GET_FROM_HOME`, like the
+Contacts page's book (`contacts_book`) whose scoping it follows; the home's directory reaches an agent through the tool's
+`replica: home` row (`mcp.md`). Not a Store domain: the ETag is a digest of the body and a client caches it in memory, so no
+`VersionVector` mapping is needed. `POST /sources/linkedin-connections/import`'s reply gains `doubted` (a name-only match refused
+for a same-name doubt, a count).
 `POST /sources/streams/check` (body `{sources?: [ids]}`, none or empty = every source; demo bank 409, `FORWARD` on a
 replica) is the backend's half of a check: a browser list that is on and not paused is stamped `check_requested_at` (the
 lists' `due` serves it first, inside the daily bound, never lifting a pause — `mcp.md`), an app's stream is only reported

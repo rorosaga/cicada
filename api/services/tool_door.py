@@ -89,6 +89,8 @@ DISPATCH: dict[str, Callable[[mcp_tools.ToolContext, dict], str]] = {
     "cicada_save_episode": lambda c, a: mcp_tools.save_episode(c, _s(a, "content"), a.get("title")),
     "cicada_check_nudges": lambda c, a: mcp_tools.check_nudges(c, a.get("topic"), a.get("entity_ids"), a.get("mode")),
     "cicada_timeline": lambda c, a: mcp_tools.timeline(c, a.get("since")),
+    "cicada_linkedin_connections": lambda c, a: mcp_tools.linkedin_connections_read(
+        c, a.get("since"), a.get("until"), a.get("limit")),
     "cicada_project": lambda c, a: mcp_tools.project(c, _s(a, "project"), a.get("since"), a.get("tz")),
     "cicada_note_progress": lambda c, a: mcp_tools.note_progress(
         c, _s(a, "project"), _s(a, "kind"), _s(a, "summary"), _s(a, "status"), when=a.get("when"),

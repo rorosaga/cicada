@@ -91,7 +91,7 @@ def test_saving_an_x_post_with_no_fetch_titles_it_by_its_author(reading):
 
 def test_off_by_default_needs_the_sheet_and_counts_only_while_agent_reading_is_on(tmp_path, monkeypatch):
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
-    assert reading_settings.snapshot()["savedLists"] == {"x": False, "x-likes": False, "instagram": False, "instagram-likes": False, "linkedin": False, "reddit": False, "reddit-upvoted": False, "pinterest": False, "tiktok": False, "spotify": False, "goodreads": False}
+    assert reading_settings.snapshot()["savedLists"] == {"x": False, "x-likes": False, "instagram": False, "instagram-likes": False, "linkedin": False, "linkedin-connections": False, "reddit": False, "reddit-upvoted": False, "pinterest": False, "tiktok": False, "spotify": False, "goodreads": False}
     with pytest.raises(reading_settings.SettingsError):
         reading_settings.update(saved_lists_={"x": True})                     # no "I understand" yet
     with pytest.raises(reading_settings.SettingsError):

@@ -85,6 +85,9 @@ NEVER_REMOTE = frozenset({"cicada_pending", "cicada_mark_processed", "cicada_rep
                           "cicada_explore_queue", "cicada_explore_claim", "cicada_record_capture",
                           # ROR-126: the person's own agent in their own browser — a local agent's job, like the explore seat.
                           "cicada_export_requests",
+                          # G245 (ruling 78 (c), 2026-11-24): the person's LinkedIn connections by name and date — a
+                          # local agent's read of a directory that lives outside every bank on this Mac; never remote.
+                          "cicada_linkedin_connections",
                           "cicada_explore_start", "cicada_site_map",
                           # G61, ruling 26: a tracked source's re-check reads in the person's own browser session —
                           # a local agent's job; a remote one is the owner's open question.

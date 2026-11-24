@@ -1154,7 +1154,7 @@ def _left_site(fm: dict) -> list[BookmarkLeft]:
     if not at:
         return []
     origin = str(fm.get("origin") or "")
-    name = next((platform.name for platform in saved_lists.PLATFORMS.values() if platform.origin == origin),
+    name = next((platform.name for platform in saved_lists.PLATFORMS.values() if platform.origin and platform.origin == origin),
                 "GitHub" if origin == "github-starred" else origin)
     return [BookmarkLeft(browser=name, channel=origin, since=at)]
 

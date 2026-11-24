@@ -220,6 +220,15 @@ def _ensure_subject_page(
         links=[],
         open_questions=[],
     )
+    if entity_type == "person":
+        # G245 (ruling 78): an agent's first claim about a new person births their page; the kept LinkedIn connection that
+        # matches attaches in this same write (never a page made from a connection alone).
+        try:
+            from api.services import linkedin_people
+
+            frontmatter, body = linkedin_people.Attacher(memory_path).attach(frontmatter, body, entity_id)
+        except Exception as exc:  # noqa: BLE001 — the page is still born; Sleep's tail retries
+            logger.warning(f"agentic write: a LinkedIn connection was not attached ({type(exc).__name__})")
     markdown_parser.write(filepath, frontmatter, body)
     return filepath, entity_id
 

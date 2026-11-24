@@ -180,7 +180,7 @@ def test_a_key_the_annotations_do_not_know_still_gets_a_stream(bank, monkeypatch
 def test_a_table_entry_with_no_base_is_its_own_source(bank):
     assert not saved_lists.PLATFORMS["x"].base and saved_lists.PLATFORMS["x-likes"].base == "x"
     out = _sources(bank)
-    assert set(saved_lists.PLATFORMS) - {"x-likes", "instagram-likes", "reddit-upvoted"} <= set(out)
+    assert set(saved_lists.PLATFORMS) - {"x-likes", "instagram-likes", "linkedin-connections", "reddit-upvoted"} <= set(out)
     assert _streams(bank, "reddit")["reddit.saved"]["label"] == "Saved"
     assert saved_lists.pause_key("x") == "x" and saved_lists.pause_key("x-likes") == "x"
 

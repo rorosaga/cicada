@@ -1955,6 +1955,12 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
         return (f"Recorded the person's Goodreads shelves. {out['held']} new book(s) wait for the person to choose which "
                 f"to add; {out['known']} were already in memory or left out. Nothing is in memory until they choose "
                 f"(Sources → Goodreads).{left}{unkept}")
+    if key == "linkedin-connections":
+        # G245 (ruling 78 (c)): people, not posts. The rows merge into the people directory outside every bank
+        # (`linkedin_people.record_read`): nothing is written into the bank, so Sleep running is no reason to refuse; the
+        # tail (or a page's birth) attaches a match to a person's page — a connection never makes one.
+        return _record_connections(memory_path, rows, p, continuing=continuing, at_end=at_end, was_whole=was_whole,
+                                   who=who, unkept=unkept, started=started)
     if ctx.sleep_answer:
         return SAVED_LIST_SLEEPING
     idx = media_ingestor.load_url_index(memory_path)
@@ -2055,6 +2061,42 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     return (f"Recorded the person's {p.name} {p.label}. {created} new post(s) saved; {duplicates} already in memory"
             + (f" ({listed} now on this list too)" if listed else "") + f". Saved posts are kept for lookup, not read."
             f"{more}{stop}{folders_said()}{started}{extra}{unkept}")
+
+
+def _record_connections(memory_path: Path, rows: list, p, *, continuing: bool, at_end: bool, was_whole: bool,
+                        who: dict, unkept: str, started: str) -> str:
+    """The ``linkedin-connections`` branch of ``cicada_record_saved_list`` (the Goodreads precedent: nothing in the bank)."""
+    from api.services import folder_pass, linkedin_people, saved_lists
+
+    read_day = datetime.now(timezone.utc).date().isoformat()
+    out = linkedin_people.record_read(memory_path.name, rows, read_day)
+    if out.dropped and not out.seen:
+        saved_lists.note(memory_path, p.key, "failed", **who)
+        return ("Recorded: the read failed. None of the rows had a member profile link and a name, so nothing was "
+                "kept; the list is offered again later. Open LinkedIn's connections page and read that list." + unkept)
+    saved_lists.note(memory_path, p.key, "read", items=out.seen, continues=continuing, reached_end=at_end, **who)
+    stop = ""
+    if at_end:
+        stop = " The whole list is kept now; later reads only look for what is new."
+    elif not was_whole:
+        stop = (" This list has not been read to its end yet: keep scrolling and recording (`continues=true`) until it "
+                "stops growing, and set `reached_end=true` on the last call.")
+    elif folder_pass.known_ground(out.known):
+        stop = (f" Known ground: {sum(out.known)} of these {len(out.known)} connection(s) were already kept, so you have "
+                "caught up with this list; stop scrolling it. A later read starts again from the top.")
+    seen = linkedin_people.match_counts(memory_path, out.rows)
+    people = (f" {seen['people']} of them are people already in memory: their page gains the link and the day at the "
+              "night's tail." if seen["people"] else "") + (
+        f" {seen['doubted']} name(s) were held back on a same-name doubt and {seen['ambiguous']} match more than one "
+        "person; they match no page." if seen["doubted"] or seen["ambiguous"] else "")
+    left = (f" {out.dropped} row(s) had no member profile link or no name and were left out." if out.dropped else "") + (
+        f" {out.undated} row(s) showed a date in words Cicada does not read; they are kept undated." if out.undated else "") + (
+        f" {out.full} row(s) did not fit." if out.full else "")
+    return (f"Recorded the person's LinkedIn connections. {out.added} new, {out.updated} updated, {out.unchanged} already "
+            "kept. They are kept for lookup in a directory outside memory, never read by a model; a person's page gains "
+            "its connection when it has one (a connection never makes a page)."
+            + (" This call continued the read: it was not counted again today." if continuing else "")
+            + f"{people}{stop}{started}{left}{unkept}")
 
 
 #: At most this many rows in one ``cicada_record_substack_list`` call (a few screens of a list, never a whole archive).
@@ -3412,6 +3454,60 @@ def timeline(ctx: ToolContext, since=None) -> str:
     today = date.today()
     start = change_timeline.parse_since(since, today)
     return change_timeline.render(change_timeline.collect(ctx.memory_path(), start, today), start, today)
+
+
+def linkedin_connections_read(ctx: ToolContext, since=None, until=None, limit=None) -> str:
+    """``cicada_linkedin_connections`` (G245, ruling 78 (c)): who the person connected with on LinkedIn, newest first, in a
+    date range — at most :data:`linkedin_people.AGENT_ROWS` rows, each with the matched page when there is exactly one.
+    Stdio and the command line only. The names are read from the person's directory outside every bank at this moment
+    and written nowhere: not a bank, not a log, not the telemetry ledger. Read-only; calls no model and no network.
+    A connection has no page unless the person does."""
+    from api.services import linkedin_people, tool_contract
+
+    memory_path = ctx.memory_path()
+    if ctx.is_remote:
+        return Reply("Not available here: the person's connections are read only by their own agent on this computer.",
+                     code="refused")
+    if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    if (problem := tool_contract.since_problem(since)) is not None:
+        return Reply(problem, code="invalid_arguments")
+    today = date.today()
+    start = today - timedelta(days=30)
+    if since is not None and since != "":
+        text = str(since).strip().lower()
+        digits = text[:-1] if text.endswith("d") else text
+        try:
+            start = (today - timedelta(days=min(int(digits), 36500))) if digits.isdigit() else date.fromisoformat(text[:10])
+        except ValueError:
+            return Reply("Invalid arguments: `since` must be a date (YYYY-MM-DD) or a number of days back.",
+                         code="invalid_arguments")
+    if until not in (None, "") and linkedin_people._day(until) is None:
+        return Reply("Invalid arguments: `until` must be a date (YYYY-MM-DD).", code="invalid_arguments")
+    try:
+        rows = max(1, min(int(limit), linkedin_people.AGENT_ROWS)) if limit not in (None, "") else linkedin_people.AGENT_ROWS
+    except (TypeError, ValueError):
+        return Reply("Invalid arguments: `limit` must be a whole number.", code="invalid_arguments")
+    out = linkedin_people.list_rows(memory_path, memory_path.name, since=start.isoformat(), until=until, limit=rows)
+    if not out["kept"]:
+        return Reply("No LinkedIn connections are kept. The person's own agent reads them from their connections page "
+                     "once they turn that list on (Sources → LinkedIn).")
+    window = f"{start.isoformat()} to {str(until).strip()[:10] if until else today.isoformat()}"
+    if not out["rows"]:
+        return Reply(f"No connection in the {out['kept']} kept is dated {window}.")
+    lines = []
+    for row in out["rows"]:
+        when = row["day"] + ("" if row["precision"] in (None, "day") else f" (about, to the {row['precision']})")
+        bits = [when, row["name"]] + ([row["headline"]] if row["headline"] else [])
+        if row["page"]:
+            bits.append(f"page `{row['page']}`")
+        lines.append("- " + " · ".join(bits))
+    more = f" {out['total'] - len(out['rows'])} more in range; narrow `since`/`until` to see them." if out["next"] else ""
+    own = (f"{out['total']} connection(s) dated {window}, newest first"
+           f"{'' if not more else ', ' + str(len(out['rows'])) + ' shown'}.{more} A connection has a page only when the "
+           "person does: open one with `cicada_recall_detail`. These names are read from the person's own list now and "
+           "kept nowhere else.\n")
+    return Reply.framed([("own", own), ("data", "\n".join(lines))])
 
 
 def _today_in(tz_name: str | None) -> date:

@@ -29,6 +29,22 @@ the graph, and a page needs conversations. So:
 then: Sleep's engine-free tail runs :func:`rematch` against it, so a page Sleep promotes tonight gains its LinkedIn
 link and facts in the same run's own ``cicada`` commit. An older export never replaces a newer directory.
 
+**Two ways in, one directory (G245, ruling 78 (c), 2026-11-24).** The export file above, and now the person's own agent:
+it opens the connections page, sorted by recently added, in their own signed-in browser and records ``{name,
+profile_url, headline, connected}`` per row through ``cicada_record_saved_list`` (platform ``linkedin-connections``,
+off until the person turns it on; the connections page only, never a profile or the contact-info overlay, and no email
+field exists). :func:`record_read` **merges** into this directory by profile link: it never deletes a row, never moves
+``exported_on`` backwards and keeps the finer day (:func:`parse_connected`: a page that says "3 weeks ago" is stored as a
+day and a precision, ``day`` · ``week`` · ``month``, computed from the day it was read — nothing relative is stored).
+:func:`list_rows` is the list the app draws (``GET /sources/linkedin-connections/list``) and :func:`range_rows` the one
+read door for the person's agents; neither writes a name anywhere, and neither is on a remote door.
+
+**The person gets the page, never the connection** (owner 2026-11-24). A connection never makes a page. A person's page
+is born by the rules that already exist, and the kept connection that matches it attaches in the write that births it
+(:class:`Attacher`: Sleep's Stage 5 create and an agent's first claim about a new person), not a night later. A name-only
+match is refused when the bank holds a same-name doubt for that name, when two connections or two pages share it, or when
+the page names a different profile (:func:`_hits`); a refusal writes nothing and is counted, never named.
+
 No model runs and nothing is fetched: the profile link is stored, never opened. The person's agent may open it later
 in the person's own browser, when the person asks about that one person — the ``linkedin-people`` skill and
 ``cicada_record_profile``.
@@ -45,15 +61,18 @@ import or Sleep's rematch.
 from __future__ import annotations
 
 import csv
+import fcntl
 import hashlib
 import io
 import json
 import os
 import re
 import zipfile
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Iterator
 from urllib.parse import urlparse
 
 from loguru import logger
@@ -92,12 +111,19 @@ SLEEP_REFUSAL = "Cicada is tidying up your memory right now — add your LinkedI
 #: The forget's 409 while Sleep holds the pages (its tail may be reading the kept export).
 FORGET_SLEEP_REFUSAL = ("Cicada is tidying up your memory right now — forget your kept connections again in a "
                         "minute.")
-_DATE_FORMATS = ("%d %b %Y", "%d %B %Y", "%Y-%m-%d", "%d-%b-%y", "%d-%b-%Y", "%m/%d/%y", "%m/%d/%Y")
+_DATE_FORMATS = ("%d %b %Y", "%d %B %Y", "%Y-%m-%d", "%d-%b-%y", "%d-%b-%Y", "%m/%d/%y", "%m/%d/%Y", "%B %d, %Y",
+                 "%b %d, %Y")
 _SLUG_RE = re.compile(r"[^/?#\s]{1,100}")
 
 
 class PayloadError(ValueError):
     """A file the backend cannot read as LinkedIn connections — answered 422, nothing written."""
+
+
+#: How exactly a connection's day is known: the page or file gave the day (``day``), or only "3 weeks ago" (``week``) or
+#: "2 months ago" (``month``), which :func:`parse_connected` turns into a day computed from the read day.
+PRECISIONS = ("day", "week", "month")
+_FINENESS = {"day": 3, "week": 2, "month": 1}
 
 
 @dataclass
@@ -108,6 +134,12 @@ class Connection:
     company: str = ""
     position: str = ""
     connected_on: str | None = None
+    #: The line under the person's name on the connections page, as the page showed it (free words, never split into a
+    #: company and a position: "Founder | Building X" is not "Founder at X").
+    headline: str = ""
+    precision: str | None = None
+    #: ``read`` for a row only the person's agent has read (a later export never drops it), else ``export``.
+    src: str = "export"
 
     @property
     def name(self) -> str:
@@ -120,9 +152,13 @@ class Connection:
 
     def to_dict(self) -> dict:
         out = {"id": self.id, "first": self.first, "last": self.last}
-        for key in ("url", "company", "position", "connected_on"):
+        for key in ("url", "company", "position", "connected_on", "headline"):
             if getattr(self, key):
                 out[key] = getattr(self, key)
+        if self.connected_on:
+            out["precision"] = self.precision if self.precision in PRECISIONS else "day"
+        if self.src == "read":
+            out["src"] = "read"
         return out
 
     @classmethod
@@ -132,8 +168,10 @@ class Connection:
         first, last = _clean(raw.get("first")), _clean(raw.get("last"))
         if not (first or last):
             return None
+        day = _day(raw.get("connected_on"))
+        precision = raw.get("precision") if raw.get("precision") in PRECISIONS else ("day" if day else None)
         return cls(first, last, profile_url(raw.get("url")), _clean(raw.get("company")), _clean(raw.get("position")),
-                   _day(raw.get("connected_on")))
+                   day, _clean(raw.get("headline")), precision, "read" if raw.get("src") == "read" else "export")
 
 
 @dataclass
@@ -154,6 +192,8 @@ class Report:
     claims_closed: int = 0
     older: int = 0
     removed_kept_out: int = 0
+    #: A name-only match refused because the bank holds a same-name doubt for that name — counted, never named.
+    doubted: int = 0
     exported_on: str = ""
     paths: list[str] = field(default_factory=list)
 
@@ -184,6 +224,48 @@ def _day(value) -> str | None:
         except ValueError:
             continue
     return None
+
+
+_ISO_DAY = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
+_WORD_DAY = re.compile(r"\b([A-Za-z]{3,9}\.? \d{1,2}, \d{4}|\d{1,2} [A-Za-z]{3,9}\.? \d{4})\b")
+_AGO = re.compile(r"\b(?:(\d{1,3})|an?|one)\s*(minutes?|mins?|hours?|hrs?|days?|weeks?|wks?|months?|mos?|years?|yrs?)\b",
+                  re.IGNORECASE)
+#: Days a unit stands for, and how exactly "N <unit> ago" says the day (matched by the unit's first letters). A year is
+#: stored as twelve months to the month: a page that says "2 years ago" knows the day no better than that.
+_UNITS = (("min", 0, "day"), ("ho", 0, "day"), ("hr", 0, "day"), ("da", 1, "day"), ("we", 7, "week"),
+          ("wk", 7, "week"), ("mo", 30, "month"), ("ye", 365, "month"), ("yr", 365, "month"))
+
+
+def parse_connected(value, read_day: str) -> tuple[str | None, str | None]:
+    """``(day, precision)`` for the date a connections page showed: an ISO day or a date the export writes (``day``), else
+    the page's own words — "Connected 3 weeks ago", "yesterday", "2 months ago" — counted back from ``read_day`` (the day
+    the page was read) and stored as that day with the precision the words had (``day`` · ``week`` · ``month``): nothing
+    relative is ever stored. ``(None, None)`` for words it does not know (another language) or a day in the future or
+    before 2003."""
+    text = " ".join(str(value or "").split())
+    if not text:
+        return None, None
+    precision = "day"
+    day = None
+    for pattern in (_ISO_DAY, _WORD_DAY):
+        if (found := pattern.search(text)) is not None and (day := _day(found.group(1))) is not None:
+            break
+    if day is None:
+        day = _day(text)
+    if day is None:
+        lowered, base = text.lower(), date.fromisoformat(read_day)
+        if re.search(r"\b(today|just now)\b", lowered):
+            day = base.isoformat()
+        elif re.search(r"\byesterday\b", lowered):
+            day = (base - timedelta(days=1)).isoformat()
+        elif (ago := _AGO.search(text)) is not None:
+            unit = ago.group(2).lower()
+            span, precision = next((d, p) for prefix, d, p in _UNITS if unit.startswith(prefix))
+            try:
+                day = (base - timedelta(days=(int(ago.group(1)) if ago.group(1) else 1) * span)).isoformat()
+            except OverflowError:
+                return None, None
+    return (day, precision) if day and "2003-01-01" <= day <= read_day else (None, None)
 
 
 def profile_url(raw) -> str | None:
@@ -420,23 +502,55 @@ def basis(idx: _Index, entity_id: str, c: Connection) -> str | None:
     return None
 
 
-def match(memory_path: Path, connections: list[Connection]) -> tuple[dict[str, Connection], int, int]:
-    """``({page id: connection}, ambiguous, unmatched)``. A page that already lists a connection's profile link is
-    that connection's page; otherwise its full name (either order) or an alias must name exactly one person page, and
-    that page must not already name a different LinkedIn profile. Two connections on one page — duplicate names —
-    match neither."""
+def _doubted(memory_path: Path, idx: _Index) -> set[str]:
+    """The folded names the bank holds a same-name doubt for (`same_name_doubts`: two people of one name, held apart or
+    flagged for a look): every ref in a doubted pair or a flagged pair is a page id (its names count) or a held line's own
+    name. Read once per match; a name-only match on any of them is refused, never guessed."""
+    from api.services import same_name_doubts
+
+    try:
+        pages, pairs = same_name_doubts.flagged(memory_path)
+        refs = set(pages) | {r for pair in pairs for r in pair} | {r for pair in same_name_doubts.pairs(memory_path)
+                                                                    for r in pair}
+    except Exception:  # noqa: BLE001 - an unreadable doubt file refuses nothing it cannot name
+        return set()
+    keys: set[str] = set()
+    for ref in refs:
+        keys.add(_fold(ref))
+        if ref in idx.page_names:
+            keys.add(idx.page_names[ref])
+            keys |= idx.page_aliases.get(ref, set())
+    return keys - {""}
+
+
+def _hits(idx: _Index, c: Connection, doubted: set[str] = frozenset()) -> tuple[set[str], bool]:
+    """``(the person pages this connection lands on, refused)``. A page that already lists the connection's profile link
+    is its page; otherwise the folded full name (either order) or an alias names it — and then a page that already names
+    a *different* LinkedIn profile is someone else of the same name, and a name the bank holds a same-name doubt for
+    matches nobody (``refused``: counted, writes nothing)."""
+    slug = _slug(c.url)
+    hits = set(idx.slugs.get(slug, set())) if slug else set()
+    if hits:
+        return hits, False
+    keys = _name_keys(c)
+    for key in keys:
+        hits |= idx.names.get(key, set())
+    hits = {h for h in hits if not (slug and idx.page_slugs.get(h) and slug not in idx.page_slugs[h])}
+    if hits and keys & doubted:
+        return set(), True
+    return hits, False
+
+
+def _match(memory_path: Path, connections: list[Connection]) -> tuple[dict[str, Connection], int, int, int]:
     idx = _index(memory_path)
+    doubted = _doubted(memory_path, idx)
     claims: dict[str, list[Connection]] = {}
-    ambiguous = unmatched = 0
+    ambiguous = unmatched = refused = 0
     for c in connections:
-        slug = _slug(c.url)
-        hits = set(idx.slugs.get(slug, set())) if slug else set()
-        if not hits:
-            for key in _name_keys(c):
-                hits |= idx.names.get(key, set())
-            # A page that already names another LinkedIn profile is someone else of the same name.
-            hits = {h for h in hits if not (slug and idx.page_slugs.get(h) and slug not in idx.page_slugs[h])}
-        if len(hits) == 1:
+        hits, doubt = _hits(idx, c, doubted)
+        if doubt:
+            refused += 1
+        elif len(hits) == 1:
             claims.setdefault(next(iter(hits)), []).append(c)
         elif hits:
             ambiguous += 1
@@ -444,7 +558,29 @@ def match(memory_path: Path, connections: list[Connection]) -> tuple[dict[str, C
             unmatched += 1
     matched = {eid: found[0] for eid, found in claims.items() if len(found) == 1}
     ambiguous += sum(len(found) for found in claims.values() if len(found) > 1)
-    return matched, ambiguous, unmatched
+    return matched, ambiguous, unmatched, refused
+
+
+def match_counts(memory_path: Path, connections: list[Connection]) -> dict[str, int]:
+    """What these connections would land on in this bank — counts only, nothing written, never a name: ``people`` (exactly
+    one person page each), ``ambiguous`` (two people or two connections of one name), ``doubted`` (refused for a same-name
+    doubt)."""
+    from api.services import demo_guard
+
+    if not connections or demo_guard.is_demo(Path(memory_path)):
+        return {"people": 0, "ambiguous": 0, "doubted": 0}
+    matched, ambiguous, _unmatched, doubted = _match(Path(memory_path), connections)
+    return {"people": len(matched), "ambiguous": ambiguous, "doubted": doubted}
+
+
+def match(memory_path: Path, connections: list[Connection]) -> tuple[dict[str, Connection], int, int]:
+    """``({page id: connection}, ambiguous, unmatched)``. A page that already lists a connection's profile link is
+    that connection's page; otherwise its full name (either order) or an alias must name exactly one person page, and
+    that page must not already name a different LinkedIn profile. Two connections on one page — duplicate names —
+    match neither, and a name the bank holds a same-name doubt for matches nobody (counted in ``ambiguous`` here;
+    ``apply``'s report says it apart)."""
+    matched, ambiguous, unmatched, refused = _match(memory_path, connections)
+    return matched, ambiguous + refused, unmatched
 
 
 # --------------------------------------------------------------------------- writing one page
@@ -455,12 +591,15 @@ def _claim_id(entity_id: str, predicate: str, value: str, day: str) -> str:
     return f"clm_{entity_id}_{predicate}_li_{digest}"
 
 
-def _text(predicate: str, name: str, value: str, day: str, *, read: bool) -> str:
+def _text(predicate: str, name: str, value: str, day: str, *, read: bool, precision: str | None = None) -> str:
     said = f"as {'their profile showed' if read else 'LinkedIn listed'} on {day}"
     if predicate == WORKS_AT:
         return f"{name} works at {value} ({said})"
     if predicate == ROLE:
         return f"{name}'s position: {value} ({said})"
+    if precision in ("week", "month"):
+        # The page said "N weeks ago": the day is that count back from the day it was read, known to the week or month.
+        return f"Connected with {name} on LinkedIn around {value} (known to the {precision})"
     return f"Connected with {name} on LinkedIn on {value}"
 
 
@@ -474,7 +613,8 @@ def _same(claim: Claim, value: str, node: str | None) -> bool:
 
 
 def _reconcile(claims: list[Claim], entity_id: str, name: str, predicate: str, value: str, day: str, *,
-               origin: str, node: str | None, evidence_rows: list, authored_by: str, today: str) -> tuple[str, int]:
+               origin: str, node: str | None, evidence_rows: list, authored_by: str, today: str,
+               precision: str | None = None) -> tuple[str, int]:
     """One fact against this module's own dated line for ``predicate``: ``(outcome, closed)`` where outcome is
     ``same`` (nothing written), ``older`` (a newer LinkedIn value is already held), or ``written``."""
     mine = [c for c in claims if c.origin in ORIGINS and c.observer == OBSERVER and c.predicate == predicate]
@@ -488,7 +628,8 @@ def _reconcile(claims: list[Claim], entity_id: str, name: str, predicate: str, v
     if any(c.id == cid for c in claims):
         return "same", 0
     new = Claim(
-        id=cid, text=_text(predicate, name, value, day, read=origin == ORIGIN_PROFILE), subject=entity_id,
+        id=cid, text=_text(predicate, name, value, day, read=origin == ORIGIN_PROFILE, precision=precision),
+        subject=entity_id,
         predicate=predicate, object=node or value, object_kind="node" if node else "literal", observer=OBSERVER,
         context="career" if predicate != CONNECTED_ON else "general", epistemic="explicit", source_trust="external",
         confidence=0.9, valid_from=value if predicate == CONNECTED_ON else day, recorded_at=today,
@@ -503,18 +644,14 @@ def _reconcile(claims: list[Claim], entity_id: str, name: str, predicate: str, v
     return "written", closed
 
 
-@page_lock.locked
-def _apply_page(memory_path: Path, entity_id: str, facts: dict[str, str], *, url: str | None, day: str, origin: str,
-                companies: dict[str, set[str]], report: Report, evidence_by: dict[str, list] | None = None,
-                authored_by: str = AUTHOR, add_source: bool = True, how: str | None = None) -> bool:
-    """Write one person's LinkedIn link and facts onto their page. Returns whether the page changed."""
-    path = Path(memory_path) / "entities" / f"{entity_id}.md"
-    if not path.exists():
-        return False
-    parsed = markdown_parser.parse(path)
-    fm = dict(parsed.frontmatter)
-    if fm.get("type") != "person" or fm.get("status") == "dropped":
-        return False
+def _apply_to(fm: dict, body: str, entity_id: str, facts: dict[str, str], *, url: str | None, day: str, origin: str,
+              companies: dict[str, set[str]], report: Report, evidence_by: dict[str, list] | None = None,
+              authored_by: str = AUTHOR, add_source: bool = True, how: str | None = None,
+              precision: str | None = None) -> tuple[dict, str, bool]:
+    """One person's LinkedIn link and facts onto a page held in memory: ``(frontmatter, body, changed)``. The page is
+    written by the caller — in place for an existing page (:func:`_apply_page`), or as part of the write that births it
+    (:class:`Attacher`)."""
+    fm = dict(fm)
     name = str(fm.get("name") or entity_id.replace("-", " ").title())
     today = date.today().isoformat()
     changed = False
@@ -524,7 +661,7 @@ def _apply_page(memory_path: Path, entity_id: str, facts: dict[str, str], *, url
         if fact_sources.is_tombstoned(fm, url, SOURCE_PREDICATE) or _removed_slug(fm, url):
             # The person took this profile off this page: it is not theirs to Cicada either — no link, no facts.
             report.removed_kept_out += 1
-            return False
+            return fm, body, False
         if not listed and len(current) < fact_sources.MAX_SOURCES:
             fm["sources"] = current + [{"ref": url, "kind": fact_sources.KIND_URL, "predicate": SOURCE_PREDICATE,
                                         "added_by": AUTHOR, "added_at": today, **({MATCH_KEY: how} if how else {})}]
@@ -537,7 +674,6 @@ def _apply_page(memory_path: Path, entity_id: str, facts: dict[str, str], *, url
                         and source.get(MATCH_KEY) != how):
                     source[MATCH_KEY] = how   # the same dict ``fm["sources"]`` holds
                     changed = True
-    body = parsed.body
     if any(facts.values()):
         try:
             claims = parse_claims(body, strict=True)
@@ -553,7 +689,8 @@ def _apply_page(memory_path: Path, entity_id: str, facts: dict[str, str], *, url
                 node = _company_node(companies, value) if predicate == WORKS_AT else None
                 outcome, closed = _reconcile(claims, entity_id, name, predicate, value, day, origin=origin, node=node,
                                              evidence_rows=(evidence_by or {}).get(predicate) or [],
-                                             authored_by=authored_by, today=today)
+                                             authored_by=authored_by, today=today,
+                                             precision=precision if predicate == CONNECTED_ON else None)
                 if outcome == "written":
                     report.claims_written += 1
                     report.claims_closed += closed
@@ -563,6 +700,24 @@ def _apply_page(memory_path: Path, entity_id: str, facts: dict[str, str], *, url
             if wrote:
                 body = write_claims(body, claims)
                 changed = True
+    return fm, body, changed
+
+
+@page_lock.locked
+def _apply_page(memory_path: Path, entity_id: str, facts: dict[str, str], *, url: str | None, day: str, origin: str,
+                companies: dict[str, set[str]], report: Report, evidence_by: dict[str, list] | None = None,
+                authored_by: str = AUTHOR, add_source: bool = True, how: str | None = None,
+                precision: str | None = None) -> bool:
+    """Write one person's LinkedIn link and facts onto their page. Returns whether the page changed."""
+    path = Path(memory_path) / "entities" / f"{entity_id}.md"
+    if not path.exists():
+        return False
+    parsed = markdown_parser.parse(path)
+    if parsed.frontmatter.get("type") != "person" or parsed.frontmatter.get("status") == "dropped":
+        return False
+    fm, body, changed = _apply_to(parsed.frontmatter, parsed.body, entity_id, facts, url=url, day=day, origin=origin,
+                                  companies=companies, report=report, evidence_by=evidence_by,
+                                  authored_by=authored_by, add_source=add_source, how=how, precision=precision)
     if changed:
         markdown_parser.write(path, fm, body)
     return changed
@@ -577,7 +732,7 @@ def apply(memory_path: Path, connections: list[Connection], *, day: str, skip: f
     tail run) are left alone. Idempotent: a connection already on its page writes nothing."""
     memory_path = Path(memory_path)
     report = Report(connections=len(connections), exported_on=day)
-    matched, report.ambiguous, report.unmatched = match(memory_path, connections)
+    matched, report.ambiguous, report.unmatched, report.doubted = _match(memory_path, connections)
     report.matched = len(matched)
     idx = _index(memory_path) if matched else None
     companies = idx.companies if idx else {}
@@ -587,7 +742,7 @@ def apply(memory_path: Path, connections: list[Connection], *, day: str, skip: f
             continue
         c = matched[eid]
         if _apply_page(memory_path, eid, _facts(c), url=c.url, day=day, origin=ORIGIN_EXPORT, companies=companies,
-                       report=report, how=basis(idx, eid, c)):
+                       report=report, how=basis(idx, eid, c), precision=c.precision):
             report.paths.append(rel)
     if report.paths:
         bank_index.invalidate(memory_path)
@@ -629,16 +784,135 @@ def load_directory(bank: str) -> dict:
     return people_directory.load_json(bank, DIRECTORY_FILE)
 
 
+@contextmanager
+def _locked(bank: str) -> Iterator[None]:
+    """Read-modify-write of the directory under an ``flock`` (the backend's import and a stdio server's read both write it)."""
+    folder = people_directory.ensure(bank)
+    with open(folder / ".linkedin.lock", "a+") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _write_rows(bank: str, held: dict, rows: list[Connection], *, exported_on: str | None,
+                read_on: str | None) -> None:
+    payload = {"v": 1, "imported_at": held.get("imported_at") or datetime.now().astimezone().isoformat(timespec="seconds"),
+               "connections": [c.to_dict() for c in rows]}
+    if exported_on:
+        payload["exported_on"] = exported_on
+    if read_on:
+        payload["read_on"] = read_on
+    people_directory.save_json(bank, DIRECTORY_FILE, payload)
+
+
+def _rows(held: dict) -> list[Connection]:
+    raw = held.get("connections") if isinstance(held.get("connections"), list) else []
+    return [c for c in (Connection.from_dict(r) for r in raw) if c is not None]
+
+
+def _finer(new: tuple[str | None, str | None], old: tuple[str | None, str | None]) -> bool:
+    """Is the day ``new`` finer than ``old``? Only a day known to a finer precision replaces one; the same precision
+    keeps the day already held, so a re-read never moves it."""
+    return bool(new[0]) and (not old[0] or _FINENESS.get(new[1] or "", 0) > _FINENESS.get(old[1] or "", 0))
+
+
 def save_directory(bank: str, connections: list[Connection], day: str) -> bool:
     """Keep the export's connections for later matches — unless a newer export is already kept. Returns whether it
-    wrote. 0600, written by a rename."""
-    held = load_directory(bank)
-    if str(held.get("exported_on") or "") > day:
-        return False
-    payload = {"v": 1, "exported_on": day, "imported_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-               "connections": [c.to_dict() for c in connections]}
-    people_directory.save_json(bank, DIRECTORY_FILE, payload)
+    wrote. 0600, written by a rename. A row only the person's agent has read (``src: read``: connected since the export,
+    or not in it) is kept beside the export's: an export never drops what a read added."""
+    with _locked(bank):
+        held = load_directory(bank)
+        if str(held.get("exported_on") or "") > day:
+            return False
+        exported = {_slug(c.url) or c.id: c for c in connections}
+        kept: list[Connection] = []
+        for old in _rows(held):
+            key = _slug(old.url) or old.id
+            if key in exported:
+                new = exported.pop(key)
+                if not _finer((new.connected_on, new.precision), (old.connected_on, old.precision)) and old.connected_on:
+                    new.connected_on, new.precision = old.connected_on, old.precision
+                new.headline = new.headline or old.headline
+                kept.append(new)
+            elif old.src == "read":
+                kept.append(old)
+        merged = kept + [c for c in connections if (_slug(c.url) or c.id) in exported]
+        _write_rows(bank, held, merged, exported_on=day, read_on=held.get("read_on"))
     return True
+
+
+@dataclass
+class ReadReport:
+    """What one agent read of the connections page did to the directory — counts only, never a name."""
+    seen: int = 0
+    added: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    dropped: int = 0     # a row with no member profile link, or no name
+    undated: int = 0     # a row whose date the page showed in words this module does not read
+    full: int = 0        # rows past MAX_CONNECTIONS
+    known: list[bool] = field(default_factory=list)   # per row: already held, nothing new
+    rows: list[Connection] = field(default_factory=list)   # the rows this read named, as kept (never logged)
+
+
+def record_read(bank: str, rows: list, read_day: str) -> ReadReport:
+    """The person's agent read the connections page (``cicada_record_saved_list``, platform ``linkedin-connections``):
+    merge its rows into the directory by profile link. Never deletes a row; never moves ``exported_on`` backwards; the
+    finer day stays (:func:`_finer`); a row with no member profile link is left out (it cannot be told from another of the
+    same name). Nothing is written into any bank, and no model reads the rows."""
+    report = ReadReport()
+    with _locked(bank):
+        held = load_directory(bank)
+        current = _rows(held)
+        by_slug = {_slug(c.url): c for c in current if c.url}
+        changed = False
+        for row in rows:
+            row = row if isinstance(row, dict) else {}
+            url = profile_url(row.get("profile_url") or row.get("url"))
+            name = _clean(str(row.get("name") or "").split(",", 1)[0])
+            if not url or not name:
+                report.dropped += 1
+                continue
+            first, _, last = name.partition(" ")
+            day, precision = parse_connected(row.get("connected"), read_day)
+            if row.get("connected") and not day:
+                report.undated += 1
+            headline = _clean(row.get("headline"))
+            report.seen += 1
+            old = by_slug.get(_slug(url))
+            report.rows.append(old if old is not None else Connection(first, last.strip(), url))
+            if old is None:
+                if len(current) >= MAX_CONNECTIONS:
+                    report.full += 1
+                    report.known.append(False)
+                    continue
+                new = Connection(first, last.strip(), url, "", "", day, headline, precision if day else None, "read")
+                report.rows[-1] = new
+                current.append(new)
+                by_slug[_slug(url)] = new
+                report.added += 1
+                report.known.append(False)
+                changed = True
+                continue
+            moved = False
+            if headline and headline != old.headline:
+                old.headline, moved = headline, True
+            if _finer((day, precision), (old.connected_on, old.precision)):
+                old.connected_on, old.precision, moved = day, precision, True
+            if not (old.first or old.last):
+                old.first, old.last, moved = first, last.strip(), True
+            report.updated += int(moved)
+            report.unchanged += int(not moved)
+            report.known.append(not moved)
+            changed = changed or moved
+        if changed:
+            # ``exported_on`` is the export file's own day and never moves here (so an older export is still refused
+            # only by a newer export); a read keeps its own day beside it.
+            _write_rows(bank, held, current, exported_on=held.get("exported_on"),
+                        read_on=max(str(held.get("read_on") or ""), read_day))
+    return report
 
 
 def forget_directory(bank: str) -> int:
@@ -671,11 +945,192 @@ def rematch(memory_path: Path, *, bank: str | None = None, skip: frozenset[str] 
         return Report()   # a demo bank never takes in the person's real connections (R-CS16)
     held = load_directory(bank or memory_path.name)
     rows = held.get("connections") if isinstance(held.get("connections"), list) else []
-    day = _day(held.get("exported_on"))
+    day = _day(held.get("exported_on")) or _day(held.get("read_on"))
     if not rows or not day:
         return Report()
     connections = [c for c in (Connection.from_dict(r) for r in rows) if c is not None]
     return apply(memory_path, connections, day=day, skip=skip)
+
+
+# --------------------------------------------------------------------------- a page's birth
+
+class Attacher:
+    """The kept connection that matches a person page being **born** attaches in the write that births it — not at the
+    tail of a night's Sleep (owner 2026-11-24: "the person is what gets a page"; the connection never does).
+
+    One instance serves one run (Sleep's Stage 5 create loop) or one write (an agent's first claim about a new person):
+    the directory and the bank's person-page index are read once, on the first person born, and every page born since
+    is added to that index, so two pages of one name born in one run see each other and refuse. Nothing happens, and
+    nothing is read, when the bank is a demo bank, the directory is not kept, or it holds nothing dated. Never mints a
+    page, never calls a model or the network. Refusals — a name the bank holds a same-name doubt for, two connections or
+    two pages of one name — write nothing and are counted in :attr:`report`, never named."""
+
+    def __init__(self, memory_path: Path, *, bank: str | None = None) -> None:
+        self.memory_path = Path(memory_path)
+        self.bank = bank or self.memory_path.name
+        self.report = Report()
+        self._ready: bool | None = None
+        self._day = ""
+        self._by_key: dict[str, list[Connection]] = {}
+        self._by_slug: dict[str, Connection] = {}
+        self._idx: _Index | None = None
+        self._doubted: set[str] = set()
+        self._owners: set[str] = set()
+
+    def _load(self) -> bool:
+        if self._ready is not None:
+            return self._ready
+        self._ready = False
+        from api.services import demo_guard
+
+        if demo_guard.is_demo(self.memory_path) or not directory_path(self.bank).exists():
+            return False
+        held = load_directory(self.bank)
+        rows = _rows(held)
+        self._day = _day(held.get("exported_on")) or _day(held.get("read_on")) or ""
+        if not rows or not self._day:
+            return False
+        for c in rows:
+            for key in _name_keys(c):
+                self._by_key.setdefault(key, []).append(c)
+            if slug := _slug(c.url):
+                self._by_slug[slug] = c
+        self._idx = _index(self.memory_path)
+        self._doubted = _doubted(self.memory_path, self._idx)
+        self._owners = _owner_ids(self.memory_path)
+        self._ready = True
+        return True
+
+    def _register(self, entity_id: str, labels: list) -> None:
+        idx = self._idx
+        keys = [_fold(label) for label in labels]
+        for key in keys:
+            if key:
+                idx.names.setdefault(key, set()).add(entity_id)
+        idx.page_names[entity_id] = keys[0] if keys else ""
+        idx.page_aliases[entity_id] = {k for k in keys[1:] if k}
+
+    def attach(self, fm: dict, body: str, entity_id: str) -> tuple[dict, str]:
+        """``(frontmatter, body)`` of the page being born, with the one connection that matches it written on — the
+        profile link as a ``sources:`` entry and works-at, role and connected-on as dated claims observed
+        ``external:linkedin`` (what :func:`apply` writes on an existing page). Unchanged for anyone else, and for a page
+        the person's own, dropped or not a person."""
+        if fm.get("type") != "person" or fm.get("owner") is True or fm.get("status") == "dropped":
+            return fm, body
+        if not self._load():
+            return fm, body
+        idx = self._idx
+        if entity_id in self._owners:
+            return fm, body
+        labels = people_directory.labels(fm, entity_id)
+        self._register(entity_id, labels)
+        found: dict[str, Connection] = {}
+        for label in labels:
+            for c in self._by_key.get(_fold(label), []):
+                found[c.id] = c
+        for source in fact_sources.as_sources(fm.get("sources")):
+            if (slug := _slug(source.get("ref"))) and slug in self._by_slug:
+                found[self._by_slug[slug].id] = self._by_slug[slug]
+                idx.slugs.setdefault(slug, set()).add(entity_id)
+                idx.page_slugs.setdefault(entity_id, set()).add(slug)
+                if _vouched(source):
+                    idx.listed_by_others.setdefault(entity_id, set()).add(slug)
+        landing: list[Connection] = []
+        for c in found.values():
+            hits, doubt = _hits(idx, c, self._doubted)
+            if doubt:
+                self.report.doubted += 1
+            elif hits == {entity_id}:
+                landing.append(c)
+            elif hits:
+                self.report.ambiguous += 1
+        if len(landing) != 1:
+            self.report.ambiguous += len(landing) if landing else 0
+            return fm, body
+        c = landing[0]
+        new_fm, new_body, changed = _apply_to(
+            fm, body, entity_id, _facts(c), url=c.url, day=self._day, origin=ORIGIN_EXPORT, companies=idx.companies,
+            report=self.report, how=basis(idx, entity_id, c), precision=c.precision)
+        if not changed:
+            return fm, body
+        self.report.matched += 1
+        self.report.paths.append(f"entities/{entity_id}.md")
+        if slug := _slug(c.url):
+            idx.slugs.setdefault(slug, set()).add(entity_id)
+            idx.page_slugs.setdefault(entity_id, set()).add(slug)
+        return new_fm, new_body
+
+
+# --------------------------------------------------------------------------- the list (the person's own view)
+
+#: The most rows one request returns.
+MAX_ROWS = 200
+#: The agents' read door: connections in a date range, at most this many.
+AGENT_ROWS = 50
+
+
+def _headline(c: Connection) -> str:
+    """The line under a connection's name: what the page showed, else the export's position at its company."""
+    if c.headline:
+        return c.headline
+    return f"{c.position} at {c.company}" if c.position and c.company else (c.position or c.company)
+
+
+def _page_for(idx: _Index, doubted: set[str], by_key: dict[str, list[Connection]], c: Connection) -> str | None:
+    """The one person page this connection is — exactly one, by :func:`_hits`' rules — or ``None``. A name another
+    connection shares matches neither, as in :func:`apply`."""
+    hits, _ = _hits(idx, c, doubted)
+    if len(hits) != 1:
+        return None
+    page = next(iter(hits))
+    slug = _slug(c.url)
+    if not (slug and slug in idx.page_slugs.get(page, set())):
+        for key in _name_keys(c):
+            if any(other.id != c.id for other in by_key.get(key, [])):
+                return None
+    return page
+
+
+def list_rows(memory_path: Path, bank: str, *, query: str = "", since: str | None = None, until: str | None = None,
+              offset: int = 0, limit: int = 50) -> dict:
+    """The person's connections, newest first, each with the matched page when there is exactly one — read from the
+    directory at this moment and written nowhere. ``query`` is words of a name or a headline (folded like search);
+    ``since`` and ``until`` bound the day, inclusive (a row with no day is outside any range). One page index is read for
+    the request, only when a row is returned."""
+    held = load_directory(bank)
+    rows = _rows(held)
+    words = people_directory.fold(query).split()
+    if words:
+        rows = [c for c in rows if all(w in people_directory.fold(f"{c.name} {_headline(c)}") for w in words)]
+    since_day, until_day = _day(since), _day(until)
+    if since_day or until_day:
+        rows = [c for c in rows if c.connected_on and (not since_day or c.connected_on >= since_day)
+                and (not until_day or c.connected_on <= until_day)]
+    rows.sort(key=lambda c: c.name.lower())
+    rows.sort(key=lambda c: c.connected_on or "", reverse=True)
+    dated = [c for c in rows if c.connected_on]
+    rows = dated + [c for c in rows if not c.connected_on]
+    total = len(rows)
+    limit = max(1, min(int(limit), MAX_ROWS))
+    offset = max(0, int(offset))
+    page_rows = rows[offset:offset + limit]
+    out: list[dict] = []
+    if page_rows:
+        from api.services import demo_guard
+
+        idx = None if demo_guard.is_demo(Path(memory_path)) else _index(Path(memory_path))
+        doubted = _doubted(Path(memory_path), idx) if idx else set()
+        by_key: dict[str, list[Connection]] = {}
+        for c in _rows(held):
+            for key in _name_keys(c):
+                by_key.setdefault(key, []).append(c)
+        for c in page_rows:
+            out.append({"id": c.id, "name": c.name, "headline": _headline(c), "url": c.url, "day": c.connected_on,
+                        "precision": c.precision if c.connected_on else None,
+                        "page": _page_for(idx, doubted, by_key, c) if idx else None})
+    return {"rows": out, "total": total, "offset": offset,
+            "next": offset + limit if offset + limit < total else None,
+            "exportedOn": held.get("exported_on"), "readOn": held.get("read_on"), "kept": len(_rows(held))}
 
 
 def commit_message(report: Report, today: date, *, trigger: str = TRIGGER_REMATCH) -> str:
