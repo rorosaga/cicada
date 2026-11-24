@@ -443,10 +443,27 @@ def _next_item(inbox: Path) -> Path:
     return inbox / f"inbox-{top + 1:03d}.md"
 
 
+#: Owner 2026-11-24: "someone known only by a description is not asked about on a first mention, only once they come up
+#: again". The name is asked when the page rests on this many distinct conversations, counted the way promotion counts
+#: them (`promotion.conversation_keys`: a session and its notes are one, every saved item the person said nothing about is
+#: one together, a memory-export entry or a watched day never lifts a page by its number).
+CONVERSATIONS_TO_ASK = 2
+
+
+def heard_again(memory_path: Path, fm: dict) -> bool:
+    """Has this unnamed person come up in a second conversation? Their page's own ``source_episodes``, counted by
+    :func:`promotion.conversation_keys`. A page citing none or one is a first mention: nothing is asked yet."""
+    from api.services import promotion
+
+    episodes = [str(e) for e in fm.get("source_episodes") or [] if e]
+    return len(promotion.conversation_keys(episodes, memory_path)) >= CONVERSATIONS_TO_ASK
+
+
 def ensure_question(memory_path: Path, page_id: str, *, owner_fm: dict | None = None,
                     today: str | None = None) -> Path | None:
     """Write "What's the name of your <relation>?" about an unnamed page, once. Returns the new item's path, or
-    ``None`` when the page is not an unnamed person, the person declined, or a question is already open."""
+    ``None`` when the page is not an unnamed person, the person declined, a question is already open, or the person
+    has come up in only one conversation so far (:func:`heard_again`; every producer goes through here)."""
     memory_path = Path(memory_path)
     page = memory_path / "entities" / f"{page_id}.md"
     if not page.is_file():
@@ -456,6 +473,8 @@ def ensure_question(memory_path: Path, page_id: str, *, owner_fm: dict | None = 
     if fm.get("owner") or not _person(fm) or fm.get(DECLINED_KEY) or not fm.get(UNNAMED_KEY):
         return None
     if str(fm.get("status") or "") == "dropped" or open_question(memory_path, page_id) is not None:
+        return None
+    if not heard_again(memory_path, fm):
         return None
     keys = roles_of(fm)
     role = parse(str(fm.get("name") or ""), owner_names(owner_fm), bare=True)
