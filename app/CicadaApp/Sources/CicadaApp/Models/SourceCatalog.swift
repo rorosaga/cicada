@@ -551,9 +551,13 @@ enum SourceCatalog {
         }
     }
 
-    /// "Sources · 6 connected" — the eyebrow counts what the Connected section draws, each reader once (`readerHome`); a
-    /// list waiting for an agent, or a read waiting on a permission, is not.
+    /// What the Connected group draws, each reader once (`readerHome`); a list waiting for an agent, or a read waiting on a
+    /// permission, is not in it.
     static func connectedCount(_ rows: [SourceCatalogRow]) -> Int { rows.filter(\.isConnectedHere).count }
+
+    /// "Sources · 6 on" — the header counts the sources that are on, each reader once, whether or not anything has been
+    /// read yet (G245, owner 2026-11-24): a list the person just turned on is on; its card says it waits for an agent.
+    static func onCount(_ rows: [SourceCatalogRow]) -> Int { rows.filter(\.isOn).count }
 
     /// The second line, only when it says something: when it last synced ("2 h ago"), else nothing (the status word
     /// on the right says the rest — never a sentence, design-refs pattern 4).
