@@ -905,7 +905,11 @@ def apply_changes(changes: list[dict], memory_path) -> None:
 
                 try:
                     linkedin = linkedin or linkedin_people.Attacher(memory_path)
-                    frontmatter, body = linkedin.attach(frontmatter, body, entity_id)
+                    # A page one full-name mention of a connection made takes the link only as a proposal (`entity_resolver`'s
+                    # `LINKEDIN_MENTION_KEY`); every other birth records the match as it is.
+                    frontmatter, body = linkedin.attach(
+                        frontmatter, body, entity_id,
+                        how=linkedin_people.MATCH_ALIAS if change.get("linkedin_mention") else None)
                 except Exception as exc:  # noqa: BLE001 — the page is still born; the tail's rematch retries
                     logger.warning(f"Stage 5: a LinkedIn connection was not attached ({type(exc).__name__})")
             markdown_parser.write(filepath, frontmatter, body)

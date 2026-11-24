@@ -11,7 +11,7 @@ the graph, and a page needs conversations. So:
 - a connection matches **exactly one existing ``person`` page** — by its profile link when a page already lists that
   link as a source, else by its folded full name (either order) or an alias; never the owner's page, never a page
   that already names a *different* LinkedIn profile, and never when two connections land on one page or one
-  connection on two pages. **No page is ever created and nothing is said about an unmatched name.**
+  connection on two pages. **No page is made by the import and nothing is said about an unmatched name** (a page comes only from the person's own full-name mention, below).
 - on a match: the profile link becomes a G61 source ``{ref, kind: url, predicate: linkedin, added_by: cicada}`` —
   where to look the person up, not a copy; a removal the person made (``sources_removed``) is respected: the link is
   never re-added and that connection writes nothing more on that page (the person said it is not this person). Company and position become claims ``works-at`` / ``role`` observed ``external:linkedin`` (``source_trust:
@@ -44,6 +44,14 @@ is born by the rules that already exist, and the kept connection that matches it
 (:class:`Attacher`: Sleep's Stage 5 create and an agent's first claim about a new person), not a night later. A name-only
 match is refused when the bank holds a same-name doubt for that name, when two connections or two pages share it, or when
 the page names a different profile (:func:`_hits`); a refusal writes nothing and is counted, never named.
+
+**One full-name mention is enough (owner 2026-11-24, "yes it should be enough").** The person's own words naming exactly one
+waiting connection in full make that person's page, the connection attaching in the same write (`entity_resolver._connection_for`,
+the Contacts rule's refusals all held); a connection nobody mentioned makes nothing. Because a connection list is far larger
+than an address book, the link such a page gets is only a **proposal** (:meth:`Attacher.attach` with ``how=MATCH_ALIAS``:
+``match: alias``, ``proposed: true``, the grouped "Confirm N links" review): no photo request, never "from their
+connections", until the person takes it. :func:`arrivals`, :func:`waiting_connections` and :func:`match_labels` are the public
+reads this rule and any later one use, so none imports this module's private helpers.
 
 No model runs and nothing is fetched: the profile link is stored, never opened. The person's agent may open it later
 in the person's own browser, when the person asks about that one person — the ``linkedin-people`` skill and
@@ -398,6 +406,7 @@ class _Index:
     page_names: dict[str, str] = field(default_factory=dict)          # page → its own folded name
     page_aliases: dict[str, set[str]] = field(default_factory=dict)   # page → its folded aliases
     listed_by_others: dict[str, set[str]] = field(default_factory=dict)  # page → slugs a non-Cicada source lists
+    owner_keys: set[str] = field(default_factory=set)   # the owner's page's folded names: never a connection (`arrivals`)
 
 
 _fold = people_directory.fold
@@ -438,6 +447,8 @@ def _index(memory_path: Path) -> _Index:
                 if key := _fold(label):
                     idx.companies.setdefault(key, set()).add(f.stem)
             continue
+        if kind == "person" and (fm.get("owner") is True or f.stem in owners):
+            idx.owner_keys |= {k for label in labels if (k := _fold(label))}
         if kind != "person" or fm.get("owner") is True or f.stem in owners:
             continue
         for label in labels:
@@ -468,6 +479,11 @@ def _vouched(source: dict) -> bool:
 
 def _name_keys(c: Connection) -> set[str]:
     return people_directory.name_keys(c.first, c.last)
+
+
+def name_keys(c: Connection) -> set[str]:
+    """Both orders of a connection's full name, folded like search — nothing for a one-part name."""
+    return _name_keys(c)
 
 
 def from_connections(source: dict) -> bool:
@@ -587,6 +603,107 @@ def match(memory_path: Path, connections: list[Connection]) -> tuple[dict[str, C
     return matched, ambiguous + refused, unmatched
 
 
+# --------------------------------------------------------------------------- the arrivals (what a later rule reads)
+
+
+@dataclass(frozen=True)
+class Arrival:
+    """One kept connection as the bank sees it now — the public read the mention rule (`entity_resolver`) and any later
+    rule builds on, so none imports this module's private helpers. Names are here because the caller asked for the
+    directory's own rows; nothing on it is ever logged or served."""
+    connection: Connection
+    #: The person pages the connection lands on by :func:`_hits` (its link, else its name or an alias): none, one or several.
+    pages: tuple[str, ...] = ()
+    #: ``_hits`` refused it: a page carries the name and the bank holds a same-name doubt for it.
+    refused: bool = False
+    #: The bank holds a same-name doubt for the name, whether or not a page carries it yet.
+    doubted: bool = False
+    #: The name is the owner's page's own (a person is never one of their own connections).
+    owner: bool = False
+
+    @property
+    def id(self) -> str:
+        return self.connection.id
+
+    @property
+    def name(self) -> str:
+        return self.connection.name
+
+    @property
+    def day(self) -> str | None:
+        return self.connection.connected_on
+
+    @property
+    def precision(self) -> str | None:
+        c = self.connection
+        return (c.precision if c.precision in PRECISIONS else "day") if c.connected_on else None
+
+    @property
+    def dup(self) -> int:
+        return self.connection.dup
+
+    @property
+    def page(self) -> str | None:
+        """The one page it is, or ``None`` (no page, or more than one)."""
+        return self.pages[0] if len(self.pages) == 1 else None
+
+    @property
+    def waiting(self) -> bool:
+        """No page carries it and nothing refuses it: a connection nobody has mentioned into a page yet."""
+        return not (self.pages or self.refused or self.doubted or self.owner)
+
+
+def arrivals(memory_path: Path, bank: str | None = None) -> list[Arrival]:
+    """Every kept connection with where it stands in this bank, in the directory's order. Read-only: the directory and
+    the page index are each read once, nothing is written, nothing leaves the Mac. Empty on a demo bank (R-CS16), with no
+    directory, or with one that holds nothing dated (the same gate as :class:`Attacher`)."""
+    from api.services import demo_guard
+
+    memory_path = Path(memory_path)
+    bank = bank or memory_path.name
+    if demo_guard.is_demo(memory_path) or not directory_path(bank).exists():
+        return []
+    rows = _rows(load_directory(bank))
+    if not rows:
+        return []
+    idx = _index(memory_path)
+    doubted = _doubted(memory_path, idx)
+    out: list[Arrival] = []
+    for c in rows:
+        keys = _name_keys(c)
+        hits, refused = _hits(idx, c, doubted)
+        out.append(Arrival(c, tuple(sorted(hits)), refused, bool(keys & doubted), bool(keys & idx.owner_keys)))
+    return out
+
+
+def waiting_connections(memory_path: Path, bank: str | None = None) -> dict[str, list[Connection]]:
+    """The waiting connections by folded full name (either order): ``{key: [connection, …]}``. A key is present only when
+    **every** kept row of that name is waiting (:attr:`Arrival.waiting`) — a name another row of the directory shares that
+    already lands on a page, is the owner's, or is under a same-name doubt is not offered at all — and a list of two or
+    more is two people until something says otherwise (two rows with no link and one name, or two links), which the
+    caller must refuse. A one-part name has no key."""
+    rows = arrivals(memory_path, bank)
+    by_key: dict[str, list[Arrival]] = {}
+    for a in rows:
+        for key in _name_keys(a.connection):
+            by_key.setdefault(key, []).append(a)
+    return {key: [a.connection for a in group] for key, group in by_key.items() if all(a.waiting for a in group)}
+
+
+def match_labels(waiting: dict[str, list[Connection]], labels) -> Connection | None:
+    """The ONE waiting connection a mention's labels (its name and aliases) name in full — a two-part name, either order,
+    folded like search — or ``None``: nobody, a one-part label, or more than one connection (a name two rows share, or two
+    labels naming two people)."""
+    found: dict[str, Connection] = {}
+    for label in labels or []:
+        key = _fold(label)
+        if " " not in key:
+            continue
+        for c in waiting.get(key, []):
+            found[c.id] = c
+    return next(iter(found.values())) if len(found) == 1 else None
+
+
 # --------------------------------------------------------------------------- writing one page
 
 
@@ -651,7 +768,7 @@ def _reconcile(claims: list[Claim], entity_id: str, name: str, predicate: str, v
 def _apply_to(fm: dict, body: str, entity_id: str, facts: dict[str, str], *, url: str | None, day: str, origin: str,
               companies: dict[str, set[str]], report: Report, evidence_by: dict[str, list] | None = None,
               authored_by: str = AUTHOR, add_source: bool = True, how: str | None = None,
-              precision: str | None = None) -> tuple[dict, str, bool]:
+              precision: str | None = None, proposed: bool = False) -> tuple[dict, str, bool]:
     """One person's LinkedIn link and facts onto a page held in memory: ``(frontmatter, body, changed)``. The page is
     written by the caller — in place for an existing page (:func:`_apply_page`), or as part of the write that births it
     (:class:`Attacher`)."""
@@ -668,14 +785,17 @@ def _apply_to(fm: dict, body: str, entity_id: str, facts: dict[str, str], *, url
             return fm, body, False
         if not listed and len(current) < fact_sources.MAX_SOURCES:
             fm["sources"] = current + [{"ref": url, "kind": fact_sources.KIND_URL, "predicate": SOURCE_PREDICATE,
-                                        "added_by": AUTHOR, "added_at": today, **({MATCH_KEY: how} if how else {})}]
+                                        "added_by": AUTHOR, "added_at": today, **({MATCH_KEY: how} if how else {}),
+                                        **({fact_sources.PROPOSED: True} if proposed else {})}]
             report.sources_added += 1
             changed = True
         elif listed and how:
             # Cicada's own link from an earlier import (or one from before ``match`` existed) records this match.
             for source in current:
                 if (_slug(source.get("ref")) == _slug(url) and str(source.get("added_by") or "") == AUTHOR
-                        and source.get(MATCH_KEY) != how):
+                        and source.get(MATCH_KEY) != how and not fact_sources.is_proposed(source)):
+                    # (a link still waiting in "Confirm N links" keeps the match it was proposed under: the night's tail
+                    # never lifts a guess to a confident match behind the person's back)
                     source[MATCH_KEY] = how   # the same dict ``fm["sources"]`` holds
                     changed = True
     if any(facts.values()):
@@ -1061,11 +1181,18 @@ class Attacher:
         idx.page_names[entity_id] = keys[0] if keys else ""
         idx.page_aliases[entity_id] = {k for k in keys[1:] if k}
 
-    def attach(self, fm: dict, body: str, entity_id: str) -> tuple[dict, str]:
+    def attach(self, fm: dict, body: str, entity_id: str, *, how: str | None = None) -> tuple[dict, str]:
         """``(frontmatter, body)`` of the page being born, with the one connection that matches it written on — the
         profile link as a ``sources:`` entry and works-at, role and connected-on as dated claims observed
         ``external:linkedin`` (what :func:`apply` writes on an existing page). Unchanged for anyone else, and for a page
-        the person's own, dropped or not a person."""
+        the person's own, dropped or not a person.
+
+        ``how`` can only DEMOTE: ``None`` records the match as it is (:func:`basis`); :data:`MATCH_ALIAS` records an
+        alias-only match **and writes the link as a proposal** (``proposed: true``, the grouped "Confirm N links" review),
+        for a page the person's one full-name mention made (`entity_resolver._connection_for`) — a connection list is far
+        larger than an address book, so the name alone must not hand the link a photo request. Any other value raises."""
+        if how not in (None, MATCH_ALIAS):
+            raise ValueError("how can only demote a match to 'alias'")
         if fm.get("type") != "person" or fm.get("owner") is True or fm.get("status") == "dropped":
             return fm, body
         if not self._load():
@@ -1101,7 +1228,7 @@ class Attacher:
         c = landing[0]
         new_fm, new_body, changed = _apply_to(
             fm, body, entity_id, _facts(c), url=c.url, day=self._day, origin=ORIGIN_EXPORT, companies=idx.companies,
-            report=self.report, how=basis(idx, entity_id, c), precision=c.precision)
+            report=self.report, how=how or basis(idx, entity_id, c), precision=c.precision, proposed=how == MATCH_ALIAS)
         if not changed:
             return fm, body
         self.report.matched += 1

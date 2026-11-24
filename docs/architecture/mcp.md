@@ -840,8 +840,9 @@ page, nothing clicked that changes it, never a feed, timeline, someone else's pr
   day when the page shows a date, else the page's own words ("3 weeks ago"), stored as a day and a precision (`day` · `week` ·
   `month`) counted from the read day (`linkedin_people.parse_connected`); words it does not read leave the row undated and the reply
   counts them. The read counts once against the day's 10 like any list's (a pass of up to 200 rows a call, `continues`,
-  `reached_end`: the first read goes to the end, later reads stop at `Known ground`). A connection never makes a page; a person's
-  page gains its connection at birth or at the night's tail (`capture-and-sleep.md`, *LinkedIn connections*).
+  `reached_end`: the first read goes to the end, later reads stop at `Known ground`). A read never makes a page (only the person's own full-name
+  mention of one connection does, at Sleep, its link proposed); a person's page gains its connection at birth or at the night's tail
+  (`capture-and-sleep.md`, *LinkedIn connections*).
   **`cicada_linkedin_connections(since?, until?, limit?)`** is the one read door for the person's agents: connections in a date range
   (`since` a day or days back, default 30; `until` a day; at most **50** rows, newest first), each with its name, headline, day (and
   "about, to the week" for an approximate one) and the matched page's id when there is exactly one. **Stdio and the command line

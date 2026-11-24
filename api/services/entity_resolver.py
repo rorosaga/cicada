@@ -15,7 +15,7 @@ from loguru import logger
 from thefuzz import fuzz
 
 from api.config import Settings
-from api.services import (agent_engine, alias_policy, application_page, authorship, contact_identity, contacts_local, phone_numbers, correspondents, engine_errors,
+from api.services import (agent_engine, alias_policy, application_page, authorship, contact_identity, contacts_local, linkedin_people, phone_numbers, correspondents, engine_errors,
                           entity_body, entity_relations, entity_types, fact_policy, json_parse, link_names, owner_identity, pair_evidence, people_directory, person_leads,
                           project_birth, promotion, quiet_pages, role_people, same_name_people, section_provenance,
                           text_fold, wrong_aliases)
@@ -366,11 +366,18 @@ async def resolve(
     # Owner ruling 2026-10-20: the address-book cards that matched no page wait outside the bank; a first mention that
     # names exactly one of them in full is enough to promote, and the page is born under the card's name.
     waiting_cards = _waiting_cards(settings)
+    # G245 (owner 2026-11-24, "yes it should be enough"): the kept LinkedIn connections no page carries yet, by folded
+    # full name — the same rule as a card, behind the same refusals (`_connection_for`).
+    waiting_connections = _waiting_connections(settings)
     existing_ids = {str(e.get("id")) for e in existing}
-    person_keys = _person_page_keys(existing) if waiting_cards.cards else set()
-    episode_kind = (quiet_pages.episode_lookup(Path(settings.memory_path)) if waiting_cards.cards
+    # Either kind of lead needs the pages' names and each episode's kind: a bank with connections and NO waiting card
+    # must not read "no page holds that name" off an empty set, nor find no conversation in an empty lookup.
+    leads = bool(waiting_cards.cards or waiting_connections)
+    person_keys = _person_page_keys(existing) if leads else set()
+    episode_kind = (quiet_pages.episode_lookup(Path(settings.memory_path)) if leads
                     else (lambda _episode: None))
     card_creates: dict[str, str] = {}   # card id -> the page this batch is creating for it
+    connection_creates: dict[str, str] = {}   # connection id -> the page this batch is creating for it
     # G209: the person pages keyed for leads (an alias or a linked account another page carries), and the pending
     # lines the extractor parked as "handle (Full Name)", by their full name.
     person_index = person_leads.PersonIndex(existing)
@@ -758,7 +765,23 @@ async def resolve(
                 card_page = sanitize_id(contacts_local.card_name(card))
                 if card_page in existing_ids or card_page in resolved_creates:
                     card = None   # the card's name is already another page's id: an ordinary name, by the usual rule
-            should_promote = should_promote or card is not None
+            connection = None
+            if card is None and not ambiguous_match and not should_promote:
+                # G245 (2026-11-24): one full-name mention of one waiting LinkedIn connection — the person's own words in a
+                # conversation (or, behind `CONNECTION_NAMED_IN_OWN_NOTES`, their own note) — is enough for the page.
+                connection = _connection_for(entity, siblings, waiting_connections, waiting_cards, person_keys,
+                                             episode_kind, memory_path=Path(settings.memory_path))
+            if connection is not None and connection.id in connection_creates:
+                # A second spelling of a name this batch already gave a connection's page to: the same page.
+                connection_page = connection_creates[connection.id]
+                name_to_id[name_lower] = connection_page
+                for incoming in (entity, *siblings):
+                    _merge_into_create(resolved_creates[connection_page], incoming)
+                continue
+            if connection is not None and (sanitize_id(connection.name) in existing_ids
+                                           or sanitize_id(connection.name) in resolved_creates):
+                connection = None   # the connection's name is already another page's id: an ordinary name, by the usual rule
+            should_promote = should_promote or card is not None or connection is not None
             # Ruling 56 (amends 36 D4): Sleep never makes a project. What it read — a repository, the person's words —
             # rides as a signal (`project_birth`) to the one fallback page, decided after this loop.
             birth = project_birth.birth_of(entity, siblings)
@@ -796,7 +819,7 @@ async def resolve(
                 ))
 
             own_id: str | None = None   # G227: a page of its own under a name another page already spells
-            taken = (should_promote and not ambiguous_match and card is None
+            taken = (should_promote and not ambiguous_match and card is None and connection is None
                      and sanitize_id(name) in existing_ids)
             if taken:
                 page = next((e for e in existing if str(e.get("id")) == sanitize_id(name)), None)
@@ -821,6 +844,8 @@ async def resolve(
             if should_promote and not ambiguous_match:
                 if card is not None:
                     entity = _card_entity(entity, card)
+                elif connection is not None:
+                    entity = _renamed_entity(entity, connection.name)
                 entity_id = own_id or sanitize_id(entity["name"])
                 name_to_id[name_lower] = entity_id
                 decided_names.add(name_lower)
@@ -829,6 +854,13 @@ async def resolve(
                     # Stage 5 writes the card's sources and photo on the page it creates (`contacts_local.seed_page`).
                     resolved_creates[entity_id]["contacts_card"] = card
                     card_creates[str(card["id"])] = entity_id
+                    name_to_id[entity["name"].lower()] = entity_id
+                elif connection is not None:
+                    # Stage 5 attaches the connection in the write that creates the page, its link only PROPOSED
+                    # (`linkedin_people.Attacher.attach(how=MATCH_ALIAS)`): the mention made the page, the name alone
+                    # does not make the link the person's own account.
+                    resolved_creates[entity_id][LINKEDIN_MENTION_KEY] = {"id": connection.id, "name": connection.name}
+                    connection_creates[connection.id] = entity_id
                     name_to_id[entity["name"].lower()] = entity_id
                 for sibling in siblings:
                     _merge_into_create(resolved_creates[entity_id], sibling)
@@ -879,6 +911,10 @@ async def resolve(
         if change.get("contacts_card"):
             # A merged spelling never renames it: a page born from a card carries the card's name.
             change["entity"]["name"] = contacts_local.card_name(change["contacts_card"])
+        elif isinstance(change.get(LINKEDIN_MENTION_KEY), dict):
+            change["entity"]["name"] = change[LINKEDIN_MENTION_KEY]["name"]   # the same rule for a connection's page
+    if connection_creates:
+        logger.info(f"Stage 2: {len(connection_creates)} page(s) promoted on a connection's first mention")  # never a name
     if card_creates:
         logger.info(f"Stage 2: {len(card_creates)} page(s) promoted on a waiting card's first mention")  # never a name
     if not cancelled:
@@ -1694,8 +1730,10 @@ def _person_page_keys(existing: list[dict]) -> set[str]:
 CARD_REFUSED_SOURCES = frozenset({"tab-group", "calendar", "calendar-local"})
 
 
-def _said_in_person_turn(memory_path: Path | None, episode_id: str, card: dict) -> bool:
-    """Did the person themselves say this card's full name — in a MARKED turn of theirs (``user:`` or a meeting's
+def _said_in_person_turn(memory_path: Path | None, episode_id: str, card: dict | None, *,
+                         keys: set[str] | None = None, mask_urls: bool = False) -> bool:
+    """Did the person themselves say this card's full name (or, with ``keys``, this set of name keys: a LinkedIn
+    connection's, ``mask_urls`` blanking any link first — a profile's slug is its name spelled, never said) — in a MARKED turn of theirs (``user:`` or a meeting's
     ``speaker:``)? Not a reply of the agent's, not a relayed turn (``evidence_kind: assistant``, ruling 32), and not a
     document with no turn markers, which `promotion.exchanges` reads as the person's own writing (a tab group, a
     calendar, a feed item, a note): a card promotes only on the person's own words (owner ruling 2026-10-20)."""
@@ -1713,12 +1751,16 @@ def _said_in_person_turn(memory_path: Path | None, episode_id: str, card: dict) 
         text = entry.body()
     except Exception:
         return False
-    keys = contacts_local.name_keys(card.get("given_name"), card.get("family_name"))
+    if keys is None:
+        keys = contacts_local.name_keys(card.get("given_name"), card.get("family_name"))
     for turn in evidence.turns(text, override=authorship.of(fm)):
         # In a group only the person's own lines are theirs (`promotion.person_kinds`, #499 review).
         if turn.marker is None or turn.role not in promotion.person_kinds(fm):
             continue
-        said = f" {people_directory.fold(text[turn.content_start:turn.end])} "
+        said = text[turn.content_start:turn.end]
+        if mask_urls:
+            said = _LINK.sub(" ", said)
+        said = f" {people_directory.fold(said)} "
         if any(f" {key} " in said for key in keys):
             return True
     return False
@@ -1786,9 +1828,107 @@ def _number_card(entity: dict, siblings: list[dict], settings: Settings) -> dict
                  and not role_people.parse(contacts_local.card_name(c), bare=True)), None)
 
 
+#: The transient key on a create that a LinkedIn connection's one full-name mention made (`_connection_for`): Stage 5 reads
+#: it to attach that connection with a PROPOSED link and drops it — it never reaches a page.
+LINKEDIN_MENTION_KEY = "linkedin_mention"
+
+#: **The coordinator's reading of the owner's example, not his ruling (2026-11-24).** He met people at an event and "wrote
+#: some in Apple Notes", and wants Cicada to "surface this relationships": so, for a LinkedIn connection only, a full name
+#: standing as whole words in the person's OWN note (an Apple Notes or a Notion note of theirs — never a locked note, an
+#: agent's note, a save or a clipped page) is their own words. The Contacts rule is untouched (a note never promotes a
+#: card, owner 2026-10-20). One line to turn it off: set this to False and only conversations count.
+CONNECTION_NAMED_IN_OWN_NOTES = True
+
+#: The episodes that are the person's own notes: `origin` of the Apple Notes sync and of a Notion export.
+OWN_NOTE_ORIGINS = frozenset({"apple-notes", "notion-export"})
+_LINK = re.compile(r"https?://\S+|\bwww\.\S+", re.IGNORECASE)
+
+
+def _waiting_connections(settings: Settings) -> dict[str, list]:
+    """This bank's waiting LinkedIn connections by folded full name (`linkedin_people.waiting_connections`): empty with no
+    bank path, on a demo bank, with no directory kept — and never an error, a read failure only means no page tonight."""
+    memory_path = getattr(settings, "memory_path", None)
+    if memory_path is None:
+        return {}
+    try:
+        return linkedin_people.waiting_connections(Path(memory_path))
+    except Exception as exc:  # noqa: BLE001 — the directory is outside the bank and disposable
+        logger.warning(f"Stage 2: waiting connections unreadable ({type(exc).__name__})")
+        return {}
+
+
+def _said_in_own_note(memory_path: Path | None, episode_id: str, keys: set[str]) -> bool:
+    """Does the person's OWN note hold this full name as whole words? Only an Apple Notes or Notion note of theirs
+    (`OWN_NOTE_ORIGINS`); never a locked note (`evidence.LOCKED_NOTE_KEY`, or a body Notes withheld), a note an agent wrote
+    or a shared one (`authorship.of` is anything but the person's own, `notion_by_other`), nor a save or clipped page
+    (`authorship.is_saved`). The record's filing labels (its folder) are blanked, and so is any link: a profile's slug is
+    the name spelled, never said. A pasted line in a note cannot be told from a typed one — that is the cost of the rule,
+    which is why it is one switch (`CONNECTION_NAMED_IN_OWN_NOTES`)."""
+    from api.services import bank_index, evidence, notes_sync
+
+    if memory_path is None or not str(episode_id or "").startswith("ep_"):
+        return False
+    entry = bank_index.file(memory_path, "episodes", f"{episode_id}.md")
+    if entry is None:
+        return False
+    fm = entry.frontmatter or {}
+    if str(fm.get("origin") or "") not in OWN_NOTE_ORIGINS:
+        return False
+    if (fm.get(evidence.LOCKED_NOTE_KEY) or fm.get("notion_by_other") or authorship.is_saved(fm)
+            or authorship.agent_saved(fm) or authorship.of(fm) not in (None, "user")):
+        return False
+    try:
+        text = entry.body()
+    except Exception:
+        return False
+    if str(fm.get("origin")) == notes_sync.ORIGIN and (notes_sync.is_stub(text)
+                                                       or str(fm.get("title") or "") == notes_sync.LOCKED_TITLE):
+        return False
+    said = f" {people_directory.fold(_LINK.sub(' ', evidence.mask_labels(text)))} "
+    return any(f" {key} " in said for key in keys)
+
+
+def _connection_for(entity: dict, siblings: list[dict], waiting: dict[str, list], waiting_cards: "contacts_local.WaitingIndex",
+                    person_keys: set[str], episode_kind: Callable[[str], str | None], *,
+                    memory_path: Path | None = None):
+    """The ONE waiting LinkedIn connection this person mention names in full (owner 2026-11-24: "yes it should be enough"),
+    or None — the Contacts rule (:func:`_card_for`) for a connection, with every one of its refusals: only a ``person``
+    mention the person made in their own words (Stage 1 measured it ``named_by_person``, in a conversation), the full name
+    standing in one of their own marked turns (never an agent's reply, a relayed turn, a save, a tab group, a calendar entry
+    or a feed item), never one titled by a relation to the owner, never a name two kept rows share (`waiting_connections`
+    offers only a name every row of which waits, and ``match_labels`` takes exactly one), the owner's, one under a same-name
+    doubt, or one an existing person page already holds. A name a waiting Contacts card also carries is that card's lead
+    and rule, never a second one. The one addition is the person's own notes (`CONNECTION_NAMED_IN_OWN_NOTES`)."""
+    if not waiting:
+        return None
+    group = (entity, *siblings)
+    if any(entity_types.in_set(e.get("type")) != "person" or e.get(role_people.UNNAMED_KEY) for e in group):
+        return None
+    labels = [label for e in group for label in [e.get("name"), *(e.get("aliases") or [])] if label]
+    connection = linkedin_people.match_labels(waiting, labels)
+    if connection is None:
+        return None
+    keys = linkedin_people.name_keys(connection)
+    if keys & person_keys or keys & set(waiting_cards.cards):
+        return None
+    spoken = [e for e in group if e.get("named_by_person")
+              and episode_kind(str(e.get("source_episode") or "")) == quiet_pages.CONVERSATION]
+    for e in spoken:
+        episode_id = str(e.get("source_episode") or "")
+        if _said_in_person_turn(memory_path, episode_id, None, keys=keys, mask_urls=True):
+            return connection
+        if CONNECTION_NAMED_IN_OWN_NOTES and _said_in_own_note(memory_path, episode_id, keys):
+            return connection
+    return None
+
+
 def _card_entity(entity: dict, card: dict) -> dict:
     """The mention, renamed to the card's name; the name the conversation used is kept as an alias when it differs."""
-    name = contacts_local.card_name(card)
+    return _renamed_entity(entity, contacts_local.card_name(card))
+
+
+def _renamed_entity(entity: dict, name: str) -> dict:
+    """The mention under ``name`` (a card's or a connection's); the name it was said under is kept as an alias."""
     aliases = [a for a in entity.get("aliases") or [] if a]
     said = str(entity.get("name") or "")
     if said and people_directory.fold(said) != people_directory.fold(name) and said not in aliases \
