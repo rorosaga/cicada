@@ -19,10 +19,18 @@ saved note and text relayed from an app never are: Sleep's own prose comes back 
 
 * carries the asked name and one of the page's names as two whole, separate spans (the page's name inside the asked name is
   not the page's name said);
-* **links them as one thing in the words themselves**: nothing but identity words (also, called, known as, short for, is, the,
-  "llamado", "también"...) and punctuation between the two spans (`linked`). "Both names in one sentence" is a list, a
-  part and a whole, a successor, a client: the connector must be the person's own statement that they are one, so a sentence
-  that relates them any other way ("<A> deploys with <B>", "<A> and <B>") never counts, however a model reads it;
+* **is the person's own statement that they are one thing, decided by the code on the ONE sentence that holds the pair**
+  (`linked`; review of 2026-11-24 with a judge rigged to answer "same": single function words such as "the", "a", "for",
+  "as", "it" are no identity words, and only the words between the names used to be read): no question, negation, doubt,
+  condition, contrast or plural subject anywhere in the sentence (not, n't, no, never, if, whether, think, maybe, "are
+  both", and the Spanish, French and German words); only nothing or an opener ("I call it") before the first name; between
+  the names exactly one phrase of identity from a closed list (:data:`PHRASES`: "also called", "known as", "aka", "short
+  for", "is the same as", "is just", "llamado"...), or a bracket or an equals sign with no words, or a bare "<A> is <B>"
+  only as the whole sentence; after the second name no possessive, no "of/de/for/to/and", no noun running on from it ("<A>
+  is <B>'s backend", "<A> is a <B>", "<A> is for <B>", "tools like <A> (<B>)" are all refused). Every other sentence of the
+  person's own turns that holds both names must be one as well, so a turn that also says "<A> is not <B>" leaves the
+  question. A sentence that relates them any other way never counts, however a model reads it. When in doubt the answer is
+  "not linked": the question stays open, which is always allowed;
 * for names that share a word ("<Family> API", "<Family> Web": the sibling shape) the same pair also needs ruling 82's
   second kind, two copied lines saying one specific fact with a word the bank holds on very few pages
   (`question_revisit.located`'s belief); for a name whose words are the page's name's plus others, or inside it (the part
@@ -43,9 +51,22 @@ conversations it holds; a name with nothing held, the pair in `_merge_rejected.y
 nothing more: the held lines stay held under their own name (a page of its own when the name earns one) and nothing lands on
 the page (`pending_store.apart_of`); the same question is not raised again for those conversations; the name never becomes
 an alias; and NO relation is written, so a part is never placed (G148's open problem, not this step's). Taking it back is the
-generic undo: the question returns and is the person's. It closes only on two reads that agree on "different" with a located
-line saying what the name is, and never when a turn of the person's names both in an identity-looking link (a doubt is left
-to the person), never a person (who someone is stays the person's).
+generic undo: the question returns and is the person's. It closes only on two reads that agree on "different" with a line located (never fuzzy) in a turn of the person's own or a
+named speaker's that says the name (never the held line's own text, the page's text or an assistant's turn: Sleep wrote the
+first two and an agent repeats them), and never when ANY such turn holds both names in one sentence, whatever sits between
+them (a name the page shares with another page counts as the page's for this check): the person has related them, and a
+doubt is left to the person. Never a person (who someone is stays the person's).
+
+**A page that has faded.** A question whose page was archived since, about a name not said after the page's last mention
+(each conversation by its own date against `last_referenced`; `said_after`), is retired with no read under ``target_faded``
+(:func:`faded_decision`): nothing is written to any page, the held lines stay held, undoable. A name said after is read like
+any other, but a "same" is never landed: the person's own yes bumps the page's `last_referenced` and leaves its status, so
+the lines would sit on an archived page nobody sees. A dropped page, a missing page and the owner's page keep their own
+reasons (``target_dropped``, ``target_missing``, ``owner_page``).
+
+A name of the page that another live page also answers to is no name of it here, nor is a one-word alias the conversation
+itself uses straight after a determiner ("the scheduler": a common noun there); the turns that say such a name next to the
+asked name still stop a close.
 
 **Cannot tell.** The question stays exactly as it is, the read remembered outside every bank as `question_revisit` remembers
 it (ids, a digest, the reader's model, a count; never a word). Questions about one page are read together
@@ -69,28 +90,76 @@ from api.services import engine_errors, full_name_join, inbox_tend, pair_evidenc
 
 RULE_SAME = "revisit_same"
 RULE_APART = "revisit_apart"
+#: A question about a page that has since faded (archived), the name not said since the page's last mention: retired with
+#: nothing written (`inbox_tend._retire`), the held lines staying held under their own name.
+RULE_FADED = "target_faded"
 #: The kind a name-with-no-page question is counted and traced under (the question's own kind is ``merge_suggestion``).
 KIND = "name_no_page"
 #: Names of one page read in one call (one prompt holds the page once). A bigger pile is read in turns.
 GROUP_MAX = 5
 MAX_NAME_TURNS = 3
 
-#: What may stand between the two names of a line that says they are one thing (`linked`): the person's own words of
-#: identity, in English and Spanish and a little French and German, and nothing that relates two things. A closed list in the
-#: safe direction: a language it lacks only means the name stays a question.
-LINK_WORDS = frozenset("""also aka called named known as short for stands nickname nicknamed alias dubbed namely formerly
-previously now is are was were be that which who this the a an i we you they he she it my our your call calls say said so just
-basically essentially literally really simply
-llamado llamada llamados conocido conocida conocidos como tambien también es son era eran se le me lo la el los las un una que
-cual mi mis nuestro alias apodo apodado dice dicen
-dit appele appelé aussi est genannt auch ist""".split())
-MAX_LINK_WORDS = 5
-#: With no identity word between them, the two names are one thing only inside a bracket or after an equals sign.
-OPENERS = frozenset('([=')
+#: The words that say, between two names, that they are one thing (`linked`), as folded word tuples (lower case, accents off):
+#: the person's own phrases of identity in English and Spanish and a little French and German, never a single function word
+#: ("is the", "for", "like", "also", "a") and never a verb that relates two things. A closed list in the safe direction: a
+#: phrase it lacks only means the name stays a question.
+PHRASES = frozenset({
+    ("also", "called"), ("also", "known", "as"), ("also", "named"), ("known", "as"), ("aka",), ("a", "k", "a"), ("short", "for"),
+    ("stands", "for"), ("is", "short", "for"), ("is", "called"), ("is", "also", "called"), ("is", "also", "known", "as"),
+    ("is", "known", "as"), ("is", "aka"), ("is", "the", "same", "as"), ("is", "same", "as"), ("is", "just"),
+    ("is", "just", "another", "name", "for"), ("is", "another", "name", "for"), ("formerly", "called"), ("formerly", "known", "as"),
+    ("previously", "called"), ("previously", "known", "as"), ("now", "called"), ("now", "known", "as"), ("is", "now", "called"),
+    ("which", "i", "also", "call"), ("which", "i", "call"), ("which", "we", "call"), ("i", "also", "call"),
+    ("which", "is", "also", "called"), ("which", "is", "called"), ("which", "is", "also", "known", "as"),
+    ("which", "is", "known", "as"), ("which", "is", "short", "for"),
+    ("tambien", "llamado"), ("tambien", "llamada"), ("llamado", "tambien"), ("llamada", "tambien"), ("conocido", "como"),
+    ("conocida", "como"), ("tambien", "conocido", "como"), ("tambien", "conocida", "como"), ("es", "lo", "mismo", "que"),
+    ("es", "el", "mismo", "que"), ("es", "la", "misma", "que"), ("es", "solo"), ("es", "simplemente"), ("abreviatura", "de"),
+    ("abreviado", "de"), ("es", "otro", "nombre", "de"), ("es", "otro", "nombre", "para"), ("o", "sea"), ("es", "tambien", "llamado"),
+    ("es", "conocido", "como"), ("es", "llamado"), ("al", "que", "llamo"), ("al", "que", "llamamos"), ("que", "tambien", "llamo"),
+    ("aussi", "appele"), ("est", "aussi", "appele"), ("connu", "sous", "le", "nom", "de"), ("auch", "genannt"), ("ist", "auch", "genannt"),
+    ("auch", "bekannt", "als"), ("bekannt", "als"),
+    # a bare "called" / "I call" / "alias" also reads as a verb ("I called Quartzline"): only after a comma
+    ("called",), ("llamado",), ("llamada",), ("alias",), ("i", "call"), ("we", "call"), ("que", "llamo"), ("que", "llamamos"),
+    ("appele",), ("dit",), ("genannt",),
+})
+#: The phrases that need a comma before them (see above).
+NEEDS_COMMA = frozenset({("called",), ("llamado",), ("llamada",), ("alias",), ("i", "call"), ("we", "call"), ("que", "llamo"),
+                         ("que", "llamamos"), ("appele",), ("dit",), ("genannt",)})
+#: A bare "<A> is <B>" (and "<A> es <B>") is one thing only when the sentence ends right after the second name.
+BARE = frozenset({("is",), ("es",)})
+#: What may come before the first name: nothing, or one of these openers.
+PREFIXES = frozenset({
+    (), ("so",), ("and",), ("well",), ("ok",), ("okay",), ("yes",), ("yeah",), ("oh",), ("btw",), ("anyway",), ("also",),
+    ("i", "call", "it"), ("we", "call", "it"), ("i", "call", "this"), ("we", "call", "this"), ("they", "call", "it"),
+    ("y",), ("pues",), ("bueno",), ("o", "sea"), ("le", "digo"), ("yo", "le", "digo"), ("lo", "llamo"), ("lo", "llamamos"),
+})
+#: A word straight after the second name that may continue the sentence about the one thing.
+CONTINUES = frozenset("is was es era which that who que has tiene cual quien".split())
+#: A word that opens what follows the second name and makes it a part, a member or a list.
+NOT_AFTER = frozenset("""and or y o e ni but with of de del for to plus as like como both too also tambien para por con sin
+without except""".split())
+#: Anywhere in the sentence: a doubt, a denial, a condition, a contrast. The sentence is not the person saying they are one.
+HEDGES = frozenset("""not no never if whether think thinks thought doubt doubts maybe perhaps probably possibly might could guess
+suppose supposed unsure unclear wonder wondering seems seem apparently supposedly allegedly but unless however although though
+except instead rather than versus vs nor neither either nunca jamas si quiza quizas creo cree pienso dudo duda supongo acaso
+pero aunque sino excepto salvo tampoco ni pas ne jamais mais pense crois nicht nie kein keine wenn ob vielleicht aber glaube
+denke""".split())
+HEDGE_PHRASES = (" tal vez ", " a lo mejor ", " peut etre ", " kind of ", " sort of ")
+#: Anywhere in the sentence: more than one thing is the subject ("are both", "son ambos"), so it is a list or a pair.
+PLURALS = frozenset("are were both all together these those son ambos ambas todos todas juntos juntas sont beide alle".split())
+#: With no words between them, the two names are one thing only inside a bracket or after an equals sign.
+OPENERS = frozenset("(=")
 #: Punctuation that may stand between them; a full stop, a semicolon, a slash, an ampersand, a plus or a line break may not.
-LINK_PUNCT = frozenset(',()"\'“”‘’—–-=:*_`[]<>')
+LINK_PUNCT = frozenset(",()\"'“”‘’—–-=:*_`[]<>")
+_CLOSERS = frozenset(".!)\"”'’…")
 #: Words that open a phrase and carry no name.
 _FUNCTION = frozenset("""the a an of for and or with to in on at by from de del la el los las y o con para por en un una""".split())
+
+#: A sentence ends at ! ? … or a full stop after a word of three letters or more (so "e.g." and "vs." never split a line and
+#: a short word's full stop runs two sentences into one, which only makes the checks below stricter). A semicolon, a colon and
+#: a line break never end one: what a person says in the same breath is one sentence here.
+_SENTENCE = re.compile(r"(?<=[!?…])\s+|(?<=[^\W\d_]{3}[.])\s+|(?<=\d[.])\s+")
 
 
 # --------------------------------------------------------------------------- the code's reading of a line
@@ -100,63 +169,117 @@ def _tokens(text: str) -> list[str]:
     return re.findall(r"[^\W_]+|[^\w\s]|_", str(text or ""))
 
 
+def sentences(text: str) -> list[str]:
+    """The sentences of a turn, as the checks here read them (see :data:`_SENTENCE`)."""
+    return [x.strip() for x in _SENTENCE.split(str(text or "")) if x and x.strip()]
+
+
 def _occurrences(words: list[str], parts: list[str]) -> list[tuple[int, int]]:
     n = len(parts)
     return [(i, i + n) for i in range(len(words) - n + 1) if words[i:i + n] == parts] if n else []
 
 
-def linked(quote: str, a_names: list[str], b_names: list[str]) -> bool:
-    """Does the line itself say the two are one thing: some occurrence of a name of A and some occurrence of a name of B,
-    neither inside the other, with only identity words (:data:`LINK_WORDS`, at most :data:`MAX_LINK_WORDS`) and
-    :data:`LINK_PUNCT` between them, inside one line? Reads the words and nothing else."""
-    text = str(quote or "")
-    toks = [(t, text_fold.fold(t)) for t in _tokens(text)]
+def _hedged(sentence: str, folded_words: list[str]) -> bool:
+    """A question, a denial, a doubt, a condition or a plural subject anywhere in the sentence."""
+    if "?" in sentence or "¿" in sentence or re.search(r"n['’]t\b", sentence.lower()):
+        return True
+    padded = " " + " ".join(folded_words) + " "
+    return any(w in HEDGES or w in PLURALS for w in folded_words) or any(p in padded for p in HEDGE_PHRASES)
+
+
+def _linked_sentence(sentence: str, a_names: list[str], b_names: list[str]) -> bool:
+    """Does this ONE sentence say, in the person's own words of identity, that the asked name and the page's name are one thing?
+
+    Every one of these must hold, and a doubt on any is "not linked" (the question then stays open, which is always allowed):
+    no question, denial, doubt, condition, contrast or plural subject anywhere in it; one whole span of each name, neither
+    inside the other (a name inside a longer span of the other side is that other name's word, not itself); only an opener
+    (:data:`PREFIXES`) before the first; between them exactly one phrase of identity (:data:`PHRASES`), a bare "is" only when
+    the sentence ends right after the second name, or a bracket or an equals sign with no words; and after the second name
+    nothing that makes it a part, a member or a list: no possessive, no word that opens a conjunction or a preposition, no noun
+    running on from the name."""
+    toks = [(t, text_fold.fold(t)) for t in _tokens(sentence)]
     word_at = [i for i, (t, _f) in enumerate(toks) if re.match(r"\w", t)]
     folded = [toks[i][1] for i in word_at]
-    occ: dict[str, list[tuple[int, int]]] = {"a": [], "b": []}
+    if _hedged(sentence, folded):
+        return False
+    occ: dict[str, set[tuple[int, int]]] = {"a": set(), "b": set()}
     for side, names in (("a", a_names), ("b", b_names)):
         for name in names:
-            occ[side] += _occurrences(folded, qr._key(name).split())
-    for a0, a1 in occ["a"]:
-        for b0, b1 in occ["b"]:
-            if a0 < b1 and b0 < a1:
-                continue   # one inside the other (or the same words): not two spans
-            first, second = ((a0, a1), (b0, b1)) if a1 <= b0 else ((b0, b1), (a0, a1))
-            lo, hi = word_at[first[1] - 1] + 1, word_at[second[0]]
-            between = toks[lo:hi]
-            if "\n" in text and "\n" in _between_raw(text, toks, lo, hi):
-                continue
-            words = [f for t, f in between if re.match(r"\w", t)]
-            punct = [t for t, _f in between if not re.match(r"\w", t)]
-            if (len(words) <= MAX_LINK_WORDS and all(w in LINK_WORDS for w in words) and all(p in LINK_PUNCT for p in punct)
-                    and (words or any(p in OPENERS for p in punct))):   # "A, B" alone is a list; "A (B)" and "A = B" are not
-                return True
-    return False
+            occ[side].update(_occurrences(folded, qr._key(name).split()))
+    if occ["a"] & occ["b"]:
+        return False                        # the same words are both names: nothing says which is which
+    every = occ["a"] | occ["b"]
+    for side in occ:
+        occ[side] = {s for s in occ[side] if not any(o != s and o[0] <= s[0] and s[1] <= o[1] for o in every)}
+    if len(occ["a"]) != 1 or len(occ["b"]) != 1:
+        return False
+    (a0, a1), (b0, b1) = next(iter(occ["a"])), next(iter(occ["b"]))
+    if a0 < b1 and b0 < a1:
+        return False
+    first, second = ((a0, a1), (b0, b1)) if a1 <= b0 else ((b0, b1), (a0, a1))
+    head = toks[:word_at[first[0]]]
+    between = toks[word_at[first[1] - 1] + 1:word_at[second[0]]]
+    tail = toks[word_at[second[1] - 1] + 1:]
+
+    def split(group):
+        return ([f for t, f in group if re.match(r"\w", t)], [t for t, _f in group if not re.match(r"\w", t)])
+
+    head_words, head_punct = split(head)
+    mid_words, mid_punct = split(between)
+    tail_words, tail_punct = split(tail)
+    if tuple(head_words) not in PREFIXES or not all(p in LINK_PUNCT for p in head_punct):
+        return False
+    if not all(p in LINK_PUNCT for p in mid_punct):
+        return False
+    if tuple(mid_words) in BARE:
+        # "<A> is <B>." and nothing else: no opener, no mark between, nothing after but the end of the sentence.
+        return not head_words and not mid_punct and not tail_words and all(p in _CLOSERS for p in tail_punct)
+    if mid_words:
+        if tuple(mid_words) not in PHRASES or (tuple(mid_words) in NEEDS_COMMA and "," not in mid_punct):
+            return False
+    elif not any(p in OPENERS for p in mid_punct):   # "A, B" alone is a list; "A (B)" and "A = B" are not
+        return False
+    rest = list(tail)
+    if "(" in mid_punct:
+        if not rest or rest[0][0] != ")":
+            return False
+        rest = rest[1:]
+    if not rest:
+        return True
+    nxt = rest[0][0]
+    if re.match(r"\w", nxt):
+        return rest[0][1] in CONTINUES                       # "Quartzline is ...", never "Quartzline backend" or "Quartzline runs"
+    if nxt in ("'", "’"):
+        return False                                           # "Quartzline's backend": a part
+    following = next((f for t, f in rest if re.match(r"\w", t)), "")
+    return following not in NOT_AFTER
 
 
-def _between_raw(text: str, toks: list, lo: int, hi: int) -> str:
-    """The raw characters between token ``lo`` and token ``hi`` (so a line break between two names is seen)."""
-    pos, start, end = 0, len(text), len(text)
-    for i, (t, _f) in enumerate(toks):
-        at = text.find(t, pos)
-        if at < 0:
-            break
-        if i == lo:
-            start = at
-        if i == hi:
-            end = at
-            break
-        pos = at + len(t)
-    return text[start:end]
+def pair_sentences(text: str, a_names: list[str], b_names: list[str]) -> list[str]:
+    """The sentences of ``text`` that hold both names (`question_revisit._names_both`: the longer spelling first)."""
+    return [s for s in sentences(text) if qr._names_both(a_names, b_names, s)]
+
+
+def linked(text: str, a_names: list[str], b_names: list[str]) -> bool:
+    """Does the text say the two are one thing: at least one sentence holds both names and EVERY sentence that holds both is
+    the person's own statement of identity (`_linked_sentence`)? Reads the words and nothing else."""
+    held = pair_sentences(text, a_names, b_names)
+    return bool(held) and all(_linked_sentence(s, a_names, b_names) for s in held)
+
+
+def _stem(word: str) -> str:
+    """A plural is its singular ("backends" is "backend"); a hyphen is already a word break in `_key`."""
+    return word[:-1] if len(word) > 3 and word.endswith("s") and not word.endswith("ss") else word
 
 
 def _word_keys(name: str) -> list[str]:
-    return qr._key(name).split()
+    return [_stem(w) for w in qr._key(name).split()]
 
 
 def shape(a_names: list[str], b_names: list[str]) -> str:
     """The relation of the names themselves: ``nested`` (one's words are a run inside the other's: the part shape),
-    ``shares`` (a content word in common: the sibling shape), else ``apart``. Reads the words and nothing else."""
+    ``shares`` (a word in common that is not a function word, of any length and a number too: "<Brand> 11" and "<Brand> 12"
+    are siblings: the sibling shape), else ``apart``. Plurals are the singular. Reads the words and nothing else."""
     shared = False
     for a in a_names:
         wa = _word_keys(a)
@@ -167,21 +290,43 @@ def shape(a_names: list[str], b_names: list[str]) -> str:
             small, big = (wa, wb) if len(wa) <= len(wb) else (wb, wa)
             if any(big[i:i + len(small)] == small for i in range(len(big) - len(small) + 1)):
                 return "nested"
-            if any(len(w) >= 3 and w not in _FUNCTION for w in set(wa) & set(wb)):
+            if any(w not in _FUNCTION for w in set(wa) & set(wb)):
                 shared = True
     return "shares" if shared else "apart"
 
 
-def _identity_line(case: "NameCase") -> bool:
-    """Does any turn of the person's own or a named speaker's shown for this name carry both names in an identity link?"""
-    return any(t.role in qr._OWN_WORDS and qr._names_both(case.a.names, case.b.names, t.text)
-               and linked(t.text, case.a.names, case.b.names) for t in case.turns)
+def _own_turns(case: "NameCase"):
+    return [t for t in case.turns if t.role in qr._OWN_WORDS]
+
+
+def _names_together(case: "NameCase") -> bool:
+    """Does any turn of the person's own or a named speaker's, shown for this name, hold both names in ONE sentence, whatever
+    sits between them? Then the person has related them, and a model's "different" is not Sleep's to close."""
+    names = [*case.b.names, *case.page_names]
+    return any(pair_sentences(t.text, case.a.names, names) for t in _own_turns(case))
+
+
+def _all_linked(case: "NameCase") -> bool:
+    """Is every sentence of the person's own turns that holds both names their statement of identity? One that is not (a
+    part, a list, a denial, a doubt) leaves the pair a question: a person who says both things has not settled it."""
+    return all(_linked_sentence(s, case.a.names, case.b.names)
+               for t in _own_turns(case) for s in pair_sentences(t.text, case.a.names, case.b.names))
+
+
+def _quote_says_one(case: "NameCase", quote: str) -> bool:
+    """The located words are in a turn of the person's own, and every sentence of that turn holding both names is a statement
+    of identity (`linked`), and so is every such sentence of the person's other turns."""
+    from api.services import evidence
+
+    turn = next((t for t in _own_turns(case) if evidence.locate(t.text, quote) is not None), None)
+    return turn is not None and linked(turn.text, case.a.names, case.b.names) and _all_linked(case)
 
 
 def _relates(memory_path: Path, line, tfm: dict, target_id: str, name: str, target_names: list[str]) -> bool:
     """Does the record already relate the name and the page as two things: a held claim of the name whose object is the page, a
-    claim of the page whose object is the name, in any predicate (`part-of`, `uses`, `is-a`...), or a held link that names the
-    page? Never an identity (the record has no such predicate)."""
+    claim of the page whose object is the name, in any predicate (`part-of`, `uses`, `is-a`...) and open or closed (a relation
+    that ended still showed them as two), or a held link that names the page? Never an identity (the record has no such
+    predicate)."""
     from api.services.claims import parse_claims
     from api.services.id_utils import sanitize_id
 
@@ -195,7 +340,7 @@ def _relates(memory_path: Path, line, tfm: dict, target_id: str, name: str, targ
     if page is not None:
         try:
             for c in parse_claims(page[2]):
-                if c.valid_to is None and getattr(c, "object_kind", "node") == "node" and qr._key(c.object) == key:
+                if getattr(c, "object_kind", "node") == "node" and qr._key(c.object) == key:
                     return True
         except Exception:  # noqa: BLE001 - claims unreadable: no relation is read from them
             pass
@@ -212,12 +357,63 @@ class NameCase(qr.Case):
     held: bool = False
     related: bool = False
     target_type: str = ""
+    #: The page it asked about has faded (archived) and the name was said after the page's last mention: it is read, but a
+    #: "same" is never landed (the person's own "yes" would leave the lines on a page nobody sees).
+    faded: bool = False
+    #: Every name the page answers to, shared ones too: a turn that says the asked name and ANY of them related them (the close check).
+    page_names: list = field(default_factory=list)
 
 
 def _held_texts(line) -> list[str]:
     from api.services import typo_join
 
     return typo_join._held_texts(line) if line is not None else []
+
+
+#: Words that make the next word a common noun ("the scheduler", "my backend", "el servicio"): a one-word alias used so in the
+#: conversation is a description there, no name. A handful of function words, never a list of nouns.
+_DETERMINERS = frozenset("""the a an my our your this that these those its their el la los las un una mi mis nuestro nuestra su
+este esta ese esa le les der die das""".split())
+
+
+def _names_of_page(memory_path: Path, target_id: str, tfm: dict) -> list[str]:
+    """The names the page answers to FOR THIS PURPOSE: every one of its names that no other live page also answers to. A name
+    two pages answer to (a generic alias both carry) says nothing about which one it means (`answered_questions`)."""
+    from api.services import answered_questions
+
+    return [n for n in full_name_join._names_of(tfm)
+            if answered_questions._pages_answering(memory_path, answered_questions._key(n)) in ([target_id], [])]
+
+
+def _common_nouns(tfm: dict, names: list[str], turns: list) -> set[str]:
+    """The one-word aliases of the page (never its title) that a turn shown uses straight after a determiner: in this
+    conversation the word is a common noun, so a line saying it says nothing about the page. Said by how it is used, with no
+    word list."""
+    title = qr._key(str(tfm.get("name") or ""))
+    out: set[str] = set()
+    for name in names:
+        key = qr._key(name)
+        if len(key.split()) != 1 or key == title:
+            continue
+        for t in turns:
+            words = [text_fold.fold(w) for w in re.findall(r"[^\W_]+", t.text)]
+            if any(w == key and i and words[i - 1] in _DETERMINERS for i, w in enumerate(words)):
+                out.add(name)
+                break
+    return out
+
+
+def said_after(memory_path: Path, fm: dict, line, tfm: dict) -> bool | None:
+    """Was the asked name said in any conversation dated AFTER the page's last mention? The held line's conversations and the
+    question's own, each by its own date (`pair_evidence.episode_timestamp`: the item's date, never when Cicada received it),
+    against the page's `last_referenced`. ``None`` when either cannot be dated: it is then neither retired nor read."""
+    last = str(tfm.get("last_referenced") or "")[:10]
+    episodes = [e for e in dict.fromkeys([*(line.episodes() if line is not None else []), str(fm.get("source_episode") or "")])
+                if e.startswith("ep_")]
+    days = [qr._episode_day(memory_path, e) for e in episodes]
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", last) or not days or not all(re.fullmatch(r"\d{4}-\d{2}-\d{2}", d) for d in days):
+        return None
+    return any(d > last for d in days)
 
 
 def name_case(memory_path: Path, path: Path, fm: dict, *, today: str | None = None) -> tuple[NameCase | None, str]:
@@ -237,11 +433,15 @@ def name_case(memory_path: Path, path: Path, fm: dict, *, today: str | None = No
     name = " ".join(str(fm.get("entity_name") or fm.get("entity_mention") or "").split())
     target_id = str(fm.get("merge_target_hint") or "").strip()
     target = inbox_tend._page(memory_path, target_id)
-    if not name or target is None:
-        return None, "not_a_name_and_a_page"
+    if not name:
+        return None, "no_name"
+    if target is None:
+        return None, "target_missing"
     target_id, tfm = target[0].stem, dict(target[1])
-    if inbox_tend._is_owner_page(tfm) or str(tfm.get("status") or "").lower() in ("archived", "dropped"):
-        return None, "owner_or_gone"
+    if inbox_tend._is_owner_page(tfm):
+        return None, "owner_page"
+    if str(tfm.get("status") or "").lower() == "dropped":
+        return None, "target_dropped"
     decided, why = inbox_tend.policy(memory_path, path, fm, today=today)
     if decided is not None or why not in ("person", "needs_judge", "judgement"):
         return None, f"policy:{why or 'decided'}"
@@ -256,6 +456,13 @@ def name_case(memory_path: Path, path: Path, fm: dict, *, today: str | None = No
     if (merge_rejections.is_rejected(memory_path, own_id, target_id) or merge_rejections.is_split(memory_path, own_id, target_id)
             or inbox_tend._split_apart(memory_path, own_id, target_id)):
         return None, "kept_apart"
+    faded = str(tfm.get("status") or "").lower() == "archived"
+    if faded:
+        said = said_after(memory_path, fm, line, tfm)
+        if said is None:
+            return None, "target_faded_undated"
+        if not said:
+            return None, "target_faded"
     asked_type = str(line.type if line is not None else fm.get("suggested_classification") or "").split(" ")[0].lower()
     target_type = inbox_tend._type_of(tfm)
     person = "person" in (asked_type, target_type)
@@ -270,7 +477,9 @@ def name_case(memory_path: Path, path: Path, fm: dict, *, today: str | None = No
     if (alias_policy.names_another_page(name, target_id, memory_path / "entities")
             or wrong_aliases.title_of_other_page(memory_path, target_id, name, target_type)):
         return None, "title_of_another_page"
-    target_names = full_name_join._names_of(tfm)
+    target_names = _names_of_page(memory_path, target_id, tfm)
+    if not target_names:
+        return None, "page_name_shared"
     a_names = [name]
     b_names = target_names
     if person:
@@ -284,12 +493,33 @@ def name_case(memory_path: Path, path: Path, fm: dict, *, today: str | None = No
     a = qr.Side(own_id, name, a_names, _held_texts(line), [e for e in (line.episodes() if line is not None else []) if e.startswith("ep_")],
                 {}, [name])
     b = qr._side(memory_path, target_id, tfm, b_names)
+    b.all_names = [n for n in b.all_names if n in target_names] if not person else b.all_names
     episodes, why = qr._conversations(memory_path, fm, a, b)
     if why:
         return None, why
     turns, why = qr._turns_for(memory_path, episodes, a, b)
     if why:
         return None, why
+    generic = _common_nouns(tfm, b_names, turns)
+    if generic:
+        # A one-word alias of the page that the conversation itself uses as a common noun ("the scheduler") is no name of it.
+        b_names = [n for n in b_names if n not in generic]
+        if not b_names:
+            return None, "page_name_shared"
+        b = qr._side(memory_path, target_id, tfm, b_names)
+        b.all_names = [n for n in b.all_names if n not in generic]
+        turns, why = qr._turns_for(memory_path, episodes, a, b)
+        if why:
+            return None, why
+    every = full_name_join._names_of(tfm)
+    if not person and set(every) != set(b_names):
+        # What the person said with a name the page shares or a common noun is still the person relating the name to the page:
+        # those turns are shown and they stop a close (never a join: they hold no name of the page for this purpose).
+        extra, why = qr._turns_for(memory_path, episodes, a, qr._side(memory_path, target_id, tfm, every))
+        if why:
+            return None, why
+        known = {(t.episode, t.text) for t in turns}
+        turns = [*turns, *[t for t in extra if t.both and (t.episode, t.text) not in known]]
     if not a.texts and not any(t for t in turns if not t.both or t.role in qr._OWN_WORDS):
         return None, "nothing_to_read"
     if not b.texts:
@@ -302,7 +532,8 @@ def name_case(memory_path: Path, path: Path, fm: dict, *, today: str | None = No
     for i, t in enumerate(turns, 1):
         t.n = i
     case = NameCase(path.stem, a, b, turns, [], dict(fm), person=person, held=line is not None,
-                    shape="person" if person else shape(a_names, b_names), target_type=target_type,
+                    shape="person" if person else shape(a_names, b_names), target_type=target_type, faded=faded,
+                    page_names=full_name_join._names_of(tfm),
                     related=_relates(memory_path, line, tfm, target_id, name, target_names))
     return case, ""
 
@@ -323,7 +554,7 @@ The memory also heard the names below in the person's conversations and could no
 
 For each NAME answer with one of:
 - "same": it is another name for that page: the same thing, said another way (an abbreviation, a nickname, an older name, a description in place of the name). Give "said_turn": the number of one of THAT NAME's own turns and "said": the words of that turn, copied word for word and without gaps, in which the person (or a named speaker) says the NAME and the page's name are one and the same thing ("also called", "known as", "short for", "X, the Y", in any language); the words must carry both names. Give "here" and "there" only if you can copy one line about the NAME and one about the page that state the SAME specific fact.
-- "different": it is something else: a PART, feature or component of the page's thing; a version of it; a SIBLING (another thing of the same family, maker or kind); or unrelated though it shares a word. Give "relation": "part", "sibling", "unrelated" or "other", and "line": one line copied word for word from the memory shown or from one of that NAME's turns that says what the NAME is.
+- "different": it is something else: a PART, feature or component of the page's thing; a version of it; a SIBLING (another thing of the same family, maker or kind); or unrelated though it shares a word. Give "relation": "part", "sibling", "unrelated" or "other", and "line": one line copied word for word from one of that NAME's own turns (a turn of the person's own or a named speaker's, never the memory text or an assistant's turn), saying the NAME and what it is.
 - "cannot_tell": anything else.
 Rules:
 - A wrong "same" puts one thing's facts on another thing's page; a question left costs little. Sharing a word, a family, a maker or a project is NOT being the same thing. A part of a page's thing is not the thing. When in doubt: "cannot_tell".
@@ -387,21 +618,16 @@ def build_prompt(cases: list[NameCase], speaker: str | None, mode: str = "first"
 
 
 def _locate_line(memory_path: Path, case: NameCase, line: str) -> dict | None:
-    """The copied line of a "different", located (exact, whitespace, case: never fuzzy) in what was shown for this name,
-    saying the name: ``{"episode", "start", "end", "kind"}`` when it is in a person's or speaker's turn, ``{}`` when in the
-    memory's text, ``None`` when it is nowhere."""
-    from api.services import evidence
-    from api.services import same_name_people as snp
-
+    """The copied line of a "different", located (exact, whitespace, case: never fuzzy) in ONE turn of the person's own or of a
+    named speaker's that says the name: ``{"episode", "start", "end", "kind"}``, else ``None``. A line found only in the held
+    line's own text, the page's text or an assistant's turn is no evidence: Sleep wrote the first two and an agent repeats them,
+    so a model could close a question by quoting what Sleep already said."""
     text = " ".join(str(line or "").split())
     if (len(re.sub(r"\W+", "", text)) < qr.MIN_QUOTE_CHARS or "…" in text or "..." in text
             or not pair_evidence.names_in([qr._key(case.a.name)], text)):
         return None
-    for turn in case.turns:
-        if evidence.locate(turn.text, text) is not None:
-            found = qr._quote_span(memory_path, case, text)
-            return found[2] if found is not None else {}
-    return {} if snp._located(text, [*case.a.texts, *case.b.texts]) else None
+    found = qr._quote_span(memory_path, case, text)
+    return found[2] if found is not None else None
 
 
 def _same_result(memory_path: Path, case: NameCase, item: dict, speaker: str | None, model: str) -> Result:
@@ -409,7 +635,7 @@ def _same_result(memory_path: Path, case: NameCase, item: dict, speaker: str | N
     parsed.pop("_model", None)
     read = qr.located(memory_path, case, parsed, speaker)
     read.model = model
-    if "said" in read.kinds and not linked(read.quote, case.a.names, case.b.names):
+    if "said" in read.kinds and not _quote_says_one(case, read.quote):
         read.kinds = [k for k in read.kinds if k != "said"]
         read.spans = []
         read.quote = ""
@@ -424,8 +650,8 @@ def _different_result(memory_path: Path, case: NameCase, item: dict, model: str)
         return Result("cannot_tell", model=model, reason="no kind of difference")
     span = _locate_line(memory_path, case, str(item.get("line") or ""))
     if span is None:
-        return Result("cannot_tell", model=model, reason="the line said is not in the record")
-    return Result("different", relation=relation, line=str(item.get("line") or ""), span=span or None,
+        return Result("cannot_tell", model=model, reason="the line said is not in the person's own words")
+    return Result("different", relation=relation, line=str(item.get("line") or ""), span=span,
                   reason=qr._trim(item.get("reason"), 200), model=model)
 
 
@@ -476,7 +702,7 @@ async def _read(memory_path: Path, cases: list[NameCase], judge, speaker, mode: 
 def enough_same(case: NameCase, result: Result) -> bool:
     """What a located "same" must show for this name's shape (the module's list). Reads only."""
     kinds = set(result.read.kinds)
-    if result.verdict != "same" or case.related or "said" not in kinds:
+    if result.verdict != "same" or case.related or case.faded or "said" not in kinds or not _all_linked(case):
         return False
     if case.shape == "nested":
         return False                      # the part shape: only the person says a part is its whole
@@ -497,7 +723,8 @@ def _guard(memory_path: Path, case: NameCase) -> dict:
 def digest(memory_path: Path, case: NameCase) -> str:
     h = hashlib.sha256()
     for part in (json.dumps(_guard(memory_path, case), sort_keys=True), json.dumps(case.a.texts), json.dumps(case.b.texts),
-                 json.dumps([(t.episode, t.text) for t in case.turns]), case.a.id, case.b.id, case.shape):
+                 json.dumps([(t.episode, t.text) for t in case.turns]), json.dumps([case.a.names, case.b.names]), case.a.id, case.b.id,
+                 case.shape, str(case.faded)):
         h.update(part.encode("utf-8", "replace"))
         h.update(b"\0")
     return h.hexdigest()[:20]
@@ -532,7 +759,7 @@ async def assess_group(memory_path: Path, cases: list[NameCase], judge, *, speak
     calls += 1
     for o in outcomes:
         o.reads = 1
-    same = [i for i, r in enumerate(first) if r.verdict == "same" and enough_same(cases[i], r)]
+    same = [i for i, r in enumerate(first) if r.verdict == "same" and enough_same(cases[i], r)]   # never one onto a faded page
     diff = [i for i, r in enumerate(first) if r.verdict == "different" and not cases[i].person]
     for i, r in enumerate(first):
         if i not in same and i not in diff and r.verdict:
@@ -568,7 +795,7 @@ async def assess_group(memory_path: Path, cases: list[NameCase], judge, *, speak
     for i in diff:
         o, case = outcomes[i], cases[i]
         r1, r2 = first[i], second_diff[i]
-        if r2.verdict != "different" or _identity_line(case):
+        if r2.verdict != "different" or _names_together(case):
             o.outcome = "unsure"
             continue
         o.outcome = "apart"
@@ -589,6 +816,24 @@ def path_bytes(memory_path: Path, case: NameCase) -> bytes:
         return b""
 
 
+def faded_decision(memory_path: Path, path: Path, fm: dict) -> inbox_tend.Decision:
+    """The retirement of a question whose page has faded (archived) and about whose name nothing was said after the page's last
+    mention (`name_case` answered ``target_faded``): nothing is written to any page, the held lines stay held under their own
+    name (ruling 73: no value is lost), the question leaves the inbox through the tending's own path and its undo puts it back.
+    Engine-free: no read is made."""
+    from api.services import pending_store
+
+    memory_path = Path(memory_path)
+    target_id = str(fm.get("merge_target_hint") or "").strip()
+    guard = inbox_tend._guard(memory_path, target_id)
+    store = pending_store.store_path(memory_path)
+    guard[store.relative_to(memory_path).as_posix()] = inbox_tend._hash(store)
+    return inbox_tend.Decision(
+        path.stem, "merge_suggestion", RULE_FADED, None, answer="Retired", fingerprint=path.read_bytes(), guard=guard,
+        reason="The page it asked about has faded out of memory, and nothing was said about the name after the page's last "
+               "mention; the lines held about the name are still held under its own name.")
+
+
 def still_holds(memory_path: Path, d) -> bool:
     """Inside the settle (`inbox_tend.still_holds`): the engine-free conditions are still met for the very question and the
     very page the reads were about."""
@@ -600,10 +845,14 @@ def still_holds(memory_path: Path, d) -> bool:
         fm = dict(markdown_parser.parse(path).frontmatter)
     except Exception:  # noqa: BLE001
         return False
-    case, _why = name_case(memory_path, path, fm)
+    case, why = name_case(memory_path, path, fm)
+    if d.rule == RULE_FADED:
+        return case is None and why == "target_faded"
     if case is None or case.b.id != str((d.request or {}).get("merge_target") or ""):
         return False
-    return (not case.related and case.shape != "nested") if d.rule == RULE_SAME else not _identity_line(case)
+    if d.rule == RULE_SAME:
+        return not case.related and not case.faded and case.shape != "nested" and _all_linked(case)
+    return not _names_together(case)
 
 
 # --------------------------------------------------------------------------- the step's part
@@ -626,11 +875,35 @@ class Context:
     room: int = 0            # how many more questions the run may read
 
 
+async def _retire_faded(ctx: Context, path: Path, fm: dict) -> None:
+    """The engine-free retirement of a question about a faded page (`faded_decision`): counted, listed, undoable."""
+    report = ctx.report
+    decision = await asyncio.to_thread(faded_decision, ctx.memory_path, path, fm)
+    if ctx.dry_run:
+        report.settled += 1
+        ctx.note(path.stem, KIND, "would_retire", RULE_FADED)
+        return
+    try:
+        ok = await inbox_tend.apply(ctx.memory_path, ctx.settings, decision)
+    except Exception as exc:  # noqa: BLE001 - one that will not settle never stops the others
+        logger.info(f"Name revisit not applied: {type(exc).__name__}")
+        ok = False
+    if ok:
+        report.settled += 1
+        report.paths.append(f"inbox/settled/{path.stem}.md")
+        ctx.note(path.stem, KIND, "retired", RULE_FADED)
+    else:
+        ctx.note(path.stem, KIND, "left:not_applied")
+
+
 async def look(ctx: Context, path: Path, fm: dict, rest: list[tuple[Path, dict]], done: set[str]) -> None:
     """One open question about a name with no page, and the others about the same page that are due, together."""
     memory_path, report = ctx.memory_path, ctx.report
     item_id = path.stem
     case, why = await asyncio.to_thread(name_case, memory_path, path, fm, today=ctx.today.isoformat())
+    if case is None and why == "target_faded":
+        await _retire_faded(ctx, path, fm)
+        return
     if case is None:
         report.skip(why)
         ctx.note(item_id, KIND, f"left:{why}")

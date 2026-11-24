@@ -461,3 +461,224 @@ def test_a_question_the_person_undid_or_put_off_is_theirs(memory):
     calls: list = []
     report, rows = _look(memory, _judge(_same(turn), calls=calls))
     assert calls == [] and rows == []
+
+
+# --------------------------------------------------------------------------- review round: lines that are not a statement of identity
+
+#: Lines that hold the two names and are NOT the person saying they are one thing (a part, a denial, a doubt, a question, a
+#: member of a list, a kind). Invented names; `{N}` is the asked name.
+NOT_ONE = [
+    "{N} is Quartzline's backend.",
+    "{N} is Quartzline? No. {N} is not Quartzline.",
+    "I don't think {N} is Quartzline.",
+    "Is {N} also Quartzline?",
+    "If {N} is Quartzline then we ship.",
+    "{N} is a Quartzline.",
+    "{N} is for Quartzline.",
+    "{N} es como Quartzline.",
+    "{N}, also Quartzline, are both due Friday.",
+    "{N} is the Quartzline.",
+    "{N} is my Quartzline.",
+    "Tools like {N} (Quartzline) are common.",
+    "{N} is Quartzline backend.",
+    "{N} is Quartzline, maybe.",
+    "Creo que {N} es Quartzline.",
+    "{N}, aka Quartzline and Harbor, ship on Fridays.",
+    "{N}, also called Quartzline of the north, ships on Fridays.",
+]
+ONE = [
+    "{N} is Quartzline.",
+    "{N}, also called Quartzline, is the thing I deploy on Fridays.",
+    "{N} aka Quartzline",
+    "{N} is just Quartzline",
+    "Quartzline (aka {N}) is the thing I deploy",
+    "{N}, short for Quartzline, runs the Friday deploys.",
+    "{N}, también llamado Quartzline",
+    "I call it {N}, short for Quartzline",
+]
+
+
+@pytest.mark.parametrize("line", NOT_ONE)
+def test_the_code_refuses_every_line_that_is_not_a_statement_of_identity(line):
+    assert not name_revisit.linked(line.format(N="Kestrel"), ["Kestrel"], ["Quartzline"])
+    assert not name_revisit.linked(line.format(N="Kestrel"), ["Quartzline"], ["Kestrel"])
+
+
+@pytest.mark.parametrize("line", ONE)
+def test_a_plain_statement_of_identity_is_linked(line):
+    assert name_revisit.linked(line.format(N="Kestrel"), ["Kestrel"], ["Quartzline"])
+
+
+def test_a_denial_or_a_list_in_another_sentence_of_the_turn_blocks_the_line_that_says_one():
+    both = "Kestrel, also called Quartzline, is the thing I deploy. Kestrel and Quartzline are not the same."
+    assert not name_revisit.linked(both, ["Kestrel"], ["Quartzline"])
+    assert name_revisit.linked("Kestrel, also called Quartzline, is the thing I deploy. It runs on Fridays.", ["Kestrel"], ["Quartzline"])
+
+
+@pytest.mark.parametrize("line", NOT_ONE)
+def test_a_judge_that_always_says_same_joins_nothing_on_the_reviewers_lines(memory, line):
+    turn = line.format(N="Kestrel")
+    _world(memory, "Kestrel", turn)
+    report, _ = _look(memory, _judge(_same(turn)))
+    assert report.settled == 0 and _aliases(memory) == [] and len(_open(memory)) == 1
+    assert pending_store.held_line(memory, "Kestrel") is not None
+
+
+def test_another_turn_that_relates_them_as_two_blocks_a_join_the_first_turn_would_allow(memory):
+    _target(memory)
+    for i, turn in enumerate(("Kestrel, also called Quartzline, is the thing I deploy.", "Kestrel deploys with Quartzline on Fridays."), 1):
+        _episode(memory, f"ep_2026-11-1{i}_001", f"user: {turn}\nassistant: Ok.\n")
+    _hold(memory, "Kestrel", "ep_2026-11-11_001", "Kestrel came up in a planning call.")
+    _ask(memory, "Kestrel", "ep_2026-11-11_001")
+    _commit(memory, "world")
+    report, _ = _look(memory, _judge(_same("Kestrel, also called Quartzline, is the thing I deploy.")))
+    assert report.settled == 0 and _aliases(memory) == []
+
+
+# --------------------------------------------------------------------------- review round: a "different" close is never on the model's say-so
+
+
+def test_a_different_quoting_only_the_held_text_closes_nothing_and_a_turn_with_both_names_blocks_the_close(memory):
+    turn = "Swift, I mean Quartzline, is the thing we deploy on Fridays."
+    _world(memory, "Swift", turn, held="Swift is mentioned in a planning call.")
+    report, _ = _look(memory, _judge(_different("Swift is mentioned in a planning call.", relation="unrelated")))
+    assert report.settled == 0 and len(_open(memory)) == 1               # the held line's own text is no evidence
+    report, _ = _look(memory, _judge(_different(turn, relation="unrelated")))
+    assert report.settled == 0 and len(_open(memory)) == 1               # the person put both names in one sentence
+
+
+def test_a_line_an_assistant_said_is_not_a_located_difference(memory):
+    _target(memory)
+    _episode(memory, "ep_2026-11-14_001", "user: Planning call today.\nassistant: Harbor is the nightly export job the user wrote.\n")
+    _hold(memory, "Harbor", "ep_2026-11-14_001", "Harbor is mentioned in a planning call.")
+    _ask(memory, "Harbor", "ep_2026-11-14_001")
+    _commit(memory, "world")
+    report, _ = _look(memory, _judge(_different("Harbor is the nightly export job the user wrote.", relation="unrelated")))
+    assert report.settled == 0 and len(_open(memory)) == 1
+
+
+# --------------------------------------------------------------------------- review round: names a page shares, common nouns, shapes
+
+
+def test_a_name_two_pages_answer_to_is_no_name_of_the_page(memory):
+    _target(memory, aliases=["scheduler"])
+    _page(memory, "harbor-cron", "Harbor Cron", "## Summary\nA cron wrapper.\n", aliases=["scheduler"], type="tool")
+    turn = "Teal, also called scheduler, is the thing I deploy on Fridays."
+    _episode(memory, "ep_2026-11-14_001", f"user: {turn}\nassistant: Ok.\n")
+    _hold(memory, "Teal", "ep_2026-11-14_001", "Teal came up in a planning call.")
+    _ask(memory, "Teal", "ep_2026-11-14_001")
+    _commit(memory, "world")
+    report, _ = _look(memory, _judge(_same(turn)))
+    assert report.settled == 0 and "Teal" not in _aliases(memory)
+    # The same line about a name only this page answers to is read (and joins).
+    _page(memory, "harbor-cron", "Harbor Cron", "## Summary\nA cron wrapper.\n", aliases=[], type="tool")
+    _commit(memory, "one page")
+    report, _ = _look(memory, _judge(_same(turn)))
+    assert report.settled == 1 and "Teal" in _aliases(memory)
+
+
+def test_a_one_word_alias_the_conversation_uses_as_a_common_noun_is_no_name_of_the_page(memory):
+    turn = "Teal, also called the scheduler, is the thing I deploy on Fridays."
+    path = _world(memory, "Teal", turn)
+    _target(memory, aliases=["scheduler"])
+    _commit(memory, "alias")
+    fm = dict(markdown_parser.parse(path).frontmatter)
+    case, _why = name_revisit.name_case(memory, path, fm)
+    assert case is not None and "scheduler" not in case.b.names and "Quartzline" in case.b.names
+    report, _ = _look(memory, _judge(_same(turn)))
+    assert report.settled == 0 and _aliases(memory) == ["scheduler"]
+
+
+def test_the_shape_ignores_length_and_plurals():
+    assert name_revisit.shape(["Ox 11"], ["Ox 12"]) == "shares"
+    assert name_revisit.shape(["Phone 11"], ["Tablet 11"]) == "shares"
+    assert name_revisit.shape(["Quartzline Tools"], ["Quartzline Tool"]) == "nested"
+    assert name_revisit.shape(["Tern-4"], ["Tern 5"]) == "shares"
+    assert name_revisit.shape(["Quartzline"], ["Harbor Lights"]) == "apart"
+
+
+# --------------------------------------------------------------------------- review round: a page that has faded
+
+
+def test_a_question_about_an_archived_page_the_name_was_not_said_after_is_retired_with_nothing_written(memory):
+    path = _world(memory, "QL", "QL, also called Quartzline, is the thing I deploy on Fridays.")
+    _page(memory, "quartzline", "Quartzline", f"## Summary\n{FACT}\n", status="archived", confidence=0.0, last_referenced="2026-11-20",
+          source_episodes=["ep_2026-10-01_001"])
+    _commit(memory, "faded")
+    page = (memory / "entities" / "quartzline.md").read_bytes()
+    calls: list = []
+    report, rows = _look(memory, _judge(_same("x"), calls=calls))
+    assert calls == [] and report.settled == 1 and report.calls == 0           # no model read
+    assert (memory / "entities" / "quartzline.md").read_bytes() == page and _open(memory) == []
+    held = pending_store.held_line(memory, "QL")
+    assert held is not None and not held.apart_pages()                          # still held, under its own name
+    rec = markdown_parser.parse(memory / "inbox" / "settled" / f"{path.stem}.md").frontmatter["settled"]
+    assert rec["rule"] == "target_faded" and [r["what"] for r in rows] == ["retired"]
+    inbox_tend.undo(memory, path.stem)
+    assert _open(memory) == [path.stem]
+
+
+def test_the_dry_run_counts_a_retirement_and_writes_nothing(memory):
+    _world(memory, "QL", "QL, also called Quartzline, is the thing I deploy on Fridays.")
+    _page(memory, "quartzline", "Quartzline", f"## Summary\n{FACT}\n", status="archived", last_referenced="2026-11-20")
+    _commit(memory, "faded")
+    head = _git(memory, "rev-parse", "HEAD")
+    _, rows = _look(memory, None, dry_run=True)
+    assert [(r["what"], r["rule"]) for r in rows] == [("would_retire", "target_faded")]
+    assert _git(memory, "rev-parse", "HEAD") == head and len(_open(memory)) == 1
+
+
+def test_a_name_said_after_an_archived_pages_last_mention_is_read_but_never_landed_on_it(memory):
+    turn = "QL, also called Quartzline, is the thing I deploy on Fridays."
+    path = _world(memory, "QL", turn)
+    _page(memory, "quartzline", "Quartzline", f"## Summary\n{FACT}\n", status="archived", confidence=0.0, last_referenced="2026-11-05",
+          source_episodes=["ep_2026-10-01_001"])
+    _commit(memory, "faded")
+    case, why = name_revisit.name_case(memory, path, dict(markdown_parser.parse(path).frontmatter))
+    assert case is not None and case.faded and why == ""
+    calls: list = []
+    report, rows = _look(memory, _judge(_same(turn), calls=calls))
+    assert len(calls) == 1 and report.settled == 0 and _aliases(memory) == [] and len(_open(memory)) == 1   # read, never joined
+    assert [r["what"] for r in rows] == ["read:unsure"]
+
+
+def test_a_part_of_an_archived_page_said_after_its_last_mention_can_still_be_closed(memory):
+    line = "The Quartzline backend is the Python service behind the dashboard."
+    _world(memory, "Quartzline backend", line)
+    _page(memory, "quartzline", "Quartzline", f"## Summary\n{FACT}\n", status="archived", last_referenced="2026-11-05",
+          source_episodes=["ep_2026-10-01_001"])
+    _commit(memory, "faded")
+    report, _ = _look(memory, _judge(_different(line)))
+    assert report.settled == 1 and _open(memory) == []
+
+
+@pytest.mark.parametrize("status,owner,why", [("dropped", False, "target_dropped"), ("active", True, "owner_page")])
+def test_a_dropped_page_and_the_owners_page_keep_their_own_reasons(memory, status, owner, why):
+    path = _world(memory, "QL", "QL, also called Quartzline, is the thing I deploy on Fridays.")
+    if owner:
+        fm = dict(markdown_parser.parse(path).frontmatter)
+        markdown_parser.write(path, {**fm, "merge_target_hint": "owner-example"}, "x")
+    else:
+        _page(memory, "quartzline", "Quartzline", f"## Summary\n{FACT}\n", status=status)
+    _commit(memory, "setup")
+    case, got = name_revisit.name_case(memory, path, dict(markdown_parser.parse(path).frontmatter))
+    assert case is None and got == why
+
+
+def test_a_missing_page_and_a_nameless_question_say_which_it_was(memory):
+    path = _world(memory, "QL", "QL, also called Quartzline, is the thing I deploy on Fridays.")
+    fm = dict(markdown_parser.parse(path).frontmatter)
+    assert name_revisit.name_case(memory, path, {**fm, "merge_target_hint": "no-such-page"})[1] == "target_missing"
+    assert name_revisit.name_case(memory, path, {**fm, "entity_name": "", "entity_mention": ""})[1] == "no_name"
+
+
+def test_a_turn_relating_the_name_to_a_name_the_page_shares_still_stops_a_close(memory):
+    _target(memory, aliases=["scheduler"])
+    _page(memory, "harbor-cron", "Harbor Cron", "## Summary\nA cron wrapper.\n", aliases=["scheduler"], type="tool")
+    turn = "Teal, also called scheduler, is the thing I deploy on Fridays."
+    _episode(memory, "ep_2026-11-14_001", f"user: {turn}\nassistant: Ok.\n")
+    _hold(memory, "Teal", "ep_2026-11-14_001", "Teal came up in a planning call.")
+    _ask(memory, "Teal", "ep_2026-11-14_001")
+    _commit(memory, "world")
+    report, _ = _look(memory, _judge(_different(turn, relation="unrelated")))
+    assert report.settled == 0 and len(_open(memory)) == 1

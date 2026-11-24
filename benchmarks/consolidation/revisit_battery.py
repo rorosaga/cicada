@@ -17,7 +17,10 @@ scratch bank (invented names) and runs the product's own step on it ``--repeats`
 ``--names`` runs the second set (`revisit_name_cases.json`, `api/services/name_revisit.py`): "Is <name> the same as <page>?" about
 a name with NO page, whose facts wait on a held line. Per case a scratch bank, the product's own `question_revisit.tend` for
 real (reads, settles, the commits), then the bank says what was done: ``joined`` (an alias and what is held landed; wrong
-if the case is not ``same``), ``closed apart`` (held kept apart; wrong if the case is ``same`` or ``none``), or ``left``.
+if the case is not ``same``), ``closed apart`` (held kept apart; wrong if the case is ``same`` or ``none``), ``retired`` (the page
+it asked about had faded, the name not said since: nothing written; wrong unless the case is ``retire``), or ``left``. A name
+is ``none`` when the person's own turn relates the two in a way that is no statement of identity (a part, a denial, a doubt,
+a question) or says both in one sentence: it must be neither joined nor closed.
 ``--rigged same`` replaces the model by the adversary that answers "same" to every name and quotes the best line it can
 find; ``--rigged different`` the one that answers "different" to every name; ``--group 1`` reads one name per call.
 
@@ -236,8 +239,9 @@ def build_names(root: Path, case: dict) -> tuple[Path, list[str]]:
     _episode(bank, "ep_2026-10-01_001", "user: " + pg["facts"][0] + "\nassistant: Noted.\n")
     for other in [pg, *case.get("pages", [])]:
         facts = other["facts"]
+        extra = {k: other[k] for k in ("status", "last_referenced", "aliases") if k in other}
         _page(bank, other["id"], other["name"], "## Summary\n" + facts[0] + "\n\n## Key Facts\n" + "\n".join(f"- {f}" for f in facts) + "\n",
-              type=other["type"], source_episodes=["ep_2026-10-01_001"])
+              type=other["type"], source_episodes=["ep_2026-10-01_001"], **extra)
     asked = []
     for k, item in enumerate(case["names"], 1):
         ep = f"ep_2026-11-{k:02d}_001"
@@ -277,8 +281,9 @@ def rigged_llm(kind: str):
                 answers.append({"name": int(m.group(1)), "verdict": "same", "said_turn": 1, "said": text, "here": text,
                                 "there": "Quartzline is the scheduling service the team deploys on Fridays.", "reason": "adversary"})
             else:
+                # the best line it can find: a turn of the person's that names the name (the held text is no evidence)
                 answers.append({"name": int(m.group(1)), "verdict": "different", "relation": "part",
-                                "line": memory_lines[0] if memory_lines else "", "reason": "adversary"})
+                                "line": turns[0] if turns else (memory_lines[0] if memory_lines else ""), "reason": "adversary"})
         return {"choices": [{"message": {"content": json.dumps({"answers": answers})}}], "model": "rigged"}
 
     return fn
@@ -288,7 +293,8 @@ async def run_names(case: dict, repeats: int, llm_fn, make_settings) -> dict:
     from api.services import markdown_parser, question_revisit as qr
 
     row = {"id": case["id"], "group": case["group"], "runs": repeats, "outcomes": Counter(), "calls": 0, "reads": 0, "questions": 0,
-           "same_made": 0, "same_wrong": 0, "apart_made": 0, "apart_wrong": 0, "left": 0, "wanted_same": 0, "wanted_apart": 0}
+           "same_made": 0, "same_wrong": 0, "apart_made": 0, "apart_wrong": 0, "left": 0, "wanted_same": 0, "wanted_apart": 0,
+           "retire_made": 0, "retire_wrong": 0, "wanted_retire": 0}
     expect = {n["name"]: n["expect"] for n in case["names"]}
     for _ in range(repeats):
         with tempfile.TemporaryDirectory(prefix="revisit-names-") as tmp:
@@ -307,7 +313,12 @@ async def run_names(case: dict, repeats: int, llm_fn, make_settings) -> dict:
                 want, rule = expect[name], done.get(name, "")
                 row["wanted_same"] += want == "same"
                 row["wanted_apart"] += want == "different"
-                if rule == "revisit_same":
+                row["wanted_retire"] += want == "retire"
+                if rule == "target_faded":
+                    row["retire_made"] += 1
+                    row["retire_wrong"] += want != "retire"
+                    row["outcomes"][f"{name}: retired " + ("right" if want == "retire" else "WRONG")] += 1
+                elif rule == "revisit_same":
                     row["same_made"] += 1
                     row["same_wrong"] += want != "same"
                     row["outcomes"][f"{name}: joined " + ("right" if want == "same" else "WRONG")] += 1
@@ -327,10 +338,12 @@ def report_names(rows: list[dict]) -> str:
         shown = ", ".join(f"{k} x{v}" for k, v in sorted(r["outcomes"].items()))
         out.append(f"{r['group']:7} {r['id']:36} [{shown}]  reads {r['reads']} calls {r['calls']}")
     t = {k: sum(r[k] for r in rows) for k in ("questions", "same_made", "same_wrong", "apart_made", "apart_wrong", "left",
-                                               "wanted_same", "wanted_apart", "reads", "calls")}
+                                               "wanted_same", "wanted_apart", "reads", "calls", "retire_made", "retire_wrong",
+                                               "wanted_retire")}
     per = f"model calls {t['calls']} for {t['reads']} questions read ({t['calls'] / t['reads']:.2f} per question)" if t["reads"] else "no question read"
     out.append(f"QUESTIONS {t['questions']}   SAME SETTLES {t['same_made']} (wanted {t['wanted_same']}) WRONG {t['same_wrong']}   "
-               f"CLOSED APART {t['apart_made']} (wanted {t['wanted_apart']}) WRONG {t['apart_wrong']}   LEFT {t['left']}   {per}")
+               f"CLOSED APART {t['apart_made']} (wanted {t['wanted_apart']}) WRONG {t['apart_wrong']}   "
+               f"RETIRED (page faded) {t['retire_made']} (wanted {t['wanted_retire']}) WRONG {t['retire_wrong']}   LEFT {t['left']}   {per}")
     return "\n".join(out)
 
 
@@ -376,7 +389,7 @@ def main_names(a) -> int:
         print("engine replies:\n" + counted.report())
     if a.json:
         a.json.write_text(json.dumps([{**r, "outcomes": dict(r["outcomes"])} for r in rows], indent=1, ensure_ascii=False))
-    return 0 if not any(r["same_wrong"] or r["apart_wrong"] for r in rows) else 1
+    return 0 if not any(r["same_wrong"] or r["apart_wrong"] or r["retire_wrong"] for r in rows) else 1
 
 
 def report(rows: list[dict]) -> str:
