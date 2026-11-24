@@ -229,3 +229,38 @@ def test_the_demos_runs_show_source_conversation_and_pages(tmp_path):
     by_id = {p.id: p for p in [*items.created, *items.updated]}
     assert by_id["hana-example"].episodes, "a made page names the conversation that fed it"
     assert by_id["bob-example"].change == "updated" and by_id["bob-example"].episodes
+
+
+def test_the_demos_last_run_shows_a_fed_page_a_faded_page_and_a_bookkeeping_only_page(tmp_path):
+    """Owner 2026-11-24 ("what influenced this change?"): the scratch app can look at all three kinds of page in one
+    run — a page the run's conversation fed (its change names that conversation beside its new fact), a page whose only
+    change is silence (a quiet entry, never "updated") and a page whose only change is a date stamp (in no list) — and the
+    two pages the run archived and removed say which step did it."""
+    import asyncio
+    import subprocess
+
+    from api.services import sleep_consolidated, sleep_page_change
+
+    bank = demo(tmp_path, index=False, showcase=True, retired=True, today=None)
+    log = subprocess.run(["git", "-C", str(bank), "log", "--format=%H\x1f%s"], check=True, capture_output=True,
+                         text=True).stdout.splitlines()
+    sha = next(line.split("\x1f")[0] for line in log if line.split("\x1f")[1].startswith("Sleep cycle")
+               and not line.endswith("(decay)"))
+    out = asyncio.run(sleep_consolidated.build(bank, [sha]))
+    updated = {p.id: p for p in out.updated}
+    assert list(updated) == ["open-source"], "the run's one conversation fed one page"
+    fed = updated["open-source"]
+    assert len(fed.episodes) == 1 and fed.steps == ["reading"]
+    assert [p.id for p in out.faded] == ["minimalism"] and out.faded[0].steps == ["decay"]
+    assert "note-taking" not in {p.id for rows in (out.created, out.updated, out.archived, out.removed, out.faded)
+                                 for p in rows}, "a date stamp is no change"
+    assert out.counts["bookkeeping"] == 1
+    assert [(p.id, p.steps) for p in out.archived] == [("morning-routine", ["decay"])]
+    assert [(p.id, p.steps) for p in out.removed] == [("knowledge-management", ["join"])]
+    change = asyncio.run(sleep_page_change.build(bank, [sha], [], [], "open-source"))
+    assert change.change == "updated" and [c.id for c in change.conversations] == fed.episodes
+    [fact] = change.facts.added
+    assert fact.conversation == fed.episodes[0] and fact.in_run is True
+    assert [b.op for b in change.prose.blocks if b.op != "context"] == ["edited"]
+    quiet = asyncio.run(sleep_page_change.build(bank, [sha], [], [], "note-taking"))
+    assert quiet.change == "bookkeeping" and quiet.empty is True

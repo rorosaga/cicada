@@ -2127,7 +2127,12 @@ async def get_sleep_history(memory_path: Path, limit: int = 15) -> list[SleepHis
         oldest = min(date.fromisoformat(e.date[:10]) for e in out) - timedelta(days=1)
         events = telemetry.read_events(start=oldest)
         sleep_history.attach_durations(out, events)
-        cycle_usage.attach_usage(out, events, memory_path=memory_path)
+        run_commits: dict[str, list[str]] = {}
+        cycle_usage.attach_usage(out, events, memory_path=memory_path, run_commits=run_commits)
+        # Owner 2026-11-24: the card's page counts are the opened card's (real changes, never file lines).
+        from api.services import sleep_consolidated
+
+        await sleep_consolidated.apply_figures(memory_path, out, run_commits)
     return out
 
 
@@ -2160,7 +2165,11 @@ async def get_sleep_cycle_detail(memory_path: Path, commit: str) -> SleepCycleDe
     )
     events = telemetry.read_events(start=date.fromisoformat(detail.date[:10]) - timedelta(days=1))
     sleep_history.attach_durations([detail], events)
-    cycle_usage.attach_usage([detail], events, detail=True, memory_path=memory_path)
+    run_commits: dict[str, list[str]] = {}
+    cycle_usage.attach_usage([detail], events, detail=True, memory_path=memory_path, run_commits=run_commits)
+    from api.services import sleep_consolidated
+
+    await sleep_consolidated.apply_figures(memory_path, [detail], run_commits)
     return detail
 
 

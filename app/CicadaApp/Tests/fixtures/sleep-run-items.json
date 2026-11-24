@@ -11,6 +11,9 @@
       "id": "arch-decay",
       "name": "Arch Decay",
       "qualifier": null,
+      "steps": [
+        "decay"
+      ],
       "type": "concept"
     },
     {
@@ -24,6 +27,9 @@
       "id": "arch-batch",
       "name": "Arch Batch",
       "qualifier": null,
+      "steps": [
+        "reading"
+      ],
       "type": "concept"
     },
     {
@@ -40,6 +46,9 @@
       "id": "made-then-archived",
       "name": "Made Then Archived",
       "qualifier": null,
+      "steps": [
+        "reading"
+      ],
       "type": "concept"
     }
   ],
@@ -105,8 +114,10 @@
   ],
   "counts": {
     "archived": 3,
+    "bookkeeping": 1,
     "conversations": 4,
     "created": 3,
+    "faded": 1,
     "questions_raised": 0,
     "questions_settled": 0,
     "removed": 2,
@@ -126,6 +137,9 @@
       "id": "new-one",
       "name": "New One",
       "qualifier": null,
+      "steps": [
+        "reading"
+      ],
       "type": "concept"
     },
     {
@@ -142,6 +156,9 @@
       "id": "new-two",
       "name": "New Two",
       "qualifier": null,
+      "steps": [
+        "reading"
+      ],
       "type": "concept"
     },
     {
@@ -157,6 +174,27 @@
       "id": "new-three",
       "name": "New Three",
       "qualifier": null,
+      "steps": [
+        "reading"
+      ],
+      "type": "concept"
+    }
+  ],
+  "faded": [
+    {
+      "change": "faded",
+      "commits": [
+        "0000000000000000000000000000000000000000"
+      ],
+      "displayName": null,
+      "episodes": [],
+      "gone": false,
+      "id": "faded-one",
+      "name": "Faded One",
+      "qualifier": null,
+      "steps": [
+        "decay"
+      ],
       "type": "concept"
     }
   ],
@@ -174,6 +212,9 @@
       "id": "gone-one",
       "name": "Gone One",
       "qualifier": null,
+      "steps": [
+        "reading"
+      ],
       "type": "person"
     },
     {
@@ -187,11 +228,32 @@
       "id": "gone-two",
       "name": "Gone Two",
       "qualifier": null,
+      "steps": [
+        "reading"
+      ],
       "type": "person"
     }
   ],
   "truncated": false,
   "updated": [
+    {
+      "change": "updated",
+      "commits": [
+        "0000000000000000000000000000000000000000",
+        "0000000000000000000000000000000000000000"
+      ],
+      "displayName": null,
+      "episodes": [],
+      "gone": false,
+      "id": "restored",
+      "name": "Restored",
+      "qualifier": null,
+      "steps": [
+        "decay",
+        "reading"
+      ],
+      "type": "concept"
+    },
     {
       "change": "updated",
       "commits": [
@@ -203,6 +265,9 @@
       "id": "solo-two",
       "name": "Solo Two Edited",
       "qualifier": null,
+      "steps": [
+        "conflict"
+      ],
       "type": "concept"
     },
     {
@@ -218,20 +283,9 @@
       "id": "upd-one",
       "name": "Upd One",
       "qualifier": null,
-      "type": "concept"
-    },
-    {
-      "change": "updated",
-      "commits": [
-        "0000000000000000000000000000000000000000",
-        "0000000000000000000000000000000000000000"
+      "steps": [
+        "reading"
       ],
-      "displayName": null,
-      "episodes": [],
-      "gone": false,
-      "id": "restored",
-      "name": "Restored",
-      "qualifier": null,
       "type": "concept"
     }
   ]

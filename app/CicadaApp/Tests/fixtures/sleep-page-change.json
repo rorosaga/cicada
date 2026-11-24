@@ -1,0 +1,432 @@
+{
+  "bookkeeping": {
+    "change": "bookkeeping",
+    "conversations": [],
+    "empty": true,
+    "facts": {
+      "added": [],
+      "changed": [],
+      "counts": {
+        "added": 0,
+        "changed": 0,
+        "withdrawn": 0
+      },
+      "faded": 0,
+      "truncated": false,
+      "withdrawn": []
+    },
+    "other": [],
+    "otherDetails": 0,
+    "page": {
+      "change": "bookkeeping",
+      "commits": [
+        "0000000000000000000000000000000000000000"
+      ],
+      "displayName": null,
+      "episodes": [],
+      "gone": false,
+      "id": "stamp-page",
+      "name": "Stamp Page",
+      "qualifier": null,
+      "steps": [],
+      "type": "concept"
+    },
+    "prose": {
+      "blocks": [],
+      "counts": {
+        "added": 0,
+        "edited": 0,
+        "removed": 0
+      },
+      "truncated": false
+    },
+    "truncated": false
+  },
+  "faded": {
+    "change": "faded",
+    "conversations": [],
+    "empty": true,
+    "facts": {
+      "added": [],
+      "changed": [],
+      "counts": {
+        "added": 0,
+        "changed": 0,
+        "withdrawn": 0
+      },
+      "faded": 1,
+      "truncated": false,
+      "withdrawn": []
+    },
+    "other": [],
+    "otherDetails": 0,
+    "page": {
+      "change": "faded",
+      "commits": [
+        "0000000000000000000000000000000000000000"
+      ],
+      "displayName": null,
+      "episodes": [],
+      "gone": false,
+      "id": "fade-page",
+      "name": "Fade Page",
+      "qualifier": null,
+      "steps": [
+        "decay"
+      ],
+      "type": "concept"
+    },
+    "prose": {
+      "blocks": [],
+      "counts": {
+        "added": 0,
+        "edited": 0,
+        "removed": 0
+      },
+      "truncated": false
+    },
+    "truncated": false
+  },
+  "fed": {
+    "change": "updated",
+    "conversations": [
+      {
+        "device": null,
+        "id": "ep_2026-10-02_000",
+        "inRun": true,
+        "meeting": null,
+        "origin": "claude-code",
+        "pages": [],
+        "site": null,
+        "timestamp": "2026-10-02T09:00:00",
+        "title": "A talk about the alpha"
+      }
+    ],
+    "empty": false,
+    "facts": {
+      "added": [
+        {
+          "changes": [],
+          "claim": {
+            "authorEffort": null,
+            "authorKind": "model",
+            "authorModel": null,
+            "authorProvider": "other",
+            "authoredBy": "model-a",
+            "confidence": 0.8,
+            "context": "general",
+            "dateBasis": null,
+            "epistemic": "explicit",
+            "evidence": [
+              {
+                "effort": null,
+                "end": 10,
+                "episode": "ep_2026-10-02_000",
+                "hash": "abc",
+                "kind": "user",
+                "model": null,
+                "start": 0
+              }
+            ],
+            "expectedEnd": null,
+            "id": "fed-page-c2",
+            "object": "thing-2",
+            "objectKind": "literal",
+            "observer": "agent",
+            "origin": null,
+            "participants": [],
+            "predicate": "relates-to",
+            "premises": [],
+            "recordedAt": "2026-09-01",
+            "recordedTs": null,
+            "sessionIds": [],
+            "sourceEpisodes": [
+              "ep_2026-10-02_000"
+            ],
+            "sourceTrust": "agent_extracted",
+            "status": null,
+            "subject": "fed-page",
+            "supersededBy": null,
+            "supersedes": null,
+            "target": null,
+            "text": "fed-page fact 2",
+            "validFrom": "2026-09-01",
+            "validTo": null
+          },
+          "conversation": "ep_2026-10-02_000",
+          "inRun": true
+        }
+      ],
+      "changed": [
+        {
+          "changes": [
+            {
+              "added": [],
+              "after": "2026-09-30",
+              "before": null,
+              "field": "valid_to",
+              "removed": []
+            },
+            {
+              "added": [],
+              "after": "0.6",
+              "before": "0.8",
+              "field": "confidence",
+              "removed": []
+            }
+          ],
+          "claim": {
+            "authorEffort": null,
+            "authorKind": "model",
+            "authorModel": null,
+            "authorProvider": "other",
+            "authoredBy": "model-a",
+            "confidence": 0.6,
+            "context": "general",
+            "dateBasis": null,
+            "epistemic": "explicit",
+            "evidence": [],
+            "expectedEnd": null,
+            "id": "fed-page-c1",
+            "object": "thing-1",
+            "objectKind": "literal",
+            "observer": "agent",
+            "origin": null,
+            "participants": [],
+            "predicate": "relates-to",
+            "premises": [],
+            "recordedAt": "2026-09-01",
+            "recordedTs": null,
+            "sessionIds": [],
+            "sourceEpisodes": [
+              "ep_2026-09-01_000"
+            ],
+            "sourceTrust": "agent_extracted",
+            "status": null,
+            "subject": "fed-page",
+            "supersededBy": null,
+            "supersedes": null,
+            "target": null,
+            "text": "fed-page fact 1",
+            "validFrom": "2026-09-01",
+            "validTo": "2026-09-30"
+          },
+          "conversation": null,
+          "inRun": false
+        }
+      ],
+      "counts": {
+        "added": 1,
+        "changed": 1,
+        "withdrawn": 0
+      },
+      "faded": 0,
+      "truncated": false,
+      "withdrawn": []
+    },
+    "other": [
+      {
+        "added": [
+          "The Fed"
+        ],
+        "after": null,
+        "before": null,
+        "field": "aliases",
+        "removed": []
+      }
+    ],
+    "otherDetails": 0,
+    "page": {
+      "change": "updated",
+      "commits": [
+        "0000000000000000000000000000000000000000"
+      ],
+      "displayName": null,
+      "episodes": [
+        "ep_2026-10-02_000"
+      ],
+      "gone": false,
+      "id": "fed-page",
+      "name": "Fed Page",
+      "qualifier": null,
+      "steps": [
+        "reading"
+      ],
+      "type": "concept"
+    },
+    "prose": {
+      "blocks": [
+        {
+          "after": null,
+          "before": null,
+          "heading": null,
+          "level": 1,
+          "markdown": "# Fed Page",
+          "op": "context",
+          "segments": []
+        },
+        {
+          "after": "Intro paragraph about the alpha-project and its shipping day, now on Fridays.",
+          "before": "Intro paragraph about the alpha-project and its shipping day.",
+          "heading": "Fed Page",
+          "level": 0,
+          "markdown": "Intro paragraph about the alpha-project and its shipping day, now on Fridays.",
+          "op": "edited",
+          "segments": [
+            {
+              "op": "equal",
+              "text": "Intro paragraph about the alpha-project and its shipping day"
+            },
+            {
+              "op": "added",
+              "text": ", now on Fridays"
+            },
+            {
+              "op": "equal",
+              "text": "."
+            }
+          ]
+        },
+        {
+          "after": null,
+          "before": null,
+          "heading": null,
+          "level": 2,
+          "markdown": "## History",
+          "op": "context",
+          "segments": []
+        },
+        {
+          "after": null,
+          "before": null,
+          "heading": "History",
+          "level": 0,
+          "markdown": "The first line about the thing.",
+          "op": "context",
+          "segments": []
+        },
+        {
+          "after": null,
+          "before": null,
+          "heading": "History",
+          "level": 0,
+          "markdown": "A new paragraph the run wrote.",
+          "op": "added",
+          "segments": []
+        },
+        {
+          "after": null,
+          "before": null,
+          "heading": "History",
+          "level": 0,
+          "markdown": "- item one",
+          "op": "context",
+          "segments": []
+        },
+        {
+          "after": null,
+          "before": null,
+          "heading": "History",
+          "level": 0,
+          "markdown": "- item two",
+          "op": "removed",
+          "segments": []
+        }
+      ],
+      "counts": {
+        "added": 1,
+        "edited": 1,
+        "removed": 1
+      },
+      "truncated": false
+    },
+    "truncated": false
+  },
+  "step": {
+    "change": "updated",
+    "conversations": [],
+    "empty": false,
+    "facts": {
+      "added": [
+        {
+          "changes": [],
+          "claim": {
+            "authorEffort": null,
+            "authorKind": "model",
+            "authorModel": null,
+            "authorProvider": "other",
+            "authoredBy": "model-a",
+            "confidence": 0.8,
+            "context": "general",
+            "dateBasis": null,
+            "epistemic": "explicit",
+            "evidence": [],
+            "expectedEnd": null,
+            "id": "step-page-c1",
+            "object": "thing-1",
+            "objectKind": "literal",
+            "observer": "agent",
+            "origin": null,
+            "participants": [],
+            "predicate": "relates-to",
+            "premises": [],
+            "recordedAt": "2026-09-01",
+            "recordedTs": null,
+            "sessionIds": [],
+            "sourceEpisodes": [
+              "ep_2026-09-01_000"
+            ],
+            "sourceTrust": "agent_extracted",
+            "status": null,
+            "subject": "step-page",
+            "supersededBy": null,
+            "supersedes": null,
+            "target": null,
+            "text": "step-page fact 1",
+            "validFrom": "2026-09-01",
+            "validTo": null
+          },
+          "conversation": null,
+          "inRun": false
+        }
+      ],
+      "changed": [],
+      "counts": {
+        "added": 1,
+        "changed": 0,
+        "withdrawn": 0
+      },
+      "faded": 0,
+      "truncated": false,
+      "withdrawn": []
+    },
+    "other": [],
+    "otherDetails": 0,
+    "page": {
+      "change": "updated",
+      "commits": [
+        "0000000000000000000000000000000000000000"
+      ],
+      "displayName": null,
+      "episodes": [],
+      "gone": false,
+      "id": "step-page",
+      "name": "Step Page",
+      "qualifier": null,
+      "steps": [
+        "source_check"
+      ],
+      "type": "concept"
+    },
+    "prose": {
+      "blocks": [],
+      "counts": {
+        "added": 0,
+        "edited": 0,
+        "removed": 0
+      },
+      "truncated": false
+    },
+    "truncated": false
+  }
+}

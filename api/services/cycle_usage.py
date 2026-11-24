@@ -338,14 +338,17 @@ def summarize(usage: CycleUsage | None) -> CycleUsageSummary | None:
     )
 
 
-def attach_usage(entries, events, *, detail: bool = False, memory_path=None) -> None:
+def attach_usage(entries, events, *, detail: bool = False, memory_path=None,
+                 run_commits: dict | None = None) -> None:
     """Join usage onto history entries: ``usage_summary`` on every row, and the
     full ``usage`` on a detail. Decay and inbox commits never have a
     ``sleep_run``, so theirs stay ``None``. One ledger pass, one index.
 
     Sleep page v5: a batch commit also learns its run (``drain_id``, ``batch``, ``batches``
     from the ledger row's refs) and, from the run's machine-local summary, the run's own
-    numbers — never summed from the visible page of history."""
+    numbers — never summed from the visible page of history. ``run_commits`` (a dict the caller hands in) is filled
+    with each joined run's batch commits, oldest batch first, from the same ledger rows: what the run's page counts
+    are surveyed from (`sleep_consolidated.apply_figures`)."""
     ledger = Ledger.build(events)
     summaries: dict = {}
     if memory_path is not None:
@@ -376,7 +379,22 @@ def attach_usage(entries, events, *, detail: bool = False, memory_path=None) -> 
 
                 if entry.drain_id not in run_figures:
                     run_figures[entry.drain_id] = _run_figures(ledger, entry.drain_id, summary)
+                    if run_commits is not None:
+                        run_commits[entry.drain_id] = _batch_commits(ledger, entry.drain_id)
                 entry.run = SleepRunRef(**sleep_runs.to_run_ref(summary), **run_figures[entry.drain_id])
+
+
+def _batch_commits(ledger: Ledger, drain_id: str) -> list[str]:
+    """A run's batch commits, oldest batch first, from its ledger rows (``refs.commit``)."""
+    import re
+
+    rows = sorted(ledger.runs_by_drain.get(drain_id) or [], key=lambda r: int((r.refs or {}).get("batch") or 0))
+    out: list[str] = []
+    for r in rows:
+        commit = str((r.refs or {}).get("commit") or "")
+        if re.fullmatch(r"[0-9a-f]{7,40}", commit) and commit not in out:
+            out.append(commit)
+    return out
 
 
 def _run_figures(ledger: Ledger, drain_id: str, summary: dict) -> dict:

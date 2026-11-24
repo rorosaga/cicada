@@ -561,25 +561,63 @@ def _record_scenario_sources(bank_dir: Path, scenario: dict) -> None:
         _set_sources(bank_dir, entity_id, sorted(by_page[entity_id]), extend=True)
 
 
+def _edit_page(bank_dir: Path, entity_id: str, change) -> None:
+    """Read a roster page, let ``change(frontmatter, body)`` return its new ``(frontmatter, body)``, write it back (the
+    claims fence rides in the body, untouched unless ``change`` touches it)."""
+    page = bank_dir / "entities" / f"{entity_id}.md"
+    parsed = markdown_parser.parse(page, ledger=False)
+    fm, body = change(dict(parsed.frontmatter), parsed.body)
+    markdown_parser.write(page, fm, body)
+
+
+def _write_late_episode(bank_dir: Path, today: date) -> dict:
+    """The one conversation the demo's last run reads (already consolidated, so the Waiting queue is as it was): the
+    run's fed page names it, and a fact on that page cites its words."""
+    episodes_dir = bank_dir / "episodes"
+    ep_id = episode_ids.next_episode_id(episodes_dir, str(today))
+    sentence = "Cleared the review queue for Alpha Project today; most of open source maintenance is keeping that queue short."
+    fm = {"id": ep_id, "timestamp": f"{today}T09:30:00+00:00", "processed": True, "processed_by": "sleep",
+          "origin": "claude-code", "harness": "claude-code", "session_id": "ses_demo_late",
+          "title": "Keeping the review queue short"}
+    body = episode_scrub.scrub_body(f"user: {sentence}", writer="demo", bank=bank_dir.name)
+    episode_ids.stamp_received(fm, now=fm["timestamp"])
+    markdown_parser.write(episodes_dir / f"{ep_id}.md", fm, body)
+    return {"id": ep_id, "sentence": sentence}
+
+
 def _write_retired(bank_dir: Path, today: date) -> None:
     """G125: the Sleep page's Past sleeps shows what a run did to each page — made, changed, archived, removed — so the
-    demo's history ends with the two kinds the earlier runs lack: a night's decay archives one page (its own `(decay)`
-    commit, authored `cicada`, made just before the run's, as a real batch's `_finalize` does) and the run removes
-    another. Two concept pages nothing else in the bank points at, so the rest of the demo reads as it did."""
+    demo's history ends with the kinds the earlier runs lack, all in ONE run (owner 2026-11-24, "what influenced this
+    change?"): a night's decay (its own `(decay)` commit, authored `cicada`, made just before the run's, as a real
+    batch's `_finalize` does) archives one page, lets another fade (its confidence moved by silence alone — a quiet
+    entry, never "updated") and only stamps a third (bookkeeping: in no list at all); then the run reads one
+    conversation, which feeds a page (a fact it states, a sentence it adds, the conversation named beside them) and
+    removes another. The roster pages nothing else in the bank points at, so the rest of the demo reads as it did."""
     archived, removed = "morning-routine", "knowledge-management"
-    page = bank_dir / "entities" / f"{archived}.md"
-    parsed = markdown_parser.parse(page, ledger=False)
-    fm = dict(parsed.frontmatter)
-    fm["status"] = "archived"
-    markdown_parser.write(page, fm, parsed.body)
-    a_path, r_path = f"entities/{archived}.md", f"entities/{removed}.md"
+    faded, stamped, fed = "minimalism", "note-taking", "open-source"
+    day = str(today)
+    _edit_page(bank_dir, archived, lambda fm, body: ({**fm, "status": "archived"}, body))
+    _edit_page(bank_dir, faded, lambda fm, body: ({**fm, "confidence": 0.55, "decayed_through": day}, body))
+    _edit_page(bank_dir, stamped, lambda fm, body: ({**fm, "decayed_through": day, "learned_on": day}, body))
+    decay_paths = [f"entities/{p}.md" for p in (archived, faded, stamped)]
     _run_commit(bank_dir, git_service.build_commit_message(
-        f"Sleep cycle {today} (decay)", [f"{a_path}: updated (source: n/a, trigger: decay)"], authors=["cicada"]),
-        [a_path])
-    (bank_dir / r_path).unlink()
+        f"Sleep cycle {today} (decay)", [f"{p}: updated (source: n/a, trigger: sleep/decay)" for p in decay_paths],
+        authors=["cicada"]), decay_paths)
+    late = _write_late_episode(bank_dir, today)
+    write_claim(bank_dir, fed, "description", "keeping the review queue short", observer="agent", confidence=0.75,
+                source_episode=late["id"], evidence=[{"episode": late["id"], "quote": late["sentence"]}], today=today)
+    summary = _SUMMARIES[fed]
+    _edit_page(bank_dir, fed, lambda fm, body: (fm, body.replace(summary, f"{summary} Most of the work is keeping the "
+                                                                    f"review queue short.", 1)))
+    _set_sources(bank_dir, fed, [late["id"]], extend=True)
+    (bank_dir / f"entities/{removed}.md").unlink()
+    batch_paths = [f"entities/{removed}.md", f"entities/{fed}.md", f"episodes/{late['id']}.md"]
     _run_commit(bank_dir, git_service.build_commit_message(
-        f"Sleep cycle {today}", [f"{r_path}: removed (source: n/a, trigger: sleep/dedup)"],
-        authors=["claude-sonnet-5"], engine="claude-cli"), [r_path])
+        f"Sleep cycle {today}",
+        [f"entities/{removed}.md: removed (source: n/a, trigger: sleep/dedup)",
+         f"entities/{fed}.md: updated (source: {late['id']}, trigger: sleep/extraction)",
+         f"episodes/{late['id']}.md: created (source: n/a, trigger: sleep/extraction)"],
+        authors=["claude-sonnet-5"], engine="claude-cli"), batch_paths)
 
 
 def _commit_history(bank_dir: Path, day: date, sources: dict[str, list[str]] | None = None) -> None:
