@@ -723,7 +723,8 @@ measured). **Which one (G245):** a list the person asked to check goes first, wh
 /sources/streams/check` stamps `check_requested_at`, only on a list that is on and not paused; the next recorded attempt
 of any outcome clears it); then the list read longest ago, a list never read before any, ties in table order — the first
 key in table order no longer always wins. A check never lifts a pause and never passes the day's bound. A list with a
-`base` site shares that site's pause (`saved_lists.pause_key`). YouTube's lists (every one due, the same order) and
+`base` site shares that site's pause (`saved_lists.pause_key`, kept under the site's own key, so no entry is made for the
+base list and `list_defaults.read_before` never sees it read). YouTube's lists (every one due, the same order) and
 Substack's (one) follow the same order. `cicada_reading_queue` (stdio only) appends its
 lines — the page, what to read (each post's link, author and the words it shows), only the list (never the feed or
 messages), never click anything that changes it (no unsave, like, follow or reply), never sign in — and

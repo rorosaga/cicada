@@ -1331,7 +1331,9 @@ class UnknownStream(ValueError):
     """``stream`` names no stream (`source_streams`): the route answers 404, never an empty page."""
 
 
-#: The keys of a url-index entry that carry a post's own day, when the list showed one (G245).
+#: The keys of a url-index entry that carry a post's own day, when the list showed one (G245). A saved list's own record
+#: keeps it in the episode's frontmatter (``posted``), which :func:`source_streams.row_fields` reads first. A saved list's own record
+#: keeps it in the episode's frontmatter (``posted``), which :func:`source_streams.row_fields` reads first.
 POSTED_KEYS = ("posted_at", episode_time.PUBLISHED_KEY)
 
 
