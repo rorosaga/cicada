@@ -24,14 +24,25 @@ KIND = "merge_suggestion"
 
 
 def _ends(memory_path: Path, page_id: str) -> set[str]:
-    """The ids a question may name this page by: its file id and its title as a held mention would be slugged."""
-    ends = {page_id}
-    page = Path(memory_path) / "entities" / f"{page_id}.md"
+    """The ids a question may name this page by: its file id, its title as a held mention would be slugged, and every id
+    that became it (``page_redirects.former_ids``: a question raised about a page merged away earlier still names it by
+    that id — "A or P?" after A went into W and W into P, 2026-11-24). **Never an id that has a page of its own now**: a
+    stale redirect left by a split or a re-promotion must not close the live page's own question, so such an id names
+    that page, not this one."""
+    from api.services import page_redirects
+
+    entities = Path(memory_path) / "entities"
+
+    def lives(eid: str) -> bool:
+        return eid != page_id and (entities / f"{eid}.md").is_file()
+
+    ends = {page_id, *(e for e in page_redirects.former_ids(memory_path, page_id) if not lives(e))}
+    page = entities / f"{page_id}.md"
     try:
         name = str(markdown_parser.parse(page).frontmatter.get("name") or "")
     except Exception:  # noqa: BLE001 — an unreadable page names itself by its id only
         name = ""
-    if name.strip():
+    if name.strip() and not lives(sanitize_id(name)):
         ends.add(sanitize_id(name))
     return ends
 

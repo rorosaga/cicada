@@ -146,3 +146,26 @@ def test_a_pair_sleep_split_is_never_a_lead_but_two_same_titled_pages_that_were_
     pairs = {frozenset((p.a, p.b)) for p in pd.candidates(bank)}
     assert frozenset(("marc", "marc-2")) not in pairs and frozenset(("marc-2", "marc-person")) not in pairs
     assert frozenset(("marc", "marc-person")) in pairs, "the pair nobody split stays a lead"
+
+
+# --------------------------------------------------------------------------- ruling 74c: a plain misspelling is never asked
+
+
+def test_one_name_written_two_ways_is_never_asked_but_a_short_name_in_a_full_one_still_is(bank, monkeypatch):
+    monkeypatch.setattr(pair_evidence, "judge", lambda *a, **k: pair_evidence.Verdict(True, "", None, 0.4))
+    report = pd.propose(bank, date(2026, 11, 24), budget=inbox_catchup.Budget(9))
+    asked = {tuple(sorted(p)) for p in report.pairs}
+    assert ("texim", "tikzim") not in asked and report.skipped.get("typo_pair") == 1   # held for Sleep to read, no question
+    assert ("dana", "dana-example") in asked                                           # a short name in a full one: as before
+
+
+def test_a_pair_that_differs_only_in_how_a_name_ends_is_asked_as_before_not_held_for_the_typo_join(bank, monkeypatch):
+    """Review 2026-11-24: `typo_join.variant` refuses Maria / Mario, so `propose` does not skip it as a plain misspelling."""
+    _page(bank, "maria-quinn", "Maria Quinn", source_episodes=["ep_2026-01-01_001"])
+    _page(bank, "mario-quinn", "Mario Quinn", source_episodes=["ep_2026-01-02_001"])
+    bank_index.invalidate()
+    monkeypatch.setattr(pair_evidence, "judge", lambda *a, **k: pair_evidence.Verdict(True, "", None, 0.4))
+    pair = next(p for p in pd.candidates(bank, floor=pd.ASK_FLOOR) if {p.a, p.b} == {"maria-quinn", "mario-quinn"})
+    report = pd.propose(bank, date(2026, 11, 24), budget=inbox_catchup.Budget(9))
+    assert report.skipped.get("typo_pair") == 1                 # only texim / tikzim, never this pair
+    assert any(frozenset(p) == frozenset((pair.a, pair.b)) for p in report.pairs)
