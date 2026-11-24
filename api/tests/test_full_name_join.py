@@ -247,8 +247,9 @@ def test_an_engine_failure_stops_the_step_and_a_failed_read_is_read_again_next_d
     assert (memory / "inbox" / "inbox-001.md").is_file()
     broken = _judge(RuntimeError("boom"))
     assert _tend(memory, broken).joined == 0 and len(broken.calls) == 1
-    # a read that stood and said "cannot tell" is not repeated until something it read changes; an unreadable one is
-    assert len(_tend(memory, broken).skipped) and len(broken.calls) == 2
+    # a read that stood is not repeated until something it read changes; one that could not be made is tried twice
+    assert _tend(memory, broken).looked == 1 and len(broken.calls) == 2
+    assert _tend(memory, broken).looked == 0 and len(broken.calls) == 2
 
 
 def test_a_read_that_stood_is_not_repeated_until_the_record_changes(memory):

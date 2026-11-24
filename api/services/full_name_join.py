@@ -75,6 +75,8 @@ MAX_FACTS = 6
 FACT_CHARS = 220
 #: The reason on the settled list quotes this much of the person's words.
 REASON_QUOTE_CHARS = 110
+#: A question whose read could not be made is tried this many times with the record unchanged.
+MAX_UNREAD_TRIES = 2
 #: Letters a quote needs: a few characters occur anywhere.
 MIN_QUOTE_CHARS = 12
 
@@ -559,7 +561,9 @@ async def tend(memory_path: Path, settings, judge, *, today: date | None = None,
             report.skip(why)
             continue
         mark = await asyncio.to_thread(digest, memory_path, case)
-        if seen.get(case.item_id) == mark:
+        before = seen.get(case.item_id, "")
+        tries = int(before.split("#", 1)[1]) if before.startswith(mark + "#") else 0
+        if before == mark or tries >= MAX_UNREAD_TRIES:
             report.skip("read_already")
             continue
         if speaker is None:
@@ -571,8 +575,9 @@ async def tend(memory_path: Path, settings, judge, *, today: date | None = None,
                               today=(today or date.today()).isoformat())
         report.reads += result.reads
         if result.outcome != "join" or result.decision is None:
-            if result.outcome != "unread":
-                _remember(memory_path, case.item_id, mark)
+            # A read that stood (two, cannot tell) is not repeated until something it read changes; one that could not be
+            # read at all (a reply that was no JSON, a call that failed) is tried again, twice at most, then the same.
+            _remember(memory_path, case.item_id, f"{mark}#{tries + 1}" if result.outcome == "unread" else mark)
             report.skip(f"read:{result.outcome}")
             continue
         d = result.decision
