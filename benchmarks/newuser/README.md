@@ -34,6 +34,7 @@ CV=.claude/skills/verify-cicada/bin/cv
 $CV launch --run-id newuser --no-owner --search-model --evidence ~/cicada-verify-evidence/newuser
 api/.venv/bin/python -m benchmarks.newuser.load --run /tmp/cicada-verify/newuser      # owner, imports, hooks
 CICADA_VERIFY_RUN=/tmp/cicada-verify/newuser $CV sleep --timeout 3600                  # one drain, plan + haiku
+api/.venv/bin/python -m benchmarks.newuser.load --run /tmp/cicada-verify/newuser --start-projects  # her one project
 api/.venv/bin/python -m benchmarks.newuser.ask --run /tmp/cicada-verify/newuser --repeats 3 \
     --out ~/cicada-verify-evidence/newuser/results.jsonl
 api/.venv/bin/python -m benchmarks.newuser.ask --summary ~/cicada-verify-evidence/newuser/results.jsonl
@@ -41,9 +42,13 @@ api/.venv/bin/python -m benchmarks.newuser.ask --compare before.jsonl after.json
 $CV cleanup --run /tmp/cicada-verify/newuser
 ```
 
+Since ruling 56 (2026-11-04) Sleep never makes a project: `fernpost` is a `concept` page until the person starts it, so
+`--start-projects` (after the Sleep) does what the app's New project button does, and `q23` (`cicada_project`) reads
+that page. Without it `q23` is answered "a concept, not a project", which is the rail working, not a defect.
+
 `load.py` writes the fixture under the run directory, refuses ports 8000 and 8765, and posts each Claude Code session
-with the observation the Stop hook makes (a git checkout for the two repositories), because a project page is born from
-a repository the hook saw or the person's own words (ruling 36 D4).
+with the observation the Stop hook makes (a git checkout for the two repositories), because a repository the hook saw is
+the evidence a project name has (it no longer makes a page, ruling 56).
 
 ## Grading
 

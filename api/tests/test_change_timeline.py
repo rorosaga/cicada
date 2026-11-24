@@ -169,6 +169,32 @@ def test_a_page_sleep_created_is_counted_as_new(tmp_path):
     assert (entry.entities_created, entry.entities_updated) == (1, 1)
 
 
+def test_new_pages_beyond_the_row_are_the_most_cited_not_the_first_by_name(tmp_path):
+    """benchmarks/newuser (2026-11-24): a first Sleep that made 22 pages named five in file-name order, so the project
+    most of the conversations were about was in the "+17 more". The row now names the pages the most conversations
+    cite; ties keep git's order, and an id with no page file goes last."""
+    memory = tmp_path / "memory"
+    (memory / "entities").mkdir(parents=True)
+    (memory / "episodes").mkdir()
+    _repo(memory)
+    names = ["aa-page", "bb-page", "cc-page", "dd-page", "ee-page", "ff-page", "gg-busy", "hh-gone", "ii-busy-tie",
+             "jj-page", "kk-page", "ll-page", "skill-busy"]
+    cites = {"gg-busy": 6, "ii-busy-tie": 6, "ff-page": 2, "skill-busy": 9}
+    for n in names:
+        if n == "hh-gone":
+            continue
+        markdown_parser.write(memory / "entities" / f"{n}.md", {"name": n, "type": "skill" if "skill" in n else "concept",
+                              "source_episodes": [f"ep_2026-09-20_{i:03d}" for i in range(cites.get(n, 1))]}, "body")
+    lines = "\n".join(f"entities/{n}.md: create (source: ep_2026-09-20_001, trigger: sleep/promotion)" for n in names)
+    _commit(memory, f"Sleep cycle 2026-09-20\n\n{lines}\n\nCicada-Author: claude-haiku-5-5", D1)
+    [day] = change_timeline.collect(memory, date(2026, 9, 19), date(2026, 9, 22))
+    assert day.created[:3] == ["gg-busy", "ii-busy-tie", "ff-page"]
+    assert day.created.index("skill-busy") > day.created.index("ff-page")   # a skill, however cited, after the things
+    assert day.created[-1] == "hh-gone" and len(day.created) == 13
+    text = change_timeline.render([day], date(2026, 9, 19), date(2026, 9, 22))
+    assert "`gg-busy`, `ii-busy-tie`, `ff-page`" in text and "+5 more" in text and "`hh-gone`" not in text
+
+
 def test_a_saved_link_is_counted_by_its_source_not_as_unknown(tmp_path):
     memory = tmp_path / "memory"
     (memory / "episodes").mkdir(parents=True)
