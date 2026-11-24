@@ -370,5 +370,76 @@
    "Teodor Brandt works at Kestrel Robotics."
   ],
   "guard": "no_turn_names_both"
+ },
+ {
+  "owner": "Mira Kolar",
+  "assistant": "Understood.",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "guard": "shape",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt's father is a plumber."
+  ],
+  "id": "two-straddle-sentences",
+  "kind": "two",
+  "why": "a quote that could straddle two sentences about two people",
+  "turn": "Had lunch with Teo today. Teodor Brandt's father is a plumber."
+ },
+ {
+  "owner": "Mira Kolar",
+  "assistant": "Understood.",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "guard": "shape",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt is leaving the team."
+  ],
+  "id": "two-forwarded-block",
+  "kind": "two",
+  "why": "a forwarded block inside the person's own turn",
+  "turn": "Look what Odile forwarded me:\n> Hi all, Teodor Brandt, who everybody calls Teo, is leaving the team.\nWhat should I reply?"
+ },
+ {
+  "owner": "Mira Kolar",
+  "assistant": "Understood.",
+  "full": "Teodor Brandt",
+  "short": "Teo",
+  "guard": "shape",
+  "page_facts": [
+   "Teo works at Kestrel Robotics as a product manager.",
+   "Teo put in a word for Mira at Kestrel."
+  ],
+  "held_facts": [
+   "Teodor Brandt is Teo's uncle."
+  ],
+  "id": "two-possessive",
+  "kind": "two",
+  "why": "a possessive: the short name's relative",
+  "turn": "Teo's uncle Teodor Brandt came to the wedding and gave a long speech."
+ },
+ {
+  "owner": "Mira Kolar",
+  "assistant": "Understood.",
+  "full": "Will Marsh",
+  "short": "Will",
+  "guard": "no_turn_names_both",
+  "page_facts": [
+   "Will works at Kestrel Robotics as a designer."
+  ],
+  "held_facts": [
+   "Will Marsh works at a bank."
+  ],
+  "id": "two-common-word",
+  "kind": "two",
+  "why": "a short name that is also a common word: 'will' the verb is not 'Will' the page",
+  "turn": "I will see Will Marsh tomorrow."
  }
 ]

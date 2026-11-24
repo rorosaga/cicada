@@ -485,3 +485,276 @@ def test_names_both_needs_the_short_name_outside_the_full_one():
     assert full_name_join.names_both(["sam okafor"], ["sam"], "Sam Okafor came, and Sam stayed")
     assert not full_name_join.names_both(["sam okafor"], ["sam"], "Sam Okafor came")
     assert not full_name_join.names_both(f, s, "Teodor Brandt came") and not full_name_join.names_both(f, s, "Teo came")
+
+
+# --------------------------------------------------------------------------- the held line's own words reach the page
+
+
+def _give_the_line_prose(memory: Path) -> None:
+    from api.services import section_provenance
+
+    line = pending_store.held_line(memory, "Teodor Brandt")
+    line.summary = "Old teammate of Ines Varga from university, now a product manager at Kestrel Robotics."
+    line.key_facts = ["Teodor Brandt told Ines Varga that Kestrel Robotics is hiring designers."]
+    line.history_entries = [{"date": "2026-10-03", "event": "Had lunch with Ines Varga."}]
+    line.item_inputs = [{"field": "summary", "text": line.summary, "evidence": [
+                            {"episode": "ep_2026-10-03_001", "start": -1, "end": -1, "kind": "reasoning", "hash": "a" * 12}]},
+                        {"field": "key_facts", "text": line.key_facts[0], "evidence": [
+                            {"episode": "ep_2026-10-03_001", "start": -1, "end": -1, "kind": "reasoning", "hash": "a" * 12}]}]
+    pending_store.upsert(memory, line)
+    _commit(memory, "line prose")
+
+
+def _sections(memory: Path, page: str = "teo") -> dict:
+    from api.services import entity_body
+    from api.services.claims import strip_claims_block
+
+    return entity_body.parse_sections(strip_claims_block(markdown_parser.parse(memory / "entities" / f"{page}.md").body))
+
+
+def test_the_join_carries_the_held_lines_own_words_to_the_page_with_their_source_rows(memory):
+    from api.services import section_provenance
+
+    _world(memory)
+    _give_the_line_prose(memory)
+    summary_before = _sections(memory)["Summary"]
+    assert _tend(memory, _judge(_one())).joined == 1
+    sections = _sections(memory)
+    assert sections["Summary"] == summary_before, "a page that has a Summary keeps it"
+    page_text = "\n".join(sections.values())
+    assert "hiring designers" in page_text and "product manager at Kestrel Robotics" in page_text
+    assert "2026-10-03: Had lunch with Ines Varga." in sections["History"]
+    parsed = markdown_parser.parse(memory / "entities" / "teo.md")
+    rows = section_provenance.matched(parsed.frontmatter, parsed.body)
+    sources = {ev.episode for per in rows.values() for _guard, evs in per.values() for ev in evs}
+    assert "ep_2026-10-03_001" in sources, "the facts the line brought keep their source rows (G118)"
+    assert pending_store.held_line(memory, "Teodor Brandt") is None
+
+
+def test_the_persons_own_tap_carries_it_too(memory):
+    from api.models.schemas import InboxResolveRequest
+    from api.services import inbox_service
+
+    _world(memory)
+    _give_the_line_prose(memory)
+    run(inbox_service._resolve_admitted("inbox-001", InboxResolveRequest(action="merge", merge_target="teo"),
+                                        _Settings(memory), None))
+    assert "hiring designers" in "\n".join(_sections(memory).values())
+    assert "Teodor Brandt" in markdown_parser.parse(memory / "entities" / "teo.md").frontmatter["aliases"]
+
+
+def test_an_undo_of_sleeps_join_puts_the_page_back_byte_for_byte_prose_included(memory):
+    _world(memory)
+    _give_the_line_prose(memory)
+    before = (memory / "entities" / "teo.md").read_bytes()
+    assert _tend(memory, _judge(_one())).joined == 1
+    assert (memory / "entities" / "teo.md").read_bytes() != before
+    inbox_tend.undo(memory, "inbox-001")
+    assert (memory / "entities" / "teo.md").read_bytes() == before
+
+
+def test_a_page_the_person_edited_keeps_every_passage_of_theirs_when_a_held_line_joins_it(memory):
+    _world(memory)
+    page = markdown_parser.parse(memory / "entities" / "teo.md")
+    body = page.body.replace("## Summary\nTeo works at Kestrel Robotics.", "## Summary\nTeo is my favourite person at Kestrel.\n\n## My notes\nSent him a card.")
+    markdown_parser.write(memory / "entities" / "teo.md", {**page.frontmatter, "human_edited": True}, body)
+    _commit(memory, "edited")
+    _give_the_line_prose(memory)
+    assert _tend(memory, _judge(_one())).joined == 1
+    sections = _sections(memory)
+    assert sections["Summary"].startswith("Teo is my favourite person at Kestrel.")
+    assert sections["My notes"] == "Sent him a card."
+    assert "hiring designers" in "\n".join(sections.values())
+
+
+def test_a_line_with_no_prose_changes_nothing_beyond_what_the_claims_did(memory):
+    _world(memory)
+    from api.services import inbox_service
+
+    entries = pending_store.load(memory)
+    for entry in entries:
+        entry.history_entries = []
+    pending_store.save(memory, entries)
+    assert inbox_service._land_held_prose(memory, "Teodor Brandt", "teo") == []
+    assert inbox_service._land_held_prose(memory, "Nobody Here", "teo") == []
+
+
+# --------------------------------------------------------------------------- the reviewer's attacks (2026-11-24)
+
+
+def _joined_with(memory: Path, turn: str, quote: str, *, assistant: str = "ok") -> int:
+    _world(memory, turn, assistant=assistant)
+    return _tend(memory, _judge(_one(quote))).joined
+
+
+def test_a_quote_that_runs_from_the_persons_turn_into_the_assistants_is_no_join(memory):
+    turn = "Teodor Brandt called. Also Teo was there."
+    quote = "Also Teo was there.\nassistant: Teodor Brandt, who is Teo, is a lovely name"
+    assert _joined_with(memory, turn, quote, assistant="Teodor Brandt, who is Teo, is a lovely name") == 0
+    assert (memory / "inbox" / "inbox-001.md").is_file()
+
+
+def test_a_quote_that_runs_into_another_speakers_line_of_a_meeting_is_no_join(memory):
+    _world(memory, "Teodor Brandt rang, and so did Teo.")
+    _episode(memory, "ep_2026-10-03_001", "user: Teodor Brandt rang, and so did Teo.\nspeaker:Odile: Teodor Brandt is Teo's father, you know.\n")
+    _commit(memory, "meeting")
+    judge = _judge(_one("and so did Teo.\nspeaker:Odile: Teodor Brandt is Teo's father"))
+    assert _tend(memory, judge).joined == 0
+
+
+def test_the_words_that_carry_both_names_are_the_words_that_were_located(memory):
+    real = ("Teo and I talked for a long time about everything under the sun, from football to robots to the weather, "
+            "and the long road trip we took last summer through the mountains, the rivers, the lakes and the villages. ")
+    assert len(real) > 200
+    turn = real + "Then I met Teodor Brandt's wife at the bar."
+    # the quote's first 240 characters are real; an invented tail carries the full name beside the short one
+    assert _joined_with(memory, turn, real + " Teodor Brandt, my old teammate, is the same as Teo.") == 0
+
+
+def test_a_quote_longer_than_the_evidence_cap_is_refused_even_when_every_word_is_there(memory):
+    from api.services import evidence
+
+    turn = "Teodor Brandt, " + "who everybody calls Teo, " * 12 + "is leaving the team."
+    assert len(turn) > evidence.MAX_QUOTE_CHARS
+    assert _joined_with(memory, turn, turn) == 0
+
+
+def test_a_page_that_already_carries_another_full_name_is_not_a_join_for_sleep(memory):
+    _world(memory)
+    page = markdown_parser.parse(memory / "entities" / "teo.md")
+    markdown_parser.write(memory / "entities" / "teo.md", {**page.frontmatter, "aliases": ["Teodor Marchetti"]}, page.body)
+    _commit(memory, "alias")
+    judge = _judge(_one())
+    report = _tend(memory, judge)
+    assert report.joined == 0 and judge.calls == [] and report.skipped.get("page_is_someone_in_full") == 1
+
+
+def test_a_second_full_name_never_joins_the_page_the_first_one_joined(memory):
+    _world(memory)
+    _episode(memory, "ep_2026-10-05_001", "user: Saw Teo again. Matteo Rossi, my cousin, is visiting.\nassistant: ok\n")
+    _held(memory, "Matteo Rossi", "ep_2026-10-05_001", "Saw Teo again. Matteo Rossi, my cousin, is visiting.", aliases=("Matt",))
+    _question(memory, 2, "Matteo Rossi", "teo", "Teo", "ep_2026-10-05_001")
+    _commit(memory, "second")
+
+    def answer(prompt):
+        mine = "Matteo Rossi" in prompt.split("FULL NAME:")[1][:30]
+        return _one("Saw Teo again. Matteo Rossi, my cousin, is visiting." if mine else
+                    "Had lunch with Teo today. Teodor Brandt, my old teammate from university.")
+
+    report = _tend(memory, _judge(answer))
+    assert report.joined == 1 and report.skipped.get("page_is_someone_in_full") == 1
+    assert markdown_parser.parse(memory / "entities" / "teo.md").frontmatter["aliases"] == ["Teodor Brandt"]
+    assert (memory / "inbox" / "inbox-002.md").is_file()
+
+
+def test_the_prompt_shows_every_name_the_page_goes_by(memory):
+    _world(memory)
+    page = markdown_parser.parse(memory / "entities" / "teo.md")
+    markdown_parser.write(memory / "entities" / "teo.md", {**page.frontmatter, "aliases": ["Teddy"]}, page.body)
+    _commit(memory, "alias")
+    judge = _judge({"verdict": "two"})
+    _tend(memory, judge)
+    assert "Teddy" in judge.calls[0]
+
+
+def test_every_turn_naming_both_is_shown_and_more_than_the_bound_is_no_join(memory):
+    _world(memory)
+    line = pending_store.held_line(memory, "Teodor Brandt")
+    eps = []
+    for n in range(2, 9):
+        eid = f"ep_2026-10-0{n}_00{n}"
+        eps.append(eid)
+        body = ("user: Teodor Brandt, also called Teo, mailed me again.\\nassistant: ok\\n" if n < 6 else
+                "user: Careful: Teodor Brandt is NOT Teo. Teodor Brandt is Teo's uncle, a different man.\\nassistant: noted\\n")
+        _episode(memory, eid, body.replace("\\\\n", "\\n"))
+    line.heard_in = [{"episode": e, "timestamp": "2026-10-05T09:00:00+00:00", "day": "2026-10-05"} for e in ["ep_2026-10-03_001", *eps]]
+    pending_store.upsert(memory, line)
+    _commit(memory, "many turns")
+    judge = _judge(_one())
+    report = _tend(memory, judge)
+    assert report.joined == 0 and judge.calls == [] and report.skipped.get("too_many_turns") == 1
+    # within the bound every one is shown, the denial included
+    for eid in eps[:2]:
+        (memory / "episodes" / f"{eid}.md").unlink()
+    line = pending_store.held_line(memory, "Teodor Brandt")
+    line.heard_in = [{"episode": e, "timestamp": "2026-10-05T09:00:00+00:00", "day": "2026-10-05"} for e in ["ep_2026-10-03_001", *eps[2:]]]
+    pending_store.upsert(memory, line)
+    _commit(memory, "fewer")
+    judge = _judge({"verdict": "two"})
+    _tend(memory, judge)
+    assert judge.calls and "NOT Teo" in judge.calls[0]
+
+
+def test_a_change_while_the_model_reads_leaves_the_question(memory):
+    _world(memory)
+    state = {"n": 0}
+
+    async def judge(system, prompt):
+        state["n"] += 1
+        if state["n"] == 2:
+            page = markdown_parser.parse(memory / "entities" / "teo.md")
+            markdown_parser.write(memory / "entities" / "teo.md", page.frontmatter, page.body + "\n- Teo is Odile Brandt's son.\n")
+            bank_index.invalidate(memory)
+        return _one()
+
+    assert _tend(memory, judge).joined == 0 and (memory / "inbox" / "inbox-001.md").is_file()
+
+
+def test_a_conversation_the_held_line_was_not_heard_in_is_never_read(memory):
+    _world(memory, turn="Teodor Brandt wrote to me.")
+    _episode(memory, "ep_2026-11-20_001", f"user: {APPOSITION}\nassistant: ok\n")
+    path = memory / "inbox" / "inbox-001.md"
+    page = markdown_parser.parse(path)
+    markdown_parser.write(path, {**page.frontmatter, "source_episode": "ep_2026-11-20_001"}, page.body)
+    _commit(memory, "source")
+    judge = _judge(_one())
+    report = _tend(memory, judge)
+    assert report.joined == 0 and judge.calls == [] and report.skipped.get("no_turn_names_both") == 1
+
+
+def test_a_settle_that_cannot_apply_is_tried_twice_not_every_drain(memory, monkeypatch):
+    _world(memory)
+
+    async def refuse(memory_path, settings, d, **kw):
+        return False
+
+    monkeypatch.setattr(inbox_tend, "apply", refuse)
+    judge = _judge(_one())
+    for _ in range(4):
+        _tend(memory, judge)
+    assert len(judge.calls) == 4, "two drains of two reads, then nothing"
+
+
+def test_a_page_of_any_type_called_the_short_name_blocks(memory):
+    _world(memory)
+    _page(memory, "teo-s-pizza", "Teo's Pizza", type_="company", aliases=["Teo"])
+    _commit(memory)
+    _blocked(memory, "short_name_not_alone")
+
+
+def test_the_judging_model_is_the_author_when_the_engine_says_which_answered_and_cicada_otherwise(memory):
+    _world(memory)
+    answer = {**_one(), "_model": "claude-sonnet-5-5"}
+    assert _tend(memory, _judge(answer)).joined == 1
+    assert "Cicada-Author: claude-sonnet-5-5" in _git(memory, "log", "-1", "--format=%B")
+
+
+def test_a_line_the_person_quoted_from_someone_else_is_no_join(memory):
+    turn = "Look what Odile forwarded me:\n> Hi all, Teodor Brandt, who everybody calls Teo, is leaving the team.\nWhat do I reply?"
+    assert _joined_with(memory, turn, "Teodor Brandt, who everybody calls Teo, is leaving the team.") == 0
+
+
+def test_a_short_name_that_is_a_common_word_must_be_written_as_the_record_writes_it(memory):
+    """"Will" the page against "will" the verb in "I will see Will Marsh tomorrow": the short name has to appear as the page
+    spells it (case kept), outside the full name; no model is asked when only the verb does."""
+    _episode(memory, "ep_2026-10-03_001", "user: I will see Will Marsh tomorrow.\nassistant: ok\n")
+    _episode(memory, "ep_2026-10-22_001", "user: Will asked about the rota.\nassistant: ok\n")
+    _page(memory, "will", "Will", source_episodes=["ep_2026-10-22_001"])
+    _held(memory, "Will Marsh", "ep_2026-10-03_001", "I will see Will Marsh tomorrow.", aliases=("Will",))
+    _question(memory, 1, "Will Marsh", "will", "Will", "ep_2026-10-03_001")
+    _commit(memory, "will")
+    judge = _judge(_one("I will see Will Marsh tomorrow."))
+    report = _tend(memory, judge)
+    assert report.joined == 0 and judge.calls == [] and report.skipped.get("no_turn_names_both") == 1
+    assert full_name_join.names_both(["teodor brandt"], ["teo"], "Teodor Brandt (Téo)", frozenset({"Teo"}))
+    assert not full_name_join.names_both(["teodor brandt"], ["teo"], "Teodor Brandt (TEO)", frozenset({"Teo"}))

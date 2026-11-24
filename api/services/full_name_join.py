@@ -55,6 +55,7 @@ import asyncio
 import hashlib
 import json
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -67,9 +68,12 @@ RULE = "full_name_one"
 #: Questions one tail step reads (each is up to two main-model calls); the rest wait for the next drain.
 MAX_LOOKS = 6
 #: The person's messages one call shows, and how much of each.
-MAX_TURNS = 4
-TURN_CHARS = 900
-MAX_EPISODES = 8
+#: Every one of the person's messages that names both is shown; more than this and Sleep does not join (a counted skip),
+#: never a silent cut that could hide the one that says they are two. A message longer than ``TURN_CHARS`` is shown whole or
+#: not at all (skip), a held line heard in more than ``MAX_EPISODES`` conversations the same.
+MAX_TURNS = 6
+TURN_CHARS = 2500
+MAX_EPISODES = 40
 #: What the call shows of each side of the pair.
 MAX_FACTS = 6
 FACT_CHARS = 220
@@ -92,7 +96,7 @@ FULL NAME: "{full}"
 What the memory holds about it:
 {held}
 
-SHORT NAME: "{short}" (the page "{page_name}"). What that page holds, conversation by conversation:
+SHORT NAME: "{short}" (the page "{page_name}", which also goes by: {page_names}). What that page holds, conversation by conversation:
 {page}
 
 THE PERSON'S OWN MESSAGES that carry both names, numbered:
@@ -140,6 +144,8 @@ class Case:
     short_names: list[str]
     turns: list[Turn]
     fm: dict = field(default_factory=dict)
+    surfaces: frozenset = frozenset()
+    page_names: list = field(default_factory=list)
 
 
 @dataclass
@@ -151,6 +157,7 @@ class Read:
     episode: str = ""
     quote: str = ""
     reason: str = ""
+    model: str = ""   # the model the engine's reply said answered, "" when it did not say
 
 
 @dataclass
@@ -199,6 +206,12 @@ def _person_pages(memory_path: Path) -> list[tuple[str, dict]]:
     return out
 
 
+def _all_pages(memory_path: Path) -> list[tuple[str, dict]]:
+    from api.services import bank_index
+
+    return [(f.stem, f.frontmatter or {}) for f in bank_index.files(Path(memory_path), "entities")]
+
+
 def _names_of(fm: dict, stem: str = "") -> list[str]:
     removed = {_key(a) for a in (fm.get("aliases_removed") or []) if isinstance(a, str)}
     raw = [fm.get("name"), *[a for a in (fm.get("aliases") or []) if isinstance(a, str) and _key(a) not in removed]]
@@ -211,15 +224,37 @@ def _could_mean(short_key: str, names: list[str]) -> bool:
                for n in names for w in _words(n))
 
 
-def names_both(fulls: list[str], shorts: list[str], text: str | None) -> bool:
+def _plain(word: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFD", word) if not unicodedata.combining(c))
+
+
+def names_both(fulls: list[str], shorts: list[str], text: str | None, surfaces: frozenset[str] | None = None) -> bool:
     """Does ``text`` say a full name AND, somewhere else, a short name (whole words)? The short name inside the full one
-    ("Ola" in "Ola Petrov") says nothing: each full name's words are taken out before the short name is looked for."""
-    folded = f" {pair_evidence.spelling(text)} "
-    if not any(f" {f} " in folded for f in fulls if f):
+    ("Ola" in "Ola Petrov") says nothing: each full name's words are taken out before the short name is looked for.
+    ``surfaces``: the short name as the record writes it (accents off, case kept). When given, the short name must be
+    written so, exactly: "Will" the page never matches "will" in "I will see Will Marsh". Language-free: a script with no
+    case is unaffected, and a person who types everything in lower case only misses a join."""
+    words = [(w, text_fold.fold(w), _plain(w)) for w in re.findall(r"[^\W_]+", str(text or ""))]
+    folded = [f for _w, f, _p in words]
+    taken = [False] * len(words)
+    found = False
+    for full in sorted((f for f in fulls if f), key=lambda f: -len(f.split())):
+        parts = full.split()
+        for at in range(len(words) - len(parts) + 1):
+            if folded[at:at + len(parts)] == parts and not any(taken[at:at + len(parts)]):
+                taken[at:at + len(parts)] = [True] * len(parts)
+                found = True
+    if not found:
         return False
-    for f in sorted((f for f in fulls if f), key=len, reverse=True):
-        folded = folded.replace(f" {f} ", " | ")
-    return any(f" {s} " in folded for s in shorts if s)
+    for (_w, f, plain), gone in zip(words, taken):
+        if gone:
+            continue
+        if surfaces is not None:
+            if plain in surfaces:
+                return True
+        elif f in shorts:
+            return True
+    return False
 
 
 def _episode_day(memory_path: Path, episode: str) -> str:
@@ -238,28 +273,23 @@ def _user_turns(memory_path: Path, episode_id: str) -> list[str]:
                                     "gaps": evidence.gap_ranges(ep_fm, text), "source": ep_fm.get("source")})
 
 
-def _window(text: str, full_names: list[str]) -> str:
-    """The turn, cut around the first full name when it is long; whole when it fits."""
-    text = " ".join(text.split())
-    if len(text) <= TURN_CHARS:
-        return text
-    hay = text_fold.fold(text)
-    at = min((i for i in (hay.find(_key(n)) for n in full_names) if i >= 0), default=0)
-    start = max(0, at - TURN_CHARS // 2)
-    return ("…" if start else "") + text[start:start + TURN_CHARS] + ("…" if start + TURN_CHARS < len(text) else "")
-
-
-def _turns_naming_both(memory_path: Path, episodes: list[str], full_names: list[str],
-                       short_names: list[str]) -> list[Turn]:
+def _turns_naming_both(memory_path: Path, episodes: list[str], full_names: list[str], short_names: list[str],
+                       surfaces: frozenset[str]) -> tuple[list[Turn], str]:
+    """``(the person's messages that name both, "")`` or ``([], why Sleep does not read them)``: every one is shown, so
+    one that says they are two is never cut away."""
     out: list[Turn] = []
     fulls, shorts = [_key(n) for n in full_names], [_key(n) for n in short_names]
-    for eid in episodes[:MAX_EPISODES]:
+    if len(episodes) > MAX_EPISODES:
+        return [], "too_many_conversations"
+    for eid in episodes:
         for turn in _user_turns(memory_path, eid):
-            if names_both(fulls, shorts, turn):
-                out.append(Turn(len(out) + 1, eid, _episode_day(memory_path, eid), _window(turn, full_names)))
-                if len(out) >= MAX_TURNS:
-                    return out
-    return out
+            if names_both(fulls, shorts, turn, surfaces):
+                if len(turn) > TURN_CHARS:
+                    return [], "turn_too_long"
+                out.append(Turn(len(out) + 1, eid, _episode_day(memory_path, eid), turn))
+                if len(out) > MAX_TURNS:
+                    return [], "too_many_turns"
+    return out, ""
 
 
 def guards(memory_path: Path, path: Path, fm: dict, *, today: str | None = None) -> tuple[Case | None, str]:
@@ -311,8 +341,13 @@ def guards(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
     short_keys = {_key(n) for n in short_names}
     if _key(page_name) not in short_keys:
         return None, "page_not_short"
-    # Exactly one person page answers to the short name, and no one else could be whom it means.
-    answering = [pid for pid, pfm in people if short_keys & {_key(n) for n in _names_of(pfm)}]
+    # A page that already carries another full name (two words or more) is someone in full: never a join for Sleep. A's
+    # own spellings (its name, its multi-word aliases) are the only ones it may carry beside the short name.
+    if any(len(_words(n)) >= 2 and _key(n) not in full_keys for n in _names_of(target_fm)):
+        return None, "page_is_someone_in_full"
+    # Exactly ONE page (of any type: a company or a pet called the same) answers to the short name, and no other person
+    # could be whom it means.
+    answering = [pid for pid, pfm in _all_pages(memory_path) if short_keys & {_key(n) for n in _names_of(pfm)}]
     if answering != [target_id]:
         return None, "short_name_not_alone"
     for pid, pfm in people:
@@ -332,12 +367,16 @@ def guards(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
     if (same_name_doubts.doubts_of(memory_path, target_id) or target_id in flagged_pages
             or any(target_id in pair for pair in flagged_pairs) or target_id in same_name_doubts.one(memory_path)):
         return None, "in_a_doubt"
-    episodes = list(dict.fromkeys([*line.episodes(), str(fm.get("source_episode") or "")]))
-    episodes = [e for e in episodes if e.startswith("ep_")]
-    turns = _turns_naming_both(memory_path, episodes, full_names, short_names)
+    # Only conversations the held line was heard in (never the question's own source when the line was not heard there).
+    episodes = [e for e in dict.fromkeys(line.episodes()) if e.startswith("ep_")]
+    surfaces = frozenset(_plain(n) for n in short_names)
+    turns, why = _turns_naming_both(memory_path, episodes, full_names, short_names, surfaces)
+    if why:
+        return None, why
     if not turns:
         return None, "no_turn_names_both"
-    return Case(path.stem, full, target_id, page_name, page_name, full_names, short_names, turns, dict(fm)), ""
+    return Case(path.stem, full, target_id, page_name, page_name, full_names, short_names, turns, dict(fm), surfaces,
+                _names_of(target_fm)), ""
 
 
 # --------------------------------------------------------------------------- the reads
@@ -385,30 +424,58 @@ def build_prompt(memory_path: Path, case: Case, speaker: str | None, *, skeptic:
     return (SKEPTIC if skeptic else PROMPT).format(
         speaker=SPEAKER.format(speaker=named) if named else "", full=case.full.replace('"', ""),
         short=case.short.replace('"', ""), page_name=case.page_name.replace('"', ""),
+        page_names=", ".join(f"“{n}”" for n in case.page_names if _key(n) != _key(case.page_name)) or "no other name",
         held=_held_text(memory_path, case), page=_page_text(memory_path, case), turns=turns)
 
 
+def _span_in_turn(case: Case, quote: str) -> tuple[Turn, str] | None:
+    """The quote located (`evidence.locate`: exact, whitespace, case; never fuzzy) inside ONE of the person's own turns,
+    and the words it located read back from that turn: ``(turn, those words)``. ``None`` when it is in no turn, is longer
+    than the evidence cap (only its first 240 characters would be located), or touches a line the person quoted from
+    someone else (a markdown ``>`` block)."""
+    from api.services import evidence
+
+    if len(quote) > evidence.MAX_QUOTE_CHARS:
+        return None
+    for turn in case.turns:
+        hit = evidence.locate(turn.text, quote)
+        if hit is None:
+            continue
+        start, end = hit
+        first = turn.text.rfind("\n", 0, start) + 1
+        block = turn.text[first:end]
+        if any(line.lstrip().startswith(">") for line in block.split("\n")):
+            return None
+        return turn, turn.text[start:end]
+    return None
+
+
 def located(memory_path: Path, case: Case, parsed: dict) -> Read:
-    """What a model's reply stands on: a verdict, and for ``one`` words found exactly in one of the person's own turns
-    of a conversation the held line was heard in, carrying a spelling of each side. Anything else is ``one`` withdrawn:
-    ``cannot_tell``, never a join."""
+    """What a model's reply stands on: a verdict, and for ``one`` words found exactly inside one of the person's own turns
+    of a conversation the held line was heard in, and carrying a spelling of each side **in the words as located**, read
+    back from the turn (never in what the model returned). Anything else is ``one`` withdrawn: ``cannot_tell``."""
     from api.services import inbox_tend
 
     verdict = str(parsed.get("verdict") or "").strip().lower().replace(" ", "_")
     reason = _trim(parsed.get("reason"), 200)
+    model = str(parsed.get("_model") or "")
     if verdict in ("two", "different"):
-        return Read("two", reason=reason)
+        return Read("two", reason=reason, model=model)
     if verdict != "one":
-        return Read("cannot_tell" if verdict == "cannot_tell" else "", reason=reason)
+        return Read("cannot_tell" if verdict == "cannot_tell" else "", reason=reason, model=model)
     quote = " ".join(str(parsed.get("quote") or "").split())
+    if len(re.sub(r"\W+", "", quote)) < MIN_QUOTE_CHARS or "…" in quote or "..." in quote:
+        return Read("cannot_tell", reason="the words quoted are too short or have gaps", model=model)
+    found = _span_in_turn(case, quote)
+    if found is None:
+        return Read("cannot_tell", reason="the words quoted are not inside one of the person's own turns, as written", model=model)
+    turn, words = found
     fulls, shorts = [_key(n) for n in case.full_names], [_key(n) for n in case.short_names]
-    if (len(re.sub(r"\W+", "", quote)) < MIN_QUOTE_CHARS or "…" in quote or "..." in quote
-            or not names_both(fulls, shorts, quote)):
-        return Read("cannot_tell", reason="the words quoted do not carry both names")
-    for turn in case.turns:
-        if inbox_tend.persons_span(Path(memory_path), turn.episode, quote) is not None:
-            return Read("one", turn.episode, quote, reason)
-    return Read("cannot_tell", reason="the words quoted are not the person's own, as written")
+    if not names_both(fulls, shorts, words, case.surfaces):
+        return Read("cannot_tell", reason="the words located do not carry both names", model=model)
+    if inbox_tend.persons_span(Path(memory_path), turn.episode, words) is None:
+        return Read("cannot_tell", reason="the words are not the person's own where the record first has them", model=model)
+    return Read("one", turn.episode, words, reason, model)
 
 
 async def _read(memory_path: Path, case: Case, judge, speaker, *, skeptic: bool) -> Read:
@@ -457,13 +524,17 @@ def digest(memory_path: Path, case: Case) -> str:
 
 async def assess(memory_path: Path, path: Path, fm: dict, judge, *, speaker: str | None = None,
                  today: str | None = None) -> Assessment:
-    """The guards, then up to two reads. Writes nothing. An engine failure is the caller's (a plan limit is a pause)."""
+    """The guards, then up to two reads. Writes nothing. What the settle will re-check (the question's bytes, the pages'
+    hashes, the pending store's) is taken BEFORE the first read, so a change while the model reads leaves the question.
+    An engine failure is the caller's (a plan limit is a pause)."""
     from api.services import inbox_tend
 
     memory_path = Path(memory_path)
     case, why = guards(memory_path, path, fm, today=today)
     if case is None:
         return Assessment("skip", why)
+    fingerprint = path.read_bytes()
+    guard = _guard(memory_path, case)
     first = await _read(memory_path, case, judge, speaker, skeptic=False)
     result = Assessment("unread", reads=1, case=case)
     if first.verdict == "two":
@@ -478,10 +549,12 @@ async def assess(memory_path: Path, path: Path, fm: dict, judge, *, speaker: str
         result.outcome = "two" if second.verdict == "two" else "unsure" if second.verdict == "cannot_tell" else "unread"
         return result
     result.outcome = "join"
+    # The judging model, when the engine's replies say which one answered (both reads the same); otherwise `cicada`.
+    model = first.model if first.model and first.model == second.model else None
     result.decision = inbox_tend.Decision(
         case.item_id, "merge_suggestion", RULE, {"action": "merge", "merge_target": case.page_id},
         answer=f"Same as {case.page_name}", quote={"episode": first.episode, "quote": first.quote},
-        guard=_guard(memory_path, case), reason=_reason(first))
+        model=model, fingerprint=fingerprint, guard=guard, reason=_reason(first))
     return result
 
 
@@ -582,7 +655,6 @@ async def tend(memory_path: Path, settings, judge, *, today: date | None = None,
             continue
         d = result.decision
         try:
-            d.fingerprint = path.read_bytes()
             ok = await inbox_tend.apply(memory_path, settings, d)
         except Exception as exc:  # noqa: BLE001 - one join that will not settle never stops the others
             logger.info(f"Full-name join not applied: {type(exc).__name__}")
@@ -591,6 +663,8 @@ async def tend(memory_path: Path, settings, judge, *, today: date | None = None,
             report.joined += 1
             report.paths.append(f"inbox/settled/{d.item_id}.md")
         else:
+            # A settle that cannot apply is tried again like a read that could not be made, twice, not every drain.
+            _remember(memory_path, case.item_id, f"{mark}#{tries + 1}")
             report.skip("not_applied")
     return report
 
@@ -608,7 +682,9 @@ async def ask_main(strong, system: str, prompt: str) -> object:
     fn = providers.resolve_llm_fn(strong, stage=inbox_tend.STAGE, is_async=False)
     resp = await asyncio.to_thread(fn, messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}],
                                    response_format={"type": "json_object"})
-    return json_parse.parse_json_object_or(inbox_tend._content(resp), {})
+    parsed = json_parse.parse_json_object_or(inbox_tend._content(resp), {})
+    model = inbox_tend._model_of(resp)
+    return {**parsed, "_model": model} if model and isinstance(parsed, dict) else parsed
 
 
 async def run_tail(memory_path: Path, settings, *, user_triggered: bool, judge=None, today: date | None = None) -> Report:
