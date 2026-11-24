@@ -58,7 +58,7 @@ struct SourcesStep: View {
         }
         .task { await reading.loadSettings() }
         .sheet(item: $opened) { entry in
-            SourceCatalogDetail(row: catalogRow(entry), onClose: { opened = nil })
+            SourceCatalogDetail(row: catalogRow(entry), onClose: { opened = nil }, compact: true)
                 .environment(reading)
                 .frame(width: CicadaTheme.scaled(560), height: CicadaTheme.scaled(SourcesStepLayout.sheetHeight))
                 .background(CicadaTheme.bgBase)
@@ -199,6 +199,7 @@ struct SourcesStep: View {
 }
 
 enum SourcesStepLayout {
-    /// The Sources page's detail over onboarding: its head, its control and a first look at what came in.
+    /// The Sources page's compact detail over onboarding (G245, plan 3.2): its head, its Reads and its connect step —
+    /// no items, no Check now.
     static let sheetHeight: CGFloat = 380
 }

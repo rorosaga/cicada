@@ -67,16 +67,12 @@ final class SourcesListTests: XCTestCase {
                        "who wrote the memory lives under Statistics now, so authors are not walked")
     }
 
-    /// R-S7's pins, restated for the rewritten page (SourcesV2Tests holds the originals).
-    func testTheWayInStaysInTheEyebrowRow() throws {
+    /// R-S7's pins, restated for the card root (G245, ruling 78: no add, and the header's one button checks).
+    func testTheEyebrowRowHoldsTheOneCheckButtonAndNoAdd() throws {
         let page = try source("Views/Sources/SourcesPageView.swift")
-        // DR-75 (2026-10-20, round 2) — the labelled add button every page shares. G217 (ruling 36 D6): the page is the
-        // one catalogue, so it presents no second catalogue. CIC8 (2026-10-29): its add opens the one intake, named for
-        // what people bring (a chat export first), not Files and links' bookmarks line.
-        // ROR-118: the add is one overlay (a Yours strip, then every other source by kind); the import's walkthrough
-        // is the Chat exports and Files and links entries in it, and the palette's ⇧⌘I still opens the one intake.
-        XCTAssertTrue(page.contains("PageAddButton(title: Copy.Shelf.addSource"))
-        XCTAssertTrue(page.contains("SourceAddOverlay("))
+        XCTAssertFalse(page.contains("PageAddButton("))
+        XCTAssertFalse(page.contains("SourceAddOverlay("))
+        XCTAssertTrue(page.contains("NeutralButton(title: check.isChecking ? Copy.Streams.checkingConnections : Copy.Streams.checkConnections"))
         XCTAssertEqual(page.components(separatedBy: "AddSourceSheet(").count - 1, 0)
     }
 }

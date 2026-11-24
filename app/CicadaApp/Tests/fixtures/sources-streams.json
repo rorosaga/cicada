@@ -1,0 +1,109 @@
+{
+  "sources": [
+    {
+      "id": "x",
+      "label": "X",
+      "account": {"handle": "@alpha-account", "profileUrl": "https://x.com/alpha-account"},
+      "streams": [
+        {"id": "x.bookmarks", "label": "Bookmarks", "kind": "saved", "how": "browser", "owner": "backend",
+         "control": "switch", "state": "on", "health": "read", "lastReadAt": "2026-11-24T08:10:00Z",
+         "pausedUntil": null, "checkRequestedAt": null, "count": 214, "folderCount": 3, "depth": "index",
+         "switch": {"setting": "savedLists", "key": "x"}, "why": null},
+        {"id": "x.likes", "label": "Likes", "kind": "liked", "how": "browser", "owner": "backend",
+         "control": "switch", "state": "on", "health": "read", "lastReadAt": "2026-11-23T20:00:00Z",
+         "pausedUntil": null, "checkRequestedAt": null, "count": 1032, "folderCount": 0, "depth": "index",
+         "switch": {"setting": "savedLists", "key": "x-likes"}, "why": null},
+        {"id": "x.saves", "label": "Saves you make", "kind": "saved", "how": "click", "owner": "app",
+         "control": "switch", "state": "off", "health": null, "lastReadAt": null,
+         "pausedUntil": null, "checkRequestedAt": null, "count": null, "folderCount": 0, "depth": "index",
+         "switch": null, "why": null}
+      ]
+    },
+    {
+      "id": "youtube",
+      "label": "YouTube",
+      "account": null,
+      "streams": [
+        {"id": "youtube.watch_later", "label": "Watch later", "kind": "later", "how": "browser", "owner": "backend",
+         "control": "switch", "state": "on", "health": "signed_out", "lastReadAt": "2026-11-20T09:00:00Z",
+         "pausedUntil": "2026-11-26T00:00:00Z", "checkRequestedAt": null, "count": 41, "folderCount": 0,
+         "depth": "index", "switch": {"setting": "youtubeLists", "key": "watch_later"}, "why": null},
+        {"id": "youtube.history", "label": "History", "kind": "history", "how": "browser", "owner": "backend",
+         "control": "switch", "state": "off", "health": null, "lastReadAt": null,
+         "pausedUntil": null, "checkRequestedAt": null, "count": null, "folderCount": 0, "depth": "index",
+         "switch": {"setting": "youtubeLists", "key": "history"}, "why": null},
+        {"id": "youtube.playlists", "label": "Playlists", "kind": "playlists", "how": "browser", "owner": "backend",
+         "control": "switch", "state": "off", "health": null, "lastReadAt": null,
+         "pausedUntil": null, "checkRequestedAt": null, "count": null, "folderCount": 0, "depth": "index",
+         "switch": {"setting": "youtubeLists", "key": "playlists"}, "why": null}
+      ]
+    },
+    {
+      "id": "linkedin",
+      "label": "LinkedIn",
+      "account": null,
+      "streams": [
+        {"id": "linkedin.saved", "label": "Saved posts", "kind": "saved", "how": "browser", "owner": "backend",
+         "control": "switch", "state": "off", "health": null, "lastReadAt": null,
+         "pausedUntil": null, "checkRequestedAt": null, "count": null, "folderCount": 0, "depth": "index",
+         "switch": {"setting": "savedLists", "key": "linkedin"}, "why": null},
+        {"id": "linkedin.connections", "label": "Connections", "kind": "connections", "how": "browser",
+         "owner": "backend", "control": "switch", "state": "off", "health": null, "lastReadAt": null,
+         "pausedUntil": null, "checkRequestedAt": null, "count": null, "folderCount": 0, "depth": "index",
+         "switch": {"setting": "savedLists", "key": "linkedin-connections"}, "why": null}
+      ]
+    },
+    {
+      "id": "notes",
+      "label": "Apple Notes",
+      "account": null,
+      "streams": [
+        {"id": "notes.notes", "label": "Notes", "kind": "notes", "how": "app", "owner": "app",
+         "control": "switch", "state": "on", "health": "read", "lastReadAt": "2026-11-24T07:30:00Z",
+         "pausedUntil": null, "checkRequestedAt": null, "count": 88, "folderCount": 6, "depth": "read",
+         "switch": null, "why": null}
+      ]
+    },
+    {
+      "id": "browser:chrome",
+      "label": "Chrome",
+      "account": null,
+      "streams": [
+        {"id": "browser:chrome.bookmarks", "label": "Bookmarks", "kind": "saved", "how": "app", "owner": "app",
+         "control": "switch", "state": "on", "health": "read", "lastReadAt": "2026-11-24T06:00:00Z",
+         "pausedUntil": null, "checkRequestedAt": null, "count": 305, "folderCount": 12, "depth": "index",
+         "switch": null, "why": null},
+        {"id": "browser:chrome.tab_groups", "label": "Tab groups", "kind": "pages", "how": "app", "owner": "app",
+         "control": "switch", "state": "off", "health": null, "lastReadAt": null,
+         "pausedUntil": null, "checkRequestedAt": null, "count": null, "folderCount": 0, "depth": "index",
+         "switch": null, "why": null},
+        {"id": "browser:chrome.history", "label": "YouTube history", "kind": "history", "how": "app", "owner": "app",
+         "control": "switch", "state": "off", "health": null, "lastReadAt": null,
+         "pausedUntil": null, "checkRequestedAt": null, "count": null, "folderCount": 0, "depth": "index",
+         "switch": null, "why": null}
+      ]
+    },
+    {
+      "id": "github",
+      "label": "GitHub",
+      "account": {"handle": "alpha-account", "profileUrl": "https://github.com/alpha-account"},
+      "streams": [
+        {"id": "github.stars", "label": "Stars", "kind": "code", "how": "account", "owner": "backend",
+         "control": "setup", "state": "on", "health": "read", "lastReadAt": "2026-11-24T05:00:00Z",
+         "pausedUntil": null, "checkRequestedAt": null, "count": 57, "folderCount": 0, "depth": "index",
+         "switch": null, "why": null}
+      ]
+    },
+    {
+      "id": "imessage",
+      "label": "Messages",
+      "account": null,
+      "streams": [
+        {"id": "imessage.chats", "label": "Chats you ticked", "kind": "chats", "how": "app", "owner": "app",
+         "control": "setup", "state": "unavailable", "health": null, "lastReadAt": null,
+         "pausedUntil": null, "checkRequestedAt": null, "count": null, "folderCount": 0, "depth": "read",
+         "switch": null, "why": "Messages needs Full Disk Access."}
+      ]
+    }
+  ]
+}

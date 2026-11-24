@@ -77,14 +77,6 @@ final class SourcesV4RenderTests: XCTestCase {
             let suffix = dark ? "dark" : "light"
             let env = Env(store: store, usage: usage, cache: cache, sleepVM: sleepVM)
 
-            // STATE 0 — the root: faces on Messages and on each saved source.
-            let root = VStack(alignment: .leading, spacing: 0) {
-                EyebrowRow(eyebrow: SourcesModel.eyebrow(groups: groups, open: nil))
-                SourcesOverviewColumn(rows: rows, hasLoaded: true, onOpen: { _ in })
-            }
-            try write(root, size: CGSize(width: 900, height: 900), scheme: scheme, env: env,
-                      to: base.appendingPathComponent("sources-v4-root-\(suffix).png"))
-
             // Messages open: one header (what it is, its state, Consolidate · N waiting), then the chats.
             let chats = try XCTUnwrap(pages["imessage"])
             let open = opened(groups: groups, selected: messages.id) {

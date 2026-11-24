@@ -42,14 +42,6 @@ final class SourcesV3RenderTests: XCTestCase {
             CicadaTheme.mode = dark ? .dark : .light
             let scheme: ColorScheme = dark ? .dark : .light
             let suffix = dark ? "dark" : "light"
-            // STATE 0 — the root.
-            let root = VStack(alignment: .leading, spacing: 0) {
-                EyebrowRow(eyebrow: SourcesModel.eyebrow(groups: groups, open: nil))
-                SourcesOverviewColumn(rows: rows, hasLoaded: true, onOpen: { _ in })
-            }
-            try write(root, size: CGSize(width: 900, height: 720), scheme: scheme, store: store, usage: usage,
-                      cache: cache, to: base.appendingPathComponent("sources-root-\(suffix).png"))
-
             // STATE 1 — Chrome open: the rows beside its list (the second click).
             let open = VStack(alignment: .leading, spacing: 0) {
                 EyebrowRow(eyebrow: SourcesModel.eyebrow(groups: groups, open: .source(chromeId)))

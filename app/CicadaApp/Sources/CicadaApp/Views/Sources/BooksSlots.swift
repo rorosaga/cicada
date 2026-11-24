@@ -364,81 +364,15 @@ struct BookStatusLine: View {
 }
 
 /// G233 — Goodreads has no open API since 2020. The way in is the person's own agent reading their shelves in their own
-/// browser (ROR-128; the books wait in `GoodreadsWaitingList` for the person's pick), and, quietly after it, the
-/// person's own "Export Library" file: *Import a file* (where the file comes from on its hover), then what it holds in
-/// counts beside *Import*.
+/// browser (ROR-128; the books wait in `GoodreadsWaitingList` for the person's pick). G245 (ruling 78 (g), owner
+/// 2026-11-24): there is no file import on this page — the stream's own row is the switch.
 struct GoodreadsSlot: View {
-    /// ROR-128 (owner 2026-11-06: "the browser should be there before exporting a file"): the person's own agent reads
-    /// their shelves in their browser — the page's *Read through your browser* switch comes first, the file after it.
+    /// The page's *Read through your browser* switch while the backend names no streams; with them, the Reads row is it.
     var browserWay: SourceWayIn?
-    @Environment(Store.self) private var store
-    @State private var picking = false
-    @State private var file: (data: Data, name: String)?
-    @State private var preview: GoodreadsPreview?
-    @State private var line: BooksRowText.Line?
-    @State private var busy = false
 
     var body: some View {
-        SourceConnectArea(primary: nil, line: line?.text, lineIsAttention: line?.isProblem ?? false,
-                          ways: (browserWay.map { [$0] } ?? []) + [chooseWay]) {
+        SourceConnectArea(primary: nil, ways: browserWay.map { [$0] } ?? []) {
             GoodreadsWaitingList()
-            if let preview, !preview.items.isEmpty {
-                BookChoiceList(items: preview.items.map {
-                    BookChoiceItem(id: $0.id, title: $0.title, author: $0.author,
-                                   cover: $0.isbn.isEmpty ? nil : .isbn($0.isbn))
-                }, busy: busy) { ids in Task { await runImport(ids: ids) } }
-            } else if preview != nil {
-                PrimaryActionButton(title: Copy.goodreadsImport) { Task { await runImport(ids: nil) } }
-                    .disabled(busy).fixedSize()
-            }
-        }
-        .fileImporter(isPresented: $picking, allowedContentTypes: [.commaSeparatedText, .plainText]) { result in
-            guard case .success(let url) = result else { return }
-            Task { await choose(url) }
-        }
-    }
-
-    private var chooseWay: SourceWayIn {
-        var way = SourceWayIn.importFile(origin: "goodreads", help: SourceCatalog.exportHow("goodreads")) {
-            picking = true
-        }
-        way.isDisabled = busy
-        return way
-    }
-
-    private func choose(_ url: URL) async {
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        preview = nil
-        guard let data = try? Data(contentsOf: url) else {
-            line = .init(text: Copy.goodreadsFailed, isProblem: true)
-            return
-        }
-        busy = true
-        line = .init(text: Copy.goodreadsReading)
-        defer { busy = false }
-        do {
-            let p = try await APIClient.shared.previewGoodreads(data: data, filename: url.lastPathComponent)
-            file = (data, url.lastPathComponent)
-            preview = p
-            line = .init(text: BooksRowText.goodreadsPreview(p))
-        } catch {
-            line = .init(text: Copy.goodreadsFailed, isProblem: true)
-        }
-    }
-
-    private func runImport(ids: Set<String>?) async {
-        guard let file else { return }
-        busy = true
-        defer { busy = false }
-        do {
-            let result = try await APIClient.shared.importGoodreads(data: file.data, filename: file.name,
-                                                              ids: ids.map { Array($0).sorted() })
-            line = .init(text: Copy.goodreadsImported(result.books))
-            preview = nil
-            await store.refresh([.channels, .sources, .sourcesOverview, .status])
-        } catch {
-            line = .init(text: Copy.goodreadsFailed, isProblem: true)
         }
     }
 }

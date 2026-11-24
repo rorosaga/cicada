@@ -320,9 +320,9 @@ final class RemindersReaderTests: XCTestCase {
         XCTAssertEqual(IntegrationCategory.of(channelId: "reminders-local"), .feedsAndCalendars)
     }
 
-    func testNotionIsAnExportRowAndItsPreviewSpeaksInPages() {
+    func testNotionIsAnAccountRowAndItsPreviewSpeaksInPages() {
         let entry = SourceCatalog.fixed.first { $0.id == "notion" }!
-        XCTAssertEqual(entry.group, .exports)
+        XCTAssertEqual(entry.group, .accounts, "plan 3.2: Notion leaves the file group")
         let imported = SourceChannel(id: "notion", label: "Notion export", connected: true, count: 5)
         XCTAssertEqual(SourceCatalog.status(for: entry, channels: [imported], overview: [], readableSites: []),
                        .connected)

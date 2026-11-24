@@ -4,13 +4,12 @@ import XCTest
 @testable import CicadaApp
 
 /// marks-2's PR screenshots, rendered offscreen (an `NSHostingView` in a never-shown window, never the running app) from
-/// placeholder rows: a YouTube saved list whose videos draw their stills, and the Sources root's saved rows with their
-/// faces — "before" newest first (sites with no icon yet lead, as letters), "after" with the sites whose icon is cached
-/// first (the backend's new order). Stills and icons are synthetic images primed into the stores, so nothing is asked of
-/// a backend. Skipped unless `MARKS_RENDER_DIR` names a folder.
+/// placeholder rows: a YouTube saved list whose videos draw their stills. (The Sources root's saved rows with their
+/// faces went with the card root, G245.) Stills and icons are synthetic images primed into the stores, so nothing is asked
+/// of a backend. Skipped unless `MARKS_RENDER_DIR` names a folder.
 @MainActor
 final class MarksThatAppearRenderTests: XCTestCase {
-    func testRenderTheYouTubeListAndTheRootFaces() async throws {
+    func testRenderTheYouTubeList() async throws {
         guard let dir = ProcessInfo.processInfo.environment["MARKS_RENDER_DIR"], !dir.isEmpty else {
             throw XCTSkip("set MARKS_RENDER_DIR to render the marks-2 screenshots")
         }
@@ -44,19 +43,6 @@ final class MarksThatAppearRenderTests: XCTestCase {
             item("media-v4", "Tide tables explained", "2026-10-12", video: true),
             item("media-v5", "A video whose still has not arrived", "2026-10-03", video: true),
         ]
-        func faces(_ sites: [(String, String)]) -> [[String: Any]] {
-            sites.enumerated().map { ["kind": "site", "id": "media-f\($0.offset)", "label": $0.element.0,
-                                      "site": $0.element.1] }
-        }
-        let newestFirst = [("cobaltnotes.zz", "cobaltnotes.zz"), ("paperfold.io", "paperfold.io"),
-                           ("rivetmail.zz", "rivetmail.zz")]
-        let iconsFirst = [("paperfold.io", "paperfold.io"), ("lanternworks.dev", "lanternworks.dev"),
-                          ("quietpages.net", "quietpages.net")]
-        let safariBefore = [("emberfield.zz", "emberfield.zz"), ("eastwind.zz", "eastwind.zz"),
-                            ("tidepool.app", "tidepool.app")]
-        let safariAfter = [("tidepool.app", "tidepool.app"), ("emberfield.zz", "emberfield.zz"),
-                           ("eastwind.zz", "eastwind.zz")]
-
         for dark in [false, true] {
             CicadaTheme.mode = dark ? .dark : .light
             let scheme: ColorScheme = dark ? .dark : .light
@@ -68,29 +54,12 @@ final class MarksThatAppearRenderTests: XCTestCase {
             .padding(24)
             try await write(list, size: CGSize(width: 640, height: 380), scheme: scheme, store: store, usage: usage,
                             sleepVM: sleepVM, cache: cache, to: base.appendingPathComponent("youtube-saved-\(suffix).png"))
-            for (name, chrome, safari) in [("before", newestFirst, safariBefore), ("after", iconsFirst, safariAfter)] {
-                let rows = try [
-                    overview("chrome-bookmarks", "Chrome", faces(chrome), more: 260),
-                    overview("safari-bookmarks", "Safari", faces(safari), more: 233),
-                ]
-                let root = SourcesOverviewColumn(rows: rows, hasLoaded: true, onOpen: { _ in })
-                try await write(root, size: CGSize(width: 760, height: 300), scheme: scheme, store: store,
-                                usage: usage, sleepVM: sleepVM, cache: cache,
-                                to: base.appendingPathComponent("sources-faces-\(name)-\(suffix).png"))
-            }
         }
     }
 
     private func item(_ id: String, _ title: String, _ day: String, video: Bool) throws -> ChannelItem {
         ChannelItem(kind: .media, id: id, title: title, day: day, host: "youtube.com", site: "youtube.com",
                     video: video)
-    }
-
-    private func overview(_ id: String, _ label: String, _ faces: [[String: Any]], more: Int) throws -> SourceOverview {
-        let json: [String: Any] = ["id": id, "label": label, "kind": "browser", "mark": id, "items": 300 + more,
-                                   "connected": true, "channelId": id, "intent": "saved", "faces": faces,
-                                   "facesMore": more, "lastActivityAt": "2026-10-20T09:00:00Z"]
-        return try JSONDecoder().decode(SourceOverview.self, from: JSONSerialization.data(withJSONObject: json))
     }
 
     /// A synthetic video still: a 16:9 colour field with a number (no real video's frame).

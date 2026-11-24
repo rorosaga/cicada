@@ -51,6 +51,18 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
     /// G161 (ROR-111) — the kind of place this item lives in (`ItemPlaceKind`), when one is known. Never the place
     /// itself: `ItemPlaceControl` asks for that on the click.
     var place: String? = nil
+    /// G245 (plan 2.2) — a saved item's other lists (`["Bookmarks", "Likes"]`: the labels of every list the item is on,
+    /// from the union its media page holds), the site's own folder names (`save_folders`), how deep it goes
+    /// (`kept` · `read` · later `asked`, `watched`) and the post's own day when the list showed one (`posted`; `day`
+    /// stays "kept on"). Nil for every other row and from a backend that does not send them yet.
+    var lists: [String]? = nil
+    var folders: [String]? = nil
+    var depth: String? = nil
+    var posted: String? = nil
+    /// Who wrote the post, when the list showed one (the item card leads its footer with it). The backend sends none
+    /// today; a row without one simply says less.
+    var author: String? = nil
+
     /// A.4 (G245) — a Notes row's one-line preview (the first line of its text after the title; nothing for a note of one
     /// line) and the instant Notes last modified it (aware ISO), which the list is ordered by. Nil elsewhere and from an
     /// older backend.
@@ -59,7 +71,7 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case kind, id, title, day, left, host, site, why, chat, videos, sittings, video, received, messages, group
-        case ticked, pinned, book, cover, place, snippet, modifiedAt
+        case ticked, pinned, book, cover, place, lists, folders, depth, posted, author, snippet, modifiedAt
         case lastAt = "last_at"
         case syncedAt = "synced_at"
         case durationS = "duration_s"
@@ -99,8 +111,21 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         syncedAt = try? c.decodeIfPresent(String.self, forKey: .syncedAt)
         durationS = try? c.decodeIfPresent(Int.self, forKey: .durationS)
         place = try? c.decodeIfPresent(String.self, forKey: .place)
+        lists = Self.words(try? c.decodeIfPresent([String].self, forKey: .lists))
+        folders = Self.words(try? c.decodeIfPresent([String].self, forKey: .folders))
+        depth = try? c.decodeIfPresent(String.self, forKey: .depth)
+        posted = try? c.decodeIfPresent(String.self, forKey: .posted)
+        author = try? c.decodeIfPresent(String.self, forKey: .author)
         snippet = try? c.decodeIfPresent(String.self, forKey: .snippet)
         modifiedAt = try? c.decodeIfPresent(String.self, forKey: .modifiedAt)
+    }
+
+    /// A list of words with the blanks and repeats dropped; nil when nothing is left (a row that names no list).
+    private static func words(_ raw: [String]?) -> [String]? {
+        guard let raw else { return nil }
+        var seen = Set<String>()
+        let out = raw.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty && seen.insert($0).inserted }
+        return out.isEmpty ? nil : out
     }
 
     func encode(to encoder: Encoder) throws {
@@ -126,6 +151,11 @@ struct ChannelItem: Codable, Hashable, Identifiable, Sendable {
         try c.encodeIfPresent(lastAt, forKey: .lastAt)
         try c.encodeIfPresent(syncedAt, forKey: .syncedAt)
         try c.encodeIfPresent(durationS, forKey: .durationS)
+        try c.encodeIfPresent(lists, forKey: .lists)
+        try c.encodeIfPresent(folders, forKey: .folders)
+        try c.encodeIfPresent(depth, forKey: .depth)
+        try c.encodeIfPresent(posted, forKey: .posted)
+        try c.encodeIfPresent(author, forKey: .author)
         try c.encodeIfPresent(snippet, forKey: .snippet)
         try c.encodeIfPresent(modifiedAt, forKey: .modifiedAt)
     }

@@ -1,8 +1,8 @@
 import Foundation
 
-/// ROR-7 (G217, G161; owner: "a grid of applications … each source as its app, with its icon") — the Sources root as
-/// tiles, pure: which section a tile sits in, what its one line says, what a search finds and what is suggested. Three
-/// questions, in the order a person asks them: what is waiting on me, what is connected, what could I add.
+/// ROR-7 (G217, G161) — what a source's row says, pure: which section a row sits in, what its one line says, which words
+/// a person may also type for it and what is suggested. The root's cards, their order and their find are `SourcesRoot`
+/// (G245); the sections here are the catalogue's own and what the narrow rows' tests pin.
 
 /// What a source is, which is how a person looks for it: "my chats", not "the ones on this Mac". `SourceCatalogGroup`
 /// (how it comes in) stays the rules' word and is never drawn. Every entry names its category, so a new source without
@@ -88,8 +88,6 @@ extension SourceCatalogRow {
 }
 
 enum SourceGrid {
-    /// A tile's narrowest, in units: fits a two-line tile with "Waits for your agent" beside its 36 pt mark.
-    static let tileMinWidth: CGFloat = 210
     static let searchMaxWidth: CGFloat = 320
 
     /// The sections in the page's order; an empty one is not drawn. Inside a shelf what is connected leads, then the
@@ -132,37 +130,7 @@ enum SourceGrid {
     /// Whether the field holds words to find, rather than nothing or only spaces.
     static func isSearching(_ text: String) -> Bool { !QuickMatch.tokens(text).isEmpty }
 
-    /// What the typed words find, best first, through the app's one ranker: no network, no model. A source's own name
-    /// leads; the words it also goes by (`alsoKnownAs`: its company, an old name, what it holds) and its category follow.
-    /// A company's apps each appear as themselves, wherever they sit on the page.
-    static func results(_ rows: [SourceCatalogRow], query: String) -> [SourceCatalogRow] {
-        let order = drawnOrder(rows)
-        let place = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($0.element.id, Double($0.offset)) })
-        return QuickMatch.rank(order, query: query, fields: fields, tieBreak: { -(place[$0.id] ?? 0) },
-                               name: \.entry.title).map(\.item)
-    }
-
-    private static func fields(_ row: SourceCatalogRow) -> [QuickMatch.Field] {
-        [QuickMatch.Field(row.entry.title, weight: QuickMatch.Weight.name)]
-            + (alsoKnownAs[row.id] ?? []).map { QuickMatch.Field($0, weight: QuickMatch.Weight.intent) }
-            + [QuickMatch.Field(row.entry.category.title, weight: QuickMatch.Weight.keyword),
-               QuickMatch.Field(row.entry.shelf.title, weight: QuickMatch.Weight.keyword)]
-    }
-
-    /// The tile a key press lands on: the one the arrows moved to while it is still found, else the best result.
-    static func highlighted(_ results: [SourceCatalogRow], cursor: String?) -> String? {
-        if let cursor, results.contains(where: { $0.id == cursor }) { return cursor }
-        return results.first?.id
-    }
-
-    /// One step along the results, stopping at either end.
-    static func moved(_ delta: Int, in results: [SourceCatalogRow], cursor: String?) -> String? {
-        let ids = results.map(\.id)
-        guard let current = highlighted(results, cursor: cursor), let at = ids.firstIndex(of: current) else { return nil }
-        return ids[min(max(at + delta, 0), ids.count - 1)]
-    }
-
-    /// Words a person might type that are not on the tile. Never drawn, so naming a company here names nobody as doing
+    /// Words a person might type that are not on the card. Never drawn, so naming a company here names nobody as doing
     /// a job. An entry's own name is not repeated.
     static let alsoKnownAs: [String: [String]] = [
         "x": ["Twitter", "bookmarks"],

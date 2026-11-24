@@ -174,6 +174,40 @@ final class ReadingAgentModel {
         }
     }
 
+    /// G245 — one list's switch by the contract's own words (`GET /sources/streams`' `switch`: `{setting, key}`), so a
+    /// list the backend adds (X likes, YouTube playlists) is flippable here before this build has a case for it. The
+    /// three families are the three `PUT /reading/settings` patches; any other setting is refused without a request.
+    /// `acknowledge` (only with `on`) is the first-use sheet's Turn on: agent reading on with the acknowledgement, in
+    /// the same call for a saved list, in the call before for the other two (as the sheet does).
+    @discardableResult
+    func setSwitch(setting: String, key: String, on: Bool, acknowledge: Bool = false) async -> Bool {
+        switch setting {
+        case "savedLists":
+            return await setSavedList(key, on, acknowledge: acknowledge)
+        case "youtubeLists", "substackLists":
+            if acknowledge, on, !(await setEnabled(true, acknowledge: true, site: nil)) { return false }
+            busy = true
+            defer { busy = false }
+            do {
+                settings = try await (setting == "youtubeLists" ? deps.writeYouTube([key: on])
+                                                                : deps.writeSubstack([key: on]))
+                note = nil
+                return true
+            } catch APIError.httpError(let code, let body) where code == 422 {
+                note = ProjectWriteFailure.detail(body) ?? Copy.Reading.saveFailed
+                return false
+            } catch {
+                note = Copy.Reading.saveFailed
+                return false
+            }
+        default:
+            return false
+        }
+    }
+
+    /// Agent reading is on with a current acknowledgement: a list may be turned on in one call, with no sheet.
+    var readyForLists: Bool { enabled && !needsFirstUseSheet }
+
     /// The first-use sheet is for a person who has not acknowledged its current wording. Turning the switch back on
     /// after an off keeps the acknowledgement and the per-site choices (the server's rule), so it asks nothing.
     var needsFirstUseSheet: Bool { !(settings?.ackCurrent ?? false) }
@@ -730,6 +764,9 @@ struct ReadingFirstUseSheet: View {
     var youtubeList: YouTubeList? = nil
     /// G89 (2026-11-04) — raised by a Substack list's switch on the Substack entry: the same, then that list.
     var substackList: SubstackList? = nil
+    /// G245 — raised by a card's Connect or the notch for a list by the contract's own words (`ReadingConsent`): Turn on
+    /// enables agent reading with the acknowledgement, then that list, whichever list it is (`setSwitch`).
+    var consent: ReadingConsent? = nil
     let done: () -> Void
     @State private var understood = false
     @State private var failure: String?
@@ -745,7 +782,7 @@ struct ReadingFirstUseSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let label {
-                Text(savedList ? Copy.Reading.sheetAlsoReadsList(label) : Copy.Reading.sheetAlsoAllows(label))
+                Text(savedList || consent != nil ? Copy.Reading.sheetAlsoReadsList(label) : Copy.Reading.sheetAlsoAllows(label))
                     .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
             }
@@ -763,7 +800,9 @@ struct ReadingFirstUseSheet: View {
                 TextButton(title: Copy.Reading.sheetNotNow, action: done)
                 PrimaryActionButton(title: Copy.Reading.sheetTurnOn) {
                     Task {
-                        let ok = if let youtubeList {
+                        let ok = if let consent {
+                            await model.setSwitch(setting: consent.setting, key: consent.key, on: true, acknowledge: true)
+                        } else if let youtubeList {
                             await model.setEnabled(true, acknowledge: true, site: nil)
                                 ? await model.setYouTubeList(youtubeList, true) : false
                         } else if let substackList {

@@ -4038,6 +4038,19 @@ actor APIClient {
         try await getConditional("/reading/sites", etag: etag)
     }
 
+    /// G245 — `GET /sources/streams`: every source's streams, revalidated with the server's ETag. A 404 (a backend
+    /// that does not ship it yet) reaches the caller as `APIError.httpError(404, _)`: "no streams yet".
+    func fetchSourceStreams(etag: String?) async throws -> Conditional<SourceStreamsResponse> {
+        try await getConditional("/sources/streams", etag: etag)
+    }
+
+    /// G245 (plan 3.3) — `POST /sources/streams/check`: the backend's part of Check now. `sources` are catalogue ids;
+    /// empty asks for every source (the body is then `{}`). Answers the same rows as the GET.
+    func checkSourceStreams(sources: [String]) async throws -> SourceStreamsResponse {
+        try await post("/sources/streams/check", body: sources.isEmpty ? [:] : ["sources": sources],
+                       timeout: Self.refreshTimeout)
+    }
+
     /// G61 S3-b — `GET /entities/{id}/sources/icon/{site}`: the mark of a site a source on this page names (icon
     /// service only; the site is never contacted). nil on a 404.
     func fetchEntitySourceIcon(entityId: String, site: String) async throws -> Data? {

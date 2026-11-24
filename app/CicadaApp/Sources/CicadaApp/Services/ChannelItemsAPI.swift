@@ -59,6 +59,13 @@ extension APIClient: ChannelItemsAPI {
             path += "&collection=" + (collection.addingPercentEncoding(withAllowedCharacters: SourceSearch.queryAllowed)
                                       ?? "")
         }
+        // G245 (plan 2.2) — one stream of the channel's items, and one folder inside it.
+        if let (stream, folder) = SourceListKey.streamParts(channel) {
+            path += "&stream=" + (stream.addingPercentEncoding(withAllowedCharacters: SourceSearch.queryAllowed) ?? "")
+            if let folder {
+                path += "&folder=" + (folder.addingPercentEncoding(withAllowedCharacters: SourceSearch.queryAllowed) ?? "")
+            }
+        }
         let words = SourceSearch.normalized(query)
         guard !words.isEmpty else { return path }
         return path + "&q=" + (words.addingPercentEncoding(withAllowedCharacters: SourceSearch.queryAllowed) ?? "")

@@ -140,6 +140,8 @@ extension DesignConsistencyLintTests {
     }
 
     /// DR-75 — a page's way to add is `PageAddButton` in its eyebrow (the Sleep tab row's `+` left, owner 2026-11-23).
+    /// G245 (ruling 78, owner 2026-11-24): Sources is no longer an adopter — every source is on its page, so it has no
+    /// add at all, and its header's one button is *Check connections*.
     func testAPageAddsThroughOneLabelledButton() throws {
         let allowed: [String: String] = [
             "GraphControlGroup.swift": "zoom in, not an add",
@@ -152,10 +154,20 @@ extension DesignConsistencyLintTests {
         }
         XCTAssertEqual(bare, [], "DR-75: add with PageAddButton")
         // Skills joined on 2026-10-20 (owner: "align the top row with every other page"); Looks went to its pages.
-        for page in ["SourcesPageView.swift", "SkillsPage.swift"] {
+        for page in ["SkillsPage.swift"] {
             let file = try XCTUnwrap(try viewSources().first { $0.lastPathComponent == page })
             XCTAssertTrue(try String(contentsOf: file, encoding: .utf8).contains("PageAddButton("), page)
         }
+        // Sources left the list (ruling 78): neither its page nor its root may grow an add back.
+        for page in ["SourcesPageView.swift", "SourcesColumns.swift", "SourcesRootView.swift"] {
+            let file = try XCTUnwrap(try viewSources().first { $0.lastPathComponent == page })
+            let text = try String(contentsOf: file, encoding: .utf8)
+            XCTAssertFalse(text.contains("PageAddButton("), "\(page): every source is on the page, nothing is added")
+            XCTAssertFalse(text.contains("SourceAddOverlay"), page)
+        }
+        let sources = try XCTUnwrap(try viewSources().first { $0.lastPathComponent == "SourcesPageView.swift" })
+        XCTAssertTrue(try String(contentsOf: sources, encoding: .utf8).contains("checkButton("),
+                      "the header's one button")
     }
 
     /// §5.3 — Skills sits on the shared progressive columns (list → detail → Reader), with no fixed side column of its

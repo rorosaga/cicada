@@ -1,7 +1,7 @@
 import Foundation
 
-/// ROR-118 (owner, Sources round 1: "group by kind of information, never by vendor; each kind shows its items in its
-/// own way") — the six shelves the Sources page and its add overlay sort every source into. What a source *is* to the
+/// ROR-118 (owner, Sources round 1: "group by kind of information, never by vendor") — the six kinds the Sources page's
+/// tabs (G245) sort every source into. What a source *is* to the
 /// person, not who makes it: Apple Notes and Notion sit together as documents, Calendar and a calendar feed as events.
 /// Pure and total: every catalogue entry names its shelf here, so a new source without one reads as saved until it is
 /// placed (`SourceShelfTests` fails on an unplaced id).
@@ -18,18 +18,6 @@ enum SourceShelf: String, CaseIterable, Identifiable {
         case .work: Copy.Shelf.work
         case .saved: Copy.Shelf.saved
         case .media: Copy.Shelf.media
-        }
-    }
-
-    /// The glyph on an empty shelf's add line and on the overlay's tab; a symbol, never a vendor's mark (DR-52).
-    var symbol: String {
-        switch self {
-        case .conversations: "bubble.left.and.bubble.right"
-        case .documents: "doc.text"
-        case .events: "calendar"
-        case .work: "hammer"
-        case .saved: "bookmark"
-        case .media: "play.rectangle"
         }
     }
 
@@ -56,7 +44,7 @@ extension SourceCatalogEntry {
     var shelf: SourceShelf { SourceShelf.of(self) }
 }
 
-/// What a shelf draws, pure: the connected sources of one shelf, and what could still be added.
+/// What a kind holds, pure: the connected sources of one kind, and what could still be added.
 enum SourceShelves {
     struct Shelf: Equatable {
         let shelf: SourceShelf
@@ -75,22 +63,6 @@ enum SourceShelves {
                 && ($0.status == .off || $0.browser?.state == .notReadYet) }
             return Shelf(shelf: shelf, connected: mine.filter(\.isConnectedHere),
                          addable: addable.filter(\.suggested) + addable.filter { !$0.suggested })
-        }
-    }
-
-    /// The connected sources the person has, in shelf order: the overlay's *Yours* strip.
-    static func yours(_ rows: [SourceCatalogRow]) -> [SourceCatalogRow] {
-        shelves(rows).flatMap(\.connected)
-    }
-
-    /// What the overlay lists below *Yours*: every source not connected (a waiting one stays on the page, under *Needs
-    /// you*), narrowed to one shelf and to the words typed, grouped by shelf.
-    static func addGroups(_ rows: [SourceCatalogRow], shelf: SourceShelf?, query: String) -> [Shelf] {
-        let words = SourceGrid.isSearching(query) ? Set(SourceGrid.results(rows, query: query).map(\.id)) : nil
-        return shelves(rows).compactMap { group in
-            guard shelf == nil || group.shelf == shelf else { return nil }
-            let addable = group.addable.filter { words?.contains($0.id) ?? true }
-            return addable.isEmpty ? nil : Shelf(shelf: group.shelf, connected: [], addable: addable)
         }
     }
 }

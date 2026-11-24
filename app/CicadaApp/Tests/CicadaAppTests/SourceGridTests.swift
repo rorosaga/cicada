@@ -2,8 +2,10 @@ import SwiftUI
 import XCTest
 @testable import CicadaApp
 
-/// ROR-7 (G217, G161) — the Sources root as a grid of apps: three questions at a glance, a search that needs no network
-/// and no model, a company's apps found one by one and never folded together.
+/// ROR-7 (G217, G161), carried into G245 — what a source's row says (sections, one line, the words it is also found by),
+/// a find that needs no network and no model, a company's apps found one by one and never folded together. The cards,
+/// their order and the keys are `SourcesRootTests`; this file pins the catalogue's own sections the narrow rows still
+/// read, and the page's rails.
 final class SourceGridTests: XCTestCase {
     private let chrome = BrowserInventory.catalog.first { $0.id == "chrome" }!
     private let safari = BrowserInventory.catalog.first { $0.id == "safari" }!
@@ -27,8 +29,10 @@ final class SourceGridTests: XCTestCase {
         rows.first { $0.id == id }?.section
     }
 
+    /// What the root's find shows for these words: the cards of the whole catalogue, ranked by the one matcher.
     private func found(_ query: String, in rows: [SourceCatalogRow]? = nil) -> [String] {
-        SourceGrid.results(rows ?? self.rows(), query: query).map(\.id)
+        let cards = SourcesRoot.cards(rows: rows ?? self.rows(), streams: ResolvedStreams())
+        return SourcesRoot.visible(cards, tab: nil, query: query).map(\.id)
     }
 
     // MARK: The three questions
@@ -65,7 +69,7 @@ final class SourceGridTests: XCTestCase {
     func testTheConnectedSectionHoldsExactlyWhatTheEyebrowCounts() {
         let all = rows(channels: [channel(WatchHistoryWatcher.channel), channel("reddit")],
                        localReaders: [WatchHistoryWatcher.channel: true])
-        let connected = SourceShelves.yours(all).map(\.id)
+        let connected = SourceShelves.shelves(all).flatMap(\.connected).map(\.id)
         XCTAssertEqual(connected.count, SourceCatalog.connectedCount(all))
         XCTAssertTrue(connected.contains(SourceCatalog.browserPrefix + "chrome"), "the reader's own page")
         XCTAssertFalse(connected.contains("youtube"), "it only borrows Chrome's reader")
@@ -90,13 +94,13 @@ final class SourceGridTests: XCTestCase {
         XCTAssertNil(OriginIconography.logoName(for: exports.entry.origin), "it takes every assistant's export")
     }
 
-    /// Seen in the app: Return commits the field's own words first, which sent ⏎ to the best result, not the arrowed tile.
-    func testReturnKeepsTheTileTheArrowsMovedTo() {
-        var search = SourceGridSearch(text: "google", cursor: "calendar")
-        search.typed("google")
-        XCTAssertEqual(search.cursor, "calendar")
-        search.typed("googl")
-        XCTAssertNil(search.cursor, "new words start at the best result")
+    /// Seen in the app: Return commits the field's own words first, which sent ⏎ to the best result, not the arrowed card.
+    func testReturnKeepsTheCardTheArrowsMovedTo() {
+        var state = SourcesRoot.State(text: "google", cursor: "calendar")
+        state.typed("google")
+        XCTAssertEqual(state.cursor, "calendar")
+        state.typed("googl")
+        XCTAssertNil(state.cursor, "new words start at the best result")
     }
 
     func testAReaderThatCannotReadWaitsOnThePersonAndTheTileAndThePageAgree() {
@@ -155,12 +159,6 @@ final class SourceGridTests: XCTestCase {
                        "nothing read yet: the word, never a blank")
     }
 
-    func testEveryWaitingWordFitsATile() {
-        let longest = [Copy.Catalog.waitsForAgent, Copy.Catalog.needsAccess, Copy.Catalog.needsSignIn,
-                       Copy.SourcePage.needsYou, Copy.SourcePage.notInstalledRow].map(\.count).max() ?? 0
-        XCTAssertLessThanOrEqual(longest, 20, "\(SourceGrid.tileMinWidth) units hold 20 characters beside the mark")
-    }
-
     // MARK: Search
 
     func testAWordFiltersAsItIsTypedNameFirst() {
@@ -172,14 +170,19 @@ final class SourceGridTests: XCTestCase {
 
     func testACompanysAppsAreFoundOneByOneWhereverTheySit() {
         let google = found("google")
-        XCTAssertEqual(Set(google), Set(["youtube", SourceCatalog.browserPrefix + "chrome", "chat-exports", "calendar"]))
+        // Chat exports are not offered until they hold something (plan 3.1), so they are not among the cards found here.
+        XCTAssertEqual(Set(google), Set(["youtube", SourceCatalog.browserPrefix + "chrome", "calendar",
+                                         GoogleBooksKeyModel.id]))
         XCTAssertEqual(Set(SourceGrid.sections(rows()).flatMap(\.rows).filter { google.contains($0.id) }
             .map(\.entry.category)).count, 4, "Google is four kinds of thing, which is why it is no group")
         XCTAssertTrue(found("meta").contains("instagram"))
         XCTAssertTrue(found("meta").contains(WhatsAppWatcher.channel))
         XCTAssertTrue(found("apple").contains("notes"))
         XCTAssertTrue(found("twitter").contains("x"), "an old name")
-        XCTAssertTrue(found("chatgpt").contains("chat-exports"))
+        let held = rows(channels: [SourceChannel(id: "chat-export:claude", label: "Claude", connected: true, count: 4,
+                                                 lastSync: nil, lastError: nil)])
+        XCTAssertTrue(found("chatgpt", in: held).contains("chat-exports"), "once it holds something")
+        XCTAssertFalse(found("chatgpt").contains("chat-exports"), "and never offered before")
         XCTAssertTrue(found("obsidian").contains("folders"), "a vault is a folder")
     }
 
@@ -221,17 +224,6 @@ final class SourceGridTests: XCTestCase {
         XCTAssertTrue(SourceGrid.isSearching(" x "))
     }
 
-    func testTheKeysWalkTheResultsAndStopAtEitherEnd() {
-        let results = SourceGrid.results(rows(), query: "messaging")
-        let ids = results.map(\.id)
-        XCTAssertEqual(SourceGrid.highlighted(results, cursor: nil), ids[0], "⏎ opens the best result at once")
-        XCTAssertEqual(SourceGrid.highlighted(results, cursor: "reddit"), ids[0], "a cursor the words dropped")
-        XCTAssertEqual(SourceGrid.moved(1, in: results, cursor: nil), ids[1])
-        XCTAssertEqual(SourceGrid.moved(-1, in: results, cursor: ids[0]), ids[0])
-        XCTAssertEqual(SourceGrid.moved(1, in: results, cursor: ids.last), ids.last)
-        XCTAssertNil(SourceGrid.moved(1, in: [], cursor: nil))
-    }
-
     // MARK: Suggested
 
     func testOnlyAnAppThePersonChoseToInstallIsSuggestedAndNoIsNeverAgain() {
@@ -265,11 +257,11 @@ final class SourceGridTests: XCTestCase {
 
     func testTheFieldNeverNarrowsTheCatalogueThePageOpensFrom() throws {
         let page = try String(contentsOf: Self.source("Views/Sources/SourcesPageView.swift"), encoding: .utf8)
-        // `gridSearch` reaches the grid and is reset on a hand-off; it never filters `catalog`, which the detail column,
-        // the side list and every hand-off (`openPendingSource`, `openPendingEntry`, `consumeAddSource`) resolve in.
-        XCTAssertFalse(page.contains("SourceGrid.results"), "only the grid filters")
-        XCTAssertEqual(page.components(separatedBy: " gridSearch = SourceGridSearch()").count - 2, 4,
-                       "the sidebar's re-click and the three hand-offs each clear the words")
+        // `rootState` reaches the root and is reset on a hand-off; it never filters `catalog`, which the detail column,
+        // the side list and every hand-off (`openPendingSource`, `openPendingEntry`) resolve in.
+        XCTAssertFalse(page.contains("SourcesRoot.visible"), "only the root's list filters")
+        XCTAssertEqual(page.components(separatedBy: " rootState.clearFind()").count - 1, 3,
+                       "the sidebar's re-click and the two hand-offs each clear the words")
     }
 
     @MainActor func testAPaletteHandOffStillStagesItsSource() {
@@ -287,63 +279,39 @@ final class SourceGridTests: XCTestCase {
         let body = page[byKey.lowerBound...].prefix(240)
         XCTAssertTrue(body.contains("Instant.run"), "DR-60")
         XCTAssertFalse(body.contains("withAnimation"), "DR-60")
-        let view = try String(contentsOf: Self.source("Views/Sources/SourceGridView.swift"), encoding: .utf8)
-        XCTAssertFalse(view.contains("withAnimation"))
-        XCTAssertFalse(view.contains(".animation("), "DR-61: the hover's own ease lives in `rowHover`")
+        for file in ["Views/Sources/SourcesRootView.swift", "Views/Sources/SourcesColumns.swift"] {
+            let view = try String(contentsOf: Self.source(file), encoding: .utf8)
+            XCTAssertFalse(view.contains("withAnimation"), file)
+            XCTAssertFalse(view.contains(".animation("), "DR-61: the hover's own ease lives in `softCardRow`: \(file)")
+            XCTAssertFalse(view.contains("duration:"), "DR-61: every duration is spelled in CicadaMotion: \(file)")
+        }
+        let columns = try String(contentsOf: Self.source("Views/Sources/SourcesColumns.swift"), encoding: .utf8)
+        XCTAssertTrue(columns.contains("listKeys("), "DR-68: the root's keys are the list pages' keys")
     }
 
     // MARK: Render
 
-    /// The tiles at the widths a window can take: nothing but the column count changes, in both looks (DR-71).
-    @MainActor func testTheGridDrawsInBothLooksAtEveryWidth() throws {
+    /// The root's cards at the widths a window can take, in both looks (DR-71): they draw, whatever the width. The
+    /// pictures of the states are `SourcesRootRenderTests`.
+    @MainActor func testTheCardsDrawInBothLooksAtEveryWidth() throws {
         let held = CicadaTheme.mode
         defer { CicadaTheme.mode = held }
-        let store = Store(cache: SnapshotCache(root: FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)), api: FakeSyncAPI())
-        let now = Date()
         let all = rows(channels: [channel("reddit"), channel("github", error: "401 token expired")],
                        savedLists: ["x"], suggested: [WhatsAppWatcher.channel])
+        let cards = SourcesRoot.cards(rows: all, streams: ResolvedStreams())
+        let store = Store(cache: SnapshotCache(root: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)), api: FakeSyncAPI())
         for mode in [AppColorScheme.light, .dark] {
             CicadaTheme.mode = mode
             for width in [320.0, 700.0, 1200.0] {
-                let view = VStack(alignment: .leading, spacing: 0) {
-                    SourceGridView(rows: all, search: SourceGridSearch(), open: { _ in }, importFiles: {})
-                    SourceAppTile(row: all[0], highlighted: true, now: now, open: {})
-                }
-                .frame(width: width)
-                .background(CicadaTheme.bgBase)
-                .environment(store)
+                let view = SourcesRootList(cards: cards, state: .constant(SourcesRoot.State()), now: Date(),
+                                           open: { _ in }, openByKey: { _ in }, act: { _ in })
+                    .frame(width: width)
+                    .background(CicadaTheme.bgBase)
+                    .environment(store)
                 let renderer = ImageRenderer(content: view)
                 XCTAssertNotNil(renderer.nsImage, "\(mode) at \(width)")
             }
-        }
-    }
-
-    /// The states the demo bank never shows: a lapsed sign-in, a permission taken away, an agent awaited, a missing app.
-    @MainActor func testRenderTheStatesTheDemoNeverShows() throws {
-        guard let dir = ProcessInfo.processInfo.environment["SOURCE_GRID_RENDER_DIR"], !dir.isEmpty else {
-            throw XCTSkip("set SOURCE_GRID_RENDER_DIR to render the Sources grid's states")
-        }
-        let held = CicadaTheme.mode
-        defer { CicadaTheme.mode = held }
-        let store = Store(cache: SnapshotCache(root: FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)), api: FakeSyncAPI())
-        let all = rows(channels: [channel("github", error: "401 token expired"), channel("reddit")],
-                       waitingOn: ["calendar-local": Copy.sourceNeedsAccess], suggested: [WhatsAppWatcher.channel],
-                       notInstalled: ["imessage"])
-        for mode in [AppColorScheme.light, .dark] {
-            CicadaTheme.mode = mode
-            let view = SourceGridView(rows: all, search: SourceGridSearch(), open: { _ in }, importFiles: {})
-                .padding(CicadaTheme.spacingXL)
-                .frame(width: 900, alignment: .topLeading)
-                .background(CicadaTheme.bgBase)
-                .environment(store)
-                .environment(\.colorScheme, mode == .dark ? .dark : .light)
-            let renderer = ImageRenderer(content: view)
-            renderer.scale = 2
-            let image = try XCTUnwrap(renderer.nsImage?.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)))
-            let png = try XCTUnwrap(image.representation(using: .png, properties: [:]))
-            try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("grid-states-\(mode).png"))
         }
     }
 

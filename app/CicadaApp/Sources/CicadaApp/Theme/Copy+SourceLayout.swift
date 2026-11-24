@@ -5,7 +5,6 @@ extension Copy {
     enum SourceLayout {
         static let readInBrowser = "Read through your browser"
         static let readInBrowserHelp = "Your own agent reads it in your signed-in browser, only when you ask"
-        static let importFile = "Import a file"
         static let choose = "Choose…"
         static let refresh = "Refresh"
         static let refreshHelp = "Read it again now"
@@ -35,7 +34,7 @@ extension Copy {
         static let saved = "Saved"
         static let chooseChats = "Choose chats…"
         static func requestExport(_ app: String) -> String { "Request your \(app) export" }
-        static let browserSettings = "Browser reading…"
+        static let browserSettings = "Browser reading settings…"
         static let browserSettingsHelp = "What your own agent may read in your signed-in browser, and how"
         static func notesRead(new: Int, unchanged: Int) -> String {
             "\(UsageFormat.count(new)) new · \(UsageFormat.count(unchanged)) unchanged"

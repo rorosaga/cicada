@@ -61,6 +61,13 @@ struct CicadaApp: App {
     @State private var exploreCache = ExploreCache()
     /// G166 — the sites Cicada's reader could not read, for Home's one line; app-level for ProjectsCache's reason.
     @State private var readingSitesCache = ReadingSitesCache()
+    /// G245 — the person's own agent reading (agent switch, acknowledgement, saved lists): one per app, so the Sources
+    /// page, a source's card and the notch's Yes reach the same switches and the same first-use hand-off. In memory,
+    /// never a Store domain (`ReadingAgentModel`).
+    @State private var readingAgent = ReadingAgentModel()
+    /// G245 — `GET /sources/streams`, in memory with its ETag; app-level for ProjectsCache's reason, emptied on a bank
+    /// switch, never a Store domain (`SourceStreamsModel` says why).
+    @State private var sourceStreams = SourceStreamsModel()
     @State private var banksVM: BanksViewModel
     @State private var feedVM: FeedViewModel
     @State private var contributorsVM: ContributorsViewModel
@@ -436,6 +443,8 @@ struct CicadaApp: App {
             .environment(videoStateCache)
             .environment(exploreCache)
             .environment(readingSitesCache)
+            .environment(readingAgent)
+            .environment(sourceStreams)
             .environment(banksVM)
             .environment(feedVM)
             .environment(contributorsVM)
