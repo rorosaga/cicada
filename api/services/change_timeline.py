@@ -38,7 +38,7 @@ DEFAULT_DAYS = 7
 MAX_DAYS = 90
 MAX_COMMITS = 1000
 GIT_TIMEOUT_S = 3.0
-IDS_PER_ROW = 5
+IDS_PER_ROW = 8
 _SEP, _REC = "\x1f", "\x1e"
 _PLATFORM_NAMES = {"youtube": "YouTube", "tiktok": "TikTok"}
 
@@ -196,7 +196,33 @@ def collect(memory_path: Path, since: date, until: date, *,
         d = _local_day(fm.get("timestamp"))
         if d is not None and since <= d <= until:
             row(d).captured[str(fm.get("origin") or fm.get("harness") or fm.get("source") or "unknown")] += 1
+    _most_cited_first(memory_path, days.values())
     return [days[d] for d in sorted(days, reverse=True) if not days[d].empty()]
+
+
+def _most_cited_first(memory_path: Path, rows) -> None:
+    """Order each day's new pages: things before skills, then by how many conversations cite them (2026-11-24).
+
+    A row names only ``IDS_PER_ROW`` ids, and git lists a Sleep's pages in file-name order, so a first Sleep of two
+    months that made 22 pages showed five picked by the alphabet — never the project the person spent the most time
+    on. The page's own ``source_episodes`` is the count, read from the frontmatter cache: no text, no model. A skill page
+    (what Sleep learned about how the person works) is cited by nearly every session and would fill the row, so it
+    comes after the people, projects, places and events a "what changed" is asked about. Ties keep git's order; an id
+    with no page file (archived since, moved) counts zero and goes last."""
+    rows = [r for r in rows if len(set(r.created)) > IDS_PER_ROW]
+    if not rows:
+        return
+    cited: dict[str, tuple[bool, int]] = {}
+    try:
+        for f in bank_index.files(memory_path, "entities"):
+            fm = f.frontmatter or {}
+            sources = fm.get("source_episodes")
+            cited[f.stem] = (str(fm.get("type") or "").lower() == "skill", -(len(sources) if isinstance(sources, list) else 0))
+    except Exception:  # noqa: BLE001 — the timeline reads less, never fails on it
+        return
+    for r in rows:
+        ids = list(dict.fromkeys(r.created))
+        r.created = sorted(ids, key=lambda i: cited.get(i, (True, 0)))   # stable: ties keep git's order
 
 
 def _ids(ids: list[str]) -> str:

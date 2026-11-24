@@ -125,11 +125,30 @@ def load(run_dir: Path, fixture: Path) -> list[dict]:
     return log
 
 
+#: The one project the persona starts herself, after the first Sleep (ruling 56: Sleep never makes a project, only the
+#: person does, in the app or from a shell). Every other page stays a page, so the tidepool and canoe questions read
+#: the way a person who never pressed "New project" would.
+PERSONA_PROJECTS = [("fernpost", "A small auth-and-tracker app Mara builds with a friend.")]
+
+
+def start_projects(run_dir: Path) -> list[tuple[str, int, dict | str]]:
+    """``POST /projects`` as the app's New project button sends it, once the first Sleep has made the page."""
+    run = _run(run_dir)
+    return [(name, *_json(run, "POST", "/projects", {"name": name, "description": about}))
+            for name, about in PERSONA_PROJECTS]
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--run", type=Path, required=True)
     ap.add_argument("--fixture", type=Path, help="where to write the fixture files (default: <run>/newuser-fixture)")
+    ap.add_argument("--start-projects", action="store_true",
+                    help="after the first Sleep: the person starts her project (ruling 56); loads nothing else")
     args = ap.parse_args()
+    if args.start_projects:
+        for name, code, body in start_projects(args.run):
+            print(code, "start project", name, body)
+        return
     fixture = args.fixture or args.run / "newuser-fixture"
     log = load(args.run, fixture)
     (fixture / "load-log.json").write_text(json.dumps(log, indent=1))
