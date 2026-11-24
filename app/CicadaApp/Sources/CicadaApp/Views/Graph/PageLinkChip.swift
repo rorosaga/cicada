@@ -206,24 +206,65 @@ enum PersonSiteLink {
         return mark
     }
 
-    /// The chip's name: the account (`@handle`) where the link names one, else the link's own words when they are words,
-    /// else the site's name — never a bare address.
+    /// The chip's name: the account (`@handle`) where the link IS a profile, else the link's own words when they are words,
+    /// else the site's name — never a bare address, and never a handle made of a path that is not one (a post, a repo, an
+    /// invite link, a site page).
     static func name(ref: String, label: String?, mark: String) -> String {
-        if let handle = LinkWords.xHandle(ref) { return "@" + handle }
-        let url = URL(string: ref)
-        let first = url?.path.split(separator: "/").first.map(String.init) ?? ""
-        switch mark {
-        case "instagram", "github", "telegram":
-            let handle = first.hasPrefix("@") ? String(first.dropFirst()) : first
-            if !handle.isEmpty { return "@" + handle }
-        case "youtube":
-            if first.hasPrefix("@") { return first }
-        default: break
-        }
+        if let handle = profileHandle(ref: ref, mark: mark) { return mark == "youtube" ? handle : "@" + handle }
         let words = (label ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let isAddress = words.contains("/") || (words.contains(".") && !words.contains(" "))
         if !words.isEmpty, !isAddress { return words }
         return siteName(mark)
+    }
+
+    /// The first path segments that name a page of the site, never an account, per site. A single segment is a profile only
+    /// when it is not one of these and is spelled the way that site spells an account (`isAccountName`).
+    static let reservedSegments: [String: Set<String>] = [
+        "x": ["home", "i", "intent", "share", "search", "explore", "hashtag", "messages", "settings", "compose", "notifications",
+              "login", "logout", "signup", "tos", "privacy", "about", "jobs", "download", "account", "lists", "topics", "bookmarks"],
+        "instagram": ["p", "reel", "reels", "tv", "stories", "explore", "accounts", "direct", "about", "legal", "developer",
+                      "directory", "web", "challenge", "tags", "locations", "s", "popular", "press", "privacy", "terms", "api"],
+        "github": ["about", "features", "pricing", "enterprise", "topics", "marketplace", "sponsors", "explore", "notifications",
+                   "login", "join", "search", "issues", "pulls", "settings", "orgs", "organizations", "apps", "collections",
+                   "trending", "readme", "security", "customer-stories", "solutions", "resources", "codespaces", "new", "gist",
+                   "support", "site", "contact", "events", "stars", "watching", "dashboard", "users", "team", "premium-support",
+                   "mobile", "logout", "sessions", "signup", "copilot", "models", "partners", "education", "why-github"],
+        "telegram": ["joinchat", "addstickers", "addemoji", "addlist", "addtheme", "share", "iv", "proxy", "socks", "setlanguage",
+                     "login", "contact", "boost", "invoice", "c", "s", "m", "i", "blog", "faq", "privacy", "tos", "apps", "dl",
+                     "web", "k", "a", "z"],
+    ]
+
+    /// How each site spells an account name; a segment outside it is a page, an invite or a hash, never a handle.
+    private static func isAccountName(_ segment: String, mark: String) -> Bool {
+        let letters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+        let allowed: CharacterSet
+        let range: ClosedRange<Int>
+        switch mark {
+        case "x": allowed = letters.union(CharacterSet(charactersIn: "_")); range = 1...15
+        case "instagram": allowed = letters.union(CharacterSet(charactersIn: "._")); range = 1...30
+        case "github": allowed = letters.union(CharacterSet(charactersIn: "-")); range = 1...39
+        case "telegram": allowed = letters.union(CharacterSet(charactersIn: "_")); range = 5...32
+        default: return false
+        }
+        return range.contains(segment.count) && segment.unicodeScalars.allSatisfy(allowed.contains)
+    }
+
+    /// The account a profile link names, without an `@`: the ONE path segment of an X, Instagram, GitHub or Telegram link
+    /// (so a post, a repository, a `joinchat` invite or a site page names nobody), or a YouTube `@handle` channel link.
+    /// Nil for anything else; the caller then falls back to the link's own words or the site's name.
+    static func profileHandle(ref: String, mark: String) -> String? {
+        guard let url = URL(string: ref.trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
+        let parts = url.path.split(separator: "/").map(String.init)
+        if mark == "youtube" {
+            guard let first = parts.first, first.hasPrefix("@"), first.count > 1 else { return nil }
+            return first
+        }
+        guard parts.count == 1 else { return nil }
+        let raw = parts[0]
+        let segment = raw.hasPrefix("@") ? String(raw.dropFirst()) : raw
+        guard reservedSegments[mark] != nil, !reservedSegments[mark]!.contains(segment.lowercased()),
+              isAccountName(segment, mark: mark) else { return nil }
+        return segment
     }
 
     static func siteName(_ mark: String) -> String {

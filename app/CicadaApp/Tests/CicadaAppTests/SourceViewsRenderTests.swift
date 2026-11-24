@@ -402,6 +402,41 @@ final class SourceViewsRenderTests: XCTestCase {
         try write(view, size: CGSize(width: 760, height: 900), scheme: .dark, to: base.appendingPathComponent("notion-dark.png"))
     }
 
+    // MARK: - How deep Cicada went on a saved item (G245 B3)
+
+    /// Four cards, one per depth: kept (says nothing), asked, read, watched. The depth is one quiet word or phrase at the
+    /// end of the card's own meta line: no colour, no badge.
+    func testRenderTheDepthOfASavedItem() throws {
+        let base = try renderDir()
+        let held = CicadaTheme.mode
+        defer { CicadaTheme.mode = held }
+        func item(_ id: String, _ title: String, _ words: String?, depth: String, posted: Int) -> ChannelItem {
+            var item = ChannelItem(kind: .media, id: id, title: title, day: day(posted), host: "x.com", site: "x.com",
+                                   why: words.map { ChannelItemWhy(labels: [], text: $0) })
+            item.lists = ["Bookmarks"]
+            item.depth = depth
+            item.posted = day(posted + 1)
+            item.author = "Alex Example"
+            return item
+        }
+        let items = [item("d1", "A thread on keeping small tools small", nil, depth: "kept", posted: 1),
+                     item("d2", "Notes from a talk on durable software", "Talked about it for the storage doc.", depth: "asked", posted: 2),
+                     item("d3", "The case for plain files as the interface", "Reread when writing the storage doc.", depth: "read", posted: 4),
+                     item("d4", "A walkthrough of building a static site", "Watched with the sync notes open.", depth: "watched", posted: 6)]
+        let today = ISODay.today()
+        for dark in [true, false] {
+            CicadaTheme.mode = dark ? .dark : .light
+            let column = VStack(alignment: .leading, spacing: CicadaTheme.cardGap) {
+                ForEach(items, id: \.self) { card in
+                    SourceItemCard(item: card, omittingList: "Bookmarks", today: today, route: nil, open: { _ in })
+                }
+            }
+            .padding(CicadaTheme.scaled(24))
+            try write(column, size: CGSize(width: 640, height: 400), scheme: dark ? .dark : .light,
+                      to: base.appendingPathComponent("item-depth-\(dark ? "dark" : "light").png"))
+        }
+    }
+
     // MARK: - Writing a PNG
 
     private func write<V: View>(_ view: V, size: CGSize, scheme: ColorScheme, to url: URL) throws {

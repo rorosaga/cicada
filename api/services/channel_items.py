@@ -1451,7 +1451,13 @@ def items(memory_path: Path, channel_id: str, *, offset: int = 0, limit: int = L
             raise UnknownStream(stream)
         held = source_streams.stream_members(memory_path, stream)
         if held is not None:
+            # The same membership the stream's count is made of: a post first kept by another door (a saved link) that
+            # the list holds too is a row of it, so the list shows exactly what the count says.
+            have = {r.get("id") for r in rows}
             rows = [r for r in rows if r.get("id") in held]
+            if source_streams.spec_of(stream).channel == channel_id:
+                media = _Media(memory_path)
+                rows += [row for entity_id in sorted(held - have) if (row := media.row(entity_id)) is not None]
     if folder and text_fold.fold(folder).strip():
         rows = source_streams.folder_matches(memory_path, rows, _media_pages(memory_path).pages, folder)
     everything = len(rows)

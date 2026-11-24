@@ -619,6 +619,58 @@ final class ConnectSuggestTests: XCTestCase {
         XCTAssertTrue(center.held.isEmpty)
     }
 
+    /// G245 finish — a Yes still connecting after its panel left, and a second site's offer shown meanwhile with its own
+    /// held save: each press keeps only its own saves. The first never takes the second's, and the second's stays held for
+    /// the second offer's answer.
+    @MainActor
+    func testASaveHeldForOneYesIsNeverHandedToAnotherSitesPress() async throws {
+        let clock = Clock(t0)
+        let (center, presenter) = center(clock: clock, front: { self.whatsAppPid })
+        let github = try XCTUnwrap(SiteSaveSite.named("github"))
+        let reddit = try XCTUnwrap(SiteSaveSite.named("reddit"))
+        func save(_ site: String, _ origin: String, _ url: String) -> SiteSaveCandidate {
+            SiteSaveCandidate(item: SiteSaveItem(site: site, origin: origin, url: url, title: "alpha/beta"),
+                              outcome: .saved, text: "", folder: nil, lesson: .labels(was: "a", now: "b", outcome: .saved))
+        }
+        let mine = save("github", "github-starred", "https://github.com/alpha/beta")
+        let theirs = save("reddit", "reddit-saved", "https://www.reddit.com/r/example/comments/abc/post/")
+        var finishFirst: CheckedContinuation<Void, Never>?
+        var connected: [String] = [], kept: [[SiteSaveCandidate]] = []
+        center.connect = { entry in
+            connected.append(entry)
+            if entry == "site-save:github" { await withCheckedContinuation { finishFirst = $0 } }
+            return .turnedOn(asksWhy: true, needsAccessibility: false)
+        }
+        center.onHeld = { kept.append($0) }
+
+        center.offer(saved: mine, site: github, pid: 7, bundleId: "com.google.Chrome")
+        XCTAssertEqual(center.held, [mine])
+        clock.now = clock.now.addingTimeInterval(1)
+        center.input(.yes)
+        // Yes is pressed and still connecting when the person leaves: the press stands, its save is its own.
+        center.input(.appChanged)
+        XCTAssertNil(center.state)
+        // A second site's offer shows meanwhile and holds its own save.
+        clock.now = clock.now.addingTimeInterval(ConnectSuggestPolicy.confirmShow + 600)
+        center.offer(saved: theirs, site: reddit, pid: 7, bundleId: "com.google.Chrome")
+        XCTAssertEqual(center.state?.target, ConnectSuggestApps.site("reddit"))
+        XCTAssertEqual(center.held, [theirs], "the second offer holds its own save")
+        XCTAssertEqual(presenter.shows, 2)
+        // The first Yes comes back now.
+        while finishFirst == nil { await Task.yield() }
+        finishFirst?.resume()
+        await center.settle()
+        XCTAssertEqual(kept, [[mine]], "the first press keeps its own save, never the second offer's")
+        XCTAssertEqual(center.held, [theirs], "and the second offer still holds its save")
+        XCTAssertNotNil(center.state, "the first Yes's late answer never closes the second offer")
+        // The second offer's own Yes keeps the second's save.
+        clock.now = clock.now.addingTimeInterval(1)
+        center.input(.yes)
+        await center.settle()
+        XCTAssertEqual(kept, [[mine], [theirs]])
+        XCTAssertEqual(connected, ["site-save:github", "site-save:reddit"])
+    }
+
     @MainActor
     func testAHeldSaveIsDroppedByAnyAnswerButYes() async throws {
         let site = try XCTUnwrap(SiteSaveSite.named("github"))

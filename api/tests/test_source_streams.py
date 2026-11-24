@@ -42,6 +42,7 @@ def _save(bank: Path, slug: str, url: str, *, origin: str, folder: str, collecti
     page, episode = f"media-{slug}", f"ep_2026-11-01_{slug}"
     _write(bank / "entities" / f"{page}.md", {
         "id": page, "type": "media", "name": slug, "status": status, "origin": origin, "folder": folder,
+        "media": {"url": url},
         **({"collections": [folder, *collections]} if collections else {}), "created": "2026-11-01"}, "PAGE BODY")
     ep = {"id": episode, "timestamp": "2026-11-01T08:00:00+00:00", "origin": origin, "url": url,
           "media_entity_id": page, "folder": folder, "source": "url",
@@ -518,6 +519,44 @@ def test_the_items_route_narrows_to_a_stream_and_a_folder(client, bank, more_lis
     assert _items(client, "x", folder="Reading").json()["total"] == 2
     assert _items(client, "x", stream="x.nope").status_code == 404
     assert _items(client, "x", stream="x.likes").headers["etag"] != _items(client, "x", stream="x.bookmarks").headers["etag"]
+
+
+def test_a_post_first_kept_as_a_saved_link_is_on_the_list_that_later_saw_it(client, bank, more_lists):
+    """A post kept first as a plain saved link, then seen on X's Bookmarks list, is counted once under that stream and
+    listed by ``stream=``; another site's same-named list does not take it, nor does a browser folder of that name."""
+    _x_bank(bank)
+    before = _streams(bank, "x")["x.bookmarks"]["count"]
+    _save(bank, "link", "https://x.com/alice_example/status/7", origin="saved-link", folder="", collections=["Bookmarks"])
+    # The same words on a page of another site, and on a Chrome bookmark of X: neither is X's list.
+    _save(bank, "elsewhere", "https://blog.bob-example.org/post/1", origin="saved-link", folder="", collections=["Bookmarks"])
+    _save(bank, "folder", "https://x.com/alice_example/status/8", origin="chrome-bookmark", folder="Bookmarks")
+    x = _streams(bank, "x")
+    assert x["x.bookmarks"]["count"] == before + 1 and x["x.likes"]["count"] == 2
+    shown = _items(client, "x", stream="x.bookmarks").json()
+    assert "media-link" in {r["id"] for r in shown["items"]} and shown["all"] == before + 1   # the list shows what the count says
+    assert "media-elsewhere" not in {r["id"] for r in shown["items"]} and "media-folder" not in {r["id"] for r in shown["items"]}
+    row = next(r for r in shown["items"] if r["id"] == "media-link")
+    assert row["lists"] == ["Bookmarks"] and row["depth"] == "kept"
+    assert all(r["id"] != "media-link" for r in _items(client, "x", stream="x.likes").json()["items"])
+
+
+def test_a_saved_link_on_one_sites_list_is_not_another_sites_same_named_list(bank):
+    # Instagram's list and Pinterest's are both called "Saved": the page's own site says which.
+    _save(bank, "pin", "https://www.pinterest.com/pin/1/", origin="saved-link", folder="", collections=["Saved"])
+    assert _streams(bank, "pinterest")["pinterest.saved"]["count"] == 1
+    assert _streams(bank, "instagram")["instagram.saved"]["count"] in (0, None)
+
+
+def test_the_list_display_names_are_built_once_a_request_not_once_a_row(client, bank, more_lists, monkeypatch):
+    _x_bank(bank)
+    for i in range(5):
+        _save(bank, f"extra{i}", f"https://x.com/alice_example/status/6{i}", origin="x-bookmarks", folder="Bookmarks")
+    calls = []
+    real = source_streams._list_display_names
+    monkeypatch.setattr(source_streams, "_list_display_names", lambda: calls.append(1) or real())
+    body = _items(client, "x").json()
+    assert body["total"] >= 8 and all("lists" in r for r in body["items"])
+    assert len(calls) == 1
 
 
 def test_a_saved_list_row_says_its_lists_folders_depth_and_post_day(client, bank, more_lists):

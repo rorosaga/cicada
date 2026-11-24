@@ -135,6 +135,13 @@ enum VideoWords {
         return lines
     }
 
+    /// Why a queue row is there when Cicada left it on its own (the person talked about the video); nil for one they asked
+    /// for, and for a row no longer waiting (a finished one is a record, not an ask).
+    static func mentionLine(_ state: VideoStateItem?) -> String? {
+        guard let state, state.isFromMention, state.queueState == .queued || state.queueState == .claimed else { return nil }
+        return Copy.Videos.fromMention
+    }
+
     /// The first honesty line alone: whether Sleep has read the record, and whether its wording is approximate.
     static func sleepLine(_ state: VideoStateItem) -> String? { honestyLines(state).first { !isCaveat($0) } }
 

@@ -23,8 +23,8 @@ Exit 3 means one of three things moved since the sync commit, and it lists which
 - a covered definition (`coverage.lock` holds a sha256 per definition, decorators included; the reply builders
   `record_watch`, `video_claim` and `watch_record.record` are hashed with their sentences blanked, so rewording a
   reply does not count, but any change to a call, an argument, a condition or a short string key does);
-- the set of places that name a queue writer (`video_queue.put`, `remove`, `retry`, `handoff`, `claim`,
-  `release`, `complete`) under `api/`, `mcp/` and `plugins/`, outside tests. A new caller is an actor the model
+- the set of places that name a queue writer (`video_queue.put`, `offer_mention`, `drop_mentions`, `remove`, `retry`,
+  `handoff`, `claim`, `release`, `complete`) under `api/`, `mcp/` and `plugins/`, outside tests. A new caller is an actor the model
   may lack;
 - a citation. Every line citation in this skill is `<module>.<function>:<line>`, and coverage.py checks that the
   line falls inside that function. A line number with no qualified name in front of it is an error too.
@@ -90,34 +90,34 @@ as guards; F3 is accepted and its two tests stay `xfail(strict=True, raises=Asse
 closes it flips them. A hang (a 10 s thread guard) or a crash fails the run instead of counting as the finding.
 
 - **F1, release ignored who asks (fixed).** `s1` claimed `k1`; `s2` called `cicada_video_claim(release=[k1])` and
-  the row failed. Now `claim` mints a 128-bit `lease_token` per leased row (`video_queue.claim:680`), the reply
+  the row failed. Now `claim` mints a 128-bit `lease_token` per leased row (`video_queue.claim:751`), the reply
   shows it on the video's line, and `release` ends a lease only with that row's token
-  (`video_queue.release:712`, `video_queue._token_matches:652`); anything else answers `not_yours` and the lease
+  (`video_queue.release:783`, `video_queue._token_matches:722`); anything else answers `not_yours` and the lease
   lapses on its own clock, as does a row claimed before tokens existed. The session id is never compared: TLC
   shows a session compare lets a handle-less remote conversation release another's lease
   (`F1s-session-compare-shared-ids`), and leaves a CLI caller with no id or a restarted stdio process unable to
   hand back its own (`F1s-session-compare-sessionless`, `F1s-session-compare-restart`).
 - **F2, a stale saved snapshot dropped a fresh row (fixed).** Every writer read the saved videos before its lock,
-  and a video saved and queued meanwhile was dropped as an orphan (`video_queue._open:505`). Every writer now reads
-  them under its lock (`video_queue.claim:668`, `video_queue.complete:739` and the rest; the writers no longer take
+  and a video saved and queued meanwhile was dropped as an orphan (`video_queue._open:525`). Every writer now reads
+  them under its lock (`video_queue.claim:738`, `video_queue.complete:810` and the rest; the writers no longer take
   a `saved` argument), and the MCP handler reads them again after the claim for its reply lines only.
 - **F3, a record older than the request closes it (accepted).** `record_watch` writes its episode
-  (`mcp_tools.record_watch:635`). The person queues the video, and another caller claims it. The credit then
-  runs (`mcp_tools.record_watch:651`) and a stated basis closes the row (`video_queue.complete:747`) whatever the
+  (`mcp_tools.record_watch:734`). The person queues the video, and another caller claims it. The credit then
+  runs (`mcp_tools.record_watch:752`) and a stated basis closes the row (`video_queue.complete:818`) whatever the
   record's age, ending the other caller's lease. A second path needs no credit gap: `requested_at` is kept to the
-  second (`video_queue._iso:149`) and `newer_than` compares with `>=` (`video_state.newer_than:239`), so a record
+  second (`video_queue._iso:156`) and `newer_than` compares with `>=` (`video_state.newer_than:239`), so a record
   from earlier in the request's own second counts as newer, both here and in the lapse sweep
-  (`video_queue._settle:342`). **Likelihood: negligible.** A watch that meets the request exists, written seconds
+  (`video_queue._settle:351`). **Likelihood: negligible.** A watch that meets the request exists, written seconds
   before the person asked, which is what the person wants in the only realistic case. **Revisit** (ruling 34) if a
   lease is ever seen ending on an older record: then take the microsecond compare below.
 - **F4, an active caller kept its leases forever (fixed).** A claim, release or complete carrying the caller's
-  session id refreshes every unlapsed lease stored under that id (`video_queue.claim:670`,
-  `video_queue.release:699`, `video_queue.complete:750`). A refresh now never carries a lease past
-  `MAX_LEASE_PERIODS` (3) lease periods from its claim (`video_queue._refresh:644`, `video_queue._lease_cap:629`),
+  session id refreshes every unlapsed lease stored under that id (`video_queue.claim:740`,
+  `video_queue.release:770`, `video_queue.complete:821`). A refresh now never carries a lease past
+  `MAX_LEASE_PERIODS` (3) lease periods from its claim (`video_queue._refresh:714`, `video_queue._lease_cap:699`),
   so a forgotten lease lapses at most 135 minutes after its claim however often the caller calls.
 - **F5, a shared session id let one conversation close another's lease (fixed).** Two remote conversations on one
   connector that both omit their `conversation` handle share one id (`runtime.resolve_handle:75`). A record with no
-  basis now closes a leased row only with that row's lease token (`video_queue.complete:749`), which
+  basis now closes a leased row only with that row's lease token (`video_queue.complete:820`), which
   `cicada_record_watch` takes as `lease_token`; without it the row is `left`.
 
 ## The fixes, mirrored in the model
@@ -150,13 +150,24 @@ and `F3s`, and their checks are expected to fail.
 
 ## Mention asks (ruling 78 (e), 2026-11-24)
 
-`video_queue.offer_mention` adds a `queued` `transcript` row for a key that has none (the model's `PutBegin` on a new row) and
-`video_queue.drop_mentions` removes unclaimed rows the way Remove does (`RemoveBegin`); both are called only by
-`mention_asks`, from Sleep and the settings route. `video_queue._honoured` hides a mention row from `view` and `claim` while
-agent reading or its list is off, which the model reads as a row nobody can claim (it never changes a row's fields), and
-`_upsert` drops the mark when the person's own ask meets the row. No lifecycle step changed; the model was run unchanged
-with `ALLOW_DRIFT=1` (dev's own drift in `cli._tool_context`, `cli_app.door`, `tool_door.context`,
-`mcp_tools.record_watch`, `mcp_tools.video_claim` and `watch_record._write_episode` predates this and was left as found).
+`video_queue.offer_mention` adds a `queued` `transcript` row for a key that has none (the model's `PutBegin` on a new row,
+`video_queue.offer_mention:590`) and `video_queue.drop_mentions` removes every mention row its `keep` says no to, **leased
+or not**, the way Remove does (`RemoveBegin`, `video_queue.drop_mentions:616`; a leased row went too since 2026-11-24, so a
+switch turned off can never come back on a lapsed lease: P12 reads it as the person's Remove, the row's state after it is
+the same). Both are called only by `mention_asks`, from Sleep and the settings route, and are covered and listed as writers
+in `coverage.py`. `video_queue._honoured` hides a mention row from `view` and `claim` while agent reading or its list is off,
+which the model reads as a row nobody can claim (it never changes a row's fields), and `_upsert` drops the mark when the
+person's own ask meets the row; `_clean_row` keeps the mark through a read. No lifecycle step changed.
+
+**Re-read 2026-11-24** against the sync commit (`6cb114a7`, the ruling-34 fix), each drifted definition read as a diff:
+`video_queue._clean_row`, `_upsert`, `claim` and `view` are the mention rows above and nothing else;
+`mcp_tools.record_watch` and `mcp_tools.video_claim` only wrap their error strings in `Reply(..., code=...)` and
+`record_watch` adds a sentence when the link was saved by the call itself (`saved_now`): the episode write still comes
+before the credit and no queue call moved; `watch_record._write_episode` adds the `received_at` key (ruling 39) beside the
+unchanged `timestamp` the F3 note reads; `cli._tool_context`, `cli_app.door` and `tool_door.context` take the caller
+through one function (`cli_app.caller`, ruling 50), which still gives the session id the harness gave and `""` otherwise
+(the `sessionless` mode is unchanged) and only names the harness differently, and `tool_door.context` gains
+`commits_saves`, a save-commit switch the queue never reads. None changes the model, so none was edited.
 
 ## Reading a result
 
@@ -185,28 +196,31 @@ Each step names the call and the code it models.
 ## Keeping it in step
 
 **Sync point: the ruling-34 fix** (branch `fix/video-lease` on `dev` at `10bf8f4d`, 2026-10-22; `coverage.lock`
-holds the fingerprints). At that point the model describes these definitions:
+holds the fingerprints), **re-read and re-locked 2026-11-24** on `fix/g245-finish` after the G245 tracks (the diff of each
+drifted definition is in "Mention asks" above; the model was not edited). At that point the model describes these
+definitions:
 
 | Code | Model |
 |---|---|
-| `video_queue._locked:250`, `video_queue._write:263`, `video_queue._read_file:214` | one locked step per write call |
-| `video_queue._lapsed:296`, `video_queue.LEASE_MINUTES:65` | `Lapsed`, `LeaseTicks`, `Tick` |
-| `video_queue._failed_expiry:291`, `video_queue.EXPIRE_FAILED_DAYS:74` | `FailExpired`, `FailTicks` |
-| `video_queue._settle:314`, `video_queue.MAX_ATTEMPTS:68` | `SettleRow`, `Settle` |
-| `video_queue._drop_orphans:372`, `video_queue._open:496`, `video_queue._saved:482` | `Open`, the `snap` of each snapshot step (never stale with F2) |
-| `video_queue._refresh:633`, `video_queue._lease_cap:627`, `video_queue.MAX_LEASE_PERIODS:67` | `Refresh`, `Extended`, `cap` (by session id; none refreshes nothing; F4 caps it) |
-| `video_queue.claim:655` (stored id `video_queue.claim:679`, token `video_queue.claim:680`) | `ClaimBegin`, `ClaimLocked`, `ClaimFn`, `Takes` (any non-empty subset), `Tokens` |
-| `video_queue.release:686`, `video_queue._token_matches:649` | `ReleaseBegin`, `ReleaseLocked`, `ReleaseFn`, `MayRelease` |
-| `video_queue.complete:725` (saved set `video_queue.complete:739`) | `CreditBegin`, `CompleteLocked`, `CompleteFn`, `Done` |
-| `video_queue.put:532`, `video_queue.handoff:586`, `video_queue._upsert:516`, `video_queue.remove:550`, `video_queue.retry:569`, `video_queue._reset:510` | `PutBegin`, `RemoveBegin`, `RetryBegin`, `PersonLocked`, `Restarted` |
-| `video_queue.view:388` | the settled view each locked step starts from; `EffClaimed` |
-| `video_queue._iso:148`, `video_queue._parse:152`, `video_queue._now:144`, `video_queue._clean_row:178` | request time to the second; `same` places; `CodeNewer` |
+| `video_queue._locked:259`, `video_queue._write:272`, `video_queue._read_file:223` | one locked step per write call |
+| `video_queue._lapsed:305`, `video_queue.LEASE_MINUTES:70` | `Lapsed`, `LeaseTicks`, `Tick` |
+| `video_queue._failed_expiry:300`, `video_queue.EXPIRE_FAILED_DAYS:79` | `FailExpired`, `FailTicks` |
+| `video_queue._settle:323`, `video_queue.MAX_ATTEMPTS:73` | `SettleRow`, `Settle` |
+| `video_queue._drop_orphans:381`, `video_queue._open:516`, `video_queue._saved:502` | `Open`, the `snap` of each snapshot step (never stale with F2) |
+| `video_queue._refresh:703`, `video_queue._lease_cap:697`, `video_queue.MAX_LEASE_PERIODS:72` | `Refresh`, `Extended`, `cap` (by session id; none refreshes nothing; F4 caps it) |
+| `video_queue.claim:725` (stored id `video_queue.claim:750`, token `video_queue.claim:751`) | `ClaimBegin`, `ClaimLocked`, `ClaimFn`, `Takes` (any non-empty subset), `Tokens` |
+| `video_queue.release:757`, `video_queue._token_matches:719` | `ReleaseBegin`, `ReleaseLocked`, `ReleaseFn`, `MayRelease` |
+| `video_queue.complete:796` (saved set `video_queue.complete:810`) | `CreditBegin`, `CompleteLocked`, `CompleteFn`, `Done` |
+| `video_queue.put:555`, `video_queue.handoff:656`, `video_queue._upsert:536`, `video_queue.remove:620`, `video_queue.retry:639`, `video_queue._reset:530` | `PutBegin`, `RemoveBegin`, `RetryBegin`, `PersonLocked`, `Restarted` |
+| `video_queue.offer_mention:590`, `video_queue.drop_mentions:616`, `video_queue._honoured:410` | `PutBegin` on a new row, `RemoveBegin` (a leased row too); `_honoured` is a row nobody can claim or see, never a changed field |
+| `video_queue.view:397` | the settled view each locked step starts from; `EffClaimed` |
+| `video_queue._iso:155`, `video_queue._parse:159`, `video_queue._now:151`, `video_queue._clean_row:185` | request time to the second; `same` places; `CodeNewer` |
 | `video_state.satisfies:242`, `video_state.newer_than:232`, `video_state.clean_basis:71`, `video_state.basis_facts:81`, `video_state.BASES:58`, `video_state.watch_records:202` | `SatisfiesCode`, `Fact`, the records |
 | `video_state.saved_videos:148` | `saved`, `SaveVideo`, `HideVideo` |
-| `mcp_tools.video_claim:1215` (reply-only read `mcp_tools.video_claim:1255`) | `ClaimBegin`, `ReleaseBegin` |
-| `mcp_tools.record_watch:585` (episode `mcp_tools.record_watch:635`, credit `mcp_tools.record_watch:651`), `mcp_tools._credit_video_queue:1120`, `watch_record._write_episode:139`, `watch_record.record:239`, `episode_ids.utc_now_iso:213` | `RecordEpisode`, `CreditBegin`, `CompleteLocked`, `DropCredit`, `Fresh` |
-| `mcp_tools.ToolContext.pages_held:209`, `mcp_tools._backend_sleep_running:54` | `holding`, `SleepStart`, `SleepEnd` |
-| `session_identity.parse:42`, `session_identity.stdio_identity:54`, `session_identity.cli_identity:64`, `cli._tool_context:237`, `cli_app.door:305`, `tool_door.Caller:58`, `tool_door.context:182`, `runtime.resolve_handle:68`, `runtime.mint_handle:63` | `IdMode`, `FirstId`, `sid`, `Restart` |
+| `mcp_tools.video_claim:1383` (reply-only read `mcp_tools.video_claim:1423`) | `ClaimBegin`, `ReleaseBegin` |
+| `mcp_tools.record_watch:682` (episode `mcp_tools.record_watch:734`, credit `mcp_tools.record_watch:752`), `mcp_tools._credit_video_queue:1296`, `watch_record._write_episode:139`, `watch_record.record:241`, `episode_ids.utc_now_iso:245` | `RecordEpisode`, `CreditBegin`, `CompleteLocked`, `DropCredit`, `Fresh` |
+| `mcp_tools.ToolContext.pages_held:227`, `mcp_tools._backend_sleep_running:60` | `holding`, `SleepStart`, `SleepEnd` |
+| `session_identity.parse:42`, `session_identity.stdio_identity:54`, `session_identity.cli_identity:64`, `cli._tool_context:243`, `cli_app.door:321`, `tool_door.Caller:60`, `tool_door.context:225`, `runtime.resolve_handle:68`, `runtime.mint_handle:63` | `IdMode`, `FirstId`, `sid`, `Restart` |
 | `videos._view:69`, `videos._put:136`, `videos.delete_video_queue:150`, `videos._retry:155`, `videos._handoff:179` | `PutBegin`, `RemoveBegin`, `RetryBegin`, `PersonLocked` |
 
 When a covered definition changes on purpose:

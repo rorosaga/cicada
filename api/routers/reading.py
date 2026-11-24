@@ -110,6 +110,10 @@ async def put_reading_settings(update: SettingsUpdate, settings: Settings = Depe
     surfaced = None
     if update.sites and any(update.sites.values()):
         surfaced = {r["site"] for r in await asyncio.to_thread(reading_queue.sites_snapshot, memory_path)}
+    if update.agentEnabled or any((update.savedLists or {}).values()) or any((update.youtubeLists or {}).values()):
+        # Turning a switch on never revives what the switch being off hid: a mention ask already hidden under today's
+        # settings is taken now, before they change (it would be honoured again the instant they do).
+        await asyncio.to_thread(mention_asks.sweep, memory_path)
     try:
         reading_settings.update(
             agent_enabled_=update.agentEnabled, acknowledge=update.acknowledge, sites=update.sites,
@@ -212,7 +216,7 @@ async def list_reading_asks(request: Request, response: Response, settings: Sett
         return early
     idx = media_ingestor.load_url_index(memory_path)
     try:
-        rows = reading_queue.honoured_rows(reading_asks.all_rows(memory_path))   # ruling 78 (e): a mention ask only while on
+        rows = reading_asks.honoured(reading_asks.all_rows(memory_path))   # ruling 78 (e): a mention ask only while on
     except ValueError:
         rows = []
     asks = []

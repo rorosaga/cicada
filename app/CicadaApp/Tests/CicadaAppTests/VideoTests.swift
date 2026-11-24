@@ -388,6 +388,31 @@ final class VideoActionsTests: XCTestCase {
         XCTAssertTrue(recorded.queueTranscript.isShown && recorded.queueWatch.isShown)
     }
 
+    /// G245 B3 — a queue row Cicada left on its own (the person talked about the video) says why, quietly, and keeps the
+    /// same remove control as any queued row; a row the person queued says nothing more than before.
+    func testAMentionRowSaysWhyItIsThere() throws {
+        func decode(_ json: String) throws -> VideoStateItem {
+            try JSONDecoder().decode(VideoStateItem.self, from: Data(json.utf8))
+        }
+        let base = #""key": "k", "mediaEntityId": "m", "url": "u", "want": "transcript""#
+        let mention = try decode("{\(base), \"queueState\": \"queued\", \"origin\": \"mention\"}")
+        XCTAssertTrue(mention.isFromMention)
+        XCTAssertEqual(VideoWords.mentionLine(mention), "Here because you talked about it")
+        XCTAssertTrue(VideoActions.for(mention).showsRemove, "the person can still remove it")
+        XCTAssertEqual(VideoActions.for(mention).status, .queued(.transcript), "the same status line as any queued row")
+        let picked = try decode("{\(base), \"queueState\": \"claimed\", \"claimedBy\": \"acme-agent\", \"origin\": \"mention\"}")
+        XCTAssertNotNil(VideoWords.mentionLine(picked), "still an ask while an agent holds it")
+        let asked = try decode("{\(base), \"queueState\": \"queued\"}")
+        XCTAssertFalse(asked.isFromMention)
+        XCTAssertNil(VideoWords.mentionLine(asked), "a row the person queued says nothing more")
+        let done = try decode("{\(base), \"state\": \"watched\", \"origin\": \"mention\"}")
+        XCTAssertNil(VideoWords.mentionLine(done), "a finished row is a record, not an ask")
+        let unknown = try decode("{\(base), \"queueState\": \"queued\", \"origin\": \"something-new\"}")
+        XCTAssertNil(VideoWords.mentionLine(unknown), "a value this build does not know says nothing")
+        XCTAssertNil(VideoWords.mentionLine(nil))
+        XCTAssertFalse(Copy.Videos.fromMention.contains("Cicada"), "no name of a provider, no mechanism")
+    }
+
     func testQueueStates() {
         let watch = VideoActions.for(s(.none, .queued, want: .watch))
         XCTAssertEqual(watch.status, .queued(.watch))

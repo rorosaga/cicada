@@ -596,13 +596,15 @@ def offer_mention(memory_path: Path, key: str, list_key: str, *, now: datetime |
 def drop_mentions(memory_path: Path, *, keep: Callable[[dict], bool], now: datetime | None = None,
                   holding: Callable[[], bool] | None = None) -> int:
     """Remove every mention ask ``keep`` says no to (a setting turned off), the way Remove does, and return how many.
-    A row an agent has leased is left to finish: its lease lapses on its own clock and it is dropped after."""
+    A leased row goes too, exactly as the person's own Remove takes a leased row (:func:`remove`): leaving it to lapse
+    left a hidden row stored, which turning the switch back on before any later sweep brought back. The agent holding
+    the lease finds the row gone (``unknown`` on release, ``none`` on a record), and what it records is still kept."""
     moment = _now(now)
     if _stat(memory_path) is None:
         return 0
     with _locked(memory_path) as target:
         rows, batches, changed = _open(memory_path, moment, _saved(memory_path), holding)
-        gone = {r["key"] for r in rows if r.get("origin") == ORIGIN_MENTION and r["state"] != "claimed" and not keep(r)}
+        gone = {r["key"] for r in rows if r.get("origin") == ORIGIN_MENTION and not keep(r)}
         if not gone:
             if changed:
                 _write(target, rows, batches)

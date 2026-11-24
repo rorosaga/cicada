@@ -70,6 +70,9 @@ extension Copy {
         static func inQueue(_ want: VideoWant) -> String {
             want == .watch ? "In the queue to be watched" : "In the queue to be read"
         }
+        /// Under the queue status of a row Cicada left on its own (G245 B3): why it is there, so it never looks like an ask
+        /// the person made. The remove control beside the status works the same for it.
+        static let fromMention = "Here because you talked about it"
         static func pickedUp(_ want: VideoWant) -> String { want == .watch ? "to watch" : "to read" }
         static func pickedUpBy(_ agent: String, want: VideoWant) -> String { "Picked up by \(agent) \(pickedUp(want))" }
         static func couldntDo(_ reason: String) -> String { "An agent couldn't do this one: \(reason)" }

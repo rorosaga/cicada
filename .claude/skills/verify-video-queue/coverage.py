@@ -8,7 +8,7 @@ Three checks, each a reason to exit 3:
   reply builders in REPLY_BUILDERS it is the sha256 of the definition's syntax tree with sentence-like strings
   (any string with a space, every f-string, every docstring) blanked, so rewording a reply does not move it, while
   any change to a call, an argument, a condition or a short string key does.
-- The set of places that name a queue writer (video_queue.put, remove, retry, handoff, claim, release, complete)
+- The set of places that name a queue writer (video_queue.put, offer_mention, drop_mentions, remove, retry, handoff, claim, release, complete)
   is not the set in coverage.lock. A new caller is a new actor the model may not have.
 - A citation `<module>.<name>:<line>` in the skill's files names a line outside that definition, or a line number
   appears without a qualified name in front of it."""
@@ -45,7 +45,7 @@ COVERED = {
         "LEASE_MINUTES", "MAX_LEASE_PERIODS", "MAX_ATTEMPTS", "EXPIRE_FAILED_DAYS", "CLAIM_PAGE", "DEFAULT_CLAIM",
         "_iso", "_parse", "_now", "_stat", "_clean_row", "clean_code", "_read_file", "_locked", "_write",
         "_failed_expiry", "_lapsed", "_settle", "_drop_orphans", "view", "_saved", "_records_fn", "_open", "_reset",
-        "_upsert", "put", "remove", "retry", "handoff", "_lease_cap", "_refresh", "_token_matches", "claim", "release",
+        "_upsert", "put", "offer_mention", "drop_mentions", "_honoured", "remove", "retry", "handoff", "_lease_cap", "_refresh", "_token_matches", "claim", "release",
         "complete",
     ],
     "video_state": ["BASES", "basis_facts", "clean_basis", "saved_videos", "watch_records", "newer_than", "satisfies",
@@ -63,7 +63,7 @@ COVERED = {
 }
 REPLY_BUILDERS = {"mcp_tools::record_watch", "mcp_tools::video_claim", "watch_record::record"}
 
-WRITERS = {"put", "remove", "retry", "handoff", "claim", "release", "complete"}
+WRITERS = {"put", "offer_mention", "drop_mentions", "remove", "retry", "handoff", "claim", "release", "complete"}
 CALLER_ROOTS = ("api", "mcp", "plugins")
 
 CITED_FILES = ["SKILL.md", "statechart.md", "VideoQueue.tla", "trace.py"]

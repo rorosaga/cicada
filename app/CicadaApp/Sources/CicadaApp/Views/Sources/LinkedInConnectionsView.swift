@@ -36,9 +36,12 @@ final class LinkedInConnectionsModel {
 
     init() {}
 
-    /// Reads the first page for `query`. Rows already in hand stay on screen while it is read (never blank).
-    func load(query: String, using fetch: Fetch) async {
+    /// Reads the first page for `query`. Rows already in hand stay on screen while it is read (never blank), except when
+    /// the page says nothing is kept any more (`kept` 0, after "Forget kept connections"): a forgotten name is gone from
+    /// the screen at once, before the read and whether or not it succeeds.
+    func load(query: String, kept keptCount: Int? = nil, using fetch: Fetch) async {
         let words = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if keptCount == 0, !rows.isEmpty { empty() }
         if rows.isEmpty { phase = .loading }
         do {
             let page = try await fetch(words, 0, Self.pageSize)
@@ -51,8 +54,13 @@ final class LinkedInConnectionsModel {
             phase = .loaded
         } catch {
             guard !Task.isCancelled, !(error is CancellationError), (error as? URLError)?.code != .cancelled else { return }
-            if rows.isEmpty { phase = .failed(Copy.Streams.connectionsFailed) }
+            // Nothing kept is an empty list, not a failed read: the words say so, never an error about names that are gone.
+            if rows.isEmpty { phase = keptCount == 0 ? .loaded : .failed(Copy.Streams.connectionsFailed) }
         }
+    }
+
+    private func empty() {
+        rows = []; total = 0; kept = 0; next = nil; phase = .loaded
     }
 
     /// The next page of the same search, appended.
@@ -111,7 +119,7 @@ struct LinkedInConnectionsSection: View {
                     try? await Task.sleep(for: SourceSearch.debounce)
                     guard !Task.isCancelled else { return }
                 }
-                await model.load(query: query, using: fetch)
+                await model.load(query: query, kept: kept, using: fetch)
             }
     }
 }
