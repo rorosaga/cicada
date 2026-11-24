@@ -355,8 +355,19 @@ def drop(memory_path: Path, url_hash: str, *, now: datetime | None = None) -> bo
     return len(kept) != len(rows)
 
 
+def honoured(rows: list[dict]) -> list[dict]:
+    """The rows that count right now: a mention ask (ruling 78 (e)) only while agent reading and its list are on. A hidden
+    one is stored until a sweep takes it, and is never a number anywhere."""
+    if not any(r.get("origin") == ORIGIN_MENTION for r in rows):
+        return rows
+    from api.services import mention_asks
+
+    ok = mention_asks.gate()
+    return [r for r in rows if r.get("origin") != ORIGIN_MENTION or ok(r)]
+
+
 def counts(memory_path: Path, *, now: datetime | None = None) -> dict[str, int]:
     out = {state: 0 for state in STATES}
-    for row in all_rows(memory_path, now=now):
+    for row in honoured(all_rows(memory_path, now=now)):
         out[row["state"]] += 1
     return out

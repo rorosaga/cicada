@@ -105,12 +105,7 @@ def _live_rows(memory_path: Path, now: datetime | None) -> list[dict]:
 
 def honoured_rows(rows: list[dict]) -> list[dict]:
     """The ask rows that count right now: a mention ask (ruling 78 (e)) only while agent reading and its list are on."""
-    if not any(r.get("origin") == reading_asks.ORIGIN_MENTION for r in rows):
-        return rows
-    from api.services import mention_asks
-
-    ok = mention_asks.gate()
-    return [r for r in rows if r.get("origin") != reading_asks.ORIGIN_MENTION or ok(r)]
+    return reading_asks.honoured(rows)
 
 
 def reading_asks_honoured(row: dict) -> bool:

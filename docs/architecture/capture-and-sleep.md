@@ -1336,7 +1336,9 @@ the folder, and `covers` claims from the title's own words. Recall found the sam
   (`saved_mentions._saves`): an X bookmark filed in no folder and a Reddit connector save (`r/<sub>`) read as bare saves to
   `history_index.kind`, yet are on a list, and are owed the same ask; a browser bookmark or a saved link is on none. Honoured (listed, leased, counted, recordable, `reading_queue.authorizes`) only while agent reading
   and that list are on (`mention_asks.gate`); turning either off hides it at once and the settings route's `sweep` removes
-  it, so turning the switch back on never brings it back; the person removes it where their own asks are listed. **At
+  it — a leased row too, as the person's own Remove takes one (`video_queue.drop_mentions`) — and the route sweeps again
+  before any switch is turned ON, under the settings of the moment, so a hidden ask is never honoured again by a switch
+  coming on; no count (`reading_asks.counts`, `/reading/asks`, the queues' own) includes a hidden one; the person removes it where their own asks are listed. **At
   most 5 a day a bank across both queues and 50 waiting**, kept in `$CICADA_HOME/mention_asks/<bank>.json` (a day, a
   count and the hashes of links already offered, so a removal holds against every later mention; no url, never in a bank).
   A waiting mention ask **never expires** (an expiry would turn `asked` back into `kept` unannounced; the two bounds keep

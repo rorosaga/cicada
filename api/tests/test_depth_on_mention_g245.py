@@ -353,6 +353,52 @@ def test_turning_agent_reading_or_the_list_off_dequeues_the_ask_and_it_stays_gon
     assert video_queue.view(memory)[0] == []
 
 
+def test_a_leased_mention_ask_goes_with_its_switch_and_never_comes_back(reading):
+    """An agent holds the lease when the person turns the list off: the ask is gone for good (as the person's own Remove
+    takes a leased row), not hidden until the lease lapses and brought back by turning the switch on."""
+    server, memory = reading
+    _yt_on("watch_later")
+    _video(memory)
+    mention_asks.offer(memory, {"b": {"url": VIDEO_A, "origin": "youtube-playlist", "folder": "Watch later"}}, now=T0)
+    assert "Leased 1 video" in server.handle_tool("cicada_video_claim", {})
+    reading_settings.update(youtube_lists_={"watch_later": False})
+    assert mention_asks.sweep(memory) == 1
+    _yt_on("watch_later")
+    assert video_queue.view(memory, T0 + timedelta(days=1))[0] == []
+    assert video_queue._cached(memory)[0] == [], "stored rows too, not only the view"
+    # The agent that held the lease records what it watched all the same: nothing breaks, the record is kept.
+    assert server.handle_tool("cicada_video_claim", {}).startswith("Nothing")
+
+
+def test_a_hidden_ask_is_never_counted_and_a_switch_turned_on_never_revives_one(reading, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from api import config, main
+
+    _, memory = reading
+    import os
+    os.environ["CICADA_MEMORY_PATH"] = str(memory)
+    config.get_settings.cache_clear()
+    try:
+        client = TestClient(main.app)
+        _on("x-likes")
+        reading_asks.mention(memory, _hash(POST_A), host="x.com", host_class="walled", list_key="x-likes", now=T0)
+        assert reading_asks.counts(memory)["waiting"] == 1
+        # The switch goes off by a path that never swept (a sweep that failed, a file edited by hand): hidden, stored.
+        reading_settings.update(saved_lists_={"x-likes": False})
+        assert reading_asks.all_rows(memory) != []
+        assert reading_asks.counts(memory) == {state: 0 for state in reading_asks.STATES}
+        assert client.get("/reading/asks").json()["counts"]["waiting"] == 0
+        assert reading_queue.counts(memory)[0] == 0
+        # Turning it on through the route takes the hidden ask first: it is not honoured the instant the switch is on.
+        assert client.put("/reading/settings", json={"savedLists": {"x-likes": True}}).status_code == 200
+        assert reading_asks.all_rows(memory) == [] and reading_asks.counts(memory)["waiting"] == 0
+        assert client.get("/reading/asks").json()["asks"] == []
+    finally:
+        os.environ.pop("CICADA_MEMORY_PATH", None)
+        config.get_settings.cache_clear()
+
+
 def test_an_agent_cannot_plant_a_mention_ask_and_a_mention_ask_authorizes_only_while_honoured(reading):
     server, memory = reading
     # Nothing an agent can call carries an origin onto a row but ``site``, and a planted outcome on a link nobody asked
