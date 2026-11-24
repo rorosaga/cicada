@@ -45,6 +45,9 @@ EXEMPT = {
     "api/services/arrival_join_write.py": "a writer: its undo closes, by id, only the claims its own join wrote (the LinkedIn "
                                           "observer's works-at/role/connected-on, `linkedin_people`); no event is among them",
     "api/services/entity_relations.py": "current-only: `known` reads open claims (valid_to unset) of relation predicates (RECORD_PREDICATES); no event has one",
+    "api/services/question_revisit.py": "current-only: lists a page's OPEN claims (valid_to unset) as the lines shown to the reader "
+                                        "of a question (ruling 82); a done happening is born closed, so none is among them, "
+                                        "and nothing here ranks or settles by a claim's state",
 }
 HISTORY_READERS = ("api/services/mcp_tools.py", "api/routers/claims.py", "api/services/provenance.py",
                    "api/services/search_service.py", "api/services/search_index.py")
