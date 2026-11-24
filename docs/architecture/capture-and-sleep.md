@@ -2247,7 +2247,9 @@ the small judge's when it divides them; its answer failing, unreadable or callin
 reading, so a located split is never lost to it. A single new conversation against a person on record is not read again. `plan`
 **never changes a page that exists**. When its re-read shows
 that a page's own conversations fall in two groups (`page-holds-two-people`), or that two people held in doubt fall in one
-(`doubt-may-be-one`), or that a doubt still stands, it only **flags** the name (`same_name_doubts.flag`, a deferred Stage 2
+(`doubt-may-be-one`; **also when the whole name reads as one person**, which is the usual way a doubt ends, 2026-11-24:
+before that a reading with one group returned before anything was flagged, so the pair was never looked at again), or
+that a doubt still stands, it only **flags** the name (`same_name_doubts.flag`, a deferred Stage 2
 write like the split pairs, committed with the batch).
 
 *After the drain, in the engine-independent tail (`sleep_cycle._same_name_review_safely`, before the catch-up proposers and
@@ -2319,7 +2321,16 @@ in one batch 59 of 60 → 24 of 24; two people already joined on one page, then 
 (the page split by conversation, one commit); two people the record never tells apart **0 of 60 → 24 of 24**, one question each
 (the code before blended them in 41 of 60 and asked nothing); a doubt a later conversation links: the code before cut one person
 in two in 27 of 60 and said nothing; #814 ended all 24 as the one question with the link in it, and with ruling 74a **24 of 24
-are joined by Sleep, no question** (both reads found the link each time); one person in many settings, one whose life moves on, a thin first mention, an established page re-read: all ok
+are joined by Sleep, no question** (both reads found the link each time). **That 24 of 24 was the simulation's, not the
+product's (2026-11-24):** the simulated bank reviewed every doubt once any flag was up, where the product reviews only
+what Stage 2 flagged, and Stage 2 flagged nothing when the judge read the whole name as one person. The first two real
+Sleeps of a three-night story (a cousin, then a new colleague of the same first name, then a conversation that says the
+cousin is the colleague; `same_name_e2e.py`) left the two in doubt both times. With the simulation made to review only
+flagged pairs, after every batch as a night does, the code as merged joins **2 of 24**; with the flag fixed **24 of
+24**, and the same story on the real path joins **3 of 3** (one commit each, no question; the never-linked pair in the
+same story stayed two with no question in all five runs; undoing one of the joins restored both pages and
+`reconcile` then kept the pair apart for good). All 30 stories on the faithful simulation, 8 replays each: 240 of 240
+ok, no wrong join, no wrong split, no question; one person in many settings, one whose life moves on, a thin first mention, an established page re-read: all ok
 before and after (240 of 240; 96 of 96), **no question and no split**. The stories replay a simulated bank; **the real path**
 (the stager, `sleep_cycle.run`, the tail, a real engine) was run on a scratch bank with a three-phase, twelve-conversation story
 of three first names, six times: no real person was cut in two in any run and no bank was left with an uncommitted file; a page
