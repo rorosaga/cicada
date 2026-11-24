@@ -42,11 +42,13 @@ def _yt_on(*names):
     reading_settings.update(youtube_lists_={n: True for n in names})
 
 
-def _list_save(memory, url, title, *, origin, folder, media_type="bookmark"):
+def _list_save(memory, url, title, *, origin, folder, media_type="bookmark", bulk=True):
+    """A save as a bulk door writes it: waiting its turn in the pile (``bulk=False``: waiting for tonight)."""
     idx = media_ingestor.load_url_index(memory)
     item = RawItem(url=url, title=title, origin=origin, folder=folder, defer_enrich=True)
-    meta = MediaMeta(title=title, description="", site="example.com", media_type=media_type)
-    res = media_ingestor.write_prepared(PreparedItem(item, meta), memory, idx)
+    # The words the list showed (a post's text, a video's description): a save with none has nothing to read (ruling 80).
+    meta = MediaMeta(title=title, description="What the list showed of it", site="example.com", media_type=media_type)
+    res = media_ingestor.write_prepared(PreparedItem(item, meta), memory, idx, bulk=bulk)
     media_ingestor.save_url_index(memory, idx)
     bank_index.invalidate()
     return res.episode_id
@@ -84,7 +86,7 @@ def _hash(url):
 # --- (1) the wake: a list save, the person's own words only -------------------------------------------------------------
 
 
-def test_a_list_save_is_index_only_and_never_read_until_named(reading):
+def test_a_list_save_in_the_pile_is_never_read_until_its_turn_or_named(reading):
     _, memory = reading
     ep = _x_like(memory)
     fm = _fm(memory, ep)

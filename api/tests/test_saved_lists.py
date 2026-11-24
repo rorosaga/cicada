@@ -227,8 +227,8 @@ def test_a_read_saves_each_post_indexed_never_read_and_one_already_saved_is_neve
     episode = markdown_parser.parse(memory / "episodes" / f"{entry['episode_id']}.md")
     fm = episode.frontmatter
     assert fm["origin"] == "x-bookmarks" and fm["folder"] == "Bookmarks"
-    assert fm["processed"] is True and fm["processed_by"] == history_index.INDEXED_BY   # ruling 30
-    assert history_index.kind(fm) == "list" and not fm.get(history_index.NOTE_KEY)
+    assert fm["processed"] is False and "processed_by" not in fm   # ruling 80: one post is read tonight, as the author's words
+    assert history_index.save_state(fm) == "waiting" and not fm.get(history_index.NOTE_KEY)
     # The other spellings of the post are aliases: a later paste of any of them is the same row.
     idx = media_ingestor.load_url_index(memory)
     assert media_ingestor.existing_hash(media_ingestor.RawItem(url="https://x.com/i/web/status/1000000000000000001"),
@@ -247,7 +247,8 @@ def test_instagram_and_linkedin_posts_save_under_their_own_lists(reading):
     entry, page = _page_of(memory, IG_A)
     assert page.frontmatter["name"] == "Post by carol-example"
     ep = markdown_parser.parse(memory / "episodes" / f"{entry['episode_id']}.md").frontmatter
-    assert ep["origin"] == "instagram-saved" and ep["processed_by"] == history_index.INDEXED_BY
+    # A post with no words and a login-walled link has nothing to read (ruling 80); its page is kept, found by title.
+    assert ep["origin"] == "instagram-saved" and ep["processed_by"] == history_index.NO_WORDS_BY
     _record(server, "linkedin", items=[{"url": LI_A, "text": "A note on retrieval"}])
     entry, _ = _page_of(memory, LI_A)
     ep = markdown_parser.parse(memory / "episodes" / f"{entry['episode_id']}.md").frontmatter

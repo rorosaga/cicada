@@ -252,24 +252,27 @@ async def _run_sync_locked(
         created = 0
         failed = 0
         try:
-            for start in range(0, len(items), media_ingestor.MAX_BATCH):
-                chunk = items[start : start + media_ingestor.MAX_BATCH]
-                chunk_created, chunk_duplicates = await media_ingestor.ingest_batch(
-                    chunk, memory_path, from_bookmark_file=False,
-                )
-                created += chunk_created
-                # Devin round-1, finding 2: `ingest_batch`'s own worker
-                # SUPPRESSES a per-item `ingest_one` failure (catches, logs a
-                # warning, returns — never raises past `ingest_batch` or the
-                # `asyncio.gather` inside it), so an item that failed to ingest
-                # is invisible to both of `ingest_batch`'s two return values
-                # UNLESS accounted for by elimination: every item in `chunk` is
-                # either freshly created, already a duplicate (`chunk_duplicates`
-                # — pre-existing in url_index, or a same-batch dup, or url-less),
-                # or silently dropped by a raised exception — there is no fourth
-                # outcome, so whatever is left over after subtracting the first
-                # two from the chunk size failed.
-                failed += len(chunk) - chunk_created - chunk_duplicates
+            # Ruling 80: a poll that brings more than a few new saves is a bulk (a first whole read of a list), however
+            # its slices fall; a small poll's saves are read tonight.
+            with media_ingestor.bulk_door(media_ingestor.count_new(items, media_ingestor.load_url_index(memory_path))):
+                for start in range(0, len(items), media_ingestor.MAX_BATCH):
+                    chunk = items[start : start + media_ingestor.MAX_BATCH]
+                    chunk_created, chunk_duplicates = await media_ingestor.ingest_batch(
+                        chunk, memory_path, from_bookmark_file=False,
+                    )
+                    created += chunk_created
+                    # Devin round-1, finding 2: `ingest_batch`'s own worker
+                    # SUPPRESSES a per-item `ingest_one` failure (catches, logs a
+                    # warning, returns — never raises past `ingest_batch` or the
+                    # `asyncio.gather` inside it), so an item that failed to ingest
+                    # is invisible to both of `ingest_batch`'s two return values
+                    # UNLESS accounted for by elimination: every item in `chunk` is
+                    # either freshly created, already a duplicate (`chunk_duplicates`
+                    # — pre-existing in url_index, or a same-batch dup, or url-less),
+                    # or silently dropped by a raised exception — there is no fourth
+                    # outcome, so whatever is left over after subtracting the first
+                    # two from the chunk size failed.
+                    failed += len(chunk) - chunk_created - chunk_duplicates
         except Exception as e:
             message, kind = describe_failure(e, _label_of(channel_id))
             logger.warning(f"{channel_id} sync failed: {type(e).__name__}")

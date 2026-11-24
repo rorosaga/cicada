@@ -2,6 +2,9 @@
 
     api/.venv/bin/python -m api.scripts.history_index_dry_run --bank <path>
 
+Ruling 80 (G246) adds a ``saves`` block: where every save stands, what would leave the pile tonight by origin at the
+day's number, what holds nothing to read, and how many nights the pile takes (``history_index.pile_report``) — counts only.
+
 Prints one JSON object of COUNTS, never an id, a title or a channel: every episode waiting for Sleep
 (``waiting``), how many of those are index-only and would be marked read (``index_only_queued``, by kind — ``history``
 for a watched day, ``list`` for a save from a platform's saved list, ``month`` for a month's summary — and by
@@ -41,6 +44,7 @@ def main(argv=None) -> int:
             parsed = watch_history._day_of(str(fm.get("source_id") or ""))
             if parsed is not None:
                 months.add((parsed[0], watch_history._month_key(parsed[1])))
+    out["saves"] = history_index.pile_report(bank)
     out["months_in_history"] = len(months)
     out["month_summaries"] = summaries
     print(json.dumps(out, sort_keys=True))

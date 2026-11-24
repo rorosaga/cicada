@@ -1295,7 +1295,59 @@ this Mac, with times — off by default, on only after the consent sheet (Source
   a model, which the rail forbids; "what was that video at 15:20" is answered through the watched day Ask and recall
   already read. Remote doors and other devices never see traces.
 
-**The lean pass (ruling 62, owner 2026-11-04; G236).** Owner: "For chrome bookmarks, and the rest of things I told you we
+**Every save is read (ruling 80, owner 2026-11-24, G246: "if i save it already has a reason").** Ruling 62's lean pass below
+is what is left of it: the **pile**. `history_index` is the one place; `SAVES_READ = False` restores ruling 62 whole (capture
+writes every save index-only, `take_turns` releases nothing, `retire` retires a queued save again).
+- **Where capture puts a save** (`history_index.entry_stamp`, `media_ingestor.write_media_episode`; file I/O only). *Waiting*
+  (`processed: false`): a save he makes singly — a click, a paste, a notch or site save, a small connector poll or list read —
+  and any save carrying his own note or reason, even inside a bulk. *The pile* (`processed: true, processed_by: index`, the old
+  pair): a bulk (more than `BULK_ITEMS = 10` new links through one door: `ingest_batch`, an archive through `ingest_chunked`
+  however its slices fall, a connector poll, an agent's list pass, the stars of a first GitHub sync, a browser's first set of
+  tab groups), and a save received more than `LATE_DAYS = 30` after the day it was saved, whatever its door. *Nothing to read*
+  (`processed_by: no-words`): a title, a link and a site on a link no page is read from (`link_enrichment._excluded_media`:
+  a walled site, a video, a paper), alone or in a bulk. A *record* (his own repository, a joined community, an open tab) is
+  index-only as before, never released, never woken (`history_index.is_record`). A feed item is as the code read it. The bulk
+  decision rides a context variable (`media_ingestor.bulk_door`, `is_bulk`), so no door's signature moved.
+- **`kind` names a save only while it is index-only** (`pile` or a record). `save_state` says where a save stands (`waiting`,
+  `pile`, `no-words`, `read`, `record`) and `not_read` is the one place "not read yet" comes from. Every save already kept in a
+  bank is stored `processed: true, processed_by: index`, so it is in the pile with nothing migrated.
+- **The day's number** (`take_turns`, run by `_index_without_model_safely` at the start of every run that reads, never a tidy-up
+  run): `SAVES_PER_DAY = 100` less what was released today (`turn_released_on`), newest saved day first, ties by id, flipped to
+  `processed: false` in the same `cicada` commit as the rest of the index step (manifest line `queued`; a failed commit puts them
+  back). A pile save with nothing to read is stamped `no-words` instead and costs no turn. A save released today and put back is
+  not released again today. The scheduled catch-up counts a pile with turns left as something to read (`turns_due`).
+  `return_to_pile` is the revert (and what a night that ended at its line does); `released_unread(day)` lists a day's.
+- **The order** (`saved_order`, one call at the freeze): every non-save first, oldest first; then saves he talked about
+  (`read_asked`) or wrote words on, newest first; then the other saves grouped by origin, the origin with the newest save first.
+  A conversation read in this run that names a save still waiting moves it up after the batch (`_promote_talked_saves`).
+- **A night never blocks the next.** Decay and the page reads run in the batch that leaves only background saves behind it
+  (not the last batch). A spending line, a reserve, a plan window or a key limit reached while only background saves are left is
+  a **finished** run: no paused record (so `schedule_may_replace` is moot), no page read, the unread released saves returned to
+  the pile (`_return_unread_saves_safely`, the tail's first step), the day's number stays spent. With a conversation or a
+  talked-about save left it pauses as ever. An `engine` stop stays a pause.
+- **Nothing to read, and what a public title-only save costs.** Stage 1 sends no model a saved link whose body holds no section
+  (`saved_reading.nothing_to_read`): it is filed with no entities and **no call** (a folder's reason or a tab group still read).
+  A title-only save of a *walled or excluded* link is stamped `no-words` at capture: no model ever reads it until he talks about it
+  or his agent opens it. A title-only save of a *public* link takes its turn like any save: Stage 1 costs 0 calls and the page
+  behind the link is read by the existing page read (Stage 5.57, the backfill; behind the connector fetch gate and its caps), so
+  what is "read" for it is that page. A save with words costs about two calls (`docs/plans/2026-11-24-saves-are-read.md` 3.6).
+- **Talking about a save** (`saved_mentions`): of one still waiting, it stamps `read_asked` (first among saves, no flip) and
+  leaves the ask for his own agent (`mention_asks`, ruling 78 (e)); of one in the pile, it wakes it as before; of one already read,
+  or with nothing to read, it leaves only the ask. The ask no longer depends on the save being unread.
+- **Scripts** (counts and enums only): `api/scripts/history_index_dry_run.py` gains a `saves` block (saves by state, what would
+  leave the pile tonight by origin at the day's number, what holds nothing to read, nights for the pile);
+  `api/scripts/saves_night_report.py --bank --day` prints one row per save in a night (ids, origin, state, how it reached the queue,
+  whether he talked about it, the pages its claims landed on, claims by observer kind, questions open).
+- **Measured** (`benchmarks/consolidation/saves_battery.py run --leg single`, the real path, 288 synthetic saves and 8 conversations,
+  Claude plan at haiku, one run, 395 s): 168 calls, 1.13M input tokens (gross of cache), 115k output tokens for the 91 episodes a model
+  read, about 1.85 calls, 12.4k input and 1.3k output tokens each. The 103 title-only saves of a public link (3 singles and the 100
+  the day's number released from the bulk list of 200) cost 0 Stage 1 calls (the connector fetch gate was off, so no page was
+  read); the 100 left in the pile wait. Retrieval 12/12 by words and 11/12 by the hook's note, before and after Sleep. Gates still
+  failing, and why, are in the PR that built this (the old-shape connector rows, a quill-page cap that counts `external` claims only).
+- **Not in this change:** the words the app and agents show about saves (Track R); Stage 1 reading a group of short saves in one call
+  (Track 3).
+
+**The lean pass (ruling 62, owner 2026-11-04; G236) — since ruling 80 the pile above, which only a bulk, a late arrival and a save already kept enter.** Owner: "For chrome bookmarks, and the rest of things I told you we
 can do a leaner initial pass for consolidation on those things who have no reason/user intent attached, but enough info so
 that it can come up in a relevant conversation and an agent can look further into it." What a full read of a bare bookmark
 buys, measured (25 synthetic bookmarks, Claude plan at haiku, connector gate off): 56 to 57 calls and 269k to 272k input

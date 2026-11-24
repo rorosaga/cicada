@@ -265,7 +265,7 @@ async def probe(settings) -> None:
     if readable is None:
         readable = getattr(debt, "unprocessed_count", 0)
     note_handled(memory_path, now=now)   # before reading: a run that fails is tried once, not on every wake
-    if not readable:
+    if not readable and not history_index_turns_due(memory_path):
         # G245 (track C1): nothing to read is no reason to skip the upkeep — the polls, expiry and the state refresh
         # run, with no engine and no run recorded, so a quiet night never leaves a source stale.
         logger.info(f"Scheduled sleep catch-up: nothing to read for the missed {_local_hhmm(due)} run — upkeep only")
@@ -276,6 +276,16 @@ async def probe(settings) -> None:
     logger.info(f"Scheduled sleep: catching up on the missed {_local_hhmm(due)} run")
     await sleep_cycle.run(settings, cycle_id, user_triggered=False,
                           drain=sleep_scheduler._scheduled_drain(settings), catch_up_for=_iso(due))
+
+
+def history_index_turns_due(memory_path: Path) -> bool:
+    """Ruling 80: a missed night with nothing waiting still reads its share of the pile (`history_index.turns_due`)."""
+    from api.services import history_index
+
+    try:
+        return history_index.turns_due(memory_path)
+    except Exception:  # noqa: BLE001 - the pile waits one more night
+        return False
 
 
 def reset_for_tests() -> None:

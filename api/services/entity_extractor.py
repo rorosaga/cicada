@@ -1110,6 +1110,21 @@ async def extract(
             success += 1
             return
 
+        # Ruling 80 (G246): a saved link that holds nothing but a title, a link, a site and a day has nothing for a model
+        # to read — a call could only restate its title (ruling 62 measured 25 bookmarks costing 56 calls for that).
+        # It is filed with no entities and no call; what a public page says of itself is read by the page read
+        # (`link_enrichment`), and what the person says of it by the conversation that names it.
+        if saved_reading.nothing_to_read(episode):
+            results[i] = {
+                "episode_id": ep_id,
+                "episode_timestamp": episode.get("timestamp"),
+                "origin": episode.get("origin", "unknown"),
+                "entities": [],
+                "relationships": [],
+            }
+            success += 1
+            return
+
         # G104 (owner 2026-11-03): a conversation read before and edited since is read where it changed; one whose
         # edit changed nothing but whitespace, or only removed lines, needs no call (`episode_revision`).
         revision = episode.get(episode_revision.KEY)

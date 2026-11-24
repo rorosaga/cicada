@@ -120,6 +120,11 @@ class DrainState:
     #: Whether the once-per-drain work (decay, page reads) has run.
     decay_ran: bool = False
     links_ran: bool = False
+    #: Ruling 80 (G246): the frozen ids that are background saves (``saved_order``) — read after everything else, and the
+    #: only ones whose being left over a line the person set finishes the run instead of pausing it. Private.
+    background_ids: frozenset = frozenset()
+    #: The background saves a finished run left unread: back to the pile (``history_index.return_to_pile``).
+    returned_saves: list = field(default_factory=list)
     #: The bank this run is pinned to (a status read hides a lingering drain of another).
     memory_path: object | None = None
     #: Unprocessed episodes that were not in the frozen list — they arrived

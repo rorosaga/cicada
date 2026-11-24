@@ -70,6 +70,30 @@ def no_words_of_his(episode: dict | None) -> bool:
     return not any((episode or {}).get(key) for key in history_index.PERSON_KEYS)
 
 
+def holds_no_words(body: str | None) -> bool:
+    """Does a saved link's body hold nothing but its record fields — a title, a link, a site, a day? Any section (the
+    page's ``## Description``, a reason, a note) is words; a saved link with none has nothing for a model to read."""
+    return _HEADING.search(body or "") is None
+
+
+def nothing_to_read(episode: dict | None) -> bool:
+    """A saved link Sleep has nothing to read in (ruling 80, G246): it applies, holds no section at all, carries no mark of
+    the person's own words (a folder's reason is theirs, kept in the folder's own record) and is no tab group (whose body
+    is its tabs). Stage 1 sends such an episode to no model: it is filed with no entities — a restated title would be
+    all a call could write (ruling 62 measured it) — and what a public page says is read by the page read
+    (``link_enrichment``), not here."""
+    from api.services import episode_time, history_index
+
+    if not applies(episode) or episode_time.is_feed_item(episode):
+        return False
+    ep = episode or {}
+    if ep.get("source") in history_index.SAVE_SOURCES or not ep.get("url"):
+        return False
+    if any(ep.get(key) for key in history_index.PERSON_KEYS):
+        return False
+    return holds_no_words(str(ep.get("content") or ""))
+
+
 def person_ranges(content: str) -> list[tuple[int, int]]:
     """``(start, end)`` of each section of the person's own words in a save's body: from just after its heading to the
     next ``## `` heading. By heading only — a line inside the page's description that happens to read like a turn
@@ -331,4 +355,4 @@ def post_day(episode: dict):
 
 
 __all__ = ["CONNECTOR_TEXT_ORIGINS", "MAX_ENTITIES", "MAX_LINKS", "applies", "author", "author_observer", "clean",
-           "named_in_full", "no_words_of_his", "note", "observer_for", "person_ranges", "person_text", "post_day"]
+           "holds_no_words", "named_in_full", "no_words_of_his", "nothing_to_read", "note", "observer_for", "person_ranges", "person_text", "post_day"]

@@ -516,7 +516,8 @@ only) and a save the index had read is queued again. That is paid work at the ne
 silent: `POST|PUT /sources/save-folder-reason` answers `counts.makesReadable`, `dryRun` writes nothing, and more than 100
 saves write nothing until `confirm` (`needsConfirm`). A save a model already read is never requeued; a save filed later
 into a folder that has a reason is stamped by the step that files it; a clear (`DELETE`) or a removal from the folder takes
-the stamp away and `history_index.retire` returns an unread save to the index at Sleep's next run. Tests:
+the stamp away; since ruling 80 a save that was waiting stays waiting (it is read tonight like any save, as its author's words) and a pile
+save or one with nothing to read is queued by the reason (`save_folders.reconcile_fm`). Tests:
 `api/tests/test_save_folders.py`.
 
 **Past roles (2026-10-27, G121):** a person's whole current state has a past tense, not only a job — the seed's
@@ -3081,7 +3082,10 @@ The graph's Store-domain ETag remains tied to its existing version vector.
 
 **`read_asked` (ruling 62, 2026-11-04).** On a bare save's episode: `{why, at}`, written once by `history_index.wake` when the
 person talked about it (`said-the-link`, `said-the-title`, `page-mentioned`). It takes the episode out of the `saved` kind for
-good, so its one real read happens once and says why. A save's page keeps `decay_class: evergreen` and stays quiet
+good, so its one real read happens once and says why. Since ruling 80 it is also stamped on a save still **waiting** for tonight (no flip
+needed: it moves ahead of every other save at the freeze, `saved_order`), and `turn_released_on` (`YYYY-MM-DD`) records the local day a
+save left the pile (`history_index.take_turns`), kept when a night puts it back; `processed_by: no-words` marks a title and a link with
+nothing to read. A save's page keeps `decay_class: evergreen` and stays quiet
 (`quiet_pages`) until a conversation or the person's words reach it; being indexed writes nothing on it.
 
 **Source rows tell the truth (sources-truth, 2026-11-06).** `files` on `GET /sources/channels` counts the media pages the person saved as a link or file (`source_overview.files_media_count`: no origin or `saved-link`, not hidden) — the set the Files & links page and overview card list — never every `url_index` entry, so a saved-list post, bookmark, pin, feed item or a folder's paper never makes it Connected. A `cicada_record_saved_list` read whose every row was not a post of that site is recorded `failed`, not `read`. Every saved-list platform's origin is named by an overview row (a test pins it).

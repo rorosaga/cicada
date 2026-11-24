@@ -32,8 +32,9 @@ def test_a_save_noticed_on_x_is_one_row_under_xs_own_origin(tmp_path, monkeypatc
     assert saved["title"] == "Post by @alpha_user" and saved["addedAt"]
     fm, _ = _episode(memory, saved["episodeId"])
     assert fm["origin"] == "x-bookmarks" and fm["folder"] == saved_lists.PLATFORMS["x"].folder
-    # Ruling 62: a save from a platform's list with no reason is indexed, never read by a model.
-    assert history_index.kind(fm) == "list"
+    # Ruling 80: a click on a site's save is its own reason. A post with no words on a login-walled site has nothing for
+    # a model to read (kept, found by title, read when he talks about it); one with words waits for tonight.
+    assert history_index.save_shaped(fm) == "list" and history_index.save_state(fm) == "no-words"
     # The same post again (a list read, a second click): the same row, never a second.
     again = client.post("/sources/site-save", json={"site": "x", "url": "https://twitter.com/alpha_user/status/1900000000000000001"})
     assert again.json()["status"] == "duplicate" and again.json()["episodeId"] == saved["episodeId"]
@@ -74,7 +75,8 @@ def test_the_posts_own_words_title_the_row_and_are_never_the_persons(tmp_path, m
     assert saved["title"] == "a way to sync two replicas without a server"
     fm, body = _episode(memory, saved["episodeId"])
     assert "a way to sync two replicas without a server" in body
-    assert history_index.kind(fm) == "list"          # the post's words are no reason: still index-only
+    # The post's words are the post's, never his (`authorship`): read tonight as its author's.
+    assert history_index.save_state(fm) == "waiting" and not any(fm.get(k) for k in history_index.PERSON_KEYS)
 
 
 def test_an_unsave_marks_the_save_and_saving_again_clears_the_mark(tmp_path, monkeypatch):
@@ -105,7 +107,7 @@ def test_the_other_sites_store_under_their_own_origin(tmp_path, monkeypatch, sit
     saved = _client(memory, monkeypatch).post("/sources/site-save", json={"site": site, "url": url}).json()
     assert saved["status"] == "created" and saved["url"] == stored and saved["origin"] == origin
     fm, _ = _episode(memory, saved["episodeId"])
-    assert history_index.kind(fm) == "list"
+    assert history_index.save_shaped(fm) == "list" and history_index.kind(fm) is None   # a save, kept for Sleep or for lookup
 
 
 def test_one_instagram_post_is_one_row_by_any_of_its_addresses(tmp_path, monkeypatch):

@@ -386,7 +386,9 @@ def capture_saves(bank: Path, clock: date, rows: list[dict]) -> dict:
             published_at=(row.get("published_at") or "").replace("{today}", today.isoformat()) or None)
         meta = mi.MediaMeta(title=row["title"], description=row.get("desc") or "", site="example.com", channel=row.get("author"),
                             media_type=mi._classify(row["url"], from_bookmark_file=str(row.get("origin") or "").endswith("-bookmark")))
-        result = mi.write_prepared(mi.PreparedItem(item, meta, from_bookmark_file=True), bank, idx, append_list=True)
+        # Ruling 80: the 200 undated rows are one list read (a bulk: they wait their turn); every other row is a save made singly.
+        result = mi.write_prepared(mi.PreparedItem(item, meta, from_bookmark_file=True), bank, idx, append_list=True,
+                                   bulk=row["group"] == "bulk-list")
         if result.status == "created":
             manifest[result.episode_id] = {"key": row["key"], "group": row["group"], "kind": "save",
                                            "text": f"{row['title']} {row.get('desc') or ''} {row.get('note') or ''}"}
@@ -434,6 +436,14 @@ def wake_saves(bank: Path, manifest: dict, *, include_bulk: bool, commit: bool =
     if commit:
         commit_all(bank, "Saves battery woken")
     return {"woken": woken, "refused": refused, "bulk_left_in_pile": skipped_bulk}
+
+
+def waiting_group(bank: Path, manifest: dict, group: str) -> int:
+    """How many saves of one fixture group wait for Sleep's model right now."""
+    from api.services import history_index, markdown_parser
+
+    return sum(1 for ep_id, meta in manifest.items() if meta["group"] == group and history_index.waits_for_model(
+        markdown_parser.parse(bank / "episodes" / f"{ep_id}.md").frontmatter or {}))
 
 
 def waiting_for_model(bank: Path) -> dict:

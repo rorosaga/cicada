@@ -75,22 +75,27 @@ def _saves(memory_path: Path) -> _Saves:
         fm = f.frontmatter or {}
         if fm.get("source_deleted_at"):
             continue
-        kind = history_index.kind(fm)
+        # Ruling 80 (G246): a save in any state — waiting for tonight, waiting its turn in the pile, already read, holding
+        # nothing to read. Where a mention can do something (``wakeable``): the first two; the ask for the person's own
+        # agent (ruling 78 (e)) never depends on whether anything was read.
+        state = history_index.save_state(fm)
+        if not history_index.SAVES_READ:
+            kind = history_index.kind(fm)
+            woken = kind is None and bool(fm.get(history_index.WOKEN_KEY)) and history_index.is_list_origin(fm)
+            state = ("pile" if kind in ("saved", "list") else "waiting" if woken else None)
+        if state in (None, "record"):
+            continue
         # A save of a platform's list, whichever way its own record reads (``mention_asks.list_key``, the one table every
-        # list is registered in): a bookmark filed in no folder, and a connector's save (``r/<sub>``), are bare saves to
-        # ``history_index.kind`` yet are on a list all the same, so each is owed the same ask as any other list save.
+        # list is registered in): a bookmark filed in no folder, and a connector's save (``r/<sub>``), are saves
+        # to ``history_index.save_shaped`` yet are on a list all the same, so each is owed the same ask as any other.
         from_list = mention_asks.list_key(fm.get("origin") or "", fm.get("folder") or "") is not None
-        woken_list = kind is None and bool(fm.get(history_index.WOKEN_KEY)) \
-            and (history_index.is_list_origin(fm) or from_list)
-        if kind not in ("saved", "list") and not woken_list:
-            continue
-        if kind == "list" and not history_index.mentionable(fm):
-            continue
+        if state in ("read", "no-words") and not (from_list or history_index.is_list_origin(fm)):
+            continue   # nothing to wake and no ask to leave: a bookmark already read or with nothing to read
         episode = str(fm.get("id") or f.stem)
-        if kind != "saved" or from_list:
+        if history_index.save_shaped(fm) != "saved" or from_list:
             out.lists[episode] = {"url": str(fm.get("url") or "").strip(), "origin": str(fm.get("origin") or ""),
                                   "folder": str(fm.get("folder") or "")}
-        if kind in ("saved", "list"):
+        if history_index.mentionable(fm):
             out.wakeable.add(episode)
         url = str(fm.get("url") or "").strip()
         if url:

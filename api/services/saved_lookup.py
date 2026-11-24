@@ -93,14 +93,16 @@ def page_hit(memory_path: Path, ref: str) -> Hit | None:
         return None
     media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
     episodes = [str(e).split("#", 1)[0] for e in (fm.get("source_episodes") or []) if str(e).startswith("ep_")]
-    kinds = [history_index.kind(e.frontmatter) for e in
-             (bank_index.file(memory_path, "episodes", f"{i}.md") for i in episodes[:4]) if e is not None]
+    held = [e.frontmatter for e in
+            (bank_index.file(memory_path, "episodes", f"{i}.md") for i in episodes[:4]) if e is not None]
     return Hit(
         id=ref, title=str(fm.get("name") or ref), url=str(media.get("url") or "") or None,
         site=str(media.get("site") or "") or None,
         day=str(fm.get("saved_at") or media.get("saved_at") or fm.get("created") or "")[:10] or None,
         about=_about(entry.body()), page=ref, episode=episodes[0] if episodes else None,
-        read=not any(k in ("saved", "list") for k in kinds))
+        # Ruling 80: "read" says no model has not read it — a save waiting for tonight or holding nothing to read is not
+        # read either, whatever its stored kind (`history_index.not_read`).
+        read=not any(history_index.kind(fm) in ("saved", "list") or history_index.not_read(fm) for fm in held))
 
 
 def _episode_hit(memory_path: Path, ref: str) -> Hit | None:
@@ -108,10 +110,11 @@ def _episode_hit(memory_path: Path, ref: str) -> Hit | None:
     if entry is None:
         return None
     fm = entry.frontmatter or {}
-    if not history_index.is_unread_save(fm) or fm.get("source_deleted_at"):
+    if not history_index.is_pageless_save(fm) or fm.get("source_deleted_at"):
         return None
     return Hit(id=ref, title=str(fm.get("title") or ref), url=str(fm.get("url") or "") or None, site=None,
-               day=str(fm.get("timestamp") or "")[:10] or None, about="", page=None, episode=ref, read=False)
+               day=str(fm.get("timestamp") or "")[:10] or None, about="", page=None, episode=ref,
+               read=history_index.save_state(fm) == "read")
 
 
 def _weights(conn, stems: list[str], saved_docs: dict[int, str]) -> tuple[dict[str, float], dict[str, set[int]]]:

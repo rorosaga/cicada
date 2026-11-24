@@ -555,7 +555,7 @@ def _build_episodes(entries) -> Episodes:
             if fm.get("source") == "video-watch":
                 agent_watched.add(media_ingestor.url_hash(str(fm["url"])))
         if (page := str(fm.get("media_entity_id") or "")) and fm.get("processed") \
-                and fm.get("processed_by") != history_index.INDEXED_BY \
+                and fm.get("processed_by") not in (history_index.INDEXED_BY, history_index.NO_WORDS_BY) \
                 and fm.get("source") not in history_index.NOT_A_SAVE:
             read_pages.add(page)
         if day := saved_at.posted_day(fm.get("posted")):

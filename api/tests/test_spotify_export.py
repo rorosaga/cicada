@@ -117,7 +117,7 @@ def test_the_library_becomes_saved_items_without_a_fetch(client):
     assert {p.get("folder") for p in pages} == {"Liked Songs", "Saved albums", "Saved podcasts", "Saved episodes"}
     saves = [markdown_parser.parse(p).frontmatter for p in (memory / "episodes").glob("*.md")
              if markdown_parser.parse(p).frontmatter.get("origin") == spotify_export.SAVED_ORIGIN]
-    assert len(saves) == 4 and all(history_index.kind(fm) == "list" for fm in saves)
+    assert len(saves) == 4 and all(history_index.save_shaped(fm) == "list" for fm in saves)
 
 
 def test_the_two_downloads_meet_without_doubling(client):

@@ -310,7 +310,8 @@ def test_an_x_bookmark_through_the_real_writer_is_a_description_with_no_note_and
     assert "## User note" not in parsed.body and "has_note" not in fm
     assert "## Description\n" + TWEET["text"] in parsed.body
     assert fm["posted"] == "2021-03-04"
-    assert history_index.kind(fm) == "saved" and fm["processed"] is True and fm["processed_by"] == "index"
+    # Ruling 80: one post written by the connector is a save made singly: it waits for Sleep tonight, as its author's words.
+    assert history_index.save_state(fm) == "waiting" and history_index.kind(fm) is None and fm["processed"] is False
     assert "## Notes" not in _page_text(memory, res.media_entity_id)
     assert TWEET["text"] in _page_text(memory, res.media_entity_id)
 
@@ -367,7 +368,7 @@ def test_a_pinterest_pin_keeps_its_text_as_a_description_beside_the_linked_pages
     parsed = markdown_parser.parse(memory / "episodes" / f"{res.episode_id}.md")
     assert "## User note" not in parsed.body and "has_note" not in parsed.frontmatter
     assert "A soup I make" in parsed.body and "The page's own summary." in parsed.body
-    assert history_index.kind(parsed.frontmatter) == "saved"
+    assert history_index.save_state(parsed.frontmatter) == "waiting"
 
 
 def test_a_pin_the_page_already_says_is_not_written_twice(tmp_path, monkeypatch):
@@ -453,8 +454,8 @@ def test_the_repair_renames_the_heading_drops_the_note_stamp_and_is_idempotent(t
     bank_index.invalidate()
     again = connector_text.repair(memory, apply=True)
     assert again.paths == [] and again.changed == [] and again.counts()["found"] == 0
-    # the healed waiting episode is now a bare save: index-only like every other
-    assert history_index.kind(waiting.frontmatter) == "saved"
+    # the healed waiting episode is now a bare save: it waits for tonight like every other save made singly (ruling 80)
+    assert history_index.save_state(waiting.frontmatter) == "waiting"
 
 
 def test_a_healed_episode_is_never_read_again_as_a_revision(tmp_path):
@@ -511,7 +512,7 @@ def test_sleeps_first_step_repairs_in_a_commit_of_its_own_only_when_the_switch_i
     assert "ep_2026-11-20_011.md: healed" in entry
     assert git(memory, "status", "--porcelain").strip() == ""
     fm = markdown_parser.parse(memory / "episodes" / "ep_2026-11-20_010.md").frontmatter
-    assert "has_note" not in fm and fm["processed"] is True and fm["processed_by"] == "index"   # then indexed, no model
+    assert "has_note" not in fm and fm["processed"] is False and history_index.save_state(fm) == "waiting"   # then a plain save
 
 
 def test_the_dry_run_prints_counts_and_never_a_word_of_a_post(tmp_path, capsys):

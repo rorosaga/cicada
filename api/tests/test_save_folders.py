@@ -43,6 +43,15 @@ def _git(memory: Path, *args: str) -> str:
 # ---- a save in several folders ---------------------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _saves_wait_their_turn(monkeypatch):
+    """These tests are about the pile (ruling 80): saves that wait their turn, which a folder's reason brings back for a
+    read. Capture's own placement (a click waits for tonight, a post with no words has nothing to read) is
+    ``test_saves_read_g246.py``'s."""
+    real = history_index.entry_stamp
+    monkeypatch.setattr(history_index, "entry_stamp", lambda fm, **kw: real(fm, **{**kw, "bulk": True, "walled": False}))
+
+
 def test_a_save_reports_its_folders_and_the_fixed_label_stays_what_index_only_reads(tmp_path, monkeypatch):
     memory = _bank(tmp_path)
     client = _client(memory, monkeypatch)
@@ -184,11 +193,10 @@ def test_editing_keeps_the_earlier_words_and_clearing_returns_unread_saves_to_th
     cleared = client.delete("/sources/save-folder-reason", params={"site": "x", "folder": "Design refs"})
     assert cleared.status_code == 200 and cleared.json()["counts"]["noLongerReadable"] == 1
     fm = _episode(memory, a["episodeId"])
-    assert "readable_by_folder" not in fm and history_index.kind(fm) == "list"
+    # Ruling 80: the reason's words are gone, the save stays what it is — a save, read tonight as its author's words.
+    assert "readable_by_folder" not in fm and history_index.save_state(fm) == "waiting"
     assert saved_why.reason_of(memory, [a["episodeId"]]) is None
-    # Sleep's next retirement puts a save nothing read back in the index.
-    assert history_index.retire(memory).by_kind == {"list": 1}
-    assert _episode(memory, a["episodeId"])["processed_by"] == "index"
+    assert history_index.retire(memory).paths == []
     assert client.delete("/sources/save-folder-reason", params={"site": "x", "folder": "Design refs"}).status_code == 404
 
 
