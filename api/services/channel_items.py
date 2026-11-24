@@ -136,10 +136,12 @@ from api.services.channel_registry import CHANNEL_IDS
 #: `g161-20`: G89 — a followed Substack publication lists on `substack-feeds`; `rss` lists only the other feeds.
 #: `g161-21`: ROR-15 — a Notes row the person pinned in Notes carries `pinned` (pinned rows list first, as a chat's do).
 #: `g161-22`: a saved link's `site` key is its own host, not its registrable domain (owner 2026-11-23).
-#: `g161-23`: A.4 (G245) — a Notes folder is a tree (`collections` gives each folder its `path`, `parent`, `children`, `depth`
+#: `g161-23`: G245 — `stream` and `folder` narrow a page to one list (and one of its folders); a saved-list row carries
+#: `lists`, `folders`, `depth` (`kept` | `read`) and `posted`.
+#: `g161-24`: A.4 (G245) — a Notes folder is a tree (`collections` gives each folder its `path`, `parent`, `children`, `depth`
 #: and `total`, in Notes' own order, and `pinsRead`), a note's row carries `modifiedAt`, a one-line `snippet` and sorts by its
 #: modified instant, and Notion's live pages are filed by database or parent page and sort by last edited.
-SHAPE = "g161-23"
+SHAPE = "g161-24"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
 TITLE_CAP = 120
@@ -1396,15 +1398,40 @@ def _search(memory_path: Path, rows: list[dict], q: str) -> list[dict]:
     return out
 
 
+class UnknownStream(ValueError):
+    """``stream`` names no stream (`source_streams`): the route answers 404, never an empty page."""
+
+
+#: The keys of a url-index entry that carry a post's own day, when the list showed one (G245).
+POSTED_KEYS = ("posted_at", episode_time.PUBLISHED_KEY)
+
+
+def _posted(media: "_Media", row: dict) -> str | None:
+    entry = media.by_entity.get(str(row.get("id") or "")) or {}
+    for key in POSTED_KEYS:
+        if day := _day(entry.get(key)):
+            return day
+    return None
+
+
 def items(memory_path: Path, channel_id: str, *, offset: int = 0, limit: int = LIMIT_DEFAULT,
-          q: str | None = None, collection: str | None = None) -> dict | None:
+          q: str | None = None, collection: str | None = None, stream: str | None = None,
+          folder: str | None = None) -> dict | None:
     """One page of what `channel_id` brought in, newest first — or None for a channel this bank does not know.
 
     source-page-v3 (owner 2026-10-29): ``q`` narrows the list to what it finds (:func:`_search`); ``total`` is then
     the matches' count and ``all`` the channel's whole count, and ``latest`` is the day the newest item came in
     (:func:`_latest`, over the whole channel whatever ``q`` says). ``collection`` (2026-11-04) keeps one collection's
     items (a calendar, a Reminders list, a Notes folder — :func:`collections`' ids); ``all`` and ``latest`` are then
-    that collection's."""
+    that collection's.
+
+    G245: ``stream`` (a stream id from ``GET /sources/streams``) keeps the rows that stream holds — list membership, so a
+    post bookmarked first and liked later is in both — and ``folder`` one of the site's own folders (a bookmark folder, a
+    collection, a playlist), by name; ``all`` is then that stream's or folder's. A stream that is the whole channel (a
+    history, a notes list) keeps every row; an unknown stream raises :class:`UnknownStream`. A saved-list row gains
+    ``lists``, ``folders``, ``depth`` and ``posted`` (:func:`source_streams.row_fields`)."""
+    from api.services import source_streams
+
     memory_path = Path(memory_path)
     if not known(memory_path, channel_id):
         return None
@@ -1412,7 +1439,18 @@ def items(memory_path: Path, channel_id: str, *, offset: int = 0, limit: int = L
     limit = max(1, min(int(limit), LIMIT_MAX))
     rows = _collect(memory_path, channel_id)
     if collection:
-        rows = [r for r in rows if r.get("_collection") == collection]
+        if channel_id in ("notes", "notion-api"):
+            rows = [r for r in rows if collection in _folder_ids_of(channel_id, r)]   # A.4: a folder holds what is under it
+        else:
+            rows = [r for r in rows if r.get("_collection") == collection]
+    if stream:
+        if source_streams.spec_of(stream) is None:
+            raise UnknownStream(stream)
+        held = source_streams.stream_members(memory_path, stream)
+        if held is not None:
+            rows = [r for r in rows if r.get("id") in held]
+    if folder and text_fold.fold(folder).strip():
+        rows = source_streams.folder_matches(memory_path, rows, _media_pages(memory_path).pages, folder)
     everything = len(rows)
     latest = _latest(rows)
     query = str(q or "").strip()[:Q_MAX]
@@ -1420,7 +1458,10 @@ def items(memory_path: Path, channel_id: str, *, offset: int = 0, limit: int = L
         rows = _search(memory_path, rows, query)
     # A chat the person pinned lists first (2026-11-03, `_chat_rows`); every other row has no pin.
     rows.sort(key=lambda r: (not r.get("pinned"), -r["_sort"], r["title"].casefold(), r["id"]))
-    page = [_enrich(memory_path, r) for r in rows[offset:offset + limit]]
+    shown = rows[offset:offset + limit]
+    extras = source_streams.row_fields(memory_path, shown, _media_pages(memory_path).pages,
+                                       lambda row, media=_Media(memory_path): _posted(media, row))
+    page = [{**_enrich(memory_path, r), **extras.get(r.get("id"), {})} for r in shown]
     out = {"channel": channel_id, "total": len(rows), "all": everything, "latest": latest, "offset": offset,
            "limit": limit, "items": page}
     if channel_id == "notes":
@@ -1430,6 +1471,19 @@ def items(memory_path: Path, channel_id: str, *, offset: int = 0, limit: int = L
 
 #: 2026-11-04 — the channels whose items live in collections the way their own app files them.
 COLLECTION_CHANNELS = ("notes", calendar_local.CHANNEL_ID, reminders_local.CHANNEL_ID, "notion-api")
+
+
+def _folder_ids_of(channel_id: str, row: dict) -> set[str]:
+    """A.4 (G245): the ids of every folder a Notes or Notion row sits in or under — its own and each ancestor's. A parent
+    folder's page lists what the tree's ``total`` counts (the folder's own notes and everything under it), so the number
+    beside a folder and the rows under it always agree; ``count`` stays what the folder holds itself. The ids are the tree's
+    own (`note_collection_id`, `notion_collection_id`), so a collection id from ``collections`` always matches."""
+    if channel_id == "notes":
+        account, names = str(row.get("_account") or ""), tuple(row.get("_path") or ())
+        return {note_collection_id(account, names[depth - 1], names[:depth]) for depth in range(1, len(names) + 1)} \
+            or {str(row.get("_collection") or "")}
+    chain = tuple(row.get("_chain") or ())
+    return {notion_collection_id(chain[:depth]) for depth in range(1, len(chain) + 1)} or {str(row.get("_collection") or "")}
 
 
 def _folder_tree(rows: list[dict], *, node_id, listed: list[tuple[str, tuple]] = ()) -> list[dict]:

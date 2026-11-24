@@ -753,6 +753,10 @@ async def sync_notes(memory_path: Path, *, dump: str, accounts: dict[str, str] |
             else:
                 skipped_count += 1
                 skipped_touched += 1   # Notes touched it, its words did not move: the index takes the new date only
+                # ...and the folder path, if it moved: the stager's unchanged branch writes no filing key of its own, so the
+                # episode's frontmatter takes it here (frontmatter alone, nothing re-read), as the unmoved-date branch does.
+                if existing is not None:
+                    _apply_path(memory_path, idx[_note_key(note)], idx[_note_key(note)].get(FOLDER_PATH_KEY))
             if existing is not None and (path := _episode_path(memory_path, episode_id)) is not None:
                 try:
                     episode_staging.set_pinned(path, pinned)   # an edit and a pin moved together: the pin follows the note

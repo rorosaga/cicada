@@ -109,7 +109,7 @@ _QUERY_PATHS = frozenset({"/search", "/conversations/recent"})
 #: or a credential (`code`: an OAuth landing's authorization code) is logged with its query cut, whatever route took
 #: it. A new route that takes a person's words names its parameter one of these (`test_main_access_log`'s gate walks
 #: every route's query parameters and refuses another word-like name).
-_REDACTED_PARAMS = frozenset({"q", "query", "focus", "code"})
+_REDACTED_PARAMS = frozenset({"q", "query", "focus", "code", "folder"})
 
 
 def _redacts(path: str, query: str) -> bool:

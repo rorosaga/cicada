@@ -96,6 +96,39 @@ def test_an_unchanged_note_is_placed_not_restaged_and_never_requeued(memory):
     assert len(list((memory / "episodes").glob("*.md"))) == 1, "no second episode"
 
 
+def test_a_touched_note_whose_words_did_not_move_still_takes_its_new_path_in_the_episode(memory):
+    run(notes_sync.sync_notes(memory, dump=_dump(_record("n1", "Alpha plan", "Alpha plan\nline two", "Ideas")),
+                              folder_paths={"n1": ["Ideas"]}))
+    before = _episode_of(memory, "n1")
+    ep = memory / "episodes" / f"{before['episode_id']}.md"
+    fm = markdown_parser.parse(ep)
+    markdown_parser.write(ep, {**fm.frontmatter, "processed": True, "processed_by": "sleep"}, fm.body)
+    # Moved under another folder AND touched (a new modified date), the words the same.
+    touched = _dump(_record("n1", "Alpha plan", "Alpha plan\nline two", "Ideas", modified="Tue 2 Jan 2026 at 09:00"))
+    result = run(notes_sync.sync_notes(memory, dump=touched, folder_paths={"n1": ["Work", "Ideas"]}))
+    assert (result["new"], result["updated"]) == (0, 0)
+    assert _episode_of(memory, "n1")["folder_path"] == ["Work", "Ideas"]
+    now = markdown_parser.parse(ep)
+    assert now.frontmatter["folder_path"] == ["Work", "Ideas"], "the episode learns it too, not only the index"
+    assert now.frontmatter["processed"] is True and "revised" not in now.frontmatter and now.body == fm.body
+    assert len(list((memory / "episodes").glob("*.md"))) == 1
+
+
+def test_a_parent_folder_lists_what_the_tree_counts_under_it(memory):
+    dump = _dump(_record("n1", "Alpha plan", "Alpha plan\nx", "Plans"), _record("n2", "Beta plan", "Beta plan\nx", "Work"),
+                 _record("n3", "Gamma plan", "Gamma plan\nx", "Deep"), _record("n4", "Delta plan", "Delta plan\nx", "Other"))
+    paths = {"n1": ["Work", "Plans"], "n2": ["Work"], "n3": ["Work", "Plans", "Deep"], "n4": ["Other"]}
+    run(notes_sync.sync_notes(memory, dump=dump, folder_paths=paths))
+    bank_index.invalidate()
+    cols = {tuple(c["path"]): c for c in channel_items.collections(memory, "notes")["accounts"][0]["collections"]}
+    for path, titles in {("Work",): {"Alpha plan", "Beta plan", "Gamma plan"}, ("Work", "Plans"): {"Alpha plan", "Gamma plan"},
+                         ("Work", "Plans", "Deep"): {"Gamma plan"}, ("Other",): {"Delta plan"}}.items():
+        page = channel_items.items(memory, "notes", collection=cols[path]["id"])
+        assert {r["title"] for r in page["items"]} == titles
+        assert page["total"] == cols[path]["total"], "the number beside a folder is the rows under it"
+    assert cols[("Work",)]["count"] == 1, "count stays what the folder itself holds"
+
+
 def test_a_path_that_does_not_end_in_the_dumps_folder_names_nothing(memory):
     run(notes_sync.sync_notes(memory, dump=_dump(_record("n1", "Alpha plan", "Alpha plan\nx", "Ideas")),
                               folder_paths={"n1": ["Work", "Something else"]}))

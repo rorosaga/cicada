@@ -43,6 +43,7 @@ GATED = {
     ("POST", "/sources/bookmarks/remove"): "/sources/bookmarks/remove",   # G191 v3: Remove on a bookmark's page
     ("POST", "/sources/upload"): "/sources/upload",
     ("POST", "/sources/rss"): "/sources/rss",
+    ("POST", "/sources/streams/check"): "/sources/streams/check",     # G245: a connector's sync, a list's check stamp
     ("POST", "/sources/sync-bookmarks"): "/sources/sync-bookmarks",
     # G191 live: the early look writes nothing, but asking why about a bookmark a demo bank will not capture is
     # pointless — gated like the sync it precedes.

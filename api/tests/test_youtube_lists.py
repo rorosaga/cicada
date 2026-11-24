@@ -86,7 +86,8 @@ def test_a_read_is_not_offered_again_until_the_cadence_passes(reading):
     _record(server, "watch_later", videos=[{"url": _url(VID_A), "title": "Bridge design", "channel": "alice-example"}])
     assert youtube_lists.due(memory) == ["history"]
     later = datetime.now(timezone.utc) + youtube_lists.CADENCE + timedelta(minutes=1)
-    assert youtube_lists.due(memory, now=later) == ["watch_later", "history"]
+    # G245: the list never read goes before the one read a day ago (the longest unread first, ties in table order).
+    assert youtube_lists.due(memory, now=later) == ["history", "watch_later"]
 
 
 def test_needs_login_pauses_both_lists_writes_nothing_and_turning_one_on_again_is_try_again(reading):

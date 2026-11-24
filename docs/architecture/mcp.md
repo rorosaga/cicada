@@ -704,8 +704,13 @@ and `saved` — per site the last read, its outcome, item count and pause, plus 
 list it is a **standing ask for exactly that page**, never a site grant: it lets no other page of the site be recorded.
 **The offer** (`saved_lists.py`; state in `$CICADA_HOME/saved_lists.json`, ids, enums, counts and times only,
 `flock`ed): a list is due when allowed, not paused and not read for this bank in 20 hours; **one site's list at a time**
-(the first due, in the order X, Instagram, LinkedIn) and **at most 10 recorded reads a UTC day per bank** across the
-three (G206's bound, the LinkedIn profile read's, until measured). `cicada_reading_queue` (stdio only) appends its
+and **at most 10 recorded reads a UTC day per bank** across the lists (G206's bound, the LinkedIn profile read's, until
+measured). **Which one (G245):** a list the person asked to check goes first, whatever its cadence (`POST
+/sources/streams/check` stamps `check_requested_at`, only on a list that is on and not paused; the next recorded attempt
+of any outcome clears it); then the list read longest ago, a list never read before any, ties in table order — the first
+key in table order no longer always wins. A check never lifts a pause and never passes the day's bound. A list with a
+`base` site shares that site's pause (`saved_lists.pause_key`). YouTube's lists (every one due, the same order) and
+Substack's (one) follow the same order. `cicada_reading_queue` (stdio only) appends its
 lines — the page, what to read (each post's link, author and the words it shows), only the list (never the feed or
 messages), never click anything that changes it (no unsave, like, follow or reply), never sign in — and
 `reading_queue.counts` counts a due list as one of the person's asks. **`cicada_record_saved_list(platform, outcome,
