@@ -6,7 +6,9 @@ import XCTest
 /// on a LaunchServices launch — see `Bundle.cicadaResources`).
 final class ResourceBundleTests: XCTestCase {
     func testResourceBundleServesTheGraphPage() {
-        let url = Bundle.cicadaResources.url(forResource: "graph/index", withExtension: "html")
+        // Through the both-layouts finder the app itself loads the page by (`GraphView`): a path-style name
+        // ("graph/index") matches nothing in the layout the Swift Build engine makes (`cicadaResource`'s third layout).
+        let url = Bundle.cicadaResources.cicadaResource("index", ext: "html", in: "graph")
         XCTAssertNotNil(url, "graph/index.html must be reachable through Bundle.cicadaResources")
     }
 

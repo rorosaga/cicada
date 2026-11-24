@@ -41,7 +41,7 @@ struct GraphView: NSViewRepresentable {
         webView.layer?.backgroundColor = .clear
 
         // Load bundled HTML
-        if let resourceURL = Bundle.cicadaResources.url(forResource: "graph/index", withExtension: "html") {
+        if let resourceURL = Bundle.cicadaResources.cicadaResource("index", ext: "html", in: "graph") {
             webView.loadFileURL(resourceURL, allowingReadAccessTo: resourceURL.deletingLastPathComponent())
         }
 
