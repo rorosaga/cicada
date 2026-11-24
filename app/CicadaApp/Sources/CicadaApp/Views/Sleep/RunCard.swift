@@ -87,7 +87,9 @@ struct RunCardModel: Equatable, Identifiable {
             return RunCardModel(
                 id: entry.commitHash, key: .commit(entry.commitHash), ranAt: entry.date, starter: nil, catchUp: nil,
                 summary: Copy.RunCard.summary(conversations: conversations, created: entry.entitiesCreated,
-                                              updated: entry.entitiesUpdated, locale: locale),
+                                              updated: entry.entitiesUpdated, archived: entry.entitiesArchived,
+                                              removed: entry.entitiesRemoved, faded: entry.entitiesFaded,
+                                              locale: locale),
                 engine: entry.engine ?? entry.usageSummary?.engine,
                 models: entry.authors.filter { $0 != "user" }, usage: entry.usageSummary,
                 durationMs: entry.durationMs, outcome: .finished, members: [entry])
@@ -100,6 +102,7 @@ struct RunCardModel: Equatable, Identifiable {
                 starter: ref.startedBy == "schedule" ? Copy.RunCard.startedBySchedule : Copy.RunCard.startedByYou,
                 catchUp: RunPresentation.catchUp(ref, timeZone: timeZone),
                 summary: Copy.RunCard.summary(conversations: ref.filed, created: ref.created, updated: ref.updated,
+                                              archived: ref.archived, removed: ref.removed, faded: ref.faded,
                                               locale: locale),
                 engine: newest.engine ?? ref.usageSummary?.engine, models: models,
                 usage: ref.usageSummary ?? (members.count == 1 ? newest.usageSummary : nil),

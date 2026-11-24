@@ -65,6 +65,7 @@ from api.services import (
     channel_registry,
     entity_picture,
     feed_registry,
+    list_pages,
     media_ingestor,
     mention_asks,
     notes_sync,
@@ -77,6 +78,7 @@ from api.services import (
     reader_catch_up,
     safari_tabs,
     saved_at as saved_at_service,
+    saved_posts,
     save_folders,
     saved_why,
     site_captures,
@@ -695,9 +697,9 @@ async def save_site_item(request: SiteSaveRequest, settings: Settings = Depends(
     the same canonical link and aliases (``site_saves.target``), so a later list read is this row and never a second.
 
     Nothing is fetched (the post is behind a login) and no model runs: the row is the link, a title, and the post's
-    own words when the app could read them off the person's page. Like every save from a platform's list it is
-    index-only until the person says why (ruling 62); the notch's answer (``POST /sources/saved-why``, by the
-    returned ``url``) is what makes Sleep read it. A post saved again after an unsave loses its ``left_site_at``
+    own words when the app could read them off the person's page. Like every save from a platform's list, Sleep reads it
+    (ruling 80: saving is already a reason, so the notch's answer is not needed); the notch's answer
+    (``POST /sources/saved-why``, by the returned ``url``) adds the person's own words to it. A post saved again after an unsave loses its ``left_site_at``
     mark. 422 for a site with no saved list or a link that is not a post of it, 409 in a demo bank or while Sleep
     holds the pages. Committed alone, as the person."""
     from api.services import episode_ids, site_saves
@@ -746,7 +748,11 @@ async def save_site_item(request: SiteSaveRequest, settings: Settings = Depends(
                                 episodeId=result.episode_id, mediaEntityId=result.media_entity_id, addedAt=added_at,
                                 folders=filed["folders"], reason=filed["reason"])
 
-    return await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(SITE_SAVE_BUSY))
+    saved = await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(SITE_SAVE_BUSY))
+    # A save that made a list's first item gets its page moments later, in the writer's own commit (G246, ruling 81): a
+    # background no-op until the flip, on a replica and on a demo bank.
+    list_pages.start_sync(memory_path, delay_s=list_pages.SETTLE_S)
+    return saved
 
 
 @router.post("/sources/site-unsave", response_model=SiteUnsaveResponse, dependencies=_DEMO_GATE)
@@ -889,8 +895,9 @@ FOLDER_REASON_BUSY = "Sleep is updating your memory — the folder's reason wasn
 async def list_save_folders(site: str = Query(..., min_length=1, max_length=40),
                             settings: Settings = Depends(get_settings)) -> SiteFoldersResponse:
     """G221 — the folders a site's saves are filed in (X bookmark folders, Instagram collections, Pinterest boards,
-    TikTok collections, YouTube playlists): each with how many saves it holds, how many of those no model would read
-    yet (`indexOnly`: what a reason given to the folder would make readable) and its reason when it has one. A folder
+    TikTok collections, YouTube playlists): each with how many saves it holds, how many of those are in the older pile,
+    not read yet (`indexOnly`, the name kept: what a reason given to the folder would queue for the next run) and its
+    reason when it has one. A folder
     is a filing label, never a page. 422 for a site Cicada keeps no saves for."""
     try:
         return SiteFoldersResponse.model_validate(
@@ -923,8 +930,9 @@ async def set_folder_reason(request: FolderReasonRequest,
     it, marked as the folder's (`folderWhy`, `From its folder "…"`), never as said about that save; its own answer
     always wins.
 
-    The saves it makes readable are paid model work at the next Sleep (ruling 62: a bare save is index-only), so the
-    answer says how many (`counts.makesReadable`) and the route never does it silently: `dryRun` writes nothing and
+    The saves it queues (`counts.makesReadable`: the older pile and the saves with nothing to read, ruling 80) are read
+    at Sleep's next run instead of at the pile's pace, which is model work, so the answer says how many and the route
+    never does it silently: `dryRun` writes nothing and
     only counts; more than 100 saves write nothing until the request says `confirm` (`needsConfirm: true`, 200).
     422 for an empty or unknown reason or a site without saves, 409 in a demo bank or while Sleep holds the pages.
     Committed alone, as the person (`Cicada-Author: user`)."""
@@ -954,8 +962,8 @@ async def set_folder_reason(request: FolderReasonRequest,
 async def clear_folder_reason(site: str = Query(..., min_length=1, max_length=40),
                               folder: str = Query(..., min_length=1, max_length=200),
                               settings: Settings = Depends(get_settings)) -> FolderReasonResponse:
-    """G221 — take a folder's reason away. The saves it made readable lose that (`counts.noLongerReadable`); one no model
-    read goes back to index-only at Sleep's next retirement, one a model read keeps what it made. 404 for a folder with
+    """G221 — take a folder's reason away. The saves it queued lose that (`counts.noLongerReadable`); one no model read
+    yet stays queued and is read without the folder's words, one a model read keeps what it made. 404 for a folder with
     no reason, 409 in a demo bank or while Sleep holds the pages. Committed alone, as the person."""
     memory_path = settings.memory_path
 
@@ -1538,7 +1546,7 @@ async def sources_overview(
         etag = await sync_service.etag_for_async(
             memory_path, "sources", "episodes", "entities", "photos", "siteIcons",
             extra=(f"{source_overview.SHAPE}|telegram:{settings.telegram_enabled}|connectors:{connector_tag}"
-                   f"|feeds:{feed_fetch}"),
+                   f"|feeds:{feed_fetch}" + ("|another-way" if saved_posts.HIDE_POSTS else "")),   # G246 Track 3
         )
         if (early := sync_service.conditional(request, response, etag)) is not None:
             return early
@@ -1630,7 +1638,11 @@ async def get_source_streams(request: Request, response: Response, settings: Set
     the stores that already hold them; nothing existing is replaced (`source_streams`).
 
     The ETag is a digest of the body (the `/reading/settings` precedent): a pause lapsing, a read landing or a check
-    stamped changes it with no clock of its own. Read-only, writes nothing, never a Store domain."""
+    stamped changes it with no clock of its own. Never a Store domain. It writes no page itself: it asks the list pages'
+    writer (`list_pages`, G246) to catch up in the background — a list whose first item has arrived gets its page —
+    which does nothing before the flip, on a replica or on a demo bank."""
+    list_pages.start_sync(settings.memory_path, delay_s=list_pages.SETTLE_S)
+
     def build() -> dict:
         with sync_ticker.request_scans(settings.memory_path):   # one listing per directory for every pass below
             rows, connected, feed_fetch = _stream_rows(settings)
@@ -1752,7 +1764,10 @@ async def list_channel_items(
         etag = await sync_service.etag_for_async(
             memory_path, "sources", "episodes", "entities", "photos",
             extra=(f"{channel_items.SHAPE}|{channel_id}|{offset}|{limit}|{q or ''}|{collection or ''}"
-                   f"|{stream or ''}|{folder or ''}|{mention_asks.stamp(memory_path)}"),
+                   f"|{stream or ''}|{folder or ''}|{mention_asks.stamp(memory_path)}"
+                   # G246: a row's `keep` word follows the earned set, which a graph edge can move with no file of these
+                   # folders changing; empty (so the digest is what it was) until the posts-as-rows flip.
+                   + (f"|earned:{earned}" if (earned := saved_posts.stamp(memory_path)) else "")),
         )
         if (early := sync_service.conditional(request, response, etag)) is not None:
             return early

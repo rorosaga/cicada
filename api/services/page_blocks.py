@@ -31,13 +31,16 @@ from pathlib import Path
 from api.services import bank_index, book_marks, design_refs, page_citations
 
 #: The wire's version; it rides the card's ETag, so a new shape revalidates every held card.
-SHAPE = "blocks-7"
+SHAPE = "blocks-8"
 #: Every block, in the order a page reads them — the redesign proposal's page order (2026-10-28 §0/§1): why it matters,
 #: In short (part B, 2026-10-29: Sleep's summary of a long, busy page, ``in_short``), where to check, the type block
 #: (a map from stored coordinates, a look), what is ongoing, what the person marked in a book (ruling 64,
 #: ``book_marks``), the article's citations (ruling 48 (16),
 #: ``page_citations``: its markers, References and belief sentences), then who changed it.
-KINDS = ("relevance", "summary", "sources", "coordinates", "looks", "ongoing", "marks", "citations", "history")
+KINDS = ("relevance", "summary", "sources", "coordinates", "list", "looks", "ongoing", "marks", "citations", "history")
+#: Every block the card reads, in page order. It is :data:`KINDS` since the agent doors named a list's own block (G246, ruling
+#: 81): ``include`` is an enum both tool schemas advertise (``mcp/server.py``, ``remote/tools.py``) and ``list`` is in each.
+BLOCKS = KINDS
 MAX_ONGOING = 8
 MAX_SOURCES = 12
 MAX_LOOKS = 6
@@ -255,7 +258,7 @@ def build(memory_path: Path, entity_id: str, *, fm: dict, claims: list, relevanc
     page_type = str(fm.get("type") or "concept").strip().lower()
     out: dict = {"shape": SHAPE, "order": [], "relevance": relevance, "summary": summary(fm), "ongoing": [],
                  "ongoingTotal": 0, "marks": None, "coordinates": None, "looks": [], "sources": None, "citations": None,
-                 "history": None}
+                 "history": None, "list": None}
     try:
         open_events = ongoing(claims)
         out["ongoing"], out["ongoingTotal"] = open_events[:MAX_ONGOING], len(open_events)
@@ -266,6 +269,13 @@ def build(memory_path: Path, entity_id: str, *, fm: dict, claims: list, relevanc
     except Exception:  # noqa: BLE001
         pass
     out["coordinates"] = coordinates(fm, str(fm.get("name") or entity_id))
+    try:
+        # A list of saved posts (G246): what it holds is read from the saves now, never from the page.
+        from api.services import list_pages
+
+        out["list"] = list_pages.block(memory_path, entity_id, fm)
+    except Exception:  # noqa: BLE001
+        pass
     try:
         out["looks"] = looks(memory_path, entity_id)[:MAX_LOOKS]
     except Exception:  # noqa: BLE001
@@ -282,9 +292,10 @@ def build(memory_path: Path, entity_id: str, *, fm: dict, claims: list, relevanc
     out["history"] = history(history_entries or [], history_truncated)
     present = {"relevance": bool(relevance) and relevance.get("tense") != "self", "summary": out["summary"] is not None,
                "ongoing": bool(out["ongoing"]), "marks": out["marks"] is not None,
-               "coordinates": out["coordinates"] is not None, "looks": bool(out["looks"]), "sources": out["sources"] is not None,
+               "coordinates": out["coordinates"] is not None, "list": out["list"] is not None,
+               "looks": bool(out["looks"]), "sources": out["sources"] is not None,
                "citations": out["citations"] is not None, "history": out["history"] is not None}
-    out["order"] = [k for k in KINDS if present[k]]
+    out["order"] = [k for k in BLOCKS if present[k]]
     return out
 
 
@@ -410,10 +421,10 @@ def for_caller(blocks: dict, kinds: tuple[str, ...], *, verbatim: bool) -> dict:
     without ``sources`` (``verbatim=False``), every ongoing item worded in the person's own sentence masked. A copy:
     the input is never changed."""
     out = {"shape": blocks.get("shape", SHAPE), "order": [k for k in blocks.get("order") or [] if k in kinds]}
-    empty = {"relevance": None, "summary": None, "sources": None, "coordinates": None, "looks": [], "ongoing": [],
-             "marks": None, "citations": None,
+    empty = {"relevance": None, "summary": None, "sources": None, "coordinates": None, "list": None, "looks": [],
+             "ongoing": [], "marks": None, "citations": None,
              "history": None}
-    for kind in KINDS:
+    for kind in BLOCKS:
         out[kind] = blocks.get(kind, empty[kind]) if kind in kinds else empty[kind]
     out["ongoingTotal"] = blocks.get("ongoingTotal", 0) if "ongoing" in kinds else 0
     if not verbatim:
@@ -422,7 +433,16 @@ def for_caller(blocks: dict, kinds: tuple[str, ...], *, verbatim: bool) -> dict:
     out["citations"] = page_citations.for_caller(out["citations"], verbatim=verbatim)
     if not verbatim:
         out["marks"] = book_marks.for_caller(out["marks"])
+        out["list"] = _list_for_caller(out["list"])
     return out
+
+
+def _list_for_caller(block: dict | None) -> dict | None:
+    """A list's block without the person's saved words, for a caller with no ``sources`` scope: its count and newest day
+    say how much it holds; no row's title or author and no folder reason (the person's own words) leaves. A copy."""
+    if not isinstance(block, dict):
+        return block
+    return {**block, "recent": [], "why": None, "recentWithheld": bool(block.get("recent") or block.get("why"))}
 
 
 def words(blocks: dict, kinds: tuple[str, ...], *, verbatim: bool = True) -> str:
@@ -450,6 +470,21 @@ def words(blocks: dict, kinds: tuple[str, ...], *, verbatim: bool = True) -> str
         elif kind == "coordinates":
             c = blocks["coordinates"]
             lines.append(f"- coordinates: {c['lat']}, {c['lon']} (stored on the page)")
+        elif kind == "list":
+            b = blocks["list"] if verbatim else _list_for_caller(blocks["list"])
+            what = f"folder \u201c{b['folder']}\u201d of {b['label']}" if b.get("folder") else b.get("label")
+            lines.append(f"- list of saved posts ({what} on {b.get('site')}): {b.get('count', 0)} saved"
+                         + (f", newest {b['newest']}" if b.get("newest") else "")
+                         + "; read from the saves each time, never stored on the page")
+            if b.get("why"):
+                lines.append(f"  - why this folder (the person's words): {b['why'].get('text')}")
+            for r in b.get("recent") or []:
+                bits = [x for x in (r.get("author"), r.get("posted") or r.get("saved")) if x]
+                lines.append(f"  - {r.get('title') or '(untitled)'}" + (f" ({' · '.join(bits)})" if bits else ""))
+            if b.get("recentWithheld"):
+                lines.append("  - what was saved is the person's own and is not shown to this caller")
+            elif b.get("count", 0) > len(b.get("recent") or []):
+                lines.append(f"  - … and {b['count'] - len(b.get('recent') or [])} more, found by search")
         elif kind == "looks":
             lines.append(f"- looks: {len(blocks['looks'])}")
             for look in blocks["looks"]:

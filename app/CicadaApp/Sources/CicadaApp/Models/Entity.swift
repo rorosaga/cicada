@@ -759,6 +759,9 @@ struct MediaBlock: Codable, Equatable {
     var isBook: Bool { kind == "book" }
     /// G230 — a repository page (`github_repos.KIND`).
     var isRepository: Bool { kind == "repository" }
+    /// G246 (ruling 81) — a list's own small page (`media.kind: list`): it has no link of its own, and its block still
+    /// reaches the card.
+    var isList: Bool { kind == "list" }
 
     /// True when there's a real url to preview. A media entity whose frontmatter
     /// couldn't be parsed (empty url) shouldn't render a broken preview.
@@ -946,7 +949,7 @@ struct Entity: Identifiable, Codable {
         // Prefer the backend-surfaced `media` block; if absent (older backend
         // that drops the nested block), reconstruct it from the `media:` YAML
         // in `rawMarkdown` so previews still work. Skip for non-media entities.
-        if let decoded = try c.decodeIfPresent(MediaBlock.self, forKey: .media), decoded.hasURL || decoded.isFile {
+        if let decoded = try c.decodeIfPresent(MediaBlock.self, forKey: .media), decoded.hasURL || decoded.isFile || decoded.isList {
             media = decoded
         } else if type == .media {
             media = Entity.parseMediaFrontmatter(rawMarkdown)
@@ -1089,20 +1092,26 @@ struct GraphResponse: Codable, Sendable {
     // §3: distinct-observer roster so the observer filter bar can populate its
     // segments without a separate call. Optional/decode-tolerant.
     let observers: [String]
+    /// G246 (ruling 81) — how many saved posts the server draws as a row under their list instead of as a node. 0 from
+    /// an older backend and while the posts-as-rows switch is off, so nothing is said; Home says the number once
+    /// (`HiddenPostsNote`).
+    let hiddenPosts: Int
 
-    enum CodingKeys: String, CodingKey { case nodes, links, observers }
+    enum CodingKeys: String, CodingKey { case nodes, links, observers, hiddenPosts }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         nodes = try c.decodeIfPresent([GraphNode].self, forKey: .nodes) ?? []
         links = try c.decodeIfPresent([GraphEdge].self, forKey: .links) ?? []
         observers = try c.decodeIfPresent([String].self, forKey: .observers) ?? []
+        hiddenPosts = try c.decodeIfPresent(Int.self, forKey: .hiddenPosts) ?? 0
     }
 
-    init(nodes: [GraphNode] = [], links: [GraphEdge] = [], observers: [String] = []) {
+    init(nodes: [GraphNode] = [], links: [GraphEdge] = [], observers: [String] = [], hiddenPosts: Int = 0) {
         self.nodes = nodes
         self.links = links
         self.observers = observers
+        self.hiddenPosts = hiddenPosts
     }
 }
 

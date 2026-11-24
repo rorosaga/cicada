@@ -27,8 +27,8 @@ from api.services import cycle_usage, sleep_runs, telemetry
 
 #: Folded into ``GET /sleep/runs/{id}``'s ETag: bump it when the body's shape changes, so a client holding the
 #: old shape is not answered 304 (``corrections-1``: ``corrections``, G104 slice 3 T4; ``plan-share-1``:
-#: ``usage.planShare``, owner 2026-10-16).
-SHAPE = "corrections-1"
+#: ``usage.planShare``, owner 2026-10-16; ``lighter-1``: ``batches[].model`` and ``batches[].lighter``, ruling 80).
+SHAPE = "lighter-1"
 MAX_FIRST_PAGES = 8
 
 
@@ -90,6 +90,7 @@ async def build(memory_path: Path, drain_id: str) -> SleepRunDetail | None:
             filed=int(refs.get("episodes_processed") or 0), not_filed=int(refs.get("episodes_requeued") or 0),
             took_ms=r.duration_ms, calls=len(ledger.calls.get(cycle, [])),
             windows=list(plan.windows) if plan else [],
+            model=r.model, lighter=bool(refs.get("lighter")),
         ))
         created += int(refs.get("entities_created") or 0)
 

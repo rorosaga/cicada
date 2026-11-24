@@ -304,11 +304,14 @@ struct SleepQueueResponse: Codable, Equatable {
     var total: Int
     var offset: Int
     var items: [SleepQueueItem]
-    /// Ruling 62 — saves kept for lookup: no model read them, and one is read when the person talks about it.
+    /// Ruling 80 — the older saves Sleep has not read yet (the field keeps its name): it reads `keptPerNight` of them a
+    /// night, newest first, and one first when the person talks about it. A save waiting for tonight is a row in `items`.
     var kept: Int
+    /// How many Sleep reads from those a night (the backend's one number); nil from an older backend.
+    var keptPerNight: Int?
 
-    init(total: Int = 0, offset: Int = 0, items: [SleepQueueItem] = [], kept: Int = 0) {
-        self.total = total; self.offset = offset; self.items = items; self.kept = kept
+    init(total: Int = 0, offset: Int = 0, items: [SleepQueueItem] = [], kept: Int = 0, keptPerNight: Int? = nil) {
+        self.total = total; self.offset = offset; self.items = items; self.kept = kept; self.keptPerNight = keptPerNight
     }
 
     init(from decoder: Decoder) throws {
@@ -317,8 +320,9 @@ struct SleepQueueResponse: Codable, Equatable {
         offset = ((try? c.decodeIfPresent(Int.self, forKey: .offset)) ?? nil) ?? 0
         items = ((try? c.decodeIfPresent([SleepQueueItem].self, forKey: .items)) ?? nil) ?? []
         kept = ((try? c.decodeIfPresent(Int.self, forKey: .kept)) ?? nil) ?? 0
+        keptPerNight = ((try? c.decodeIfPresent(Int.self, forKey: .keptPerNight)) ?? nil).flatMap { $0 > 0 ? $0 : nil }
     }
-    enum CodingKeys: String, CodingKey { case total, offset, items, kept }
+    enum CodingKeys: String, CodingKey { case total, offset, items, kept, keptPerNight }
 }
 
 /// The owner page's beliefs, sampled at a run's start and after its first batch. `nil` on the wire
@@ -363,6 +367,10 @@ struct SleepRunRef: Codable, Equatable {
     /// tagged with it; `nil` when not recorded (telemetry off, an older backend), never zero.
     var created: Int?
     var updated: Int?
+    /// items-6 — the run's pages archived, removed, or only faded; `nil` from an older backend, never zero.
+    var archived: Int? = nil
+    var removed: Int? = nil
+    var faded: Int? = nil
     var questionsRaised: Int?
     var usageSummary: CycleUsageSummary?
     var models: [String] = []
@@ -378,12 +386,13 @@ struct SleepRunRef: Codable, Equatable {
          readMs: Int = 0, pausedMs: Int = 0, startedAt: String? = nil, finishedAt: String? = nil,
          state: String? = nil, startedBy: String = "user", catchUpFor: String? = nil, created: Int? = nil,
          updated: Int? = nil, questionsRaised: Int? = nil, usageSummary: CycleUsageSummary? = nil,
-         models: [String] = []) {
+         models: [String] = [], archived: Int? = nil, removed: Int? = nil, faded: Int? = nil) {
         self.id = id; self.batches = batches; self.filed = filed; self.parked = parked; self.frozen = frozen
         self.pauses = pauses; self.readMs = readMs; self.pausedMs = pausedMs; self.startedAt = startedAt
         self.finishedAt = finishedAt; self.state = state; self.startedBy = startedBy; self.catchUpFor = catchUpFor
         self.created = created; self.updated = updated; self.questionsRaised = questionsRaised
         self.usageSummary = usageSummary; self.models = models
+        self.archived = archived; self.removed = removed; self.faded = faded
     }
 
     init(from decoder: Decoder) throws {
@@ -400,6 +409,9 @@ struct SleepRunRef: Codable, Equatable {
         created = (try? c.decodeIfPresent(Int.self, forKey: .created)) ?? nil
         updated = (try? c.decodeIfPresent(Int.self, forKey: .updated)) ?? nil
         questionsRaised = (try? c.decodeIfPresent(Int.self, forKey: .questionsRaised)) ?? nil
+        archived = (try? c.decodeIfPresent(Int.self, forKey: .archived)) ?? nil
+        removed = (try? c.decodeIfPresent(Int.self, forKey: .removed)) ?? nil
+        faded = (try? c.decodeIfPresent(Int.self, forKey: .faded)) ?? nil
         usageSummary = (try? c.decodeIfPresent(CycleUsageSummary.self, forKey: .usageSummary)) ?? nil
         models = ((try? c.decodeIfPresent([String].self, forKey: .models)) ?? nil) ?? []
         sensitive = (try? c.decodeIfPresent(Sensitive.self, forKey: .sensitive)) ?? nil
@@ -407,7 +419,7 @@ struct SleepRunRef: Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case sensitive
         case id, batches, filed, parked, frozen, pauses, readMs, pausedMs, startedAt, finishedAt, state, startedBy
-        case catchUpFor, created, updated, questionsRaised, usageSummary, models
+        case catchUpFor, created, updated, archived, removed, faded, questionsRaised, usageSummary, models
     }
 }
 

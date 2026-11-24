@@ -88,6 +88,35 @@ the event loop); while Sleep holds the pages nothing is appended and the next im
 agent's Watch later read appends inside its own admission and page lock. A list the page already holds changes
 nothing.
 
+**A list of saved posts has one small page of its own (G246, ruling 81, owner 2026-11-24: "maybe a small entity page that has all
+the saved posts would be good … i want to somehow see saved things somewhere even if i haven't referred to them yet";
+`list_pages`, behind `saved_posts.HIDE_POSTS`, off).** This amends the paragraph above only to the extent that a list of *posts*
+(a site's bookmarks, likes, reposts, saved posts — X, Instagram, LinkedIn, Reddit, Pinterest, TikTok) and each folder, collection
+or board such a site files saves into (`save_folders`) may have a page about the list itself; the page is no tag, no `member of`
+edge and no hub, and a list of works (a YouTube playlist, a Substack list) and a browser's own bookmark folder get none.
+`list_pages` is the **one writer**: `type: media`, `media: {kind: list, media_type: list}` (no link), `origin: list` (never a
+list's own origin, or the page would be a member of its own stream), an id `list-<stream>[--<folder slug>-<hash>]` (a pure function
+of the list, so two computers agree; never `media-`, which `inject_media_edges` and `link_enrichment` glob), `tags: []`, the list's
+address in a `list:` block (`site`, `stream`, `folder`, `source` — the origin whose mark the page wears —, `label`, `named`) and one
+fixed sentence for a body ("Posts you bookmarked on X."). **Nothing that can go stale is on the page:** its count, newest day,
+last read (outside every bank, per Mac), a folder's reason and its newest rows are read from the saves every time the page is
+served (`list_pages.block`, one `channel_items.items` read, so the number is the one the cards say). It is born when the list's
+first item arrives and not before, written again only when the list's own name changes (a name the person gave stands), and
+archived with `retired_by: source-removed` when its source is removed (`retire_source`, one undoable commit; a page in any status
+holds its key and is never made again or woken). It is never a stream member, a hub member, a file or a link count
+(`source_overview.is_files_media` reads its origin), quiet, merged (`entity_merge` and `page_join` refuse), asked about
+(`inbox_service._subject_quiet`) or given facts by Sleep (`entity_resolver` treats it as a file page: its name is no one's). The
+writer runs only on the home (a replica refuses), never into a demo bank, inside write admission and the page lock, one commit per
+batch under `cicada` (`sync/list_pages`), retried while Sleep holds the pages. **Dark, it writes nothing**: no file is born while
+`HIDE_POSTS` is off, so no reader of the pages folder can show one; the first sync after the flip makes every list's page. Its
+triggers are the backend's start, a read of `GET /sources/streams`, a list read recorded (`cicada_record_saved_list`, after its own commit, only when
+it saved something), a save noticed in a site (`POST /sources/site-save`, after the save is stored) and the end of a Sleep run (beside the file
+pages' writer, after the write flag is down): each asks `list_pages.start_sync` with a short settle, so a burst is one run, in the writer's own
+commit, inside write admission, retried a minute later when Sleep holds the pages (all a no-op until the flip, on a replica and on a demo bank).
+No operation of the person's today removes a post list's source (turning a list off keeps its page, forgetting the followed accounts is a different
+list), so `retire_source` has no caller yet; a list whose stream leaves the table is retired by `sync` itself. An agent's write to such a page is
+refused on every door (`mcp.md`, "A list of saved posts' own page, for an agent").
+
 **Provenance never makes a hub.** Stage 5.6 makes any tag shared by `hub_tag_min_members` (5) active pages a
 `topic-<tag>` hub with a `member of` edge to each, and the media writer used to put `sanitize_id(folder)` in `tags`
 (the Netscape parser the raw folder name), beside the media type and the capture door's origin — so every list,
@@ -509,14 +538,15 @@ folders' reasons (`save_folders.inherited`), and every reader says so — `saved
 `inherited_from` names the folders and whose text begins `From its folder "<name>":` (the reading queue, link
 enrichment), the explore plan's `because` says `from: folder`, a Sources channel row's `why` carries `fromFolders`, and
 `GET /sources` serves `saveFolders` and `folderWhy` (always `inherited: true`) while `savedWhy` stays the save's own. A
-save's own answer always wins, on any of its episodes. **What a reason makes readable.** An index-only save (ruling 62)
-is read by no model; a folder's reason is the person's reason for everything filed there, so those saves become readable:
-`history_index.kind` sees the stamp `readable_by_folder` (`{at, folders}`, in `PERSON_KEYS`, written by `save_folders`
-only) and a save the index had read is queued again. That is paid work at the next Sleep, so it is counted first and never
+save's own answer always wins, on any of its episodes. **What a reason does to a save (ruling 80: saving is already a reason, so Sleep reads every save).** A folder's reason is the
+person's reason for everything filed there: a save waiting for tonight carries it when it is read, and one in the older pile
+or holding nothing to read is queued for the next run ahead of the pile. The stamp is `readable_by_folder` (`{at, folders}`,
+in `PERSON_KEYS`, written by `save_folders` only). That is model work now instead of at the pile's pace, so it is counted first and never
 silent: `POST|PUT /sources/save-folder-reason` answers `counts.makesReadable`, `dryRun` writes nothing, and more than 100
 saves write nothing until `confirm` (`needsConfirm`). A save a model already read is never requeued; a save filed later
 into a folder that has a reason is stamped by the step that files it; a clear (`DELETE`) or a removal from the folder takes
-the stamp away and `history_index.retire` returns an unread save to the index at Sleep's next run. Tests:
+the stamp away; since ruling 80 a save that was waiting stays waiting (it is read tonight like any save, as its author's words) and a pile
+save or one with nothing to read is queued by the reason (`save_folders.reconcile_fm`). Tests:
 `api/tests/test_save_folders.py`.
 
 **Past roles (2026-10-27, G121):** a person's whole current state has a past tense, not only a job — the seed's
@@ -846,10 +876,13 @@ at most 8 entities are taken from one save, and a save raises no question (`ask_
 description, never a note (X and Pinterest):** the text rides `RawItem.preview` into `## Description`, the episode carries
 no `has_note`, and the tweet's `created_at` is its `posted` day. Episodes written the old way (`## User note` + `has_note`,
 origin `x-bookmarks` or `pinterest`) are put right by `connector_text.repair`, committed alone before the index's own commit
-so a later wake finds no revision; it is **report-only** behind `connector_text.REPAIR` until the coordinator reads
-`python -m api.scripts.connector_text_dry_run --bank <path>` (counts only; `--ids` adds episode ids).
+so a later wake finds no revision; it is **on** (`connector_text.REPAIR`, with ruling 80's switch: it must run before a save is
+read, and a bank with no such row changes nothing). `python -m api.scripts.connector_text_dry_run --bank <path>` (counts only;
+`--ids` adds episode ids) still changes nothing whatever the constant says.
 **What a save may add, and how much (G245, ruling 80's plan, Track 2c; `saves_bounded`).** A claim "rests on saves alone"
-when its observer is somebody else's (`external:<author>`, never given to a claim with a span in the person's own words)
+when its observer is somebody else's (`external:<author>`, never given to a claim with a span in the person's own words;
+a quote nothing locates is the author's too, in a save with a reason as in one without — the safe side: a stranger's words are
+never made Cicada's own reading or his, and two authors stating one fact in one run keep the first author's, `entities_to_claims`; and a claim Sleep wrote that every cited conversation of is a save with none of his words — a relation Stage 2's judge drew from two posts' descriptions, `reasoning` evidence — is the first such save's author's, `saves_bounded.attribute_to_authors`, in `claim_pipeline` right after Stage 1's projection)
 and every conversation it cites is a saved item, a save he wrote a reason on included (the claim is still the author's);
 one conversation of his also citing it makes it his. Three bounds, each one line to undo, derived on read from the episodes'
 own records (an episode that cannot be read is no save), nothing stored. (1) **At most 12 open such claims on one page**
@@ -2716,6 +2749,16 @@ alias), a `value-of-` predicate never names one, and an alias under 3 characters
 `_tree_names` guard). The list's converted payloads are a slotted LRU (`_PAYLOAD_CLAIMS`, 40k, ~1.2 KB each with
 its key; ~13k / ~16 MB on the 8k-page synthetic bank).
 
+### The derived store (G246, ruling 81)
+`derived_store` keeps one read model's per-file records at `$CICADA_HOME/derived/<bank name>-<8 hex of its resolved path's hash>/<name>.json`
+(0700 folder, 0600 file, written to a temporary file and renamed): **derived and disposable**, outside every bank and git, never served
+by a route or tool, and keyed by the bank it was made from three ways: the folder name, the resolved path the file repeats, and a `tag`
+(the record version, the release, and a hash of the source of every module a record is made with, so a new release or an edited rule makes each record again once and nothing has to remember to bump a number). A file that is missing, truncated, not JSON, of another format, another tag
+or another bank is "nothing stored": the caller derives from the bank and writes again, and nothing raises into a read. The first user is
+`saved_posts` (`saved_posts.json`: `(mtime_ns, size, record)` per page and episode, plus the edge rows a claim backs; ids, origins and the person's own folder names, no word of a page or a save), so the graph's change
+check does not parse 19,000 headers in a fresh process; `features.md`, "The check stays cheap on a cold start". A bank moved to the trash
+takes its records with it.
+
 ### Continuity index and session registry (G110 slice 1a)
 `$CICADA_HOME/continuity/<bank-id>.index.json` is a **derived, disposable** map of every `ep_*.md` to `(mtime_ns, size, row)`, where a
 row is the head scalars of a Stop-hook episode (`id`, `harness`, `session_id`, `cwd_hash`, `captured_at`,
@@ -2963,6 +3006,20 @@ in the bank's own git dir (a worktree's, never the shared common dir), says so o
 lands on that writer's next run — or at the start of the next Sleep cycle, before any stage writes —
 under its own author (R-B5).
 
+**A git command never outgrows its argv (G181, 2026-11-24).** A Sleep commit's message has one manifest line per
+file (~90 bytes), and a path-scoped commit also names every path: ~1,500 pages pass Linux's one-argument limit
+(`MAX_ARG_STRLEN`, 128 KiB) and ~9,000 pass macOS's argv-plus-environment limit (1 MiB). `git_service` keeps what
+`_spawn` is handed under `ARG_BYTES_MAX` (96 KiB one argument) and `ARGV_BYTES_MAX` (256 KiB whole argv, each string's
+bytes + NUL + pointer): a command inside them is spawned exactly as before; one past them is rewritten by `_fitted`
+into the same single git command with the message in `-F <file>` (the bytes `-m` carries and its final newline: the
+commit object is identical, a test pins it) and the trailing `-- <paths>` in `--pathspec-from-file=<file>
+--pathspec-file-nul` (`add`, `commit`, `reset`, `restore`, `rm`, `checkout`; git 2.25), so a refusal leaves the index as
+the argv form does and a path-scoped commit still commits only its paths. The files live in a private folder outside
+the bank, removed on the way out. A read listing too many paths (`ls-files`, `ls-tree`, `status`) runs in pieces and
+joins them (an entry listed once). The same rewrite covers `commit-tree` in the kept-apart and capture commits. An error
+names a long argument by its first 200 characters and its length, never whole. The message itself is unchanged
+(`build_commit_message`), so every `git log` reader, `_note_commit` and blame see what they always saw.
+
 **One page writer at a time (audit 2026-10-05 P1-2).** A claim write is read → reconcile → write; atomic replacement
 keeps one write whole but not two (both reported `written`, one survived). `page_lock.page_lock(bank)` — the same
 cross-process, re-entrant `flock` as `episode_lock` (`episode_ids.dir_lock`), on the bank directory itself — is held
@@ -3081,7 +3138,10 @@ The graph's Store-domain ETag remains tied to its existing version vector.
 
 **`read_asked` (ruling 62, 2026-11-04).** On a bare save's episode: `{why, at}`, written once by `history_index.wake` when the
 person talked about it (`said-the-link`, `said-the-title`, `page-mentioned`). It takes the episode out of the `saved` kind for
-good, so its one real read happens once and says why. A save's page keeps `decay_class: evergreen` and stays quiet
+good, so its one real read happens once and says why. Since ruling 80 it is also stamped on a save still **waiting** for tonight (no flip
+needed: it moves ahead of every other save at the freeze, `saved_order`), and `turn_released_on` (`YYYY-MM-DD`) records the local day a
+save left the pile (`history_index.take_turns`), kept when a night puts it back; `processed_by: no-words` marks a title and a link with
+nothing to read. A save's page keeps `decay_class: evergreen` and stays quiet
 (`quiet_pages`) until a conversation or the person's words reach it; being indexed writes nothing on it.
 
 **Source rows tell the truth (sources-truth, 2026-11-06).** `files` on `GET /sources/channels` counts the media pages the person saved as a link or file (`source_overview.files_media_count`: no origin or `saved-link`, not hidden) — the set the Files & links page and overview card list — never every `url_index` entry, so a saved-list post, bookmark, pin, feed item or a folder's paper never makes it Connected. A `cicada_record_saved_list` read whose every row was not a post of that site is recorded `failed`, not `read`. Every saved-list platform's origin is named by an overview row (a test pins it).

@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import date as _date, datetime, timedelta, timezone
 from pathlib import Path
 
-from api.services import bank_index, episode_time, folder_source, meeting_transcripts
+from api.services import bank_index, episode_time, folder_source, meeting_transcripts, saved_words
 
 # G134: meetings and dictation are their own section, VOICE & MEETINGS (R-LS25).
 # G39/G233: books — Apple Books, a Goodreads export, a scanned ISBN — are their own section, READING.
@@ -175,6 +175,8 @@ INTENTS = ("saved", "captured")
 #: "Telegram bot", 2026-11-04; v16: Apple Books, Goodreads and book scans, the Reading kind, G39/G233; v17: `kept`,
 #: ruling 62; v18: the publications followed, on their own row out of RSS's, G89; v19: a recorder's meeting folder
 #: carries the recorder's mark, 2026-11-23).
+#: Ruling 80 added `keptPerNight` and changed `kept` to the pile of older saves not read yet with no new shape: the name
+#: is another client's to read.
 SHAPE = "overview-v19"
 
 #: Sources v4 (owner 2026-10-19: "I don't understand how Sleep is also a source on the page"). A check record is the
@@ -315,8 +317,9 @@ def _new_state(key: str, labels: dict[str, str] | None = None, marks: dict[str, 
         # Sources v4 — this source's episodes still waiting for Sleep's read (`history_index.waits_for_model`, the
         # rule Sleep's own queue count uses), so the detail's "Consolidate now · N waiting" is the server's number.
         "waiting": 0,
-        # Ruling 62: this source's saves kept for lookup, unread until the person talks about one.
-        "kept": 0,
+        # Ruling 80: this source's older saves Sleep has not read yet (the pile); ``kept_per_night`` is how many Sleep
+        # reads a night (``saved_words.per_night``, set where the row is made), 0 until it has any.
+        "kept": 0, "kept_per_night": 0,
         "faces": [], "faces_more": 0,
         # Sparse ISO-UTC-day -> captures that day (R-A16); a silent day has no
         # key, so a gap can never be read as a zero the backend asserted.
@@ -387,8 +390,9 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
         state["episodes"] += 1
         if history_index.waits_for_model(fm):
             state["waiting"] += 1
-        elif history_index.kind(fm) == "saved" and not fm.get("source_deleted_at"):
+        elif history_index.save_state(fm) == "pile" and not fm.get("source_deleted_at"):
             state["kept"] += 1
+            state["kept_per_night"] = saved_words.per_night()
         if key in FACE_CHAT_SOURCES and fm.get("conversation") and not fm.get("source_deleted_at"):
             _note_chat(chats.setdefault(key, {}), fm)
         conversation = str(fm.get("session_id") or fm.get("source_id") or "").strip()
@@ -419,6 +423,7 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
     # Sources v3 (review of #347): a saved source with no channel counts what its list lists — its live saved media
     # pages (`channel_items` lists them by these origins) — never its episodes, so a history day can never read "saved".
     saved_media: dict[str, int] = {}
+    owner_of: dict[str, str] = {}     # the page ids those counts hold, so a post is counted once (Track 3, below)
     for f in bank_index.files(memory_path, "entities"):
         fm = f.frontmatter
         entity_id = str(fm.get("id") or f.stem)
@@ -426,6 +431,7 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
         owner = _ORIGIN_TO_ID.get(origin)
         if (fm.get("type") == "media" and owner in _SAVED_LIST_ROWS and not is_hidden(fm)):
             saved_media[owner] = saved_media.get(owner, 0) + 1
+            owner_of[entity_id] = owner
         # Nil-origin OR `saved-link`: the writers stamp an origin now, but every
         # link saved before they did carries none, and both are the same card.
         # F6: skipping the hidden ones is what keeps this count equal to the
@@ -469,6 +475,19 @@ def build_overview(memory_path: Path, *, channels: list[dict], today: _date | No
     for key, count in saved_media.items():
         state = states.setdefault(key, _new_state(key, labels, marks))
         state["items"] = count
+
+    # G246 (ruling 81, Track 3): a saved source with no channel also holds the site's posts saved another way, which its
+    # origin does not own: its card counts what its page lists, each post once (a post its origin owns is counted above).
+    # A source with a channel keeps its connector's own count. Nothing is added while the posts-as-rows switch is off.
+    from api.services import saved_posts, source_streams
+
+    if saved_posts.HIDE_POSTS:
+        for key, ids in source_streams.another_way(memory_path).items():
+            if key not in _SAVED_LIST_ROWS:
+                continue
+            added = sum(1 for page in ids if owner_of.get(page) != key)
+            if added:
+                states.setdefault(key, _new_state(key, labels, marks))["items"] += added
 
     # Sources v4 — the faces a row shows: the newest first, at most `MAX_FACES`, and how many more there are.
     photos = _chat_photos(memory_path) if chats else {}

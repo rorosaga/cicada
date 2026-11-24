@@ -52,6 +52,7 @@ enum SourceHeadLine {
     static func ways(_ streams: [ResolvedStream]) -> [StreamHow] { ways(streams.map(\.stream)) }
 
     static func ways(_ streams: [SourceStream]) -> [StreamHow] {
+        let streams = streams.filter { !$0.isDerived }   // a place posts go says nothing about how the source is read
         let on = streams.filter { $0.state == .on }
         let chosen = (on.isEmpty ? streams.filter { $0.state == .off } : on).map(\.how)
         var seen = Set<StreamHow>()
@@ -144,7 +145,7 @@ enum SourceStreamRow {
         }
     }
 
-    /// "read by Sleep" / "kept and findable", only where a source's streams go to different depths; a source whose
+    /// "read by Sleep" / "kept, never read: you did not save it", only where a source's streams go to different depths; a source whose
     /// streams all go to one says it nowhere (it is the same on every row).
     private static func depthWord(_ stream: SourceStream, among streams: [SourceStream]) -> String? {
         guard Set(streams.map(\.depth)).count > 1 else { return nil }
@@ -297,6 +298,29 @@ enum SourceStreamItems {
         return chosen
     }
 
+    /// G246 (ruling 81) — the page that stands for what the selection shows: the chosen folder's own page, else the list's.
+    /// The backend names it (`SourceStream.page`, `folderPages`) only once it exists, so while the posts-as-rows switch is
+    /// off, for a list of works, a stream with nothing in it or a folder with no page, there is none and no link is drawn.
+    /// `folder` is meaningful only on a stream that keeps folders. All, the watched history and a stream-less page: nil.
+    struct PageLink: Equatable {
+        let id: String
+        let isFolder: Bool
+        var title: String { isFolder ? Copy.Lists.openFolderPage : Copy.Lists.openListPage }
+        var help: String { isFolder ? Copy.Lists.openFolderPageHelp : Copy.Lists.openListPageHelp }
+    }
+
+    static func pageLink(_ selection: String?, folder: String?, streams: [ResolvedStream]) -> PageLink? {
+        if showsHistory(selection, streams: streams) { return nil }
+        let held = tabbed(streams)
+        let chosen = effective(selection, streams: streams).flatMap { id in held.first { $0.id == id } }
+            ?? (held.count == 1 ? held.first : nil)
+        guard let stream = chosen?.stream else { return nil }
+        if let folder, !folder.isEmpty {
+            return stream.folderPages[folder].map { PageLink(id: $0, isFolder: true) }
+        }
+        return stream.page.map { PageLink(id: $0, isFolder: false) }
+    }
+
     /// The folder names the menu offers: the channel's own collections when the backend files them, else the folders the
     /// rows read so far name. Sorted by how many items they hold when known, then by name.
     static func folderNames(collections: ChannelCollections?, items: [ChannelItem]) -> [String] {
@@ -322,11 +346,15 @@ enum SourceStreamItems {
 /// An item card's words (plan 3.2 item 3): two lines of the person's own words, and the footer
 /// `author · posted Sunday · Bookmarks · Likes · read` — one date, the lists it is on, the depth word (nothing for kept).
 enum SourceItemCardText {
-    /// The depth word: nothing for `kept` (the default, so it adds no noise) and for a value this build does not know; one
-    /// quiet word or phrase for `asked`, `read` and `watched`, said in the footer's own style and never a badge.
+    /// The depth word, said for every state a saved item can be in (ruling 80): `read`, `kept` (not read yet), `empty`
+    /// (nothing to read yet), `record` (kept, never read), `asked` and `watched`; nothing for a value this build does not
+    /// know. Said in the footer's own style, never a badge.
     static func depth(_ item: ChannelItem) -> String? {
         switch item.depth {
         case "read": Copy.Streams.itemRead
+        case "kept": Copy.Streams.itemNotRead
+        case "empty": Copy.Streams.itemNothing
+        case "record": Copy.Streams.itemRecord
         case "asked": Copy.Streams.itemAsked
         case "watched": Copy.Streams.itemWatched
         default: nil

@@ -9,10 +9,12 @@ mentioned out of Media's main view.
 """
 from __future__ import annotations
 
-from api.services import episode_time
+from api.services import episode_time, saved_posts
 
 #: The kinds, in the order the app lists them. The app words each one; the ids are the wire.
-KINDS = ("book", "article", "video", "picture", "paper", "repository", "link", "file", "feed")
+#: G246 (ruling 81): ``post`` is a saved post drawn as a page (one that earned its page), named only once the flip is on
+#: (``saved_posts.HIDE_POSTS``); ``list`` is a list's own small page (``media.kind: list``).
+KINDS = ("book", "article", "video", "picture", "paper", "repository", "link", "file", "feed", "post", "list")
 
 #: A saved post or article an origin brought in as a read, rather than a bare bookmark.
 _ARTICLE_ORIGINS = frozenset({"substack-saved", "saved-link"})
@@ -28,6 +30,10 @@ def _media(fm: dict) -> dict:
 def origin_of(fm: dict) -> str | None:
     """The origin id the page was brought in by (its ``origin:``), as the app's mark table knows it; None when none."""
     origin = str((fm or {}).get("origin") or "").strip().lower()
+    listed = (fm or {}).get("list")
+    if _media(fm).get("kind") == "list" and isinstance(listed, dict):
+        # A list's page: the source it is a list of is its origin (the app's mark table), never the word "list".
+        return str(listed.get("source") or "").strip().lower() or None
     if origin == "book":
         # A book page's own origin is the kind, not a source: the door it came in through is the source (Apple Books,
         # Goodreads, a scan), in the same fixed order the page's words use (`books.door_words`).
@@ -54,13 +60,15 @@ def kind_of(fm: dict) -> str | None:
         return None
     media = _media(fm)
     declared = str(media.get("kind") or "").strip().lower()
-    if declared in ("book", "paper", "repository"):
+    if declared in ("book", "paper", "repository", "list"):
         return declared
     media_type = str(media.get("media_type") or "").strip().lower()
     if declared == "file":
         return "video" if media_type in _VIDEO_TYPES else "picture" if media_type in _PICTURE_TYPES else "file"
     if episode_time.is_feed_item(fm):
         return "feed"
+    if saved_posts.HIDE_POSTS and saved_posts.is_post(fm):
+        return "post"   # one that earned its page: a row is no node, so only an earned post reaches a reader here
     if media_type in _VIDEO_TYPES:
         return "video"
     if media_type in _PICTURE_TYPES:

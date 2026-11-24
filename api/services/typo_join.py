@@ -482,23 +482,28 @@ def _page_counts(memory_path: Path, keys: set[str]) -> dict[str, int] | None:
     return counts
 
 
-def anchored(memory_path: Path, case: Case, read: Read, speaker: str | None = None) -> bool:
+def anchored(memory_path: Path, case: Case, read: Read, speaker: str | None = None, *, rare_only: bool = False) -> bool:
     """The code-side floor under "the same fact" (review 2026-11-24): the located lines share at least one word that is
     specific. Shared words leave out both sides' names and the speaker's; of what is left, a word on more than
     :data:`COMMON_PAGES` pages of the bank is common ground ("colleague") and never anchors; a word written with a capital
     or a digit in both lines (a place, an employer, a project) anchors; so does one on at most :data:`RARE_PAGES` pages.
     In a bank under :data:`MIN_BANK_PAGES` pages only the named kind anchors. Two lines that both say "is a colleague" share
-    nothing specific, so they are not the same fact however a model reads them. Reads only."""
+    nothing specific, so they are not the same fact however a model reads them. ``rare_only`` (Sleep's second look at a pair
+    whose name evidence may be only a first name inside a full name, ruling 82): the capital-in-both branch is off, since a
+    shared employer or role is true of many people; only a word on at most :data:`RARE_PAGES` pages anchors, and a bank too
+    small to count them anchors nothing. Reads only."""
     skip = {w for n in (*case.a.names, *case.b.names, case.a.name, case.b.name, speaker or "") for w in _words(n)}
     here, there = _content(read.here, skip), _content(read.there, skip)
     shared = set(here) & set(there)
     if not shared:
         return False
     counts = _page_counts(memory_path, shared)
+    if rare_only and counts is None:
+        return False
     for key in shared:
         if counts is not None and counts[key] > COMMON_PAGES:
             continue
-        if (here[key] and there[key]) or (counts is not None and counts[key] <= RARE_PAGES):
+        if ((here[key] and there[key]) and not rare_only) or (counts is not None and counts[key] <= RARE_PAGES):
             return True
     return False
 

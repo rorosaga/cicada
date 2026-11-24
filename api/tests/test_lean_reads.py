@@ -312,7 +312,7 @@ def test_collapse_compares_anchors_as_whole_tokens_never_inside_a_longer_one():
 
 @pytest.mark.parametrize("fm", [
     {"source": "watch-history", "source_id": "watch-history:2026-10-01"},
-    {"origin": "youtube-playlist", "title": "A saved video"},
+    {"origin": "youtube-playlist", "title": "A saved video", "processed": True, "processed_by": "index"},
 ])
 def test_an_index_only_episode_reads_as_a_one_line_pointer_never_its_text(tmp_path, fm):
     memory = _bank(tmp_path)
@@ -320,7 +320,10 @@ def test_an_index_only_episode_reads_as_a_one_line_pointer_never_its_text(tmp_pa
     stdio = mcp_tools.ToolContext(memory_path=lambda: memory, session_id="s", harness="claude-code")
     text = str(mcp_tools.sources(stdio, "ep_2026-10-01_007"))
     assert "SECRET-WORDS-OF-THE-ITEM" not in text and "A saved video" not in text
-    assert len(text.splitlines()) == 1 and "indexed for lookup, not read by an agent by id" in text
+    # Ruling 80: a day of watch history is kept and never read, and says why; a post of a saved list is a save, and says
+    # that Sleep has not read it yet and when it will.
+    assert len(text.splitlines()) == 1
+    assert ("kept, never read: the person did not save it" in text) if "source" in fm else ("not read yet" in text)
     assert "cicada_ask" in text
 
 

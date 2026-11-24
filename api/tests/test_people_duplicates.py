@@ -315,7 +315,8 @@ def _claim(cid, subject, predicate, obj, **extra):
 def _write(memory: Path, eid: str, fm: dict, claims=()):
     body = write_claims("## Summary\nSynthetic.", list(claims)) if claims else "## Summary\nSynthetic."
     markdown_parser.write(memory / "entities" / f"{eid}.md",
-                          {"type": "person", "status": "active", "confidence": 0.8, **fm}, body)
+                          {"type": "person", "status": "active", "confidence": 0.8,
+                           "source_episodes": ["ep_2026-01-01_001", "ep_2026-01-02_001"], **fm}, body)
 
 
 @pytest.fixture

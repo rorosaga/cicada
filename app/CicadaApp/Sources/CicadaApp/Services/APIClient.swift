@@ -1569,11 +1569,17 @@ struct SleepHistoryEntry: Codable, Identifiable, Equatable {
     /// "sleep" | "decay" (the G85 split's `(decay)` commit) | "inbox".
     let kind: String
     let entitiesCreated: Int
+    /// Pages really changed (a fact, a sentence, a status — never a date stamp moving); items-6 (2026-11-24).
     let entitiesUpdated: Int
     let episodes: Int
     let sessions: Int
     let authors: [String]
     let durationMs: Int?
+    /// items-6 — the pages the cycle archived, removed, or only faded (confidence moved by silence alone). The closed
+    /// card counts what the opened card counts, from the same survey. Zero from an older backend.
+    var entitiesArchived: Int = 0
+    var entitiesRemoved: Int = 0
+    var entitiesFaded: Int = 0
     /// 2026-09-28 — what the cycle cost, one flat value; `nil` = not recorded (or an older backend).
     let usageSummary: CycleUsageSummary?
     /// Sleep page v5 — the run this commit was a batch of, and that run's own numbers (never summed from the
@@ -1588,6 +1594,7 @@ struct SleepHistoryEntry: Codable, Identifiable, Equatable {
     enum CodingKeys: String, CodingKey {
         case commitHash, date, message, filesChanged, engine, kind
         case entitiesCreated, entitiesUpdated, episodes, sessions, authors, durationMs, usageSummary
+        case entitiesArchived, entitiesRemoved, entitiesFaded
         case drainId, batch, batches, run
     }
 
@@ -1605,6 +1612,9 @@ struct SleepHistoryEntry: Codable, Identifiable, Equatable {
         sessions = try c.decodeIfPresent(Int.self, forKey: .sessions) ?? 0
         authors = try c.decodeIfPresent([String].self, forKey: .authors) ?? []
         durationMs = try c.decodeIfPresent(Int.self, forKey: .durationMs)
+        entitiesArchived = ((try? c.decodeIfPresent(Int.self, forKey: .entitiesArchived)) ?? nil) ?? 0
+        entitiesRemoved = ((try? c.decodeIfPresent(Int.self, forKey: .entitiesRemoved)) ?? nil) ?? 0
+        entitiesFaded = ((try? c.decodeIfPresent(Int.self, forKey: .entitiesFaded)) ?? nil) ?? 0
         usageSummary = (try? c.decodeIfPresent(CycleUsageSummary.self, forKey: .usageSummary)) ?? nil
         drainId = (try? c.decodeIfPresent(String.self, forKey: .drainId)) ?? nil
         batch = (try? c.decodeIfPresent(Int.self, forKey: .batch)) ?? nil
@@ -2837,6 +2847,25 @@ actor APIClient {
         }
     }
 
+    /// G246 — what a saved link's card may offer for "Keep as a page" (`GET /sources/keep-as-page`): `none` for
+    /// everything but a post drawn as a row or one the person's click holds, and for every link until the switch is on.
+    func keepAsPageState(url: String) async throws -> KeepAsPageState {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?/#")
+        let u = url.addingPercentEncoding(withAllowedCharacters: allowed) ?? url
+        return try await get("/sources/keep-as-page?url=\(u)")
+    }
+
+    /// G246 — keep a saved post as a page (`kept: true`) or send it back to a row (`POST /sources/keep-as-page`).
+    func keepAsPage(url: String, kept: Bool) async throws -> KeepAsPageReply {
+        try await post("/sources/keep-as-page", body: ["url": url, "kept": kept])
+    }
+
+    /// G246 — the same click for a row of a list, which holds no link: by the row's own page id (`entity`).
+    func keepAsPage(entity: String, kept: Bool) async throws -> KeepAsPageReply {
+        try await post("/sources/keep-as-page", body: ["entity": entity, "kept": kept])
+    }
+
     /// G191 v3 — forget a bookmark in Cicada (`POST /sources/bookmarks/remove`): the page archived, never deleted.
     func removeBookmark(url: String) async throws {
         let _: BookmarkRemoveReply = try await post("/sources/bookmarks/remove", body: ["url": url])
@@ -3800,6 +3829,12 @@ actor APIClient {
     /// (the run card's dropdown; not a Store domain). Sent with the ETag the caller holds: a 304 keeps its copy.
     func fetchSleepConsolidated(_ key: SleepConsolidatedKey, etag: String?) async throws -> Conditional<SleepConsolidated> {
         try await getConditional(key.path, etag: etag)
+    }
+
+    /// `GET /sleep/runs/{id}/pages/{page}/change` or `GET /sleep/history/{commit}/pages/{page}/change` — what one
+    /// consolidation changed on one page, ready to draw (items-6): why, its facts, its prose in blocks, the rest.
+    func fetchSleepPageChange(_ key: SleepConsolidatedKey, page: String) async throws -> SleepPageChange {
+        try await get(SleepPageChange.path(key, page: page))
     }
 
     /// Cooperative-cancel whatever cycle is currently running. See

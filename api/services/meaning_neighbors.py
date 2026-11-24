@@ -20,6 +20,7 @@ from pathlib import Path
 import numpy as np
 from loguru import logger
 
+from api.services import saved_posts
 from api.services.vector_index import INDEX_DB_FILE, SqliteVecIndexer
 
 #: Neighbours kept per page.
@@ -47,7 +48,13 @@ def signature(memory_path: Path) -> tuple:
             parts += [st.st_mtime_ns, st.st_size]
         except OSError:
             parts += [0, 0]
-    return (NEIGHBORS_K, MIN_SIMILARITY, *parts)
+    # G246: a saved post drawn as a row is no page, so it takes no neighbour's slot; the set of them is part of the key
+    # ("" until the flip, so the key is what it was).
+    held = saved_posts.stamp(memory_path)
+    from api.services import list_pages
+
+    lists = list_pages.stamp(memory_path)
+    return (NEIGHBORS_K, MIN_SIMILARITY, *parts, *((held,) if held else ()), *((lists,) if lists else ()))
 
 
 def _read_vectors(memory_path: Path) -> tuple[list[str], np.ndarray, str | None]:
@@ -73,6 +80,17 @@ def _read_vectors(memory_path: Path) -> tuple[list[str], np.ndarray, str | None]
     norms = np.linalg.norm(mat, axis=1, keepdims=True)
     norms[norms == 0] = 1.0
     return ids, mat / norms, model
+
+
+def _without(ids: list[str], mat: np.ndarray, hidden) -> tuple[list[str], np.ndarray]:
+    """The vectors of the pages drawn as pages: a row (a saved post nobody gave a reason to) is dropped before any pair is
+    taken, so it never fills a drawn page's five slots."""
+    if not hidden or not ids:
+        return ids, mat
+    keep = [i for i, key in enumerate(ids) if key not in hidden]
+    if len(keep) == len(ids):
+        return ids, mat
+    return [ids[i] for i in keep], mat[keep]
 
 
 def nearest_pairs(ids: list[str], mat: np.ndarray, *, k: int = NEIGHBORS_K,
@@ -126,6 +144,10 @@ def neighbors(memory_path: Path) -> dict:
         if hit and hit[0] == sig:
             return hit[1]
         ids, mat, model = _read_vectors(memory_path)
+        # A list's own page (G246) is not near anything in meaning: it holds no words of its own.
+        from api.services import list_pages
+
+        ids, mat = _without(ids, mat, saved_posts.hidden_ids(memory_path) | list_pages.drawn_ids(memory_path))
         result = {"model": model, "k": NEIGHBORS_K, "embedded": len(ids),
                   "pairs": nearest_pairs(ids, mat) if ids else []}
         _cache[key] = (sig, result)

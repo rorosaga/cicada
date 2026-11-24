@@ -34,6 +34,7 @@ from api.services import (
     pair_evidence,
     phone_numbers,
     predicates,
+    question_origin,
     quiet_pages,
     same_name_pick,
     search_index,
@@ -317,6 +318,7 @@ def _item_from_file(
         source_episode=_opt_str(fm.get("source_episode")),
         source_episode_timestamp=_opt_str(fm.get("source_episode_timestamp")),
         claim_id=_opt_str(fm.get("claim_id")),
+        asked_by=question_origin.wire(fm, kind),
         **extra,
     )
 
@@ -556,7 +558,18 @@ def _subject_quiet(memory_path: Path, entity_id: str) -> bool:
     if not entity_id:
         return False
     filepath = resolve_entity_file(memory_path, entity_id)
-    return filepath is not None and quiet_pages.page_is_quiet(memory_path, filepath.stem)
+    if filepath is None:
+        return False
+    # G246: a list of saved posts has a page of its own and is never asked about (it is never quiet, so this is its own
+    # exclusion: a question is held, unserved, for any page that is one).
+    from api.services import list_pages
+
+    entry = bank_index.file(Path(memory_path), "entities", filepath.name)
+    if entry is not None and list_pages.is_list(entry.frontmatter):
+        return True
+    # G246: a saved post the person gave a reason to is an ordinary page (`page_is_dimmed`): it may be asked about; a post
+    # drawn as a row never is.
+    return quiet_pages.page_is_dimmed(memory_path, filepath.stem)
 
 
 def _fold_anchor(memory_path: Path, fm: dict) -> str:

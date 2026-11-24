@@ -430,17 +430,19 @@ def apply_stars(memory_path: Path, stars: list[tuple[Repo, str | None]], *, logi
         idx = media_ingestor.load_url_index(memory_path)
         known = _pages_by_id(memory_path)
         seen: set[int] = set()
-        for repo, starred_at in stars:
-            seen.add(repo.id)
-            owned = repo.owner.lower() == login.lower() if login else None
-            try:
-                _, status, paths = upsert(memory_path, repo, idx, origin=github.ORIGIN_STARRED, starred=True,
-                                          starred_at=_stamp(starred_at), owned=owned, known=known)
-            except Exception as exc:  # noqa: BLE001 — one repository never stops the rest; the class only
-                logger.warning(f"github: a starred repository was not written ({type(exc).__name__})")
-                continue
-            out["paths"] += paths
-            out[status] = out.get(status, 0) + 1
+        # Ruling 80: a first whole read of the stars is a bulk, each one waiting its turn in the pile.
+        with media_ingestor.bulk_door(sum(1 for repo, _ in stars if _known_entity(memory_path, repo, idx, known) is None)):
+            for repo, starred_at in stars:
+                seen.add(repo.id)
+                owned = repo.owner.lower() == login.lower() if login else None
+                try:
+                    _, status, paths = upsert(memory_path, repo, idx, origin=github.ORIGIN_STARRED, starred=True,
+                                              starred_at=_stamp(starred_at), owned=owned, known=known)
+                except Exception as exc:  # noqa: BLE001 — one repository never stops the rest; the class only
+                    logger.warning(f"github: a starred repository was not written ({type(exc).__name__})")
+                    continue
+                out["paths"] += paths
+                out[status] = out.get(status, 0) + 1
         if complete:
             for repo_id, entity_id in known.items():
                 if repo_id in seen:

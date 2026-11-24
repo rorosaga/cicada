@@ -483,6 +483,7 @@ row. Tests: the touched files, their importers and `make test-crucial`, niced, o
   agent"); `test_cli_map.py`, `test_handshake_r12.py`, `test_mcp_schema_size.py`; scratch app check (section 7).
 - Out of scope: any layout, tab or card change on the Sleep page (the owner withdrew that request).
 ### Track 3: `feat/grouped-save-read`. Optional until measured. After Track 1 and Track 2a.
+- **Status (2026-11-24): built and OFF** (`grouped_save_read.ON = False`), stacked on the held switch. No new stage name or enum: a grouped call is Stage 1's own `extraction` call and states no answer shape. Measured once each by `saves_battery` (single leg and grouped leg, haiku on the plan); numbers in `docs/architecture/capture-and-sleep.md`.
 - Files: `api/services/entity_extractor.py` (a grouped branch beside the chunk loop; Track 2a's note and rules apply per block), `api/services/json_parse.py` (reuse `numbered_rows`),
   `api/services/agent_engine.py` (`SCHEMA_BY_STAGE` entry), `api/services/sleep_spend.py` (`LINE_STAGES`) and the ledger stage enum and `providers.resolve_llm_fn` if a new stage name is used
   (the implementer lists each enum touched), `api/services/sleep_run_prefs.py` (the 50 ceiling for a save-only batch), `api/services/sleep_cycle.py` (the skills-call skip at `:3458`),

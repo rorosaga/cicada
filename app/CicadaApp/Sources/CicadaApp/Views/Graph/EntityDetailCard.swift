@@ -271,6 +271,12 @@ struct EntityDetailCard: View {
     /// What the page holds (`GET /entities/{id}`'s `blocks`); nil on a graph stub or from an older backend.
     private var blocks: PageBlocks? { isStub ? nil : entity.blocks }
 
+    /// G246 (ruling 81): a list of saved posts' own block, on its own page only.
+    private var listBlock: PageBlocks.ListBlock? {
+        guard entity.type == .media, entity.media?.isList == true else { return nil }
+        return blocks?.list
+    }
+
     /// Ruling 48 (7) — the brand leads when looks are what the page is about.
     private var brandLeads: Bool {
         PageBrandBlock.leads(looks: blocks?.looks.count ?? 0,
@@ -508,6 +514,10 @@ struct EntityDetailCard: View {
                     loadRepository(entity.id)
                     reloadPage()
                 })
+            } else if let list = listBlock {
+                // G246 (ruling 81): a list of saved posts — what it is, how many, the five newest as the Sources page's own
+                // cards and "All N" (its words, the count and the cards are read from the saves each time it opens).
+                ListPageCard(entity: entity, list: list)
             } else if entity.type == .media, let media = entity.media, media.isFile {
                 // ROR-117: the file itself leads (the viewer's own player or photo), then the article, then its words.
                 MediaPageHead(media: media, session: mediaPage)
@@ -524,7 +534,8 @@ struct EntityDetailCard: View {
                                mediaEntityId: entity.id)
                 }
             }
-            if showRawMarkdown { rawMarkdownView } else { renderedMarkdownView }
+            // A list's own page says its one line inside `ListPageCard`: the rendered body would say it twice (DR-38).
+            if showRawMarkdown { rawMarkdownView } else if listBlock == nil { renderedMarkdownView }
             if !showRawMarkdown, entity.type == .media, let id = entity.media?.fileId, entity.media?.isFile == true {
                 MediaPageTranscript(fileId: id, session: mediaPage, markdown: entity.markdownContent, changed: reloadPage)
             }
@@ -756,6 +767,7 @@ struct EntityDetailCard: View {
     /// and no article (the first screen is built synchronously, so an empty one is known now, never a guess).
     private var pageBlockIsEmpty: Bool {
         guard !showRawMarkdown, !isStub, paperDetail == nil else { return false }
+        if listBlock != nil { return false }
         if entity.type == .media, let media = entity.media, media.hasURL, !media.isPaper, !media.isBook { return false }
         if entity.type == .media, entity.media?.isFile == true { return false }
         // ROR-138: a book's page leads with its own head (cover, authors, where the person stands, the description

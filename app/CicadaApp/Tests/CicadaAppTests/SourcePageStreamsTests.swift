@@ -76,15 +76,15 @@ final class SourcePageStreamsTests: XCTestCase {
             let siblings = try XCTUnwrap(SourceStreamsFixture.load().source(source)).streams
             return SourceStreamRow.line(one.stream, among: siblings)
         }
-        // The head already says "In your browser, by your AI app": nothing repeats it, and "kept and findable" is the norm.
+        // The head already says "In your browser, by your AI app": nothing repeats it, and a depth word appears only where a source's streams differ.
         XCTAssertEqual(try line("x.bookmarks", in: "x"), "3 folders", "its folders, nothing about the way it is read")
         XCTAssertNil(try line("x.likes", in: "x"), "nothing specific: no line at all")
         XCTAssertEqual(try line("x.saves", in: "x"), "When you save, on this Mac", "the click stream's own way")
         XCTAssertEqual(try line("notes.notes", in: "notes"), "6 folders", "a lone Mac reader: the head says it is read on this Mac")
         XCTAssertEqual(try line("imessage.chats", in: "imessage"), "Messages needs Full Disk Access.", "unavailable: why")
         XCTAssertEqual(try line("linkedin.connections", in: "linkedin"), "Matched to people you already have pages for",
-                       "what a stream is for when its name does not say, never \"kept and findable\"")
-        XCTAssertFalse(try XCTUnwrap(try line("linkedin.connections", in: "linkedin")).contains("kept and findable"))
+                       "what a stream is for when its name does not say, never the depth word")
+        XCTAssertFalse(try XCTUnwrap(try line("linkedin.connections", in: "linkedin")).contains("never read"))
         let help = try XCTUnwrap(SourceStreamRow.help(try resolved("x.bookmarks", in: "x").stream))
         XCTAssertTrue(help.contains("Older ones come with the site's export"))
         XCTAssertTrue(help.contains("Unsaving on the site does not remove one here"))
@@ -102,7 +102,7 @@ final class SourcePageStreamsTests: XCTestCase {
         var deep = browser
         deep.depth = .read
         XCTAssertEqual(SourceStreamRow.line(deep, among: [deep, account]), "read by Sleep")
-        XCTAssertEqual(SourceStreamRow.line(account, among: [deep, account]), "kept and findable")
+        XCTAssertEqual(SourceStreamRow.line(account, among: [deep, account]), "kept, never read: you did not save it")
         XCTAssertEqual(SourceStreamRow.line(SourceStream(id: "s.d", label: "D", kind: .saved, state: .unavailable,
                                                         why: "Needs Full Disk Access."), among: []),
                        "Needs Full Disk Access.", "an unavailable stream says why instead")
@@ -213,14 +213,14 @@ final class SourcePageStreamsTests: XCTestCase {
         item.author = "  Alpha Writer "
         XCTAssertEqual(SourceItemCardText.footer(item, today: today, locale: en).first, "Alpha Writer")
         item.depth = "kept"
-        XCTAssertNil(SourceItemCardText.depth(item), "kept says nothing")
+        XCTAssertEqual(SourceItemCardText.depth(item), "not read yet")
         XCTAssertEqual(SourceItemCardText.footer(ChannelItem(kind: .media, id: "m2", title: "t"), today: today), [],
                        "an older backend's row says less, never a guess")
     }
 
-    /// G245 B3 — how deep Cicada went, said in the footer's own style: nothing for `kept` or a value this build does not
-    /// know, one short plain phrase for each of the other three, no provider named.
-    func testTheDepthWordIsQuietForKeptAndOneShortPhraseForTheRest() throws {
+    /// G245 B3, ruling 80 — where a saved item stands, said in the footer's own style: nothing for a value this build does
+    /// not know, one short plain phrase for each state, no provider named.
+    func testTheDepthWordIsOneShortPhraseForEveryStateAndNothingForAnUnknownOne() throws {
         let today = try XCTUnwrap(ISODay("2026-11-24"))
         let en = Locale(identifier: "en_US")
         func card(_ depth: String?) -> ChannelItem {
@@ -229,20 +229,22 @@ final class SourcePageStreamsTests: XCTestCase {
             item.lists = ["Bookmarks"]
             return item
         }
-        XCTAssertNil(SourceItemCardText.depth(card("kept")), "kept is the default and adds no noise")
+        XCTAssertEqual(SourceItemCardText.depth(card("kept")), "not read yet")
+        XCTAssertEqual(SourceItemCardText.depth(card("empty")), "nothing to read yet")
+        XCTAssertEqual(SourceItemCardText.depth(card("record")), "kept, never read")
         XCTAssertNil(SourceItemCardText.depth(card(nil)))
         XCTAssertNil(SourceItemCardText.depth(card("deeper-than-we-know")), "an unknown value draws nothing")
-        XCTAssertEqual(SourceItemCardText.depth(card("asked")), "your AI app reads it next")
+        XCTAssertEqual(SourceItemCardText.depth(card("asked")), "waiting for your AI app")
         XCTAssertEqual(SourceItemCardText.depth(card("read")), "read")
         XCTAssertEqual(SourceItemCardText.depth(card("watched")), "watched")
-        let kept = SourceItemCardText.footer(card("kept"), today: today, locale: en)
-        for depth in ["asked", "read", "watched"] {
+        let plain = SourceItemCardText.footer(card("deeper-than-we-know"), today: today, locale: en)
+        for depth in ["kept", "empty", "record", "asked", "read", "watched"] {
             let footer = SourceItemCardText.footer(card(depth), today: today, locale: en)
-            XCTAssertEqual(footer.count, kept.count + 1, "\(depth): one more word in the meta line, nothing else")
-            XCTAssertEqual(footer.dropLast().map { $0 }, kept, "\(depth): the depth word comes last")
+            XCTAssertEqual(footer.count, plain.count + 1, "\(depth): one more word in the meta line, nothing else")
+            XCTAssertEqual(footer.dropLast().map { $0 }, plain, "\(depth): the depth word comes last")
         }
-        XCTAssertEqual(kept, SourceItemCardText.footer(card("deeper-than-we-know"), today: today, locale: en))
-        for word in [Copy.Streams.itemRead, Copy.Streams.itemAsked, Copy.Streams.itemWatched] {
+        for word in [Copy.Streams.itemRead, Copy.Streams.itemNotRead, Copy.Streams.itemNothing, Copy.Streams.itemRecord,
+                     Copy.Streams.itemAsked, Copy.Streams.itemWatched] {
             XCTAssertTrue(word.first?.isLowercase == true, "the footer's own lowercase style: \(word)")
             XCTAssertFalse(["claude", "chatgpt", "openai", "gemini", "anthropic"].contains { word.lowercased().contains($0) }, word)
         }
@@ -283,6 +285,31 @@ final class SourcePageStreamsTests: XCTestCase {
             if try Self.source("Views/Agents/" + file).contains("intake") { found = true }
         }
         XCTAssertTrue(found, "the Agents page")
+    }
+
+    /// G246 (ruling 81, Track 3) — "Saved another way" is a place posts go: a tab of the Items with its count, never a Reads
+    /// row's worth of words about how the source is read, and no setup to ask for.
+    func testSavedAnotherWayIsATabAndSaysNothingAboutHowTheSourceIsRead() throws {
+        let another = SourceStream(id: "x.another-way", label: "Saved another way", kind: .saved, how: .app, owner: .backend,
+                                   control: .setup, state: .on, health: .read, count: 4, depth: .read)
+        XCTAssertTrue(another.isDerived)
+        XCTAssertFalse(SourceStream(id: "x.bookmarks", label: "Bookmarks").isDerived)
+        let derived = ResolvedStream(source: "x", stream: another, word: .read, fix: nil, reader: nil)
+        let base = try streams("x")
+        XCTAssertEqual(SourceHeadLine.text(account: nil, streams: base + [derived], app: nil),
+                       SourceHeadLine.text(account: nil, streams: base, app: nil), "the head's line is the lists' alone")
+        XCTAssertEqual(SourceHeadLine.ways(base + [derived]), SourceHeadLine.ways(base))
+        // Off lists, one derived stream that is on: still the ways a source could read, not an empty line.
+        let off = base.map { r -> ResolvedStream in
+            var s = r.stream; s.state = .off
+            return ResolvedStream(source: r.source, stream: s, word: .off, fix: nil, reader: nil)
+        }
+        XCTAssertEqual(SourceHeadLine.ways(off + [derived]), SourceHeadLine.ways(off))
+        let tabs = SourceStreamItems.tabs(base.filter { $0.stream.kind.isList && ($0.stream.count ?? 0) > 0 } + [derived])
+        XCTAssertEqual(tabs.last?.label, "Saved another way")
+        XCTAssertEqual(tabs.last?.count, 4)
+        XCTAssertTrue(try Self.source("Views/Sources/SourceCatalogViews.swift").contains("!$0.stream.isDerived"),
+                      "the Reads block and the connect step leave it out")
     }
 
     func testNotionLeftTheFileGroupAndIsItsLiveConnection() {

@@ -157,6 +157,11 @@ def merge(memory_path, loser_id: str, winner_id: str, *, author: str | list[str]
         raise JoinError("A page cannot be merged into itself.")
     lfm = markdown_parser.parse(lp).frontmatter
     wfm = markdown_parser.parse(wp).frontmatter
+    from api.services import list_pages
+
+    if list_pages.is_list(lfm) or list_pages.is_list(wfm):
+        # G246 (ruling 81): the page of a list of saved posts stands for the list itself.
+        raise JoinError("The page of a list of saved posts stands for that list; it is never merged.", 409)
 
     def names(fm: dict, pid: str) -> set[str]:
         return {pid, sanitize_id(str(fm.get("name") or pid))}

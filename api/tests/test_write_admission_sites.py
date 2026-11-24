@@ -489,6 +489,7 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "PUT /settings/owner": (ADMITTED, None),
     "PUT /settings/editors": (OUTSIDE, None),         # G198: $CICADA_HOME/editors.json, never the bank
     "POST /sources/folders": (ADMITTED, None),
+    "POST /sources/keep-as-page": (ADMITTED, None),   # G246: the one stamp on a post's save, committed alone as the person
     "PUT /sources/folders/{folder_id}": (HELD, None),
     "DELETE /sources/folders/{folder_id}": (REGISTRY, None),
     "POST /sources/folders/{folder_id}/sync": (HELD, None),
@@ -919,6 +920,8 @@ GET_ROUTES: dict[str, tuple[str, str]] = {
     "GET /inbox": (NONE, "names a commit in a comment only"),
     "GET /sources": (NONE, "G221: names `save_folders` — reads each save's folders and their reasons"),
     "GET /sources/save-folders": (NONE, "G221: reads a site's folders and their reasons; writes nothing"),
+    "GET /sleep/queue": (NONE, "ruling 80: names `history_index.save_state` — reads a save's state from the cached header"),
+    "GET /sleep/kept": (NONE, "ruling 80: names `history_index.save_state` — reads a save's state from the cached header"),
     "GET /entities/{entity_id}/history": (NONE, "reads commits"),
     "GET /entities/{entity_id}/history/{commit_hash}/diff": (NONE, "reads a commit"),
     "GET /entities/{entity_id}/blame": (NONE, "reads commits (G198: git blame and the commits' trailers)"),
@@ -928,7 +931,9 @@ GET_ROUTES: dict[str, tuple[str, str]] = {
     "GET /contributors/top-entities": (NONE, "reads commits"),
     "GET /sleep/history/{commit}": (NONE, "reads a commit"),
     "GET /sleep/history/{commit}/items": (NONE, "reads a commit's file list and the bank's names"),
-    "GET /sleep/runs/{drain_id}/items": (NONE, "reads its batch commits' file lists and the bank's names"),
+    "GET /sleep/runs/{drain_id}/items": (OUTSIDE, "reads its batch commits' file lists and the bank's names; remembers each commit's classification outside every bank (`commit_changes`, derived and disposable)"),
+    "GET /sleep/runs/{drain_id}/pages/{entity_id}/change": (OUTSIDE, "reads two versions of a page from git; the same remembered classification outside every bank"),
+    "GET /sleep/history/{commit}/pages/{entity_id}/change": (OUTSIDE, "reads two versions of a page from git; the same remembered classification outside every bank"),
     "GET /handshake": (OUTSIDE, "the telemetry ledger row (outside every bank) and the primer cache"),
     "GET /banks/{name}/export": (OUTSIDE, "a temporary archive outside the bank, removed after it is sent"),
     "GET /sources/folders": (NONE, "builds response records"),

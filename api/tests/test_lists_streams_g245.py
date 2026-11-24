@@ -61,7 +61,8 @@ def test_a_posted_day_the_record_tool_stores_is_what_the_items_route_serves(read
     dated = [r for r in rows.values() if r.get("posted")]
     assert [r["posted"] for r in dated] == ["2026-11-20"]
     # `day` stays the day it was kept on: today, never the post's own day.
-    assert dated[0]["day"] != "2026-11-20" and all(r["depth"] == "kept" for r in rows.values()), by_url
+    # (ruling 80: a post recorded with a link and no words holds nothing to read yet.)
+    assert dated[0]["day"] != "2026-11-20" and all(r["depth"] == "empty" for r in rows.values()), by_url
 
 
 def test_a_day_a_later_read_gives_a_post_kept_before_is_served_too(reading, client):

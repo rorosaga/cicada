@@ -401,8 +401,11 @@ class SourceOverview(CamelModel):
     # stored) or the site a saved thing came from (`kind: site`, `id` = the saved page the site's mark is asked by) —
     # with how many more there are.
     waiting: int = 0
-    # Ruling 62: this source's saves kept for lookup, unread until the person talks about one (the detail's one line).
+    # Ruling 80 (meaning changed from ruling 62's "kept for lookup"): this source's older saves Sleep has not read yet
+    # (the pile) — Sleep reads ``kept_per_night`` of them a night, newest first, and one first when the person talks
+    # about it (the detail's one line, ``saved_words.pile_line``). 0 when none; the name is unchanged for older clients.
     kept: int = 0
+    kept_per_night: int = 0
     faces: list[SourceFace] = Field(default_factory=list)
     faces_more: int = 0
 
@@ -695,6 +698,42 @@ class PageBlockHistory(CamelModel):
     contributors: list[PageBlockContributor] = []
 
 
+class PageBlockListRow(CamelModel):
+    """One of a list's newest saves (``list_pages.block``): the words as the list's own row has them."""
+
+    title: str = ""
+    author: Optional[str] = None
+    posted: Optional[str] = None
+    saved: Optional[str] = None
+    host: Optional[str] = None
+
+
+class PageBlockListWhy(CamelModel):
+    """The person's own reason for a whole folder, read now from ``save_folders`` (never stored on the page)."""
+
+    text: str
+    at: Optional[str] = None
+
+
+class PageBlockList(CamelModel):
+    """G246 (ruling 81): what a list of saved posts holds, read from the saves each time the page is served — its count,
+    its newest day, when this Mac last read it, a folder's reason and its newest rows. ``stream``, ``folder`` and
+    ``channel`` are the items route's own address for the same rows; ``source`` the origin whose mark the page wears."""
+
+    site: str = ""
+    stream: str
+    folder: Optional[str] = None
+    channel: str = ""
+    label: str = ""
+    source: str = ""
+    count: int = 0
+    newest: Optional[str] = None
+    last_read_at: Optional[str] = None
+    why: Optional[PageBlockListWhy] = None
+    recent: list[PageBlockListRow] = []
+    recent_withheld: bool = False
+
+
 class PageBlocks(CamelModel):
     """``page_blocks.build``: ``order`` names the blocks this page has, in the order a page reads them; each present
     block's data rides its own key (an absent block is null or empty). Derived on read, never stored, never fetched.
@@ -712,6 +751,8 @@ class PageBlocks(CamelModel):
     sources: Optional[PageBlockSources] = None
     citations: Optional["PageBlockCitations"] = None
     history: Optional[PageBlockHistory] = None
+    # G246: last in the class on purpose — a field named ``list`` would shadow the builtin for every annotation after it.
+    list: Optional[PageBlockList] = None
 
 
 class SourceCorrection(CamelModel):
@@ -2661,6 +2702,9 @@ class GraphResponse(CamelModel):
     # M5b: distinct observer roster across the graph, so the observer filter bar
     # can populate its segments without a second call. Additive/optional.
     observers: list[str] = []
+    # G246 (ruling 81): how many saved posts are drawn as a row under their list instead of as a node. 0 until the
+    # posts-as-rows switch is on (and with ``include_posts``), so the app shows nothing; Home says the number in one line.
+    hidden_posts: int = 0
 
 
 # --- Search ---
@@ -3233,6 +3277,10 @@ class InboxItem(CamelModel):
     # requests are placed above the questions. The order is derived at read (`question_order`) and carries no magnitude;
     # a client that has it for EVERY item sorts by it, else by `priority` then newest (an older server). Additive.
     order_index: Optional[int] = None
+    # 2026-11-24 (owner): who asked, for the one quiet line on the card ("Asked 13 days ago by Sleep's duplicate check"),
+    # derived at read from what the question itself stamped (`question_origin`), never stored. `{step, how, by, agent}`;
+    # the day is `created_date`. Null when the record says nothing: the card then says only when. Additive.
+    asked_by: Optional[dict] = None
 
 
 class CatchupTurnRequest(CamelModel):
@@ -3868,6 +3916,12 @@ class SleepHistoryEntry(CamelModel):
     kind: str = "sleep"
     entities_created: int = 0
     entities_updated: int = 0
+    #: Owner 2026-11-24 (items-6): a cycle's pages counted as the opened card lists them — `entities_updated` is pages
+    #: changed in substance (never a decay stamp or a faded fact), and these three are the other lists' sizes
+    #: (`sleep_consolidated.figures`). Additive.
+    entities_archived: int = 0
+    entities_removed: int = 0
+    entities_faded: int = 0
     episodes: int = 0
     sessions: int = 0
     authors: list[str] = Field(default_factory=list)
@@ -3912,6 +3966,11 @@ class SleepRunRef(CamelModel):
     # `None` when not recorded (telemetry off), never zero.
     created: Optional[int] = None
     updated: Optional[int] = None
+    #: Owner 2026-11-24 (items-6): the opened card's own counts (`sleep_consolidated.figures`) — the closed card and the
+    #: opened one never disagree. `updated` is pages changed in substance; `faded` pages whose only change was silence.
+    archived: Optional[int] = None
+    removed: Optional[int] = None
+    faded: Optional[int] = None
     questions_raised: Optional[int] = None
     usage_summary: Optional["CycleUsageSummary"] = None
     models: list[str] = Field(default_factory=list)
@@ -3933,6 +3992,10 @@ class SleepRunBatch(CamelModel):
     took_ms: Optional[int] = None
     calls: int = 0
     windows: list["CycleUsagePlanWindow"] = Field(default_factory=list)
+    # Ruling 80 (G246): the model that wrote this batch (the ledger row's own), and whether it read old bulk saves on the
+    # engine's lighter model instead of the one the person chose. ``null`` model: not recorded.
+    model: Optional[str] = None
+    lighter: bool = False
 
 
 class SleepRunPages(CamelModel):
@@ -4050,6 +4113,12 @@ class SleepConsolidatedPage(CamelModel):
     #: ids of THIS run's conversations that fed it (never another run's). Additive.
     change: str = "updated"
     episodes: list[str] = Field(default_factory=list)
+    #: items-6 (owner 2026-11-24, "what influenced this change?"): which step of the run changed this page, from a closed
+    #: set (`page_change.STEPS`: reading, decay, conflict, settled, join, source_check, link_enrichment, summary, web,
+    #: expiry, import, other), oldest first, one value each — the commits of the run that changed it, named by what
+    #: wrote them. The app shows the conversations (`episodes`) first and these only when none of the run's fed it.
+    #: `other` is a step Cicada cannot name honestly; the list is empty only for a page no run commit names. Additive.
+    steps: list[str] = Field(default_factory=list)
 
 
 class SleepConsolidatedQuestion(CamelModel):
@@ -4071,9 +4140,105 @@ class SleepConsolidated(CamelModel):
     #: items-5: a page is in exactly one of the four lists (removed > archived > created > updated). Additive.
     archived: list[SleepConsolidatedPage] = Field(default_factory=list)
     removed: list[SleepConsolidatedPage] = Field(default_factory=list)
+    #: items-6 (owner 2026-11-24): pages whose only change was confidence lost (or regained) to silence — quiet, never
+    #: "updated", never in the default list. A page with only bookkeeping (a decay stamp, a date, a counter) is in no
+    #: list and counted in `counts.bookkeeping`. Additive.
+    faded: list[SleepConsolidatedPage] = Field(default_factory=list)
     questions_raised: list[SleepConsolidatedQuestion] = Field(default_factory=list)
     questions_settled: list[SleepConsolidatedQuestion] = Field(default_factory=list)
     counts: dict[str, int] = Field(default_factory=dict)
+    truncated: bool = False
+
+
+class SleepChangeFieldChange(CamelModel):
+    """One meaningful field of one fact that changed, words-ready: `field` is one of `text, subject, predicate, object,
+    valid_from, valid_to, expected_end, superseded_by, supersedes, status, target, context, source_trust, observer,
+    epistemic, confidence, sources, details` (`details` names nothing: a field with no sentence). `before`/`after` are
+    the values as strings (`None` when it had or has none); `sources` carries conversation ids in `added`/`removed`."""
+    field: str
+    before: Optional[str] = None
+    after: Optional[str] = None
+    added: list[str] = Field(default_factory=list)
+    removed: list[str] = Field(default_factory=list)
+
+
+class SleepChangeFact(CamelModel):
+    """A fact the run added or withdrew (`claim` is the one claim wire, `transclusion_resolver.claim_to_model`), or
+    changed (`claim` is its new state and `changes` what moved). `conversation` is the conversation its own evidence
+    names — one that exists in the bank, preferring one of this run's — and `in_run` whether the run read it."""
+    claim: "ClaimModel"
+    changes: list[SleepChangeFieldChange] = Field(default_factory=list)
+    conversation: Optional[str] = None
+    in_run: bool = False
+
+
+class SleepChangeFacts(CamelModel):
+    added: list[SleepChangeFact] = Field(default_factory=list)
+    withdrawn: list[SleepChangeFact] = Field(default_factory=list)
+    changed: list[SleepChangeFact] = Field(default_factory=list)
+    #: How many facts only lost (or regained) confidence to silence — not listed, never a change.
+    faded: int = 0
+    #: The whole counts when a list was cut (`MAX_FACTS` each).
+    counts: dict[str, int] = Field(default_factory=dict)
+    truncated: bool = False
+
+
+class SleepChangeSegment(CamelModel):
+    op: str   # equal | added | removed
+    text: str
+
+
+class SleepChangeBlock(CamelModel):
+    """One block of the page's own markdown. `op`: `context` (unchanged, one either side of a change), `added`,
+    `removed`, or `edited` (`before`/`after` the paragraph, `segments` its words that changed, a link kept whole).
+    `markdown` is the block as the page writes it (for `edited` the new one); `heading` the heading text it sits
+    under (inline markdown), `level` > 0 only on a heading block itself."""
+    op: str
+    markdown: str
+    heading: Optional[str] = None
+    level: int = 0
+    before: Optional[str] = None
+    after: Optional[str] = None
+    segments: list[SleepChangeSegment] = Field(default_factory=list)
+
+
+class SleepChangeProse(CamelModel):
+    blocks: list[SleepChangeBlock] = Field(default_factory=list)
+    counts: dict[str, int] = Field(default_factory=dict)
+    truncated: bool = False
+
+
+class SleepChangeOther(CamelModel):
+    """A change other than facts and prose, in words: `field` is `status`, `name`, `type`, `decay_class` (before ->
+    after), or `aliases`, `tags`, `sources` (added / removed)."""
+    field: str
+    before: Optional[str] = None
+    after: Optional[str] = None
+    added: list[str] = Field(default_factory=list)
+    removed: list[str] = Field(default_factory=list)
+
+
+class SleepConversation(SleepConsolidatedConversation):
+    """A conversation named by a page's change: the run's own, or one a fact's evidence names (`in_run` false)."""
+    in_run: bool = False
+
+
+class SleepPageChange(CamelModel):
+    """``GET /sleep/runs/{id}/pages/{page}/change`` and ``GET /sleep/history/{commit}/pages/{page}/change`` — what one
+    run did to one page, ready to render (``page_change.change``): why first (`page.episodes` the run's conversations
+    that fed it, else `page.steps`), then the facts, the prose as the page's own blocks, and the other changes. No
+    bookkeeping key, claim id outside the claim wire, or frontmatter. `change`: created | updated | archived | removed
+    | faded | bookkeeping (the last two are only reachable by id: nothing lists them as a change). `empty`: nothing in
+    substance changed. Bounded (`truncated`)."""
+    page: SleepConsolidatedPage
+    change: str
+    conversations: list[SleepConversation] = Field(default_factory=list)
+    facts: SleepChangeFacts = Field(default_factory=SleepChangeFacts)
+    prose: SleepChangeProse = Field(default_factory=SleepChangeProse)
+    other: list[SleepChangeOther] = Field(default_factory=list)
+    #: Further frontmatter keys that changed and have no sentence (counted, never named).
+    other_details: int = 0
+    empty: bool = False
     truncated: bool = False
 
 
@@ -4096,6 +4261,8 @@ class EpisodeMeetingBrief(CamelModel):
 
 
 SleepConsolidatedConversation.model_rebuild()
+SleepConversation.model_rebuild()
+SleepPageChange.model_rebuild()
 
 
 class EpisodeQueueItem(CamelModel):
@@ -4407,6 +4574,9 @@ class SleepRunOptions(CamelModel):
     spend_limit_choices: list[int] = Field(default_factory=list)
     # G243: the Mac does not sleep on power while a run reads. Off by default; never wakes a sleeping Mac or holds a lid.
     keep_awake: bool = False
+    # Ruling 80 (owner 2026-11-24): old bulk saves (old bookmarks, saves out of an export or archive file) are read on the
+    # lightest model of the engine you chose, after every other save. On by default; off reads everything on your model.
+    light_old_saves: bool = True
 
 
 class SleepRunOptionsUpdate(CamelModel):
@@ -4417,6 +4587,7 @@ class SleepRunOptionsUpdate(CamelModel):
     scheduled_use_plan: Optional[bool] = None
     spend_limit_usd: Optional[float] = None
     keep_awake: Optional[bool] = None
+    light_old_saves: Optional[bool] = None
 
 
 class SleepTriggerBody(BaseModel):
@@ -4448,15 +4619,15 @@ class SleepQueueItem(CamelModel):
 
 
 class SleepKeptSource(CamelModel):
-    """One source's share of what is kept for lookup: how many, and its newest item's time."""
+    """One source's share of the older saves not read yet: how many, and its newest item's time."""
     origin: str
     count: int
     newest: Optional[str] = None
 
 
 class SleepKept(CamelModel):
-    """``GET /sleep/kept`` (owner 2026-11-23): what is kept for lookup (ruling 62) — ``sources`` the whole breakdown,
-    ``items`` one source's page (newest first) when ``origin`` was asked, else empty."""
+    """``GET /sleep/kept`` (owner 2026-11-23; ruling 80 changed what it holds): the older saves Sleep has not read yet —
+    ``sources`` the whole breakdown, ``items`` one source's page (newest first) when ``origin`` was asked, else empty."""
     total: int = 0
     sources: list[SleepKeptSource] = Field(default_factory=list)
     origin: Optional[str] = None
@@ -4468,8 +4639,11 @@ class SleepQueueResponse(CamelModel):
     total: int
     offset: int = 0
     items: list[SleepQueueItem] = Field(default_factory=list)
-    #: Ruling 62: saves kept for lookup, unread until the person talks about one (the Sleep page's one line).
+    #: Ruling 80 (meaning changed from ruling 62's "kept for lookup"): the older saves Sleep has not read yet, waiting
+    #: their turn in the pile; the Sleep page's one line says how many and ``kept_per_night`` (the one constant, how many
+    #: Sleep reads a night, newest first). A save waiting for tonight is a row in ``items``, not counted here.
     kept: int = 0
+    kept_per_night: int = 0
 
 
 class SleepEngineChoice(CamelModel):
@@ -5257,7 +5431,7 @@ class SavedWhyRequest(CamelModel):
 
 class FolderReasonRequest(CamelModel):
     """G221 — give a site's folder ONE reason (or change the one it has): the keys of a save's own answer and/or a few
-    words. `dry_run` writes nothing and says how many saves it would make readable; more than 100 need `confirm`."""
+    words. `dry_run` writes nothing and says how many saves it would queue for the next run; more than 100 need `confirm`."""
 
     model_config = ConfigDict(extra="forbid")
     site: str
@@ -5269,8 +5443,9 @@ class FolderReasonRequest(CamelModel):
 
 
 class FolderReasonCounts(CamelModel):
-    """How many saves filed in the folder: all, made readable by this change (each a model read at the next Sleep),
-    readable already, and, on a clear, no longer readable."""
+    """How many saves filed in the folder: all, queued for Sleep's next run by this change (``makes_readable``: the older
+    pile and the saves with nothing to read, each a model read), not in the pile already, and, on a clear, no longer
+    carrying the folder's reason."""
 
     saves: int = 0
     makes_readable: int = 0
@@ -5292,7 +5467,8 @@ class FolderReasonResponse(CamelModel):
 class SiteFolderRow(CamelModel):
     name: str
     saves: int = 0
-    #: Saves filed here that no model would read yet: what a reason given to this folder would make readable.
+    #: Saves filed here in the older pile, not read yet (ruling 80; the name is kept): what a reason given to this
+    #: folder would queue for the next run.
     index_only: int = 0
     reason: Optional[SavedWhyRecord] = None
 

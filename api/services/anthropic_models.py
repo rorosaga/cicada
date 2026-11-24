@@ -95,6 +95,13 @@ def newest(line: str) -> str | None:
     return next((m for m, ln in DOCUMENTED if ln == line), None)
 
 
+def active(line: str) -> list[str]:
+    """Every active model of a line, newest first: the list's, else the documented floor's."""
+    listed = sorted((r for r in _rows() if r.get("line") == line and r.get("lifecycle") == "active"),
+                    key=lambda r: str(r.get("created") or ""), reverse=True)
+    return [r["id"] for r in listed] or [m for m, ln in DOCUMENTED if ln == line]
+
+
 def tier(name: str) -> str | None:
     """The model of a tier (``small``, ``standard``, ``top``) today, as stored in the pref. ``None`` for no such tier."""
     line = TIER_LINE.get(name)

@@ -1,0 +1,751 @@
+{
+ "about": "Invented. Two nights: phase 1 is consolidated, then the listed conversations are edited in place (a revision) and a second night is drained. Each story names what the edit changes (`expect`): the new value current, the old one in no open claim under any predicate, what another conversation says untouched. Every name, place and date is invented.",
+ "owner": "Wren Calloway",
+ "conversations": [
+  {
+   "id": "r01",
+   "phase": 1,
+   "day": -50,
+   "title": "Dario's move",
+   "turns": [
+    "My brother Dario is moving to Ghent to start a new job at a shipyard.",
+    "Congratulations to him! When does he move?",
+    "On {day:+40}, when his flat lease ends. He asked me to help with the move that day, so I'm borrowing a van."
+   ]
+  },
+  {
+   "id": "r01",
+   "phase": 2,
+   "day": -50,
+   "title": "Dario's move",
+   "edit": true,
+   "turns": [
+    "My brother Dario is moving to Ghent to start a new job at a shipyard.",
+    "Congratulations to him! When does he move?",
+    "On {day:+47}, when his flat lease ends. He asked me to help with the move that day, so I'm borrowing a van."
+   ]
+  },
+  {
+   "id": "r02a",
+   "phase": 1,
+   "day": -56,
+   "title": "Odile the ceramicist",
+   "turns": [
+    "My friend Odile is a ceramicist, she works out of a shed behind her house.",
+    "Sounds peaceful.",
+    "She teaches a pottery class on Sundays too."
+   ]
+  },
+  {
+   "id": "r02",
+   "phase": 1,
+   "day": -50,
+   "title": "Odile's studio",
+   "turns": [
+    "My friend Odile is moving to Bruges to open a pottery studio there.",
+    "That sounds exciting. When does she go?",
+    "On {day:+30}, when the lease on her shed ends. I promised to drive her kiln over that day."
+   ]
+  },
+  {
+   "id": "r02",
+   "phase": 2,
+   "day": -50,
+   "title": "Odile's studio",
+   "edit": true,
+   "turns": [
+    "My friend Odile is moving to Bruges to open a pottery studio there.",
+    "That sounds exciting. When does she go?",
+    "On {day:+37}, when the lease on her shed ends. I promised to drive her kiln over that day."
+   ]
+  },
+  {
+   "id": "r03",
+   "phase": 1,
+   "day": -49,
+   "title": "Hedda's move",
+   "turns": [
+    "My cousin Hedda is moving to Turku to begin a degree in marine biology.",
+    "Good for her! When is the move?",
+    "On {day:+55}, as soon as her rental contract is over. She asked me to help carry boxes, so I am renting a trailer."
+   ]
+  },
+  {
+   "id": "r03",
+   "phase": 2,
+   "day": -49,
+   "title": "Hedda's move",
+   "edit": true,
+   "turns": [
+    "My cousin Hedda is moving to Turku to begin a degree in marine biology.",
+    "Good for her! When is the move?",
+    "On {day:+62}, as soon as her rental contract is over. She asked me to help carry boxes, so I am renting a trailer."
+   ]
+  },
+  {
+   "id": "r04",
+   "phase": 1,
+   "day": -50,
+   "title": "La mudanza de Noelia",
+   "turns": [
+    "Mi prima Noelia se muda a Sevilla para empezar un máster en musicología.",
+    "¡Qué bien! ¿Cuándo se muda?",
+    "El {day:+55}, cuando termine su contrato de alquiler. Me pidió que le ayude con la mudanza ese día, así que voy a alquilar una furgoneta."
+   ]
+  },
+  {
+   "id": "r04",
+   "phase": 2,
+   "day": -50,
+   "title": "La mudanza de Noelia",
+   "edit": true,
+   "turns": [
+    "Mi prima Noelia se muda a Sevilla para empezar un máster en musicología.",
+    "¡Qué bien! ¿Cuándo se muda?",
+    "El {day:+62}, cuando termine su contrato de alquiler. Me pidió que le ayude con la mudanza ese día, así que voy a alquilar una furgoneta."
+   ]
+  },
+  {
+   "id": "r05",
+   "phase": 1,
+   "day": -47,
+   "title": "La jubilación de Anselmo",
+   "turns": [
+    "Mi tío Anselmo se jubila de la fábrica de cerámica este año.",
+    "Qué buena noticia. ¿Cuándo es su último día?",
+    "El {day:+35}. Mi tía quiere organizar una comida ese fin de semana."
+   ]
+  },
+  {
+   "id": "r05",
+   "phase": 2,
+   "day": -47,
+   "title": "La jubilación de Anselmo",
+   "edit": true,
+   "turns": [
+    "Mi tío Anselmo se jubila de la fábrica de cerámica este año.",
+    "Qué buena noticia. ¿Cuándo es su último día?",
+    "El {day:+42}. Mi tía quiere organizar una comida ese fin de semana."
+   ]
+  },
+  {
+   "id": "r06",
+   "phase": 1,
+   "day": -50,
+   "title": "Le déménagement de Bastien",
+   "turns": [
+    "Mon frère Bastien déménage à Lyon pour ouvrir une boulangerie.",
+    "Quelle belle nouvelle ! Quand part-il ?",
+    "Le {day:+45}, quand son bail se termine. Il m'a demandé de l'aider ce jour-là, alors je loue un camion."
+   ]
+  },
+  {
+   "id": "r06",
+   "phase": 2,
+   "day": -50,
+   "title": "Le déménagement de Bastien",
+   "edit": true,
+   "turns": [
+    "Mon frère Bastien déménage à Lyon pour ouvrir une boulangerie.",
+    "Quelle belle nouvelle ! Quand part-il ?",
+    "Le {day:+52}, quand son bail se termine. Il m'a demandé de l'aider ce jour-là, alors je loue un camion."
+   ]
+  },
+  {
+   "id": "r07",
+   "phase": 1,
+   "day": -46,
+   "title": "L'examen de Solène",
+   "turns": [
+    "Ma cousine Solène passe son examen de piano à Nantes.",
+    "Bravo ! C'est quand ?",
+    "Le {day:+33}. Je lui ai promis de venir l'écouter."
+   ]
+  },
+  {
+   "id": "r07",
+   "phase": 2,
+   "day": -46,
+   "title": "L'examen de Solène",
+   "edit": true,
+   "turns": [
+    "Ma cousine Solène passe son examen de piano à Nantes.",
+    "Bravo ! C'est quand ?",
+    "Le {day:+40}. Je lui ai promis de venir l'écouter."
+   ]
+  },
+  {
+   "id": "r08",
+   "phase": 1,
+   "day": -45,
+   "title": "Spring concert",
+   "turns": [
+    "I run a weekly choir at the library and I'm organising its spring concert.",
+    "How many singers are coming?",
+    "There will be 24 singers on stage, plus a pianist."
+   ]
+  },
+  {
+   "id": "r08",
+   "phase": 2,
+   "day": -45,
+   "title": "Spring concert",
+   "edit": true,
+   "turns": [
+    "I run a weekly choir at the library and I'm organising its spring concert.",
+    "How many singers are coming?",
+    "There will be 31 singers on stage, plus a pianist."
+   ]
+  },
+  {
+   "id": "r09",
+   "phase": 1,
+   "day": -44,
+   "title": "The beehives",
+   "turns": [
+    "My neighbour Wilhelmina keeps bees behind the allotment.",
+    "How many hives does she have?",
+    "She has 9 hives and wants to add a few next year."
+   ]
+  },
+  {
+   "id": "r09",
+   "phase": 2,
+   "day": -44,
+   "title": "The beehives",
+   "edit": true,
+   "turns": [
+    "My neighbour Wilhelmina keeps bees behind the allotment.",
+    "How many hives does she have?",
+    "She has 14 hives and wants to add a few next year."
+   ]
+  },
+  {
+   "id": "r10",
+   "phase": 1,
+   "day": -43,
+   "title": "The lake cabin",
+   "turns": [
+    "We rented a cabin for the long weekend in Skarholm, near the lake.",
+    "That sounds lovely. Is it far?",
+    "Two hours by train. The cabin belongs to a retired teacher called Oskarsen."
+   ]
+  },
+  {
+   "id": "r10",
+   "phase": 2,
+   "day": -43,
+   "title": "The lake cabin",
+   "edit": true,
+   "turns": [
+    "We rented a cabin for the long weekend in Skarvik, near the lake.",
+    "That sounds lovely. Is it far?",
+    "Two hours by train. The cabin belongs to a retired teacher called Oskarsen."
+   ]
+  },
+  {
+   "id": "r11",
+   "phase": 1,
+   "day": -42,
+   "title": "Dentist",
+   "turns": [
+    "I booked a dentist appointment with Dr. Halvorsen for next month.",
+    "Hope it goes well.",
+    "Thanks, she was recommended by my colleague Perrin."
+   ]
+  },
+  {
+   "id": "r11",
+   "phase": 2,
+   "day": -42,
+   "title": "Dentist",
+   "edit": true,
+   "turns": [
+    "I booked a dentist appointment with Dr. Imrie for next month.",
+    "Hope it goes well.",
+    "Thanks, she was recommended by my colleague Perrin."
+   ]
+  },
+  {
+   "id": "r12",
+   "phase": 1,
+   "day": -41,
+   "title": "A new cat",
+   "turns": [
+    "I adopted a grey cat called Pim from the shelter last week.",
+    "Congratulations! Anything else new?",
+    "Yes, I started cello lessons on Thursdays at the music school. I also ordered a new sofa."
+   ]
+  },
+  {
+   "id": "r12",
+   "phase": 2,
+   "day": -41,
+   "title": "A new cat",
+   "edit": true,
+   "turns": [
+    "I adopted a grey cat called Pim from the shelter last week.",
+    "Congratulations! Anything else new?",
+    "Yes, I also ordered a new sofa."
+   ]
+  },
+  {
+   "id": "r13",
+   "phase": 1,
+   "day": -40,
+   "title": "Baking",
+   "turns": [
+    "I'm learning to bake sourdough from a book my aunt gave me.",
+    "How are the loaves?",
+    "Decent. I also signed up for a woodcarving evening course at the community college."
+   ]
+  },
+  {
+   "id": "r13",
+   "phase": 2,
+   "day": -40,
+   "title": "Baking",
+   "edit": true,
+   "turns": [
+    "I'm learning to bake sourdough from a book my aunt gave me.",
+    "How are the loaves?",
+    "Decent."
+   ]
+  },
+  {
+   "id": "r14",
+   "phase": 1,
+   "day": -39,
+   "title": "The bicycle",
+   "turns": [
+    "I repaired my old bicycle this weekend.",
+    "Nice. Is it a good bike?",
+    "It rides well."
+   ]
+  },
+  {
+   "id": "r14",
+   "phase": 2,
+   "day": -39,
+   "title": "The bicycle",
+   "edit": true,
+   "turns": [
+    "I repaired my old bicycle this weekend.",
+    "Nice. Is it a good bike?",
+    "It rides well. I also bought a red helmet from the shop on Pearl Street."
+   ]
+  },
+  {
+   "id": "r15",
+   "phase": 1,
+   "day": -38,
+   "title": "The window",
+   "turns": [
+    "Our flat in the old town has a leaking window.",
+    "Did you call anyone?",
+    "The landlord, Mr. Aldous, said he would come."
+   ]
+  },
+  {
+   "id": "r15",
+   "phase": 2,
+   "day": -38,
+   "title": "The window",
+   "edit": true,
+   "turns": [
+    "Our flat in the old town has a leaking window.",
+    "Did you call anyone?",
+    "The landlord, Mr. Aldous, said he would come. He is bringing a glazier named Fenwick."
+   ]
+  },
+  {
+   "id": "r16",
+   "phase": 1,
+   "day": -52,
+   "title": "Ottilie",
+   "turns": [
+    "My sister Ottilie lives in Bergen and works as a sailmaker.",
+    "That's a lovely town.",
+    "Yes. She has a little boat too."
+   ]
+  },
+  {
+   "id": "r16b",
+   "phase": 1,
+   "day": -40,
+   "title": "Ottilie at Christmas",
+   "turns": [
+    "Ottilie, who lives in Bergen, is visiting us at Christmas.",
+    "Wonderful!",
+    "She will bring smoked fish."
+   ]
+  },
+  {
+   "id": "r16",
+   "phase": 2,
+   "day": -52,
+   "title": "Ottilie",
+   "edit": true,
+   "turns": [
+    "My sister Ottilie works as a sailmaker.",
+    "That's a lovely town.",
+    "Yes. She has a little boat too."
+   ]
+  },
+  {
+   "id": "r17",
+   "phase": 1,
+   "day": -51,
+   "title": "Tallis",
+   "turns": [
+    "My cousin Tallis lives in Dunmore and keeps goats.",
+    "How many?",
+    "Four, and they are noisy."
+   ]
+  },
+  {
+   "id": "r17b",
+   "phase": 1,
+   "day": -39,
+   "title": "Tallis invites us",
+   "turns": [
+    "Tallis lives in Dunmore and has invited the whole family for the harvest supper.",
+    "Lovely.",
+    "I said yes for all of us."
+   ]
+  },
+  {
+   "id": "r17",
+   "phase": 2,
+   "day": -51,
+   "title": "Tallis",
+   "edit": true,
+   "turns": [
+    "My cousin Tallis lives in Kilbride and keeps goats.",
+    "How many?",
+    "Four, and they are noisy."
+   ]
+  }
+ ],
+ "gold": {
+  "points": [],
+  "updates": [],
+  "forbid": [],
+  "people": {
+   "same": [],
+   "apart": [],
+   "apart_facts": [],
+   "one": []
+  },
+  "pages": {
+   "expected": [],
+   "not_expected": []
+  },
+  "dated": [],
+  "secret": "",
+  "apart_values": [],
+  "roles": [],
+  "fading": []
+ },
+ "expect": {
+  "stories": [
+   {
+    "id": "r01",
+    "shape": "date",
+    "lang": "en",
+    "conversation": "r01",
+    "current": [
+     [
+      "{date:-3}"
+     ]
+    ],
+    "stale": [
+     [
+      "{date:-10}"
+     ]
+    ],
+    "about": [
+     "dario"
+    ]
+   },
+   {
+    "id": "r02",
+    "shape": "date",
+    "lang": "en",
+    "conversation": "r02",
+    "current": [
+     [
+      "{date:-13}"
+     ]
+    ],
+    "stale": [
+     [
+      "{date:-20}"
+     ]
+    ],
+    "about": [
+     "odile"
+    ]
+   },
+   {
+    "id": "r03",
+    "shape": "date",
+    "lang": "en",
+    "conversation": "r03",
+    "current": [
+     [
+      "{date:13}"
+     ]
+    ],
+    "stale": [
+     [
+      "{date:6}"
+     ]
+    ],
+    "about": [
+     "hedda"
+    ]
+   },
+   {
+    "id": "r04",
+    "shape": "date",
+    "lang": "es",
+    "conversation": "r04",
+    "current": [
+     [
+      "{date:12}"
+     ]
+    ],
+    "stale": [
+     [
+      "{date:5}"
+     ]
+    ],
+    "about": [
+     "noelia"
+    ]
+   },
+   {
+    "id": "r05",
+    "shape": "date",
+    "lang": "es",
+    "conversation": "r05",
+    "current": [
+     [
+      "{date:-5}"
+     ]
+    ],
+    "stale": [
+     [
+      "{date:-12}"
+     ]
+    ],
+    "about": [
+     "anselmo"
+    ]
+   },
+   {
+    "id": "r06",
+    "shape": "date",
+    "lang": "fr",
+    "conversation": "r06",
+    "current": [
+     [
+      "{date:2}"
+     ]
+    ],
+    "stale": [
+     [
+      "{date:-5}"
+     ]
+    ],
+    "about": [
+     "bastien"
+    ]
+   },
+   {
+    "id": "r07",
+    "shape": "date",
+    "lang": "fr",
+    "conversation": "r07",
+    "current": [
+     [
+      "{date:-6}"
+     ]
+    ],
+    "stale": [
+     [
+      "{date:-13}"
+     ]
+    ],
+    "about": [
+     "solene"
+    ]
+   },
+   {
+    "id": "r08",
+    "shape": "number",
+    "lang": "en",
+    "conversation": "r08",
+    "current": [
+     [
+      "singer",
+      "31"
+     ]
+    ],
+    "stale": [
+     [
+      "singer",
+      "24"
+     ]
+    ]
+   },
+   {
+    "id": "r09",
+    "shape": "number",
+    "lang": "en",
+    "conversation": "r09",
+    "current": [
+     [
+      "hive",
+      "14"
+     ]
+    ],
+    "stale": [
+     [
+      "hive",
+      "9"
+     ]
+    ]
+   },
+   {
+    "id": "r10",
+    "shape": "name",
+    "lang": "en",
+    "conversation": "r10",
+    "current": [
+     [
+      "skarvik"
+     ]
+    ],
+    "stale": [
+     [
+      "skarholm"
+     ]
+    ]
+   },
+   {
+    "id": "r11",
+    "shape": "name",
+    "lang": "en",
+    "conversation": "r11",
+    "current": [
+     [
+      "imrie"
+     ]
+    ],
+    "stale": [
+     [
+      "halvorsen"
+     ]
+    ]
+   },
+   {
+    "id": "r12",
+    "shape": "removed",
+    "lang": "en",
+    "conversation": "r12",
+    "current": [],
+    "stale": [
+     [
+      "cello"
+     ]
+    ],
+    "kept": [
+     [
+      "pim"
+     ]
+    ]
+   },
+   {
+    "id": "r13",
+    "shape": "removed",
+    "lang": "en",
+    "conversation": "r13",
+    "current": [],
+    "stale": [
+     [
+      "woodcarving"
+     ]
+    ],
+    "kept": [
+     [
+      "sourdough"
+     ]
+    ]
+   },
+   {
+    "id": "r14",
+    "shape": "added",
+    "lang": "en",
+    "conversation": "r14",
+    "current": [
+     [
+      "helmet"
+     ]
+    ],
+    "stale": [],
+    "kept": [
+     [
+      "bicycle"
+     ]
+    ]
+   },
+   {
+    "id": "r15",
+    "shape": "added",
+    "lang": "en",
+    "conversation": "r15",
+    "current": [
+     [
+      "fenwick"
+     ]
+    ],
+    "stale": [],
+    "kept": [
+     [
+      "aldous"
+     ]
+    ]
+   },
+   {
+    "id": "r16",
+    "shape": "second",
+    "lang": "en",
+    "conversation": "r16",
+    "current": [],
+    "stale": [],
+    "kept": [
+     [
+      "ottilie",
+      "bergen"
+     ]
+    ]
+   },
+   {
+    "id": "r17",
+    "shape": "second",
+    "lang": "en",
+    "conversation": "r17",
+    "current": [],
+    "stale": [],
+    "kept": [
+     [
+      "tallis",
+      "dunmore"
+     ]
+    ]
+   }
+  ]
+ }
+}

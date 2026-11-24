@@ -33,6 +33,9 @@ words are already the question's cause or one option's evidence).
   knows them and Settings shows them, so they are never asked;
 * ``followup`` — one on a page not in the person's list, never started or taken out (ruling 56, ``not_started``):
   retired with nothing written;
+* ``clarification`` asking a person known only by a description for their name, on a page that rests on one conversation
+  (owner 2026-11-24, ``name_once``): retired with nothing written; asked again, new, when they come up in a second
+  conversation (`role_people.ensure_question`); undone, it is theirs and Sleep never retires it again;
 * everything else — a clarification, a follow-up on a project they started, a proposed edit — stays for the person (move
   1 aside).
 
@@ -124,6 +127,7 @@ RULES: dict[str, str] = {
     "already_a_name": "The record already answers it: that name is one of this page's names",
     "names_one_page": "Both values name one person, spelled two ways",
     "not_started": "It is not one of your projects",
+    "name_once": "They have come up once; their name is asked if they come up again",
     "same_value": "The same value, said two ways",
     "moved_on": "It moved: the latest is current, the earlier ones are kept as past",
     "own_bookkeeping": "About Cicada's own counters, which Cicada already knows",
@@ -134,18 +138,27 @@ RULES: dict[str, str] = {
     "alias_apart": "Two different things: one no longer lists the other's name as its own",
     "alias_quiet": "A saved link shares the name; it is no question about your memory",
     "alias_doubt": "Sleep could not tell whether they are one thing; nothing was changed",
+    # 2026-11-24 (`question_revisit`, ruling 82): an open question read again, by the main model, against the whole record.
+    "revisit_one": "Read again against everything on record: it says they are one person",
+    # `name_revisit` (ruling 82): a name with no page, read again against the page it was asked about.
+    "revisit_same": "Read again against everything on record: your own words say it is the same thing",
+    "revisit_apart": "Read again against everything on record: it is a different thing; nothing was joined",
+    # `name_revisit` (ruling 82): the page it asked about has faded since, and the name was not said after its last mention.
+    "target_faded": "The page it asked about has faded, and the name has not come up since; what is held about it is still held",
+    # `name_revisit` (ruling 82 (e)): no conversation it came from says the name: a label Cicada made up for something.
+    "name_not_said": "It asked about a label Cicada made up, not something that was said; what is held about it is still held",
 }
 #: What the settled list says each retired "same as?" question became (owner 2026-11-04, `pair_evidence`).
 RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
            "no_pair_evidence": "Not asked: no conversation names them together"}
 #: The rules that read only the bank: re-run inside each settle, which goes ahead only when they still agree.
 #: The rules whose settle is a join Sleep read twice: taking one back is the person saying they are two (74b, 74c).
-JOINS = frozenset({"full_name_one", "typo_one"})
+JOINS = frozenset({"full_name_one", "typo_one", "revisit_one", "revisit_same"})
 #: The settle that took a name off a page (`alias_collisions`): taking it back is the person keeping the name.
 ALIAS_RULES = frozenset({"alias_apart"})
 ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "seed_fold", "one_off", "newest_evidence",
                          "multi_valued", "in_passing", "newest_words", "own_settings", "named_account",
-                         "owner_unsaid", "no_pair_evidence", "two_signals", "not_started", "same_value", "moved_on",
+                         "owner_unsaid", "no_pair_evidence", "two_signals", "not_started", "name_once", "same_value", "moved_on",
                          "own_bookkeeping", "already_described", "not_fading", "source_corrected",
                          "already_one_page", "already_a_name", "names_one_page"})
 #: The judged kinds (owner, 2026-10-17: the inbox keeps only what genuinely needs the person).
@@ -212,6 +225,9 @@ class Decision:
     reason: str = ""
     #: ``source_corrected`` only: the corrected conversation the question rested on (G104 slice 3).
     basis: str = ""
+    #: The located words a read rested on, ``{"episode", "start", "end", "kind"}`` (``kind``: whose words they are), ids
+    #: and offsets only: the settled list shows them beside the reason (`question_revisit`, ruling 82).
+    spans: list = field(default_factory=list)
 
 
 @dataclass
@@ -359,6 +375,21 @@ def _guard(memory_path: Path, *entity_ids: str) -> dict:
 
 def guard_holds(memory_path: Path, d: "Decision") -> bool:
     return all(_hash(Path(memory_path) / rel) == digest for rel, digest in (d.guard or {}).items())
+
+
+def _first_mention_name(memory_path: Path, fm: dict) -> bool | None:
+    """``True`` when this name question is about an unnamed person page that rests on fewer than two conversations
+    (`role_people.heard_again`), else ``None``. A page that cannot be read, a person who declined and a page the question
+    does not name are never this rule's."""
+    from api.services import role_people
+
+    page = _page(memory_path, str(fm.get("entity_id") or ""))
+    if page is None:
+        return None
+    pfm = page[1]
+    if not pfm.get(role_people.UNNAMED_KEY) or pfm.get(role_people.DECLINED_KEY) or pfm.get("owner"):
+        return None
+    return None if role_people.heard_again(memory_path, pfm) else True
 
 
 def _is_owner_page(fm: dict | None) -> bool:
@@ -784,6 +815,14 @@ def policy(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
         if meeting_speakers.gone(memory_path, fm):
             return Decision(item_id, kind, "subject_gone", None, answer="Retired", guard=_guard(memory_path, "")), ""
         return None, "needs_person"
+    if kind == "clarification" and str(fm.get("asks") or "") == "name":
+        # Owner 2026-11-24: someone known only by a description is not asked about on a first mention. One asked before
+        # that rule, whose page still rests on one conversation, is retired with nothing written (the page, its
+        # claims and its title stay); `role_people.ensure_question` raises it again, new, once they come up again.
+        held = _first_mention_name(memory_path, fm)
+        if held is not None:
+            return Decision(item_id, kind, "name_once", None, answer="Not asked yet: they have come up once",
+                            guard=_guard(memory_path, str(fm.get("entity_id") or ""))), ""
     page_state = _page_state(memory_path, fm)
     if page_state == "missing" or _gone(memory_path, fm):
         return Decision(item_id, kind, "subject_gone", None, answer="Retired",
@@ -2082,14 +2121,17 @@ def _record_key(memory_path: Path, path: Path) -> tuple[str, str]:
     return os.path.realpath(memory_path), path.stem
 
 
-async def read_record_answer(memory_path: Path, path: Path, fm: dict, llm_fn) -> tuple[Decision | None, str]:
+async def read_record_answer(memory_path: Path, path: Path, fm: dict, llm_fn, *, lines: list | None = None,
+                              memory: dict | None = _RECORD_READ) -> tuple[Decision | None, str]:
     """Move 3 for one question: the person's own lines about it across the record, one engine call, and a decision
     only on their words located exactly in the conversation the reply names. ``not_on_record``: no engine call
     (nothing names it, or the same lines were already read without an answer)."""
     import hashlib
 
     guard = _guard(memory_path, str(fm.get("entity_id") or ""))   # the page whose claims and dates it reads, as read
-    found = await asyncio.to_thread(record_lines, memory_path, fm)   # file reads and the index, off the loop
+    # ``lines``: the caller already searched (`question_revisit` keeps its own memory, outside every bank, and passes
+    # ``memory=None`` so the in-process one never hides a read the stronger model should make).
+    found = lines if lines is not None else await asyncio.to_thread(record_lines, memory_path, fm)   # off the loop
     if not found:
         return None, "not_on_record"
     if str(fm.get("kind") or "") == "followup" and not _followup_choices(memory_path, fm)[0]:
@@ -2099,7 +2141,7 @@ async def read_record_answer(memory_path: Path, path: Path, fm: dict, llm_fn) ->
     seen = hashlib.sha256("\n".join([str(fm.get("kind") or ""), str(fm.get("question") or ""), *lines])
                           .encode("utf-8")).hexdigest()
     key = _record_key(memory_path, path)
-    if _RECORD_READ.get(key) == seen:
+    if memory is not None and memory.get(key) == seen:
         return None, "not_on_record"
     prompt, choices = _question_prompt(memory_path, fm, lines, tagged=True)
     reply, model = await _ask(llm_fn, prompt)
@@ -2111,9 +2153,10 @@ async def read_record_answer(memory_path: Path, path: Path, fm: dict, llm_fn) ->
         d, why = await _confirmed(llm_fn, fm, d, why)
     if d is not None:
         d.guard = guard
-        _RECORD_READ.pop(key, None)
-    elif why in _NOT_ANSWERED:
-        _RECORD_READ[key] = seen
+        if memory is not None:
+            memory.pop(key, None)
+    elif why in _NOT_ANSWERED and memory is not None:
+        memory[key] = seen
     return d, why
 
 
@@ -2135,6 +2178,8 @@ def _record(fm: dict, d: Decision, by: str, evidence_span: dict | None) -> dict:
     }
     if evidence_span:
         rec["evidence"] = evidence_span
+    if d.spans:
+        rec["evidence_spans"] = [dict(s) for s in d.spans]
     return rec
 
 
@@ -2159,6 +2204,16 @@ def still_holds(memory_path: Path, d: Decision) -> bool:
         from api.services import typo_join
 
         return typo_join.still_holds(memory_path, d)
+    if d.rule == "revisit_one":
+        # Ruling 82 (2026-11-24): the same, for two pages the question revisit read against the whole record.
+        from api.services import question_revisit
+
+        return question_revisit.still_holds(memory_path, d)
+    if d.rule in ("revisit_same", "revisit_apart", "target_faded", "name_not_said"):
+        # Ruling 82 (2026-11-24): the same, for a name with no page read against the page it was asked about.
+        from api.services import name_revisit
+
+        return name_revisit.still_holds(memory_path, d)
     if d.rule not in ENGINE_FREE:
         return True
     path = _inbox(Path(memory_path)) / f"{d.item_id}.md"
@@ -2710,6 +2765,7 @@ VETTED_RULES: dict[str, tuple[frozenset[str] | None, frozenset]] = {
     "no_pair_evidence": (frozenset({"merge_suggestion"}), frozenset({None})),
     "two_signals": (frozenset({"merge_suggestion"}), frozenset({"merge"})),
     "not_started": (frozenset({"followup"}), frozenset({None})),
+    "name_once": (frozenset({"clarification"}), frozenset({None})),
     "same_value": (frozenset({"conflict"}), frozenset({"resolve"})),
     "moved_on": (frozenset({"conflict"}), frozenset({"resolve"})),
     "own_bookkeeping": (frozenset({"conflict"}), frozenset({None})),

@@ -9,8 +9,8 @@ import yaml
 from loguru import logger
 
 from api.models.schemas import GraphLink, GraphNode, GraphResponse
-from api.services import (bank_index, claim_contexts, decay_policy, entity_picture, fact_sources, logo_service,
-                          media_kinds, predicates, quiet_pages, same_name)
+from api.services import (bank_index, claim_contexts, decay_policy, entity_picture, fact_sources, list_pages, logo_service,
+                          media_kinds, predicates, quiet_pages, saved_posts, same_name)
 from api.services.claims import is_current, parse_claims, strip_claims_block
 from api.services.id_utils import sanitize_id
 from api.services.markdown_parser import load_yaml, load_yaml_file, parse, write_yaml
@@ -102,6 +102,15 @@ def synthetic_hash(*parts) -> str:
 # means the first GET after a sleep cycle pays the scan once and every repeat is
 # a dict lookup. Filters are applied on top of the cached full graph cheaply.
 _CACHE: dict = {"key": None, "value": None}
+#: G246: the graph with every saved post drawn (``include_posts``), its own slot so a client that asks for the rows does
+#: not evict the answer everyone else reads. Without the flip (``saved_posts.HIDE_POSTS``) both slots hold the same graph.
+_CACHE_ALL: dict = {"key": None, "value": None}
+
+
+def reset_cache() -> None:
+    """Forget both cached graphs (tests; a bank switch)."""
+    for slot in (_CACHE, _CACHE_ALL):
+        slot.update(key=None, value=None)
 
 
 def build_graph(
@@ -113,9 +122,13 @@ def build_graph(
     tags: set[str] | None = None,
     include_hubs: bool = True,
     hubs_only: bool = False,
+    include_posts: bool = False,
 ) -> GraphResponse:
-    """Build the graph response, with server-side degree/flags and filtering."""
-    full = _build_full(Path(memory_path))
+    """Build the graph response, with server-side degree/flags and filtering.
+
+    ``include_posts`` (G246): draw every saved post as a page too. By default a post nobody gave a reason to is a row
+    under its list, not a node (``saved_posts``; nothing changes until its ``HIDE_POSTS`` is on)."""
+    full = _build_full(Path(memory_path), include_posts=include_posts)
     return _apply_filters(
         full,
         types=types,
@@ -144,14 +157,10 @@ def _photos_stamp(memory_path: Path) -> str:
         return stamp
 
 
-def _build_full(memory_path: Path) -> GraphResponse:
-    entities_dir = memory_path / "entities"
-    edges_file = memory_path / "graph_edges.yaml"
-    hubs_dir = memory_path / "hubs"
-
-    key = (
-        # Fingerprints, not "the newest mtime" (audit 2026-10-05 P2-9): an edit
-        # beside a future-dated page must still miss the cache.
+def _cache_key(memory_path: Path, entities_dir: Path, edges_file: Path, hubs_dir: Path) -> tuple:
+    return (
+        # Fingerprints, not "the newest mtime" (audit 2026-10-05 P2-9): an edit beside a future-dated page must still
+        # miss the cache.
         bank_index.dir_fingerprint(entities_dir),
         _mtime_ns(edges_file),
         bank_index.dir_fingerprint(hubs_dir),
@@ -163,9 +172,32 @@ def _build_full(memory_path: Path) -> GraphResponse:
         # G159 (review B1): the people-photo index, outside the bank too — a stored photo or a miss aging out moves
         # a node's `picture` (`person_photo.stamp`: the index's mtime plus the misses past their window).
         _photos_stamp(memory_path),
+        # G246: a reason stamped on a save moves neither the pages folder nor the edges, yet it changes which posts are
+        # rows; this moves only when the set of earned posts does ("" until the flip).
+        saved_posts.stamp(memory_path),
+        # G246: a list's page is drawn while it holds something and moves with its count (``list_pages``; "" until the flip).
+        list_pages.stamp(memory_path),
     )
-    if _CACHE["key"] == key:
-        return _CACHE["value"]
+
+
+def _build_full(memory_path: Path, include_posts: bool = False) -> GraphResponse:
+    entities_dir = memory_path / "entities"
+    edges_file = memory_path / "graph_edges.yaml"
+    hubs_dir = memory_path / "hubs"
+
+    # One listing of each folder for the whole key: the pages folder's fingerprint and the saved posts' stamp read it alike.
+    with bank_index.shared_scans():
+        key = _cache_key(memory_path, entities_dir, edges_file, hubs_dir)
+    slot = _CACHE_ALL if include_posts else _CACHE
+    if slot["key"] == key:
+        return slot["value"]
+
+    # G246: the posts drawn as a row, decided before the first node (a post's edges count toward its targets' degree).
+    hidden = frozenset() if include_posts else saved_posts.hidden_ids(memory_path)
+    earned = saved_posts.earned_ids(memory_path)
+    # G246: a list of saved posts is a node only while it holds something (empty or renamed folders draw nothing), with the
+    # count it holds; empty until the flip, so a list page is never a node before it.
+    lists = list_pages.state(memory_path).drawn
 
     pending_ids = _load_pending_entity_ids(memory_path)
     raw_links = _load_edges(memory_path)
@@ -173,6 +205,8 @@ def _build_full(memory_path: Path) -> GraphResponse:
     # Degree from canonical edges (string endpoints at this stage).
     degree: Counter = Counter()
     for link in raw_links:
+        if link.source in hidden or link.target in hidden:
+            continue
         degree[link.source] += 1
         degree[link.target] += 1
 
@@ -235,13 +269,28 @@ def _build_full(memory_path: Path) -> GraphResponse:
             body = f.body()
         except Exception:
             continue
+        if eid in hidden:
+            # A saved post drawn as a row under its list (G246): no node, no line, no degree. It still counts toward a
+            # shared title (`same_name`'s map is every page's, keyed on the folder's stamp: a partial map would be what
+            # the card and search read too).
+            try:
+                same_rows.append((eid, fm, summarize(body), parse_claims(body)))
+            except Exception:  # noqa: BLE001
+                pass
+            continue
+        if list_pages.is_list(fm) and eid not in lists:
+            try:
+                same_rows.append((eid, fm, summarize(body), parse_claims(body)))
+            except Exception:  # noqa: BLE001
+                pass
+            continue
         entity_ids.add(eid)
         try:
             page_claims = parse_claims(body)
         except Exception:
             page_claims = []
         # Owner ruling 2026-10-20: a page only an import made, until the person mentions it — derived here, never stored.
-        quiet = quiet_pages.is_quiet(fm, page_claims, episode_kind)
+        quiet = quiet_pages.dimmed(quiet_pages.is_quiet(fm, page_claims, episode_kind), eid, earned)
         node_summary = summarize(body)
         same_rows.append((eid, fm, node_summary, page_claims))
         try:
@@ -292,6 +341,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 last_referenced=entity_picture.day(fm.get("last_referenced")),
                 quiet=quiet,
                 byline=book_byline(fm),
+                member_count=lists[eid].count if eid in lists else 0,
                 media_kind=media_kinds.kind_of(fm),
                 origin=media_kinds.origin_of(fm) if media_kinds.kind_of(fm) else None,
                 media_channel=media_kinds.channel_of(fm) if media_kinds.kind_of(fm) else None,
@@ -423,6 +473,7 @@ def _build_full(memory_path: Path) -> GraphResponse:
                 *(("quiet",) if node.quiet else ()),
                 *(("qualifier", node.qualifier) if node.qualifier else ()),
                 *(("byline", node.byline) if node.byline else ()),
+                *(("members", node.member_count) if node.member_count else ()),
             )
 
     # Filter canonical edges to endpoints that exist (drops legacy dangling slugs).
@@ -436,6 +487,13 @@ def _build_full(memory_path: Path) -> GraphResponse:
         if link.target in entity_ids and (link.source, link.target, link.label) not in drawn:
             drawn.add((link.source, link.target, link.label))
             links.append(link)
+
+    # G246: an earned post joined to the list it is saved in, and a folder's page to its list's page — computed here, on
+    # every build, never stored (a link of the same kind as a source's, which a list of relationships skips).
+    for source, target, label in list_pages.read_time_edges(memory_path, entity_ids, earned):
+        if (source, target, label) not in drawn:
+            drawn.add((source, target, label))
+            links.append(GraphLink(source=source, target=target, label=label, kind="source"))
 
     # M5b: tag each edge with the backing claim's id + context when a valid claim
     # matches (subject, normalized-label, object). Additive — leaves context/
@@ -500,8 +558,8 @@ def _build_full(memory_path: Path) -> GraphResponse:
     nodes.extend(facet_nodes)
     links.extend(facet_links)
 
-    resp = GraphResponse(nodes=nodes, links=links, observers=sorted(all_observers))
-    _CACHE.update(key=key, value=resp)
+    resp = GraphResponse(nodes=nodes, links=links, observers=sorted(all_observers), hidden_posts=len(hidden))
+    slot.update(key=key, value=resp)
     return resp
 
 
@@ -538,7 +596,7 @@ def _apply_filters(
         kept_links = [
             l for l in full.links if l.source in kept_ids and l.target in kept_ids
         ]
-        return GraphResponse(nodes=kept_nodes, links=kept_links, observers=full.observers)
+        return GraphResponse(nodes=kept_nodes, links=kept_links, observers=full.observers, hidden_posts=full.hidden_posts)
 
     def keep(n: GraphNode) -> bool:
         if n.is_hub:
@@ -556,7 +614,7 @@ def _apply_filters(
     kept_nodes = [n for n in nodes if keep(n)]
     kept_ids = {n.id for n in kept_nodes}
     kept_links = [l for l in full.links if l.source in kept_ids and l.target in kept_ids]
-    return GraphResponse(nodes=kept_nodes, links=kept_links, observers=full.observers)
+    return GraphResponse(nodes=kept_nodes, links=kept_links, observers=full.observers, hidden_posts=full.hidden_posts)
 
 
 def _claim_edge_row(claim, page_stem: str) -> dict | None:

@@ -74,6 +74,8 @@ extension Copy {
             case "link": "Links"
             case "file": "Files"
             case "feed": "From feeds"
+            case "post": "Posts"
+            case "list": "Lists"
             default: id.capitalized
             }
         }
@@ -96,6 +98,17 @@ extension Copy {
         static let showOnGraph = "Show on graph"
         static let openItem = "Open"
         static func saved(_ n: Int) -> String { "\(UsageFormat.count(n)) saved" }
+        // G246 (ruling 81) — the page of one list of saved posts: its stats line and a folder's own reason.
+        static func newestOn(_ day: String) -> String { "newest \(day)" }
+        static func lastReadOn(_ day: String) -> String { "last read \(day)" }
+        static let whyThisFolder = "Why this folder"
+        /// The quiet link on a source's list that opens the list's own page, and the folder's.
+        static let openListPage = "List page"
+        static let openListPageHelp = "Open this list's own page"
+        static let openFolderPage = "Folder page"
+        static let openFolderPageHelp = "Open this folder's own page"
+        /// The find palette's badge for a list's own page.
+        static let listBadge = "List"
         static func savedBack(_ n: Int) -> String { "‹ \(saved(n))" }
         static func savedOn(_ day: String) -> String { "Saved \(day)" }
         static func savedRow(_ day: String) -> String { "saved \(day)" }

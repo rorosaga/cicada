@@ -101,6 +101,7 @@ from api.services import (
     messages_source,
     notes_sync,
     reading_hosts,
+    saved_posts,
     saved_why,
     source_collections,
     source_overview,
@@ -137,11 +138,14 @@ from api.services.channel_registry import CHANNEL_IDS
 #: `g161-21`: ROR-15 — a Notes row the person pinned in Notes carries `pinned` (pinned rows list first, as a chat's do).
 #: `g161-22`: a saved link's `site` key is its own host, not its registrable domain (owner 2026-11-23).
 #: `g161-23`: G245 — `stream` and `folder` narrow a page to one list (and one of its folders); a saved-list row carries
-#: `lists`, `folders`, `depth` (`kept` | `asked` | `read` | `watched`) and `posted`.
+#: `lists`, `folders`, `depth` (`kept` | `asked` | `read` | `watched`, ruling 80 adds `empty` and `record`) and `posted`.
 #: `g161-24`: A.4 (G245) — a Notes folder is a tree (`collections` gives each folder its `path`, `parent`, `children`, `depth`
 #: and `total`, in Notes' own order, and `pinsRead`), a note's row carries `modifiedAt`, a one-line `snippet` and sorts by its
 #: modified instant, and Notion's live pages are filed by database or parent page and sort by last edited.
 #: `g161-25`: G245 — a saved-list row carries `author` when the record tool stored who wrote the post (the page's `media.channel`).
+#: Ruling 80 (no new shape: the name is another client's to read): `depth` says where a saved-list row stands: `read`,
+#: `kept` (not read yet), `empty` (nothing to read yet), `record` (kept, never read), `asked` or `watched`; `kept` no
+#: longer means "no model reads it".
 SHAPE = "g161-25"
 LIMIT_DEFAULT = 50
 LIMIT_MAX = 200
@@ -819,6 +823,23 @@ def _bookmarks(memory_path: Path, channel_id: str, media: _Media) -> list[dict]:
 
 
 def _collect(memory_path: Path, channel_id: str) -> list[dict]:
+    """Every row of a channel: what it brought in (:func:`_collect_own`), and — only while ``saved_posts.HIDE_POSTS`` is on,
+    for a post site's own channel — the site's posts it holds on its "Saved another way" stream, so the whole of the
+    source's page is the sum of its streams (G246, ruling 81)."""
+    rows = _collect_own(memory_path, channel_id)
+    if not saved_posts.HIDE_POSTS or not saved_posts.is_post_site(channel_id):
+        return rows
+    from api.services import source_streams
+
+    held = source_streams.another_way(memory_path).get(channel_id)
+    if not held:
+        return rows
+    have = {r.get("id") for r in rows}
+    media = _Media(memory_path)
+    return rows + [row for entity_id in sorted(held - have) if (row := media.row(entity_id)) is not None]
+
+
+def _collect_own(memory_path: Path, channel_id: str) -> list[dict]:
     if channel_id == "notes":
         return _notes(memory_path)
     if channel_id == calendar_local.CHANNEL_ID:

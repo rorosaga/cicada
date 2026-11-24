@@ -287,7 +287,13 @@
       "disposition": "uninstrumented_guarded"
     },
     {
-      "function": "_write_retired",
+      "function": "_edit_page",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    },
+    {
+      "function": "_write_late_episode",
       "method": "write",
       "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"
@@ -945,6 +951,26 @@
       "disposition": "fresh_frontmatter_untracked"
     }
   ],
+  "services/list_pages.py": [
+    {
+      "function": "_write_chunk",
+      "method": "write_new",
+      "frontmatter": "_frontmatter(w, today)",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "_write_chunk",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "_archive",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
   "services/owner_identity.py": [
     {
       "function": "ensure_owner_entity",
@@ -1472,6 +1498,32 @@
     },
     {
       "function": "retire",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "take_turns",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "take_turns",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "return_to_pile",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
+  "services/keep_as_page.py": [
+    {
+      "function": "_stamp_episode",
       "method": "write",
       "frontmatter": "fm",
       "disposition": "preserve_frontmatter_guarded"

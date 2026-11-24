@@ -45,7 +45,7 @@ and `Cicada-Author: user` — a second door onto one writer, as the CLI is (ruli
 carries `qualifier` and `displayName` ("<name> (<qualifier>)") on `GET /graph` nodes (omitted otherwise; node shape
 `+same-name`, folded into the node's `contentHash` only when present), `GET /entities/{id}` (null / the bare name
 otherwise; `same_name.SHAPE` rides the card ETag's `extra`), `GET /search` entity and media hits, `GET /projects/{id}`
-page rows (`g141-9`), `GET /sleep/runs/{id}/items` page rows (`items-2`, in its ETag; `items-5` adds `change`/`episodes`) and `/ask` citations. **A book's `byline`
+page rows (`g141-9`), `GET /sleep/runs/{id}/items` page rows (`items-2`, in its ETag; `items-5` adds `change`/`episodes`, `items-6` `steps` and `faded`) and `/ask` citations. **A book's `byline`
 (ROR-135):** `GET /graph` nodes of a `media.kind: book` page carry its `book.authors` joined, capped at 120 characters (omitted
 otherwise; node shape `+byline`, folded into `contentHash` only when present) — the graph's hover card names the author
 from it (`features.md`, "The hover card"). `GET /inbox` items add
@@ -71,6 +71,13 @@ repointed}`; 400 nothing picked or a type outside the set, 404 no such page or n
 or already undone. History rows (`?summary=true`) add `join` and `undoable`. `GET /entities/{retired-id}` answers the
 page it became, `X-Cicada-Redirected-From: <retired-id>` (`page_redirects`).
 
+**A list of saved posts' block (G246, ruling 81; `page_blocks` `blocks-8`).** `blocks.list` is present on a list's own page only (`list_pages.block`,
+`media.kind: list`): `{site, stream, folder, channel, label, source, count, newest, lastReadAt, why, recent}` read from the saves on every serve and never
+stored on the page — `count` and `newest` are the items route's `all` and `latest` for `stream=`/`folder=`, `lastReadAt` this Mac's last read of the list (outside
+every bank), `why` the folder's reason in the person's words, `recent` the five newest rows (`title`, `author`, `posted`, `saved`, `host`) for an agent and the CLI (the app
+draws its cards from the items route under the same address). It rides the card (`order` lists `list`), and is pinned on both sides by `api/tests/fixtures/list_block.json`
+(`test_list_pages.py`, `ListPageCardTests.swift`). It is an `include` kind on both agent doors (`page_blocks.KINDS`, both schemas; Track 2b), and `for_caller` strips `recent` and `why` for a caller without `sources`, flagging `recentWithheld`. `EntityMedia` of such a page has an empty `url` and `kind: list`.
+`GET /sources/streams` asks the list pages' writer to catch up in the background and writes nothing itself (a no-op until the flip, on a replica and on a demo bank). **A stream row names its page (Track 2b; additive, nothing renamed).** `page` is the id of the page that stands for a list of posts and `folderPages` (`{folder name: page id}`) each folder's, both only for a list that is drawn (`list_pages.stream_pages`, from `list_pages.state`): absent while `HIDE_POSTS` is off, before the page is made, for a list of works and for a list with nothing in it, so the body and its digest ETag are what they were until a page exists and move only when the answer does. **A post site's "Saved another way" (Track 3; additive).** With the flip on, `x`, `instagram`, `linkedin`, `reddit`, `pinterest` and `tiktok` each carry one more stream, `<site>.another-way` (kind `saved`, how `app`, owner `backend`, control `setup`, state `on`, health `read`, no switch), only while it holds a post; `stream=<site>.another-way` on the items route lists its posts, a check answers `noted`, and the site's items route without `stream` lists the union of what its origins brought and this stream, each page once. `GET /sources/overview` counts that union for a source with no channel; its ETag then folds in `another-way` (nothing before). Measured on 6,000 synthetic media pages, the membership pass cold about 0.43 s off and 0.47 s on, warm 17 ms either way. An item row of a list (`GET /sources/channels/{id}/items`, `stream=`/`folder=`) gains `keep` (`row` or `kept`, from `keep_as_page.facts` over one `saved_posts.verdict` per request) only once the flip is on; the route's ETag then folds in `saved_posts.stamp` (nothing before). Measured on a synthetic bank of 3,000 saves in one list, `stream=` and `folder=`, 20 rows, inside the route's shared scans: warm 27 ms before and after with the constant off or on; cold about 0.5 s before and off, about 0.1 s more with it on (the one verdict).
 **The card's blocks and its ETag (vision item 5, 2026-10-28; `page_blocks`).** `GET /entities/{id}` carries
 `blocks: {shape, order, relevance, sources, coordinates, looks, ongoing, ongoingTotal, history}` — which blocks the
 page has (`order`, in the page order the redesign proposal draws: why it matters, where to check, the type block,
@@ -562,7 +569,7 @@ stdio server's `Error: …`), 404 for an unknown tool and 403 for a tool the com
 `/banks` and `/sleep/episodes` (not a Store domain, below) all return an `ETag` and honor `If-None-Match` with a `304`. This matters: `/graph` on the
 live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET /inbox` ETags over
 `inbox`+`entities`+`episodes`, and `VersionVector.swift` maps `entities` and `episodes` onto
-`.inbox`; change one half, change both. `/graph`'s `extra` carries a node-shape tag
+`.inbox`; change one half, change both. `/graph`'s `extra` carries, once `saved_posts.HIDE_POSTS` is on, the earned-post stamp and `include_posts` (G246: a reason stamped on a save moves no folder the ETag stats; the key is unchanged while off) and, for a bank that files saves in a folder, `|filed:` `saved_posts.lists_stamp` (a folder's list is made of them); with it on the stamp and the ETag share one listing of each folder and the stamp answers from per-file records, stored outside the bank so a cold start stays cheap (`features.md`), and a node-shape tag
 (`graph.NODE_SHAPE`), bumped when a node gains a field a client must see or the body changes for
 the same files (F1's context filter and fence strip; `+previews` when a media node's `picture` became the stored
 preview path; `+quiet`, owner ruling 2026-10-20, when a node gained `quiet` — omitted when false, derived from the
@@ -683,6 +690,8 @@ share `api/tests/fixtures/saved_why_reasons.json`. New, read-only (`NONE` in the
 reason to the link's title, host and path (never its query) by EmbeddingGemma **only when it is already installed**
 (`onnx_embedder.find(PREFERRED_ID)`; never a download, a bundled-model fallback or a metered embedding service), else
 `basis: none`. Nothing written, nothing logged.
+
+**G246 (ruling 81, Track K).** `GET /sources/keep-as-page?url=` (or `?entity=<page id>` for a row of a list, which holds no link; Track 2b: the same on `POST`'s `entity`, one of the two, 422 for neither, the save found as the oldest episode naming the page) → `{state: none|row|kept|page, canUndo, becauseOf[], mediaEntityId}` (always `none` while `saved_posts.HIDE_POSTS` is off) and `POST /sources/keep-as-page {url, kept=true}` → `{status: kept|undone|unchanged, state…, episodeId}`: 404 for a link not saved or a save with no page, 409 in a demo bank, while Sleep holds the pages, or for "Back to a row" when another sign holds the page; `FORWARD` on a replica, `_DEMO_GATE`d, admitted. `GET /graph` gained `hiddenPosts` (an int, 0 while off and with `include_posts`); no ETag moved, since neither field changes while the constant is off.
 
 **G191 v3 bookmark writes** (both 409 in a demo bank and while Sleep holds the pages, both committed alone as
 `Cicada-Author: user`): `PUT /sources/saved-why` `{url, at, reasons[], project?, text?}` changes the one answer given at
@@ -819,6 +828,87 @@ A page the decay commit only re-scored is not listed (decay is not a read). Cost
 `git log -n 4`, one status diff (skipped with no modified page) and one for its decay commit. (The manifest's `sessions:`
 value is comma-split by `parse_cycle_body`, but nothing here reads the manifest, so that truncation does not matter to this
 route.) The app's fixture `sleep-run-items.json` is this route's wire over a synthetic bank (`test_sleep_v5_app_fixtures`).
+
+**A count is a count of real changes; every page says what caused it (owner 2026-11-24, items-6).** The owner opened a
+run and read "1,864 pages updated" and a raw diff of two JSON lines that differ in a key far off to the right, and asked
+what influenced the change. The measured run's main commit touched 1,939 entity files: 1,930 only moved claim
+bookkeeping (`decayed_through` on 5,225 claims, `confidence` also on 812: silence), 3 only frontmatter stamps, ~5 changed in
+substance. `sleep_consolidated.SHAPE` is `items-6`; **the meaning of `updated` changed** (a client that read "files git
+saw" now reads pages really changed).
+
+*One classification* (`page_change`, from each commit's `-U0` patch — git, never a model) of what a commit did to a page:
+`created` / `removed` (the file's own add and delete), **bookkeeping** (`last_referenced`, `learned_on`,
+`decayed_through`, `version`, `enrichment_attempted`/`enrichment_status`, `read_late`, the ledger's `claims_ledger` stamp;
+on a claim `decayed_through`, `read_late`, `recorded_at`/`recorded_ts`, `session_id(s)`, `authored_by`, `origin`,
+`premises`, `date_basis`, `participants`, evidence offsets that move inside the same conversations) — **not a change:
+counted nowhere, listed nowhere** (only `counts.bookkeeping`, a diagnostic), **fade** (`confidence` / `faded_by_age` on a
+claim or the page, a page moving between `active` and `decaying`: silence alone — its own quiet list) and **substance**
+(a fact added, withdrawn or changed in a field a person reads; prose; `status` to archived/restored; name, type, aliases,
+tags, sources, decay class; a conversation newly named in `source_episodes` **or taken out of it** (a revision cascade, a merge); a change to `related`, `sources_removed`, `aliases_removed` or `aliases_kept`, which the person or a cascade decided; `decay_rate` alone is derived from `decay_class` and stays bookkeeping). A page's claims are its fence **plus its
+ledger file** (`entities/<id>.claims.jsonl`): both patches are read, a claim that moved between them cancels, and a page
+whose ledger appeared or went is compared in full. The fast path reads claim lines (JSON) and `key: value` frontmatter
+lines and parses no page — a `key: value` line counts as frontmatter only above the page's closing `---` (one `git cat-file --batch` for the few pages that have such a line; a paragraph reading `version: 2 of the plan` is prose); any other changed line (prose, a list item, a fence marker) sends that one page to
+`page_change.compare`, which parses both versions (`git cat-file --batch`). A page across a run's commits is in exactly one
+list by its final state: removed > archived > created > updated > faded > bookkeeping.
+
+*What changed* on the opened card (`GET /sleep/runs/{id}/items`, `GET /sleep/history/{commit}/items`): `updated` is
+substance only; the body gains `faded` (a list of page rows, ≤ 200, the same `CAP`); `counts` gains `faded` and
+`bookkeeping` (whole counts: `created`, `updated`, `archived`, `removed`, `faded` are each their list's whole length).
+*Why*: every page row (all five lists) gains `steps` — the run's commits that changed it named from a closed set, oldest
+first, each once: `reading` (the batch's own manifest trigger `sleep/extraction`, `sleep/promotion`…), `decay`
+(the batch's `(decay)` commit, or `sleep/decay`; **every page in `faded` is `decay`**, whatever its commit's trigger says), `conflict` (`sleep/conflict_resolution`), `settled` (a question Sleep
+settled: `Inbox settled by Sleep`, `Titled by a nickname by Sleep`), `join` (`sleep/dedup`, a same-name review, an arrival
+join, a merge or split, a dedup sweep), `source_check` (`Source refresh`, `Site check`, `Where to check`, `Source links`),
+`link_enrichment`, `summary` (`In short`, `Recording notes`), `web` (`Web check`, `Web context`), `expiry` (`Expiry`,
+`Follow-ups`), `import` (`LinkedIn connections`, `Contacts`, `Followed accounts`), and `other` — a trigger or a manifest
+Cicada cannot name (never a guess). The tail's commits are found in the run's window (`sleep_consolidated.window`, one
+`git log` with the `Cicada-Author` trailer; a commit whose author is `user` is never one, whatever its subject; a finished
+window is remembered); their page changes join the survey. A client shows `episodes` first (the conversations of THIS run
+that fed it) and `steps` only when `episodes` is empty.
+
+*The closed card* (`GET /sleep/history`, `GET /sleep/history/{commit}`): a sleep entry's `entitiesCreated` /
+`entitiesUpdated` and its new `entitiesArchived` / `entitiesRemoved` / `entitiesFaded`, and `run.created` / `run.updated`
+and `run.archived` / `run.removed` / `run.faded` are `sleep_consolidated.figures` — **the same survey the opened card
+counts**, so the two never disagree (before, a plain cycle's number was the manifest's file lines and a run's Stage 2's
+resolver tally). Concurrent (3 at a time), a number git cannot give leaves the entry's own.
+
+*One page's change*: `GET /sleep/runs/{id}/pages/{entity_id}/change` and `GET /sleep/history/{commit}/pages/{entity_id}/change`
+answer `SleepPageChange` (404 for a page no commit of the run touched, a person's own edit included; an id that is not a
+filename stem is 404 before git). It is the run's own commits that touched the page, in the order the run met them, each compared with its own parent and
+composed (`page_change.compose`): a fact the run changed and put back, or made and withdrew, is listed (the card never says
+nothing changed for a page the list calls updated), and a commit by the person or another writer between two batches stays
+out of it. A page the run created or removed is its first version against its last:
+`page` (the opened card's row: `change`, `episodes`, `steps`, `commits`), `change` (`created` | `updated` | `archived` |
+`removed` | `faded` | `bookkeeping`), `conversations` (the conversations named — the run's own first, then any a fact's
+evidence names — each a `SleepConsolidatedConversation` plus `inRun`), `facts` (`added`, `withdrawn`, `changed`: each
+`{claim, changes, conversation, inRun}` where `claim` is the one claim wire `transclusion_resolver.claim_to_model`, a
+changed fact's `claim` is its NEW state and `changes` is `[{field, before, after, added, removed}]` over `text, subject,
+predicate, object, valid_from, valid_to, expected_end, superseded_by, supersedes, status, target, context, source_trust,
+observer, epistemic, confidence, sources` (`added`/`removed` conversation ids) and `details` (a field with no sentence);
+`conversation` is the conversation its own evidence names — one that exists in the bank, one of this run's first;
+`faded` the count of facts that only lost or regained confidence, never listed; `counts`; `truncated`), `prose`
+(`blocks: [{op, markdown, heading, level, before, after, segments}]` — the page's own markdown split into headings,
+paragraphs and top-level list items; `op` `context` (one unchanged block either side of a change), `added`, `removed` or
+`edited` (`before`/`after` and `segments: [{op: equal|added|removed, text}]`, a link kept whole, concatenating `equal` and
+`removed` gives the old paragraph and `equal` and `added` the new); `heading` the heading text a block sits under (inline
+markdown), `level` > 0 only on a heading block; `counts`; `truncated`), `other` (`[{field, before, after, added,
+removed}]`: `status`, `name`, `type`, `decay_class` before → after; `aliases`, `tags`, `sources` added/removed), `otherDetails`
+(further changed keys with no sentence, counted never named), `empty` (nothing in substance) and `truncated`. A created or
+removed page is its whole text and every fact (`other` is empty). **No bookkeeping key, no frontmatter, no raw diff, no
+claim id outside the claim wire.** Bounded: `MAX_FACTS` (80) of each kind, `page_change.MAX_BLOCKS` (60) changed blocks,
+`BLOCK_CHARS` (2,000) a block; `counts` stay whole and `truncated` says when something was cut. `/entities/{id}/history/…/diff`
+is unchanged and no longer what the Sleep page opens.
+
+*Fast, and remembered.* A commit never changes, so `commit_changes.classify_commit` keeps its answer — ids, enums and
+statuses only, no text — as `$CICADA_HOME/sleep/<bank>/changes/<sha>.json` (outside every bank, never in git, rebuilt when
+missing, damaged or stale (`VERSION`), never an error), with the commit's `(decay)` tie and, for a finished window or run
+(older than its end + grace + 15 min), the window's steps (`window-…`) and the run's figures (`figures-…`). Measured on a
+synthetic run of 2,000 touched pages / ~11,000 claim lines (one page with a 5,000-claim ledger; a 13 MB patch), 5 changed in
+substance, 285 faded, three fresh processes each: the items body's first call **0.37–0.40 s before, 0.48–0.63 s after**
+(once per commit: the patch is read, 2 pages are parsed, the answer remembered), its repeat **0.13–0.17 s before, 0.008 s
+after**; `figures` warm 3 ms; one page's change 20 ms (0.25 s for the page whose ledger holds 5,000 claims). A cold run is
+three to four git calls a commit (`test_sleep_page_change` pins the calls and that the bookkeeping pages are never parsed). The app's fixtures `sleep-run-items.json`,
+`sleep-history-run.json` and `sleep-page-change.json` are these routes' wire (`test_sleep_v5_app_fixtures`).
 
 **Unit tests reach no backend (2026-10-19).** Under XCTest `APIClient.shared` is `APIClient.pointingAtNothing()`: a
 session whose transport (`NoBackendURLProtocol`) fails every request with `cannotConnectToHost` before a byte leaves the
@@ -1182,11 +1272,18 @@ stamp differs, the older version cannot be committed, or Sleep holds the pages; 
 `{removed, failed, files, committed, left, still_found, stayed}` (`still_found`: files, conversations included, still holding
 what it was to take out: a distinctive value anywhere, any other on a line that speaks of a secret, tied or not; `stayed`: tokens left in other files on purpose, unsure or
 common in the bank). A row in the card's own resolve that could not be done answers 409 and stays.
-**Saves kept for lookup (ruling 62, 2026-11-04).** `GET /sleep/queue` and each row of `GET /sources/overview` carry `kept`:
-the saves indexed with no model read, unread until the person talks about one (`history_index.kind` `saved`,
-`capture-and-sleep.md`, *The lean pass*). `SHAPE` `overview-v17` moves the overview's ETag with the field and the app decodes
-it leniently; `/sleep/queue` has no ETag and is not a Store domain. Neither lists a kept save as waiting, and
-`GET /sleep/episodes?processed=false` no longer lists one a run has not retired yet. The hook's `reason` gains `saved`.
+**The older saves not read yet (ruling 62, 2026-11-04; the meaning of `kept` changed by ruling 80, 2026-11-24).** `GET /sleep/queue`
+and each row of `GET /sources/overview` carry `kept` and **`keptPerNight`** (additive; the fields keep their names for every
+other client): `kept` is the number of saves in the older pile (`history_index.save_state == "pile"`, a post of a saved list
+too, never a record another service keeps) — Sleep reads about `keptPerNight` of them a night, newest first, and one first when
+the person talks about it (`saved_words.pile_line`; `keptPerNight` is `history_index.SAVES_PER_DAY`, the one constant). It
+used to count saves "kept for lookup" and read by no model. A save waiting for tonight is an ordinary row of the queue and of
+`GET /sleep/episodes?processed=false`, not counted in `kept`. `GET /sleep/kept` lists exactly those (same predicate). A row of
+a saved list on `GET /sources/channels/{id}/items` carries `depth`: `read`, `kept` (not read yet), `empty` (nothing to read
+yet: a title and a link), `record` (another service's record, kept and never read), `asked` or `watched`; `kept` used to mean
+"indexed, no model reads it" (no `SHAPE` was renamed). On `GET /sources/streams` a saved list's `depth` is `read`; `index`
+(the wire's word, kept) is a stream Cicada keeps and never reads because the person did not save it (watch history, follows,
+connections, owned repositories, tabs open on another device). The hook's `reason` gains `saved`.
 
 **`GET /contributors` folds only new commits (speed, 2026-11-06).** `git_service.get_contributors` keeps the per-author
 aggregate and the HEAD it was folded at, per bank, in the process; a new HEAD costs `git log <old>..HEAD` (when the old
@@ -1221,8 +1318,8 @@ row: the site's own origin and list label with `saved_lists.canonical`'s link an
 `cicada_record_saved_list` and the site's connector write for the same post, never a second (one Instagram post is
 one row by `/p/`, `/reel/` or `/tv/`); a starred repository is a saved link under `github-starred`, which the GitHub
 connector's next sync makes the repository's page in place. Nothing is fetched and no model runs; like every save
-from a platform's list it is index-only until the person says why (ruling 62), and `POST /sources/saved-why` against
-the returned `url` is what queues it for Sleep. Answers `{status: created|duplicate, url, title, origin, episodeId,
+from a platform's list Sleep reads it (ruling 80), and `POST /sources/saved-why` against the returned `url` adds the
+person's own words to it. Answers `{status: created|duplicate, url, title, origin, episodeId,
 mediaEntityId, addedAt, folders, reason}`. **Unsave** takes the same body and removes nothing: the save's episode
 gains `left_site_at`, served as one more `leftBrowser` entry named for the site, cleared when the post is saved
 again; `{status: marked|unchanged|unknown, url}`. Both: 422 for an unknown site or a link that is not a post of it;

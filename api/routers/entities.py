@@ -72,6 +72,7 @@ from api.services import (
     quiet_pages,
     repo_context,
     repo_observations,
+    saved_posts,
     same_name,
     source_refresh,
     sync_service,
@@ -180,7 +181,11 @@ def _card_read(settings: Settings, entity_id: str, entity_path: Path, if_none_ma
     with sync_ticker.request_scans(memory_path):   # the SSE walk's listings when its gate allows (speed 2026-10-29)
         # G227: `same_name.SHAPE` rides the ETag so a held card takes one 200 with `qualifier`/`displayName`; the
         # qualifier itself moves with the `entities` directory the ETag already stats.
-        etag = page_blocks.card_etag(memory_path, entity_id, extra=f"{alpha}|{floor}|{same_name.SHAPE}")
+        # G246: a post that earns its page, or loses a reason, changes what this page's Related lines show and no file the
+        # ETag stats; `saved_posts.stamp` moves with it ("" until the flip, so the ETag is what it was).
+        etag = page_blocks.card_etag(memory_path, entity_id,
+                                     extra=f"{alpha}|{floor}|{same_name.SHAPE}|{saved_posts.stamp(memory_path)}"
+                                     if saved_posts.HIDE_POSTS else f"{alpha}|{floor}|{same_name.SHAPE}")
         if if_none_match == etag:
             return {"etag": etag, "not_modified": True}
         # The page file alone: the card shows prose and reads claims from `/claims`, so an owner-sized page's ledger
@@ -238,7 +243,8 @@ def _card_read(settings: Settings, entity_id: str, entity_path: Path, if_none_ma
             "version": fm.get("version", 1),
             # F4: prose only — the fence is machine data the card reads from `/claims`, and on the owner's page it was
             # 2.5 MB shipped twice per open.
-            "markdown_content": served_prose(parsed.body)[0],
+            # G246: no `## Related` entry names a saved post drawn as a row (it opens no page); nothing is rewritten.
+            "markdown_content": saved_posts.filter_related(memory_path, served_prose(parsed.body)[0]),
             "raw_markdown": raw,
             "raw_omitted": raw_omitted,
             "media": _build_media_block(fm, parsed.body, entity_id=entity_id),
@@ -256,7 +262,7 @@ def _card_read(settings: Settings, entity_id: str, entity_path: Path, if_none_ma
             "picture": picture.url,
             "picture_source": picture.source,
             "picture_inputs": PictureInputsModel(**picture_inputs.to_fields()),
-            "quiet": quiet_pages.page_is_quiet(memory_path, entity_id),
+            "quiet": quiet_pages.page_is_dimmed(memory_path, entity_id),
             "relevance": EntityRelevance(**relevance),
             # G227: the qualifier when another page shares this title, and the name to show.
             **_same_name_fields(memory_path, entity_id, fm.get("name", entity_id.replace("-", " ").title())),
@@ -602,7 +608,9 @@ def _build_media_block(frontmatter: dict, body: str, *, entity_id: str | None = 
     # A book added with no ISBN (an Apple Books or Goodreads entry) has no catalogue link either: its page still needs
     # the block, or the app never learns it is a book and draws no head, cover or description (app-fixes-1109).
     is_book = media.get("kind") == "book"
-    if not media_type or not (url or is_file or is_book):
+    # G246 (ruling 81): a list of saved posts has no link either; its block (`kind: list`) is how the card knows to read it.
+    is_list = media.get("kind") == "list"
+    if not media_type or not (url or is_file or is_book or is_list):
         return None
 
     description = None

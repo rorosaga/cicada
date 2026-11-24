@@ -610,9 +610,9 @@ struct SleepView: View {
                            onLoadItems: { key in Task { @MainActor in await sleepVM.loadConsolidated(key) } },
                            machineId: selectedMachine?.id, machineName: selectedMachine.map(MachinesStrip.displayName),
                            machines: sleepVM.machines)
-                // What a click on a page's chip loads: the read's change on that page (the page never calls the API).
-                .environment(\.runPageDiffLoader, { id, until, since in
-                    try await sleepVM.pageDiff(id: id, until: until, since: since)
+                // What a click on a page's chip loads: the read's change on that page, ready to draw (the page never calls the API).
+                .environment(\.runPageChangeLoader, { key, page in
+                    try await sleepVM.pageChange(key, page: page)
                 })
                 // The Queue's column: the cards line up with its source cards (owner 2026-11-24).
                 .padding(.horizontal, plan.gutter)

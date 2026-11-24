@@ -545,7 +545,8 @@ async def resolve(
             # G245 (ruling 80, Track 2c): a person met only in saves — every conversation that named the name, this
             # batch's and an earlier line's, a saved item with no words of the person's — joins a page on an exact name or
             # alias alone, and asks nothing. A name the person said themselves behaves as it always did.
-            exact_only = _from_saves_alone(saves, indexer, name, episode_mentions.get(name_lower, ())) and _is_person(entity)
+            exact_only = (_from_saves_alone(saves, indexer, name, episode_mentions.get(name_lower, ()),
+                                            promotion.labels(entity, *siblings)) and _is_person(entity))
             card_id = (contact_identity.card_of(entity, siblings)
                        if _is_person(entity) and not any(e.get(role_people.UNNAMED_KEY) for e in (entity, *siblings))
                        else None)
@@ -752,7 +753,8 @@ async def resolve(
                 linked_to_existing or any(promotion.substantive(e) for e in (entity, *siblings)))
             should_promote = (
                 # Ruling 43: counted by conversation — an agent's memory note is its session's, never one of its own.
-                len(promotion.conversation_keys(heard_now | heard_before, getattr(settings, "memory_path", None)))
+                len(promotion.conversation_keys(heard_now | heard_before, getattr(settings, "memory_path", None),
+                                                promotion.labels(entity, *siblings)))
                 >= settings.sleep_promotion_threshold
                 or one_conversation_rungs
                 or applied is not None
@@ -1153,7 +1155,8 @@ def _resolve_correspondents(
             taken.add(page_id)
             heard_now = {str(e.get("source_episode") or "") for e in group} - {""}
             heard_before = set(line.episodes()) - heard_now if line is not None else set()
-            promote = (len(promotion.conversation_keys(heard_now | heard_before, memory_path)) >= threshold
+            promote = (len(promotion.conversation_keys(heard_now | heard_before, memory_path,
+                                                promotion.labels(ident, *group))) >= threshold
                        or any(promotion.substantive(e) for e in group)
                        or any(linked(str(e.get("name") or "")) for e in group))
             if promote:
@@ -1424,7 +1427,7 @@ async def _plan_same_name_people(
             # long as the parenthesis is not a handle the record paired (G209) and the bare name is not the owner's.
             if not episode_id or same_name_skip(name, entity, refs, owner_first) is not None:
                 continue
-            if saves.of(episode_id):
+            if saves.of(episode_id, promotion.labels(entity)):
                 # G245 (ruling 80, Track 2c): a name a post carries is nobody the person said anything of — never compared
                 # with, nor placed beside, another person of the name; below, it joins a page on an exact name alone.
                 continue
@@ -1634,7 +1637,8 @@ def _resolve_same_name_people(
                 if doubt_of.get((name_lower, kind, ref)):
                     doubted.setdefault(name_lower, set()).add(page_id)
             heard_before = set(line.episodes()) - episodes if line is not None else set()
-            promote = (len(promotion.conversation_keys(episodes | heard_before, memory_path)) >= threshold
+            promote = (len(promotion.conversation_keys(episodes | heard_before, memory_path,
+                                                promotion.labels({"name": title}, *entities))) >= threshold
                        or any(promotion.substantive(e) for e in entities) or linked(episodes, title))
             if promote:
                 creates_by_id[page_id] = _create_change(page_id, {**best, "name": title})
@@ -1711,12 +1715,13 @@ def _pinned(rel: dict, key: str, live: frozenset[str], creates: dict) -> str | N
     return pin if (pin in live or pin in creates) else ""
 
 
-def _from_saves_alone(saves: "saves_bounded.Saves", indexer, name: str, heard_now) -> bool:
+def _from_saves_alone(saves: "saves_bounded.Saves", indexer, name: str, heard_now, names=()) -> bool:
     """Is every conversation that named this name — this batch's, and any an earlier run parked it from — a saved item
-    with no words of the person's (G245, ruling 80)? A single one of the person's own makes it theirs, and it goes by the
-    usual rules."""
+    with no words of the person's about it (G245, ruling 80)? A single one of the person's own makes it theirs, and so
+    does a reason of his that names it (``names``: the name and its aliases), and it goes by the usual rules."""
     heard = [str(e) for e in heard_now or ()]
-    if not heard or not saves.all_of(heard):
+    names = [*names] or [name]
+    if not heard or not saves.all_of(heard, names):
         return False
     if indexer is None:
         return True
@@ -1724,7 +1729,7 @@ def _from_saves_alone(saves: "saves_bounded.Saves", indexer, name: str, heard_no
         line = indexer.pending_by_name(name)
     except Exception:  # noqa: BLE001 - an unreadable store is no earlier conversation
         return True
-    return line is None or saves.all_of(line.episodes())
+    return line is None or saves.all_of(line.episodes(), names)
 
 
 def _exact_person_match(entity: dict, existing_by_name: dict[str, dict], aliases: dict[str, list[dict]],
@@ -2775,7 +2780,8 @@ async def _settle_unborn(
     made = 0
     for members in groups:
         heard = set().union(*(m.heard for m in members))
-        if not (any(m.passes for m in members) or len(promotion.conversation_keys(heard, memory_path)) >= threshold):
+        if not (any(m.passes for m in members) or len(promotion.conversation_keys(
+                heard, memory_path, promotion.labels(*(m.entity for m in members), *({"name": m.name} for m in members)))) >= threshold):
             for m in members:
                 if not m.stored:
                     hold(m.name, m.entity, m.siblings, False)
@@ -2969,7 +2975,7 @@ def _held_alias_questions(held_people: list[tuple[dict, list[dict]]], existing: 
         lines = []
     saves = saves_bounded.for_bank(memory_path)
     for line in lines:
-        if saves.all_of(line.episodes()):
+        if saves.all_of(line.episodes(), promotion.labels(line)):
             continue   # G245: a name only saves carried is never the subject of a "same person?" (ruling 80, Track 2c)
         if str(line.type or "").lower() == "person" and person_leads.handle_key(line.name) not in held:
             held[person_leads.handle_key(line.name)] = (
@@ -3474,10 +3480,13 @@ def _another_id(name: str, existing_ids: set[str], creates: dict[str, dict]) -> 
 
 def _is_file_page(page: dict | None) -> bool:
     """A recording, video, memo or photo's page (``media_pages``, ROR-117): a file's name is no one's name, so a person's
-    mention never joins it — by title, close spelling or alias — and it is never the key a person's name resolves to."""
-    from api.services import media_pages
+    mention never joins it — by title, close spelling or alias — and it is never the key a person's name resolves to.
+    A list of saved posts' own page (``list_pages``, G246) is the same: "X: Bookmarks" is no one's name, so a conversation
+    about "my bookmarks" never lands words on it."""
+    from api.services import list_pages, media_pages
 
-    return page is not None and media_pages.is_file_page(page.get("frontmatter"))
+    fm = page.get("frontmatter") if page is not None else None
+    return page is not None and (media_pages.is_file_page(fm) or list_pages.is_list(fm))
 
 
 def _is_person(entity: dict) -> bool:
@@ -3641,6 +3650,9 @@ def _create_duplicate_clarification(
     """Ask whether ``entity`` is ``candidate``. ``same_title`` (G227): every page sharing the mention's exact title,
     so the item points at the candidate by id (never by a name two pages answer to) and the question names each."""
     candidate_name = _candidate_display_name(candidate)
+    from api.services import name_revisit
+    if name_revisit.coined_label(clarifier, entity, candidate):
+        return   # a label Stage 1 made up, said in no conversation it came from: held, never asked (ruling 82 (e), G98)
     try:
         item = clarifier.create(
             **({"heard_in": heard_in} if heard_in else {}),

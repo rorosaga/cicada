@@ -544,10 +544,13 @@ def main_tier(resolved):
     if not hasattr(resolved, "model_copy"):
         return resolved
     updates = {}
+    # A batch of old bulk saves runs on the engine's lightest model (`light_reads`); a person's name is still judged by
+    # the model they chose.
+    kept = getattr(resolved, "kept_main_models", None) or {}
     for main, small in (("agent_model", "agent_disambiguation_model"), ("codex_model", "codex_disambiguation_model"),
                         ("cli_engine_model", "cli_engine_disambiguation_model"),
                         ("litellm_model", "litellm_disambiguation_model")):
-        value = str(getattr(resolved, main, "") or "").strip()
+        value = str(kept.get(main) or getattr(resolved, main, "") or "").strip()
         if value:
             updates[small] = value
     return resolved.model_copy(update=updates) if updates else resolved

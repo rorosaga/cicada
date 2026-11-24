@@ -1,16 +1,19 @@
 import SwiftUI
 
-/// Owner 2026-11-23 — "it would be nice to see what was kept for lookup in a nice orderly manner". The Waiting list's
-/// last card: what was saved with no reason (ruling 62 — found by search, Ask and recall, read by no model until the
-/// person talks about one). Closed, it is the one line it was: the tray tile wearing the count. Open, it is ordered
-/// the way the list above it is: a row per source (its real mark, its name, how many), most kept first; a source opens
-/// to its items as the same episode cards, newest first, thirty at a time. Nothing is fetched until it is opened.
+/// Owner 2026-11-23 — "it would be nice to see what was kept ... in a nice orderly manner". The Waiting list's last
+/// card. Ruling 80 (owner 2026-11-24: saving is already a reason) changed what it holds, never how it looks: the older
+/// saves Sleep has not read yet — it reads about `perNight` of them a night, newest first, and one first when the person
+/// talks about it. Closed, it is the one line it was: the tray tile wearing the count. Open, it is ordered the way the
+/// list above it is: a row per source (its real mark, its name, how many), most first; a source opens to its items as the
+/// same episode cards, newest first, thirty at a time. Nothing is fetched until it is opened.
 ///
 /// DR-9 / DR-12 (the source card's chrome), DR-38 (the count is said once, on the badge), DR-44 / DR-52 (real marks),
-/// DR-60 (only a pointer's click eases). The cards wear no new/updated marker and are never faded: a kept save neither
-/// waits nor was read.
+/// DR-60 (only a pointer's click eases). The cards wear no new/updated marker and are never faded: a save here neither
+/// waits for tonight nor was read.
 struct KeptForLookupCard: View {
     let kept: Int
+    /// How many Sleep reads a night, from the backend (`keptPerNight`); nil from an older one.
+    var perNight: Int? = nil
     /// Tests and renders hand the loader in; the live card reads the backend.
     var load: (String?, Int) async throws -> SleepKept = { origin, offset in
         try await APIClient.shared.fetchSleepKept(origin: origin, offset: offset, limit: KeptForLookupModel.page)
@@ -58,7 +61,7 @@ struct KeptForLookupCard: View {
                     .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.bgBadge))
                     .overlay(alignment: .topTrailing) { StudyListCard.badge(kept) }
                     .padding(.trailing, CicadaTheme.spacingXS)
-                Text(Copy.SleepV5.keptForLookupRow)
+                Text(Copy.SleepV5.savesNotReadRow)
                     .font(CicadaTheme.rowFont)
                     .foregroundStyle(CicadaTheme.textPrimary)
                     .lineLimit(1)
@@ -78,15 +81,15 @@ struct KeptForLookupCard: View {
         }
         .buttonStyle(.cicadaPlain)
         .onHover { hovering = $0 }
-        .help(Copy.keptForLookup(kept) ?? "")
-        .accessibilityLabel(Copy.keptForLookup(kept) ?? Copy.SleepV5.keptForLookupRow)
+        .help(Copy.savesNotReadYet(kept, perNight: perNight) ?? "")
+        .accessibilityLabel(Copy.savesNotReadYet(kept, perNight: perNight) ?? Copy.SleepV5.savesNotReadRow)
         .accessibilityValue(model.open ? Copy.Lists.expanded : Copy.Lists.collapsed)
     }
 
     @ViewBuilder
     private var opened: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
-            Text(Copy.Kept.explanation)
+            Text(Copy.Kept.explanation(perNight: perNight))
                 .font(CicadaTheme.metaFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
