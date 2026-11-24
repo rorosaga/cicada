@@ -140,6 +140,9 @@ class Connection:
     precision: str | None = None
     #: ``read`` for a row only the person's agent has read (a later export never drops it), else ``export``.
     src: str = "export"
+    #: Which of several rows with no profile link and one name this is (0 for the first, so a lone row's id is what it
+    #: always was); set by :func:`_number`. Two such rows are two connections until something says otherwise.
+    dup: int = 0
 
     @property
     def name(self) -> str:
@@ -147,7 +150,7 @@ class Connection:
 
     @property
     def id(self) -> str:
-        key = self.url or f"name:{self.name.lower()}"
+        key = self.url or f"name:{self.name.lower()}" + (f"#{self.dup}" if self.dup else "")
         return hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
 
     def to_dict(self) -> dict:
@@ -368,6 +371,7 @@ def parse(data: bytes, filename: str = "") -> Parsed:
                               _clean(cell(row, position_i)), _day(cell(row, on_i))))
         if len(out) > MAX_CONNECTIONS:
             raise PayloadError(f"At most {MAX_CONNECTIONS:,} connections in one export.")
+    _number(out)
     return Parsed(out, exported_on, skipped)
 
 
@@ -796,9 +800,50 @@ def _locked(bank: str) -> Iterator[None]:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+def _number(rows: list[Connection]) -> list[Connection]:
+    """Tell apart the rows that have no profile link and share a name (``Connection.dup``), in file order, so no id and
+    no key ever merges two of them: the same-name refusals compare ids."""
+    seen: dict[str, int] = {}
+    for c in rows:
+        if c.url:
+            c.dup = 0
+            continue
+        base = f"{c.first}\x00{c.last}".lower()
+        c.dup = seen.get(base, 0)
+        seen[base] = c.dup + 1
+    return rows
+
+
+def _absorb_linkless(rows: list[Connection]) -> list[Connection]:
+    """An export row with no profile link and a later read of one person with a link are one connection only when that
+    can be told safely: the name is the only one of its kind among all the rows but those two, the read is the agent's
+    (``src: read``) and both give the same connected day to the day. Anything less keeps them apart — two rows — and the
+    same-name refusal fires, as it must when two people may share a name."""
+    groups: dict[str, list[Connection]] = {}
+    for c in rows:
+        groups.setdefault(_fold(c.name), []).append(c)
+    drop: set[int] = set()
+    for group in groups.values():
+        if len(group) != 2:
+            continue
+        linkless = [c for c in group if not c.url]
+        linked = [c for c in group if c.url]
+        if len(linkless) != 1 or len(linked) != 1:
+            continue
+        a, b = linkless[0], linked[0]
+        if (b.src == "read" and a.src == "export" and a.connected_on and a.connected_on == b.connected_on
+                and a.precision in (None, "day") and b.precision == "day"):
+            b.company, b.position = b.company or a.company, b.position or a.position
+            drop.add(id(a))
+    return [c for c in rows if id(c) not in drop]
+
+
 def _write_rows(bank: str, held: dict, rows: list[Connection], *, exported_on: str | None,
-                read_on: str | None) -> None:
-    payload = {"v": 1, "imported_at": held.get("imported_at") or datetime.now().astimezone().isoformat(timespec="seconds"),
+                read_on: str | None, imported: bool = False) -> None:
+    """``imported``: this write is an export's import, so ``imported_at`` is now; a read keeps the day it was set."""
+    _number(rows)
+    now = datetime.now().astimezone().isoformat(timespec="seconds")
+    payload = {"v": 1, "imported_at": now if imported else (held.get("imported_at") or now),
                "connections": [c.to_dict() for c in rows]}
     if exported_on:
         payload["exported_on"] = exported_on
@@ -809,7 +854,7 @@ def _write_rows(bank: str, held: dict, rows: list[Connection], *, exported_on: s
 
 def _rows(held: dict) -> list[Connection]:
     raw = held.get("connections") if isinstance(held.get("connections"), list) else []
-    return [c for c in (Connection.from_dict(r) for r in raw) if c is not None]
+    return _number([c for c in (Connection.from_dict(r) for r in raw) if c is not None])
 
 
 def _finer(new: tuple[str | None, str | None], old: tuple[str | None, str | None]) -> bool:
@@ -826,9 +871,15 @@ def save_directory(bank: str, connections: list[Connection], day: str) -> bool:
         held = load_directory(bank)
         if str(held.get("exported_on") or "") > day:
             return False
-        exported = {_slug(c.url) or c.id: c for c in connections}
+        # A row with no profile link is never keyed: two of one name are two connections (and so a same-name refusal), and
+        # the previous export's such rows go with it — the new export carries them again.
+        exported = {_slug(c.url) or c.id: c for c in connections if c.url}
         kept: list[Connection] = []
         for old in _rows(held):
+            if not old.url:
+                if old.src == "read":
+                    kept.append(old)
+                continue
             key = _slug(old.url) or old.id
             if key in exported:
                 new = exported.pop(key)
@@ -838,8 +889,8 @@ def save_directory(bank: str, connections: list[Connection], day: str) -> bool:
                 kept.append(new)
             elif old.src == "read":
                 kept.append(old)
-        merged = kept + [c for c in connections if (_slug(c.url) or c.id) in exported]
-        _write_rows(bank, held, merged, exported_on=day, read_on=held.get("read_on"))
+        merged = kept + [c for c in connections if not c.url or (_slug(c.url) or c.id) in exported]
+        _write_rows(bank, held, _absorb_linkless(merged), exported_on=day, read_on=held.get("read_on"), imported=True)
     return True
 
 
@@ -910,7 +961,7 @@ def record_read(bank: str, rows: list, read_day: str) -> ReadReport:
         if changed:
             # ``exported_on`` is the export file's own day and never moves here (so an older export is still refused
             # only by a newer export); a read keeps its own day beside it.
-            _write_rows(bank, held, current, exported_on=held.get("exported_on"),
+            _write_rows(bank, held, _absorb_linkless(current), exported_on=held.get("exported_on"),
                         read_on=max(str(held.get("read_on") or ""), read_day))
     return report
 

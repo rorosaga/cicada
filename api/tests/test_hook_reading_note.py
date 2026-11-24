@@ -382,14 +382,16 @@ def test_a_recorded_read_is_what_makes_a_harness_a_driver(bank):
     assert saved_lists.readers(bank) == frozenset({"claude-code"})
 
 
-def test_an_agents_recorded_list_read_makes_it_a_driver_and_a_refused_one_does_not(bank):
+def test_an_agents_recorded_list_read_makes_it_a_driver_and_a_refused_one_does_not(bank, monkeypatch):
     from _stdio_server import stdio_server
     from api.services import saved_lists
 
     srv = stdio_server()
     enable()
-    srv.SESSION = srv.SessionIdentity("ses_2026-10-06_c0ffee00", "claude-code", None)
-    srv.get_memory_path = lambda: bank
+    # The stdio server is one module object shared by the whole run: a plain assignment here left this bank's path and
+    # this session on it for every later stdio test (cicada_continue, session identity, the connections read).
+    monkeypatch.setattr(srv, "SESSION", srv.SessionIdentity("ses_2026-10-06_c0ffee00", "claude-code", None))
+    monkeypatch.setattr(srv, "get_memory_path", lambda: bank)
     refused = srv.handle_tool("cicada_record_saved_list", {"platform": "x", "outcome": "read", "items": []})
     assert "Not recorded" in refused and saved_lists.readers(bank) == frozenset(), "the list was never turned on"
     _list_on("x")

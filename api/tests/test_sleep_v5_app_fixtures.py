@@ -205,6 +205,8 @@ def test_the_run_card_fixtures_are_the_servers_wire(tmp_path, monkeypatch):
     items = client.get("/sleep/runs/sleep_leg1/items").json()
     assert [c["id"] for c in items["conversations"]] == ids
     items["commits"] = ["0" * 40 for _ in items["commits"]]
+    for row in items["created"] + items["updated"]:   # items-3: a page row carries the commits that changed it
+        row["commits"] = ["0" * 40 for _ in row["commits"]]
     for i, c in enumerate(items["conversations"]):
         c["title"], c["timestamp"] = f"Conversation {i + 1}", "2026-09-01T10:00:00"
     _write_or_compare("sleep-run-items.json", items)

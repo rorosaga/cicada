@@ -159,6 +159,7 @@ def _ensure_subject_page(
     source_episode: str | None,
     *,
     summary: str = "",
+    attach_connection: bool = True,
 ) -> tuple[Path, str]:
     """Resolve the subject's entity page, creating a minimal v2 stub if absent.
 
@@ -220,7 +221,7 @@ def _ensure_subject_page(
         links=[],
         open_questions=[],
     )
-    if entity_type == "person":
+    if entity_type == "person" and attach_connection:
         # G245 (ruling 78): an agent's first claim about a new person births their page; the kept LinkedIn connection that
         # matches attaches in this same write (never a page made from a connection alone).
         try:
@@ -306,6 +307,7 @@ def write_claim(
     expected_end: str | None = None,
     today: date | None = None,
     recorded_ts: str | None = None,
+    attach_connection: bool = True,
 ) -> dict:
     """Write one atomic fact as a Claim, reusing the Sleep cycle's Stage-3
     trust-gated reconciler for dedup/supersession. Never raises.
@@ -471,6 +473,7 @@ def write_claim(
         page, entity_id = _ensure_subject_page(
             memory_path, subject_raw, predicate_raw, source_episode,
             summary=entity_body.summary_line(claim_text, predicate=predicate_raw),
+            attach_connection=attach_connection,
         )
 
         predicate_slug = sanitize_id(predicate_raw) or "relates-to"
