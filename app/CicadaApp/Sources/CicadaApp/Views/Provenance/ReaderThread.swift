@@ -5,11 +5,12 @@ import SwiftUI
 /// piece and a quote's offsets stay put), and the Sleep page's chat card opened to those files. That is storage, not
 /// the conversation: the card now opens what waits of the chat as ONE thread, oldest at the top and newest at the
 /// bottom, the day said once where it changes — and above it, faded, the last few messages Sleep already read, then a
-/// dotted line: where consolidation starts in a conversation that continues. Pure and tested (`ChatThreadTests`);
-/// `ChatThreadColumn` draws it.
+/// dotted line: where consolidation starts in a conversation that continues. It opens at the newest message, as every
+/// chat does (owner 2026-11-25; the dotted line is met by scrolling up), and the jump button shows when the view sits
+/// above it. Pure and tested (`ChatThreadTests`); `ChatThreadColumn` draws it.
 enum ChatThread {
     /// How many sittings one read shows; "Earlier messages" (DR-40) shows the same number again. A chat's waiting
-    /// sittings come whole up to `waitingPage`, so the thread can open on the first message Sleep has not read.
+    /// sittings come whole up to `waitingPage`, so the dotted line is drawn with everything that waits under it.
     static let page = 12
     static let waitingPage = 30
     /// How many already-read messages stand, faded, above the line.
@@ -44,10 +45,13 @@ enum ChatThread {
         sittings.count > max(1, pages) * size
     }
 
-    /// A waiting thread that fits one read opens at its first unread message, under the line; anything else opens
-    /// at its newest, as a chat does (DESIGN_RULES 2026-10-19 (5)).
-    static func opensAtStart(_ thread: ReaderTarget.Thread) -> Bool {
-        thread.waiting && thread.sittings.count <= waitingPage
+    /// The order the shown sittings are read in: newest first, so the end the person opens on fills first (a thread
+    /// opens at its newest message, DESIGN_RULES 2026-10-19 (5) and 2026-11-25), then the sitting read just before the
+    /// oldest, for the snippet, unless "Earlier messages" still holds older ones.
+    static func loadOrder(shown: [String], before: String?, hasEarlier: Bool) -> [String] {
+        var order = Array(shown.reversed())
+        if !hasEarlier, let before { order.append(before) }
+        return order
     }
 
     struct Section: Identifiable, Hashable {
@@ -196,6 +200,10 @@ struct ChatThreadColumn: View {
     @State private var failed: Set<String> = []
     @State private var expanded: [String: Set<Int>] = [:]
     @State private var pages = 1
+    /// Scrolled up from the newest message (`JumpToLatest`).
+    @State private var latestY: CGFloat?
+    @State private var awayFromLatest = false
+    @State private var scroller = JumpToLatestScroller()
 
     private var size: Int { ChatThread.pageSize(thread) }
     private var shown: [String] { ChatThread.shown(thread.sittings, pages: pages, size: size) }
@@ -211,6 +219,8 @@ struct ChatThreadColumn: View {
             docs = [:]
             failed = []
             expanded = [:]
+            latestY = nil
+            awayFromLatest = false
             await loadShown()
         }
     }
@@ -274,12 +284,18 @@ struct ChatThreadColumn: View {
                     if !failed.isDisjoint(with: shown) {
                         InPlaceNote(text: Copy.ChatPage.failed).padding(.top, CicadaTheme.spacingSM)
                     }
+                    JumpToLatestAnchor(anchorY: $latestY, away: $awayFromLatest)
                 }
                 .padding(.horizontal, CicadaTheme.scaled(ReaderColumn.inset))
                 .padding(.top, CicadaTheme.scaled(4))
                 .padding(.bottom, CicadaTheme.spacingXL)
+                .jumpToLatestSpace(scroller)
             }
-            .defaultScrollAnchor(ChatThread.opensAtStart(thread) ? .top : .bottom)
+            // DESIGN_RULES 2026-10-19 (5) and 2026-11-25: a chat opens at the newest message, history above — the
+            // faded snippet and the dotted line included, which the person meets by scrolling up. Sittings that load
+            // above, or "Earlier messages", keep the view where it is.
+            .defaultScrollAnchor(.bottom)
+            .jumpToLatest(anchorY: latestY, away: $awayFromLatest, scroller: scroller)
         }
     }
 
@@ -294,13 +310,10 @@ struct ChatThreadColumn: View {
         }
     }
 
-    /// Reads the shown sittings not yet held: from the oldest when the thread opens on its first unread message
-    /// (then the sitting read before it, for the snippet), else from the newest, so the visible end fills first.
+    /// Reads the shown sittings not yet held, newest first, so the visible end fills first.
     private func loadShown() async {
         let target = thread
-        let start = ChatThread.opensAtStart(thread)
-        var order = start ? shown : shown.reversed()
-        if !hasEarlier, let before = thread.before { start ? order.insert(before, at: min(1, order.count)) : order.append(before) }
+        let order = ChatThread.loadOrder(shown: shown, before: thread.before, hasEarlier: hasEarlier)
         for id in order where docs[id] == nil {
             let result = await cache.document(episode: id, focus: .none)
             guard !Task.isCancelled, target == thread else { return }

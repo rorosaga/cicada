@@ -84,7 +84,7 @@ struct JumpToLatestButton: View {
 /// measured, so it settles on the measured end afterwards, at most a few short steps.
 @MainActor
 final class JumpToLatestScroller {
-    fileprivate weak var scrollView: NSScrollView?
+    weak var scrollView: NSScrollView?
     private var gliding = false
 
     func jumpToEnd() {
