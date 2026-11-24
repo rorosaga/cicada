@@ -369,7 +369,9 @@ struct PageBeliefSentences: View {
     var body: some View {
         if !beliefs.isEmpty {
             VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
-                PageInlineFlow(pieces: Self.pieces(beliefs, citations: citations), entityId: entityId)
+                PageTextRunView(paragraphs: [PageTextParagraph(id: 0, style: .body,
+                                                               pieces: Self.pieces(beliefs, citations: citations))],
+                                look: "\(CicadaTheme.mode)|\(CicadaTheme.uiScale)", entityId: entityId, watched: [])
                 if let more = PageWords.moreBeliefs(shown: beliefs.count, total: total) {
                     TextButton(title: more, inline: true, flushLeading: true, action: onMore)
                 }

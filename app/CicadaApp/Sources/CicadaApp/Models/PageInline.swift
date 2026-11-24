@@ -1,9 +1,8 @@
 import Foundation
 
-/// One piece of a line on an entity page, as the inline flow lays it out (owner 2026-11-23, DESIGN_RULES §9: a link is a
-/// chip, a passage ends in one cluster of its sources' marks). A `Text` cannot hold a view, so a line that carries a chip
-/// or a cluster is cut into these — its words, each link, its sources — and laid out by `InlineFlowLayout`, which wraps
-/// them like a paragraph, on one baseline. A line with neither is never cut: it stays one selectable `Text`.
+/// One piece of a line on an entity page (owner 2026-11-23, DESIGN_RULES §9: a link is a chip, a passage ends in one
+/// cluster of its sources' marks): its words, each link, its sources. `PageText` lays the pieces of a run of rows out as
+/// one text, a chip and the cluster as attachments, so the run selects like any Mac text.
 enum PageInlineToken: Equatable {
     /// A run of the line's own words with its markdown styling (bold, italic, code, a link the page could not resolve).
     case word(AttributedString)
@@ -155,16 +154,6 @@ enum PageInline {
             add(.cluster(cluster.0, keys: cluster.1))
         }
         return out
-    }
-
-    /// Whether a line needs the flow at all: it holds a chip or a cluster. Otherwise it stays one `Text`.
-    static func needsFlow(_ pieces: [PageInlinePiece]) -> Bool {
-        pieces.contains {
-            switch $0.token {
-            case .word: false
-            case .entity, .external, .quiet, .cluster: true
-            }
-        }
     }
 
     /// The line as plain words, for VoiceOver and Copy: a chip reads as its label.
