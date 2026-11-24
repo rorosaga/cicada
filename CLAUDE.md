@@ -248,35 +248,35 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 
 - **Five stages** (extract → resolve/dedup → conflicts/decay → patterns/skills → nudges + commit) plus an
   **engine-independent tail** on every exit path, in a clean-tree-guarded slot, each step committing only its own paths.
-- **Consolidate reads everything** (rulings 13, 16; ruling 80's allowance on older saves awaits the owner): every run — the person's and a
+- **Consolidate reads everything** (rulings 13, 16; 80's older-saves allowance awaits the owner): every run — the person's and a
   scheduled one — is a drain over the ids frozen at its start, in committed batches (ruling 62), so a stop loses at most the batch in progress. Decay and the
   page reads run once per drain. A plan limit is a pause, not a failure (only saves left: finished). **Ruling 4: a scheduled run uses a Claude or ChatGPT plan only
   through the person's "Scheduled runs may use my plan" switch, on unless they turned it off** (4b 2026-10-16, 4c
   2026-10-19; `SUBSCRIPTION_MODES` the one guard); on a metered engine it spends up to the person's spending limit, then pauses in words (ROR-102, ruling 63 (g), `sleep_spend`); a model with no known price stops the run.
-  **Plan-first engines (ruling 31, 2026-10-19):** the default is Auto — Claude plan, ChatGPT plan — and never
-  a metered key nobody chose: no engine is said in words, and a key (OpenRouter included) reads only when chosen.
+  **Plan-first engines (ruling 31, 2026-10-19):** the default is Auto — Claude plan, ChatGPT plan — never
+  a metered key nobody chose; a key (OpenRouter included) reads only when chosen.
   **Ruling 36 D1 (owner, 2026-10-22):** with nothing chosen, Auto uses a signed-in plan (Claude Code, then Codex) and
   says in words what runs; a key secured properly is an equal option; a local model runs only when chosen, never as Auto's rung.
   **The person's own Cursor, OpenCode or Grok (G49/G50, 2026-10-28)** are plans under ruling 4's switch (Grok user-started
   only), headless with no tools or MCP context, on their own sign-in; a key-billed path is refused or stops the run (`cli_engines`).
   **Ruling 46 (owner, 2026-10-28):** Auto is Claude plan → ChatGPT plan → Cursor → OpenCode (subscription model only), each
   read from cached status, an unknown or hung tool skipped in words, never a stall; Grok never on Auto (`capture-and-sleep.md`).
-  **Ruling 63 (owner 2026-11-04):** a key whose provider has an official SDK row (`direct_engines`) is served by that
+  **Ruling 63:** a key whose provider has an official SDK row (`direct_engines`) is served by that
   SDK, every other key by LiteLLM; a key's limit is a pause that never says the person's plan (`capture-and-sleep.md`, "A Claude key").
-  **46a (owner 2026-10-28):** Auto and schedules run Cursor only on Cursor's own models; a third-party one there is labelled "billed separately at list price", never auto-picked. Continue-after-reset is opt-in,
-  off (ruling 15). A scheduled time the Mac slept or was off through runs once, after a short settle, as a scheduled
+  **46a:** Auto and schedules run Cursor only on Cursor's own models; a third-party one there is labelled "billed separately at list price", never auto-picked. Continue-after-reset is opt-in (ruling 15). A scheduled time the Mac slept or was off through runs once, after a short settle, as a scheduled
   run — never over a pause or a running cycle (`sleep_catch_up`, owner 2026-10-19, `features.md`).
 - **The write window (G177):** `sleep_cycle.is_writing()` is the one predicate behind every "Sleep is running" refusal,
   read only through `write_admission` (G183): a writer holds it shared through its own commit,
   Sleep sets its flag then waits holders out — past the bound it pauses, never reads; never held across a model call or a fetch. Sleep's bank-wide work runs off the event loop; Stage 2's judge calls alone go back to it (G238).
 - **Sleep tends the inbox (ruling 29):** after each batch's commit it settles questions the person's own words answer
   (spans in their own turns, never a guess) and, per drain, the small stuff by rule, through the person's own resolvers
-  as Sleep's commit (`inbox/<kind>/settled:`), each undoable; never a person's identity without their words, bar ruling 79 (c) (`features.md`).
+  as Sleep's commit (`inbox/<kind>/settled:`), each undoable; never a person's identity without their words, bar rulings 79 (c), 81 (`features.md`).
   **Ruling 73:** no question loses a value; its own counters are never asked. **Ruling 74 (2026-11-07):** two people pages
   join only on two independent kinds of evidence, the name (an alias included, 2026-11-08) counting once (`person_duplicates.joins`), else a question; **79 (c):** time is the second kind for a first name and a same-week arrival, report-only.
   **74a (2026-11-23):** a same-name pair Sleep holds in doubt it joins itself on a located link read twice, undoable; one that reads like two is not asked.
   **74b (2026-11-24):** a name held in full joins its short-name page on the person's own located words naming both as one, read twice; an undo keeps them apart.
-  **74c (2026-11-24):** a plain misspelling is assumed, not asked: joined on one located same-fact line per side, read twice, else held quietly (`typo_join`); a question the record already answers is closed by Sleep's tending (`answered_questions`).
+  **74c (2026-11-24):** a plain misspelling is assumed, not asked: joined on one located same-fact line per side, read twice, else held quietly (`typo_join`); a question the record already answers is closed (`answered_questions`).
+  **Ruling 81:** the main model re-reads open questions against the record (`question_revisit`): located, read twice, undoable.
 - **An edited conversation is a revision of itself (G104, owner 2026-11-03):** diffed against the version Sleep read
   (git), only what changed is read, spans re-anchored never fuzzily; what only removed text said is superseded by the
   same revision's value (no question) or withdrawn by a record, never deleted; still one conversation for every count;
@@ -566,7 +566,7 @@ is revisited only on the trigger its row names.
 |----------|-----------|
 | Markdown over Neo4j | Same relational expressiveness at personal scale. Zero infrastructure. Portable. The LLM is the query engine. |
 | sqlite-vec over LEANN/FAISS | Stored (not recomputed) vectors give single-lookup latency with no cloud dependency; the index is derived and disposable. |
-| FTS5 beside sqlite-vec | Type-as-you-go needs words, not meanings: a derived lexical index answers a prefix without an embedding call, and finds aliases, claims and conversation text by what they say. Derived and disposable, like the vectors. |
+| FTS5 beside sqlite-vec | Type-as-you-go needs words, not meanings: a derived lexical index answers a prefix without an embedding call, and finds aliases, claims and conversation text by what they say. |
 | Batch over real-time consolidation | Conversations don't have clean endings. Batch sees patterns across a full day. Clean evaluation. |
 | Entity promotion over upfront extraction | Avoids polluting the graph with noise from single mentions. |
 | Temporal decay as an active signal | Absence of mention is informative. No other system does this. |

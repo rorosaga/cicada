@@ -138,13 +138,15 @@ RULES: dict[str, str] = {
     "alias_apart": "Two different things: one no longer lists the other's name as its own",
     "alias_quiet": "A saved link shares the name; it is no question about your memory",
     "alias_doubt": "Sleep could not tell whether they are one thing; nothing was changed",
+    # 2026-11-24 (`question_revisit`, ruling 81): an open question read again, by the main model, against the whole record.
+    "revisit_one": "Read again against everything on record: it says they are one person",
 }
 #: What the settled list says each retired "same as?" question became (owner 2026-11-04, `pair_evidence`).
 RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
            "no_pair_evidence": "Not asked: no conversation names them together"}
 #: The rules that read only the bank: re-run inside each settle, which goes ahead only when they still agree.
 #: The rules whose settle is a join Sleep read twice: taking one back is the person saying they are two (74b, 74c).
-JOINS = frozenset({"full_name_one", "typo_one"})
+JOINS = frozenset({"full_name_one", "typo_one", "revisit_one"})
 #: The settle that took a name off a page (`alias_collisions`): taking it back is the person keeping the name.
 ALIAS_RULES = frozenset({"alias_apart"})
 ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "seed_fold", "one_off", "newest_evidence",
@@ -216,6 +218,9 @@ class Decision:
     reason: str = ""
     #: ``source_corrected`` only: the corrected conversation the question rested on (G104 slice 3).
     basis: str = ""
+    #: The located words a read rested on, ``{"episode", "start", "end", "kind"}`` (``kind``: whose words they are), ids
+    #: and offsets only: the settled list shows them beside the reason (`question_revisit`, ruling 81).
+    spans: list = field(default_factory=list)
 
 
 @dataclass
@@ -2109,14 +2114,17 @@ def _record_key(memory_path: Path, path: Path) -> tuple[str, str]:
     return os.path.realpath(memory_path), path.stem
 
 
-async def read_record_answer(memory_path: Path, path: Path, fm: dict, llm_fn) -> tuple[Decision | None, str]:
+async def read_record_answer(memory_path: Path, path: Path, fm: dict, llm_fn, *, lines: list | None = None,
+                              memory: dict | None = _RECORD_READ) -> tuple[Decision | None, str]:
     """Move 3 for one question: the person's own lines about it across the record, one engine call, and a decision
     only on their words located exactly in the conversation the reply names. ``not_on_record``: no engine call
     (nothing names it, or the same lines were already read without an answer)."""
     import hashlib
 
     guard = _guard(memory_path, str(fm.get("entity_id") or ""))   # the page whose claims and dates it reads, as read
-    found = await asyncio.to_thread(record_lines, memory_path, fm)   # file reads and the index, off the loop
+    # ``lines``: the caller already searched (`question_revisit` keeps its own memory, outside every bank, and passes
+    # ``memory=None`` so the in-process one never hides a read the stronger model should make).
+    found = lines if lines is not None else await asyncio.to_thread(record_lines, memory_path, fm)   # off the loop
     if not found:
         return None, "not_on_record"
     if str(fm.get("kind") or "") == "followup" and not _followup_choices(memory_path, fm)[0]:
@@ -2126,7 +2134,7 @@ async def read_record_answer(memory_path: Path, path: Path, fm: dict, llm_fn) ->
     seen = hashlib.sha256("\n".join([str(fm.get("kind") or ""), str(fm.get("question") or ""), *lines])
                           .encode("utf-8")).hexdigest()
     key = _record_key(memory_path, path)
-    if _RECORD_READ.get(key) == seen:
+    if memory is not None and memory.get(key) == seen:
         return None, "not_on_record"
     prompt, choices = _question_prompt(memory_path, fm, lines, tagged=True)
     reply, model = await _ask(llm_fn, prompt)
@@ -2138,9 +2146,10 @@ async def read_record_answer(memory_path: Path, path: Path, fm: dict, llm_fn) ->
         d, why = await _confirmed(llm_fn, fm, d, why)
     if d is not None:
         d.guard = guard
-        _RECORD_READ.pop(key, None)
-    elif why in _NOT_ANSWERED:
-        _RECORD_READ[key] = seen
+        if memory is not None:
+            memory.pop(key, None)
+    elif why in _NOT_ANSWERED and memory is not None:
+        memory[key] = seen
     return d, why
 
 
@@ -2162,6 +2171,8 @@ def _record(fm: dict, d: Decision, by: str, evidence_span: dict | None) -> dict:
     }
     if evidence_span:
         rec["evidence"] = evidence_span
+    if d.spans:
+        rec["evidence_spans"] = [dict(s) for s in d.spans]
     return rec
 
 
@@ -2186,6 +2197,11 @@ def still_holds(memory_path: Path, d: Decision) -> bool:
         from api.services import typo_join
 
         return typo_join.still_holds(memory_path, d)
+    if d.rule == "revisit_one":
+        # Ruling 81 (2026-11-24): the same, for two pages the question revisit read against the whole record.
+        from api.services import question_revisit
+
+        return question_revisit.still_holds(memory_path, d)
     if d.rule not in ENGINE_FREE:
         return True
     path = _inbox(Path(memory_path)) / f"{d.item_id}.md"
