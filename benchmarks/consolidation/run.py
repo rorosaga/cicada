@@ -431,13 +431,17 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
 
     updates = []
     for row in gold["updates"]:
-        cur = [c for c in held(expand_groups(row["current"], clock)) if is_current(c) and about(row, c)]
+        # A row with no ``current`` is a thing that only ENDS (a job left with no new one named): correct when nothing
+        # stale is current.
+        cur = ([c for c in held(expand_groups(row["current"], clock)) if is_current(c) and about(row, c)]
+               if "current" in row else [])
         # A claim that says the old value ended ("dropped Python") is the change itself, never the stale value.
         stale_groups = expand_groups(row["stale"], clock)
         stale = [c for c in held(stale_groups) if is_current(c) and about(row, c)
                  and not ENDED.search(norm(c.get("predicate") or ""))
                  and matches(ENDS_WHAT.sub(" ", norm(claim_text(c))), stale_groups)]
-        verdict = ("correct" if cur and not stale else "both_current" if cur else "stale_only" if stale else "missing")
+        verdict = ("correct" if (cur or "current" not in row) and not stale else "both_current" if cur
+                   else "stale_only" if stale else "missing")
         updates.append({"id": row["id"], "why": row["why"], "verdict": verdict,
                         "current": [claim_text(c) for c in cur[:3]], "stale_current": [claim_text(c) for c in stale[:3]]})
 

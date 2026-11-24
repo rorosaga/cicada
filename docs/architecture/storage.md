@@ -608,6 +608,25 @@ value_ended_battery.py` replays the real call on ten invented cases (four that m
 moved off Python while the scripts stay, a reason that mentions it, another purpose, another prototype, two languages at
 once, a passing mention). It does not touch V4 (a budget raised, "budget excluding flights" beside "budget"): that is a
 value-against-value scope doubt with no ending on the page, and stays the join step's.
+**What rested on the thing that ended (2026-11-24; `value_ended.scope_candidates`):** a person leaves an employer and
+names no new title: "job title at <employer>: data engineer" stayed current, and so did "leads the <employer> migration"
+and a page that names them its lead. Nothing ties such a claim to the job except what it names, so the same step reads one
+step further, by structure and in any language (the id's words, whole and in order, never a word list). For each `over`
+ending of a node ("left", "moved out of", "dropped") the open older claims asked are: the subject's value whose
+*attribute* names the thing (the literal case above is unchanged); the subject's other claim to the same object under
+another predicate ("runs its shop on Shopify" beside "dropped Shopify"); a claim whose object or sentence names it; a
+claim whose object is a page the memory ties to it (that page holds an open line naming it, shown to the judge); and
+another page's line that names the subject, on a page so tied (a project's "lead: <person>"). Never a belief Stage 3
+closes with the ending itself, a claim said after it or in its own conversation, or the person's own claim under an
+agent's ending. One judge call each, the person's located words behind the fact and the ending, and the same "when
+unsure, it can still be true" (a skill learned there, a friend who is still there, history, the employer's own fact stay).
+Values first, then these, 24 asks a batch together. A yes closes the claim in Stage 3 exactly as it closes the link
+(`_place_ending`: `valid_to` when it was said, `superseded_by`, undoable, nothing deleted), on whichever page it lives
+(`_on_other_pages`). No new question is ever raised: a doubt stays open. `benchmarks/consolidation/ended_scope_battery.py`
+replays the call on invented cases (the title, the project, the page's lead line, Spanish, a manager, a commute, a
+landlord, a platform's other use must close; a friend still there, a skill learned there, history, a degree, a flatmate,
+a home near the office, a mentee, a lesson, an own-page friendship must stay). A prose summary written from a settled
+question (a page's lead sentence) is not a claim and is not reached here.
 **A stated day (W7, 2026-10-23):** a Stage 1 relationship may carry `ends`, an absolute day the model resolves from the
 conversation's day ("my last day is a week from today"); anything but a real ISO date is dropped, so nothing relative is
 stored (`entity_extractor._stated_day`). On an `over` label it dates the ending (the job closes on the last day, not
