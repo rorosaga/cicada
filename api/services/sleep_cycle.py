@@ -2045,7 +2045,7 @@ async def _index_without_model_safely(memory_path: Path, *, tail_only: bool = Fa
             return
     # G245: a connector post written as the person's own words (`connector_text`) put right, in a commit of its own
     # BEFORE anything else this run writes, so HEAD holds the healed body and no later wake reads it as a revision.
-    # Report-only while `connector_text.REPAIR` is off: it counts, logs and changes nothing.
+    # Off (`connector_text.REPAIR`): it counts, logs and changes nothing.
     await _heal_connector_text_safely(memory_path, skip, has_git)
     try:
         retired = await asyncio.to_thread(history_index.retire, memory_path, skip=skip)

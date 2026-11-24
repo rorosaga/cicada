@@ -847,8 +847,9 @@ at most 8 entities are taken from one save, and a save raises no question (`ask_
 description, never a note (X and Pinterest):** the text rides `RawItem.preview` into `## Description`, the episode carries
 no `has_note`, and the tweet's `created_at` is its `posted` day. Episodes written the old way (`## User note` + `has_note`,
 origin `x-bookmarks` or `pinterest`) are put right by `connector_text.repair`, committed alone before the index's own commit
-so a later wake finds no revision; it is **report-only** behind `connector_text.REPAIR` until the coordinator reads
-`python -m api.scripts.connector_text_dry_run --bank <path>` (counts only; `--ids` adds episode ids).
+so a later wake finds no revision; it is **on** (`connector_text.REPAIR`, with ruling 80's switch: it must run before a save is
+read, and a bank with no such row changes nothing). `python -m api.scripts.connector_text_dry_run --bank <path>` (counts only;
+`--ids` adds episode ids) still changes nothing whatever the constant says.
 **What a save may add, and how much (G245, ruling 80's plan, Track 2c; `saves_bounded`).** A claim "rests on saves alone"
 when its observer is somebody else's (`external:<author>`, never given to a claim with a span in the person's own words;
 a quote nothing locates is the author's too, in a save with a reason as in one without — the safe side: a stranger's words are

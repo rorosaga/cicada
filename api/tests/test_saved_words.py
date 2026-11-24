@@ -424,10 +424,13 @@ def _snapshot(memory):
     return {p.name: p.read_bytes() for p in (memory / "episodes").glob("*.md")}
 
 
-def test_the_repair_reports_and_changes_nothing_while_it_is_off(tmp_path):
+def test_the_repair_is_on_and_reports_and_changes_nothing_when_asked_only_to_report(tmp_path, monkeypatch):
     memory = _seed_old_bank(tmp_path)
     before = _snapshot(memory)
-    assert connector_text.REPAIR is False
+    assert connector_text.REPAIR is True                       # ruling 80: it runs before any save is read
+    report = connector_text.repair(memory, apply=False)
+    assert _snapshot(memory) == before and report.changed == [] and report.counts()["repair_on"] is False
+    monkeypatch.setattr(connector_text, "REPAIR", False)
     report = connector_text.repair(memory)
     assert _snapshot(memory) == before and report.changed == []
     assert report.counts() == {
@@ -482,6 +485,39 @@ def test_a_healed_episode_is_never_read_again_as_a_revision(tmp_path):
     assert episode_revision.attach(memory, waiting) == {}
 
 
+def test_a_repaired_row_is_read_as_its_authors_and_an_unrepaired_one_as_his():
+    """The same post, before and after the repair: the old shape puts it in the person's section (`## User note`), so a claim
+    from it is the person's reading; once healed it is the post's description, so a claim is the author's."""
+    reply = {"entities": [_entity("alpha-co", "company"), _entity("alpha-tool")],
+             "relationships": [_rel("alpha-co", "alpha-tool", "works on", "I work at alpha-co and my favourite tool is alpha-tool.")]}
+    old, _ = _read(_episode(OLD_X), reply)
+    assert saved_reading.person_ranges(OLD_X) and "observer" not in old["relationships"][0]       # read as his words
+    healed = connector_text._healed(OLD_X)
+    assert not saved_reading.person_ranges(healed)
+    new, _ = _read(_episode(healed), reply)
+    assert new["relationships"][0]["observer"] == "external:x-com"                                 # the post's author (its site)
+    assert new["relationships"][0]["evidence"][0]["kind"] == "page"
+    # and nothing the post says is put on the owner's page
+    reply_owner = {"entities": [_entity(OWNER, "person"), _entity("alpha-tool")],
+                   "relationships": [_rel(OWNER, "alpha-tool", "uses", "I work at alpha-co and my favourite tool is alpha-tool.")]}
+    result, _ = _read(_episode(healed), reply_owner)
+    assert result["relationships"] == []
+
+
+def test_the_repair_in_sleeps_first_step_leaves_a_waiting_episode_as_a_plain_save_read_as_its_authors(tmp_path):
+    from drain_harness import git
+
+    memory = _bank(tmp_path)
+    _old(memory, "ep_2026-11-20_010")
+    git(memory, "add", "-A")
+    git(memory, "commit", "-m", "seed")
+    asyncio.run(sleep_cycle._index_without_model_safely(memory))      # the switch is on: no monkeypatch
+    bank_index.invalidate()
+    (episode,) = [e for e in sleep_cycle._get_unprocessed_episodes(memory) if e["id"] == "ep_2026-11-20_010"]
+    assert saved_reading.applies(episode) and not saved_reading.person_ranges(episode["content"])
+    assert episode_revision.attach(memory, [episode]) == {}          # never a revision of what Sleep never read, nor of itself
+
+
 async def _commit(memory, fixed):
     from api.services import git_service
 
@@ -491,6 +527,7 @@ async def _commit(memory, fixed):
 def test_sleeps_first_step_repairs_in_a_commit_of_its_own_only_when_the_switch_is_on(tmp_path, monkeypatch):
     from drain_harness import git
 
+    monkeypatch.setattr(connector_text, "REPAIR", False)
     memory = _seed_old_bank(tmp_path)
     git(memory, "add", "-A")
     git(memory, "commit", "-m", "seed")
@@ -518,12 +555,14 @@ def test_sleeps_first_step_repairs_in_a_commit_of_its_own_only_when_the_switch_i
 def test_the_dry_run_prints_counts_and_never_a_word_of_a_post(tmp_path, capsys):
     from api.scripts import connector_text_dry_run
 
+    assert connector_text.REPAIR is True      # on, and the dry run still changes nothing
+
     memory = _seed_old_bank(tmp_path)
     before = _snapshot(memory)
     assert connector_text_dry_run.main(["--bank", str(memory)]) == 0
     out = capsys.readouterr().out
     printed = json.loads(out)
-    assert printed["found"] == 4 and printed["read_by_sleep"] == 1 and printed["repair_on"] is False
+    assert printed["found"] == 4 and printed["read_by_sleep"] == 1 and printed["repair_on"] is False   # whatever REPAIR says
     assert "alpha-co" not in out and "alpha-tool" not in out
     assert _snapshot(memory) == before
     assert connector_text_dry_run.main(["--bank", str(memory), "--ids"]) == 0

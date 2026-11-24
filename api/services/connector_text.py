@@ -9,9 +9,11 @@ holds a description of the linked page) and ``has_note`` goes. Nothing else chan
 ``processed_by`` stay, so an episode Sleep read stays read, and one still waiting becomes a bare save (index-only,
 exactly like every other save) at the next ``history_index.retire``.
 
-**Report-only today.** :data:`REPAIR` is the one constant: ``False`` counts what it would change and changes nothing.
-The coordinator turns it on after reading a dry run on a real bank
-(``python -m api.scripts.connector_text_dry_run --bank <path>``: counts only, never a word of a post).
+**On** (:data:`REPAIR`, the one constant, set to ``True`` with ruling 80's switch, owner 2026-11-24: every save is read).
+It has to be on BEFORE saves are read, or a stranger's post written the old way would be read as the person's own words
+on the first night; a bank with no such row (the author's, by a dry run) changes nothing. ``False`` counts what it would
+change and changes nothing, and the dry run (``python -m api.scripts.connector_text_dry_run --bank <path>``: counts only,
+never a word of a post) always does, whatever :data:`REPAIR` says.
 
 * **Idempotent.** An episode is repaired only while it still carries the old shape (one ``## User note``, ``has_note``,
   no reason, no why-answer, no agent session); once healed it matches nothing, so a second run counts zero.
@@ -31,9 +33,9 @@ from loguru import logger
 
 from api.services import saved_reading
 
-#: The one switch. ``False``: report only (count, change nothing). The coordinator sets it to ``True`` after reading a
-#: dry run on a real bank.
-REPAIR = False
+#: The one switch. ``True`` (ruling 80: saves are read, so a post written as his words must be put right first);
+#: ``False``: report only (count, change nothing).
+REPAIR = True
 
 USER_NOTE = "## User note"
 DESCRIPTION = "## Description"
