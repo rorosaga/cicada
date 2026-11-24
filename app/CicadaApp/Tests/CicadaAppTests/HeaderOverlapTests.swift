@@ -11,8 +11,12 @@ final class HeaderOverlapTests: XCTestCase {
         (view as? NSTextField).map { [$0] } ?? [] + view.subviews.flatMap { fields(in: $0) }
     }
 
+    private static func draws(_ view: NSView, as name: String) -> Bool {
+        String(describing: type(of: view)) == name || view.subviews.contains { draws($0, as: name) }
+    }
+
     @MainActor
-    private func cutSelectableText<V: View>(_ view: V, width: CGFloat) -> [String] {
+    private func cutSelectableText<V: View>(_ view: V, width: CGFloat) throws -> [String] {
         let store = Store(cache: SnapshotCache(
             root: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         ), api: FakeSyncAPI())
@@ -20,6 +24,11 @@ final class HeaderOverlapTests: XCTestCase {
         host.frame = NSRect(x: 0, y: 0, width: width, height: 1_200)
         host.layoutSubtreeIfNeeded()
         let found = Self.fields(in: host)
+        if found.isEmpty, Self.draws(host, as: "AppKitTextInteractionView") {
+            // macOS 27 draws a selectable `Text` in one `AppKitTextInteractionView`, not an `NSTextField`: there is no
+            // field editor to open over the header, so the hazard this test measures does not exist there.
+            throw XCTSkip("a selectable Text is not an AppKit text field on this macOS")
+        }
         XCTAssertFalse(found.isEmpty, "the header's selectable text is AppKit text fields")
         return found.compactMap { field in
             // All of its text at its width — what the field editor shows on a click, whatever line limit it was given.
@@ -39,23 +48,25 @@ final class HeaderOverlapTests: XCTestCase {
     }
 
     @MainActor
-    func testNoSelectableHeaderTextIsCutShortOnAPersonCard() {
+    func testNoSelectableHeaderTextIsCutShortOnAPersonCard() throws {
         let person = entity(type: .person)
         let hero = PersonHero(entity: person, summary: EntityHeaderWords.summary(markdown: person.markdownContent,
                                                                                 isStub: false),
                               isStub: false, inputs: nil, facts: [])
-        XCTAssertEqual(cutSelectableText(hero, width: 504), [])
+        let cut = try cutSelectableText(hero, width: 504)
+        XCTAssertEqual(cut, [])
     }
 
     @MainActor
-    func testNoSelectableHeaderTextIsCutShortOnOtherCards() {
+    func testNoSelectableHeaderTextIsCutShortOnOtherCards() throws {
         let page = entity(type: .project)
         let header = EntityCardHeader(
             entity: page, summary: EntityHeaderWords.summary(markdown: page.markdownContent, isStub: false),
             isStub: false, canGoBack: false, backTargetName: nil, onBack: {}, showsClose: true, onClose: {},
             tabs: EntityTabs.tabs(claims: [], historyCount: 1), selection: .constant(.content),
             inset: EntityCardStyle.column.inset)
-        XCTAssertEqual(cutSelectableText(header, width: 504), [])
+        let cut = try cutSelectableText(header, width: 504)
+        XCTAssertEqual(cut, [])
     }
 
     /// Expanding the person's Summary grows the header: what follows it moves down, nothing is drawn over.
