@@ -460,6 +460,9 @@ def adapters() -> list[ModuleType]:
 async def scheduled_sync(memory_path: Path | None = None) -> list[dict]:
     """The backend scheduler's job (every ``SCHEDULE_HOURS``): every connected tier-2 connector, one at a time, on the
     active bank. Gated, yields to Sleep, never raises."""
+    from api.services import bank_registry
+
+    bank_registry.unpin()   # G183(d): the bank active when this FIRES, not the context that registered the job
     if memory_path is None:
         from api.config import get_settings
 

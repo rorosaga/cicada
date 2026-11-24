@@ -280,20 +280,42 @@ def test_a_due_list_is_named_in_the_persons_terms_to_a_harness_that_read_a_list_
     _driver(bank)
     start = client.post(URL, json=_body(None, event="session_start", session="s-l")).json()
     text = start["additionalContext"]
-    assert "your X Bookmarks is due to be read in the person's own signed-in browser" in text
+    assert "Due for a read in the person's own signed-in browser: your X Bookmarks" in text
+    assert " is due" not in text and " are due" not in text, "no verb has to agree with a list's name"
     assert "links are waiting" not in text and "link is waiting" not in text, "a list is not counted as a link"
     assert "x.com" not in text, "a site's and a list's name, never an address"
 
 
-def test_a_harness_with_no_recorded_list_read_hears_nothing_of_the_lists(client, bank):
+def test_a_harness_with_no_recorded_list_read_hears_the_count_line_with_the_lists_in_it(client, bank):
+    """The owner's case: lists on and never read by anyone. A harness with no recorded read is told "N links are
+    waiting" as before (a due list is one of them), never silence — so a first read can start from normal use."""
     enable()
     _list_on("x")
     start = client.post(URL, json=_body(None, event="session_start", session="s-l")).json()
-    assert "due to be read" not in (start["additionalContext"] or "")
-    assert "waiting in Cicada's reading queue" not in (start["additionalContext"] or "")
-    _driver(bank, "codex")           # another harness recorded one: the line is for that harness only
-    assert "due to be read" not in (_prompt(client, "s-l2")["additionalContext"] or "")
+    assert recall_text.reading_line(1) in start["additionalContext"]
+    assert "your X Bookmarks" not in start["additionalContext"], "no list is named to a harness that never read one"
+    _driver(bank, "codex")           # another harness recorded one: the named line is for that harness only
+    other = _prompt(client, "s-l2")["additionalContext"] or ""
+    assert "your X Bookmarks" not in other
     assert "your X Bookmarks" in (_prompt(client, "s-l3", harness="codex")["additionalContext"] or "")
+
+
+def test_a_named_list_is_not_also_counted_as_a_link_and_the_count_says_the_rest(client, bank):
+    enable()
+    _list_on("x")
+    _driver(bank)
+    _ask(bank)
+    text = client.post(URL, json=_body(None, event="session_start", session="s-l")).json()["additionalContext"]
+    assert "your X Bookmarks" in text and "Also 1 link is waiting" in text and "2 links" not in text
+
+
+def test_the_named_line_needs_no_verb_that_agrees_with_a_plural_or_singular_name():
+    for lists in (("X Bookmarks",), ("LinkedIn Saved posts",), ("YouTube Watch later",),
+                  ("X Bookmarks", "YouTube Watch later")):
+        for waiting in (0, 1, 3):
+            line = recall_text.reading_line(waiting, lists=lists)
+            assert " is due" not in line and " are due" not in line
+            assert all(f"your {n}" in line for n in lists)
 
 
 def test_the_links_a_person_asked_about_still_reach_every_harness(client, bank):
@@ -301,8 +323,8 @@ def test_the_links_a_person_asked_about_still_reach_every_harness(client, bank):
     _list_on("x")
     _ask(bank)
     start = client.post(URL, json=_body(None, event="session_start", session="s-l")).json()
-    assert recall_text.reading_line(1) in start["additionalContext"]
-    assert "due to be read" not in start["additionalContext"]
+    assert recall_text.reading_line(2) in start["additionalContext"], "the link and the due list, counted as before"
+    assert "your X Bookmarks" not in start["additionalContext"] and "Due for a read" not in start["additionalContext"]
 
 
 def test_a_list_that_stays_due_repeats_on_a_later_prompt_only_after_the_floor(client, bank, monkeypatch):
@@ -374,3 +396,21 @@ def test_an_agents_recorded_list_read_makes_it_a_driver_and_a_refused_one_does_n
     out = srv.handle_tool("cicada_record_saved_list", {"platform": "x", "outcome": "read", "items": []})
     assert "empty" in out or "Recorded" in out, out
     assert "claude-code" in saved_lists.readers(bank)
+
+
+def test_a_read_is_noted_only_when_rows_were_sent(bank):
+    """A call that sent no rows read nothing, so it never makes its harness a driver; an empty list that was read
+    does."""
+    from api.services import mcp_tools, saved_lists
+
+    enable()
+    _list_on("x")
+
+    def call(harness, **kw):
+        ctx = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="s", harness=harness)
+        return mcp_tools.record_saved_list(ctx, "x", "read", **kw)
+
+    call("codex")                                    # no `items`: an error, nothing was read
+    assert saved_lists.readers(bank) == frozenset()
+    call("codex", items=[])                          # the list was there and empty: a read
+    assert saved_lists.readers(bank) == frozenset({"codex"})

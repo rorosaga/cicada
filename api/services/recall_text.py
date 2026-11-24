@@ -88,12 +88,13 @@ def reading_line(waiting: int, *, record: bool = False, lists=()) -> str:
         return (f"{waiting} {noun} {'is' if waiting == 1 else 'are'} waiting in Cicada's reading queue for an agent "
                 "to read (ones the person asked about, and pages from sites they allowed). Once their own request is "
                 f"done (or if it is about those links), `cicada_reading_queue(limit)` lists what is waiting{tail}.")
-    due = f"{_list_phrase(lists)} {'is' if len(lists) == 1 else 'are'} due to be read in the person's own signed-in browser"
+    # No verb agrees with a list's name ("X Bookmarks" is plural, "YouTube Watch later" is not), so none is used.
+    due = f"Due for a read in the person's own signed-in browser: {_list_phrase(lists)}"
     if waiting <= 0:
         return (f"{due} (they turned that on in Cicada). Once their own request is done, "
                 f"`cicada_reading_queue(limit)` lists what to open{tail}.")
     noun = "link" if waiting == 1 else "links"
-    return (f"{due}, and {waiting} {noun} {'is' if waiting == 1 else 'are'} waiting in Cicada's reading queue for an "
+    return (f"{due}. Also {waiting} {noun} {'is' if waiting == 1 else 'are'} waiting in Cicada's reading queue for an "
             "agent to read (ones the person asked about, and pages from sites they allowed). Once their own request "
             f"is done, `cicada_reading_queue(limit)` lists what is waiting{tail}.")
 

@@ -1069,17 +1069,19 @@ def reading_line_for(memory_path: Path, session_id: str, *, event: str, deadline
     G245 (track C1): a list the person turned on that is due to be read (X Bookmarks, YouTube Watch later…) is named in
     their terms, **only to a harness that has recorded a list read before** (``saved_lists.readers``). Cicada has no
     table of which harness can drive a browser and cannot see an agent's tools (ruling 14), so a recorded read is the
-    one thing it knows; a harness with none hears about the links the person asked about, as before, and nothing of the
-    lists. A list that stays due is said again on a later prompt of the same session, at most once per
+    one thing it knows; every other harness hears what it always did — "N links are waiting", a due list among the N —
+    so a first read can start from normal use, and a list nobody has read is never silent. A list that stays due is said again on a later prompt of the same session, at most once per
     ``READING_SEEN.LIST_REPEAT_S`` (a list newly due is said at once), never on every prompt."""
     from api.services import reading_queue, saved_lists
 
     asks, derived = reading_queue.counts(memory_path, warm_only=True,
                                          deadline=None if deadline is None else deadline - READING_RESERVE_S)
-    # The due lists are among the asks (one each): they are said by name below, or not at all, never as "links".
-    due = reading_queue.lists_due(memory_path)
-    asks = max(0, asks - len(due))
-    names = tuple(due) if harness and harness in saved_lists.readers(memory_path) else ()
+    # A harness that has recorded a list read hears the due lists by name, and they are no longer "links". Any other
+    # harness hears the count as before, the lists among its asks: a first read can still start from normal use.
+    names = ()
+    if harness and harness in saved_lists.readers(memory_path):
+        names = tuple(reading_queue.lists_due(memory_path))
+        asks = max(0, asks - len(names))
     known = derived is not None  # a cold cache leaves the derived part unknown, never zero
     waiting = asks + (derived or 0)
     told = READING_SEEN.told(session_id)

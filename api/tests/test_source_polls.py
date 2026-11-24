@@ -396,3 +396,29 @@ def test_two_timer_polls_three_hours_apart_reach_xs_fetch_once(bank, monkeypatch
     source_polls.reset_for_tests()          # three hours on: the job's stamp is past, the row's is not
     _run(source_polls.scheduled_poll(bank))
     assert len(fetches) == 1
+
+
+# --- a job outside a request resolves the bank active when it fires, never a registering context's pin ----------------
+
+
+def test_both_scheduler_jobs_drop_a_pin_before_they_read_the_active_bank(bank, monkeypatch):
+    from api import config
+    from api.services import bank_registry
+    from api.services.connectors import tier2
+
+    seen: list = []
+
+    def settings():
+        seen.append(bank_registry._PINNED.get())
+        return SimpleNamespace(memory_path=bank)
+
+    monkeypatch.setattr(config, "get_settings", settings)
+    monkeypatch.setattr(tier2, "adapters", lambda: [])
+    for job in (source_polls.scheduled_poll, tier2.scheduled_sync):
+        token = bank_registry._PINNED.set("a-bank-another-context-pinned")
+        try:
+            before = len(seen)
+            _run(job())
+            assert len(seen) > before and seen[before] is None, job.__module__
+        finally:
+            bank_registry._PINNED.reset(token)

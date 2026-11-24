@@ -98,6 +98,9 @@ def reset_for_tests() -> None:
 async def scheduled_poll(memory_path: Path | None = None) -> dict[str, Any]:
     """The scheduler's job: tier-1 connectors, feeds and calendars on the active bank, one after another. Gated,
     yields to Sleep, never raises. Returns what it did, by kind (``polled`` / ``skipped`` with a short reason)."""
+    from api.services import bank_registry
+
+    bank_registry.unpin()   # G183(d): first — the bank is the one active when this FIRES, not the registering context's
     if memory_path is None:
         from api.config import get_settings
 
@@ -105,9 +108,8 @@ async def scheduled_poll(memory_path: Path | None = None) -> dict[str, Any]:
     memory_path = Path(memory_path)
     out: dict[str, Any] = {}
     try:
-        from api.services import bank_registry, demo_guard, home_move, replica_guard, write_admission
+        from api.services import demo_guard, home_move, replica_guard, write_admission
 
-        bank_registry.unpin()   # G183(d): the bank active now, whatever context registered this job
         if replica_guard.blocks() or home_move.writes_closed():
             return {"skipped": "this computer does not write the memory"}   # a replica, or a home that is moving
         if demo_guard.is_demo(memory_path):
