@@ -150,6 +150,7 @@ struct ProjectFullHead: View {
 /// what it waits on, what has gone quiet. A fact with nothing to say is not drawn; with none, the section is not drawn.
 struct ProjectPulseView: View {
     let pulse: ProjectPulse.Output
+    @Environment(Store.self) private var store: Store?
     let today: ISODay
     let pick: (ProjectKey) -> Void
 
@@ -172,7 +173,7 @@ struct ProjectPulseView: View {
                 if let w = pulse.waiting.first {
                     column(Copy.ProjectsOpen.waitingOn) {
                         Button { pick(.thread(w.claimId)) } label: {
-                            Text(Copy.ProjectsOpen.waitingLine(w.who, w.text))
+                            Text(Copy.ProjectsOpen.waitingLine(w.who, PageLine.plain(w.text, links: store.links)))
                                 .font(CicadaTheme.bodyFont)
                                 .foregroundStyle(CicadaTheme.textPrimary)
                                 .lineLimit(2)
@@ -187,7 +188,7 @@ struct ProjectPulseView: View {
                 if let q = pulse.quiet.first {
                     column(Copy.ProjectsOpen.goneQuiet) {
                         Button { pick(.thread(q.claimId)) } label: {
-                            Text(Copy.ProjectsOpen.quietLine(q.text, weeks: q.quietDays / 7, days: q.quietDays))
+                            Text(Copy.ProjectsOpen.quietLine(PageLine.plain(q.text, links: store.links), weeks: q.quietDays / 7, days: q.quietDays))
                                 .font(CicadaTheme.bodyFont)
                                 .monospacedDigit()
                                 .foregroundStyle(CicadaTheme.textPrimary)

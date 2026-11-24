@@ -156,7 +156,7 @@ struct ProjectDetailColumn: View {
         // R-FA2's one exception: the band depends on its measured width and scales with its marks, never with
         // participants, so it stays here rather than re-deriving off-main on every resize.
         let band = BandLayout.make(t, state: state, width: max(bandWidth - 2 * CicadaTheme.scaled(BandLayout.inset), 1),
-                                   today: today)
+                                   today: today, links: store.links)
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -635,7 +635,7 @@ struct ProjectDetailColumn: View {
             if let next = summary.next, let key = next.key {
                 Text("·").foregroundStyle(CicadaTheme.textTertiary)
                 Button { reveal(key, in: t, state: derived?.state) } label: {
-                    Text(Copy.ProjectsOpen.nextInline(next.text))
+                    Text(Copy.ProjectsOpen.nextInline(PageLine.plain(next.text, links: store.links)))
                         .foregroundStyle(selection == key ? CicadaTheme.textPrimary : CicadaTheme.textSecondary)
                         .lineLimit(1)
                         .contentShape(Rectangle())
