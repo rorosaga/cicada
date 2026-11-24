@@ -131,7 +131,11 @@ def test_nothing_is_offered_until_a_list_is_on_then_one_site_at_a_time(reading):
     _record(server, "x", items=[{"url": POST_A, "author": "alice_example", "text": "Notes on indexes"}])
     assert saved_lists.due(memory) == ["linkedin"]
     later = datetime.now(timezone.utc) + saved_lists.CADENCE + timedelta(minutes=1)
-    assert saved_lists.due(memory, now=later) == ["x"]
+    # G245: the list never read still goes before the one read a day ago (the first key in table order no longer wins) ...
+    assert saved_lists.due(memory, now=later) == ["linkedin"]
+    saved_lists.note(memory, "linkedin", "read", items=1, now=later)
+    # ... and once both were read, the one read longest ago is next.
+    assert saved_lists.due(memory, now=later + saved_lists.CADENCE + timedelta(minutes=1)) == ["x"]
 
 
 def test_the_day_bound_stops_the_offer_and_the_record(reading, monkeypatch):

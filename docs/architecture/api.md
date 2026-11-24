@@ -558,6 +558,36 @@ the node's `contentHash` only when true, so a lit node's hash is unchanged; `GET
 `saved-why-2`, G191 v3: items gained `savedWhyHistory`, `lastSavedAt` and `captureThumb`). Neither moved a component,
 so `VersionVector` was unchanged by those — but G191 v3 also folds the `captures` component into `/sources`' ETag (a
 new site capture gives a bookmark's row its thumbnail), so `VersionVector` maps `captures` → `.sources`.
+**What each source reads, as streams (G245, ruling 78; `source_streams`, shape `streams-1`).** `GET /sources/streams`
+answers `{shape, sources: [{id, label, account, streams: [{id, label, kind, how, owner, control, state, health,
+lastReadAt, pausedUntil, checkRequestedAt, count, folderCount, depth, switch, why, channel}]}]}` — the plan's section 2.1
+(`docs/plans/2026-11-24-sources-redesign.md`); a field name is a contract the app codes against. `id` is the app
+catalogue's (`SourceCatalogEntry.id`, `browser:<id>`, `overview:harness:<name>`); a stream id is `<source>.<stream>`, frozen
+once shipped. `channel` (an addition) names the `/sources/channels/{channel}/items` channel the stream's rows live under.
+The ETag is a digest of the body (the `/reading/settings` precedent: a pause lapsing changes it with no clock of its own);
+the body is computed per request from small stores plus two cached passes. **Browser lists are derived from the tables
+that name them** — `saved_lists.PLATFORMS` (a key with a `base` attribute groups under that site and shares its pause),
+`youtube_lists.LISTS`, `substack_lists.LISTS` — so a list added there appears with no second edit; everything else is the
+static table in `source_streams._static_specs`, its state from the channel rows and the connectors. `how` is the way in
+use: a connector the person connected (X, Reddit, Pinterest) makes the same stream `account`. **`count` is list
+membership** (`id_utils.page_lists`: a post bookmarked first and liked later counts on both), from one pass over the media
+pages kept under `bank_index.derived`, never a scan per request; a history's is its days, LinkedIn's connections' the
+kept directory's size. `folderCount` counts the site's own folders (`save_folders`; a playlist is one). The route
+writes nothing and is a plain read on a copy.
+`POST /sources/streams/check` (body `{sources?: [ids]}`, none or empty = every source; demo bank 409, `FORWARD` on a
+replica) is the backend's half of a check: a browser list that is on and not paused is stamped `check_requested_at` (the
+lists' `due` serves it first, inside the daily bound, never lifting a pause — `mcp.md`), an app's stream is only reported
+(`app`), a stream read through a sign-in runs that connector's own sync once. It answers the rows of the sources asked
+about plus `checked: [{stream, result}]`, `result` one of `requested`, `signed_out`, `couldnt_read`, `paused`, `app`,
+`read`, `failed`, `off`, `not_connected`, `noted`.
+**Items by stream and folder (G245, shape `g161-23`).** `GET /sources/channels/{id}/items` takes `stream` (a stream id;
+404 for an unknown one) and `folder` (a name, any case, within it — a bookmark folder, a collection, a playlist): `all`
+is then that stream's or folder's. A stream that is the whole channel (a history, Notes) keeps every row. A saved-list
+row (a media page of a list origin) gains `lists` (the labels of the lists it is on: its page's `folder:` and
+`collections:`), `folders` (the site's own, `save_folders`, minus any already a list), `depth` (`kept` = indexed, no model
+has read it; `read` = Sleep read its save, or the person's own agent recorded a read or watch of the link; a mention
+later adds `asked` and `watched`) and `posted` (the post's own day when the url-index row carries `posted_at` or
+`published_at`; the row's `day` stays the day it was kept). `folder` is never logged (`main._REDACTED_PARAMS`).
 **Where an item lives (G161, ROR-111, shape `g161-17`).** A row on `GET /sources/channels/{id}/items` whose item records
 a place carries `place`: its kind alone (`notes`, `github`, `web`), never the URL or a note's id, so a list stays titles
 only. `GET /sources/channels/{id}/items/{item}/place` answers one listed item on the person's click:

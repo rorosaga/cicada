@@ -249,10 +249,16 @@ def allowed(key: str) -> bool:
     return key in PLATFORMS and reading_settings.saved_list_allowed(key)
 
 
+def pause_key(key: str) -> str:
+    """The key a list's pause is kept under: its site's (:func:`base_of`). A login wall on a site pauses every list of
+    it, and a read of any one proves the sign-in for all; a list with no ``base`` is its own."""
+    return base_of(key)
+
+
 def paused_until(key: str, now: datetime | None = None) -> datetime | None:
     """When ``key``'s pause ends. The pause is the site's: a login wall met on X likes pauses X bookmarks too, and only
     "I signed in" / Try again lifts it (G245: one rule for every list of a site, stored under the site's first key)."""
-    until = _parse((_load().get("paused_until") or {}).get(base_of(key)))
+    until = _parse((_load().get("paused_until") or {}).get(pause_key(key)))
     return until if until is not None and until > _now(now) else None
 
 
@@ -277,18 +283,43 @@ def reads_today(memory_path: Path, now: datetime | None = None) -> int:
 
 
 def due(memory_path: Path, now: datetime | None = None) -> list[str]:
-    """The site whose list to offer the person's agent now — at most one (G206: one site's list at a time), in a fixed
-    order: allowed, not paused, not read in ``CADENCE``, and the day's reads not spent."""
+    """The site whose list to offer the person's agent now — at most one (G206: one site's list at a time): allowed, not
+    paused, and the day's reads not spent. A list the person asked to check (:func:`request_check`) goes first, whatever
+    its cadence (the oldest request first); then the list read longest ago, a list never read before any (G245: the first
+    key in table order no longer always wins, so a later list is not starved). Ties keep table order. A check never lifts
+    a pause, and never goes past :data:`DAILY_READS`."""
     if reads_today(memory_path, now) >= DAILY_READS:
         return []
     moment = _now(now)
-    for key in PLATFORMS:
+    floor = datetime.min.replace(tzinfo=timezone.utc)
+    ranked = []
+    for order, key in enumerate(PLATFORMS):
         if not allowed(key) or paused_until(key, now) is not None:
             continue
-        at = _parse(last(memory_path, key).get("read_at"))
-        if at is None or moment - at >= CADENCE:
-            return [key]
-    return []
+        entry = last(memory_path, key)
+        at = _parse(entry.get("read_at"))
+        asked = _parse(entry.get("check_requested_at"))
+        if asked is None and at is not None and moment - at < CADENCE:
+            continue
+        ranked.append((0 if asked is not None else 1, asked or at or floor, order, key))
+    return [min(ranked)[3]] if ranked else []
+
+
+def request_check(memory_path: Path, key: str, now: datetime | None = None) -> bool:
+    """The person asked to check this list now (G245, ``POST /sources/streams/check``): stamp it so :func:`due` offers it
+    first. Cicada opens no browser, so this is all a check can do for a list the person's own agent reads. Stamps only a
+    list that is on and not paused — a pause is lifted only by the person's "I signed in" or Try again — and says whether
+    it did. The next recorded attempt clears the stamp."""
+    if not allowed(key) or paused_until(key, now) is not None:
+        return False
+    with _locked() as data:
+        entry = data.setdefault("banks", {}).setdefault(_bank_key(memory_path), {}).setdefault(key, {})
+        entry["check_requested_at"] = _now(now).isoformat()
+    return True
+
+
+def check_requested_at(memory_path: Path, key: str) -> str | None:
+    return last(memory_path, key).get("check_requested_at") or None
 
 
 def state_of(outcome) -> str:
@@ -377,11 +408,12 @@ def note(memory_path: Path, key: str, outcome: str, *, items: int = 0, handle: s
         banks = data.setdefault("banks", {}).setdefault(bank, {})
         entry = banks.setdefault(key, {})
         entry.update(at=moment.isoformat(), outcome=outcome)
+        entry.pop("check_requested_at", None)   # an attempt, whatever its outcome, answers a requested check
         if handle:
             entry["handle"] = handle
         if profile_url:
             entry["profile_url"] = profile_url
-        base = base_of(key)
+        base = pause_key(key)
         pauses = data.setdefault("paused_until", {})
         if outcome == "read":
             held_pass = entry.get("pass")
@@ -449,7 +481,7 @@ def resume(keys) -> None:
     with _locked() as data:
         pauses = data.get("paused_until") or {}
         for key in keys:
-            pauses.pop(base_of(key), None)
+            pauses.pop(pause_key(key), None)
         if not pauses:
             data.pop("paused_until", None)
 

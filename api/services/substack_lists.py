@@ -197,13 +197,35 @@ def due(memory_path: Path, now: datetime | None = None) -> list[str]:
     if saved_lists.due(memory_path, now):
         return []
     moment = _now(now)
-    for name, spec in LISTS.items():
+    floor = datetime.min.replace(tzinfo=timezone.utc)
+    ranked = []
+    for order, (name, spec) in enumerate(LISTS.items()):
         if not allowed(name):
             continue
-        at = _parse(last(memory_path, name).get("read_at"))
-        if at is None or moment - at >= spec.cadence:
-            return [name]
-    return []
+        entry = last(memory_path, name)
+        at = _parse(entry.get("read_at"))
+        asked = _parse(entry.get("check_requested_at"))
+        if asked is None and at is not None and moment - at < spec.cadence:
+            continue
+        # G245: a list the person asked to check first (never past the day's bound or a pause), then the one read
+        # longest ago — the first key in table order no longer always wins.
+        ranked.append((0 if asked is not None else 1, asked or at or floor, order, name))
+    return [min(ranked)[3]] if ranked else []
+
+
+def request_check(memory_path: Path, name: str, now: datetime | None = None) -> bool:
+    """The person asked to check this list now (G245): stamp it so :func:`due` offers it first. Only a list that is on and
+    not paused — a check never lifts the pause — and the next recorded attempt clears the stamp. Says whether it stamped."""
+    if not allowed(name) or paused_until(now) is not None:
+        return False
+    with _locked() as data:
+        entry = data.setdefault("banks", {}).setdefault(_bank_key(memory_path), {}).setdefault(name, {})
+        entry["check_requested_at"] = _now(now).isoformat()
+    return True
+
+
+def check_requested_at(memory_path: Path, name: str) -> str | None:
+    return last(memory_path, name).get("check_requested_at") or None
 
 
 def status(memory_path: Path, now: datetime | None = None) -> dict:
@@ -227,6 +249,7 @@ def note(memory_path: Path, name: str, outcome: str, *, items: int = 0, now: dat
     with _locked() as data:
         entry = data.setdefault("banks", {}).setdefault(_bank_key(memory_path), {}).setdefault(name, {})
         entry.update(at=moment.isoformat(), outcome=outcome)
+        entry.pop("check_requested_at", None)   # an attempt, whatever its outcome, answers a requested check
         pauses = data.setdefault("paused_until", {})
         if outcome == "read":
             entry.update(read_at=moment.isoformat(), items=int(items))

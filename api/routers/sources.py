@@ -83,6 +83,7 @@ from api.services import (
     source_overview,
     sync_service,
     sync_state,
+    source_streams,
     sync_ticker,
     watch_history,
     listening_history,
@@ -1590,6 +1591,87 @@ async def list_source_channels(
     return SourceChannelsResponse(channels=[SourceChannel(**c) for c in channels])
 
 
+#: The channel rows a streams answer is built from, by bank: ``(the /sources/channels ETag's own inputs, rows)``. The rows
+#: are what `/sources/channels` computes per change; reusing them while those inputs hold keeps `GET /sources/streams`
+#: (whose own ETag is its body's digest, because pauses lapse with the clock) from rebuilding them per request.
+_STREAM_ROWS: dict[str, tuple[str, list[dict]]] = {}
+
+
+def _stream_rows(settings: Settings) -> tuple[list[dict], dict[str, bool], bool]:
+    """``(channel rows, connectors connected, feeds fetched)`` for a streams answer — the same inputs `/sources/channels`
+    folds into its ETag, so a row is rebuilt exactly when that route's would be."""
+    memory_path = settings.memory_path
+    connected = {cid: adapter.is_connected() for cid, adapter in ADAPTERS.items()}
+    feed_fetch = feed_registry.fetch_allowed()
+    tag = ",".join(f"{k}:{v}" for k, v in sorted(connected.items()))
+    with sync_ticker.request_scans(memory_path):
+        etag = sync_service.etag_for(
+            memory_path, "sources", "episodes", "entities",
+            extra=f"{channel_registry.CHANNELS_SHAPE}|telegram:{settings.telegram_enabled}|connectors:{tag}"
+                  f"|feeds:{feed_fetch}")
+        held = _STREAM_ROWS.get(str(memory_path))
+        if held is not None and held[0] == etag:
+            return held[1], connected, feed_fetch
+        rows = channel_registry.build_channels(
+            memory_path, telegram_enabled=settings.telegram_enabled, connectors_connected=connected,
+            feed_fetch_allowed=feed_fetch)
+    if len(_STREAM_ROWS) > 8:
+        _STREAM_ROWS.clear()
+    _STREAM_ROWS[str(memory_path)] = (etag, rows)
+    return rows, connected, feed_fetch
+
+
+@router.get("/sources/streams")
+async def get_source_streams(request: Request, response: Response, settings: Settings = Depends(get_settings)):
+    """What each source reads (G245, ruling 78): one list of **streams** per source — a name, whether it is on, how it is
+    read, when it was last read and how that went, how many items memory holds from it (list membership, one cached pass,
+    never a scan per request) and how deep they go. Browser lists are derived from the lists' own tables, the rest from
+    the stores that already hold them; nothing existing is replaced (`source_streams`).
+
+    The ETag is a digest of the body (the `/reading/settings` precedent): a pause lapsing, a read landing or a check
+    stamped changes it with no clock of its own. Read-only, writes nothing, never a Store domain."""
+    def build() -> dict:
+        with sync_ticker.request_scans(settings.memory_path):   # one listing per directory for every pass below
+            rows, connected, feed_fetch = _stream_rows(settings)
+            return source_streams.build(settings.memory_path, channels=rows, connectors_connected=connected,
+                                        feed_fetch_allowed=feed_fetch)
+
+    body = await run_in_threadpool(build)
+    if (early := sync_service.conditional(request, response, source_streams.etag(body))) is not None:
+        return early
+    return body
+
+
+class StreamsCheck(BaseModel):
+    #: The source ids to check; none, or empty, checks every source.
+    sources: list[str] | None = Field(None, max_length=200)
+
+
+@router.post("/sources/streams/check", dependencies=_DEMO_GATE)
+async def check_source_streams(body: StreamsCheck | None = None, settings: Settings = Depends(get_settings)):
+    """Check connections (G245, plan 3.3): the backend's half of a check, then the same rows `GET /sources/streams` serves
+    for the sources asked about, with ``checked`` — one word per stream. A list the person's own agent reads is stamped
+    (``checkRequestedAt``) so it is offered first, still inside the day's bound and never lifting a pause; a stream an
+    app reads is reported, never run; a stream read through a sign-in the person gave runs that connector's own sync,
+    their click. A demo bank answers 409."""
+    ids = list(dict.fromkeys(body.sources)) if body and body.sources else None
+    rows, connected, feed_fetch = await run_in_threadpool(_stream_rows, settings)
+    checked = await source_streams.check(settings.memory_path, ids, channels=rows, connectors_connected=connected)
+
+    def build() -> dict:
+        with sync_ticker.request_scans(settings.memory_path):
+            fresh, now_connected, fetch = _stream_rows(settings)
+            out = source_streams.build(settings.memory_path, channels=fresh, connectors_connected=now_connected,
+                                       feed_fetch_allowed=fetch)
+        if ids:
+            out["sources"] = [s for s in out["sources"] if s["id"] in ids]
+        return out
+
+    out = await run_in_threadpool(build)
+    out["checked"] = checked
+    return out
+
+
 class CatchUpReader(BaseModel):
     channel: str = Field(..., min_length=1, max_length=200)
     label: str = Field(..., min_length=1, max_length=80)
@@ -1636,9 +1718,14 @@ async def list_channel_items(
     limit: int = Query(channel_items.LIMIT_DEFAULT, ge=1, le=channel_items.LIMIT_MAX),
     q: str | None = Query(None, max_length=channel_items.Q_MAX),
     collection: str | None = Query(None, max_length=200),
+    stream: str | None = Query(None, max_length=120),
+    folder: str | None = Query(None, max_length=200),
     settings: Settings = Depends(get_settings),
 ):
     """What a channel brought in, by name (G161): each item's title and day, newest first, a page at a time.
+
+    G245: `stream` (an id from `GET /sources/streams`) keeps the items that list holds, and `folder` one of the site's own
+    folders by name; an unknown stream answers 404. A saved-list row carries `lists`, `folders`, `depth` and `posted`.
 
     `collection` (2026-11-04) narrows the page to one calendar, Reminders list or Notes folder — an id from
     `GET /sources/channels/{id}/collections`.
@@ -1663,13 +1750,17 @@ async def list_channel_items(
         # Sources v4 (review of #358): `photos` too — a Messages row carries its chat photo's hash.
         etag = sync_service.etag_for(
             memory_path, "sources", "episodes", "entities", "photos",
-            extra=f"{channel_items.SHAPE}|{channel_id}|{offset}|{limit}|{q or ''}|{collection or ''}",
+            extra=(f"{channel_items.SHAPE}|{channel_id}|{offset}|{limit}|{q or ''}|{collection or ''}"
+                   f"|{stream or ''}|{folder or ''}"),
         )
         if (early := sync_service.conditional(request, response, etag)) is not None:
             return early
         # Off the event loop: a cold `bank_index` re-parses every frontmatter (the `/sources/channels` reason).
-        page = await run_in_threadpool(channel_items.items, memory_path, channel_id, offset=offset, limit=limit, q=q,
-                                       collection=collection)
+        try:
+            page = await run_in_threadpool(channel_items.items, memory_path, channel_id, offset=offset, limit=limit,
+                                           q=q, collection=collection, stream=stream, folder=folder)
+        except channel_items.UnknownStream:
+            raise HTTPException(status_code=404, detail="Unknown stream")
     if page is None:
         raise HTTPException(status_code=404, detail="Unknown channel")
     return page

@@ -157,18 +157,39 @@ def last(memory_path: Path, name: str) -> dict:
 
 
 def due(memory_path: Path, now: datetime | None = None) -> list[str]:
-    """The lists to offer the person's agent now, in a fixed order: allowed, not paused, not read in ``CADENCE``."""
+    """The lists to offer the person's agent now: allowed, not paused, and either asked for (:func:`request_check`, G245 —
+    whatever the cadence) or not read in ``CADENCE``. Requested lists come first, the oldest request first; then the
+    list read longest ago, a list never read before any; ties keep table order."""
     if paused_until(now) is not None:
         return []
     moment = _now(now)
-    out = []
-    for name in LISTS:
+    floor = datetime.min.replace(tzinfo=timezone.utc)
+    ranked = []
+    for order, name in enumerate(LISTS):
         if not allowed(name):
             continue
-        at = _parse(last(memory_path, name).get("read_at"))
-        if at is None or moment - at >= CADENCE:
-            out.append(name)
-    return out
+        entry = last(memory_path, name)
+        at = _parse(entry.get("read_at"))
+        asked = _parse(entry.get("check_requested_at"))
+        if asked is None and at is not None and moment - at < CADENCE:
+            continue
+        ranked.append((0 if asked is not None else 1, asked or at or floor, order, name))
+    return [row[3] for row in sorted(ranked)]
+
+
+def request_check(memory_path: Path, name: str, now: datetime | None = None) -> bool:
+    """The person asked to check this list now (G245): stamp it so :func:`due` offers it first. Only a list that is on and
+    not paused — a check never lifts the pause — and the next recorded attempt clears the stamp. Says whether it stamped."""
+    if not allowed(name) or paused_until(now) is not None:
+        return False
+    with _locked() as data:
+        entry = data.setdefault("banks", {}).setdefault(_bank_key(memory_path), {}).setdefault(name, {})
+        entry["check_requested_at"] = _now(now).isoformat()
+    return True
+
+
+def check_requested_at(memory_path: Path, name: str) -> str | None:
+    return last(memory_path, name).get("check_requested_at") or None
 
 
 def status(memory_path: Path, now: datetime | None = None) -> dict:
@@ -194,6 +215,7 @@ def note(memory_path: Path, name: str, outcome: str, *, videos: int = 0, now: da
         entry = banks.setdefault(_bank_key(memory_path), {}).setdefault(name, {})
         before = _parse(entry.get("read_at"))
         entry.update(at=moment.isoformat(), outcome=outcome)
+        entry.pop("check_requested_at", None)   # an attempt, whatever its outcome, answers a requested check
         if outcome == "read":
             if name == "playlists" and before is not None and moment - before < PASS_WINDOW:
                 videos = int(entry.get("videos") or 0) + int(videos)
