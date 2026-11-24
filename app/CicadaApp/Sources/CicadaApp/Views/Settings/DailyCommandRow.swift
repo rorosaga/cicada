@@ -33,15 +33,7 @@ struct DailyCommandRow: View {
                         .font(CicadaTheme.captionFont)
                         .foregroundStyle(CicadaTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text(Copy.ListRun.launchdExample)
-                        .font(CicadaTheme.monoFont)
-                        .foregroundStyle(CicadaTheme.textPrimary)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(CicadaTheme.spacingMD)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).fill(CicadaTheme.codeBackground))
-                        .overlay(CicadaTheme.shape(CicadaTheme.cornerRadiusSmall).stroke(CicadaTheme.border, lineWidth: 1))
+                    CommandBox(command: Copy.ListRun.launchdExample)
                 }
             }
         }
