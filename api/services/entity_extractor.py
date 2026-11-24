@@ -892,10 +892,13 @@ async def _extract_chunk(
     reasoning model that wraps the object in fences or prose.
     """
     try:
+        from api.services import engine_schemas
         from api.services.providers import resolve_llm_fn
 
         llm_fn = resolve_llm_fn(
-            settings, model=settings.litellm_model, completion=litellm.acompletion, stage=stage
+            settings, model=settings.litellm_model, completion=litellm.acompletion, stage=stage,
+            # Stage 1's answer is what this call parses: it states it (the engines force it only for a caller that does)
+            shape=stage if stage in engine_schemas.SHAPES else None,
         )
         response = await llm_fn(
             messages=[

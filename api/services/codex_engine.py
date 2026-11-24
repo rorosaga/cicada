@@ -92,10 +92,11 @@ API_KEY_ACCOUNT = (
     "Codex is signed in to Cicada with an API key, not a ChatGPT plan — that bills per token. "
     "Sign out and sign in with ChatGPT on Settings → Intelligence → Plans & keys."
 )
-#: R-E15: strict schemas for the two stages whose shape is fully specifiable.
-SCHEMA_BY_STAGE: dict[str, dict] = {
+#: R-E15: strict schemas for the two shapes that are fully specifiable (2026-11-24: keyed by the shape a call states,
+#: never by its stage label, `engine_schemas.SHAPES`; a quick read states its own and gets none here, as before).
+SCHEMA_BY_SHAPE: dict[str, dict] = {
     "extraction": engine_schemas.extraction_schema(strict=True),
-    "disambiguation": engine_schemas.disambiguation_schema(strict=True),
+    "pair": engine_schemas.disambiguation_schema(strict=True),
 }
 _EFFORT_RE = re.compile(r"^[a-z]+$")
 _LOGGED_OUT_MARKERS = (
@@ -253,7 +254,7 @@ def _write_private(directory: Path, suffix: str, text: str) -> Path:
 
 def complete(*, messages: list[dict], model: str, stage: str | None = None, want_json: bool = False,
              timeout: float = DEFAULT_TIMEOUT_S, runner=None, binary: str = "codex",
-             scope: str | None = None, effort: str = "low") -> ExecResult:
+             scope: str | None = None, effort: str = "low", shape: str | None = None) -> ExecResult:
     """One ``codex exec`` call; raises ``EngineError``. Synchronous by design,
     like ``agent_engine.complete`` (the seam wraps it in ``to_thread``)."""
     scope = scope or agent_engine.current_scope()
@@ -263,7 +264,7 @@ def complete(*, messages: list[dict], model: str, stage: str | None = None, want
         exc.spawned = False
         raise exc
     system_prompt, body = agent_engine.marshal_prompt(messages)
-    schema = SCHEMA_BY_STAGE.get(stage or "") if want_json else None
+    schema = SCHEMA_BY_SHAPE.get(engine_schemas.check_shape(shape) or "") if want_json else None
     if want_json and schema is None:
         suffix = agent_engine.JSON_ONLY_SUFFIX
         system_prompt = f"{system_prompt}\n\n{suffix}" if system_prompt else suffix

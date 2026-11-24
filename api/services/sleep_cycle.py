@@ -1160,6 +1160,24 @@ async def _same_name_review_safely(memory_path: Path, settings: Settings, *, use
                 f"{report.apart} kept apart, {report.asked} asked" + (f", skipped {report.skipped}" if report.skipped else ""))
 
 
+async def _full_name_join_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
+    """Ruling 74b (2026-11-24, `full_name_join`): a name held in full that the person's own words name together with a
+    short-name page as one person, read twice by the engine's main model, is joined to that page as one undoable Sleep
+    settle ("Settled by Sleep"). Nothing of the shape open: no engine and no commit. Counts only. Never raises."""
+    from api.services import full_name_join
+
+    if not (memory_path / ".git").exists():
+        return
+    try:
+        report = await full_name_join.run_tail(memory_path, settings, user_triggered=user_triggered)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Full-name join failed: {type(exc).__name__}")
+        return
+    if report.looked or report.joined:
+        logger.info(f"Full-name join: {report.looked} read, {report.joined} joined"
+                    + (f", skipped {report.skipped}" if report.skipped else ""))
+
+
 async def _catchup_questions_safely(memory_path: Path) -> None:
     """Vision item 10 — the engine-free proposers that feed the catch-up chat: "are you still …?" about a quiet fact on
     the person's own page (`still_questions`) and "are these the same person?" for a nickname and its long form
@@ -1753,6 +1771,8 @@ async def _run_engine_independent_tail(
             logger.info(f"Same-name review skipped: {why}")
         else:
             await _same_name_review_safely(memory_path, settings, user_triggered=user_triggered)
+            # Ruling 74b (2026-11-24): a name held in full that the person's own words name as one with a short-name page.
+            await _full_name_join_safely(memory_path, settings, user_triggered=user_triggered)
         # Vision item 10: "still?" and same-person questions for the catch-up, one shared budget per drain.
         await _catchup_questions_safely(memory_path)
         # G61 S3-a (D8): exact-match source -> its own page links, before any poll's `git add -A`.

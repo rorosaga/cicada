@@ -109,7 +109,8 @@ def system_prompt_for(system_prompt: str | None) -> str:
     own = (system_prompt or "").strip() or DEFAULT_SYSTEM_PROMPT
     return own if CONTEXT_GUARD in own else f"{own}\n\n{CONTEXT_GUARD}"
 
-#: Per-stage ``--json-schema`` payloads. ONLY stages whose output shape is
+#: Per-shape ``--json-schema`` payloads (2026-11-24: by the shape a call STATES, never by its stage label: see
+#: ``engine_schemas.SHAPES``). ONLY shapes whose output is
 #: fully specifiable ship one: a structured-output mode that drops unlisted
 #: keys would silently gut entity extraction, and V1b verified the flag only
 #: against a trivial schema. Every other stage gets ``JSON_ONLY_SUFFIX`` plus
@@ -122,8 +123,8 @@ def system_prompt_for(system_prompt: str | None) -> str:
 #: (2026-10-29, `entity_relations`): two things, one a part, product, alternative or version of the other.
 _JUDGE_WORDS = ["same", "different", "unsure", "related"]
 _RELATION_WORDS = list(_RELATIONS)
-SCHEMA_BY_STAGE: dict[str, dict] = {
-    "disambiguation": {
+SCHEMA_BY_SHAPE: dict[str, dict] = {
+    "pair": {
         "type": "object",
         "properties": {
             "decision": {"type": "string", "enum": _JUDGE_WORDS},
@@ -175,11 +176,12 @@ class CallPolicy:
         )
 
 
-def schema_for_stage(stage: str | None, policy: CallPolicy) -> dict | None:
-    """R-E14: Stage 1's schema only behind its flag; disambiguation's V1b one always."""
-    if (stage or "") in ("extraction", "quick_read") and policy.extraction_schema:
+def schema_for_shape(shape: str | None, policy: CallPolicy) -> dict | None:
+    """R-E14: Stage 1's schema only behind its flag; the pair judge's V1b one whenever a call states it. A call that
+    states no shape gets none: a stage label is never enough to be told one (see ``engine_schemas.SHAPES``)."""
+    if (shape or "") in ("extraction", "quick_read") and policy.extraction_schema:
         return engine_schemas.extraction_schema(strict=False)
-    return SCHEMA_BY_STAGE.get(stage or "")
+    return SCHEMA_BY_SHAPE.get(shape or "")
 
 _RATE_LIMIT_MARKERS = ("rate limit", "rate_limit", "too many requests", "overloaded", "429")
 _LOGGED_OUT_MARKERS = (
@@ -827,6 +829,7 @@ def complete(
     binary: str = "claude",
     scope: str | None = None,
     policy: CallPolicy | None = None,
+    shape: str | None = None,
     on_signals: Callable[[agent_stream.StreamResult, plan_limits.PlanStop | None], None] | None = None,
 ) -> dict:
     """One `claude -p` call. Returns the parsed envelope; raises ``EngineError``.
@@ -840,7 +843,8 @@ def complete(
     before any raise — the seam turns a stop seen on a SUCCESSFUL call into a
     breaker trip (the answer is kept; everything after it fails fast) and
     reads its telemetry refs. A stop seen on a FAILED call is raised here as
-    its own error (R-E12).
+    its own error (R-E12). ``shape``: the answer shape the caller parses and states (``engine_schemas.SHAPES``); only
+    it can make the engine force a schema, never ``stage``.
     """
     policy = policy or CallPolicy()
     scope = scope or current_scope()
@@ -858,7 +862,7 @@ def complete(
 
     system_prompt, body = marshal_prompt(messages)
     system_prompt = system_prompt_for(system_prompt)
-    schema = schema_for_stage(stage, policy) if want_json else None
+    schema = schema_for_shape(engine_schemas.check_shape(shape), policy) if want_json else None
     if want_json and schema is None:
         system_prompt = f"{system_prompt}\n\n{JSON_ONLY_SUFFIX}"
 

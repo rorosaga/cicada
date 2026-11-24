@@ -177,6 +177,9 @@ class Plan:
     second: bool = False   # the main model read it again
     review_pages: set[str] = field(default_factory=set)             # pages that may hold two people
     review_pairs: set[tuple[str, str]] = field(default_factory=set)  # people in doubt that may be one
+    #: Answers a judge gave that did not have the shape this step asked for (2026-11-24): no groups to read. Never a
+    #: verdict; the name is placed as if no judge had answered, and the count is logged (never a word of the person's).
+    unreadable: int = 0
 
 
 @dataclass(frozen=True)
@@ -754,6 +757,8 @@ async def _plan(name: str, mentions: list[Mention], identities: list[Identity],
         parsed = None
     reading = read(parsed, entries, name) if parsed is not None else None
     if reading is None:
+        if parsed is not None:
+            result.unreadable += 1   # an answer, but not the groups asked for: counted, never a verdict
         if sibling_fallback is None:
             return result
         return _place(result, sibling_fallback, entries, shown, judged)
@@ -761,10 +766,14 @@ async def _plan(name: str, mentions: list[Mention], identities: list[Identity],
     # speaker" or "a later move" as a link), or divides the conversations against a person with a long history on record:
     # the main model reads the same prompt once and its grouping replaces the small judge's when it divides them. Its answer
     # failing, unreadable, or calling it one person leaves the small judge's reading: a located split is never lost to it.
-    if strong is not None and ((reading.single and len(judged) >= 2)
+    doubted = lone_doubt(reading) and sibling_fallback is None
+    if strong is not None and ((reading.single and len(judged) >= 2) or doubted
                                or any(len(i.shown()) >= CONFIRM_ITEMS for i in shown) and not reading.single):
         try:
-            second = read(await strong(SYSTEM, prompt), entries, name)
+            second_answer = await strong(SYSTEM, prompt)
+            second = read(second_answer, entries, name)
+            if second is None and second_answer is not None:
+                result.unreadable += 1
         except asyncio.CancelledError:
             raise
         except engine_errors.EngineError:
@@ -773,11 +782,25 @@ async def _plan(name: str, mentions: list[Mention], identities: list[Identity],
             logger.debug(f"Same-name second reading failed: {type(e).__name__}")
             second = None
         result.second = True
-        if second is not None and not second.single and _covers(second, entries):
+        if second is not None and not second.single and _covers(second, entries) and not doubted:
             reading = second
+        elif doubted and second is not None and second.single and _covers(second, entries):
+            reading = second   # the main model read the same descriptions and finds one person: the doubt is lifted
     if reading.single and sibling_fallback is not None:
         reading = sibling_fallback   # one conversation names two of them: they are not one person
     return _place(result, reading, entries, shown, judged)
+
+
+def lone_doubt(reading: Reading) -> bool:
+    """The small judge divided the descriptions and every pair of its people stands on a located "cannot_tell": no contrast it
+    could quote, only that they look like different worlds. That is the answer a thin or changed life draws from a small
+    model (a partner who changes job and city, read by the Claude plan's small judge in about one replay in eight, 2026-11-24),
+    and it would hold a person in doubt who is one: the main model reads it once, and may lift it (never deepen it)."""
+    if reading.single or not reading.relation:
+        return False
+    people = len(set(reading.cluster_of.values()))
+    return len(reading.relation) == people * (people - 1) // 2 and all(
+        kind == "doubt" and here and there for kind, here, there in reading.relation.values())
 
 
 def _covers(reading: Reading, entries: list[Entry]) -> bool:
