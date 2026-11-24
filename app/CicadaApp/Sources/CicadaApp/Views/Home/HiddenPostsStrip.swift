@@ -14,9 +14,11 @@ struct HiddenPostsStrip: View {
     @State private var record: HiddenPostsNote.Record?
 
     var body: some View {
-        let hidden = store.graph.value?.hiddenPosts ?? 0
+        // nil until the backend has confirmed a graph: an empty snapshot (a memory switch, a cold launch) or one read from
+        // disk says nothing, and reading it as 0 would forget "Got it" and re-date the line (`HiddenPostsNote.observe`).
+        let hidden: Int? = store.graph.refreshedAt != nil ? store.graph.value?.hiddenPosts : nil
         Group {
-            if let line = HiddenPostsNote.line(hidden: hidden, record: record) { row(line) }
+            if let line = HiddenPostsNote.line(hidden: hidden ?? 0, record: record) { row(line) }
         }
         .onChange(of: hidden, initial: true) { _, now in record = HiddenPostsNote.observe(hidden: now, bank: store.bank) }
         .onChange(of: store.bank) { _, _ in record = HiddenPostsNote.observe(hidden: hidden, bank: store.bank) }

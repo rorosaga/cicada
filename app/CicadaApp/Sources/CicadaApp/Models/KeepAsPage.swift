@@ -139,9 +139,12 @@ enum HiddenPostsNote {
     }
 
     /// The record for this reading of the graph: none while nothing is hidden (and a stored one is forgotten), the
-    /// stored one, or a new one dated `now` the first time a number shows.
+    /// stored one, or a new one dated `now` the first time a number shows. `hidden` is nil while the backend has not said
+    /// (an empty snapshot after a memory switch or before a cold launch's first read): nothing is learned from that, so the
+    /// stored record is returned untouched, never forgotten and never newly dated.
     @discardableResult
-    static func observe(hidden: Int, bank: String, now: Date = Date(), defaults: UserDefaults = .standard) -> Record? {
+    static func observe(hidden: Int?, bank: String, now: Date = Date(), defaults: UserDefaults = .standard) -> Record? {
+        guard let hidden else { return load(bank: bank, defaults: defaults) }
         guard hidden > 0 else {
             if load(bank: bank, defaults: defaults) != nil { save(nil, bank: bank, defaults: defaults) }
             return nil

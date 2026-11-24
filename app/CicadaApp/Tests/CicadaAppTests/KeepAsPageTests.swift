@@ -156,6 +156,21 @@ final class KeepAsPageTests: XCTestCase {
         XCTAssertNil(HiddenPostsNote.load(bank: "alpha", defaults: d))
     }
 
+    func testAnUnknownCountNeitherForgetsGotItNorRedatesTheLine() {
+        let d = defaults("unknown")
+        _ = HiddenPostsNote.observe(hidden: 12, bank: "alpha", now: day0, defaults: d)
+        HiddenPostsNote.dismiss(bank: "alpha", defaults: d)
+        // An empty snapshot (a memory switch, a cold launch) reads as no number at all.
+        let seen = HiddenPostsNote.observe(hidden: nil, bank: "alpha", now: day0.addingTimeInterval(86_400 * 5), defaults: d)
+        XCTAssertEqual(seen?.since, day0)
+        XCTAssertEqual(seen?.dismissed, true)
+        let back = HiddenPostsNote.observe(hidden: 12, bank: "alpha", now: day0.addingTimeInterval(86_400 * 6), defaults: d)
+        XCTAssertEqual(back?.since, day0, "the date survives the empty reading")
+        XCTAssertNil(HiddenPostsNote.line(hidden: 12, record: back, now: day0.addingTimeInterval(86_400 * 6), locale: en))
+        XCTAssertNil(HiddenPostsNote.observe(hidden: nil, bank: "beta", now: day0, defaults: d), "nothing stored, nothing made up")
+        XCTAssertNil(HiddenPostsNote.load(bank: "beta", defaults: d))
+    }
+
     func testTheLineSaysHowManyAndSinceWhenAndIsDatedByTheFirstDayThisMacSawThem() {
         let d = defaults("line")
         let first = HiddenPostsNote.observe(hidden: 4812, bank: "alpha", now: day0, defaults: d)
