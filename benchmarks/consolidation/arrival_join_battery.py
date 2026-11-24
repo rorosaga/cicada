@@ -59,6 +59,10 @@ class Scene:
     rejected: list = field(default_factory=list)
     refused_arrivals: list = field(default_factory=list)   # (holder, folded full name)
     owner: str | None = None
+    # Route H (`arrival_birth`): the first name is a HELD LINE in the pending store, not a page.
+    held: bool = False
+    holder_body: str | None = None         # the episode's text (default: a marked turn of the person's own naming the holder)
+    line_extra: dict = field(default_factory=dict)         # more fields of the held line (`title`, `held_against`, `aliases` ...)
 
 
 @dataclass
@@ -101,7 +105,8 @@ def build(root: Path, scene: Scene) -> Path:
         eid = f"ep_{day}_{n:03d}"
         fm = {"id": eid, "timestamp": f"{day}T12:00:00+00:00", "processed": True, "harness": "claude-code",
               **({"source": scene.holder_source} if scene.holder_source else {}), **scene.holder_extra_fm}
-        markdown_parser.write(bank / "episodes" / f"{eid}.md", fm, f"user: I met {scene.holder} at the event\n")
+        markdown_parser.write(bank / "episodes" / f"{eid}.md", fm,
+                              scene.holder_body if scene.holder_body is not None else f"user: I met {scene.holder} at the event\n")
         episodes.append(eid)
     from api.services.id_utils import sanitize_id
 
@@ -113,15 +118,29 @@ def build(root: Path, scene: Scene) -> Path:
                         confidence=0.9, valid_from="2026-11-10", recorded_at="2026-11-10")
                   for i, (pred, obj) in enumerate(scene.holder_claims)]
         body = write_claims(body, claims)
-    page(hid, scene.holder, body, source_episodes=episodes, **scene.holder_fm)
+    if scene.held:
+        # no page: the first name waits on a line of the pending store, with what the conversation said about it
+        held_claims = [Claim(id=f"clm_{hid}_{i}", text=f"{scene.holder} {pred} {obj}", subject=hid, predicate=pred, object=obj,
+                             object_kind="literal", observer="user", context="career", epistemic="explicit", source_trust="user",
+                             confidence=0.9, valid_from=scene.holder_days[0], recorded_at=scene.holder_days[0],
+                             source_episodes=episodes[:1]).to_dict()
+                       for i, (pred, obj) in enumerate(scene.holder_claims)]
+        lines = [pending_store.PendingEntity(
+            name=scene.holder, type="person", description=f"{scene.holder}, met at an event.", source_episode=episodes[0],
+            confidence=0.5, tags=[], history_entries=[], held_claims=held_claims, summary=f"{scene.holder}, met at an event.",
+            heard_in=[{"episode": e, "timestamp": f"{day}T12:00:00+00:00", "day": day}
+                      for e, day in zip(episodes, scene.holder_days)], **scene.line_extra)]
+    else:
+        lines = []
+        page(hid, scene.holder, body, source_episodes=episodes, **scene.holder_fm)
     if scene.owner:
         page("owner-page", scene.owner, owner=True)
     for pid, fm in scene.extra_pages:
         page(pid, fm.get("name", pid), **{k: v for k, v in fm.items() if k != "name"})
-    if scene.held_lines:
-        pending_store.save(bank, [pending_store.PendingEntity(name=n, type="person", description="", source_episode="",
-                                                              confidence=0.5, tags=[], history_entries=[])
-                                  for n in scene.held_lines])
+    if scene.held_lines or lines:
+        pending_store.save(bank, [*lines, *[pending_store.PendingEntity(name=n, type="person", description="", source_episode="",
+                                                                        confidence=0.5, tags=[], history_entries=[])
+                                            for n in scene.held_lines]])
     if scene.doubt:
         same_name_doubts.add_pairs(bank, [(hid, f"{hid}-2")])
     for a, b in scene.rejected:
@@ -263,6 +282,88 @@ def traps() -> list[Trap]:
         "no_namesake")
     add("short-word", "a two-letter page title", Scene(holder="Al", conns=[conn("Al", "Okafor", d(2))]), "holder_short_word")
     add("no-family-name", "a row with no family name can never be the arrival", Scene(conns=[conn("Sam", "", d(2))]), "arrival_no_family_name")
+    t.extend(held_traps())
+    return t
+
+
+def held_traps() -> list[Trap]:
+    """Route H (`arrival_birth`): the first name is a HELD LINE, the case in the owner's own example. The same decision function, so the
+    same answers; plus what is different about a line: its words must be the person's own, and it has no page to be the owner's."""
+    A = conn("Sam", "Okafor", d(2))
+    t: list[Trap] = []
+
+    def add(id_: str, why: str, scene: Scene, expect: str) -> None:
+        scene.held = True
+        t.append(Trap(f"held-{id_}", why, scene, expect))
+
+    note = {"origin": "apple-notes", "created_at": f"{d(0)}T08:00:00+00:00"}
+    add("true-match", "one held first name in the person's own turn, one same-week arrival: the owner's case", Scene(conns=[A]), "join")
+    add("true-match-card", "the arrival is an address-book card first seen in the week", Scene(cards=[("Sam", "Okafor", d(2))]), "join")
+    add("card-and-connection-one-lead", "a card and a connection of one full name are one lead", Scene(conns=[A], cards=[("Sam", "Okafor", d(3))]),
+        "join")
+    add("two-connections-same-week", "two namesakes the same week", Scene(conns=[A, conn("Sam", "Adeyemi", d(4))]), "two_arrivals")
+    add("connection-and-card-other-names", "a connection and a card of other full names", Scene(conns=[A], cards=[("Sam", "Berg", d(3))]),
+        "two_arrivals")
+    add("day-7", "exactly seven days apart joins", Scene(conns=[conn("Sam", "Okafor", d(7))]), "join")
+    add("day-8", "eight days apart does not", Scene(conns=[conn("Sam", "Okafor", d(8))]), "no_arrival")
+    add("fuzzy-namesake-overlaps", "an overlapping fuzzy namesake blocks the true match",
+        Scene(conns=[A, conn("Sam", "Adeyemi", d(30), precision="month")]), "namesake_block")
+    add("namesake-20-days", "a namesake connected three weeks from the holder's day blocks", Scene(conns=[A, conn("Sam", "Adeyemi", d(20))]),
+        "namesake_block")
+    add("dormant-old-namesake", "a namesake connected years ago does not block", Scene(conns=[A, conn("Sam", "Adeyemi", d(-900))]), "join")
+    add("stale-directory", "the directory was last looked at before the week ended", Scene(conns=[A], connections_read=d(5)),
+        "directory_not_fresh")
+    add("company-conflict", "the held claims name one employer, the row another",
+        Scene(conns=[conn("Sam", "Okafor", d(2), company="Beta Logistics")], holder_claims=[("works-at", "Alpha Robotics")]), "fact_conflict")
+    add("company-agrees", "the held claims and the row name the same employer",
+        Scene(conns=[conn("Sam", "Okafor", d(2), company="Alpha Robotics Inc")], holder_claims=[("works-at", "Alpha Robotics")]), "join")
+    add("same-name-doubt", "the bank holds a same-name doubt for the first name", Scene(conns=[A], doubt=True), "doubt")
+    add("split-pair", "the person called the pair two", Scene(conns=[A], refused_arrivals=[("sam", "sam okafor")]), "history")
+    add("known-full-name-page", "a page already carries the full name", Scene(conns=[A], extra_pages=[("sam-okafor", {"name": "Sam Okafor"})]),
+        "other_holder")
+    add("a-page-of-the-word", "a page is titled by the word already", Scene(conns=[A], extra_pages=[("sam", {"name": "Sam"})]), "other_holder")
+    add("second-held-person", "another held line of that given name", Scene(conns=[A], held_lines=["Sam Berg"]), "other_holder")
+    add("arrival-already-a-page", "the full name belongs to a page under another title",
+        Scene(conns=[A], extra_pages=[("okafor", {"name": "Okafor", "aliases": ["Okafor Sam"]})]), "full_name_has_page")
+    add("second-of-a-name", "the second person of one name waits on a line titled apart", Scene(conns=[A], line_extra={"title": "Sam"}),
+        "holder_second_of_name")
+    add("held-against-a-page", "a name held against a page that bears it", Scene(conns=[A], line_extra={"held_against": "sam-lee"}),
+        "holder_held_against")
+    add("said-apart", "the person said this mention is none of those pages",
+        Scene(conns=[A], line_extra={"apart": {"pages": ["sam-lee"], "episodes": []}}), "holder_apart")
+    add("owner-given-name", "the owner's own first name", Scene(conns=[A], owner="Sam Owner"), "holder_owner")
+    add("relation-word", "a relation as the first name", Scene(holder="Mom", conns=[conn("Mom", "Okafor", d(2))]), "holder_role")
+    add("short-word", "a two-letter name", Scene(holder="Al", conns=[conn("Al", "Okafor", d(2))]), "holder_short_word")
+    add("already-a-full-name-alias", "the line already carries another full name", Scene(conns=[A], line_extra={"aliases": ["Sam Berg"]}),
+        "full_name_alias")
+    add("nickname", "a nickname is a miss on purpose", Scene(holder="Sammy", conns=[conn("Samuel", "Okafor", d(2))]), "no_namesake")
+    add("agents-reply", "the name is only in the agent's reply, never the person's own words",
+        Scene(conns=[A], holder_body="user: tell me about the event\nassistant: Sam was there too\n"), "holder_not_own_words")
+    add("untimed-source", "the only mention is in a source that is no time signal", Scene(conns=[A], holder_source="agent_relay"), "no_day")
+    add("tab-group", "the only mention is a tab group's filing label", Scene(conns=[A], holder_source="tab-group"), "no_day")
+    add("feed-item", "a feed item is published by someone else, never the person's words",
+        Scene(conns=[A], holder_extra_fm={"origin": "rss", "published_at": f"{d(0)}T08:00:00+00:00"}), "no_day")
+    add("calendar-entry", "a calendar entry's title is a filing label", Scene(conns=[A], holder_source="calendar"), "no_day")
+    add("a-save", "a saved page is what a stranger wrote, never the person's words", Scene(conns=[A], holder_extra_fm={"media_entity_id": "media-example"}),
+        "no_day")
+    add("new-note", "the person's own note, begun the day it was written, is a dated mention",
+        Scene(conns=[A], holder_source="apple-notes", holder_extra_fm=note, holder_body="Met Sam at the event\n"), "join")
+    add("old-note-edited-this-week", "a long-lived note edited this week has no day",
+        Scene(conns=[A], holder_source="apple-notes", holder_body="Met Sam at the event\n",
+              holder_extra_fm={"origin": "apple-notes", "created_at": "2025-01-04T08:00:00+00:00"}), "no_day")
+    add("note-with-no-creation-day", "an older app sent no creation day",
+        Scene(conns=[A], holder_source="apple-notes", holder_body="Met Sam at the event\n", holder_extra_fm={"origin": "apple-notes"}),
+        "no_day")
+    add("locked-note", "a locked note is never read",
+        Scene(conns=[A], holder_source="apple-notes", holder_body="Met Sam at the event\n", holder_extra_fm={**note, "locked_note": True}),
+        "no_day")
+    add("note-that-is-not-the-persons", "a note an agent wrote is no words of the person's",
+        Scene(conns=[A], holder_source="apple-notes", holder_body="Met Sam at the event\n",
+              holder_extra_fm={**note, "notion_by_other": True}), "holder_not_own_words")
+    add("own-words-two-days-in-a-week", "two own conversations within the week date it by the first",
+        Scene(conns=[A], holder_days=(d(0), d(3))), "join")
+    add("own-words-a-month-apart", "a name said a month apart has been around: no day",
+        Scene(conns=[conn("Sam", "Okafor", d(33))], holder_days=(d(0), d(30))), "no_day")
     return t
 
 
@@ -356,7 +457,7 @@ def scene_case(rng: random.Random):
                          page_held=True, waiting=False)
     if any(r.kind == aj.CARD for r in rows):
         fresh[aj.CARD] = "2026-11-24"
-    holder = aj.Holder("sam", "sam", h_day, "conversation", **holder_kw)
+    holder = aj.Holder("sam", "sam", h_day, "conversation", held=rng.random() < 0.5, **holder_kw)   # the same decision for a page or a line
     return aj.Case(holder, tuple(rows), fresh), _oracle(rows, holder, fresh)
 
 

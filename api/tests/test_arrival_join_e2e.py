@@ -14,6 +14,11 @@ def test_the_whole_story_holds_through_the_real_tail(tmp_path):
     assert result["ok"], {k: v for k, v in result["checks"].items() if not v}
 
 
+def test_the_whole_birth_story_holds_through_the_real_tail(tmp_path):
+    result = e2e.birth_story(tmp_path)
+    assert result["ok"], {k: v for k, v in result["checks"].items() if not v}
+
+
 def test_the_join_steps_stand_where_the_plan_puts_them_in_the_tail():
     source = inspect.getsource(sleep_cycle._run_engine_independent_tail)
     order = [source.index(name) for name in ("_arrival_refusals_safely(", "_same_name_review_safely(", "_full_name_join_safely(",
@@ -25,6 +30,8 @@ def test_the_join_steps_stand_where_the_plan_puts_them_in_the_tail():
 def test_it_ships_report_only_and_the_tail_step_cannot_write_while_it_does(tmp_path, monkeypatch):
     from api.services import arrival_join
 
-    assert arrival_join.LIVE is False
+    from api.services import arrival_birth
+
+    assert arrival_join.LIVE is False and arrival_birth.LIVE is False
     source = inspect.getsource(sleep_cycle._arrival_join_safely)
     assert "report.joins" in source and "apply_join" in source        # the only write, behind what run_tail hands back

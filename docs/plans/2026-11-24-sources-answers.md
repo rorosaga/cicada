@@ -265,6 +265,7 @@ checks stand in front of the write: a **conflict screen** and a **two-read veto*
   the full name, the said form kept as an alias, the arrival attached, in one write (the same move as answer 5). Evaluated in the resolver at the point where a person name would be held
   (`entity_resolver.py:696-745`), a new `_arrival_for` beside `_card_for`. Behind its own `LIVE` flag; the dry run reports how many held names it WOULD have joined, so the owner sees the gain
   before it writes. The old open question "wait for the usual bar?" is dropped: his answer was yes.
+  **Built differently (`arrival_birth`, after reading the code):** not in the resolver. Rule 9 needs the directory looked at a week after the holder's day, so at the moment a name is first held it is never fresh, and a decision there would refuse every note on its first night and never look again until a second mention (which promotes the name anyway). The nightly tail re-reads every held line, as Route D re-reads pages, through the same `decide` and the same veto bound and cache; the birth uses the resolver's own helpers (`_renamed_entity`, `_create_change`, `_fold_pending`, `LINKEDIN_MENTION_KEY`) and `conflict_resolver.apply_changes`' create, and lands the held claims through the path a person's own "this held name IS that page" takes.
 - **Route P (Track 3, after Track 2 and 74b): two PAGES**, whatever source made them. Written: the existing ruling 74 join (`two_signals`, `page_join.merge`, `page_join.py:133`), report-only
   first. A new signal only (3.7, Track 3).
 
