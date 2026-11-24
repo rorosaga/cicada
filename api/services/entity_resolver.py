@@ -23,7 +23,6 @@ from api.services.clarification_manager import (
     ClarificationManager,
 )
 from api.services.id_utils import sanitize_id
-from api.services import part_placement
 from api.services.vector_index import PendingEntity, SqliteVecIndexer
 
 #: The loop a judge call belongs on when Stage 2 runs on its worker thread (`resolve_off_loop`): the engine's clients,
@@ -2629,11 +2628,9 @@ async def _settle_unborn(
         whole = _part_of_page(judged, u.name) if match is None else None
         placed = None
         if match is None and whole is None:
-            # 2026-11-24 (G148): a name the pair judge left with no page — each pair taken alone read "different" — is
-            # asked once over the whole list of the person's things: one of them, or none (`part_placement`).
-            placed = _related_unborn(judged) or await _placed_in_list(u, candidates, settings, cancel_check)
-            if cancel_check is not None and cancel_check():
-                return True
+            # 2026-11-24 (G148): the pair judge called it a part of (or the whole of) another name this batch has no page for
+            # yet: one thing under two names (`_related_unborn`).
+            placed = _related_unborn(judged)
         if placed is not None:
             candidate, relation = placed
             if candidate["source"] in ("existing", "created"):
@@ -2746,25 +2743,6 @@ def _related_unborn(judged: list[tuple[dict, str]]) -> tuple[dict, str] | None:
     return next(((c, entity_relations.relation_of(decision)) for c, decision in judged
                  if c.get("source") in ("unborn", "held")
                  and entity_relations.relation_of(decision) in ("part_of", "has_part")), None)
-
-
-async def _placed_in_list(u: _Unborn, candidates: list[dict], settings: Settings,
-                          cancel_check: Callable[[], bool] | None) -> tuple[dict, str] | None:
-    """The candidate a name with no page is a part of, asked over the whole list in one call (`part_placement`): a
-    page or a name with no page yet, never a direction that makes the name the whole of a page (`has_part` on a page
-    keeps the relation the pair judge records)."""
-    if not candidates or (cancel_check is not None and cancel_check()):
-        return None
-    summary = " ".join(dict.fromkeys(s for e in (u.entity, *u.siblings) for s in _effective_summaries(e) if s))
-    things = [(_candidate_display_name(c), _candidate_description(c)) for c in candidates]
-    chosen = await part_placement.place(u.name, summary, things, settings, ask=_same_name_ask)
-    if chosen is None:
-        return None
-    candidate, relation = candidates[chosen[0]], chosen[1]
-    if relation == "has_part" and candidate["source"] in ("existing", "created"):
-        return None
-    logger.info("Stage 2: a name with no page placed in the list (part_placement)")   # a count, never a name
-    return candidate, relation
 
 
 def _part_of_page(judged: list[tuple[dict, str]], name: str) -> dict | None:

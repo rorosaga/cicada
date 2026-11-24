@@ -103,6 +103,29 @@ def check(bank: Path, expect: dict) -> dict:
     return {"ok": ok, "stories": rows}
 
 
+def ask_leg(leg: Path, expect: dict, *, model: str = "sonnet", repeats: int = 1) -> list[dict]:
+    """Each story's question through ``cicada_ask``'s own body (``ask_service.answer_query``) on a finished leg's bank, on the
+    plan: does the answer hold what the later conversations said? ``must`` is a list of groups, every group matched by one
+    of its spellings (case-folded)."""
+    from api.services import ask_service
+    from benchmarks.engine_parity import _leg_environment, settings_for
+
+    bank, home = leg / "bank", leg / "home"
+    rows = []
+    with _leg_environment(home, bank):
+        llm = ask_service._default_llm_fn(settings_for("plan", bank, model=model, judge="haiku"))
+        for story in expect["stories"]:
+            ask = story.get("ask")
+            if not ask:
+                continue
+            for rep in range(repeats):
+                reply = ask_service.answer_query(bank, ask["q"], top_k=6, llm_fn=llm, no_engine=False)
+                text = str(reply.get("answer") or "")
+                hit = [any(w.lower() in text.lower() for w in group) for group in ask["must"]]
+                rows.append({"id": story["id"], "q": ask["q"], "ok": all(hit), "hit": hit, "answer": text})
+    return rows
+
+
 class Trace:
     """What the chain did, one json line each: Stage 1's entities per conversation, a name's candidates, the verdicts."""
 
@@ -150,17 +173,28 @@ class Trace:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--fixture", type=Path, default=STORIES)
-    parser.add_argument("--out", type=Path, required=True, help="a new folder: the scratch bank and home are made in it")
+    parser.add_argument("--out", type=Path, help="a new folder: the scratch bank and home are made in it")
     parser.add_argument("--model", default="sonnet")
     parser.add_argument("--judge", default="haiku")
     parser.add_argument("--clock", type=date.fromisoformat, default=date(2026, 11, 24))
     parser.add_argument("--trace", action="store_true")
+    parser.add_argument("--ask", type=Path, help="ask each story's question on this finished leg's bank, then stop")
+    parser.add_argument("--repeats", type=int, default=1, help="with --ask: asks per question")
     a = parser.parse_args()
+    if not a.ask and not a.out:
+        parser.error("--out is required")
     import contextlib
 
     from benchmarks.consolidation import run as bench
 
     fixture = a.fixture if a.fixture.exists() else HERE / a.fixture
+    if a.ask:
+        rows = ask_leg(a.ask, json.loads(fixture.read_text(encoding="utf-8")).get("expect") or {}, model=a.model,
+                       repeats=a.repeats)
+        (a.ask / "ask.json").write_text(json.dumps(rows, ensure_ascii=False, indent=1))
+        for r in rows:
+            print(f"{r['id']:11} answered={int(r['ok'])} {r['hit']}")
+        return 0
     bench.PEOPLE["e2e"] = fixture
     a.out.mkdir(parents=True, exist_ok=True)
     with contextlib.ExitStack() as stack:
