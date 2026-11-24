@@ -158,6 +158,8 @@ struct WhereToCheckReviewCard: View {
             VStack(alignment: .leading, spacing: 0) {
                 PageLineText(item.askText)
                     .font(CicadaTheme.metaMediumFont).foregroundStyle(CicadaTheme.textPrimary)
+                AskedByLine(item: item, wraps: true)
+                    .padding(.top, CicadaTheme.scaled(2))
                 Text(Copy.WhereToCheck.explainer)
                     .font(CicadaTheme.metaFont).foregroundStyle(CicadaTheme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
