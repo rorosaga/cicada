@@ -514,7 +514,21 @@ head that does not descend stops it (`home_rewritten`, `diverged`) and says so; 
   computer's own token is accepted. A home that publishes adds `X-Cicada-Seq` to every write's answer, so a forwarded
   write waits for the copy to catch up too. `test_replica_routes_inventory.py` fails on a route the table misses.
 - **The hooks.** On a copy, capture goes to the home the way a client's does (`hook_client.captures_elsewhere`,
-  the existing spool and its targets); recall reads this computer's own backend, the copy.
+  the existing spool and its targets); recall reads this computer's own backend, the copy. **What waits is sent by the
+  backend, not by the next firing** (B3, 2026-11-24): after every catch-up the follower sends the hooks' spool to the
+  home through `replica.request` — the same transport as the outbox and the follower itself (direct, the door, the
+  relay) — session and turn entries only, in order, and tells the home what is left. **A hook that does not know it is
+  on a copy** (its `$CICADA_HOME` is not the folder holding `replica_of`, or the copy was set in the backend's
+  environment alone) posts a transcript path to this backend; `replica_forward` hands that to `replica_gateway`, which
+  reads the one transcript under the harness root and keeps the session in the same spool (`200 queued`) instead of the
+  old `409 replica_read_only`, which the hook logged and let go. `test_machine_capture_sync.py` pins both, on a copy and
+  on a plain client: one waiting episode at the home, `device` the capturing machine's, exactly once, after a home that
+  was away, a 202 whose write then failed, and a home that restarted after its 202.
+- **What a device says it holds (`unsent`).** A copy adds `unsent` (`{waiting, held, rejected}`: its outbox and its
+  hooks' spool, counts only) to `POST /sync/devices/me` whenever the numbers change; a plain client adds it to each
+  `/capture/session` post (the others it still holds, not the one being sent). The home keeps it beside the device rows
+  (`device_unsent`, `$CICADA_HOME/sync/device_unsent.json`, outside every bank) and `GET /devices/status` serves it per
+  device as `unsent` (waiting + held; `null` = that machine never reported, always for the server's own row).
 
 The outbox keeps hook_spool's rules: no answer, 401/403, `sleep_writing` and 5xx wait (and stop the flush, so order
 holds); 400/404/405/413/422 are dropped and counted; 409 `bank_mismatch` is held aside and retried every 10 minutes;

@@ -519,7 +519,10 @@ name a `cicada_…` tool; `llms.txt` maps each to its operation), `data`'s shape
   then each active device token by the name the person gave it. `how` is read from the device's last request
   (`agent_seen.how_from_request`: a Tailscale Serve header or tailnet address → `tailscale`, another private address →
   `lan`, a device token on loopback → `ssh`), stamped in `auth.require_token` once a minute. `queue` = that machine's
-  episodes still waiting for Sleep (`device` frontmatter; none = this server). Device tokens may read it. No ETag.
+  episodes still waiting for Sleep (`device` frontmatter; none = this server). `unsent` (B3, additive; int or null) = how
+  many captures and transactions that machine says it holds and has not delivered (waiting + held; `device_unsent`,
+  said in its `POST /sync/devices/me` `unsent` or beside a `/capture/session` post, counts only); null = it never
+  reported, always for the server row. Device tokens may read it. No ETag.
 - **Agent requests (G205).** `POST /agent-requests {site, reason?, agent?, kind?: "sign_in"}` → 201 `{id, kind, agent,
   agentName, umbrella, logo, site, reason, createdAt, notification: {id, title, body, openUrl}}`; 422 for a non-host
   site or an unknown kind; 409 in a demo bank. A `needs_login` from `cicada_record_read` or `cicada_record_check` files

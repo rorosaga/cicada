@@ -157,6 +157,7 @@ ROUTES: dict[str, str] = {
     "POST /capture/telegram": CAPTURE,
     "POST /capture/turn": CAPTURE,
     "POST /capture/transcript": REFUSE,   # names a file on this computer; the hooks send the session itself instead
+    #                                       (a hook that still posts the path is answered first by replica_gateway, B3)
     "POST /sources/save": CAPTURE,
     "POST /sources/upload": CAPTURE,
     "POST /sources/calendar-local/sync": CAPTURE,

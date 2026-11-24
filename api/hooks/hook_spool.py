@@ -50,6 +50,11 @@ MARGIN_S = 0.3
 #: A held entry (its bank refused, ``bank_mismatch``) is tried again at most this often: the memory it was captured
 #: for may come back behind this address, and until then a retry is one request, never a block.
 HOLD_RETRY_S = 600.0
+#: A post the server answered ``202 accepted`` (it was still writing) is kept until a later send is answered with the
+#: finished write — ``200``/``201`` — so a write that then failed, or a server that restarted between the 202 and the
+#: write, loses nothing: a resend is idempotent (one episode per session, by content hash). It is not sent again
+#: sooner than this, giving the write time to finish (B3, 2026-11-24).
+ACCEPT_CONFIRM_S = 30.0
 
 
 def spool_dir(home: Path) -> Path:
@@ -160,13 +165,40 @@ def _held(entry: dict) -> bool:
     return isinstance(entry, dict) and isinstance(entry.get("held_at"), (int, float))
 
 
+def _accepted(entry: dict) -> bool:
+    return isinstance(entry, dict) and isinstance(entry.get("accepted_at"), (int, float))
+
+
 def _due(entry: dict, now: float | None = None) -> bool:
-    return not _held(entry) or (now or time.time()) - float(entry["held_at"]) >= HOLD_RETRY_S
+    """Is it time to send this entry? A held one waits :data:`HOLD_RETRY_S`; one the server only accepted waits
+    :data:`ACCEPT_CONFIRM_S` for its write to finish."""
+    now = now or time.time()
+    if _held(entry):
+        return now - float(entry["held_at"]) >= HOLD_RETRY_S
+    if _accepted(entry):
+        return now - float(entry["accepted_at"]) >= ACCEPT_CONFIRM_S
+    return True
 
 
 def _hold(path: Path, entry: dict) -> None:
     """Mark an entry held (its bank refused), in place and atomically; its body is unchanged."""
-    entry = {**entry, "held_at": time.time()}
+    _stamp(path, {**entry, "held_at": time.time()})
+
+
+def _accept(path: Path, entry: dict) -> None:
+    """The server answered 202 to this entry's resend: keep it, due again after :data:`ACCEPT_CONFIRM_S`."""
+    _stamp(path, {**entry, "accepted_at": time.time()})
+
+
+def due(entry: dict, now: float | None = None) -> bool:
+    return _due(entry, now)
+
+
+def accept(path: Path, entry: dict) -> None:
+    _accept(path, entry)
+
+
+def _stamp(path: Path, entry: dict) -> None:
     tmp = path.parent / f".{path.name}.{secrets.token_hex(4)}.tmp"
     try:
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -220,13 +252,15 @@ def _name(key: str | None, target: dict | None = None) -> str:
 
 
 def put(home: Path, route: str, body: dict, *, key: str | None = None, transcript_path: str | None = None,
-        target: dict | None = None) -> int:
+        target: dict | None = None, accepted: bool = False) -> int:
     """Keep one post for later, for the server ``target`` names; returns how many old entries the bounds dropped. A
     session keeps one entry per server: a newer snapshot for the same server replaces it, one for another server
     waits beside it."""
     folder = spool_dir(home)
     entry = {"v": 2, "route": route, "body": body, "key": key, "transcript_path": transcript_path,
              "queued_at": time.time(), "target": target}
+    if accepted:
+        entry["accepted_at"] = time.time()   # the server answered 202: kept until a finished write confirms it
     data = json.dumps(entry).encode("utf-8")
     path = folder / _name(key, target)
     tmp = folder / f".{path.name}.{secrets.token_hex(4)}.tmp"
@@ -236,7 +270,10 @@ def put(home: Path, route: str, body: dict, *, key: str | None = None, transcrip
     finally:
         os.close(fd)
     os.replace(tmp, path)
-    return _trim(folder, keep=path.name)
+    dropped = _trim(folder, keep=path.name)
+    if dropped:
+        _count(home, "dropped", dropped)   # never silent: the home is told (counts only), the log says so too
+    return dropped
 
 
 def drop(home: Path, key: str, base: str | None = None, bank_ids=()) -> None:
@@ -314,6 +351,53 @@ def pending_for(home: Path, base: str | None) -> int:
     return count
 
 
+#: What the spool says about itself to the home: counts only, never a body (B3). ``rejected`` is every entry that left
+#: without landing — the server refused it for good (400/404/405/413/422) or the bounds dropped it — so a number the
+#: person can see is never a silent loss.
+COUNTERS_FILE = ".counters"
+#: :func:`counts` reads at most this many entries to tell held from waiting; the rest are counted as waiting.
+COUNT_READ_MAX = 200
+
+
+def _count(home: Path, reason: str, n: int = 1) -> None:
+    folder = spool_dir(home)
+    try:
+        data = json.loads((folder / COUNTERS_FILE).read_text(encoding="utf-8"))
+        data = data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        data = {}
+    data[reason] = int(data.get(reason) or 0) + n
+    _stamp(folder / COUNTERS_FILE, data)
+
+
+def counts(home: Path, *, other_than: str | None = None) -> dict:
+    """``{waiting, held, rejected}`` — what this machine still holds for its server, by number. ``other_than`` leaves
+    out the one session's entry whose post is being sent right now (it is about to land). Held: its memory refused it
+    (``bank_mismatch``); rejected: ever refused for good or dropped by a bound. Reads, never makes, the folder."""
+    waiting = held = 0
+    try:
+        paths = entries(home)
+    except OSError:
+        paths = []
+    for i, path in enumerate(paths):
+        if i >= COUNT_READ_MAX:       # a long backlog is counted by its files: a number is never worth reading them all
+            waiting += len(paths) - i
+            break
+        entry = _read(path) or {}
+        if other_than and path.name.startswith("s-") and entry.get("key") == other_than:
+            continue
+        if _held(entry):
+            held += 1
+        else:
+            waiting += 1
+    try:
+        data = json.loads((Path(home) / "spool" / "capture" / COUNTERS_FILE).read_text(encoding="utf-8"))
+        rejected = int(data.get("rejected") or 0) + int(data.get("dropped") or 0) if isinstance(data, dict) else 0
+    except (OSError, ValueError):
+        rejected = 0
+    return {"waiting": waiting, "held": held, "rejected": rejected}
+
+
 def has_turns(home: Path, base: str | None = None) -> bool:
     """A per-turn post waits for ``base`` (any server when None): a new turn for it queues behind. A held turn (its
     bank refused) waits for its own memory and never holds this server's turns."""
@@ -353,9 +437,10 @@ def _trim(folder: Path, *, keep: str) -> int:
 
 def flush(home: Path, send: Callable[[str, dict], int | None], *, deadline: float,
           keep: Callable[[int | None], bool], size_of: Callable[[str | None, int], int],
-          base: str | None = None) -> tuple[int, int, int]:
+          base: str | None = None, only_routes: frozenset | None = None) -> tuple[int, int, int]:
     """Send the posts waiting for ``base`` oldest first until one does not land or the budget ends; posts meant for
-    another server are never sent here (``base`` None: every post, the behaviour before targets). ``send(route,
+    another server are never sent here (``base`` None: every post, the behaviour before targets). ``only_routes``
+    sends only entries for those routes (a copy's follower sends a session and a turn, never a local capture's path). ``send(route,
     body)`` returns the HTTP status or None. ``(sent, dropped_as_final, left for base)``. One flusher at a time (a
     non-blocking ``flock``): a second hook firing meanwhile leaves the queue to the first."""
     folder = spool_dir(home)
@@ -369,7 +454,8 @@ def flush(home: Path, send: Callable[[str, dict], int | None], *, deadline: floa
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             return 0, 0, left()
-        sent, final = _flush_locked(home, send, deadline=deadline, keep=keep, size_of=size_of, base=base)
+        sent, final = _flush_locked(home, send, deadline=deadline, keep=keep, size_of=size_of, base=base,
+                                    only_routes=only_routes)
         return sent, final, left()
     finally:
         os.close(lock_fd)
@@ -382,7 +468,7 @@ def flush(home: Path, send: Callable[[str, dict], int | None], *, deadline: floa
 _STOP_ALL = (None, 401, 403)
 
 
-def _flush_locked(home, send, *, deadline, keep, size_of, base) -> tuple[int, int]:
+def _flush_locked(home, send, *, deadline, keep, size_of, base, only_routes=None) -> tuple[int, int]:
     sent = final = 0
     turns_waiting = False
     for path in entries(home):
@@ -404,15 +490,26 @@ def _flush_locked(home, send, *, deadline, keep, size_of, base) -> tuple[int, in
         target = _target_of(entry)
         if not _for(target, base):
             continue               # meant for another server: it waits for that one (D1, G202)
+        if only_routes is not None and route not in only_routes:
+            continue
         held = _held(entry)
-        if held and not _due(entry):
-            continue               # its memory refused it lately: it waits apart, and never in front of others
+        if not _due(entry):
+            continue               # held (its memory refused it lately) or accepted (its write is still finishing)
         if target and target.get("bank_id") and isinstance(body, dict):
             body["bank_id"] = target["bank_id"]   # the server refuses it if its memory has no such bank
         if entry.get("key") and isinstance(body, dict) and "transcript_bytes" in body:
             body["transcript_size"] = size_of(entry.get("transcript_path"), int(body.get("transcript_bytes") or 0))
         answer = send(route, body)
         status, text = answer if isinstance(answer, tuple) else (answer, "")
+        if status == 202:
+            # Accepted, not written (the server was still at it): this entry stays until a send is answered with the
+            # finished write (200/201), so a write that then failed, or a server that restarted, loses nothing (B3).
+            try:
+                if path.stat().st_mtime_ns == stamp:
+                    _accept(path, entry)
+            except OSError:
+                pass
+            continue
         if status is not None and 200 <= status < 300:
             sent += 1
             try:
@@ -434,6 +531,7 @@ def _flush_locked(home, send, *, deadline, keep, size_of, base) -> tuple[int, in
             continue
         else:
             final += 1
+            _count(home, "rejected")   # refused for good: the home is told how many (counts only), never silent
         try:
             if path.stat().st_mtime_ns == stamp:   # a newer post for the same session replaced it meanwhile: keep that
                 path.unlink()

@@ -16,6 +16,13 @@ its ``api_token`` read and its log lines byte for byte, and nothing here runs.
   (D1, G202: ``hook_spool``). Besides a hook's firing, a successful MCP or command-line call from this machine flushes
   what waits for the server it reached (:func:`flush_waiting`, D3).
 
+* **Nothing waits on a firing** (B3, 2026-11-24): a post the server answered ``202 accepted`` stays in the spool until a
+  send is answered with the finished write (``hook_spool.ACCEPT_CONFIRM_S``); a machine that keeps a copy has its
+  backend's follower send the spool through the same routes as every other request to the home
+  (``replica._flush_hook_spool``); a plain client with no process of its own starts one detached retrier when a post
+  did not land (``capture.retry_spool``), which sends it as soon as the server answers and exits. Each session post says
+  what else the machine still holds (:func:`with_unsent`), so the home can show it (``GET /devices/status`` ``unsent``).
+
 Stdlib at import. ``runtime_layout`` (stdlib only) and, for a session, Cicada's own extractor (``session_post``) are
 imported from this checkout by path only in client mode — the transcript rail, amended: the session is read here, on
 the machine it lives on, and only what the extractor keeps is sent.
@@ -108,6 +115,20 @@ def spool_module():
     except ImportError:
         import hook_spool as mod
     return mod
+
+
+def with_unsent(home: Path, body: dict) -> dict:
+    """A session post with what else this machine holds and has not sent (``unsent``: waiting, held, rejected — counts
+    only, B3), so the home can tell a quiet machine from one that cannot reach it. Counted at the moment of sending, never
+    stored in the spool; the session being sent is not counted (it is about to land). Any other body is returned as it
+    is."""
+    if not isinstance(body, dict) or "conversation" not in body:
+        return body
+    try:
+        key = f"{body.get('harness')}:{body.get('session_id')}"
+        return {**body, "unsent": spool_module().counts(home, other_than=key)}
+    except Exception:  # noqa: BLE001 - a count is never worth a failed capture
+        return body
 
 
 def bank_in(text: str) -> str | None:
@@ -331,7 +352,7 @@ def flush_waiting(home: Path, environ, *, budget: float = FLUSH_AFTER_CALL_S, po
         if remaining <= 0.2:
             return None, ""
         try:
-            return post(base + r, json.dumps(b).encode("utf-8"), token, min(3.0, remaining - 0.1))
+            return post(base + r, json.dumps(with_unsent(home, b)).encode("utf-8"), token, min(3.0, remaining - 0.1))
         except Exception:  # noqa: BLE001 - no answer
             return None, ""
 

@@ -23,6 +23,9 @@ then every active device token the person issued. Ids, names, enums, times and c
   with nothing shared, the server), whether the machine keeps a copy of this memory, and how many changes its copy is
   behind (``None`` when unknown or not a copy): ``home_move.group`` / ``home_move.copy_facts``, the facts
   ``GET /sync/home`` is drawn from, never computed a second way.
+* **unsent** — B3: how many captures and transactions that machine says it holds and has not delivered (waiting plus
+  held, ``device_unsent``), said by the machine itself the next time it reached this server; ``null`` when it never
+  reported (and always for this server, which holds none).
 * **catchUp** — G229: what that machine's app is catching up on after it was closed (``reader_catch_up``): its readers
   in words, what came in while it was away and since it opened; ``None`` when it is not catching up. The same one scan
   of the headers answers it.
@@ -113,13 +116,14 @@ def queues(memory_path: Path, files=None) -> Counter:
 
 
 def snapshot(memory_path: Path, *, asking_device: str | None = None, now: datetime | None = None) -> dict:
-    from api.services import agent_seen, bank_index, device_tokens, home_move, reader_catch_up, replica
+    from api.services import agent_seen, bank_index, device_tokens, device_unsent, home_move, reader_catch_up, replica
 
     now = now or datetime.now(timezone.utc)
     files = bank_index.files(memory_path, "episodes")
     counts, parked = waiting(memory_path, files)
     catching = reader_catch_up.views(memory_path, files=files, now=now)
     seen = agent_seen.devices()
+    unsent = device_unsent.unsent()   # B3: what each machine says it holds and has not sent
     try:
         group = home_move.group(memory_path, now)
     except Exception:  # noqa: BLE001 - a half-written share never fails the list; read as nothing shared
@@ -139,7 +143,7 @@ def snapshot(memory_path: Path, *, asking_device: str | None = None, now: dateti
              "parked": server_parked, "catchUp": catching.get(None),
              # With nothing shared this server holds and runs the memory; shared, whoever the record names does.
              "home": (not shared) or group.get("home_id") == group.get("me"), "keepsCopy": True,
-             "behind": server_behind, "revoked": False}]
+             "behind": server_behind, "revoked": False, "unsent": None}]
     known = {own.id} if own is not None else set()
     removed: list[dict] = []
     for device in store.list():
@@ -159,7 +163,9 @@ def snapshot(memory_path: Path, *, asking_device: str | None = None, now: dateti
                "kind": device.kind, "keyBound": device.key_bound, "keyBoundAt": device.key_bound_at,
                "catchUp": catching.get(device.id),
                "home": shared and device.id == group.get("home_id"), "keepsCopy": keeps, "behind": behind,
-               "revoked": not device.active}
+               "revoked": not device.active,
+               # B3: what that machine says it holds and has not sent (null: it never reported).
+               "unsent": unsent.get(device.id)}
         (rows if device.active else removed).append(row)
     # A copy's own store does not hold the computers it follows: the home and its other devices live in the mirrored
     # registry (`home_move.registry`), so without them a copy would show one machine and never say which one runs Sleep.
@@ -179,12 +185,12 @@ def snapshot(memory_path: Path, *, asking_device: str | None = None, now: dateti
                      "how": sighting.get("how"), "lastSeenAt": _iso(last), "queue": counts.get(rid, 0),
                      "parked": parked.get(rid, 0), "kind": "full", "keyBound": False, "keyBoundAt": None,
                      "catchUp": catching.get(rid), "home": is_home, "keepsCopy": keeps, "behind": behind,
-                     "revoked": False})
+                     "revoked": False, "unsent": unsent.get(rid)})
     # Conversations stamped with a device the store no longer knows at all still wait: a row each, so they sum.
     for device_id in sorted(k for k in counts if k is not None and k not in known):
         removed.append({"id": device_id, "name": "Removed device", "role": "device", "current": False,
                         "connected": False, "how": None, "lastSeenAt": None, "queue": counts[device_id],
                         "parked": parked.get(device_id, 0), "catchUp": catching.get(device_id), "home": False,
-                        "keepsCopy": False, "behind": None, "revoked": True})
+                        "keepsCopy": False, "behind": None, "revoked": True, "unsent": None})
     return {"devices": rows + removed, "connectedWithinSeconds": CONNECTED_WITHIN_S,
             "copyConnectedWithinSeconds": int(COPY_ONLINE_WITHIN_S)}

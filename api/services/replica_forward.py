@@ -129,6 +129,8 @@ class ReplicaRouting:
                 await _sleep_status(scope, send)
                 return True
             return False
+        if method == "POST" and scope.get("path") == "/capture/transcript":
+            return await _transcript_gateway(scope, receive, send)
         template = _template(scope)
         if template is None:
             return False           # no such route: FastAPI's own 404/405
@@ -145,6 +147,31 @@ class ReplicaRouting:
             return True
         await _forward(scope, receive, send, queue=cls == replica_routes.CAPTURE)
         return True
+
+
+async def _transcript_gateway(scope, receive, send) -> bool:
+    """B3: a hook that posts a transcript path to this copy's own backend (it did not know it runs on a copy) is not
+    refused: this backend reads the one transcript the harness root allows and keeps the session for the home
+    (``replica_gateway``). Answers 200 ``queued``; 400 with the reason when no session was read."""
+    from api.services import replica_gateway
+
+    if not _authorized(scope):
+        await _json(send, 401, {"detail": "missing or invalid bearer token"})
+        return True
+    raw = await _read_body(receive, 1024 * 1024)
+    if raw is None:
+        await _json(send, 413, {"detail": "too large"})
+        return True
+    try:
+        answer = await asyncio.to_thread(replica_gateway.keep_session, raw)
+    except replica_gateway.Refused as exc:
+        await _json(send, 400, {"detail": exc.reason})
+        return True
+    except OSError:
+        await _json(send, 503, {"code": "unreadable", "detail": "the transcript could not be read here"})
+        return True
+    await _json(send, 200, answer)
+    return True
 
 
 #: What a home that is handing off still answers: the hand-off's own routes, the device registry, cancelling Sleep, and

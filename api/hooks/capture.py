@@ -270,7 +270,8 @@ def _client_capture(payload: dict, *, harness: str, session_id: str, event: str,
         if remaining <= 0.2:
             return None, ""
         timeout = min(TIMEOUT_S, remaining - 0.1)
-        return _client_post(post, base + r, json.dumps(b).encode("utf-8"), token, timeout)
+        return _client_post(post, base + r, json.dumps(remote_client.with_unsent(home, b)).encode("utf-8"), token,
+                            timeout)
 
     # A turn waits behind turns already waiting for this server, so the episode keeps their order.
     flushed = ""
@@ -287,9 +288,19 @@ def _client_capture(payload: dict, *, harness: str, session_id: str, event: str,
             return 0
         flushed = f"; spool: sent {sent}, 0 waiting"
     remaining = deadline - time.monotonic()
-    status, text = _client_post(post, base + route, json.dumps(body).encode("utf-8"), token,
-                                max(0.1, min(SESSION_END_TIMEOUT_S if event == "SessionEnd" else TIMEOUT_S,
-                                             remaining - 0.2)))
+    status, text = _client_post(post, base + route, json.dumps(remote_client.with_unsent(home, body)).encode("utf-8"),
+                                token, max(0.1, min(SESSION_END_TIMEOUT_S if event == "SessionEnd" else TIMEOUT_S,
+                                                    remaining - 0.2)))
+    if status == 202 and key:
+        # B3: "accepted" is not "written": the server was still at it, and a write that then fails, or a server that
+        # restarts, would leave this session nowhere. The post stays in the spool until a send is answered with the
+        # finished write; the session's own next firing replaces it, and the retrier below confirms it.
+        spool.remember_bank(home, base, remote_client.bank_in(text))
+        spool.put(home, route, body, key=key, transcript_path=transcript_path, target=meant, accepted=True)
+        remember(home, harness, session_id, body.get("workspace"), environ=environ)
+        _log(log_path, f"{tag} http 202 {_outcome(text)}".rstrip() + "; kept until the write is confirmed" + flushed)
+        _retry_later(post, environ, home, harness)
+        return 0
     if remote_client.landed(status):
         filed = remote_client.bank_in(text)
         spool.remember_bank(home, base, filed)
@@ -309,9 +320,98 @@ def _client_capture(payload: dict, *, harness: str, session_id: str, event: str,
     if remote_client.keep(status):
         dropped = spool.put(home, route, body, key=key, transcript_path=transcript_path, target=meant)
         _log(log_path, f"{tag} spooled: {remote_client.why(status)}" + (f" (dropped {dropped} oldest)" if dropped else ""))
+        _retry_later(post, environ, home, harness)
         return 0
     _log(log_path, f"{tag} http {status} {_outcome(text)}".rstrip())
     return 0
+
+
+#: B3: a plain client has no process of its own to send what waited. When a post did not land (or was only accepted),
+#: one detached retrier is started: it sends the spool as soon as the server answers, backing off, and exits when
+#: nothing waits for this server or after :data:`RETRY_LIFETIME_S`. One at a time (a lock in the spool folder). A
+#: machine that keeps a copy never starts one: its backend's follower sends the spool (``replica``).
+RETRY_ARG = "--retry-spool"
+#: The marker the retrier itself carries, apart from :data:`DETACHED_ENV`: a long-session child (``_detach``) is
+#: detached too and must still start a retrier when its post does not land, while the retrier starts no other.
+RETRIER_ENV = "CICADA_HOOK_RETRIER"
+RETRY_FIRST_ENV = "CICADA_SPOOL_RETRY_FIRST_S"
+RETRY_FIRST_S = 20.0
+RETRY_MAX_S = 300.0
+RETRY_LIFETIME_S = 2 * 3600.0
+RETRY_BUDGET_S = 25.0
+RETRY_LOCK = ".retry.lock"
+
+
+def _retry_lock(home: Path):
+    """The retrier's lock (an open fd holding it), or None when another retrier has it."""
+    import fcntl
+
+    try:
+        fd = os.open(spool.spool_dir(home) / RETRY_LOCK, os.O_WRONLY | os.O_CREAT, 0o600)
+    except OSError:
+        return None
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return None
+    return fd
+
+
+def _retry_later(post, environ, home: Path, harness: str) -> bool:
+    """Start the detached retrier when this machine is a plain client and none runs. Only for the real network
+    ``post`` (a test's injected one never starts a process). True when one was started."""
+    import fcntl
+
+    if post is not _client_send or not remote_client.is_client(environ) or str(environ.get(RETRIER_ENV) or "") == "1":
+        return False
+    if str(environ.get("CICADA_SPOOL_RETRY") or "").strip().lower() == "off":
+        return False
+    fd = _retry_lock(home)
+    if fd is None:
+        return False                    # one is running: it will see this entry
+    try:
+        fcntl.flock(fd, fcntl.LOCK_UN)  # the child takes it
+    finally:
+        os.close(fd)
+    try:
+        import subprocess
+
+        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), RETRY_ARG, "--harness", harness],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         env={**{k: v for k, v in environ.items() if k != DETACHED_ENV}, RETRIER_ENV: "1"},
+                         start_new_session=True, close_fds=True)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def retry_spool(environ, *, home: Path | None = None, post=None, sleep=time.sleep, lifetime: float | None = None) -> int:
+    """The detached retrier's loop: wait, send what waits for this server, repeat with a longer wait until nothing
+    waits for it. Returns the number of posts that landed."""
+    home = home or Path(environ.get("CICADA_HOME") or (Path.home() / ".cicada"))
+    fd = _retry_lock(home)
+    if fd is None:
+        return 0
+    landed = 0
+    try:
+        try:
+            delay = float(environ.get(RETRY_FIRST_ENV) or RETRY_FIRST_S)
+        except ValueError:
+            delay = RETRY_FIRST_S
+        end = time.monotonic() + (RETRY_LIFETIME_S if lifetime is None else lifetime)
+        while time.monotonic() < end:
+            base, _token, problem = remote_client.target(environ)
+            if problem or not spool.waiting(home, base)["here"]:
+                break                   # nothing (more) waits for this server, or it cannot be sent to
+            sleep(delay)
+            result = remote_client.flush_waiting(home, environ, budget=RETRY_BUDGET_S, post=post, surface="retry")
+            if result:
+                landed += result[0]
+            delay = min(delay * 2, RETRY_MAX_S)
+    finally:
+        os.close(fd)
+    return landed
 
 
 def _default_post(url: str, body: bytes, token: str, timeout: float) -> tuple[int, str]:
@@ -369,22 +469,26 @@ LOCAL_ROUTE = "/capture/transcript"
 LOCAL_FLUSH_MAX = 3
 
 
-def _spool_local(home: Path, fields: dict, *, key: str, base: str) -> None:
+def _spool_local(home: Path, fields: dict, *, key: str, base: str, accepted: bool = False) -> None:
     """Keep a local capture request that got no answer (one entry per session, the newest — ``hook_spool``). The
-    entry holds the hook's own fields: the transcript's path, never its words."""
+    entry holds the hook's own fields: the transcript's path, never its words. ``accepted``: the backend answered 202
+    (B3) — kept until a later send is answered with the finished write."""
     try:
-        spool.put(home, LOCAL_ROUTE, fields, key=key, target={"base": base, "bank_id": None})
+        spool.put(home, LOCAL_ROUTE, fields, key=key, target={"base": base, "bank_id": None}, accepted=accepted)
     except OSError:
         pass
 
 
-def _flush_local(home: Path, post, token: str, *, base: str, key: str, event: str, started: float) -> str:
-    """After a local capture landed: its own waiting entry is obsolete, and any other session's that waits is sent
-    while the firing's budget lasts (never on SessionEnd, whose budget is the harness's exit). Returns the log suffix."""
+def _flush_local(home: Path, post, token: str, *, base: str, key: str, event: str, started: float,
+                 keep_own: bool = False) -> str:
+    """After a local capture landed: its own waiting entry is obsolete (unless the backend only accepted it,
+    ``keep_own``: it waits for the write's confirmation), and any other session's that waits is sent while the firing's
+    budget lasts (never on SessionEnd, whose budget is the harness's exit). Returns the log suffix."""
     if not (Path(home) / "spool" / "capture").is_dir():
         return ""             # nothing ever waited: no folder is made on a machine that never needed one
     try:
-        spool.drop(home, key, base)
+        if not keep_own:
+            spool.drop(home, key, base)
         if event == "SessionEnd":
             return ""
         paths = [p for p in spool.entries(home) if p.name.startswith("s-")]
@@ -400,6 +504,8 @@ def _flush_local(home: Path, post, token: str, *, base: str, key: str, event: st
         if entry.get("route") != LOCAL_ROUTE or not isinstance(target, dict) \
                 or not spool.same_server(target.get("base"), base):
             continue          # a client's entry, or one for another port: never sent from here
+        if not spool.due(entry) or (keep_own and entry.get("key") == key):
+            continue          # accepted a moment ago (its write is still finishing), or this firing's own
         remaining = started + CLIENT_BUDGET_S - time.monotonic()
         if remaining <= 0.5 or sent >= LOCAL_FLUSH_MAX:
             left += 1
@@ -410,7 +516,10 @@ def _flush_local(home: Path, post, token: str, *, base: str, key: str, event: st
         except Exception:  # noqa: BLE001 - still no answer: it keeps waiting
             left += 1
             break
-        if remote_client.landed(status) or not remote_client.keep(status):
+        if status == 202:
+            spool.accept(path, entry)    # accepted, not written: it stays until a send is answered with the write
+            left += 1
+        elif remote_client.landed(status) or not remote_client.keep(status):
             sent += 1 if remote_client.landed(status) else 0
             try:
                 path.unlink()      # landed, or refused for good (the transcript is gone): never resent
@@ -464,6 +573,13 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
     log_path = log_path or home / "logs" / "capture.log"
     token_path = token_path or home / "api_token"
     started = time.monotonic()
+
+    if RETRY_ARG in argv:
+        try:
+            retry_spool(environ, home=home)
+        except Exception as exc:  # noqa: BLE001 - a background retry never fails a session
+            _log(log_path, f"retry-spool error: {type(exc).__name__}")
+        return 0
 
     harness = "claude-code"
     if "--harness" in argv:
@@ -582,7 +698,14 @@ def main(argv=None, *, stdin=None, stdout=None, environ=None, post=None, log_pat
             line = f"{tag} http {status} {_outcome(text)}".rstrip() + f" in {_ms(sent_at)}"
             if remote_client.landed(status):
                 remember(home, harness, session_id, workspace, environ=environ)
-                line += _flush_local(home, post, token, base=base, key=key, event=event, started=started)
+                accepted = status == 202
+                if accepted:
+                    # B3: accepted is not written. A backend that fails the write, or restarts, after this answer would
+                    # leave the session's last turn nowhere; keep the request until a send says it was written.
+                    _spool_local(home, fields, key=key, base=base, accepted=True)
+                    line += "; kept until the write is confirmed"
+                line += _flush_local(home, post, token, base=base, key=key, event=event, started=started,
+                                     keep_own=accepted)
             elif status is not None and status >= 500:
                 _spool_local(home, fields, key=key, base=base)   # the backend failed this one: a later firing resends
                 line += "; spooled for a later firing"
