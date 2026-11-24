@@ -173,6 +173,22 @@ def test_i_my_and_the_user_in_a_post_write_nothing_on_the_owners_page():
     assert result["values"] == []
 
 
+def test_a_post_states_nothing_on_the_owners_page_even_when_the_save_holds_a_reason():
+    body = _save_body("I work at alpha-co and moved to berlin.", person="## Saved because\nI want to try alpha-tool")
+    owner = _entity(OWNER, "person", key_facts=["works at alpha-co", "moved to berlin", "want to try alpha-tool"],
+                    aliases=["Al", "alpha-tool"], tags=["post"], open_questions=["where does he live?"],
+                    history_entries=[{"date": "2021-01-01", "event": "moved"}], summary="Works at alpha-co.")
+    reply = {"entities": [owner, _entity("alpha-co", "company")],
+             "relationships": [_rel(OWNER, "alpha-co", "works at", "I work at alpha-co")]}
+    result, _ = _read(_episode(body), reply)
+    kept = next(e for e in result["entities"] if e["name"] == OWNER)
+    assert kept["key_facts"] == ["want to try alpha-tool"]
+    assert kept["aliases"] == ["alpha-tool"]
+    for field in ("summary", "tags", "open_questions", "history_entries"):
+        assert field not in kept
+    assert result["relationships"] == []   # its located evidence is the post's
+
+
 def test_a_person_page_gains_no_alias_from_a_post_unless_the_persons_own_words_say_it():
     body = _save_body("Dr. Sam Example (also known as Sammy) wrote alpha-tool.",
                       person="## User note\nsam is the one I follow")

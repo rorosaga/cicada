@@ -837,8 +837,11 @@ save's channel, else its site, else its link's host>` — per author, so two aut
 is dated by the post day (`valid_from`); only a claim with a span in a section of the person's own words (`## Saved
 because`, `## Why it was saved`, `## User note`, a `## Note` that is not an agent's `assistant:` line — by heading, never by
 a line that reads like a turn marker, which `media_ingestor` quotes when it writes a description) is theirs. Nothing the
-post says lands on the owner's page (an owner or self-reference entity is dropped, an endpoint of a relationship or value
-kept only on the person's own located words), no person page gains an alias from a post unless the person's words say it,
+post says lands on the owner's page (an owner or self-reference entity is dropped when the save holds no words of the
+person's; when it holds some, the entity keeps only the facts, aliases and status quote their own text contains as whole
+words and loses its summary, history, links, questions and tags, which nothing locates; an endpoint of a relationship or
+value is kept only on the person's own located words), no person page gains an alias from a post unless the person's words
+say it (as a whole word, never inside another),
 at most 8 entities are taken from one save, and a save raises no question (`ask_person` dropped). **A connector's post is a
 description, never a note (X and Pinterest):** the text rides `RawItem.preview` into `## Description`, the episode carries
 no `has_note`, and the tweet's `created_at` is its `posted` day. Episodes written the old way (`## User note` + `has_note`,

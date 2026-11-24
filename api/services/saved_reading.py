@@ -156,6 +156,39 @@ def _is_owner_name(name, owner: str | None) -> bool:
     return bool(text) and ((bool(owner) and fold(text) == fold(owner)) or is_self_reference(text))
 
 
+#: What a model may write on an entity beyond its name: free text nothing locates in the save, so on the owner's entity
+#: none of it can be told from the post's own words (:func:`_bind_owner`).
+_OWNER_FREE_TEXT = ("summary", "description", "history_entries", "links", "open_questions", "tags", "application")
+
+
+def _holds(said: str, text) -> bool:
+    """Does the person's folded text contain ``text`` as whole words (an alias "al" is not in "alpha")?"""
+    from api.services.text_fold import fold
+
+    key = fold(" ".join(str(text or "").split()))
+    return bool(key) and re.search(r"(?<!\w)" + re.escape(key) + r"(?!\w)", said) is not None
+
+
+def _bind_owner(entity: dict, said: str) -> None:
+    """The owner's entity out of a save that holds some words of theirs: it carries only what those words contain.
+    Their reason is not the post, but a model reads both and writes one summary and one list of facts — so a fact, an
+    alias or a status quote stays only when the person's own text holds it (folded, whole); the free text that nothing
+    locates (summary, history, links, open questions, tags, application) goes. What the person's words say still
+    lands, as claims, through relationships and values whose located evidence sits in their section."""
+    def held(text) -> bool:
+        return _holds(said, text)
+
+    for field in _OWNER_FREE_TEXT:
+        entity.pop(field, None)
+    if isinstance(entity.get("key_facts"), list):
+        entity["key_facts"] = [f for f in entity["key_facts"] if held(f)]
+    if isinstance(entity.get("aliases"), list):
+        entity["aliases"] = [a for a in entity["aliases"] if held(a)]
+    status = entity.get("reading_status")
+    if isinstance(status, dict) and not held(status.get("quote")):
+        entity.pop("reading_status", None)
+
+
 def _evidence_in_person(item: dict, ranges: list[tuple[int, int]]) -> bool:
     return any(isinstance(e, dict) and e.get("kind") != "reasoning" and _in_person(e.get("start"), ranges)
                for e in item.get("evidence") or [])
@@ -166,7 +199,8 @@ def clean(entities: list, relationships: list, values: list, content: str, *, ow
     given; entities it keeps are edited in place, as the caller already does).
 
     * Nothing about the owner unless the person's own section says it: an entity that is the owner (or a
-      self-reference) is dropped when the save holds no words of theirs; a relationship or value whose endpoint is
+      self-reference) is dropped when the save holds no words of theirs, and kept with only what their words contain
+      (:func:`_bind_owner`) when it does; a relationship or value whose endpoint is
       the owner stays only when its located evidence sits in one of their sections.
     * A person page gains no alias from a post: an alias stays only when the person's own words contain it.
     * ``ask_person`` is dropped (nobody talked about it), and at most :data:`MAX_ENTITIES` distinct names are kept —
@@ -184,8 +218,9 @@ def clean(entities: list, relationships: list, values: list, content: str, *, ow
         if _is_owner_name(entity.get("name"), owner):
             if not ranges:
                 continue
+            _bind_owner(entity, said)
         elif str(entity.get("type") or "") == "person" and isinstance(entity.get("aliases"), list):
-            entity["aliases"] = [a for a in entity["aliases"] if fold(str(a or "")) and fold(str(a)) in said]
+            entity["aliases"] = [a for a in entity["aliases"] if _holds(said, a)]
         kept.append(entity)
 
     def endpoint_ok(name, item: dict) -> bool:
