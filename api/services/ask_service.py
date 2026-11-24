@@ -156,12 +156,6 @@ Sleep has not consolidated: it is the person's record word for word, shown whole
 matching passages when long (``…`` marks where text was left out, not that memory is cut). Answer from it \
 as from any line; when the answer rests on such a line, say it is not yet confirmed by Sleep. A line of \
 WHAT WAS SAID carries the same mark and means the same.
-13. Commit to what the lines point to. When they show an answer without stating it in the question's own words (a \
-person named for the thing asked, an item that fits what a list asks for, a day worked out from a relative phrase and \
-the day it was said), give that answer first and say in a clause what the record leaves unconfirmed; never open with \
-what memory does not say and then name the answer. A list or a count takes every distinct item the lines show, one \
-line being enough for an item: name each and give the count they support. Say memory does not hold the answer only \
-when no line bears on the question.
 
 Return ONLY a JSON object with exactly these keys:
 {
@@ -1303,6 +1297,12 @@ asks for a list or a count, give several different kinds of instance, not one th
 language the conversations are most likely held in (the question's own language unless it says otherwise).
 
 Return ONLY a JSON object: {{"looks": ["phrase", "..."]}}"""
+
+def second_look_fn(resolved: Settings) -> PlanFn | None:
+    """The planning call for a caller that resolved its engine (the router, the MCP tool's direct path): ``None`` when
+    the person's switch (``ask_second_look``) is off, so Ask makes no call it did not before."""
+    return scoped_plan_fn(resolved) if getattr(resolved, "ask_second_look", False) else None
+
 
 #: What the planning call is shown of the pages Ask retrieved: this many summaries, each cut to this many characters.
 PLAN_SUMMARIES = 3

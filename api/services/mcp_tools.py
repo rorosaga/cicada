@@ -443,7 +443,9 @@ def ask(ctx: ToolContext, query: str, top_k: int = 6) -> str:
             result = ask_service.answer_query(ctx.memory_path(), query, top_k=top_k,
                                               llm_fn=ask_service.scoped_llm_fn(resolved),
                                               no_engine=engine_readiness.key_missing(resolved),
-                                              source_words=bool(ctx.raw_excerpts))
+                                              source_words=bool(ctx.raw_excerpts),
+                                              **({"plan_fn": plan} if (plan := ask_service.second_look_fn(resolved))
+                                                 else {}))
         except Exception as e:
             _log_failure("cicada_ask", e)
             return Reply(f"Error: could not answer ({type(e).__name__}).", code="error")

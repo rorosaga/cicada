@@ -162,3 +162,10 @@ def test_a_caller_without_the_person_words_never_plans(trips):
                                    llm_fn=lambda p: json.dumps({"answer": "x", "confidence": 0.5}), no_engine=False,
                                    source_words=False, plan_fn=lambda q: asked.append(q) or "{}")
     assert asked == [] and out["answer"] == "x"
+
+
+def test_the_second_look_is_the_persons_switch_and_off_makes_no_call():
+    from api.config import Settings
+
+    assert ask_service.second_look_fn(Settings(_env_file=None, ask_second_look=False)) is None
+    assert callable(ask_service.second_look_fn(Settings(_env_file=None, ask_second_look=True)))

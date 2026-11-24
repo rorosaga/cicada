@@ -253,6 +253,10 @@ class Settings(BaseSettings):
     # request does not name a number of days.
     inbox_defer_days: int = 30           # CICADA_INBOX_DEFER_DAYS
 
+    # The second look (2026-11-24, G148): Ask makes one more short model call before it answers, naming what the answer
+    # would be said in, and searches those phrases by meaning (`ask_service.plan_looks`). The kill switch.
+    ask_second_look: bool = False             # CICADA_ASK_SECOND_LOOK
+
     # Stage 5.57 link-enrichment (M5f) — bounded, offline-safe media-link
     # description enrichment into CPCG `describes`/`recommends` claims.
     link_enrich_enabled: bool = True          # CICADA_LINK_ENRICH_ENABLED kill switch

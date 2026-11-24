@@ -23,6 +23,12 @@ from api.services import ask_service, engine_readiness, engine_select
 router = APIRouter()
 
 
+def _second_look(resolved: Settings) -> dict:
+    """The planning call, only when the person's switch is on: an Ask with it off is the call it always was."""
+    plan_fn = ask_service.second_look_fn(resolved)
+    return {"plan_fn": plan_fn} if plan_fn is not None else {}
+
+
 @router.post("/ask", response_model=AskResponse)
 async def ask(
     request: AskRequest,
@@ -46,6 +52,7 @@ async def ask(
         llm_fn=llm_fn,
         no_engine=engine_readiness.key_missing(resolved),
         source_words=request.source_words,
+        **_second_look(resolved),
     )
     return AskResponse(
         answer=result["answer"],
