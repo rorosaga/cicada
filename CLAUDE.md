@@ -277,6 +277,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   join only on two independent kinds of evidence, the name (an alias included, 2026-11-08) counting once (`person_duplicates.joins`), else a question.
   **74a (2026-11-23):** a same-name pair Sleep holds in doubt it joins itself on a located link read twice, undoable; one that reads like two is not asked.
   **74b (2026-11-24):** a name held in full joins its short-name page on the person's own located words naming both as one, read twice; an undo keeps them apart.
+  **74c (2026-11-24):** a plain misspelling is assumed, not asked: joined on one located same-fact line per side, read twice, else held quietly (`typo_join`); a question the record already answers is closed by Sleep's tending (`answered_questions`).
 - **An edited conversation is a revision of itself (G104, owner 2026-11-03):** diffed against the version Sleep read
   (git), only what changed is read, spans re-anchored never fuzzily; what only removed text said is superseded by the
   same revision's value (no question) or withdrawn by a record, never deleted; still one conversation for every count;

@@ -24,8 +24,12 @@ KIND = "merge_suggestion"
 
 
 def _ends(memory_path: Path, page_id: str) -> set[str]:
-    """The ids a question may name this page by: its file id and its title as a held mention would be slugged."""
-    ends = {page_id}
+    """The ids a question may name this page by: its file id, its title as a held mention would be slugged, and every id
+    that became it (``page_redirects.former_ids``: a question raised about a page merged away earlier still names it by
+    that id — "A or P?" after A went into W and W into P, 2026-11-24)."""
+    from api.services import page_redirects
+
+    ends = {page_id, *page_redirects.former_ids(memory_path, page_id)}
     page = Path(memory_path) / "entities" / f"{page_id}.md"
     try:
         name = str(markdown_parser.parse(page).frontmatter.get("name") or "")
