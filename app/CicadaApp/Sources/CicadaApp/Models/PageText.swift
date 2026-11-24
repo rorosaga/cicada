@@ -71,6 +71,28 @@ struct PageTextDocument {
     }
 }
 
+/// A word of an edited passage in a past sleep's page change (owner 2026-11-24: "the words that changed inline"): added
+/// words wear a quiet wash of the added colour, removed words are struck through in tertiary ink. Carried on the words'
+/// own `AttributedString` runs, so the one article engine draws it and nothing else about the article differs.
+enum ProseMark: AttributedStringKey {
+    typealias Value = Kind
+    static let name = "cicada.proseMark"
+
+    enum Kind: Hashable, Sendable { case added, removed }
+
+    /// The look of a marked word, merged into the run's text attributes.
+    static func attributes(_ kind: Kind) -> [NSAttributedString.Key: Any] {
+        switch kind {
+        case .added:
+            return [.backgroundColor: NSColor(CicadaTheme.success).withAlphaComponent(0.22)]
+        case .removed:
+            return [.strikethroughStyle: NSUnderlineStyle.single.rawValue,
+                    .strikethroughColor: NSColor(CicadaTheme.textTertiary),
+                    .foregroundColor: NSColor(CicadaTheme.textTertiary)]
+        }
+    }
+}
+
 enum PageText {
     /// What a range of the text stands for in a copy (a String), where it is not its own words.
     static let plainKey = NSAttributedString.Key("cicada.plain")
@@ -200,8 +222,9 @@ enum PageText {
         }
 
         /// A quiet link's words: the page's name or the words as written, in the line's ink, carrying the link.
-        func quiet(_ text: String, intent: InlinePresentationIntent?, url: URL, group: Int) {
+        func quiet(_ text: String, intent: InlinePresentationIntent?, url: URL, group: Int, mark: ProseMark.Kind? = nil) {
             var attrs = plainAttrs(font(base, intent: intent, italic: italic))
+            if let mark { attrs.merge(ProseMark.attributes(mark)) { $1 } }
             attrs[.link] = url
             attrs[groupKey] = group
             let at = out.length
@@ -212,6 +235,15 @@ enum PageText {
                 stops[stops.count - 1] = PageStop(kind: .quiet, id: group, range: NSUnionRange(last.range, range), url: url)
             } else {
                 stops.append(PageStop(kind: .quiet, id: group, range: range, url: url))
+            }
+        }
+
+        /// The edit mark a piece's words carry, when they carry one (the first run decides: a word is marked whole).
+        func mark(of piece: PageInlinePiece?) -> ProseMark.Kind? {
+            switch piece?.token {
+            case .word(let words)?: return words.runs.first?[ProseMark.self]
+            case .quiet(let word)?: return word.text.runs.first?[ProseMark.self]
+            default: return nil
             }
         }
 
@@ -234,9 +266,12 @@ enum PageText {
                 if !piece.glued {
                     // One space between words that had one; a quiet link's own words share its link.
                     if case .quiet(let word) = piece.token, case .quiet(let before)? = previous?.token, word.group == before.group {
-                        quiet(" ", intent: nil, url: word.url, group: groupBase + word.group)
+                        quiet(" ", intent: nil, url: word.url, group: groupBase + word.group, mark: mark(of: piece))
                     } else {
-                        out.append(NSAttributedString(string: " ", attributes: plainAttrs(base)))
+                        // A wash runs unbroken across the spaces between two words of one added (or removed) stretch.
+                        var attrs = plainAttrs(base)
+                        if let kind = mark(of: piece), kind == mark(of: previous) { attrs.merge(ProseMark.attributes(kind)) { $1 } }
+                        out.append(NSAttributedString(string: " ", attributes: attrs))
                     }
                 } else if isObject || previousObject {
                     out.append(NSAttributedString(string: joiner, attributes: plainAttrs(base, "")))
@@ -246,13 +281,14 @@ enum PageText {
             case .word(let words):
                 for run in words.runs {
                     let text = String(words[run.range].characters)
-                    out.append(NSAttributedString(string: text,
-                                                  attributes: plainAttrs(font(base, intent: run.inlinePresentationIntent, italic: italic))))
+                    var attrs = plainAttrs(font(base, intent: run.inlinePresentationIntent, italic: italic))
+                    if let kind = run[ProseMark.self] { attrs.merge(ProseMark.attributes(kind)) { $1 } }
+                    out.append(NSAttributedString(string: text, attributes: attrs))
                 }
             case .quiet(let word):
                 for run in word.text.runs {
                     quiet(String(word.text[run.range].characters), intent: run.inlinePresentationIntent, url: word.url,
-                          group: groupBase + word.group)
+                          group: groupBase + word.group, mark: run[ProseMark.self])
                 }
             case .entity(let target, let url):
                 if isHeading {

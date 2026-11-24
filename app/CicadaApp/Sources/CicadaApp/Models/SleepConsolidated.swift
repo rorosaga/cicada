@@ -53,9 +53,25 @@ struct SleepConsolidated: Codable, Equatable {
         }
     }
 
-    /// What a consolidation did to a page (items-5). A page is in exactly one list, by its final state in the run.
+    /// What a consolidation did to a page (items-5, items-6). A page is in exactly one list, by its final state in the
+    /// run. `faded` (items-6, owner 2026-11-24) is a page whose facts only lost confidence to silence: not a change a
+    /// conversation or a step made, so it is never part of the default list.
     enum Change: String, Codable, CaseIterable, Equatable {
-        case created, updated, archived, removed
+        case created, updated, archived, removed, faded
+    }
+
+    /// items-6 — the step of the run that changed a page, the closed set the backend names (`other`: it could not say).
+    /// A page with no conversation of the run behind it says which step changed it (owner 2026-11-24: "what
+    /// influenced this change?").
+    enum Step: String, Codable, CaseIterable, Equatable {
+        case reading, decay, conflict, settled, join
+        case sourceCheck = "source_check"
+        case linkEnrichment = "link_enrichment"
+        case summary, web, expiry, `import`, other
+
+        init(from decoder: Decoder) throws {
+            self = Step(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .other
+        }
     }
 
     struct Page: Codable, Equatable, Identifiable {
@@ -75,11 +91,15 @@ struct SleepConsolidated: Codable, Equatable {
         /// older backend: the list a page sits in then says what it did (`SleepConsolidated.pages`).
         var change: Change? = nil
         var episodes: [String] = []
+        /// items-6 — the steps of the run that changed it, oldest first. Empty from an older backend.
+        var steps: [Step] = []
 
         init(id: String, name: String? = nil, type: String? = nil, gone: Bool = false, displayName: String? = nil,
-             qualifier: String? = nil, commits: [String] = [], change: Change? = nil, episodes: [String] = []) {
+             qualifier: String? = nil, commits: [String] = [], change: Change? = nil, episodes: [String] = [],
+             steps: [Step] = []) {
             self.id = id; self.name = name; self.type = type; self.gone = gone; self.displayName = displayName
             self.qualifier = qualifier; self.commits = commits; self.change = change; self.episodes = episodes
+            self.steps = steps
         }
 
         init(from decoder: Decoder) throws {
@@ -93,6 +113,7 @@ struct SleepConsolidated: Codable, Equatable {
             commits = ((try? c.decodeIfPresent([String].self, forKey: .commits)) ?? nil) ?? []
             change = ((try? c.decodeIfPresent(String.self, forKey: .change)) ?? nil).flatMap(Change.init(rawValue:))
             episodes = ((try? c.decodeIfPresent([String].self, forKey: .episodes)) ?? nil) ?? []
+            steps = ((try? c.decodeIfPresent([Step].self, forKey: .steps)) ?? nil) ?? []
         }
     }
 
@@ -115,17 +136,19 @@ struct SleepConsolidated: Codable, Equatable {
     /// items-5 — pages the run archived (decay's, or a status change) and pages it removed (a merged-away file).
     var archived: [Page] = []
     var removed: [Page] = []
+    /// items-6 — pages whose facts only lost (or regained) confidence to silence: never part of the default list.
+    var faded: [Page] = []
     var questionsRaised: [Question]
     var questionsSettled: [Question]
     var counts: [String: Int]
     var truncated: Bool
 
     init(commits: [String] = [], conversations: [Conversation] = [], created: [Page] = [], updated: [Page] = [],
-         archived: [Page] = [], removed: [Page] = [],
+         archived: [Page] = [], removed: [Page] = [], faded: [Page] = [],
          questionsRaised: [Question] = [], questionsSettled: [Question] = [], counts: [String: Int] = [:],
          truncated: Bool = false) {
         self.commits = commits; self.conversations = conversations; self.created = created; self.updated = updated
-        self.archived = archived; self.removed = removed
+        self.archived = archived; self.removed = removed; self.faded = faded
         self.questionsRaised = questionsRaised; self.questionsSettled = questionsSettled; self.counts = counts
         self.truncated = truncated
     }
@@ -135,22 +158,30 @@ struct SleepConsolidated: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         func list<T: Decodable>(_ key: CodingKeys) -> [T] { ((try? c.decodeIfPresent([T].self, forKey: key)) ?? nil) ?? [] }
         commits = list(.commits); conversations = list(.conversations); created = list(.created)
-        updated = list(.updated); archived = list(.archived); removed = list(.removed); questionsRaised = list(.questionsRaised); questionsSettled = list(.questionsSettled)
+        updated = list(.updated); archived = list(.archived); removed = list(.removed); faded = list(.faded)
+        questionsRaised = list(.questionsRaised); questionsSettled = list(.questionsSettled)
         counts = ((try? c.decodeIfPresent([String: Int].self, forKey: .counts)) ?? nil) ?? [:]
         truncated = ((try? c.decodeIfPresent(Bool.self, forKey: .truncated)) ?? nil) ?? false
     }
 
     enum CodingKeys: String, CodingKey {
-        case commits, conversations, created, updated, archived, removed, questionsRaised, questionsSettled, counts, truncated
+        case commits, conversations, created, updated, archived, removed, faded, questionsRaised, questionsSettled, counts
+        case truncated
     }
 
-    /// Every listed page with the change it carries: the list it sits in says it when the page does not (an older
-    /// backend), in reading order (new, updated, archived, removed).
+    /// Every listed page that really changed, with the change it carries: the list it sits in says it when the page
+    /// does not (an older backend), in reading order (new, updated, archived, removed). Faded pages are not here:
+    /// they are not a change (`fadedPages`).
     var pages: [Page] {
-        func tag(_ list: [Page], _ change: Change) -> [Page] {
-            list.map { var p = $0; p.change = p.change ?? change; return p }
-        }
-        return tag(created, .created) + tag(updated, .updated) + tag(archived, .archived) + tag(removed, .removed)
+        Self.tag(created, .created) + Self.tag(updated, .updated) + Self.tag(archived, .archived)
+            + Self.tag(removed, .removed)
+    }
+
+    /// The pages whose facts only faded, each wearing `.faded`.
+    var fadedPages: [Page] { Self.tag(faded, .faded) }
+
+    private static func tag(_ list: [Page], _ change: Change) -> [Page] {
+        list.map { var p = $0; p.change = p.change ?? change; return p }
     }
 
     /// The count of one group: the server's whole count, else the list's length.

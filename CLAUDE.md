@@ -173,9 +173,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   from a copy, YouTube video pages only; watch history is one episode per day, never a save (G71, `capture-and-sleep.md`),
   indexed and never read by a model (ruling 30), as are records the person did not save and, as coded, feed items. **Ruling 80 (owner
   2026-11-24, "if i save it already has a reason"; withdraws 62's index-only rule and 30's saved-list half):** every save
-  (bookmark, tab group, saved link, like, upvote, repost, list post) is to be read by Sleep after the person's conversations,
-  its words the author's, never theirs, and no page or mention from saves alone (`capture-and-sleep.md`). **Reading is not on
-  yet:** it waits for their answer on pace and cost, with a daily allowance for the older pile (amends 13, 16; pending).
+  (bookmark, tab group, link, like, upvote, repost, list post) is read by Sleep after conversations,
+  its words the author's, never theirs, and no page or mention from saves alone (`capture-and-sleep.md`). **Built (G246):** a single save waits
+  for tonight; bulk, late and already-kept saves wait in a pile, 100 released a day (amends 13, 16).
 - **Books (G39, G233):** a scanned ISBN (`/capture/isbn`) resolves at the home behind the connector
   gate, cached outside every bank; Apple Books is read by the app once turned on; Goodreads through the person's own agent
   and browser first, its export second (ruling 72); one `media` page per work across doors (identical title and authors join, a doubt asks; ruling 67; a door's rename follows, the person's stands; 69), status as dated claims, imports quiet (`capture-and-sleep.md`, "Books").
@@ -250,7 +250,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   **engine-independent tail** on every exit path, in a clean-tree-guarded slot, each step committing only its own paths.
 - **Consolidate reads everything** (rulings 13, 16; ruling 80's allowance on older saves awaits the owner): every run — the person's and a
   scheduled one — is a drain over the ids frozen at its start, in committed batches (ruling 62), so a stop loses at most the batch in progress. Decay and the
-  page reads run once per drain. A plan limit is a pause, not a failure. **Ruling 4: a scheduled run uses a Claude or ChatGPT plan only
+  page reads run once per drain. A plan limit is a pause, not a failure (only saves left: finished). **Ruling 4: a scheduled run uses a Claude or ChatGPT plan only
   through the person's "Scheduled runs may use my plan" switch, on unless they turned it off** (4b 2026-10-16, 4c
   2026-10-19; `SUBSCRIPTION_MODES` the one guard); on a metered engine it spends up to the person's spending limit, then pauses in words (ROR-102, ruling 63 (g), `sleep_spend`); a model with no known price stops the run.
   **Plan-first engines (ruling 31, 2026-10-19):** the default is Auto — Claude plan, ChatGPT plan — and never

@@ -1729,6 +1729,7 @@ def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=N
         said = watch_history.summary(result)
     else:
         idx = media_ingestor.load_url_index(memory_path)
+        bulk = media_ingestor.is_bulk(rows, idx)   # ruling 80: a first whole read of a list waits its turn in the pile
         created = duplicates = listed = 0
         seen: set[tuple[str, str]] = set()
         known: list[bool] = []
@@ -1760,7 +1761,7 @@ def record_youtube_list(ctx: ToolContext, list_name: str, outcome: str, videos=N
             meta = MediaMeta(title=title or media_ingestor._fallback_title(url), site="youtube.com",
                              channel=channel, media_type="youtube", provider=ref.provider if ref else None)
             # Inside this tool's admission and page lock (`_holding_pages`): a repeat appends the list to its page.
-            res = media_ingestor.write_prepared(PreparedItem(item, meta), memory_path, idx, append_list=True)
+            res = media_ingestor.write_prepared(PreparedItem(item, meta), memory_path, idx, append_list=True, bulk=bulk)
             if res.status == "created":
                 created += 1
                 paths += [f"entities/{res.media_entity_id}.md", f"episodes/{res.episode_id}.md"]
@@ -2022,6 +2023,7 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     if ctx.sleep_answer:
         return SAVED_LIST_SLEEPING
     idx = media_ingestor.load_url_index(memory_path)
+    bulk = media_ingestor.is_bulk(rows, idx)   # ruling 80: a first whole read of a list waits its turn in the pile
     created = duplicates = listed = dropped = refiled = dated = named = own = 0
     seen: set[str] = set()
     known: list[bool] = []
@@ -2054,7 +2056,7 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
                        preview=text or None, defer_enrich=True, posted=posted, channel=author or None)
         meta = MediaMeta(title=title, description=text, site=media_ingestor._site_of(url),
                          media_type=media_ingestor._classify(url), channel=author or None)
-        res = media_ingestor.write_prepared(PreparedItem(item, meta), memory_path, idx, append_list=True)
+        res = media_ingestor.write_prepared(PreparedItem(item, meta), memory_path, idx, append_list=True, bulk=bulk)
         if res.status == "created":
             created += 1
             paths += [f"entities/{res.media_entity_id}.md", f"episodes/{res.episode_id}.md"]
@@ -2246,6 +2248,7 @@ def _substack_saved(ctx: ToolContext, memory_path: Path, rows: list,
     from api.services.media_ingestor import MediaMeta, PreparedItem, RawItem
 
     idx = media_ingestor.load_url_index(memory_path)
+    bulk = media_ingestor.is_bulk(rows, idx)   # ruling 80: a first whole read of a list waits its turn in the pile
     created = duplicates = listed = dropped = 0
     seen: set[str] = set()
     paths: list[str] = []
@@ -2269,7 +2272,7 @@ def _substack_saved(ctx: ToolContext, memory_path: Path, rows: list,
                        aliases=list(aliases), channel=publication, defer_enrich=True)
         meta = MediaMeta(title=title, description=f"By {author}" if author else "", site=media_ingestor._site_of(url),
                          channel=publication, media_type=media_ingestor._classify(url))
-        res = media_ingestor.write_prepared(PreparedItem(item, meta), memory_path, idx, append_list=True)
+        res = media_ingestor.write_prepared(PreparedItem(item, meta), memory_path, idx, append_list=True, bulk=bulk)
         if res.status == "created":
             created += 1
             paths += [f"entities/{res.media_entity_id}.md", f"episodes/{res.episode_id}.md"]
@@ -2830,7 +2833,15 @@ SAVED_HEADING = ("**Saved links on this (no reason given and nobody has read the
 
 def _is_bare_save(memory_path: Path, episode_id: str) -> bool:
     entry = bank_index.file(memory_path, "episodes", f"{episode_id}.md") if str(episode_id).startswith("ep_") else None
-    return entry is not None and history_index.kind(entry.frontmatter) == "saved"
+    if entry is None:
+        return False
+    fm = entry.frontmatter
+    if history_index.kind(fm) == "saved":
+        return True
+    # Ruling 80: a link he saved that Sleep has not read yet (waiting for tonight, or holding nothing to read) is no
+    # conversation either, unless he gave a reason or talked about it.
+    return (history_index.SAVES_READ and history_index.save_shaped(fm) == "saved" and history_index.not_read(fm)
+            and not fm.get(history_index.WOKEN_KEY) and not any(fm.get(k) for k in history_index.PERSON_KEYS))
 
 
 _PICTURE_FROM = {"look": "a look you saved", "capture": "a screenshot of the saved site",

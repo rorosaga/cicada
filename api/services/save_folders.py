@@ -258,15 +258,19 @@ def reconcile_fm(fm: dict, table: dict, now: str) -> tuple[bool, bool]:
                 return False, False
             fm[STAMP_KEY] = {**stamp, "folders": hit}
             return True, False
-        if history_index.kind(fm) not in ("list", "saved"):
+        # Ruling 80: a save waiting for tonight carries the folder's reason too (the stamp makes the reason the person's
+        # words when it is read); only one in the pile is queued by it.
+        if history_index.save_state(fm) not in ("pile", "waiting", "no-words") if history_index.SAVES_READ \
+                else history_index.kind(fm) not in ("list", "saved"):
             return False, False
-        if fm.get("processed", False) and fm.get("processed_by") != history_index.INDEXED_BY:
+        if fm.get("processed", False) and fm.get("processed_by") not in (history_index.INDEXED_BY, history_index.NO_WORDS_BY):
             return False, False     # a model read it: it keeps what it made
         fm[STAMP_KEY] = {"at": now, "folders": hit}
-        if fm.get("processed_by") == history_index.INDEXED_BY:
+        if fm.get("processed_by") in (history_index.INDEXED_BY, history_index.NO_WORDS_BY):
             fm["processed"] = False     # the index's read was of the words alone: queue the real one
             fm.pop("processed_by", None)     # G114 R6: written only beside processed: true
-        return True, True
+            return True, True
+        return True, False
     if STAMP_KEY in fm:
         fm.pop(STAMP_KEY)
         return True, False

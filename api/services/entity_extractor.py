@@ -820,6 +820,9 @@ def _member_of(content: str, start: int) -> str | None:
 #: names joined: a joined name would mint a new observer for every combination and split one belief across them,
 #: while the evidence spans already say exactly who said what. It is never the person's.
 GROUP_OBSERVER = "external:group"
+#: The key of an extraction result that came from a saved item (`saved_reading.applies`): `entities_to_claims` folds one fact
+#: two authors state into the first author's claim, never into Cicada's own reading.
+SAVED_KEY = "saved_item"
 
 
 def _observer_for(item: dict, their_observer: str | None, members: list[dict], content: str, *,
@@ -1100,6 +1103,21 @@ async def extract(
             # No LLM call needed, but record a zero-entity result so the Sleep
             # cycle marks this episode processed (done — nothing to extract)
             # instead of leaving it queued and re-scanning it every run.
+            results[i] = {
+                "episode_id": ep_id,
+                "episode_timestamp": episode.get("timestamp"),
+                "origin": episode.get("origin", "unknown"),
+                "entities": [],
+                "relationships": [],
+            }
+            success += 1
+            return
+
+        # Ruling 80 (G246): a saved link that holds nothing but a title, a link, a site and a day has nothing for a model
+        # to read — a call could only restate its title (ruling 62 measured 25 bookmarks costing 56 calls for that).
+        # It is filed with no entities and no call; what a public page says of itself is read by the page read
+        # (`link_enrichment`), and what the person says of it by the conversation that names it.
+        if saved_reading.nothing_to_read(episode):
             results[i] = {
                 "episode_id": ep_id,
                 "episode_timestamp": episode.get("timestamp"),
@@ -1403,6 +1421,8 @@ async def extract(
                     "relationships": all_relationships,
                     "values": all_values,
                 }
+                if saved:
+                    results[i][SAVED_KEY] = True   # a saved item's claims fold across authors (`entities_to_claims`)
                 if said_books:
                     results[i][book_said.KEY] = said_books
                 if placeholders:
@@ -1580,6 +1600,7 @@ def entities_to_claims(
 
     claims: list = []
     by_id: dict[str, Claim] = {}
+    from_saves: set[str] = set()   # ids of claims a saved item's author made (an `external:` observer from a save)
     for extraction in extracted:
         episode_id = str(extraction.get("episode_id", "") or "")
         origin = str(extraction.get("origin") or "unknown")
@@ -1633,8 +1654,15 @@ def entities_to_claims(
                         first.evidence.append(ev)
                 first.reactions = clean_reactions(first.reactions + list(rel.get("reactions") or []))
                 if first.observer != observer:
-                    # G179: the person's own words (or Cicada's reading) back it too — no longer only theirs.
-                    first.observer = "agent"
+                    if cid in from_saves and extraction.get(SAVED_KEY) and observer.startswith("external:"):
+                        # Two authors state one fact (two saved posts, G246): it stays the first author's with both
+                        # sources, as Stage 3 folds it (`saves_bounded.fold_target`) — never Cicada's own reading, which
+                        # would take it out of the saves' bound.
+                        if ep and ep not in first.source_episodes:
+                            first.source_episodes.append(ep)
+                    else:
+                        # G179: the person's own words (or Cicada's reading) back it too — no longer only theirs.
+                        first.observer = "agent"
                 first.expected_end = first.expected_end or expected_end
                 continue
             claim = Claim(
@@ -1667,6 +1695,8 @@ def entities_to_claims(
                 setattr(claim, "premise_at", to_id(at))
             by_id[cid] = claim
             claims.append(claim)
+            if extraction.get(SAVED_KEY) and observer.startswith("external:"):
+                from_saves.add(cid)
         for value in extraction.get("values", []) or []:
             claim = _value_claim(value, episode_id, origin, to_id)
             if claim is None:

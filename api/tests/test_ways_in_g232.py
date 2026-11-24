@@ -177,8 +177,9 @@ def test_a_sync_reads_saves_upvotes_and_communities_and_files_the_last_two_index
     for path in (memory / "episodes").glob("*.md"):
         fm = markdown_parser.parse(path).frontmatter
         kinds[fm["folder"]] = history_index.kind(fm)
-    assert kinds == {"r/example": "saved", "Upvoted": "list", "Joined communities": "list"}, \
-        "a bare save is indexed (ruling 62); an upvote and a community are index-only (ruling 30)"
+    # Ruling 80: a save and an upvote are read tonight (3 rows, not a bulk); a joined community is a record, index-only.
+    assert kinds == {"r/example": None, "Upvoted": None, "Joined communities": "list"}, \
+        "a save and an upvote wait for Sleep (ruling 80); a community is a record another service keeps"
     pages = [markdown_parser.parse(p).frontmatter for p in (memory / "entities").glob("*.md")]
     assert not any("u_someone" in json.dumps(p) for p in pages), "a person's profile is never a community"
     state = sync_state.read_sync_state(memory)["reddit"]
@@ -279,10 +280,10 @@ def test_a_tiktok_favorite_read_in_the_browser_is_the_exports_row_and_index_only
     fms = [fm for fm in (markdown_parser.parse(p).frontmatter for p in (memory / "episodes").glob("*.md"))
            if fm.get("origin")]
     assert len(fms) == 2 and {fm["origin"] for fm in fms} == {"tiktok-saved"}
-    assert all(history_index.kind(fm) == "list" for fm in fms)
+    assert all(history_index.save_shaped(fm) == "list" for fm in fms)
 
 
-def test_reddit_and_pinterest_lists_save_index_only(reading):
+def test_reddit_and_pinterest_lists_save_as_list_saves(reading):
     server, memory = reading
     reading_settings.update(saved_lists_={"reddit": True, "pinterest": True})
     server.handle_tool("cicada_record_saved_list", {"platform": "reddit", "outcome": "read", "items": [
@@ -292,7 +293,7 @@ def test_reddit_and_pinterest_lists_save_index_only(reading):
     fms = {fm["origin"]: fm for fm in (markdown_parser.parse(p).frontmatter for p in (memory / "episodes").glob("*.md"))
            if fm.get("origin")}
     assert fms["reddit-saved"]["folder"] == "Saved posts" and fms["pinterest-saved"]["folder"] == "Saved"
-    assert all(history_index.kind(fm) == "list" for fm in fms.values())
+    assert all(history_index.save_shaped(fm) == "list" and fm["processed"] is False for fm in fms.values())
 
 
 def test_the_record_tool_schema_names_every_list(reading):

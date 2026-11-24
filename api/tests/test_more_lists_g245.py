@@ -117,7 +117,7 @@ def test_a_second_list_shares_its_sites_address_rules():
     assert saved_lists.clean_profile_url("x-likes", "https://evil.example/alice_example") is None
 
 
-# --- every list is index-only (ruling 30) -----------------------------------------------------------------------------
+# --- every list is a registered save (ruling 80, which withdrew ruling 30's index-only half) --------------------------
 
 
 SAMPLES = {
@@ -130,20 +130,21 @@ SAMPLES = {
 }
 
 
-def test_every_saved_list_label_is_index_only_by_its_own_origin_and_folder():
-    """The gate: a list's origin and folder label are what ``history_index.kind`` reads, so a list that forgot to register
-    would be read by a model."""
+def test_every_saved_list_label_is_a_list_save_by_its_own_origin_and_folder():
+    """The gate: a list's origin and folder label are what ``history_index.save_shaped`` reads (and ``mention_asks`` and
+    the wake ride on), so a list that forgot to register would be a conversation to every reader."""
     for key, p in saved_lists.PLATFORMS.items():
         if p.kind in ("books", "people", "accounts"):   # kept outside the bank: no save at all
             continue
-        assert history_index.kind({"origin": p.origin, "folder": p.folder}) == "list", key
+        assert history_index.save_shaped({"origin": p.origin, "folder": p.folder}) == "list", key
+        assert history_index.kind({"origin": p.origin, "folder": p.folder, "processed": True, "processed_by": "index"}) == "list", key
     for name, folder in youtube_lists.FOLDERS.items():
-        assert history_index.kind({"origin": "youtube-playlist", "folder": folder}) == "list", name
-    assert history_index.kind({"origin": "youtube-playlist", "folder": "An example playlist"}) == "list"
+        assert history_index.save_shaped({"origin": "youtube-playlist", "folder": folder}) == "list", name
+    assert history_index.save_shaped({"origin": "youtube-playlist", "folder": "An example playlist"}) == "list"
 
 
 @pytest.mark.parametrize("key", [k for k in SAMPLES])
-def test_every_saved_list_read_writes_index_only_saves_never_read_by_a_model(reading, key):
+def test_every_saved_list_read_writes_a_save_waiting_for_tonight_never_the_persons_words(reading, key):
     server, memory = reading
     _on(key)
     # A list read off the person's own timeline needs their handle to tell their own posts from reposts.
@@ -153,8 +154,9 @@ def test_every_saved_list_read_writes_index_only_saves_never_read_by_a_model(rea
     fm = _episode(memory, SAMPLES[key]).frontmatter
     p = saved_lists.PLATFORMS[key]
     assert (fm["origin"], fm["folder"]) == (p.origin, p.folder)
-    assert fm["processed"] is True and fm["processed_by"] == history_index.INDEXED_BY
-    assert history_index.kind(fm) == "list" and not fm.get(history_index.NOTE_KEY)
+    # Ruling 80: one post read from a list is a save made singly: Sleep reads it tonight, as its author's words.
+    assert fm["processed"] is False and "processed_by" not in fm
+    assert history_index.save_state(fm) == "waiting" and history_index.kind(fm) is None and not fm.get(history_index.NOTE_KEY)
     assert porcelain(memory) == ""
 
 
@@ -163,13 +165,14 @@ def test_every_saved_list_read_writes_index_only_saves_never_read_by_a_model(rea
     ("liked", [{"url": f"https://www.youtube.com/watch?v={VID_A}"}]),
     ("playlists", [{"url": f"https://www.youtube.com/watch?v={VID_A}", "playlist": "Example mix"}]),
 ])
-def test_every_youtube_save_list_read_is_index_only(reading, name, videos):
+def test_every_youtube_save_list_read_is_a_list_save_with_nothing_to_read(reading, name, videos):
     server, memory = reading
     _yt_on(name)
     assert "1 new" in _record_yt(server, name, videos=videos)
     fm = _episode(memory, videos[0]["url"]).frontmatter
-    assert fm["origin"] == "youtube-playlist" and history_index.kind(fm) == "list"
-    assert fm["processed_by"] == history_index.INDEXED_BY
+    assert fm["origin"] == "youtube-playlist" and history_index.save_shaped(fm) == "list"
+    # A video's title and link: no text to read, no page read for it (ruling 80). Its transcript follows his talking.
+    assert fm["processed_by"] == history_index.NO_WORDS_BY
 
 
 # --- one post, several lists -----------------------------------------------------------------------------------------

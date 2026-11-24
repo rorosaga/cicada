@@ -18,6 +18,7 @@ from api.models.schemas import (
     SleepKeptSource,
     SleepDebtResponse,
     SleepDrain,
+    SleepPageChange,
     SleepEndRunResponse,
     SleepEngineChoice,
     SleepEngineModelsRefresh,
@@ -37,6 +38,7 @@ from api.models.schemas import (
 from api.services import (
     bank_index,
     channel_items,
+    commit_changes,
     episode_copy,
     episode_revision,
     folder_source,
@@ -47,6 +49,7 @@ from api.services import (
     reading_hosts,
     sleep_autocontinue,
     sleep_consolidated,
+    sleep_page_change,
     sleep_debt,
     sleep_drain,
     sleep_engine_prefs,
@@ -348,10 +351,14 @@ async def sleep_run_detail_route(drain_id: str, request: Request, response: Resp
     return detail
 
 
+#: A page id is a filename stem: no path, no flag, nothing git could read as an option.
+_PAGE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,200}")
+
+
 def _items_etag(memory_path, key: str) -> str:
     """The items read git (the commits) and the bank's names (episodes, pages, questions), so all four move the tag."""
     return sync_service.etag_for(memory_path, "git_head", "entities", "episodes", "inbox", "telemetry",
-                                 extra=f"items|{sleep_consolidated.SHAPE}|{key}")
+                                 extra=f"items|{sleep_consolidated.SHAPE}|{commit_changes.VERSION}|{key}")
 
 
 @router.get("/sleep/runs/{drain_id}/items", response_model=SleepConsolidated)
@@ -369,8 +376,31 @@ async def sleep_run_items_route(drain_id: str, request: Request, response: Respo
     if not commits:
         raise HTTPException(status_code=404, detail="Not a run")
     start, end = sleep_consolidated.run_window(settings.memory_path, drain_id)
-    settles = await sleep_consolidated.settle_commits(settings.memory_path, start, end)
-    return await sleep_consolidated.build(settings.memory_path, commits, settles)
+    settles, steps = await sleep_consolidated.window(settings.memory_path, start, end)
+    return await sleep_consolidated.build(settings.memory_path, commits, settles, steps)
+
+
+@router.get("/sleep/runs/{drain_id}/pages/{entity_id}/change", response_model=SleepPageChange)
+async def sleep_run_page_change_route(drain_id: str, entity_id: str, request: Request, response: Response,
+                                      settings: Settings = Depends(get_settings)):
+    """What a run did to one page, ready to render (owner 2026-11-24): why it changed (the conversations that fed it,
+    else the step), its facts added, withdrawn and changed, its prose as the page's own blocks, the other changes in
+    words. 404 for a page no commit of the run touched — a page with only bookkeeping included in no list but reachable
+    by id (its `change` says `bookkeeping`). Not a Store domain; ETag with the items'."""
+    if not drain_id.replace("_", "").replace("-", "").isalnum() or not _PAGE_ID.fullmatch(entity_id):
+        raise HTTPException(status_code=404, detail="Not a run page")
+    etag = _items_etag(settings.memory_path, f"run|{drain_id}|page|{entity_id}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    commits = sleep_consolidated.run_commits(settings.memory_path, drain_id)
+    if not commits:
+        raise HTTPException(status_code=404, detail="Not a run")
+    start, end = sleep_consolidated.run_window(settings.memory_path, drain_id)
+    settles, steps = await sleep_consolidated.window(settings.memory_path, start, end)
+    found = await sleep_page_change.build(settings.memory_path, commits, settles, steps, entity_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="The run did not touch that page")
+    return found
 
 
 @router.get("/sleep/history/{commit}/items", response_model=SleepConsolidated)
@@ -386,13 +416,29 @@ async def sleep_cycle_items_route(commit: str, request: Request, response: Respo
     if detail is None or detail.kind != "sleep":
         raise HTTPException(status_code=404, detail="Not a Sleep cycle commit")
     # The cycle's window: from when it began reading (its commit less its duration) to its commit, plus the grace.
-    try:
-        end_at = datetime.fromisoformat(detail.date)
-        start_at = end_at - timedelta(milliseconds=detail.duration_ms or 0)
-        settles = await sleep_consolidated.settle_commits(settings.memory_path, start_at.isoformat(), end_at.isoformat())
-    except ValueError:
-        settles = []
-    return await sleep_consolidated.build(settings.memory_path, [detail.commit_hash], settles)
+    start, end = sleep_consolidated.cycle_window(detail.date, detail.duration_ms)
+    settles, steps = await sleep_consolidated.window(settings.memory_path, start, end)
+    return await sleep_consolidated.build(settings.memory_path, [detail.commit_hash], settles, steps)
+
+
+@router.get("/sleep/history/{commit}/pages/{entity_id}/change", response_model=SleepPageChange)
+async def sleep_cycle_page_change_route(commit: str, entity_id: str, request: Request, response: Response,
+                                        settings: Settings = Depends(get_settings)):
+    """What one plain cycle did to one page — the same change as a run's, from its one commit."""
+    if not re.fullmatch(r"[0-9a-f]{7,40}", commit or "") or not _PAGE_ID.fullmatch(entity_id):
+        raise HTTPException(status_code=404, detail="Not a Sleep cycle commit")
+    etag = _items_etag(settings.memory_path, f"commit|{commit}|page|{entity_id}")
+    if (early := sync_service.conditional(request, response, etag)) is not None:
+        return early
+    detail = await git_service.get_sleep_cycle_detail(settings.memory_path, commit)
+    if detail is None or detail.kind != "sleep":
+        raise HTTPException(status_code=404, detail="Not a Sleep cycle commit")
+    start, end = sleep_consolidated.cycle_window(detail.date, detail.duration_ms)
+    settles, steps = await sleep_consolidated.window(settings.memory_path, start, end)
+    found = await sleep_page_change.build(settings.memory_path, [detail.commit_hash], settles, steps, entity_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="The cycle did not touch that page")
+    return found
 
 
 @router.get("/sleep/queue", response_model=SleepQueueResponse)
@@ -590,6 +636,7 @@ def _run_options_response(settings: Settings) -> SleepRunOptions:
         spend_limit_usd=opts.spend_limit_usd,
         spend_limit_choices=list(sleep_spend.CHOICES),
         keep_awake=opts.keep_awake,
+        light_old_saves=opts.light_old_saves,
     )
 
 
@@ -631,6 +678,10 @@ async def put_run_options(body: SleepRunOptionsUpdate, settings: Settings = Depe
         if body.keep_awake is None:
             raise HTTPException(status_code=422, detail="keepAwake must be true or false")
         changes["keep_awake"] = body.keep_awake
+    if "light_old_saves" in sent:
+        if body.light_old_saves is None:
+            raise HTTPException(status_code=422, detail="lightOldSaves must be true or false")
+        changes["light_old_saves"] = body.light_old_saves
     if changes:
         sleep_run_prefs.write(get_registry(settings), **changes)
     return _run_options_response(settings)
