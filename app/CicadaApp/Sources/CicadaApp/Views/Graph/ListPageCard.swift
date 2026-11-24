@@ -20,6 +20,9 @@ struct ListPageCard: View {
     var today: ISODay = .today()
 
     @State private var showsAll = false
+    /// While the whole list is open the keyboard focus is here, so Esc steps back to the five before it closes the page
+    /// (the card's own Esc, which the focus would otherwise reach first).
+    @FocusState private var holdsKeys: Bool
 
     /// The line the page itself holds about what the list is: its prose, trimmed ("Posts you bookmarked on X.").
     static func about(_ markdown: String) -> String {
@@ -89,6 +92,7 @@ struct ListPageCard: View {
             }
             SourceStreamCards(key: list.listKey, cap: Self.cap, omittingList: list.label) { _ in
                 showsAll = true
+                holdsKeys = true
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -105,5 +109,10 @@ struct ListPageCard: View {
             SourceStreamCards(key: list.listKey, cap: nil, omittingList: list.label) { _ in }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .focusable()
+        .focusEffectDisabled()
+        .focused($holdsKeys)
+        .onExitCommand { Instant.run { showsAll = false } }   // DR-60: a keyboard path never animates
+        .onAppear { holdsKeys = true }
     }
 }
