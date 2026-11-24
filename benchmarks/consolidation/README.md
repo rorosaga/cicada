@@ -81,6 +81,17 @@ when it is wider than each model's own spread across repeats.
 **Cost.** Each leg runs two drains over 26 conversations. The judge makes one call per group of cited
 conversations, about 20 per leg. `report` prints the calls and tokens for each leg.
 
+**Every replay battery runs on the Claude plan too (2026-11-24).** Almost everything above was first measured on a key,
+and a new user's default engine is the signed-in plan (`claude -p`), where a judge was once forced into another judge's
+answer shape on every call and nobody saw it. Each battery below takes `--engine key|plan` (`engines.py`; default `key`,
+unchanged; `full_name_battery` and `full_name_replay` keep their older default, the plan). `--engine plan` reads no key file,
+removes any `ANTHROPIC_API_KEY` from the process, builds the plan's settings with the same tiers (Sonnet main, Haiku small
+judge) and prints, per stage label, the calls, the ones that raised and the replies that were not a JSON object, with the
+keys of the objects it saw (a judge answered in another judge's shape shows as an unusual key set). A plan call costs
+plan usage, not money: keep the repeat count small (`value_join_battery --every K` runs every K-th pair). The key
+numbers a docstring or the G148 row quotes do not compare with a plan run of three repeats unless the difference is
+larger than the spread.
+
 **The same-name rule has two replays of its own** (a run makes about six judge calls and one same-name pair, so it
 cannot see a one-in-ten defect; both cost cents and need only `ANTHROPIC_API_KEY`):
 

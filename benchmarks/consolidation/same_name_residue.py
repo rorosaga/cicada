@@ -20,6 +20,8 @@ text carries its words, and whether that is the page of the person it truly belo
     api/.venv/bin/python -m benchmarks.consolidation.same_name_residue build --story dani --out DIR
     api/.venv/bin/python -m benchmarks.consolidation.same_name_residue replay --bank DIR/dani --story dani --repeats 4 --out DIR/after-dani
     api/.venv/bin/python -m benchmarks.consolidation.same_name_residue score --story dani --bank DIR/after-dani/r1/bank
+
+``build`` and ``replay`` take ``--engine plan`` (the signed-in Claude plan, no key read; default ``key``, 2026-11-24).
 """
 from __future__ import annotations
 
@@ -47,10 +49,11 @@ def story(story_id: str) -> dict:
     raise SystemExit(f"no story {story_id!r}")
 
 
-def _env_key() -> None:
+def _env_key(engine: str = "key") -> None:
+    from benchmarks.consolidation import engines
     from benchmarks.consolidation.same_name_battery import key_from
 
-    os.environ["ANTHROPIC_API_KEY"] = key_from(Path("~/.cicada/secrets.env"))
+    engines.arm(engine, lambda: os.environ.__setitem__("ANTHROPIC_API_KEY", key_from(Path("~/.cicada/secrets.env"))))
 
 
 def _one_person(system: str, prompt: str):
@@ -59,15 +62,17 @@ def _one_person(system: str, prompt: str):
     return {"people": [{"conversations": sorted(set(letters)), "reason": "one person"}], "pairs": []}
 
 
-def build(story_id: str, out: Path) -> dict:
+def build(story_id: str, out: Path, engine: str = "key") -> dict:
     from unittest.mock import patch
 
     from api.services import entity_resolver, providers, same_name_doubts, sleep_cycle
     from benchmarks.consolidation import run as bench
-    from benchmarks.engine_parity import _leg_environment, _refuse_real_paths, settings_for, _git
+    from benchmarks.engine_parity import _leg_environment, _refuse_real_paths, _git
     from benchmarks.system.engine import embed
 
-    _env_key()
+    from benchmarks.consolidation import engines
+
+    _env_key(engine)
     _refuse_real_paths(out)
     fixture = story(story_id)
     bank, home = out / "bank", out / "home"
@@ -79,7 +84,7 @@ def build(story_id: str, out: Path) -> dict:
 
     with _leg_environment(home, bank):
         bench.init_bank(bank, fixture["owner"])
-        settings = settings_for("key", bank, model=bench.engine_model("key", "sonnet"), judge=bench.engine_model("key", "haiku"))
+        settings = engines.settings(engine, bank)
         for phase in sorted({c["phase"] for c in fixture["conversations"]}):
             convs = [c for c in fixture["conversations"] if c["phase"] == phase]
             bench.stage(bank, convs, CLOCK, f"Bench intake, phase {phase}")
@@ -186,13 +191,14 @@ def _count_gates(gates: dict) -> None:
     sl.still_placeable, page_join._apply_cuts = _still, _apply
 
 
-def replay(bank: Path, story_id: str, out: Path, repeats: int) -> list[dict]:
+def replay(bank: Path, story_id: str, out: Path, repeats: int, engine: str = "key") -> list[dict]:
     from api.services import same_name_tend
     from benchmarks.consolidation import run as bench
     from benchmarks.consolidation.same_name_battery import spend
-    from benchmarks.engine_parity import _leg_environment, settings_for
+    from benchmarks.consolidation import engines
+    from benchmarks.engine_parity import _leg_environment
 
-    _env_key()
+    _env_key(engine)
     results = []
     for k in range(1, repeats + 1):
         leg = out / f"r{k}"
@@ -204,8 +210,7 @@ def replay(bank: Path, story_id: str, out: Path, repeats: int) -> list[dict]:
         gates: dict = {}
         with _leg_environment(home, leg / "bank"):
             _count_gates(gates)
-            settings = settings_for("key", leg / "bank", model=bench.engine_model("key", "sonnet"),
-                                    judge=bench.engine_model("key", "haiku"))
+            settings = engines.settings(engine, leg / "bank")
             report = asyncio.run(same_name_tend.run_tail(leg / "bank", settings, user_triggered=True, today=CLOCK))
         row = score(leg / "bank", story_id)
         row.update(report={"looked": report.looked, "split": report.split, "skipped": report.skipped}, gates=gates,
@@ -269,11 +274,13 @@ def main(argv=None) -> int:
     b = sub.add_parser("build")
     b.add_argument("--story", required=True)
     b.add_argument("--out", required=True)
+    b.add_argument("--engine", choices=("key", "plan"), default="key")
     r = sub.add_parser("replay")
     r.add_argument("--bank", required=True)
     r.add_argument("--story", required=True)
     r.add_argument("--out", required=True)
     r.add_argument("--repeats", type=int, default=4)
+    r.add_argument("--engine", choices=("key", "plan"), default="key")
     s = sub.add_parser("score")
     s.add_argument("--story", required=True)
     s.add_argument("--bank", required=True)
@@ -284,9 +291,9 @@ def main(argv=None) -> int:
     u.add_argument("--out", required=True)
     a = ap.parse_args(argv)
     if a.cmd == "build":
-        print(json.dumps(build(a.story, Path(a.out).expanduser() / a.story), ensure_ascii=False))
+        print(json.dumps(build(a.story, Path(a.out).expanduser() / a.story, a.engine), ensure_ascii=False))
     elif a.cmd == "replay":
-        replay(Path(a.bank).expanduser(), a.story, Path(a.out).expanduser(), a.repeats)
+        replay(Path(a.bank).expanduser(), a.story, Path(a.out).expanduser(), a.repeats, a.engine)
         print(summarize(Path(a.out).expanduser()))
     elif a.cmd == "score":
         print(json.dumps(score(Path(a.bank).expanduser(), a.story), indent=1, ensure_ascii=False))

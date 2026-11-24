@@ -151,13 +151,17 @@ def main(argv: list[str] | None = None) -> int:
         from benchmarks.consolidation.same_name_battery import key_from
 
         os.environ["ANTHROPIC_API_KEY"] = key_from(a.key_file)
+    else:
+        os.environ.pop("ANTHROPIC_API_KEY", None)   # `claude -p` must bill the plan, never a key found in the environment
     cases = [c for c in load_cases(a.cases) if a.only in c["id"]]
     root = Path(tempfile.mkdtemp(prefix="full-name-battery-"))
     home, scratch = root / "home", root / "scratch"
     home.mkdir()
     scratch.mkdir()
     rows = []
-    with _leg_environment(home, scratch):
+    from benchmarks.consolidation import engines
+
+    with _leg_environment(home, scratch), engines.tally() as counted:
         from api.services import full_name_join, same_name_tend
         from benchmarks.consolidation.run import engine_model
 
@@ -172,6 +176,7 @@ def main(argv: list[str] | None = None) -> int:
             rows.append(asyncio.run(run_case(case, a.repeats, judge)))
             print(report(rows[-1:]).splitlines()[0], flush=True)
     print(report(rows))
+    print("engine replies:\n" + counted.report())
     if a.json:
         a.json.write_text(json.dumps([{**r, "outcomes": dict(r["outcomes"])} for r in rows], indent=1, ensure_ascii=False))
     return 0 if not any(r["wrong_joins"] for r in rows) else 1

@@ -39,6 +39,7 @@ two phases of conversations. See [`consolidation/README.md`](consolidation/READM
 - `benchmarks/newuser/` — **a stranger's first two months**: an invented person through the real doors (ChatGPT and
   Claude.ai exports, Claude Code hooks, bookmarks, calendar), one Sleep on the plan at haiku, 25 questions over MCP
   stdio, graded and repeated. Run before each release; see its README.
+- `benchmarks/consolidation/*_battery.py` and the story replays take `--engine key|plan` (2026-11-24): the same cases on a Claude key (default) or on the signed-in plan, with a count of the replies the engine gave that a parser could not use; see `consolidation/README.md`.
 - `benchmarks/system/` — the whole-system integrity benchmark (synthetic, offline fake engine).
 - `benchmarks/recall_ab.py` — page-ranking A/B (finds the right page; does not grade the answer).
 
