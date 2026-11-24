@@ -9,6 +9,9 @@ mentioned, coming up or active on that day. Time signals come from real conversa
 Feed items join the rule under ruling 39 (owner 2026-10-24, :data:`FEED_ORIGINS`): what a feed published is no
 mention by the person either, whether it is dated by its publisher or by the poll that fetched it.
 
+A save the person said nothing about joins them (ruling 80, G245; :func:`counts_as_activity`): a stranger's post or a
+page's text is not the person coming back to the thing, so its date starts no clock and refreshes none.
+
 This is the one predicate every time reader asks. It reads the stored ``source`` (and a feed's ``origin`` and
 ``published_at``), so it holds for banks consolidated before the rule existed: nothing is rewritten, and the episodes
 themselves keep their timestamps.
@@ -59,10 +62,19 @@ def is_feed_item(frontmatter: dict | None) -> bool:
 
 
 def counts_as_activity(frontmatter: dict | None) -> bool:
-    """False for an episode whose date is not a mention's (a memory export entry, a feed item); True for everything
-    else."""
+    """False for an episode whose date is not a mention's (a memory export entry, a feed item, a save the person said
+    nothing about); True for everything else.
+
+    A save with no words of his (ruling 80, G245: no reason, why-answer, note or folder reason, ``saved_reading.
+    no_words_of_his``) is no mention either: what a stranger's post or a page says is not the person coming back to the
+    thing, so it starts no page's silence clock and refreshes none. Saved on a page that also has a conversation, the
+    page's last mention stays the conversation's day (see ``capture-and-sleep.md``, "Saves alone make no page")."""
     source = str((frontmatter or {}).get("source") or "").strip().lower()
-    return source not in UNTIMED_SOURCES and not is_feed_item(frontmatter)
+    if source in UNTIMED_SOURCES or is_feed_item(frontmatter):
+        return False
+    from api.services import saved_reading
+
+    return not saved_reading.no_words_of_his(frontmatter)
 
 
 #: Ruling 39: the received date is shown beside an item's own date only when it is at least this many days later —
@@ -180,25 +192,43 @@ def _untimed_ids(memory_path: Path) -> frozenset[str]:
     return frozenset(out)
 
 
-_KEY_LINE = re.compile(r"^(source|origin|published_at):[ \t]*['\"]?([^'\"\r\n#]*?)['\"]?[ \t]*(?:#.*)?$")
+#: The top-level frontmatter keys :func:`counts_as_activity` reads. Beyond the three that name an untimed source, a save
+#: with no words of his is told by what makes an episode a save (``authorship``: its page link, its door, a declared
+#: kind) and by the marks of the person's own words (``history_index.PERSON_KEYS``), so a page's card and Sleep agree.
+_KEYS = ("source", "origin", "published_at", "evidence_kind", "media_entity_id", "url", "book",
+         "has_note", "saved_why", "saved_why_earlier", "readable_by_folder")
+#: A key whose value is a block (``saved_why:`` then indented lines) has nothing after its colon: it is present.
+_BLOCK = "1"
+_EMPTY = frozenset({"null", "~", "false", "[]", "{}", "''", '""'})
+_KEY_LINE = re.compile(r"^(" + "|".join(_KEYS) + r"):[ \t]*(.*?)[ \t]*(?:#.*)?$")
 
 
-#: One awk pass prints each episode's top-level ``source:``, ``origin:`` and ``published_at:`` values — what
-#: :func:`counts_as_activity` reads — from its frontmatter only (``nextfile`` at the closing fence, or once all three
-#: are seen). One process instead of one open-and-read per episode: the card is often opened while a startup index
+def _value(raw: str) -> str:
+    """One frontmatter value as :func:`counts_as_activity` reads it: quotes dropped, an empty or null one ``""``, a block
+    (nothing after its colon) present."""
+    raw = raw.strip()
+    if not raw:
+        return _BLOCK
+    if raw in _EMPTY:
+        return ""
+    return raw.strip("'\"")
+
+
+#: One awk pass prints each episode's top-level :data:`_KEYS` values — what :func:`counts_as_activity` reads — from its
+#: frontmatter only (``nextfile`` at the closing fence, or once every key is seen). One process instead of one open-and-read per episode: the card is often opened while a startup index
 #: build holds the interpreter, and each of thousands of file reads then waited its turn (owner page, 2026-10-14:
 #: 1.7 s of a cold open on a synthetic bank of 2,000 conversations, ~0.1 s of it the reads themselves).
 _AWK = r"""
 FNR == 1 { inside = ($0 == "---"); seen = 0; if (!inside) nextfile; next }
 inside && $0 == "---" { nextfile }
-inside && /^(source|origin|published_at):/ {
+inside && $0 ~ ("^(" KEYS "):") {
     k = $0; sub(/:.*$/, "", k); v = $0; sub(/^[a-z_]+:[ \t]*/, "", v); sub(/[ \t]*#.*$/, "", v);
-    gsub(/^['"]|['"]$/, "", v); print FILENAME "\t" k "\t" v; if (++seen == 3) nextfile }
+    print FILENAME "\t" k "\t" v; if (++seen == NKEYS) nextfile }
 """
 
 
-#: ``{episodes dir: (its mtime, {path: keys})}`` — an episode's source, origin and published date never change, and a
-#: new or removed episode changes the directory's mtime. Per process, disposable, like `bank_index`.
+#: ``{episodes dir: (its mtime, {path: keys})}`` — an episode's source and origin never change, and a new, removed or
+#: rewritten episode (every write is an atomic rename, so a reason added to a save too) changes the directory's mtime. Per process, disposable, like `bank_index`.
 _MEMO: dict[str, tuple[int | None, dict[str, dict]]] = {}
 
 
@@ -212,7 +242,8 @@ def _sources(paths: list[Path]) -> dict[str, dict] | None:
     for start in range(0, len(paths), 500):
         batch = [str(p) for p in paths[start:start + 500]]
         try:
-            proc = subprocess.run([_AWK_BIN, _AWK, *batch], capture_output=True, timeout=30)
+            proc = subprocess.run([_AWK_BIN, "-v", "KEYS=" + "|".join(_KEYS), "-v", f"NKEYS={len(_KEYS)}", _AWK, *batch],
+                                  capture_output=True, timeout=30)
         except (OSError, subprocess.SubprocessError):
             return None
         if proc.returncode != 0:
@@ -220,12 +251,12 @@ def _sources(paths: list[Path]) -> dict[str, dict] | None:
         for line in proc.stdout.decode("utf-8", errors="replace").splitlines():
             name, _, rest = line.partition("\t")
             key, _, value = rest.partition("\t")
-            out.setdefault(name, {}).setdefault(key, value.strip())
+            out.setdefault(name, {}).setdefault(key, _value(value))
     return out
 
 
 def _source_of(path: Path) -> dict | None:
-    """One episode's ``source:``, ``origin:`` and ``published_at:`` read from its frontmatter lines without YAML;
+    """One episode's :data:`_KEYS` read from its frontmatter lines without YAML;
     ``None`` when it cannot be read."""
     found: dict = {}
     try:
@@ -238,7 +269,7 @@ def _source_of(path: Path) -> dict | None:
                     return found
                 match = _KEY_LINE.match(line)
                 if match:
-                    found.setdefault(match.group(1), match.group(2).strip())
+                    found.setdefault(match.group(1), _value(match.group(2)))
     except OSError:
         return None
     return found

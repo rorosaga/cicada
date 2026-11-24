@@ -18,6 +18,9 @@ person held as two in doubt with the one question open and the located link in i
 pair did not agree, so the person's tap joins them); ``q``: the range of questions).
 
     api/.venv/bin/python -m benchmarks.consolidation.same_name_stories --repeats 20 --judge haiku --main sonnet
+
+``--engine plan`` replays them on the signed-in Claude plan (no key read) and prints the replies that were not a JSON
+object (`engines.py`; 2026-11-24).
 """
 from __future__ import annotations
 
@@ -344,6 +347,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--only", default="", help="substring of story ids or shapes")
     p.add_argument("--home", type=Path)
     p.add_argument("--key-file", type=Path, default=Path("~/.cicada/secrets.env"))
+    from benchmarks.consolidation import engines
+
+    engines.add_argument(p)
     p.add_argument("--json", type=Path, help="write the rows here")
     p.add_argument("--module", type=Path, help="another copy of same_name_people.py (the code before a change): no review step")
     a = p.parse_args(argv)
@@ -352,17 +358,19 @@ def main(argv: list[str] | None = None) -> int:
         globals()["snp"] = battery.snp
     from benchmarks.engine_parity import _leg_environment
 
-    os.environ["ANTHROPIC_API_KEY"] = battery.key_from(a.key_file)
+    engines.arm(a.engine, lambda: os.environ.__setitem__("ANTHROPIC_API_KEY", battery.key_from(a.key_file)))
     stories = [s for s in load_stories(a.stories) if a.only in s["id"] or a.only in s["shape"]]
     root = a.home or Path(tempfile.mkdtemp(prefix="same-name-stories-"))
     home, bank = root / "home", root / "bank"
     home.mkdir(parents=True, exist_ok=True)
     bank.mkdir(parents=True, exist_ok=True)
-    with _leg_environment(home, bank):
-        judge = battery.product_ask(a.judge, a.main, home, bank)
-        review = battery.product_ask(a.main, a.main, home, bank)
-        rows = asyncio.run(run(stories, a.repeats, judge, review))
+    with _leg_environment(home, bank), engines.tally() as counted:
+        judge = battery.product_ask(a.judge, a.main, home, bank, a.engine)
+        review = battery.product_ask(a.main, a.main, home, bank, a.engine)
+        rows = asyncio.run(run(stories, a.repeats, judge, review, concurrency=24 if a.engine == "key" else 2))
         print(report(rows, battery.spend(home)))
+        if a.engine == "plan":
+            print(counted.report())
     if a.json:
         a.json.write_text(json.dumps(rows, indent=1), encoding="utf-8")
     return 0

@@ -53,6 +53,23 @@ def applies(episode: dict | None) -> bool:
     return authorship.of_episode(episode) == evidence.SAVE_KIND
 
 
+def no_words_of_his(episode: dict | None) -> bool:
+    """A saved item the person said nothing about (G245, ruling 80): no reason, no why-answer, no note of theirs, no folder
+    reason (the frontmatter marks ``history_index.PERSON_KEYS`` — the one definition of "this save carries their own
+    words" that already decides whether a save is read as theirs). Read from the record alone, never the body, so the
+    bank-wide readers of time (``episode_time``, one frontmatter pass) and the writers of Sleep and the 2+ rule
+    (``promotion.conversation_keys``) all agree. A feed item is its publisher's and keeps ruling 39's own rule; a
+    conversation about the save (``read_asked``) is a conversation of its own, never words in the save.
+
+    Such a save is one source for the 2+ rule however many there are, and no mention: it starts no page's clock and
+    refreshes none (:func:`episode_time.counts_as_activity`)."""
+    from api.services import episode_time, history_index
+
+    if not applies(episode) or episode_time.is_feed_item(episode):
+        return False
+    return not any((episode or {}).get(key) for key in history_index.PERSON_KEYS)
+
+
 def person_ranges(content: str) -> list[tuple[int, int]]:
     """``(start, end)`` of each section of the person's own words in a save's body: from just after its heading to the
     next ``## `` heading. By heading only — a line inside the page's description that happens to read like a turn
@@ -270,6 +287,37 @@ def _cap(entities: list[dict], relationships: list[dict], values: list[dict]) ->
     return entities, relationships, values
 
 
+#: A save's page at most this many links to other pages (ruling 80 (e)): the ones its text names in full.
+MAX_LINKS = 5
+#: The lines of a save's body that are the record's own fields, never its words (a link's address, a type, a day).
+_RECORD_LINES = re.compile(r"^\*\*(URL|Source|Saved|Originally saved):\*\*.*$", re.MULTILINE)
+#: A page name shorter than this is no name a text can state in full ("Go", "AI").
+_MIN_NAME = 3
+
+
+def named_in_full(content: str, pages: dict[str, tuple[str, list[str]]]) -> list[str]:
+    """Which of ``pages`` (``{id: (name, aliases)}``) a saved item's text states in full: the page's exact title or one
+    of its aliases, as whole words, folded for case and accents — never a first name, a part of a name or a co-mention.
+    In the order the text names them, at most :data:`MAX_LINKS`; the record's own field lines (the link's address)
+    are not text."""
+    from api.services.text_fold import fold
+
+    text = fold(_RECORD_LINES.sub("", content or ""))
+    found: list[tuple[int, str]] = []
+    for page_id, (name, aliases) in pages.items():
+        best = None
+        for label in (name, *aliases):
+            key = fold(" ".join(str(label or "").split()))
+            if len(key) < _MIN_NAME:
+                continue
+            m = re.search(r"(?<!\w)" + re.escape(key) + r"(?!\w)", text)
+            if m is not None and (best is None or m.start() < best):
+                best = m.start()
+        if best is not None:
+            found.append((best, page_id))
+    return [page_id for _at, page_id in sorted(found)[:MAX_LINKS]]
+
+
 def post_day(episode: dict):
     """The day the item's text was posted (``posted``, else a feed's ``published_at``) as a date, or ``None``. Never the
     day Cicada took it in."""
@@ -282,5 +330,5 @@ def post_day(episode: dict):
     return None
 
 
-__all__ = ["CONNECTOR_TEXT_ORIGINS", "MAX_ENTITIES", "applies", "author", "author_observer", "clean", "note",
-           "observer_for", "person_ranges", "person_text", "post_day"]
+__all__ = ["CONNECTOR_TEXT_ORIGINS", "MAX_ENTITIES", "MAX_LINKS", "applies", "author", "author_observer", "clean",
+           "named_in_full", "no_words_of_his", "note", "observer_for", "person_ranges", "person_text", "post_day"]
