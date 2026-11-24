@@ -51,8 +51,8 @@ from typing import Callable
 
 from loguru import logger
 
-from api.services import (episode_revision, markdown_parser, owner_identity, pending_store, phone_numbers, saves_bounded,
-                          telemetry, value_alignment, value_ended)
+from api.services import (episode_revision, markdown_parser, owner_identity, pending_store, phone_numbers, revision_pairs,
+                          saves_bounded, telemetry, value_alignment, value_ended)
 from api.services.claim_reconciler import reconcile_stage3
 from api.services.claims import Claim, is_event, parse_claims, route_values_to_their_thing, write_claims
 from api.services.entity_extractor import entities_to_claims
@@ -482,6 +482,7 @@ def run_claim_pipeline(
     revisions: dict | None = None,
     value_judge: Callable[[str], dict] | None = None,
     value_reread: Callable[[str], dict] | None = None,
+    revision_verdicts: list | None = None,
 ) -> dict:
     """Emit → release → reconcile → write → hold claims over the live entity pages (additive).
 
@@ -511,6 +512,9 @@ def run_claim_pipeline(
             said again in other words (another language included) replaces the old one (G148, 2026-11-23).
         value_reread: the cycle's main model as ``prompt -> dict`` (`value_alignment.judge_for(main=True)`): a page whose
             new value the small judge left alone is read once more by it (2026-11-24); ``None`` makes no second call.
+        revision_verdicts: ``revision_pairs.Verdict`` list — pairs of an edited conversation's old claim and its re-read's
+            claim of the same two things under another predicate that both readings called the same relationship (read
+            before the write window, `revision_pairs.read`); applied after Stage 3 (`revision_pairs.apply`, G104).
 
     Returns a dict: ``{"nudges": [...], "audit": [...], "claims_written": int,
     "subjects_written": int, "subjects_skipped": int, "claims_page_less": int,
@@ -634,6 +638,9 @@ def run_claim_pipeline(
         logger.info(f"Claim pipeline: {saves_folded} save-derived claim(s) folded into one another author already said, "
                     f"{saves_closed} older one(s) closed past the {saves_bounded.MAX_OPEN_CLAIMS} a page keeps")
     withdrawn = episode_revision.settle(reconciled, revision_plan, revisions or {}, today, audit)
+    # G104 (2026-11-25): the revision's re-read claim of the same relationship, worded under another predicate, takes the
+    # old claim's place — only on two readings' "the same", checked again here, after Stage 3 merged the batch.
+    paired = revision_pairs.apply(reconciled, list(revision_verdicts or []), revisions or {}, audit)
     if revisions:
         superseded = sum(1 for a in audit if a.get("action") == "revised")
         logger.info(f"Claim pipeline: {len(revisions)} revised conversation(s) — {revision_plan.reanchored} span(s) "
@@ -654,7 +661,7 @@ def run_claim_pipeline(
     for entry in audit:
         if entry.get("action") in ("revised", "revision_withdrew"):
             closed_id = entry.get("closed")
-            ep = revision_plan.revised_out.get(closed_id) or redated.get(closed_id)
+            ep = revision_plan.revised_out.get(closed_id) or redated.get(closed_id) or paired.get(closed_id)
             subject = subject_by_id.get(closed_id)
             if ep and subject and ep not in revision_closed.setdefault(subject, []):
                 revision_closed[subject].append(ep)
@@ -785,5 +792,7 @@ def run_claim_pipeline(
         # G104 slice 3 (T3): which claim each revision closed (`revision_cascade`) and the held claims withdrawn.
         "revised_out": dict(revision_plan.revised_out),
         "held_withdrawn": held_withdrawn,
+        # G104 (2026-11-25): which claim each revision's re-read replaced under another wording (`revision_pairs`).
+        "revision_paired": paired,
         **hold,
     }

@@ -3920,6 +3920,26 @@ async def _run_stages(
             else sleep_drain.DrainStop("engine", msg)))
     _state.stage = 1
 
+    # G104 (2026-11-25): where an edited conversation's re-read words a claim's relationship under another predicate with
+    # another day the changed lines say, the small judge and then the main model are asked whether the two are the same
+    # relationship — before Stage 2 opens the write window (pages read only); applied in Stage 5.56 (`revision_pairs`).
+    revision_verdicts: list = []
+    if revisions and not decay_only:
+        try:
+            from api.services import revision_pairs, value_alignment
+
+            _read_now = {e.get("episode_id") for e in extracted}
+            _edited = {i: r for i, r in revisions.items() if i in _read_now}
+            if _edited:
+                _pairs_read = await asyncio.to_thread(
+                    revision_pairs.read, memory_path, _edited, extracted,
+                    value_alignment.judge_for(settings, stage=revision_pairs.STAGE),
+                    value_alignment.judge_for(settings, main=True, stage=revision_pairs.STAGE),
+                    settings=settings, cancelled=_cancel_requested)
+                revision_verdicts = _pairs_read.verdicts
+        except Exception as e:  # noqa: BLE001 - a reading is an addition: no reading, the claims stay as they are
+            logger.warning(f"Revision pairs skipped: {type(e).__name__}")
+
     # Stage 2: Entity Resolution & Deduplication
     _say("Stage 2/5: Resolving entities...")
     logger.info("Stage 2: Resolving entities against existing graph")
@@ -4174,6 +4194,7 @@ async def _run_stages(
             # 2026-11-24: a refused new value is read once more by the cycle's main model (`value_alignment.align`).
             value_reread=value_alignment.judge_for(settings, main=True),
             **({"revisions": revisions_read} if revisions_read else {}),
+            **({"revision_verdicts": revision_verdicts} if revision_verdicts and revisions_read else {}),
             **decay_kw,
         )
         _state.claims_page_less = int(claim_result.get("claims_page_less", 0) or 0)
@@ -4310,10 +4331,11 @@ async def _run_stages(
                 withdrawn=sum(1 for a in audit if a.get("action") == "revision_withdrew"),
                 superseded=sum(1 for a in audit if a.get("action") == "revised"),
                 rewritten=prose_report.rewritten if prose_report is not None else 0,
-                revised_out=claim_result.get("revised_out") or {},
+                revised_out={**(claim_result.get("revised_out") or {}), **(claim_result.get("revision_paired") or {})},
                 editors=source_edits.editors(memory_path, sorted({
                     *((_state.revision_cascade or {}).get("revised") or []),
-                    *(claim_result.get("revised_out") or {}).values()})))
+                    *(claim_result.get("revised_out") or {}).values(),
+                    *(claim_result.get("revision_paired") or {}).values()})))
             if entry:
                 _state.corrections_batch = entry
                 await asyncio.to_thread(

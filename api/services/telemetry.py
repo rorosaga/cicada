@@ -226,8 +226,9 @@ def record_audit(
     on an extractor's claim — the same kind of signal as a user's inbox answer,
     just automated — and until now it lived only in a return value nothing
     persisted. ``refs`` carries claim ids and the subject slug only. An entry
-    whose ``action`` is neither ``supersede`` nor ``rejected`` is skipped, not
-    guessed at.
+    whose ``action`` is neither ``supersede``, ``revised`` (an edited
+    conversation's own re-read replacing one of its claims, G104, with its
+    reason as an enum) nor ``rejected`` is skipped, not guessed at.
     """
     for entry in entries or ():
         try:
@@ -236,6 +237,12 @@ def record_audit(
                 refs = {
                     "action": "supersede", "subject": subject_hint,
                     "closed": entry.get("closed"), "by": entry.get("by"),
+                }
+            elif action == "revised":
+                # G104: an edited conversation's own re-read replaced one of its claims (the reason is an enum).
+                refs = {
+                    "action": "revised", "subject": subject_hint,
+                    "closed": entry.get("closed"), "by": entry.get("by"), "why": str(entry.get("why") or "revision"),
                 }
             elif action == "rejected":
                 refs = {
