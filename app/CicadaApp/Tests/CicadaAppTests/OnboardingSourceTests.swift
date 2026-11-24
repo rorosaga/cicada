@@ -94,7 +94,10 @@ final class OnboardingSourceTests: XCTestCase {
     func testTheWorkingStepsShowAVisibleSkip() throws {
         let text = try source("Views/Onboarding/OnboardingView.swift")
         XCTAssertTrue(text.contains("if page.skippable"))
-        XCTAssertTrue(text.contains("Copy.onboardingSkip"))
+        // #725 (G92): the foot's title goes through `SavedListsStepModel.skipTitle`, which reads "Skip this step" on every
+        // step but a first run's saved lists (where it reads "Not now").
+        XCTAssertTrue(text.contains("SavedListsStepModel.skipTitle"))
+        XCTAssertTrue(try source("Support/OnboardingSteps.swift").contains(": Copy.onboardingSkip"))
     }
 
     /// QA 2026-10-16 — every step opens at its top: the frame's one ScrollView is identified by the step, so a step
