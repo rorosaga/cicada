@@ -1407,7 +1407,7 @@ writes every save index-only, `take_turns` releases nothing, `retire` retires a 
   or with nothing to read, it leaves only the ask. The ask no longer depends on the save being unread. **The mark (G246 Track M,
   ruling 81):** the same located words also stamp `named: {why, at}` on the save whatever state it is in (`history_index.mark_named`;
   frontmatter only under the episode lock, so `processed`, the queue and the order are untouched and no model is called; the first
-  mark stays; a record another service keeps, a removed source and an episode that is no save are never marked). A re-stage pops
+  mark stays, and the five-a-conversation cap that bounds wakes and asks never bounds it; a record another service keeps, a removed source and an episode that is no save are never marked). A re-stage pops
   `read_asked` once the read is done but never `named`, which is what lets a post he talked about after Sleep read it keep its page
   (`saved_posts`, `features.md`). It is written inside the batch that read the conversation and commits with it; only his own turns
   count, so an agent's words, a relayed app's and a note an agent saved never mark one, and no route, tool or read path calls it.

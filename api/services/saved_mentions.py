@@ -160,9 +160,9 @@ def _named(words_said: list[str], by_first_word: dict) -> list[tuple[int, str]]:
     return out
 
 
-def _found(episode: dict, *indexes: tuple[dict, dict]) -> dict[str, str]:
+def _found(episode: dict, *indexes: tuple[dict, dict], limit: int | None = None) -> dict[str, str]:
     """``{episode id: why}``: the saves of ``indexes`` (each ``(by_link, by_first_word)``, searched in turn) one
-    conversation names in the person's own words, at most :data:`MAX_WAKES_PER_CONVERSATION`, links first, each in the
+    conversation names in the person's own words, at most ``limit`` (``None``: every one), links first, each in the
     order said."""
     from api.services import media_ingestor
 
@@ -181,18 +181,19 @@ def _found(episode: dict, *indexes: tuple[dict, dict]) -> dict[str, str]:
         for _by_link, by_first_word in indexes:
             for _at, hit in _named(said, by_first_word):
                 found.setdefault(hit, WHY_TITLE)
-    return dict(list(found.items())[:MAX_WAKES_PER_CONVERSATION])
+    return dict(list(found.items())[:limit])
 
 
 def mentioned(episode: dict, saves: _Saves) -> dict[str, str]:
     """``{episode id: why}``: the saves one conversation names in the person's own words that a mention can still act on
     (wake, or leave the ask for), at most :data:`MAX_WAKES_PER_CONVERSATION`, links first, each in the order said."""
-    return _found(episode, (saves.by_link, saves.by_first_word))
+    return _found(episode, (saves.by_link, saves.by_first_word), limit=MAX_WAKES_PER_CONVERSATION)
 
 
 def named(episode: dict, saves: _Saves) -> dict[str, str]:
     """:func:`mentioned` over every save, whatever its state: what the person's own words name, to be marked as named
-    (Track M). Bounded the same way; the saves a wake or an ask applies to are always among the marked."""
+    (Track M). Not capped: the cap bounds reads, and a mark is a frontmatter stamp with no model, so every save the
+    person's words name is marked; the saves a wake or an ask applies to are always among the marked."""
     return _found(episode, (saves.by_link, saves.by_first_word), (saves.marked_by_link, saves.marked_by_first_word))
 
 

@@ -199,6 +199,27 @@ def test_the_cap_on_wakes_still_counts_only_what_it_always_counted(tmp_path):
     assert all("named" in _fm(memory, e) for e, _p, _u in read)
 
 
+def test_the_cap_bounds_reads_never_the_free_mark(tmp_path):
+    """Eight already-read posts named in one conversation are all marked (the cap bounds reads, a mark reads nothing);
+    with eight waiting saves named, the first five are woken and all eight are marked."""
+    memory = _bank(tmp_path)
+    read = [_save(memory, n, origin="chrome-bookmark", folder=None) for n in range(30, 38)]
+    for eid, _p, _u in read:
+        _read(memory, eid)
+    waiting = [_save(memory, n) for n in range(40, 48)]
+    said = _said(" ".join(u for _e, _p, u in [*read, *waiting]))
+    saved_mentions.wake_mentioned(memory, [said], at=AT)
+    assert [("named" in _fm(memory, e)) for e, _p, _u in read] == [True] * 8
+    assert [("named" in _fm(memory, e)) for e, _p, _u in waiting] == [True] * 8
+    woken = [e for e, _p, _u in waiting if "read_asked" in _fm(memory, e)]
+    assert woken == [e for e, _p, _u in waiting][:saved_mentions.MAX_WAKES_PER_CONVERSATION]
+    assert all("read_asked" not in _fm(memory, e) for e, _p, _u in read)
+    # The mention reader (wake and ask) is still capped.
+    saves = saved_mentions._saves(memory)
+    assert len(saved_mentions.mentioned(said, saves)) == saved_mentions.MAX_WAKES_PER_CONVERSATION
+    assert len(saved_mentions.named(said, saves)) == 16
+
+
 # ------------------------------------------------------------------------------------- never an agent's, never a hit
 
 
