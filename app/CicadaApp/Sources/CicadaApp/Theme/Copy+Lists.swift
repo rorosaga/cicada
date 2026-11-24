@@ -74,6 +74,8 @@ extension Copy {
             case "link": "Links"
             case "file": "Files"
             case "feed": "From feeds"
+            case "post": "Posts"
+            case "list": "Lists"
             default: id.capitalized
             }
         }

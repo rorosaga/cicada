@@ -16,6 +16,16 @@ final class MediaBlockDecodeTests: XCTestCase {
         XCTAssertEqual(entity.media?.isFile, true)
     }
 
+    /// G246 (ruling 81): a list's own page has no link either, and its block must still reach the card.
+    func testAListPageKeepsItsBlockThoughItHasNoLink() throws {
+        let base = #""id":"list-x-bookmarks","name":"X: Bookmarks","type":"media","status":"active","confidence":0.8,"created":"2026-09-01","lastReferenced":"2026-10-20","decayRate":0.01,"version":1,"markdownContent":"x","history":[{"date":"2026-10-20","changeType":"updated","description":"d","author":"user","commitHash":"abc","sessions":[],"trigger":"sleep/extraction","via":"sleep"}]"#
+        let json = "{" + base + #","media":{"url":"","mediaType":"url","kind":"list"}}"#
+        let entity = try JSONDecoder().decode(Entity.self, from: Data(json.utf8))
+        XCTAssertEqual(entity.media?.kind, "list")
+        XCTAssertEqual(entity.media?.isList, true)
+        XCTAssertEqual(entity.media?.isFile, false)
+    }
+
     func testMediaBlockDecodesWithoutTheNewKeys() throws {
         let json = #"{"url":"https://example.com/a","mediaType":"bookmark"}"#
         let block = try JSONDecoder().decode(MediaBlock.self, from: Data(json.utf8))

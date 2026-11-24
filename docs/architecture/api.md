@@ -562,7 +562,7 @@ stdio server's `Error: …`), 404 for an unknown tool and 403 for a tool the com
 `/banks` and `/sleep/episodes` (not a Store domain, below) all return an `ETag` and honor `If-None-Match` with a `304`. This matters: `/graph` on the
 live bank is ~1.8 MB. **Ship the ETag and its client mapping together** — `GET /inbox` ETags over
 `inbox`+`entities`+`episodes`, and `VersionVector.swift` maps `entities` and `episodes` onto
-`.inbox`; change one half, change both. `/graph`'s `extra` carries a node-shape tag
+`.inbox`; change one half, change both. `/graph`'s `extra` carries, once `saved_posts.HIDE_POSTS` is on, the earned-post stamp and `include_posts` (G246: a reason stamped on a save moves no folder the ETag stats; the key is unchanged while off), and a node-shape tag
 (`graph.NODE_SHAPE`), bumped when a node gains a field a client must see or the body changes for
 the same files (F1's context filter and fence strip; `+previews` when a media node's `picture` became the stored
 preview path; `+quiet`, owner ruling 2026-10-20, when a node gained `quiet` — omitted when false, derived from the

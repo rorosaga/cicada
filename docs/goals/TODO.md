@@ -6,7 +6,7 @@
 
 [Feature status: one line per feature](feature-status.md) · [Implementation review: every G ID](BACKLOG_IMPLEMENTATION_REVIEW.md) · [Active reasoning by priority](memory-evolution.md) · [Completed work](DONE.md) · [Reference context / original prompts](BACKLOG_CONTEXT.md) · [Working method](working-method.md) · [Cognition comparison](../research/2026-10-06-agent-memory-repo.md) · [Source/video gaps](../research/2026-10-06-source-refresh-and-video-gaps.md) · [Provider/source modularity](../specs/2026-10-06-provider-and-ingestion-modularity.md) · [Benchmark rebuild](../specs/2026-10-06-system-benchmark-rebuild.md)
 
-**Sources and saves (2026-11-24, rulings 79 and 80, G245, G246):** read rulings 79 and 80 before touching a source's lists, the join of a first name, or what Sleep reads of a save. The owner answered ruling 78's six questions (79: reposts and one full-name mention are built; follows and the arrival join are decided, the join being built report-only; pictures of a walled post are the coordinator's recommendation, not built; the daily run starts no agent, and the owner is asked to choose) and withdrew the index-only rule for saves (80: every save is to be read, as its author's words, never his). **Reading is built (G246, Track 1) and held unmerged:** it waits for his answer on pace and cost and ships with a daily number for the older pile (100, `history_index.SAVES_PER_DAY`), which amends rulings 13 and 16 and is **pending his confirmation**. Order of work: the bounds (no page or mention from saves alone, per-page and per-name caps) before reading is switched on; [`2026-11-24-saves-are-read.md`](../plans/2026-11-24-saves-are-read.md) and [`2026-11-24-sources-answers.md`](../plans/2026-11-24-sources-answers.md) carry the tracks.
+**Sources and saves (2026-11-24, rulings 79 and 80, G245, G246):** read rulings 79 and 80 before touching a source's lists, the join of a first name, or what Sleep reads of a save. The owner answered ruling 78's six questions (79: reposts and one full-name mention are built; follows and the arrival join are decided, the join being built report-only; pictures of a walled post are the coordinator's recommendation, not built; the daily run starts no agent, and the owner is asked to choose) and withdrew the index-only rule for saves (80: every save is to be read, as its author's words, never his). **Ruling 81 (2026-11-24, G246):** a short saved post is a row under its list's small page and a work keeps its page; decided, **not built, ships dark** behind `saved_posts.HIDE_POSTS = False` until the coordinator has read a dry run on the real memory; read it before touching what the graph, Clusters or a source's lists draw. **Reading is on (G246, #875, merged 2026-11-24):** a save made singly waits for that night's Sleep; bulk, late and already-kept saves wait in a pile, 100 released a day (`history_index.SAVES_PER_DAY`), which amends rulings 13 and 16 (the owner's go-ahead, 2026-11-24); old browser bookmarks and saves out of an export file are read with the engine's lightest model (`light_reads`), everything else with the model he chose. Order of work: the bounds (no page or mention from saves alone, per-page and per-name caps) before reading is switched on; [`2026-11-24-saves-are-read.md`](../plans/2026-11-24-saves-are-read.md) and [`2026-11-24-sources-answers.md`](../plans/2026-11-24-sources-answers.md) carry the tracks.
 
 **Pick up here (2026-10-22, redesign):** read ruling 36 (the owner's answers D1–D6 to the redesign proposal), then [`feature-status.md`](feature-status.md) for what is building. Branches in flight: `feat/awake-read` (G207), `fix/people-dedup` (G209), `feat/update-sources` (G61); queued: connection model and providers (G217, G50), agent API (G213), app (G217's pages, needs a Mac). **Decided after review (2026-10-22, in ruling 36):** a new install's Auto uses a signed-in plan, a key offered as an equal option; ruling 4c stays and the quick read follows it; G213's API rides the G135 listener; "Where to check" as one grouped inbox review; `rich` + `questionary` approved. Nothing waits on the owner from this ruling. **Ruling 38 (2026-10-23)** decides the follow-ups: `/v1` from the tool table (G213), a capture-only phone (G91), one-way syncs (G219), traces with screenshots (G218).
 
@@ -20,6 +20,7 @@
 
 ## Current state and evidence
 
+- **2026-11-24 — A saved post is a row under its list's page, a work keeps its page (ruling 81, G246; docs only).** The owner: pages for works one refers back to, a short post a save listed under its source, a small page for each list so he can see what he saved before he has referred to any of it. Decided and planned, nothing built, nothing he sees changed; every track ships behind one constant (`saved_posts.HIDE_POSTS = False`) that a later one-line pull request flips after the coordinator has read a dry run on the real memory. The same message gave the go-ahead on ruling 80 (d)'s cost question (100 a day for the older pile, its lightest model) and ruling 79 (f) (lists stay current attended, Cicada schedules nothing). Plan: [`2026-11-24-saved-lists-as-pages.md`](../plans/2026-11-24-saved-lists-as-pages.md).
 - **2026-11-24 — Sleep looks at open questions again (ruling 82, G98, G113; `question_revisit`).** The owner's card (two pages of one person, each saying so) was never closed: every lane reads a question once, with the small model or none, and "named together in 2 conversations" blocked ruling 74. The main model now re-reads the questions the other lanes left, a few per run in the inbox's order, and closes a "same person?" on a located line or two kinds of evidence (read twice) and a conflict or "who is it?" on the person's own newest words (read twice); undoable, remembered outside the bank. Dry run: `scripts/question_revisit_dry_run.py`; battery: `benchmarks/consolidation/revisit_battery.py`. Owner decisions waiting: computer use and browser use (not built, G166), and whether the step may run outside Sleep's own window (it runs in the tail, as 74a to 74c do).
 - **2026-11-24 — Past sleeps: a count is a count of real changes, and a page's change says what caused it (G125; `feat/sleep-run-changes`, app + api).** The owner opened a run of 1 conversation that said "1,864 pages updated": 1,930 of 1,939 files moved only a claim's `decayed_through` stamp, the diff he opened was two JSON lines, and a "Pages changed" card named no reason. The backend classifies each page of a commit (bookkeeping, fade, substance; `page_change`, per-commit answers remembered outside every bank, `commit_changes`) and serves the structured change of one page; the app counts and lists only real changes, gives fading its own trailing tab, puts every page under the conversation or the step that changed it, and opens a chip as the page's own rendering (facts with what moved in words, the article's rows with changed words washed or struck in place). Not done: the demo's faded page needs a look in the scratch app by a person; `DiffView` stays on the entity History tab; a block cut at 60 changed blocks says so but offers no "more". See DESIGN_RULES §9 2026-11-24, `app.md` (Sleep page), `api.md` (`items-6`).
 - **2026-11-24 — A misspelling is assumed, not asked, and a question the record answers is closed (G148, G98; ruling 74c).** Sleep reads the record around two near-identical person names and joins them on one located same-fact line each, read twice, else holds them quietly; open same-as questions whose pair is already one page, or whose name is already the page's, are settled by Sleep's tending, undoable; `person_duplicate` questions now fold pages. Dry run for the bank: `scripts/answered_questions_dry_run.py`.
@@ -1853,7 +1854,7 @@ A whole row moves to DONE only after its remaining implementation and required a
 
     Revisit only on the trigger G163's row names (the journal slice; the reserve and Continue are built), or if a drain's plan volume
     hurts a real owner's coding budget. *Ruling 80 (d), 2026-11-24, proposes one amendment, an allowance on how many saves enter the
-    queue a day: PENDING THE OWNER'S CONFIRMATION; until he confirms, this ruling stands as written.*
+    queue a day: confirmed 2026-11-24 (ruling 80, dated line, 100 a day); not in force until #875 merges and its switch is on, so this ruling stands as written.*
 
 14. **Reading with the person's own agent — Cicada asks, the agent reads, the backend holds no session
     (owner, 2026-09-29: "i want the agent using browser harness … or the native computer/browser harnesses from the
@@ -1968,7 +1969,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     only with a ruling of its own.
 
 16. **A scheduled cycle reads everything waiting too — ruling 4 untouched (owner, 2026-09-30).** *Ruling 80 (d), 2026-11-24, proposes one
-    amendment, a daily allowance on how many saves enter the queue: PENDING THE OWNER'S CONFIRMATION; until then this ruling stands.* This amends
+    amendment, a daily allowance on how many saves enter the queue: confirmed 2026-11-24 (ruling 80, dated line); not in force until #875 merges and its switch is on.* This amends
     ruling 13's "scheduled = one batch". `sleep_scheduler` passes `drain=True` from both entry points (the daily/interval
     cron and the after-import probe); `user_triggered=False` still keeps every plan engine out, so an unattended run
     reads on the scheduled engine — a key, OpenRouter or Ollama — and **on a metered engine it spends until the queue is
@@ -4096,6 +4097,11 @@ A whole row moves to DONE only after its remaining implementation and required a
    only while the browser window is visible on screen, so it is not unattended either. **The owner has been asked to choose; this
    part is open until he does.** Built meanwhile (#860), unused: `due(unattended=True)`, which never offers a list not yet read to
    its end, never an accounts list, and puts reposts last.
+   **Dated 2026-11-24, later the same day: (f) is no longer open.** The owner answered the coordinator's recommendation with "ok go
+   ahead with your recommendations": **lists stay current attended, as today** (a list is read when he or his own agent starts it);
+   the ready-made daily command for his own scheduler exists (#864) and he may use it; **Cicada schedules nothing and starts no agent**,
+   so the rail "Cicada never spawns a browser and never signs in to a site; it only asks" stands unchanged. The recommendation is the
+   coordinator's; the go-ahead is his.
    *Why:* only LinkedIn keeps a day per person; a timeline has no end; no unattended run has ever driven his browser read-only.
    **Revisit the whole ruling** on any count above.
 
@@ -4217,6 +4223,68 @@ A whole row moves to DONE only after its remaining implementation and required a
    **Revisit on:** a page or a claim on his own page found that only saves made; a question raised only by a save; a night that
    starved a conversation or left a pause; the first nights' results saying the day's number is wrong; or a save he talked about
    that was not read first.
+   **Dated 2026-11-24, later the same day: the owner's go-ahead on (d)'s open cost question.** Offered the coordinator's recommendations
+   in one message, the owner answered "ok go ahead with your recommendations"; the coordinator's record is that this settles what (d)
+   left open: **(i)** a save he makes one at a time, and a save from a list he turned on, is read with the model he chose; **(ii)** an
+   old browser bookmark and a save from an export file, the older pile, is read with his engine's lightest model (built on the switch,
+   #875); **(iii)** the daily allowance on that pile is **100 a day**, in place of the 25 the plan proposed
+   (the rule that a later raise follows the first nights read one save at a time stands). The tiering and the number are the
+   coordinator's recommendation that he told to go ahead, not his own figures. **So (d)'s amendment of rulings 13 and 16 is no longer
+   pending his confirmation**, and it is **in force**: #875 merged on 2026-11-24, so saves wait for Sleep and the older pile is
+   released 100 a day. Ruling 81 sits on top of this: what Sleep reads of a post it draws as a row lands the same way.
+
+81. **A short post is a row under its list, a list of posts has a small page, and a work keeps its page (owner, 2026-11-24; G246; amends the 2026-10-20 "a page only an import made is dimmed until mentioned" (`quiet_pages`) for a saved post and for a list's page, ruling 80's "what Sleep leaves behind" for a post that has no page, and the descriptions of the graph and of Clusters in `features.md` and `app.md` and the 2026-10-19 paragraph "A saved list is provenance, never a tag or a hub" in `storage.md` once built; plan `docs/plans/2026-11-24-saved-lists-as-pages.md`).**
+   The owner, told that about half of his memory's pages are saved items, most of them short posts nobody referred to, and offered
+   that a short post stop being a page of its own: "ok yes, but maye a small entity page that has all the saved posts would be good,
+   no? i want to somehow see saved things somewhere evn if i havent refer to them yet." Offered one small page per list with its rows
+   shown from his saves on read: "ok go ahead with your recommendations". **Nothing is built yet** (the tracks are in progress, see
+   `feature-status.md`) and **nothing he sees has changed**; everything ships behind one constant, `saved_posts.HIDE_POSTS = False`,
+   and the coordinator flips it in a later one-line pull request only after reading a dry run on the real memory (counts only, never a
+   title or a link) and telling him in words how many pages will leave the graph. Ruling 68 is **not** amended: it is about a file,
+   recording, memo or photo he added, and those keep their quiet page.
+   **(a) What he said, decided.** A short post is a save without a page of its own, still stored, searchable (recall, Ask and the hook
+   find it at least as well as ruling 62 measured) and listed under its source; Sleep's reading of it is attached to the pages of the
+   things it is about, with the post as the citation; it gets its own page when he talks about it or gives a reason; and he can see the
+   saves, before he has referred to any, on a small page for each list. Pages stay for works one refers back to: a book, paper, video,
+   repository or long article.
+   **(b) The coordinator's recommendations, which he told to go ahead on (not his words); each is a constant or a line to undo.**
+   (i) A post is decided on read, never by a repair pass or a stored flag, from the page's own saved link alone (a post of X, Instagram,
+   LinkedIn, Reddit, Pinterest or TikTok; never a LinkedIn article, never a link the video queue treats as a video, never a declared
+   book, paper, repository, file or list), never by origin or door, so one post gives one answer wherever it was saved. (ii) A post is
+   **earned** and keeps its page by his own words (a note, a why-answer, his words naming its link or whole title), a conversation or
+   his claim citing it, his edit or pin of its page, a link he took to or from another page, a project, or a new "Keep as a page" on
+   its row; **not** by Sleep's or an agent's reading or note, **not** by a repost, like or second list, and **not** by a folder's
+   reason. The one predicate behind the graph, Clusters, the hubs, the inbox's quiet test and a page's Related list is `saved_posts`;
+   an earned post is no longer dimmed and may be asked about like any page. (iii) A list of posts (each stream of X, Instagram,
+   LinkedIn, Reddit, Pinterest or TikTok that holds a member, and each folder a site has) has one `media` page with `media.kind: list`,
+   written once by one writer (`list_pages`, file and git work, no model), holding identity and one fixed sentence and nothing per post;
+   its count, newest day, last read, a folder's reason and its cards are read from his saves each time it opens, so it cannot drift. It is
+   not a hub, a members list or a tag, never quiet, never decays, never a project, never merged, and the inbox never asks about it; a
+   browser's own bookmark folders get none. (iv) A post saved any way other than the site's own list (a browser bookmark, a paste, the
+   notch, an agent, Telegram) lands on a "Saved another way" stream under that site, and **nothing is hidden before every door lands
+   on a list**: the flip is refused by a test that saves one status through seven doors. (v) The old pile is not repaired: nothing
+   deleted, rewritten or committed; its pages are judged on read and stay files and git history, and one dated line in the app says how
+   many posts now sit under their lists. (vi) Once reading is on (ruling 80 (d)), Sleep reads every post as ruling 80 says; what it finds lands as facts on pages he
+   already has, observed `external:<author, else site>`, evidence in the save's own episode; a name met only in saves stays held.
+   **Defaults of the plan's open questions (they stand until he answers; each is one line to change).** (0) A diagnosis, not a default:
+   his report that a post he bookmarked on X "did nothing" with the notch is not explained by code; the coordinator reproduces both doors
+   (X's own button, Chrome's star) and the flip waits for the report. (1) Sleep writes **no** sentence on a list's page about what he
+   tends to save; one optional later track adds it, and it reads at most 40 rows a list, 5 lists a run, on a plan engine. (2) A web page
+   he bookmarks keeps its page, a post he bookmarks in his browser is a row (`saved_posts.ROW_ORIGINS` makes every browser bookmark a row
+   or every bookmarked post a page). (3) A folder's reason does not make its posts pages; it shows on the folder's page
+   (`EARNED_KEYS`). (4) YouTube playlists, Watch later and Substack lists get **no** page, because his 2026-10-19 "a playlist is a
+   property of the video" stands (the list of sources whose lists get a page is one tuple). (5) A saved Instagram reel cannot be told
+   from a photo post by its link, so it is a row; a TikTok `/video/` link is a video (it has a page) and a `/photo/` link a post.
+   **(c) Not decided:** whether new posts stop being written as a page file at all (the plan's Step B, later, not recommended now:
+   about sixteen writers, a dozen readers and three agent doors would change for no measured pain); whether Sleep adds the one
+   sentence of (1); whether (2) to (5) are what he wants; how many pages the rule hides on the real memory (a dry run measures it); and
+   the cause of the missing notch report.
+   *Why:* his own words, and that every list read adds hundreds of dimmed dots to a memory where about half the pages are media pages,
+   while he wants to see what he saved. A row is what he already reads on Sources; a page per post is the clutter ruling 80 refuses. A
+   post he never talked about has no thing for a page to be about; a post he did is an event, and then it has one.
+   **Revisit on:** a post he talked about that did not get a page; a work drawn as a row (counted by the dry run and by "Keep as a
+   page"); a platform whose link shape changes so a post reads as a work; a list page that gains per-post text or drifts from its rows;
+   a graph build slower by more than a tenth (`benchmarks/scale/hot_routes.py`); or a dry run that shows the pile too small to matter.
 
 74. **Sleep joins two people pages when two independent signals agree (owner, 2026-11-07; ROR-136, amends rulings 29 and 41's "a question only").**
    The owner agreed to Sleep joining pairs he would spot at a glance, and warned: "I remember you mentioned some pairs that
