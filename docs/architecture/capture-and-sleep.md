@@ -4563,6 +4563,44 @@ is about, who did it, and never say one thing twice. Four mechanisms, each engin
   page next gets an update that brings a source or a fact (one article-writer call, in place of the synthesis call), or
   on demand with `rebuild_page_articles --rewrite --entity <id>` — one call a page at the engine the person chose; on the
   16-bullet page its prompt goes 4,951 → 3,780 characters after the heal.
+- **A memory written before two 2026-11-24 fixes is swept once, by the person (`value_sweep`, `name_sweep`,
+  `api/scripts/value_name_sweep.py`, G148; owner 2026-11-24, a tentative yes to both).** Two fixes work only from now on:
+  a value pair the small judge refused is read once more by the main model when the NEWER value arrives (#840,
+  `value_alignment.align(reread=)`; a pair refused earlier is never looked at again), and a person written
+  `Name (qualifier)` is a mention of the bare name (#846; a line already held under the qualified title stays so). One tool,
+  two passes (`--pass values|names|both`), the heal's two steps: **plan** with a judge writes nothing to the bank, **apply**
+  makes no model call. Never run by Sleep, never by an agent on the person's memory.
+  - **Values.** For each page with two or more open values, every value that has an OLDER one of its slot, worded
+    differently and saying a different thing, is shown as NEW to the main model through the live module's own second-reading
+    prompt, proposals and check (`value_alignment.REREAD`, `proposals`, `confirmed`): a join needs both answers, as live. Before
+    the check, code refuses what the live path's rails refuse and the row says which: the newer is not dated later, one
+    conversation stated both, a person's own edit, an open inbox question names one, both say the same thing, the person's
+    own words would be closed in favour of a machine claim (`inbox_tend.may_close`), the trust table would not let the newer
+    close the older (`trust_decision`). Apply gives the newer the older's predicate and CLOSES the older
+    (`claim_reconciler._close`: `valid_to`, `superseded_by`) — kept, never deleted; two real values of one attribute stay two
+    because only the judge's two yeses join them.
+  - **Names.** Each held person line titled `Name (qualifier)` is placed by the live module itself
+    (`same_name_people._plan`, the small judge then the main model's second reading, on the bank's own pages and lines as Stage 2
+    builds them): to a page or a held line the reader put it with, to a person of its own held in doubt, or — nobody else of the
+    name — to the bare name. **A line the reader placed nowhere stays as it is** (`plan` is not used: it sends such a line to the
+    bare name, which is a join on the name alone, ruling 74); so does one whose own conversation also names the bare name's
+    person, and one that would join a page the reading says already holds two people. A handle the record paired, the owner's
+    first name, a two-word name, a correspondent, a line the person said is not a page, and a non-person are never touched.
+    Apply renames the line (the page's id, the bare name, or a free `<name>-2` titled with the bare name and recorded in doubt
+    against the others), keeps the written name as an alias, re-points its held claims (`pending_store._repoint`) and folds
+    its facts into the line it joins (`pending_store._carry`); the next Sleep releases a held claim onto a page that bears its
+    line's name as it does for every held name. **A page titled with a qualifier is counted and listed, never changed** (moving a
+    page is the page join's, which has its own undo).
+  - **Commands, in order.** `plan --bank <copy or bank> --out <dir outside both>` (counts only, no call) → `plan ... --judge
+    --max-calls N` (`--model sonnet` reads values and a name's second reading, `--small-model haiku` a name first; writes
+    `values.jsonl`, `names.jsonl`, `review.txt`: every pair or line, what would change, the reader's own words; resumable;
+    exit 5 on an engine stop) → read `review.txt`, strike a row (delete it, `"strike": true`, `--skip-page`, `--skip-group
+    <page>#<n>`, `--skip-line <name>`) → `apply --bank <bank> --plan <dir> --check` → `apply ...` (one `cicada` commit of only
+    its paths, `git revert` undoes it byte for byte; refused while Sleep runs, exit 3, and on a demo bank, exit 4; a row whose
+    claims or line changed since the plan, a page dirty in git, a rail that no longer passes — skipped and counted).
+    The name judge is asked under its own stage label: on the Claude plan the engine forces the `disambiguation` stage into
+    the one-pair `{decision, reason}` schema, and the same-name judge's `people`/`pairs` answer is jammed into `reason`
+    (observed 2026-11-24); a stage with no schema answers in the shape asked for.
 - **Who said it, who did it.** A claim resting only on the other side's words is theirs (`entity_extractor
   .assistant_observer`): a texted agent's (G179), and now a harness session's agent (`external:<harness>`) and a chat
   export's assistant (`external:chatgpt|claude|gemini`); a relayed episode (`evidence_kind`) keeps its own rail. Such

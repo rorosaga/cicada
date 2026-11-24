@@ -296,6 +296,23 @@ def test_a_line_the_reader_calls_another_person_gets_its_own_key_titled_with_the
     assert ("nico", "nico-2") in same_name_doubts.pairs(bank)
 
 
+def test_a_line_the_reader_placed_nowhere_stays_as_it_is_and_the_row_says_so(tmp_path):
+    words = "Nico is the speaker's cousin, a nurse who lives in Lyon and keeps three dogs and two cats at home, and likes hiking."
+    bank = _name_bank(tmp_path, [FINANCE], pages=[("nico", "Nico", words)])
+    rows, _ = _name_plan(bank, lambda system, prompt: {})
+    assert rows[0]["action"] == "leave" and "placed it nowhere" in rows[0]["reason"]
+    assert ns.apply_rows(bank, rows).skipped == {"left_alone": 1}
+
+
+def test_a_line_whose_conversation_also_names_the_bare_names_person_is_never_joined_to_it(tmp_path):
+    words = "Nico is the speaker's cousin, a nurse who lives in Lyon and keeps three dogs and two cats at home, and likes hiking."
+    bank = _name_bank(tmp_path, [FINANCE], pages=[("nico", "Nico", words)])
+    page = markdown_parser.parse(bank / "entities" / "nico.md")
+    markdown_parser.write(bank / "entities" / "nico.md", {**page.frontmatter, "source_episodes": ["ep_2026-11-18_001"]}, page.body)
+    rows, _ = _name_plan(bank, _ask(plain=True))
+    assert rows[0]["action"] == "leave" and "also names the bare name" in rows[0]["reason"]
+
+
 def test_a_handle_the_owners_first_name_a_two_word_name_and_a_non_person_are_untouched(tmp_path):
     lines = [_line("Mira Kolar (spouse)", "x", episode="ep_2026-11-18_001"),
              _line("Mira (sister)", "x", episode="ep_2026-11-18_001"),

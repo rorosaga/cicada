@@ -206,11 +206,14 @@ async def plan_name(bank: Bank, stem: str, lines: list, small: Callable, strong:
     mentions = [mention_for(ln, plain_eps) for ln in lines]
     said: list = []
     if not identities and len(mentions) == 1:
-        moves, called = {mentions[0].episode: snp.Destination("plain", "")}, False
+        moves, called, flagged = {mentions[0].episode: snp.Destination("plain", "")}, False, set()
     else:
-        outcome = await snp.plan(stem, mentions, identities, recorder(small, meter, "small", said),
-                                 recorder(strong, meter, "strong", said), speaker=bank.owner_name or None)
-        moves, called = outcome.moves, outcome.called
+        # `_plan`, not `plan`: `plan` ends by sending every qualified mention nothing placed to the bare name (right for a
+        # new mention, which was always the bare name's), and that is a join on the name alone (ruling 74). A line the
+        # reader placed nowhere stays as it is, and the row says so.
+        outcome = await snp._plan(stem, mentions, identities, recorder(small, meter, "small", said),
+                                  recorder(strong, meter, "strong", said), bank.owner_name or None)
+        moves, called, flagged = outcome.moves, outcome.called, set(outcome.review_pages)
     compared = [sanitize_id(i.ref) for i in identities[: snp.MAX_IDENTITIES]]
     rows = []
     for line, mention in zip(lines, mentions):
@@ -219,9 +222,17 @@ async def plan_name(bank: Bank, stem: str, lines: list, small: Callable, strong:
                "facts": len(line.key_facts), "held_claims": len(line.held_claims),
                "text": mention.text, "alias": line.name, "judge_said": _reasons(said) if called else []}
         if dest is None:
-            rows.append({**row, "action": "leave", "reason": "the live placement gave no destination"})
+            rows.append({**row, "action": "leave", "reason": "the reader placed it nowhere (a thin description, no usable reading, or only the name to go on)"})
             continue
         action, target = action_of(dest, identities)
+        if target and target in flagged:
+            rows.append({**row, "action": "leave", "reason": f"the reading also says the page {target} holds two people already: "
+                         "joining a line to it would add to that; look at the page first (Sleep's same-name review)"})
+            continue
+        if mention.no_rename and action in ("to_page", "merge_line") and any(i.plain and i.ref == target for i in identities):
+            rows.append({**row, "action": "leave", "reason": "its own conversation also names the bare name's person, so it is "
+                         "another person than that one: never joined to it on a reading of its description"})
+            continue
         rows.append({**row, "action": action, "target": target, "doubt": dest.doubt, "compared": compared,
                      "destination": f"{dest.kind}:{dest.ref}"})
     return rows

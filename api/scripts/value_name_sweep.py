@@ -57,11 +57,15 @@ def _settings(args, bank: Path):
                     CICADA_MEMORY_PATH=str(bank))
 
 
-def _asker(tier):
-    """``(system, prompt) -> parsed JSON`` on one tier of the Claude plan, the way Stage 2 asks the same-name judge."""
+def _asker(settings, model: str):
+    """``(system, prompt) -> parsed JSON`` on the Claude plan, model ``model``, the same call Stage 2 makes for the same-name
+    judge but under its own stage label: the plan engine forces the ``disambiguation`` stage into the one-pair
+    ``{decision, reason}`` schema, which has no room for the same-name judge's ``people`` and ``pairs`` (measured 2026-11-24,
+    ``docs/architecture/capture-and-sleep.md``), and a stage with no schema answers in the shape asked for."""
     from api.services import json_parse, providers
 
-    llm_fn = providers.resolve_llm_fn(tier, stage="disambiguation", is_async=False)
+    llm_fn = providers.resolve_llm_fn(settings.model_copy(update={"agent_model": model}), stage="same_name_sweep",
+                                      is_async=False)
 
     def ask(system: str, prompt: str) -> object:
         resp = llm_fn(messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}],
@@ -75,7 +79,7 @@ def _asker(tier):
 
 
 def cmd_plan(args) -> int:
-    from api.services import in_short, markdown_parser, name_sweep, same_name_tend, value_alignment, value_sweep
+    from api.services import markdown_parser, name_sweep, value_alignment, value_sweep
 
     bank = args.bank.expanduser().resolve()
     if not (bank / "entities").is_dir():
@@ -153,8 +157,8 @@ def cmd_plan(args) -> int:
         path = out / "names.jsonl"
         done = {r["line"] for r in _rows(path)}
         meter = name_sweep.Meter()
-        small = _asker(in_short.small_tier(settings))
-        strong = _asker(same_name_tend.main_tier(settings))
+        small = _asker(settings, args.small_model)
+        strong = _asker(settings, args.model)
         with path.open("a", encoding="utf-8") as sink:
             for stem, lines in sorted(by_stem.items()):
                 lines = [ln for ln in lines if ln.name not in done]
