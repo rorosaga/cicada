@@ -294,11 +294,17 @@ async def resolve(
                 continue
             moved = same_name_moves.get((episode_id, name.strip().lower()))
             if moved is not None:
-                # A different person of the same first name: placed below, by its own page or line, never by the name.
-                same_name_entities.append((episode_id, entity, moved))
-                if name not in per_episode_names:
-                    per_episode_names.append(name)
-                continue
+                if same_name_people.stem_of(name) is not None:
+                    # 2026-11-24: a person the conversation wrote with a qualifier ("Nico (finance lead)") is the bare
+                    # name's, the qualifier kept as an alias; its edges and values stay under the written name.
+                    entity = _same_name_bare(entity, extraction, moved.kind == "plain")
+                if moved.kind != "plain":
+                    # A different person of the same first name: placed below, by its own page or line, never by the name.
+                    same_name_entities.append((episode_id, entity, moved))
+                    if name not in per_episode_names:
+                        per_episode_names.append(name)
+                    continue
+                name = entity["name"]   # the plain person: on by the bare name, as every other mention of it
             mention_counts[name.lower()] += 1
             episode_mentions.setdefault(name.lower(), set()).add(episode_id)
             all_entities.append(entity)
@@ -1280,7 +1286,8 @@ def _same_name_identities(name_lower: str, pages: list[dict], lines: list[Pendin
         found.append(same_name_people.Identity("page", str(page["id"]), str(page["id"]) == slug,
                                                _alias_page_context(page), episodes,
                                                _page_items(memory_path, str(page["id"])),
-                                               _doubts_of(memory_path, str(page["id"]))))
+                                               _doubts_of(memory_path, str(page["id"])),
+                                               frozenset(str(a).strip().lower() for a in fm.get("aliases") or [] if str(a).strip())))
     for line in lines:
         if line.type != "person":
             continue
@@ -1289,7 +1296,8 @@ def _same_name_identities(name_lower: str, pages: list[dict], lines: list[Pendin
             continue
         text = " ".join(t for t in (line.summary or line.description, *(f for f in line.key_facts[:4])) if t)
         found.append(same_name_people.Identity("line", line.name, plain, text, frozenset(line.episodes()), (),
-                                               _doubts_of(memory_path, line.name)))
+                                               _doubts_of(memory_path, line.name),
+                                               frozenset(str(a).strip().lower() for a in line.aliases if str(a).strip())))
     # The plain person first, then the people with the most conversations: what the judge is shown when there are many.
     found.sort(key=lambda i: (not i.plain, -len(i.episodes), i.ref))
     return found
@@ -1310,20 +1318,34 @@ async def _plan_same_name_people(
     One judge call per such name, at most `same_name_people.MAX_NAMES` names a batch (the most conversations first),
     run together within ``sleep_resolve_concurrency``. A mention that describes nothing is never judged."""
     memory_path = getattr(settings, "memory_path", None)
-    mentions: dict[str, dict[str, dict]] = {}
+    mentions: dict[str, dict[str, dict]] = {}   # bare name lower -> {mention key: the extraction's entity}
+    origin: dict[str, str] = {}                 # mention key -> the name as the conversation wrote it, lower case
+    owner_page = next((e for e in existing if owner_page_id and str(e.get("id")) == owner_page_id), None)
+    owner_first = str(((owner_page or {}).get("frontmatter") or {}).get("name") or "").split()[:1]
     for extraction in extracted:
         episode_id = str(extraction.get("episode_id") or "")
         for entity in extraction.get("entities", []):
             name = str(entity.get("name") or "").strip()
-            if (not episode_id or not _is_person(entity) or not same_name_people.is_bare(name)
+            # 2026-11-24: a person written with a qualifier ("Nico (finance lead)") is a mention of the bare name too, as
+            # long as the parenthesis is not a handle the record paired (G209) and the bare name is not the owner's.
+            qualified = same_name_people.stem_of(name) if _is_person(entity) else None
+            if qualified is not None and (person_leads.split_named_handle(name) is not None
+                                          or refs.is_speaker(qualified[0], entity.get("type"))
+                                          or [qualified[0].lower()] == [w.lower() for w in owner_first]):
+                continue
+            stem = qualified[0] if qualified is not None else name
+            if (not episode_id or not _is_person(entity) or not same_name_people.is_bare(stem)
+                    or (qualified is None and not same_name_people.is_bare(name))
                     or refs.is_speaker(name, entity.get("type")) or entity.get(promotion.LABEL_ONLY)
                     or agent_engine.is_runtime_path(name) or entity.get(role_people.UNNAMED_KEY)
                     or correspondents.from_mark(entity.get(correspondents.MARK)) is not None
                     or contact_identity.card_of(entity) is not None):
                 continue
-            held = mentions.setdefault(name.lower(), {}).get(episode_id)
+            key = same_name_people.mention_key(episode_id, name)
+            held = mentions.setdefault(stem.lower(), {}).get(key)
             if held is None or len(same_name_people.describe(entity)) > len(same_name_people.describe(held)):
-                mentions[name.lower()][episode_id] = entity
+                mentions[stem.lower()][key] = entity
+                origin[key] = name.lower()
     if not mentions:
         return {}, {}, (set(), set())
     try:
@@ -1333,26 +1355,58 @@ async def _plan_same_name_people(
     moves: dict[tuple[str, str], same_name_people.Destination] = {}
     compared: dict[str, frozenset[str]] = {}
     work: list[tuple[str, list, list]] = []
-    for name_lower, by_episode in mentions.items():
+    skipped: set[str] = set()
+    for name_lower, by_key in mentions.items():
         identities = _same_name_identities(name_lower, same_title.get(name_lower) or [], lines, owner_page_id, memory_path)
         if identities is None:
+            skipped.add(name_lower)   # not for this rule (the owner's page, a nickname or a relation bears the name): left as it was
             continue
+        conversations = Counter(same_name_people.split_key(k)[0] for k in by_key)
+        bare_in = {k for k in by_key if same_name_people.split_key(k)[1] == ""}
         to_judge: list[same_name_people.Mention] = []
-        for episode_id, entity in by_episode.items():
-            known = same_name_people.identity_for_episode(episode_id, identities)
+        # A conversation a person already lists is read again (an edited one): each of its mentions goes back to the person it
+        # was, matched by the name it was written with (the first read put it among that person's aliases), never judged.
+        known_of: dict[str, same_name_people.Identity] = {}
+        for episode_id in conversations:
+            known_of.update(same_name_people.known_for(
+                {k: same_name_people.split_key(k)[1] for k in by_key if same_name_people.split_key(k)[0] == episode_id},
+                episode_id, identities))
+        for key, entity in by_key.items():
+            episode_id, written = same_name_people.split_key(key)
+            qualified = bool(written)
+            known = known_of.get(key)
             if known is not None:
-                if not known.plain:
-                    moves[(episode_id, name_lower)] = same_name_people.Destination(known.kind, known.ref)
+                if not known.plain or qualified:
+                    moves[(episode_id, origin[key])] = same_name_people.Destination(known.kind, known.ref)
                 continue
             text = same_name_people.describe(entity)
             if text:
-                to_judge.append(same_name_people.Mention(episode_id, text))
-        if to_judge and (len(to_judge) >= 2 or identities):
+                to_judge.append(same_name_people.Mention(key, text, episode_id, qualified,
+                                                         qualified and episode_id in bare_in))
+        if len(to_judge) == 1 and not identities and to_judge[0].qualified:
+            # A person written with a qualifier and nobody else of the name to compare: the bare name's person.
+            moves[(to_judge[0].conversation, origin[to_judge[0].episode])] = same_name_people.Destination("plain", "")
+        elif to_judge and (len(to_judge) >= 2 or identities):
             work.append((name_lower, to_judge, identities))
             compared[name_lower] = frozenset(sanitize_id(i.ref) for i in identities[: same_name_people.MAX_IDENTITIES])
     work.sort(key=lambda item: -len(item[1]))
+    def _settle_unplaced_qualified() -> None:
+        """A person written with a qualifier that nothing placed (the name was over the batch's cap, the run was cancelled
+        before its turn) is never left under the name it was written with: the bare name's person, or, when its conversation
+        also names the bare name, a person of its own in doubt (`same_name_people.fallback`, 2026-11-24)."""
+        for name_lower, by_key in mentions.items():
+            if name_lower in skipped:
+                continue
+            bare_in = {k for k in by_key if same_name_people.split_key(k)[1] == ""}
+            for key in by_key:
+                episode_id, written = same_name_people.split_key(key)
+                if written and (episode_id, origin[key]) not in moves:
+                    moves[(episode_id, origin[key])] = same_name_people.fallback(
+                        same_name_people.Mention(key, "", episode_id, True, episode_id in bare_in))
+
     work = work[: same_name_people.MAX_NAMES]
     if not work:
+        _settle_unplaced_qualified()
         return moves, compared, (set(), set())
     gate = asyncio.Semaphore(max(1, int(getattr(settings, "sleep_resolve_concurrency", 1) or 1)))
     # The owner's name as the descriptions write it: the judge is told whose conversations these are (2026-11-24).
@@ -1360,7 +1414,8 @@ async def _plan_same_name_people(
                     if owner_page_id and str(e.get("id")) == owner_page_id), "") or None
 
     async def one(name_lower: str, to_judge: list, identities: list) -> tuple[str, same_name_people.Plan]:
-        name = next(iter(mentions[name_lower].values()))["name"]
+        first = next(iter(mentions[name_lower].values()))
+        name = (same_name_people.stem_of(str(first["name"])) or (str(first["name"]),))[0]
 
         async def judge(system: str, prompt: str) -> object:
             return await _same_name_ask(settings, system, prompt)
@@ -1380,15 +1435,39 @@ async def _plan_same_name_people(
     review_pages: set[str] = set()
     review_pairs: set[tuple[str, str]] = set()
     for name_lower, outcome in results:
-        for episode_id, destination in outcome.moves.items():
-            moves[(episode_id, name_lower)] = destination
+        for key, destination in outcome.moves.items():
+            moves[(same_name_people.split_key(key)[0], origin[key])] = destination
             split += 1
         review_pages |= outcome.review_pages
         review_pairs |= outcome.review_pairs
+    _settle_unplaced_qualified()
     logger.info(f"Stage 2: {len(results)} bare name(s) compared across conversations, {split} conversation(s) "
                 f"placed with another person of the same name, {len(review_pages)} page(s) and {len(review_pairs)} "
                 "pair(s) to look at again")   # counts only, never a name
     return moves, compared, (review_pages, review_pairs)
+
+
+def _same_name_bare(entity: dict, extraction: dict, rename: bool) -> dict:
+    """``Nico (finance lead)`` → the entity of the bare name ``Nico`` (2026-11-24), the written name kept as an alias (a
+    qualifier is how the person is told from the other of the name, and a ``[[Nico (finance lead)]]`` link in another page
+    still resolves). With ``rename`` (the bare name's own person) the extraction's edges and values that name it follow the
+    new name; without it they stay under the written name, which the placement pins to the person's page."""
+    written = str(entity["name"]).strip()
+    stem = same_name_people.stem_of(written)[0]
+    aliases = [*(entity.get("aliases") or []), written]
+    if not rename:
+        return {**entity, "name": stem, "aliases": aliases, "_same_name_as": written}
+    entity["name"], entity["aliases"] = stem, aliases   # in place: the extraction itself now names the bare name's person
+    low = written.lower()
+    for rel in extraction.get("relationships") or []:
+        if isinstance(rel, dict):
+            for end in ("source", "target"):
+                if str(rel.get(end) or "").strip().lower() == low:
+                    rel[end] = stem
+    for value in extraction.get("values") or []:
+        if isinstance(value, dict) and str(value.get("entity") or "").strip().lower() == low:
+            value["entity"] = stem
+    return entity
 
 
 def _resolve_same_name_people(
@@ -1425,6 +1504,9 @@ def _resolve_same_name_people(
         lines = []
     by_id = {str(p.get("id")): p for p in existing}
     taken = set(by_id) | set(creates_by_id) | {sanitize_id(ln.name) for ln in lines}
+    # The name an entity was written with (``_same_name_as``, a qualified name the placement made bare, 2026-11-24): its
+    # edges and values are pinned under it, and the marker never reaches a page.
+    written = {id(e): str(e.pop("_same_name_as", "") or e["name"]).strip().lower() for _ep, e, _d in moved}
     groups: dict[tuple[str, str, str], list[tuple[str, dict]]] = {}
     for episode_id, entity, destination in moved:
         groups.setdefault((str(entity["name"]).strip().lower(), destination.kind, destination.ref), []).append((episode_id, entity))
@@ -1433,6 +1515,8 @@ def _resolve_same_name_people(
     new_people: dict[str, set[str]] = {}         # name lower -> the ids of the people Sleep decided are new this batch
     doubted: dict[str, set[str]] = {}            # name lower -> those of them held in doubt, not decided to be another person
     doubt_of = {(str(e["name"]).strip().lower(), d.kind, d.ref): d.doubt for _ep, e, d in moved}
+    siblings_of = {(str(e["name"]).strip().lower(), d.kind, d.ref): d.siblings for _ep, e, d in moved}
+    id_of: dict[tuple[str, str, str], str] = {}   # (name lower, kind, ref) -> the id of that person's page or line
     for (name_lower, kind, ref), members in groups.items():
         entities = [entity for _episode, entity in members]
         best = max(entities, key=lambda e: float(e.get("confidence", 0) or 0))
@@ -1474,20 +1558,33 @@ def _resolve_same_name_people(
                 held = _pending_line(page_id, best, parked, siblings, float(best.get("confidence", 0.5) or 0.5))
                 held.title = title
                 pending_actions.append((park, (held,), {}))
-        for episode in episodes:
-            pinned_to[(episode, name_lower)] = page_id
+        id_of[(name_lower, kind, ref)] = page_id
+        for episode, member in members:
+            pinned_to[(episode, written[id(member)])] = page_id
     # The pairs Sleep itself decided are two people: each new person against the plain name's page and every person it
     # was compared with. Written with this batch's other deferred writes (flushed only if the batch is not cancelled, and
     # committed by Sleep's own batch commit), so a person held as a line (`marc-2`) is already kept apart from the others
     # on the day the line becomes a page; only pairs the judge decided, never two same-titled pages in general.
     pairs: set[tuple[str, str]] = set()
     doubt_pairs: set[tuple[str, str]] = set()
+    # The two people one conversation named together (2026-11-24): apart for good when it wrote both with a qualifier, else
+    # a doubt. That is the conversation's own word about the pair, whatever Sleep holds of either against the others.
+    sibling_pairs: dict[tuple[str, str], bool] = {}
+    for (name_lower, kind, ref), siblings in siblings_of.items():
+        mine = id_of.get((name_lower, kind, ref))
+        for other_kind, other_ref, apart in siblings:
+            there = sanitize_id(name_lower) if other_kind == "plain" else id_of.get((name_lower, other_kind, other_ref), other_ref)
+            if mine and there and mine != there:
+                pair = tuple(sorted((mine, there)))
+                sibling_pairs[pair] = sibling_pairs.get(pair, False) or apart   # type: ignore[index]
     for name_lower, ids in new_people.items():
         others = {sanitize_id(name_lower), *((compared or {}).get(name_lower) or ())} | ids
         for a in ids:
             for b in others:
-                if a != b:
+                if a != b and tuple(sorted((a, b))) not in sibling_pairs:
                     (doubt_pairs if a in doubted.get(name_lower, ()) else pairs).add(tuple(sorted((a, b))))
+    for pair, apart in sibling_pairs.items():
+        (pairs if apart else doubt_pairs).add(pair)
     if pairs and memory_path is not None and pending_actions is not None:
         pending_actions.append((_record_split_pairs, (memory_path, sorted(pairs)), {}))
     if doubt_pairs and memory_path is not None and pending_actions is not None:

@@ -47,8 +47,6 @@ _MAX_READ = 1_500_000  # 1.5 MB cap on a fetched page body
 # runaway guard, not accounting.
 _OEMBED_TIMEOUT = 4.0
 _OEMBED_MAX_BYTES = 512_000
-#: G245: the longest author name an episode keeps for a saved post (``MediaItem.author``).
-POST_AUTHOR_MAX = 60
 DESCRIPTION_LIMIT = 5000  # G140 Q-R12: a description is kept, cut here — a field, not a document
 MAX_BATCH = 2000
 #: The most items one upload may hold (a whole platform archive of likes runs
@@ -148,9 +146,6 @@ class RawItem:
     # G245: the post's OWN day, when a saved list showed one beside it (the person's agent reads it off the page); the
     # save's own day stays ``added``. Written to the episode as ``posted`` (a bare ``YYYY-MM-DD``), never guessed.
     posted: str | None = None
-    # G245: who wrote the post, as the list showed it (a handle or a name, one line). Written to the episode as
-    # ``post_author`` — the item card leads its footer with it. Never the person's own words, never a page or a claim.
-    author: str | None = None
 
 
 @dataclass
@@ -2241,8 +2236,6 @@ def write_media_episode(
         frontmatter[episode_time.PUBLISHED_KEY] = published
     if posted := saved_at.posted_day(item.posted):
         frontmatter["posted"] = posted
-    if author := " ".join(str(item.author or "").split())[:POST_AUTHOR_MAX]:
-        frontmatter["post_author"] = author
     if item.origin:
         frontmatter["origin"] = item.origin
     if item.session_id:
@@ -2673,6 +2666,29 @@ def add_collection(memory_path: Path, entity_id: str, folder: str | None) -> boo
     if not str(fm.get("folder") or "").strip():
         fm["folder"] = name
     markdown_parser.write(path, fm, parsed.body)
+    return True
+
+
+def give_channel(memory_path: Path, entity_id: str, channel: str | None) -> bool:
+    """A link already saved whose page names no author gains the one its list showed, in place and once
+    (``media.channel``, the field a video's channel and a feed's publication already use, which the words index
+    reads). A page that names one keeps it; a missing page or one that is not ``media`` changes nothing. The caller
+    holds what :func:`add_collection` asks for. Returns whether the page changed."""
+    from api.services import bank_index
+
+    name = (channel or "").strip()
+    if not name or not entity_id or "/" in entity_id:
+        return False
+    entry = bank_index.file(memory_path, "entities", f"{entity_id}.md")
+    held = entry.frontmatter.get("media") if entry is not None else None
+    if entry is None or entry.frontmatter.get("type") != "media" or not isinstance(held, dict) or held.get("channel"):
+        return False
+    path = memory_path / "entities" / f"{entity_id}.md"
+    parsed = markdown_parser.parse(path)
+    media = parsed.frontmatter.get("media")
+    if not isinstance(media, dict) or media.get("channel"):
+        return False
+    markdown_parser.write(path, {**parsed.frontmatter, "media": {**media, "channel": name}}, parsed.body)
     return True
 
 

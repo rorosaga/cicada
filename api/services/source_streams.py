@@ -485,8 +485,6 @@ class Episodes:
     #: episode id -> the day the post itself was published, for the saves whose list showed one (``posted`` in the
     #: episode's frontmatter, written by ``cicada_record_saved_list``).
     posted_of: dict[str, str]
-    #: episode id -> who wrote the post, for the saves whose list showed one (``post_author``, same writer).
-    author_of: dict[str, str] = field(default_factory=dict)
 
 
 def _build_episodes(entries) -> Episodes:
@@ -498,7 +496,6 @@ def _build_episodes(entries) -> Episodes:
     harnesses: Counter = Counter()
     last: dict[str, str] = {}
     posted_of: dict[str, str] = {}
-    author_of: dict[str, str] = {}
     for f in entries:
         fm = f.frontmatter or {}
         if fm.get("source_deleted_at"):
@@ -516,8 +513,6 @@ def _build_episodes(entries) -> Episodes:
             read_pages.add(page)
         if day := saved_at.posted_day(fm.get("posted")):
             posted_of[stem] = day
-        if who := " ".join(str(fm.get("post_author") or "").split())[:media_ingestor.POST_AUTHOR_MAX]:
-            author_of[stem] = who
         held = save_folders.folders_of(fm)
         if held:
             names = tuple(dict.fromkeys(n for _o, n in held))
@@ -531,7 +526,7 @@ def _build_episodes(entries) -> Episodes:
             stamp = str(fm.get("timestamp") or "")
             if stamp > last.get(key, ""):
                 last[key] = stamp
-    return Episodes(folders_of, folder_names, days, frozenset(read_pages), frozenset(agent_read), harnesses, last, posted_of, author_of)
+    return Episodes(folders_of, folder_names, days, frozenset(read_pages), frozenset(agent_read), harnesses, last, posted_of)
 
 
 def episodes(memory_path: Path) -> Episodes:
@@ -921,7 +916,9 @@ def row_fields(memory_path: Path, rows: list[dict], pages: dict[str, dict], post
             fields["folders"] = folders
         if day := eps.posted_of.get(str(row.get("_episode") or "")) or posted(row):
             fields["posted"] = day
-        if who := eps.author_of.get(str(row.get("_episode") or "")):
+        # Who wrote the post: the page's channel, which the record tool keeps (`media.channel`, as a video's channel).
+        media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
+        if who := " ".join(str(media.get("channel") or "").split())[:60]:
             fields["author"] = who
         out[row["id"]] = fields
     return out
