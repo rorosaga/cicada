@@ -187,6 +187,48 @@ final class SiteSaveTests: XCTestCase {
         XCTAssertEqual(SiteSaveRule.outcome(before: before, after: after, census: .init(was: 1, now: 0)), .changed)
     }
 
+    /// Found 2026-11-25 on a post's own page on X: the control names its count and the row's label names it again, so
+    /// two counts moved and the click was read as "changed", with nobody asked.
+    func testOnAPostsOwnPageTheControlsOwnCountSaysWhichWay() {
+        let before = ownPage(save: "1,204 Bookmarks. Bookmark",
+                             counts: "20 replies, 184 reposts, 3,512 likes, 1,204 bookmarks, 252,118 views")
+        let after = ownPage(save: "1,205 Bookmarks. Bookmarked",
+                            counts: "20 replies, 184 reposts, 3,512 likes, 1,205 bookmarks, 252,119 views")
+        XCTAssertNil(SiteSaveRule.step(before: SiteSaveRule.counts(before), after: SiteSaveRule.counts(after)))
+        XCTAssertEqual(SiteSaveRule.countStep(before: before, after: after), 1)
+        XCTAssertEqual(SiteSaveRule.outcome(before: before, after: after, site: .x), .saved)
+        XCTAssertEqual(SiteSaveRule.outcome(before: after, after: before, site: .x), .unsaved)
+        // A control with no count of its own still goes by the row's.
+        XCTAssertEqual(SiteSaveRule.countStep(before: timeline(save: "a", counts: "5"),
+                                              after: timeline(save: "b", counts: "6")), 1)
+    }
+
+    func testAControlThatNamesARoundedCountIsKnownByItsTail() {
+        let before = ownPage(save: "11.4K Bookmarks. Bookmark", counts: "11.4K bookmarks")
+        let after = ownPage(save: "11.4K Bookmarks. Bookmarked", counts: "11.4K bookmarks")
+        XCTAssertEqual(SiteSaveRule.outcome(before: before, after: after, site: .x), .changed)
+        // What the timeline taught (the bare labels) settles it, both ways.
+        var labels = SiteSaveRule.Labels()
+        labels.learn(was: "Bookmark", now: "Bookmarked", outcome: .saved)
+        XCTAssertEqual(SiteSaveRule.outcome(before: before, after: after, site: .x, learned: labels), .saved)
+        XCTAssertEqual(SiteSaveRule.outcome(before: after, after: before, site: .x, learned: labels), .unsaved)
+        // The tails are the two labels without the lead they share, in any language, and a moved count does not end it.
+        XCTAssertEqual(SiteSaveRule.tails(was: "11.4K Bookmarks. Bookmark", now: "11.4K Bookmarks. Bookmarked")?.now,
+                       "Bookmarked")
+        XCTAssertEqual(SiteSaveRule.tails(was: "1,204 guardados. Guardar", now: "1,205 guardados. Quitar")?.was, "Guardar")
+        XCTAssertEqual(SiteSaveRule.tails(was: "1.2万件。保存", now: "1.2万件。削除")?.now, "削除")
+        XCTAssertNil(SiteSaveRule.tails(was: "Bookmark", now: "Bookmarked"))
+        XCTAssertNil(SiteSaveRule.tails(was: "Guardar", now: "Quitar"))
+    }
+
+    func testALabelThatNamesACountTeachesItsTailOrNothing() {
+        XCTAssertEqual(SiteSaveRule.lesson(was: "Bookmark", now: "Bookmarked")?.was, "Bookmark")
+        let counted = SiteSaveRule.lesson(was: "1,204 Bookmarks. Bookmark", now: "1,205 Bookmarks. Bookmarked")
+        XCTAssertEqual(counted?.was, "Bookmark")
+        XCTAssertEqual(counted?.now, "Bookmarked")
+        XCTAssertNil(SiteSaveRule.lesson(was: "fav 4256", now: "fav 4257"))
+    }
+
     func testWhatACertainChangeTaughtIsUsedOnAPageWithNoOtherEvidence() {
         var labels = SiteSaveRule.Labels()
         labels.learn(was: "Guardar", now: "Quitar", outcome: .saved)
