@@ -182,6 +182,11 @@ def _apart(raw) -> dict:
     return {"pages": pages, "episodes": episodes} if pages else {}
 
 
+def _labels(line: PendingEntity) -> list[str]:
+    """A held name and its aliases: what a save's reason must name to make the held line his (`saves_bounded.Saves.of`)."""
+    return [t for t in (line.name, *(line.aliases or ())) if str(t or "").strip()]
+
+
 def _texts(*lists) -> list[str]:
     out, seen = [], set()
     for values in lists:
@@ -505,7 +510,7 @@ def hold(
             by_id = {d.get("id"): d for d in line.held_claims}
             held = capped = 0
             limit = cap
-            if cap > saves_bounded.MAX_HELD_CLAIMS and saves.all_of(line.episodes()):
+            if cap > saves_bounded.MAX_HELD_CLAIMS and saves.all_of(line.episodes(), _labels(line)):
                 limit = saves_bounded.MAX_HELD_CLAIMS
             for claim in claims:
                 data = claim.to_dict()
@@ -538,7 +543,7 @@ def saves_refused(memory_path: Path, refused: dict[str, int]) -> int:
     with _LOCK:
         lines = {sanitize_id(e.name): e for e in load(memory_path)}
     return sum(n for subject, n in refused.items()
-               if subject in lines and saves.all_of(lines[subject].episodes()))
+               if subject in lines and saves.all_of(lines[subject].episodes(), _labels(lines[subject])))
 
 
 def reanchor_held(memory_path: Path, move: Callable[[list[Claim]], int]) -> int:

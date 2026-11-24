@@ -3629,7 +3629,11 @@ and a feed item keeps ruling 39's own rule). Talking about a save (`read_asked`)
 in the save.
 - **One source for the 2+ rung.** `promotion.conversation_keys` gives every such save the one key `promotion.SAVES_KEY`:
   two saves naming one thing, or fifty, make no page; one save plus one conversation do, and the page keeps both sources. A
-  save carrying the person's own reason, note, why-answer or folder reason keeps its own key and counts as a conversation.
+  save carrying the person's own reason, note, why-answer or folder reason keeps its own key and counts as a conversation
+  **for what his words name**: his reason on a post is about that post, so for a name only the post's text carries it still
+  counts with the other saves (`promotion.conversation_keys(..., names)`: the page's name and aliases, tested against his own
+  sections folded and with punctuation collapsed; the four promotion sites in `entity_resolver` pass them; `Saves.of` / `all_of`
+  and the held-name checks take them the same way, `promotion.labels`). A caller with no name keeps the old key.
   No other rung can fire from a save alone: `substantive` needs the person's own exchanges (a save yields none outside
   their sections) and a link only counts from a relationship located in their words (`person_said`).
 - **No mention.** `episode_time.counts_as_activity` is false for such a save (the bank-wide `untimed_ids`, the card's
@@ -4093,8 +4097,9 @@ listed as an alias. Four gaps caused it, each closed:
   the line re-read from the store is not asked again.
 - **A person met only in saves joins a page on an exact name or alias alone, and asks nothing (G245, ruling 80's plan, Track 2c;
   `saves_bounded`, `entity_resolver._from_saves_alone`).** A person's name every conversation of which — this batch's and
-  any an earlier run parked it from (`PendingEntity.episodes()`) — is a saved item with no words of the person's (no
-  `## Why it was saved`, `## Saved because`, `## User note`, or a person's `## Note`) skips the judge, the first-name-across
+  any an earlier run parked it from (`PendingEntity.episodes()`) — is a saved item with no words of the person's about it (no
+  `## Why it was saved`, `## Saved because`, `## User note`, or a person's `## Note` that names it: a reason that does not
+  name the person is about the post) skips the judge, the first-name-across
   rule, the same-name planning (`_plan_same_name_people` leaves a save's mention out) and the G209 "account" lead. It joins
   only the page TITLED exactly so, or the one person page that lists it among its aliases (`_exact_person_match`; the guards
   of the direct match stand: a recording's page, a name two pages answer to, a page the person said it is not): a post's

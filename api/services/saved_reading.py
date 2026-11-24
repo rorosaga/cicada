@@ -206,7 +206,7 @@ def _is_owner_name(name, owner: str | None) -> bool:
 _OWNER_FREE_TEXT = ("summary", "description", "history_entries", "links", "open_questions", "tags", "application")
 
 
-def _holds(said: str, text) -> bool:
+def holds(said: str, text) -> bool:
     """Does the person's folded text contain ``text`` as whole words (an alias "al" is not in "alpha")?"""
     from api.services.text_fold import fold
 
@@ -221,7 +221,7 @@ def _bind_owner(entity: dict, said: str) -> None:
     locates (summary, history, links, open questions, tags, application) goes. What the person's words say still
     lands, as claims, through relationships and values whose located evidence sits in their section."""
     def held(text) -> bool:
-        return _holds(said, text)
+        return holds(said, text)
 
     for field in _OWNER_FREE_TEXT:
         entity.pop(field, None)
@@ -265,7 +265,7 @@ def clean(entities: list, relationships: list, values: list, content: str, *, ow
                 continue
             _bind_owner(entity, said)
         elif str(entity.get("type") or "") == "person" and isinstance(entity.get("aliases"), list):
-            entity["aliases"] = [a for a in entity["aliases"] if _holds(said, a)]
+            entity["aliases"] = [a for a in entity["aliases"] if holds(said, a)]
         kept.append(entity)
 
     def endpoint_ok(name, item: dict) -> bool:
@@ -359,4 +359,4 @@ def post_day(episode: dict):
 
 
 __all__ = ["CONNECTOR_TEXT_ORIGINS", "MAX_ENTITIES", "MAX_LINKS", "applies", "author", "author_observer", "clean",
-           "holds_no_words", "named_in_full", "no_words_of_his", "nothing_to_read", "note", "observer_for", "person_ranges", "person_text", "post_day"]
+           "holds_no_words", "named_in_full", "no_words_of_his", "nothing_to_read", "note", "observer_for", "person_ranges", "person_text", "post_day", "holds"]

@@ -180,7 +180,20 @@ AGENT_MEMORY_SOURCE = "agent-memory"
 SAVES_KEY = "saves"
 
 
-def conversation_keys(episode_ids, memory_path=None) -> set[str]:
+def labels(*things) -> list[str]:
+    """The names a thing answers to: each entity dict's (or pending line's) ``name`` and ``aliases``, in order, no repeats.
+    What :func:`conversation_keys` tests a save's reason against."""
+    out: list[str] = []
+    for t in things:
+        get = t.get if isinstance(t, dict) else (lambda k, d=None, _t=t: getattr(_t, k, d))
+        for label in (get("name"), *(get("aliases") or ())):
+            text = " ".join(str(label or "").split())
+            if text and text not in out:
+                out.append(text)
+    return out
+
+
+def conversation_keys(episode_ids, memory_path=None, names=None) -> set[str]:
     """The distinct conversations among ``episode_ids``, for the "2+ conversations" rung.
 
     A captured harness session counts as ``session:<id>``; an agent's memory note counts as the session that wrote it
@@ -190,10 +203,13 @@ def conversation_keys(episode_ids, memory_path=None) -> set[str]:
     notes one agent saved in one session are one conversation, never three. Every other id is its own conversation,
     as before; an id with no readable episode (an older pending line's) too. **Saves with no words of the person's are
     one conversation together** (:data:`SAVES_KEY`): a name only saves carry never reaches the bar by their number, and
-    one save plus one conversation do."""
+    one save plus one conversation do. **A save with his own reason is his own source only for what his words name**
+    (``names``: the page's name and aliases, ruling 80, G246): for any other name in it, it counts with the other saves —
+    his reason on a post is about that post, so a name only the post's text carries is still known only from posts.
+    Without ``names`` (a caller with no name to test) a save with his words keeps its own key."""
     from pathlib import Path
 
-    from api.services import bank_index, saved_reading
+    from api.services import bank_index, episode_time, saved_reading, saves_bounded
 
     def header(eid: str) -> dict | None:
         if memory_path is None or not eid.startswith("ep_"):
@@ -221,6 +237,9 @@ def conversation_keys(episode_ids, memory_path=None) -> set[str]:
             return f"session:{sid}" if sid else None
         if saved_reading.no_words_of_his(fm):
             return SAVES_KEY
+        if names and saved_reading.applies(fm) and not episode_time.is_feed_item(fm) \
+                and saves_bounded.for_bank(memory_path).of(eid, names):
+            return SAVES_KEY   # his reason on this save does not name this thing: the post's text is all that does
         return eid
 
     out: set[str] = set()
