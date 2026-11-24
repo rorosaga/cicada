@@ -15,6 +15,9 @@ hand afterwards.
     api/.venv/bin/python -m benchmarks.consolidation.same_name_battery --model haiku --repeats 20
 
 Needs ``ANTHROPIC_API_KEY`` in the environment or in ``--key-file`` (never printed). Cost is printed.
+``--engine plan`` runs the same cases through the signed-in Claude plan instead (no key read), the way a new user's Sleep
+does: the small judge on Haiku, and the main model as the second reader of a doubt (``strong``), as in a run. It also
+prints the replies the engine could not give in a readable shape (`engines.py`). 2026-11-24.
 """
 from __future__ import annotations
 
@@ -108,25 +111,41 @@ async def run(cases: list[dict], repeats: int, ask, concurrency: int = 24, stron
         flags = [score_case(case, p) for p in runs]
         return {"id": case["id"], "kind": case["kind"], "runs": len(runs), "false": sum(f for f, _ in flags),
                 "missed": sum(m for _, m in flags), "thin": sum(p.thin for p in runs),
-                "unanswered": sum(1 for p in runs if not p.called)}
+                "unanswered": sum(1 for p in runs if not p.called),
+                "unreadable": sum(int(getattr(p, "unreadable", 0) or 0) for p in runs)}
 
     return list(await asyncio.gather(*(one(c) for c in cases)))
 
 
-def product_ask(tier: str, main: str, home: Path, bank: Path):
+def product_ask(tier: str, main: str, home: Path, bank: Path, engine: str = "key"):
     """The product's own judge call (`entity_resolver._same_name_ask`) on a Claude key, through the same settings and
     engine a benchmark leg uses: thinking, the JSON-only suffix and the token room are the product's, not a guess. A
     cut-off or unreadable answer is the product's "one person", exactly as in a run."""
     from api.services import entity_resolver
-    from benchmarks.consolidation.run import engine_model
-    from benchmarks.engine_parity import settings_for
+    from benchmarks.consolidation import engines
 
-    settings = settings_for("key", bank, model=engine_model("key", main), judge=engine_model("key", tier))
+    settings = engines.settings(engine, bank, model=main, judge=tier)
 
     async def ask(system: str, prompt: str) -> object:
         return await entity_resolver._same_name_ask(settings, system, prompt)
 
     return ask
+
+
+def plan_asks(tier: str, main: str, bank: Path, strong: bool = True):
+    """The judge and, as in a run, the main model on the same engine as the second reader (`same_name_tend.main_tier`)."""
+    from api.services import entity_resolver, same_name_tend
+    from benchmarks.consolidation import engines
+
+    settings = engines.settings("plan", bank, model=main, judge=tier)
+
+    async def ask(system: str, prompt: str) -> object:
+        return await entity_resolver._same_name_ask(settings, system, prompt)
+
+    async def second(system: str, prompt: str) -> object:
+        return await entity_resolver._same_name_ask(same_name_tend.main_tier(settings), system, prompt)
+
+    return ask, (second if strong else None)
 
 
 def spend(home: Path) -> dict:
@@ -196,6 +215,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--strong", default="", help="the tier of the main model that reads a one-person answer again (the product's second reading; default none)")
     p.add_argument("--module", type=Path, help="another copy of same_name_people.py to replay (default: this checkout's)")
     p.add_argument("--from-calls", type=Path, help="print cases built from a leg's same_name_calls.jsonl and exit")
+    from benchmarks.consolidation import engines
+
+    engines.add_argument(p)
+    p.add_argument("--no-strong", action="store_true", help="--engine plan: leave the main model's second reading out (default: in, as in a run)")
     p.add_argument("--no-speaker", action="store_true", help="do not tell the judge the owner's name (the code before 2026-11-24)")
     a = p.parse_args(argv)
     if a.from_calls:
@@ -205,17 +228,25 @@ def main(argv: list[str] | None = None) -> int:
         load_module(a.module)
     from benchmarks.engine_parity import _leg_environment
 
-    os.environ["ANTHROPIC_API_KEY"] = key_from(a.key_file)   # inherited by the call, never printed
+    engines.arm(a.engine, lambda: os.environ.__setitem__("ANTHROPIC_API_KEY", key_from(a.key_file)))   # inherited by the call, never printed
     cases = [c for c in load_cases(a.cases) if a.only in c["id"] and (not a.kind or c["kind"] == a.kind)]
     root = a.home or Path(tempfile.mkdtemp(prefix="same-name-battery-"))
     home, bank = root / "home", root / "bank"
     home.mkdir(parents=True, exist_ok=True)
     bank.mkdir(parents=True, exist_ok=True)
-    with _leg_environment(home, bank):
-        strong = product_ask(a.strong, a.strong, home, bank) if a.strong else None
-        rows = asyncio.run(run(cases, a.repeats, product_ask(a.judge, a.main, home, bank), strong_ask=strong,
-                               speaker=not a.no_speaker))
+    with _leg_environment(home, bank), engines.tally() as counted:
+        if a.engine == "plan":
+            ask, strong = plan_asks(a.judge, a.main, bank, strong=not a.no_strong)
+            rows = asyncio.run(run(cases, a.repeats, ask, concurrency=2, strong_ask=strong, speaker=not a.no_speaker))
+        else:
+            strong = product_ask(a.strong, a.strong, home, bank) if a.strong else None
+            rows = asyncio.run(run(cases, a.repeats, product_ask(a.judge, a.main, home, bank), strong_ask=strong,
+                                   speaker=not a.no_speaker))
         print(report(rows, spend(home)))
+        if a.engine == "plan":
+            print(f"answers the parser could not use (`Plan.unreadable`): {sum(r['unreadable'] for r in rows)} "
+                  f"of {sum(r['runs'] for r in rows)} runs")
+            print(counted.report())
     return 0
 
 
