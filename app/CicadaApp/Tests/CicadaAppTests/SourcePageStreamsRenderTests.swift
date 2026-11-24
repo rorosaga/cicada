@@ -119,7 +119,7 @@ final class SourcePageStreamsRenderTests: XCTestCase {
                 .environment(cache)
                 .environment(ProvenanceRouter())
                 .environment(model)
-                .environment(AppleNotesWatcher(defaults: UserDefaults(suiteName: "page-render-\(UUID().uuidString)")!,
+                .environment(AppleNotesWatcher(defaults: TestDefaults.suite("page-render-\(UUID().uuidString)")!,
                                                notesRunning: { false }, read: { throw CancellationError() }))
                 .environment(SourceStreamCheckModel(deps: .init(runReader: { _ in "" }, askBackend: { _ in streams })))
         }
