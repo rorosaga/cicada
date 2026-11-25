@@ -94,6 +94,32 @@ def test_an_unsave_marks_the_save_and_saving_again_clears_the_mark(tmp_path, mon
     assert "left_site_at" not in fm
 
 
+def test_a_click_whose_direction_the_page_did_not_say_is_decided_by_the_record(tmp_path, monkeypatch):
+    """Owner 2026-11-25: a save control that changed with nothing on the page to say which way is no longer dropped."""
+    memory = _bank(tmp_path)
+    client = _client(memory, monkeypatch)
+    # Nothing held for the post: the click saved it.
+    first = client.post("/sources/site-change", json={"site": "x", "url": POST, "text": "A synthetic post."})
+    assert first.status_code == 200, first.text
+    assert first.json()["direction"] == "saved" and first.json()["unsave"] is None
+    saved = first.json()["save"]
+    assert saved["status"] == "created" and saved["url"] == POST and saved["origin"] == "x-bookmarks"
+    # Held as on the list: the next unreadable click took it off, and the save stays, marked.
+    second = client.post("/sources/site-change", json={"site": "x", "url": POST})
+    assert second.json()["direction"] == "unsaved" and second.json()["save"] is None
+    assert second.json()["unsave"] == {"status": "marked", "url": POST}
+    fm, _ = _episode(memory, saved["episodeId"])
+    assert fm.get("left_site_at")
+    # Held but off the list: the click after that saved it again, the same row, the mark gone.
+    third = client.post("/sources/site-change", json={"site": "x", "url": POST})
+    assert third.json()["direction"] == "saved" and third.json()["save"]["status"] == "duplicate"
+    assert third.json()["save"]["episodeId"] == saved["episodeId"]
+    fm, _ = _episode(memory, saved["episodeId"])
+    assert not fm.get("left_site_at")
+    # Not a post of a known site: refused unwritten, as the other two routes refuse it.
+    assert client.post("/sources/site-change", json={"site": "x", "url": "https://x.com/home"}).status_code == 422
+
+
 @pytest.mark.parametrize("site,url,stored,origin", [
     ("instagram", "https://www.instagram.com/alpha_user/reel/AbCdEfGhIjK/", "https://www.instagram.com/reel/AbCdEfGhIjK/", "instagram-saved"),
     ("github", "https://github.com/alpha-org/alpha-project/", "https://github.com/alpha-org/alpha-project", "github-starred"),

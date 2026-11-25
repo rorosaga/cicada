@@ -457,6 +457,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/saved-why": (ADMITTED, None),       # G191: the answer on the link's episode, committed alone
     "POST /sources/site-save": (ADMITTED, None),       # G221: a save noticed inside a site, committed alone
     "POST /sources/site-unsave": (ADMITTED, None),     # G221: the off-the-list mark, committed alone
+    # G221: one of the two routes above, by what the record holds; the admission is theirs.
+    "POST /sources/site-change": (ADMITTED, "api.routers.sources.save_site_item"),
     "PUT /sources/saved-why": (ADMITTED, None),        # G191 v3: the person's edit of one answer, committed alone
     "POST /sources/save-folder-reason": (ADMITTED, None),   # G221: a folder's reason and its saves' readiness, committed alone
     "PUT /sources/save-folder-reason": (ADMITTED, None),

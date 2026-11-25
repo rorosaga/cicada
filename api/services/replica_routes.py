@@ -279,6 +279,7 @@ ROUTES: dict[str, str] = {
     "POST /sources/saved-why": FORWARD,
     "POST /sources/site-save": FORWARD,
     "POST /sources/site-unsave": FORWARD,
+    "POST /sources/site-change": FORWARD,             # G221: a save or an unsave, decided on the home's bank
     "POST /sources/keep-as-page": FORWARD,            # G246: a saved post kept as a page (or back to a row), on the home's bank
     "POST /sources/save-folder-reason": FORWARD,      # G221: a folder's reason, on the home's bank
     "POST /sources/telegram/code": REFUSE,          # Telegram's session lives on the home (ruling 47a)

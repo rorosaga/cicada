@@ -720,6 +720,29 @@ final class SaveWhyCenter {
         await askAboutSite(reply)
     }
 
+    /// G221 (owner 2026-11-25: "everything else you say its not covered should be covered") — the person's click
+    /// changed a site's save control and nothing on the page said which way (no count moved, no label this Mac has
+    /// learned, no other post to compare: a post's own page on Instagram, a repository's page on GitHub, a menu's
+    /// first click). Until now that click was dropped. The record decides: a post Cicada does not hold as on the list
+    /// was saved, and is asked about like any save; one it holds was taken off, and is marked. Nothing is taught from
+    /// it (`SiteSaveWatcher` learns a site's labels only from the page's own evidence), and a click refused or made
+    /// while the backend is away is let go: a guess is never held to be sent later.
+    func siteChanged(_ item: SiteSaveItem, text: String = "", folder: String? = nil) async {
+        let reply: SiteChangeReply
+        do {
+            reply = try await api.changeSiteItem(site: item.site, url: item.url, text: text, folder: folder)
+        } catch {
+            SaveWhyTimings.logger.info("a save control's change could not be settled by the record; it is let go")
+            return
+        }
+        SaveWhyTimings.logger.info("save control on \(item.site, privacy: .public): \(reply.direction, privacy: .public) by record")
+        if reply.direction == "saved", let save = reply.save {
+            await askAboutSite(save)
+        } else {
+            siteOutbox.discard(site: item.site, url: item.url)
+        }
+    }
+
     /// A stored site save, asked about like a bookmark the browser's file confirmed.
     private func askAboutSite(_ reply: SiteSaveReply) async {
         let fresh = FreshBookmark(url: reply.url, title: reply.title, origin: reply.origin, channel: reply.origin,

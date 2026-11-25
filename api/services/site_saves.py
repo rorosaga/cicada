@@ -134,6 +134,23 @@ def clear_left(path: Path) -> bool:
     return _set_left(path, None)
 
 
+def on_list(memory_path: Path, url: str) -> bool:
+    """Whether Cicada holds the post as on the person's list on its site: a save is kept for it and it carries no
+    ``left_site_at`` mark. What decides the direction of a click the app saw change a save control but could not read
+    the direction of (``POST /sources/site-change``): a post held as on the list was taken off it, any other was
+    saved. ``url`` is the canonical link (``Target.url``)."""
+    from api.services import markdown_parser, saved_why
+
+    try:
+        _, _, path = saved_why.find_episode(memory_path, url)
+    except saved_why.SavedWhyError:
+        return False
+    try:
+        return left_at(markdown_parser.parse(path).frontmatter) is None
+    except (OSError, ValueError):
+        return False
+
+
 def left_at(fm: dict | None) -> str | None:
     value = (fm or {}).get(LEFT_KEY)
     return str(value) if value else None

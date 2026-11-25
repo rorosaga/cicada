@@ -490,7 +490,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   fold; the Inbox lives on Home and each page, off the rail (DESIGN_RULES §9 2026-10-28, DR-77…DR-81).
 - **Saves inside a site (G221, ruling 77, 2026-11-23):** the app notices the person's own click on a site's save control
   through Accessibility: that control and its row, or the menu it is in (77a), only, on a site they connected (or, 77b, to offer the connection at a save click: nothing kept unless Yes), no word matched in any language; an
-  unknown layout or direction asks nothing; the page in front may trigger the connect offer only once Accessibility is
+  unknown layout asks nothing, direction by the record; the page in front may trigger the connect offer only once Accessibility is
   granted; never a prompt for it (`app.md`, "A save inside a site").
 - **Bookmarks (G191 v3, 2026-10-15):** the app removes a bookmark from the person's browser only on their click, after
   asking in words — Chrome through Apple Events (the Automation prompt only then, or from the Permissions row's own click, owner 2026-11-03), never Safari, never the backend; it

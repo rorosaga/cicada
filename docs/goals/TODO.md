@@ -3965,6 +3965,19 @@ A whole row moves to DONE only after its remaining implementation and required a
    so the two cannot both be silent. A row of the table in `SiteSaveNoticingTests` pins what a save click does for every
    site and combination, and that the page's row never says the opposite.
 
+   **77d (owner 2026-11-25, amends "an unknown layout or direction asks nothing" for the direction only).** Asked
+   whether the notch appears for every save and told which cases did not, the owner: "everything else you say its not
+   covered should be covered." A click that changed a save control with nothing on the page to say which way (no count
+   moved by one, no label this Mac has learned, no other post to compare: a post's own page on Instagram, a
+   repository's page on GitHub, a menu's first click) is no longer dropped: the record decides
+   (`POST /sources/site-change`, `site_saves.on_list`). A post Cicada does not hold as on the list was saved, and is
+   asked about; one it holds was taken off, and is marked. It is a guess from what Cicada holds, never from the page:
+   a post saved somewhere else since the list was last read and taken off it now is read as a save and asked about
+   once. So nothing is taught from it (a site's labels are still learned only from the page's own evidence) and a
+   refused call is let go. An unknown **layout** still asks nothing. Trigger to revisit: wrong questions on unsaves
+   reported by the owner, which would mean requiring the list to have been read to its end before the record is
+   trusted.
+
 78. **A source has streams, and the Sources page says what each one reads (owner, 2026-11-24; G245, amends DESIGN_RULES §9 of 2026-11-03/-04/-05/-06, ruling 30 point 1, ruling 62 point 3 and the Contacts/LinkedIn "enrich only" line; plan `docs/plans/2026-11-24-sources-redesign.md`).**
    The owner, redesigning the page: "cleaner and minimal with the cards we use for the consolidation queue"; importing
    from files "rarely will get used"; "better ability to check for connections with sources"; "remove the weird diagrams";
