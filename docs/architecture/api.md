@@ -1307,6 +1307,14 @@ in a coroutine. `GET /sleep/episodes` and `/sleep/kept` read their rows in a fun
 the loop and a thread sampling its stack whenever the heartbeat was 50 ms late. Left on the loop: the fork of `git remote
 get-url` under `GET /contributors` (about 70 ms, scales with the process, not the bank).
 
+**A stuck backend says where (2026-11-25).** On the first night's Sleep after a week of merges the event loop spun at 100%
+CPU for thirteen minutes: connections were accepted and never answered, the log was silent, and a native sample showed
+only the interpreter's own frames (a generator feeding a list, long substring searches), which names no code. Nothing may
+attach a debugger to a person's backend, so the process answers a signal itself: `kill -USR1 <pid>` writes every thread's
+Python stack (file, line and function names, never a value) to `backend.err.log` and changes nothing else; it works while
+the loop is blocked, because `faulthandler` writes from the handler in C (`stack_dump`, installed at start). That night's
+cause was not found before the restart: the next time, send the signal first.
+
 **`POST /sources/site-change` (G221, owner 2026-11-25)** — the same body as the two routes below, for a click that
 changed a site's save control when nothing on the page said which way. The record decides (`site_saves.on_list`): a
 post held as on the person's list is marked as `site-unsave` marks it, any other is stored as `site-save` stores it.
