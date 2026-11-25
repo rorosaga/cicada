@@ -43,6 +43,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 #: 401/403 while a token is being replaced, a 409 while only the demo is open, a 5xx) is kept for later.
 FINAL_STATUSES = frozenset({400, 404, 405, 413, 422})
 
+#: The route a local capture's spooled request goes back to: the hook's own request to this machine's backend, kept with
+#: the transcript's PATH (never its words) when no answer came. The hook resends it on a later firing
+#: (``capture._flush_local``); the backend itself sends it once it is up (``local_spool``).
+LOCAL_ROUTE = "/capture/transcript"
+
 
 def _import_api():
     if str(_REPO_ROOT) not in sys.path:

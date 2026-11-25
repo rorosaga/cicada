@@ -530,6 +530,22 @@ head that does not descend stops it (`home_rewritten`, `diverged`) and says so; 
   old `409 replica_read_only`, which the hook logged and let go. `test_machine_capture_sync.py` pins both, on a copy and
   on a plain client: one waiting episode at the home, `device` the capturing machine's, exactly once, after a home that
   was away, a 202 whose write then failed, and a home that restarted after its 202.
+- **A session its own hook kept for this backend goes when the backend is up** (B3, 2026-11-25). The follower sends
+  `/capture/session` and `/capture/turn`; an entry of `/capture/transcript` (the hook's own request to this computer's
+  backend, kept while the backend restarted — the dev auto-update does it every few commits) names a file the home cannot
+  read and used to wait for *another session to end here* so a hook could resend it: on a copy it held the machine's
+  `unsent` count, and so the chip's light, for weeks. `local_spool` (a daemon thread started with the backend, in either
+  mode: first pass 5 s after the start, then each minute while one waits, three a pass) takes an entry only when its target
+  is this backend's own loopback address and port (another port or address waits for its own server). **One path, two
+  ends:** on a copy `replica_gateway.keep_session` (what the route answers a live request with) reads the one transcript
+  under the harness root and keeps the session as a `/capture/session` entry for the follower, which is woken; on the home
+  or a single computer `routers.capture.transcript_job` (the writer the route runs) writes it into its own bank. They differ
+  only in where the session lands, which is what the mode already decides for a live request; neither opens a path the
+  harness-root check refuses. A gone, refused or empty transcript finishes — removed, counted in `rejected`, never retried;
+  a demo-only bank or a failed read leaves the entry for the next pass. The marking rules hold (removal under the spool
+  lock, only the file that was sent), so the hook's own later resend and this thread may meet on one entry: one episode.
+  The counts fall as entries go and the follower re-announces them at once. `test_local_spool_drain.py` and, with a real
+  backend restarted on the measured state, `test_machine_capture_sync.py` pin it.
 - **What a device says it holds (`unsent`).** A copy adds `unsent` (`{waiting, held, rejected}`: its outbox and its
   hooks' spool, counts only) to `POST /sync/devices/me` whenever the numbers change; a plain client adds it to each
   `/capture/session` post (the others it still holds, not the one being sent). The home keeps it beside the device rows
