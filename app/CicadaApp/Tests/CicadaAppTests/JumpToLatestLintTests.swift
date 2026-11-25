@@ -50,16 +50,17 @@ final class JumpToLatestLintTests: XCTestCase {
         XCTAssertEqual(offenders, [], "a chat opens at its newest message, history above (DESIGN_RULES 2026-10-19 (5), 2026-11-25)")
     }
 
-    /// 2026-11-25, seen in the running app: with unmeasured lazy rows above, the anchor's place in the content and the
-    /// scroll view's `visibleRect` are not one coordinate system (a constant 1,308 pt apart at the very end), so the
-    /// button showed at the newest message. The anchor measures against the scroll view's visible rectangle itself.
-    func testTheAnchorMeasuresAgainstTheScrollViewItself() throws {
+    /// 2026-11-25, seen in the running app: two SwiftUI measures of "above the newest message" failed (the content's
+    /// coordinates are not the visible rectangle's while unmeasured lazy rows sit above; a self-measuring anchor goes
+    /// silent once the lazy stack drops it). The scroll view's own distance from its end decides.
+    func testTheScrollViewItselfDecidesWhetherTheViewIsAway() throws {
         let file = try XCTUnwrap(try ThemeTokenTests.swiftSources().first { $0.path.hasSuffix("Views/Common/JumpToLatest.swift") })
         let code = try String(contentsOf: file, encoding: .utf8).components(separatedBy: .newlines)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
-        XCTAssertTrue(code.contains("bounds(of: .scrollView)"), "the anchor judges in its own coordinates")
         XCTAssertFalse(code.contains("onScrollGeometryChange"), "the content's coordinates are not the visible rectangle's")
-        XCTAssertTrue(code.contains(".onDisappear { away = true }"), "an anchor the lazy stack dropped is away")
+        XCTAssertFalse(code.contains("bounds(of: .scrollView)"), "an anchor a lazy stack dropped measures nothing")
+        XCTAssertFalse(code.contains("onDisappear"), "a view leaving a lazy stack is no measure of where the scroll view is")
+        XCTAssertTrue(code.contains("isAway(distanceFromEnd:"), "the scroll view's distance from its end decides")
     }
 
     /// 2026-11-25, seen in the running app: the Sleep page's title row and room traded one id as the column crossed the
