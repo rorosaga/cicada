@@ -400,32 +400,35 @@ enum SiteSaveRule {
         return step(before: counts(before), after: counts(after))
     }
 
-    /// The two labels with the lead they share removed, cut at a word's start ("1.2K Bookmarks. Bookmark" and
-    /// "1.2K Bookmarks. Bookmarked" → "Bookmark", "Bookmarked"): what a control that names its count is called apart
-    /// from the count, which is how the same control reads on a page that shows no count. A digit matches any digit,
-    /// so a count that moved does not end the lead. nil when the labels share no whole leading word. No word is
-    /// matched: only the two labels are compared with each other.
-    static func tails(was: String, now: String) -> (was: String, now: String)? {
+    /// What differs between a control's two labels: the lead they share is removed, cut at a word's start, and the
+    /// trail they share, cut at a word's end. "1.2K Bookmarks. Bookmark" / "1.2K Bookmarks. Bookmarked" → "Bookmark" /
+    /// "Bookmarked"; "Star alpha/repo" / "Unstar alpha/repo" → "Star" / "Unstar". This is what a control is called
+    /// apart from its count and the thing it is about, which is how the same control reads on a page that names
+    /// neither. A digit matches any digit, so a count that moved ends nothing. nil when the labels share no whole
+    /// word at either end. No word is matched: only the two labels are compared with each other.
+    static func core(was: String, now: String) -> (was: String, now: String)? {
         let a = Array(was), b = Array(now)
-        var shared = 0
-        while shared < a.count, shared < b.count, a[shared] == b[shared] || (a[shared].isNumber && b[shared].isNumber) {
-            shared += 1
+        func same(_ x: Character, _ y: Character) -> Bool { x == y || (x.isNumber && y.isNumber) }
+        func edge(_ c: Character) -> Bool { c.isWhitespace || c.isPunctuation }
+        var lead = 0
+        while lead < a.count, lead < b.count, same(a[lead], b[lead]) { lead += 1 }
+        while lead > 0, !edge(a[lead - 1]) { lead -= 1 }
+        var trail = 0
+        while trail < a.count - lead, trail < b.count - lead, same(a[a.count - 1 - trail], b[b.count - 1 - trail]) {
+            trail += 1
         }
-        var cut = shared
-        while cut > 0, !(a[cut - 1].isWhitespace || a[cut - 1].isPunctuation) { cut -= 1 }
-        guard cut > 0, cut < a.count, cut < b.count else { return nil }
-        return (String(a[cut...]), String(b[cut...]))
+        while trail > 0, !edge(a[a.count - trail]) { trail -= 1 }
+        guard lead + trail > 0, lead + trail < a.count, lead + trail < b.count else { return nil }
+        return (String(a[lead..<(a.count - trail)]), String(b[lead..<(b.count - trail)]))
     }
 
-    /// What a settled click teaches about a site's two labels: the labels themselves, or their tails when either
-    /// names a count (a label with a number in it is never seen again, so it is never kept); nil when a counted label
-    /// has no tail to keep.
+    /// What a settled click teaches about a site's two labels: their core when they have one (a label that names a
+    /// count or a repository is never seen again, its core is), else the labels themselves; nil when what would be
+    /// kept still holds a number.
     static func lesson(was: String, now: String) -> (was: String, now: String)? {
-        guard !numbers(in: was).isEmpty || !numbers(in: now).isEmpty else { return (was, now) }
-        guard let tails = tails(was: was, now: now), numbers(in: tails.was).isEmpty, numbers(in: tails.now).isEmpty else {
-            return nil
-        }
-        return tails
+        let kept = core(was: was, now: now) ?? (was, now)
+        guard numbers(in: kept.was).isEmpty, numbers(in: kept.now).isEmpty else { return nil }
+        return kept
     }
 
     /// What a site's interface calls its two states on this Mac, learned from the person's own pages (never shipped,
@@ -444,11 +447,11 @@ enum SiteSaveRule {
             return nil
         }
 
-        /// `says` for the labels as worn, else for their tails (`SiteSaveRule.tails`): a control that names its count
-        /// on one page is the control this Mac learned bare on another.
+        /// `says` for the labels as worn, else for their core (`SiteSaveRule.core`): a control that names its count
+        /// or its repository on one page is the control this Mac learned bare, or by its core, on another.
         func saysAny(was: String, now: String) -> Outcome? {
             if let said = says(was: was, now: now) { return said }
-            return SiteSaveRule.tails(was: was, now: now).flatMap { says(was: $0.was, now: $0.now) }
+            return SiteSaveRule.core(was: was, now: now).flatMap { says(was: $0.was, now: $0.now) }
         }
 
         mutating func learn(was: String, now: String, outcome: Outcome) {
@@ -477,7 +480,7 @@ enum SiteSaveRule {
 
     /// Which way a changed control went. The evidence, in order of certainty: the person's own saved list (a control
     /// toggled there is leaving it); one count moving by one (the control's own before the row's); the labels this Mac
-    /// already learned, as worn or by their tails; the page's other posts (`Census`). With none of them the change is reported as `changed` and nobody is asked.
+    /// already learned, as worn or by their core; the page's other posts (`Census`). With none of them the change is reported as `changed` and nobody is asked.
     static func outcome(before: SiteSaveReading, after: SiteSaveReading, site: SiteSaveSite? = nil,
                         learned: Labels = Labels(), census: Census? = nil) -> Outcome {
         guard let (was, now) = change(before: before, after: after) else { return .none }
@@ -783,7 +786,7 @@ enum SiteSaveReader {
 
     /// How many other plain buttons on the page under `point` wear each of two labels (`SiteSaveRule.Census`), read
     /// after a click: the clicked control itself wears `now` and is left out (`own`; not when the two are the labels'
-    /// tails, which the clicked control never wears whole). Labels are compared, never kept.
+    /// core, which the clicked control never wears whole). Labels are compared, never kept.
     static func census(pid: pid_t, at point: CGPoint, was: String, now: String, own: Bool = true)
     -> SiteSaveRule.Census? {
         let app = AXUIElementCreateApplication(pid)
@@ -1244,20 +1247,20 @@ final class SiteSaveWatcher {
             } else if known.saysAny(was: labels.was, now: labels.now) != nil {
                 basis = "learned"
             } else if outcome == .changed {
-                // The page's other posts, by the labels as worn and then by their tails (a control that names its
+                // The page's other posts, by the labels as worn and then by their core (a control that names its
                 // count wears a label no other post does).
-                let tails = SiteSaveRule.tails(was: labels.was, now: labels.now)
+                let core = SiteSaveRule.core(was: labels.was, now: labels.now)
                 let census = await Task.detached(priority: .utility) { () -> SiteSaveRule.Census? in
                     let whole = SiteSaveReader.census(pid: pid, at: point, was: labels.was, now: labels.now)
                     if whole?.says != nil { return whole }
-                    return tails.flatMap {
+                    return core.flatMap {
                         SiteSaveReader.census(pid: pid, at: point, was: $0.was, now: $0.now, own: false)
                     } ?? whole
                 }.value
                 if let said = census?.says { (outcome, basis, teaches) = (said, "page", true) }
             }
         }
-        // A label that names a count teaches its tail, or nothing.
+        // A label that names a count or a repository teaches its core, or nothing.
         let lesson = labels.flatMap { SiteSaveRule.lesson(was: $0.was, now: $0.now) }
         if lesson == nil { teaches = false }
         SiteSaveReader.logger.info("""
