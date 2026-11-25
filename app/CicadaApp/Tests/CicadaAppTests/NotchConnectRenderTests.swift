@@ -55,7 +55,9 @@ final class NotchConnectRenderTests: XCTestCase {
         window.appearance = host.appearance
         window.contentView = host
         host.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+        // `NOTCH_RENDER_WAIT` (seconds) lets the offer's bar fill before the picture is taken, to look at it part-way.
+        let wait = ProcessInfo.processInfo.environment["NOTCH_RENDER_WAIT"].flatMap(Double.init) ?? 0.4
+        RunLoop.main.run(until: Date().addingTimeInterval(wait))
         host.layoutSubtreeIfNeeded()
         let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: rep)

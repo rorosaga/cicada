@@ -97,6 +97,13 @@ struct ConnectSuggestPanelView: View {
                 .padding(.horizontal, SaveWhyNotch.ear)
                 .opacity(notch.grown ? 1 : 0)
                 .background(CicadaTheme.Notch.surface)
+                // Its patience, drawn: the offer leaves when the bar has filled (owner 2026-11-25). Under the card's
+                // own clip, so the bar follows the notch's sides and its rounded bottom corners.
+                .overlay(alignment: .bottom) {
+                    NotchCountdownBar(from: state.countdownFrom, length: ConnectSuggestPolicy.timeout)
+                        .padding(.horizontal, SaveWhyNotch.ear)
+                        .opacity(notch.grown ? 1 : 0)
+                }
                 .clipShape(shape)
                 .overlay {
                     shape.stroke(CicadaTheme.Notch.edge, lineWidth: 1)
@@ -109,12 +116,6 @@ struct ConnectSuggestPanelView: View {
                                        : CicadaMotion.notchShrink(reduceMotion: reduceMotion), value: notch.grown)
                 // The pointer resting on it holds it; leaving starts its patience again.
                 .onHover { center.input(.hover($0)) }
-                // That patience, drawn: the offer leaves when the bar has filled (owner 2026-11-25).
-                .overlay(alignment: .bottom) {
-                    NotchCountdownBar(from: state.countdownFrom, length: ConnectSuggestPolicy.timeout)
-                        .opacity(notch.grown ? 1 : 0)
-                        .clipShape(shape)
-                }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(Copy.ConnectSuggest.title(state.appName))
         }
