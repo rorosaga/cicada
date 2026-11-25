@@ -787,6 +787,8 @@ class Verdict:
     stamp: str
     #: saved items of every kind that hold one (:func:`earned_saves`)
     earned_saves: frozenset = frozenset()
+    #: moves only when ``earned_saves`` does
+    saves_stamp: str = ""
 
 
 _VERDICT: dict[str, tuple[tuple, Verdict]] = {}
@@ -807,6 +809,7 @@ def verdict(memory_path: Path) -> Verdict:
     signs = {pid: s for pid, s in every.items() if pid in st.posts}
     earned = saves & st.posts
     out = Verdict(state=st, signs=signs, rows=st.posts - earned, earned=earned, earned_saves=saves,
+                  saves_stamp=hashlib.sha1("\x1f".join(sorted(saves)).encode()).hexdigest()[:12] if saves else "",
                   stamp=hashlib.sha1("\x1f".join(sorted(earned)).encode()).hexdigest()[:12])
     with _OLD_SHAPE_LOCK:
         _VERDICT[slot] = (edge_stamp, out)
@@ -846,6 +849,13 @@ def earned_saves(memory_path: Path) -> frozenset:
     saved thing show outside its list" that the graph's bubbles, Clusters and Home read (``list_pages.groups``)."""
     _READERS.add(str(Path(memory_path)))
     return verdict(memory_path).earned_saves
+
+
+def earned_saves_stamp(memory_path: Path) -> str:
+    """A token that moves only when :func:`earned_saves` does, read from the digest's records (a fresh process reads only
+    the files that moved since a stored digest), never by building anything over the pages."""
+    _READERS.add(str(Path(memory_path)))
+    return verdict(memory_path).saves_stamp
 
 
 def is_hidden(memory_path: Path, entity_id: str) -> bool:
