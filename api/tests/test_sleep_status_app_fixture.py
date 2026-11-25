@@ -94,6 +94,7 @@ def _wire(tmp_path, monkeypatch):
     return out
 
 
+@pytest.mark.slow
 def test_the_app_fixture_is_the_servers_wire(tmp_path, monkeypatch):
     wire = _wire(tmp_path, monkeypatch)
     if os.environ.get("CICADA_WRITE_APP_FIXTURE"):
@@ -101,6 +102,7 @@ def test_the_app_fixture_is_the_servers_wire(tmp_path, monkeypatch):
     assert json.loads(FIXTURE.read_text()) == json.loads(json.dumps(wire, sort_keys=True))
 
 
+@pytest.mark.slow
 def test_the_scenarios_say_what_the_app_will_read(tmp_path, monkeypatch):
     wire = _wire(tmp_path, monkeypatch)
     run = wire["running"]

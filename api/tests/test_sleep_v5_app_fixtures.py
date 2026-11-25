@@ -161,6 +161,7 @@ def _wire(tmp_path, monkeypatch) -> dict:
     return out
 
 
+@pytest.mark.slow
 def test_the_paused_status_fixture_is_the_servers_wire(tmp_path, monkeypatch):
     wire = _wire(tmp_path, monkeypatch)
     _write_or_compare("sleep-status-paused.json", wire)

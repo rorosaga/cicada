@@ -84,6 +84,7 @@ def _session(projects: Path, sid: str, text: str) -> Path:
 MACHINES = [("replica_env", "replica_projects", "replica_device"), ("client_env", "client_projects", "client_device")]
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("env_key,projects_key,device_key", MACHINES)
 def test_a_session_ends_on_a_second_machine_and_waits_once_at_the_home(trio, env_key, projects_key, device_key):
     home = trio["home"]
@@ -99,6 +100,7 @@ def test_a_session_ends_on_a_second_machine_and_waits_once_at_the_home(trio, env
     assert _wait(lambda: _unsent_of(home, trio[device_key]) == 0, 120), _unsent_of(home, trio[device_key])
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("env_key,projects_key,device_key", MACHINES)
 def test_a_home_that_was_away_at_capture_gets_it_with_no_further_firing(trio, env_key, projects_key, device_key):
     """(a) The home is unreachable when the session ends and comes back; nothing fires on the capturing machine again."""
@@ -130,6 +132,7 @@ def _long_session(projects: Path, sid: str) -> Path:
     return path
 
 
+@pytest.mark.slow
 def test_a_long_session_read_by_the_detached_child_still_gets_a_retrier(trio):
     """Reviewer blocker (B3): the child that reads a transcript over 16 MB carries ``CICADA_HOOK_DETACHED``; that used
     to be the marker that also forbade a retrier, so a post of a long session that did not land waited for the next
@@ -172,6 +175,7 @@ def test_the_retrier_marker_is_not_the_detached_marker(tmp_path, monkeypatch):
     assert len(started) == 1
 
 
+@pytest.mark.slow
 def test_a_hook_that_does_not_know_it_runs_on_a_copy_is_not_refused(trio, tmp_path):
     """The hook's ``$CICADA_HOME`` is not where the backend keeps ``replica_of`` (or the copy was set in the backend's
     own environment only): it posts the old way, a path, to its own backend. That used to answer 409 and the session was

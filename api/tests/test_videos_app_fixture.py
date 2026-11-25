@@ -81,6 +81,7 @@ def _demo_wire(tmp_path, monkeypatch) -> dict:
         config.get_settings.cache_clear()
 
 
+@pytest.mark.slow
 def test_the_app_fixture_is_the_demo_wire(tmp_path, monkeypatch):
     wire = _demo_wire(tmp_path, monkeypatch)
     text = _dump(wire)

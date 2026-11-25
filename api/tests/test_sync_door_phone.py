@@ -67,6 +67,7 @@ def home_and_phone(tmp_path, monkeypatch):
             w.stop()
 
 
+@pytest.mark.slow
 def test_captures_reach_the_queue_wait_while_the_home_sleeps_and_land_once_elsewhere(home_and_phone):
     home, phone, wires = home_and_phone
     here = wires[0]

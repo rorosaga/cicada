@@ -129,6 +129,7 @@ def _kill(m: Machine) -> None:
         m.proc = None
 
 
+@pytest.mark.slow
 def test_the_home_moves_and_every_device_follows(trio):
     alpha, bravo, charlie, tokens = trio
     bravo_id, charlie_id = _device_id(tokens[bravo]), _device_id(tokens[charlie])
@@ -192,6 +193,7 @@ def test_the_home_moves_and_every_device_follows(trio):
     print(f"\nhand-off took {took:.2f} s (request to the new home admitting)")
 
 
+@pytest.mark.slow
 def test_a_crash_on_either_side_mid_hand_off_finishes_one_hand_off(trio):
     alpha, bravo, charlie, tokens = trio
     bravo_id = _device_id(tokens[bravo])
@@ -212,6 +214,7 @@ def test_a_crash_on_either_side_mid_hand_off_finishes_one_hand_off(trio):
     assert _record(bravo)["term"] == 1
 
 
+@pytest.mark.slow
 def test_take_over_a_lost_home_and_the_old_home_comes_back(trio):
     alpha, bravo, charlie, tokens = trio
     charlie_id = _device_id(tokens[charlie])

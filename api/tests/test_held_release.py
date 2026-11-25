@@ -127,6 +127,7 @@ def _answer_commit(bank: Path) -> tuple[str, list[str]]:
 # --------------------------------------------------------------------------- "same as B"
 
 
+@pytest.mark.slow
 def test_same_as_b_lands_the_held_claims_on_b_both_ways_in_the_answers_own_commit(bank):
     _answer(bank, "inbox-001", action="merge", merge_target="alex-kim")
 

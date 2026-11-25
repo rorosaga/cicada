@@ -39,6 +39,7 @@ list is what a reviewer checks:
 
 | Suite | Command | Expected |
 |---|---|---|
+| Changed | `make test-changed` | **0 failures** in what it chose; a branch's own selection, so no fixed count (`--explain`) |
 | Crucial tier | `make test-crucial` | **0 failures** — 247 backend tests in ~16 s, 47 Swift tests in ~4 s (+ build), 2026-10-19 |
 | Dev CI | `.github/workflows/dev-ci.yml` (`make test-crucial-backend`, then the whole backend suite in six shards, on `ubuntu-latest`) | **0 failures** — crucial ~2 min; whole suite 16,500+ tests, slowest shard ~9 min with the venv, 2026-11-06. `swift-lint` takes 4-7 min on a PR, so a PR waits ~2 min longer than before |
 | Bench tier | `make test-bench` | 12 tests, ~50 s, 2026-10-19: **1 known failure**, `test_projects_bench.py` (the 2,500-page project list's p95 is ~230 ms against its 80 ms budget; it was an unrun `CICADA_BENCH=1` opt-in until the marker). Run on a quiet machine. Every budget is CPU time with the wall under 4×, timed with the heap frozen out of the collector (`api/tests/_bench.py`: `measure`, `Timer`, `frozen`), so it holds inside the full suite too (2026-10-29) |
@@ -77,11 +78,21 @@ main checkout's interpreter (`~/code/cicada/api/.venv/bin/python -m pytest`) fai
 ### Test tiers (owner 2026-10-19: "only crucial stuff")
 
 The Mac is shared, and the full suites cost ~22 min (10,065 backend tests, measured file by file 2026-10-19) plus
-~3.5 min of Swift. So the work runs in three tiers, plus the benchmarks:
+~3.5 min of Swift; by 2026-11-24 the backend had grown to 18,505 tests and ~60 min of test time (niced, on a busy Mac,
+test by test). So the work runs in tiers, plus the benchmarks:
 
-- **Every change:** the test files of the modules it touched plus their direct callers (grep for the imports), and
-  `make test-crucial`. Never the whole backend suite, never `swift test` unfiltered — `swift test --filter
-  '\.(ClassA|ClassB)/'`. Niced (`nice -n 10`), one run at a time, no parallel suites.
+- **Every change:** `make test-changed` (owner 2026-11-24: "when developing features only relevant tests run").
+  `api/tests/_affected.py` reads the diff against `origin/dev` (committed, staged, unstaged, untracked) and runs, niced:
+  the test files that use a function, class or constant the diff touched (or a caller's that uses it, one hop), the
+  tests that call a changed route through the app or name a changed file in a string, the repository-wide gates
+  (`GATES`, ~30 s) when backend Python moved, the Swift classes that name a changed type plus every `*Lint*` class, and
+  the graph JS tests when the graph moved. `--explain` prints why each file was chosen; `SLOW=1` adds the `slow`
+  tests of the chosen files. It replaces grepping for importers by hand. Measured on the 40 merges before
+  2026-11-24: one changed source file chooses a median of 42 test files (~3 min of test time, niced on a busy Mac,
+  against ~45 min for the default suite); a whole feature branch a median of 136 (~12 min), most of it the tests that
+  run Sleep end to end, which any change inside `sleep_cycle` can break. Its blind spot is a test that drives a
+  subprocess (`_stdio_server`, a hook, a second backend): CI's crucial tier on the PR and the whole suite on the push to
+  `dev` still catch those. Never the whole backend suite, never `swift test` unfiltered. One run at a time.
 - **Daily / before a PR:** `make test-crucial` — the tests that guard CLAUDE.md's rails, ~20 s of tests in all.
   The lists are `api/tests/crucial.txt` (the `crucial` pytest marker is put on what it names, so `pytest -m crucial`
   selects the same set) and `app/CicadaApp/Tests/crucial-tests.txt` (joined into one `--filter` regex), each grouped
@@ -96,6 +107,13 @@ The Mac is shared, and the full suites cost ~22 min (10,065 backend tests, measu
   so `-m crucial` selects exactly the crucial list, and `conftest.py` refuses a crucial line that names a `bench` test:
   a rail's guard asserts behaviour, never a stopwatch. A new wall-clock assertion is `@pytest.mark.bench` (the old
   `CICADA_BENCH=1` opt-in is gone).
+- **Slow runs (`slow` marker, 2026-11-24):** a test that takes 5 s or more — mostly two or three real backends syncing
+  (`*_three_machines`, `*_two_machines`, the relay and the door), and the demo bank built whole. 53 tests, a quarter
+  of the suite's time (14.7 of ~60 min, measured test by test 2026-11-24). The addopts leave them out of every default
+  run with `bench`; CI's six shards pass `-m 'not bench'`, so every push to `dev` still runs them; `make test-slow`
+  runs them alone and `make test` runs them with everything. A crucial line wins: `-m crucial` selects its test
+  whatever else it carries, so the two slow crucial tests carry no `slow` marker. Mark a new test `slow` when it
+  measures 5 s or more on the Mac.
 
 **Keeping the suite cheap (suite cuts, 2026-10-19).** A test that needs the demo scenario takes
 `_demo_scenario.demo(tmp_path, …)`: a copy of a template built once per process for those flags (only the determinism

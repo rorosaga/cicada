@@ -412,6 +412,7 @@ _STATE_JS = r"""JSON.stringify({fonts: document.fonts.status,
   scripted: parseInt(getComputedStyle(document.getElementById('scripted')).left)})"""
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(chrome_binary() is None, reason="no Chrome on this machine (set CICADA_CHROME to name one)")
 def test_in_a_real_browser_the_shot_is_the_settled_page(tmp_path):
     font_path = next((Path(p) for p in FONT_CANDIDATES if Path(p).is_file()), None)
