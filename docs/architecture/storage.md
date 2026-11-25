@@ -93,7 +93,15 @@ the saved posts would be good … i want to somehow see saved things somewhere e
 `list_pages`, behind `saved_posts.HIDE_POSTS`, off).** This amends the paragraph above only to the extent that a list of *posts*
 (a site's bookmarks, likes, reposts, saved posts — X, Instagram, LinkedIn, Reddit, Pinterest, TikTok) and each folder, collection
 or board such a site files saves into (`save_folders`) may have a page about the list itself; the page is no tag, no `member of`
-edge and no hub, and a list of works (a YouTube playlist, a Substack list) and a browser's own bookmark folder get none.
+edge and no hub. **Ruling 81a (owner 2026-11-25) widens it to every kind of list, every saved thing keeping its own page**
+(`list_pages.kinds`): YouTube's Watch later, Liked videos, Playlists and each playlist (a folder of Playlists), Substack's saved,
+GitHub's stars and own repositories, each browser's bookmarks and each bookmark folder (the folder's full path as the page holds it),
+each feed (a folder of `rss.feeds`), each door's books, beside the post sites' lists and folders. **Which list a page is on and what
+sits inside it is one derived answer** (`list_pages.groups`, never stored): `lists` (key = the page id `page_id(stream, folder)`, so
+a list exists before its page; `parent`, `count`, `newest`, `mark`, `kind_noun`, `has_page`, `members` newest first by the item's
+own saved date with an unknown date last, `inside`), `of_page` (most specific first) and `earned_of`; a member is outside its list
+when `saved_posts.earned_saves` says it earned a place (ruling 81 (b)(ii)'s signs, asked of every saved item, not only posts). The
+graph, Clusters and Home read only that. The writer ships behind `list_pages.ON = False` (or `HIDE_POSTS`).
 `list_pages` is the **one writer**: `type: media`, `media: {kind: list, media_type: list}` (no link), `origin: list` (never a
 list's own origin, or the page would be a member of its own stream), an id `list-<stream>[--<folder slug>-<hash>]` (a pure function
 of the list, so two computers agree; never `media-`, which `inject_media_edges` and `link_enrichment` glob), `tags: []`, the list's
