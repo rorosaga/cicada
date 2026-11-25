@@ -401,7 +401,10 @@ async def lifespan(app: FastAPI):
 
     local_spool.start()
 
-    from api.services import gc_tuning
+    from api.services import gc_tuning, stack_dump
+
+    # `kill -USR1 <pid>` writes every thread's Python stack to this log, even while the event loop is blocked.
+    stack_dump.install()
 
     gc_tuning.freeze_after_start()
 
