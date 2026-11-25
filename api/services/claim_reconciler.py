@@ -834,7 +834,10 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
     is kept as closed history, never reopened (2026-10-14 review) — and so is one said on or before the end of the same
     belief the page holds as having held and ended, however it was closed (:func:`_ended_span`, 2026-10-29). A claim whose id the page already holds closed, read
     again from a conversation that claim already cites (G104), stays closed: a re-read never undoes a close, and never
-    doubles an id. A withdrawn claim restated is a fresh assertion (``cicada_retract_claim``'s rule), as before.
+    doubles an id — except a claim closed only because this same conversation corrected itself, which a revision of it
+    read now states again (``revising``, :func:`_edited_back`, 2026-11-25): the restatement is born under an id of its
+    own and takes the correction's place by the rule that already exists for it; the closed claims stay as they are.
+    A withdrawn claim restated is a fresh assertion (``cicada_retract_claim``'s rule), as before.
 
     ``revised`` (G104, owner 2026-11-03): open claims only the removed text of an edited conversation said, by id, with
     that conversation (`episode_revision`). A new value read from that same conversation's revision closes one cleanly
@@ -1293,7 +1296,8 @@ def reconcile_stage3(
     """Trust-gated invalidate-and-supersede over claims. Nothing deleted.
 
     ``revised``: :func:`_place_claim`'s — the claims an edited conversation stopped saying (G104). ``redated``: its
-    claims an edited conversation now dates differently (G104 slice 3, review). ``ended_values``: ``{ending claim id:
+    claims an edited conversation now dates differently (G104 slice 3, review). ``revising``: ``{episode id:
+    episode_revision.Revision}``, the revisions read in this pass that may close (:func:`_edited_back`). ``ended_values``: ``{ending claim id:
     {value claim ids}}`` — values the judge said that ending made out of date (`value_ended`); :func:`_place_ending`
     closes them with the link, on the same guards.
 

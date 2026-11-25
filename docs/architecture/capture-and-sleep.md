@@ -2431,11 +2431,24 @@ page now existing); the page prose kept the old fact beside the new. `episode_re
   re-dated or written that the re-read did not write; held claims (a name with no page) are left exactly as before.
   **The worst a wrong reading costs** (both readers always "same"): one claim of this conversation superseded by another
   claim of this conversation about the same two things, carrying a day it now states — a move closed beside a visit to
-  the same city the edit put in (`test_revision_pairs`). **Left:** an edit made by a reworded re-read and then undone,
-  whose re-read restates the first wording exactly, ends with the corrected day current and the restored one closed
-  (the restatement folds into the closed claim by id, `_reread_twin`, and nothing may reopen it), where the code before
-  this left both days current; the same-slot path already ends that way when the re-read keeps its wording. Not yet
-  measured on real Sleeps. The stories and their runner are in the repo: `revision_e2e_stories.json` (17 shapes) and
+  the same city the edit put in (`test_revision_pairs`).
+  **Edited back (2026-11-25, `claim_reconciler._edited_back`): a claim closed only because this conversation corrected
+  itself, which a revision of the same conversation now states again, is current again.** Before, an edit undone ended
+  on the corrected day alone: the re-read restates the first claim exactly, its id carries its day, and it folded into
+  the closed claim (`_reread_twin`, "a re-read never undoes a close") — on the pair rule's path and on the same-slot
+  path (`redated`) alike. Now, when the restated claim's closed twin was closed as `superseded_by` a chain of claims that
+  rest on this one conversation alone (never the person's, an agent's, a record, an ending, an event, recovered
+  history), the chain ends in an open claim, the restatement is heard in that conversation only, and that conversation
+  is a revision read in this run that may close, the restatement is born under an id of its own (the closed claim's id
+  is taken; `_fresh_id`, the same on every run) and meets the open claim in the ordinary table. Only if that open claim
+  gives way by a rule that already exists — the same-slot replacement (`redated`), the removed text's (`revised`), or
+  the pair rule read twice (`revision_pairs.meets`, applied after Stage 3) — is the restatement born at all; otherwise it
+  folds in as before. Nothing is reopened in place: history reads A, then B, then A again, a chain with no loop
+  (`supersedes` points back at each step), the closed claims untouched. The departure rule (`_departed_on`) does not
+  read this conversation's own chain as a departure. The close is recorded where the correction's was (audit
+  `revised`, `why: edited_back`, in the ledger and the Corrections record). A close by another conversation, the
+  person, an agent, an ending or decay is never undone, and a re-read that is not such a revision undoes nothing.
+  The stories and their runner are in the repo: `revision_e2e_stories.json` (17 shapes) and
   `revision_e2e_review_stories.json` (the ten shapes the reviews attacked). Also found and left: a held claim dropped
   because its span went leaves no record of why (`pending_store.drop_held`), and a held name whose spelling is corrected
   loses a claim from an unchanged line.
@@ -5295,7 +5308,9 @@ the page stood before the mention (`confidence_before_mention`, kept only until 
 moved — no rate, floor, cap or watermark rule changed. A claim id hashes its `valid_from`, so re-reading a conversation
 said between local and UTC midnight mints a new id for the same belief; Stage 3 recognises a re-read by what the claim
 says, not only its id (`claim_reconciler._reread_twin`: closed, not withdrawn, same slot and object, and every
-conversation it was heard in already cited), so a closed claim stays closed and an ending is never recorded twice. A claim's *said* day (`decay_policy.latest_said`, `mention_weeks`,
+conversation it was heard in already cited), so a closed claim stays closed and an ending is never recorded twice —
+except one closed only by its own conversation's correction, which a revision of that conversation states again
+(2026-11-25, `_edited_back`, "A stale date beside the corrected one"). A claim's *said* day (`decay_policy.latest_said`, `mention_weeks`,
 `inbox_tend._said`) still reads its episode ids' day: local for every id minted since 2026-10-22, at most one day early
 for a hook capture minted before it in the window between local and UTC midnight (left: it needs a header read per
 episode inside the decay pass; the trigger is a page seen fading a day early).
