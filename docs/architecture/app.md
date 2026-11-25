@@ -1744,8 +1744,11 @@ twenty items inside a post's block. A moderator's menu is read the same way, unm
 class without them is another menu); every item is a list, the first the site's own (Watch later), any other a
 playlist whose name is sent as the save's folder and becomes its list label; the video is where the sheet was opened
 from, kept from the click before it (`opener`: a card `ytLockupViewModelHost` by its first video link, or the page's
-own controls under `ytd-watch-metadata`; a click inside a menu changes nothing; anything else is no answer), for two
-minutes. **Which way:** a menu closes at the click, so there is no label to compare afterwards. In order: the saved
+own controls under `ytd-watch-metadata`, or a Short's under `ytdReelVideoRendererHost` — measured 2026-11-25: a Short's
+"more" menu holds the item that opens the same sheet, and the address is the Short's own, filed under the video's one
+link; a click inside a menu changes nothing; anything else is no answer), for two minutes. A card's menu now holds one
+item that opens this sheet too (measured 2026-11-25 on search results: add to queue, save, share), so the old
+one-click "save to Watch later" item is gone and a card is covered by the sheet. **Which way:** a menu closes at the click, so there is no label to compare afterwards. In order: the saved
 list's page; on a sheet, the other lists (a state at least two others share and none ties is "not in the list", the
 state being the label's last comma-separated part, commas of any script); labels this Mac learned; a post seen
 wearing the learned "not saved" label that wears another now (it was saved since); and the label the item wore at the
@@ -1788,8 +1791,7 @@ Not now, held saves are dropped); a Yes that opens a page leaves at once. A site
 only for a turned-on source.
 
 **Not built:** LinkedIn (its feed exposes no link or id for a post, so a save there cannot be tied to one; it stays on
-the saved-list read); YouTube's one-click "save to Watch later" item in a card's menu and Shorts; Reddit's menus on
-the person's own posts and on old Reddit; a real save through the installed app on Reddit or YouTube (the reader was
+the saved-list read); Reddit's menus on old Reddit; a real save through the installed app on Reddit or YouTube (the reader was
 run on the live pages, the click itself was not);
 Safari and a keyboard save (unmeasured); the site's folders at the moment of saving and a screen to give a folder its
 reason (the backend holds both, `api.md`); the post's words on sites other than X. **The notch's mascot is the worm's

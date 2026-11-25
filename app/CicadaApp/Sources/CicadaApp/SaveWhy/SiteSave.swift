@@ -125,9 +125,9 @@ struct SiteSaveSite: Sendable {
         /// Every item is one of the person's lists; the first is the site's own, the others are folders.
         var lists = false
         /// Where the sheet was opened from: a class of a card that is one post (its first post link names it), and
-        /// a class found above the page's own controls (the page itself is the post).
+        /// classes found above the page's own controls (the page itself is the post).
         var cards: [String] = []
-        var pageClass: String? = nil
+        var pageClasses: [String] = []
     }
 
     enum Slot: Sendable {
@@ -256,7 +256,10 @@ struct SiteSaveSite: Sendable {
         rowAnchor: nil, slot: .none, listPages: [],
         menu: Menu(menuClass: "ytListViewModelHost", sheetClass: "ytContextualSheetLayoutHost",
                    headerClass: "ytPanelHeaderViewModelHost", lists: true,
-                   cards: ["ytLockupViewModelHost"], pageClass: "ytd-watch-metadata"))
+                   cards: ["ytLockupViewModelHost"],
+                   // The controls under a video's player, and the controls of a Short (measured 2026-11-25: a Short's
+                   // "more" menu holds the item that opens the same sheet, and the address is the Short's own).
+                   pageClasses: ["ytd-watch-metadata", "ytdReelVideoRendererHost"]))
 
     static let all: [SiteSaveSite] = [x, instagram, github, tiktok, reddit, youtube]
     static func named(_ key: String) -> SiteSaveSite? { all.first { $0.key == key } }

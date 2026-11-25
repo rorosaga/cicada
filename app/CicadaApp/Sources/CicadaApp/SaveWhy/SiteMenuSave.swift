@@ -410,7 +410,7 @@ extension SiteSaveReader {
             if rule.cards.contains(where: marks.contains) {
                 return itemLinks(in: node, site: site).urls.first.map { .card($0) } ?? .other
             }
-            if let own = rule.pageClass, marks.contains(own) { return .page }
+            if rule.pageClasses.contains(where: marks.contains) { return .page }
             guard let above = parent(node) else { break }
             node = above
         }
