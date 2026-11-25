@@ -129,6 +129,8 @@ struct GraphView: NSViewRepresentable {
             case .out: jsCall = "zoomOut()"
             case .reset: jsCall = "zoomReset()"
             case .fit: jsCall = "fitGraph()"
+            case .closeBubble: jsCall = "closeOpenBubble(true)"
+            case .closeBubbleNow: jsCall = "closeOpenBubble(false)"
             }
             webView.evaluateJavaScript(jsCall, completionHandler: nil)
             DispatchQueue.main.async {
@@ -250,6 +252,11 @@ struct GraphView: NSViewRepresentable {
                     viewModel.hover.hover(.init(id: id, x: x, y: y, r: r))
                 case .hoverEnded:
                     viewModel.hover.end()
+                case .bubbleOpened(let id):
+                    viewModel.hover.end()
+                    viewModel.openBubbleId = id
+                case .bubbleClosed:
+                    viewModel.openBubbleId = nil
                 case .nodeFocused, .focusCleared:
                     break   // informational — focus state lives in JS
                 case .jsError(let detail):

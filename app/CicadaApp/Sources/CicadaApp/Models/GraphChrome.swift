@@ -134,21 +134,27 @@ enum GraphChromeLayout {
 
 /// DR-28 / R-DG7 / R-DG8 — what Esc, a click on empty canvas and the column's × close.
 enum GraphDismiss {
-    enum Action: Equatable { case closeFind, closeLegend, closePanels, closeReader, closeEntity, closeEntityAndReader, none }
+    enum Action: Equatable {
+        case closeFind, closeLegend, closePanels, closeReader, closeEntity, closeEntityAndReader, closeBubble, none
+    }
 
     struct State: Equatable {
         var findOpen = false
         var legendOpen = false
         var readerOpen = false
         var entityOpen = false
+        /// Owner 2026-11-25: a list's bubble open on the canvas, beneath every panel and the column.
+        var bubbleOpen = false
     }
 
-    /// One thing per press, topmost first: find, the Legend, the Reader, the column. A keyboard path.
+    /// One thing per press, topmost first: find, the Legend, the Reader, the column, then an open list bubble (the
+    /// canvas itself, beneath them all). A keyboard path.
     static func escape(_ s: State) -> Action {
         if s.findOpen { return .closeFind }
         if s.legendOpen { return .closeLegend }
         if s.readerOpen { return .closeReader }
         if s.entityOpen { return .closeEntity }
+        if s.bubbleOpen { return .closeBubble }
         return .none
     }
 

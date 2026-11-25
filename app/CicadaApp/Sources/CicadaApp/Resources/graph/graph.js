@@ -577,8 +577,7 @@ function onKeyDown(e) {
     if (e.key === "Shift") setPanMode(true);
     if (e.key !== "Escape") return;
     e.preventDefault();
-    // An open bubble closes first, at once (a keyboard action never animates).
-    if (openBubbleId) { closeBubble({ animate: false }); return; }
+    // An open list bubble is the canvas itself, beneath every panel: the page closes it last (GraphDismiss, Swift).
     if (focusNodeId) { clearFocus(); return; }
     postToSwift({ type: "escape" });
 }
@@ -1194,7 +1193,7 @@ const BUBBLE_MOVE_MS = 400;        // = CicadaMotion.maxDuration (DR-61's ceilin
 const BUBBLE_OPEN_DIM = 0.08;      // what the rest of the graph keeps while a bubble is open
 const BUBBLE_LEAF_PT = 2.4;        // a member's dot inside an open bubble, in layout units at size scale 1
 const BUBBLE_CLOSE_BELOW = 0.35;   // zooming out past this share of the open bubble's fit closes it
-const BUBBLE_LABEL_PX = 9;         // a member is named once its dot is this big on screen
+const BUBBLE_LABEL_PX = 24;        // a member is named, inside its dot, once the dot's radius is this big on screen
 const BUBBLE_LABEL_BUDGET = 240;
 
 function nodeIsBubble(n) { return Boolean(n && n.isBubble); }
@@ -1302,12 +1301,15 @@ function ingestFull(data) {
     ({ nodes, links } = foldGraph());
 }
 
+// Never smaller than a well-linked page, so the source's mark reads on it at the fit zoom.
+const BUBBLE_MIN_BASE = 8;
 function bubbleBaseRadius(n) {
-    return R_BASE + R_CONFIDENCE + R_PER_SQRT_NEIGHBOUR * Math.sqrt(Math.min(R_NEIGHBOURS_CAP, n.count || 0));
+    return Math.max(BUBBLE_MIN_BASE,
+                    R_BASE + R_CONFIDENCE + R_PER_SQRT_NEIGHBOUR * Math.sqrt(Math.min(R_NEIGHBOURS_CAP, n.count || 0)));
 }
 
 function bubbleLabel(n) {
-    const count = Number(n.count || 0).toLocaleString("en-US");
+    const count = Number(n.count || 0).toLocaleString();
     return `${n.name} · ${count} ${n.kindNoun || "pages"}`;
 }
 function labelText(n) { return nodeIsBubble(n) ? bubbleLabel(n) : n.name; }
@@ -1330,7 +1332,12 @@ function layoutOpenBubble(b) {
         ids.forEach(id => placed.add(id));
         if (ids.length) kids.push({ name: f.name, children: ids.map(id => ({ id })) });
     }
-    for (const id of row.members || []) if (mine(id) && !placed.has(id)) { placed.add(id); kids.push({ id }); }
+    // Pages filed in no folder: on their own when the list has no folders, else one unnamed ring among the folders (a
+    // few loose dots packed beside big folder rings land on the rim and swell the circle).
+    const loose = [];
+    for (const id of row.members || []) if (mine(id) && !placed.has(id)) { placed.add(id); loose.push({ id }); }
+    if (kids.length && loose.length) kids.unshift({ name: "", children: loose });
+    else kids.push(...loose);
     if (!kids.length) return null;
     const root = d3.hierarchy({ children: kids });
     d3.pack().radius(() => leafR).padding(leafR * 0.6)(root);
@@ -1384,7 +1391,7 @@ function openBubble(id, { animate = true, camera = true } = {}) {
     openBubbleId = id;
     openLayout = layout;
     hoveredNode = null;
-    if (currentZoom) currentZoom.scaleExtent([MIN_ZOOM, Math.max(MAX_ZOOM, (BUBBLE_LABEL_PX * 2.5) / layout.leafR)]);
+    if (currentZoom) currentZoom.scaleExtent([MIN_ZOOM, Math.max(MAX_ZOOM, (BUBBLE_LABEL_PX * 1.8) / layout.leafR)]);
     postToSwift({ type: "bubbleOpened", id });
     if (camera) moveCamera(fit, animate);
     scheduleRedraw();
@@ -1420,8 +1427,8 @@ function relayoutOpenBubble() {
     openLayout = layout;
 }
 
-// Swift-facing: the chip's ×, and a bank switch.
-function closeOpenBubble() { return closeBubble({ animate: true }); }
+// Swift-facing: the chip's × (animated), and Esc through the page's own order (never animated).
+function closeOpenBubble(animate = true) { return closeBubble({ animate: Boolean(animate) }); }
 
 // What the pointer is over inside the open bubble: a member, or `inside` (on the bubble but between members).
 function pickInOpenBubble(wx, wy) {
@@ -1455,7 +1462,7 @@ function drawBubbleDisc(n, r, alpha) {
     ctx.strokeStyle = typeColors.media;
     ctx.stroke();
     const entry = n.mark ? markImages.get(n.mark) : null;
-    if (entry && entry.ready && r * k >= 6) {
+    if (entry && entry.ready && r * k >= 3) {
         const s = r * 1.05;
         ctx.drawImage(entry.img, n.x - s / 2, n.y - s / 2, s, s);
     } else if (r * k >= 14) {
@@ -1463,7 +1470,7 @@ function drawBubbleDisc(n, r, alpha) {
         ctx.font = `600 ${Math.min(13, r * k * 0.5) / k}px -apple-system, 'SF Pro Text', system-ui, sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText(Number(n.count || 0).toLocaleString("en-US"), n.x, n.y);
+        ctx.fillText(Number(n.count || 0).toLocaleString(), n.x, n.y);
     }
     ctx.globalAlpha = alpha;
 }
@@ -1514,26 +1521,36 @@ function drawOpenBubble() {
     }
     ctx.globalAlpha = 1;
     const fontPx = 10;
-    ctx.font = `${fontPx / k}px -apple-system, 'SF Pro Text', system-ui, sans-serif`;
+    ctx.font = `600 ${fontPx / k}px -apple-system, 'SF Pro Text', system-ui, sans-serif`;
     ctx.textAlign = "center";
-    ctx.textBaseline = "bottom";
-    ctx.fillStyle = PALETTE.plateText;
+    ctx.textBaseline = "middle";
+    // A folder's name sits on a plate at the top of its ring, so it never reads over the next folder's members.
     for (const f of L.folders) {
-        if (f.r * k < 40 || !inView(f.x, f.y - f.r, f.r)) continue;
-        ctx.fillText(f.name, f.x, f.y - f.r - 2 / k);
-    }
-    if (L.leafR * k >= BUBBLE_LABEL_PX) {
-        ctx.textBaseline = "top";
+        if (!f.name || f.r * k < 40 || !inView(f.x, f.y - f.r, f.r)) continue;
+        const w = ctx.measureText(f.name).width + 12 / k, hgt = (fontPx + 6) / k;
+        const y = f.y - f.r + hgt * 0.5;
+        ctx.globalAlpha = 0.94;
+        ctx.fillStyle = PALETTE.plateStrong;
+        ctx.fillRect(f.x - w / 2, y - hgt / 2, w, hgt);
+        ctx.globalAlpha = 1;
         ctx.fillStyle = PALETTE.label;
-        const maxPx = L.leafR * k * 3.2;
+        ctx.fillText(f.name, f.x, y);
+    }
+    // A packed grid has no room between dots for a name, so a name sits inside its own dot, once the dot can hold a
+    // few words; the hover card gives the whole of it.
+    if (L.leafR * k >= BUBBLE_LABEL_PX) {
+        ctx.font = `500 ${fontPx / k}px -apple-system, 'SF Pro Text', system-ui, sans-serif`;
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = PALETTE.label;
+        const maxPx = L.leafR * k * 1.7;
         let drawn = 0;
         for (const n of L.members) {
             if (drawn >= BUBBLE_LABEL_BUDGET) break;
             if (!inView(n.x, n.y, 0)) continue;
             let text = n.name || "";
-            while (text.length > 4 && ctx.measureText(text).width * k > maxPx) text = text.slice(0, -2);
+            while (text.length > 3 && ctx.measureText(text + "…").width * k > maxPx) text = text.slice(0, -1);
             if (text !== n.name) text = text.replace(/\s+$/, "") + "…";
-            ctx.fillText(text, n.x, n.y + L.leafR + 2 / k);
+            ctx.fillText(text, n.x, n.y);
             drawn++;
         }
     }
@@ -2362,7 +2379,7 @@ function revealPacked(id) {
     const n = packedNode(id);
     if (!n) return false;
     const k = Math.min(currentZoom ? currentZoom.scaleExtent()[1] : MAX_ZOOM,
-                       Math.max(openLayout.fitK, (BUBBLE_LABEL_PX * 1.6) / openLayout.leafR));
+                       Math.max(openLayout.fitK, (BUBBLE_LABEL_PX * 1.2) / openLayout.leafR));
     const t = d3.zoomIdentity.translate(width / 2, height / 2).scale(k).translate(-n.x, -n.y);
     if (currentZoom) {
         const seq = ++revealSeq;

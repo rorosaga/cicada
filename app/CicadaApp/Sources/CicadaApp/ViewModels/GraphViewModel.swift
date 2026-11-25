@@ -7,6 +7,8 @@ private let graphLog = Logger(subsystem: "com.cicada.app", category: "graph-push
 
 enum ZoomAction {
     case zoomIn, out, reset, fit
+    /// The open list bubble's × (owner 2026-11-25): back to the view it was opened from; `Now` for Esc, never animated.
+    case closeBubble, closeBubbleNow
 }
 
 /// Thin projection over `Store.graph` (§5.5). Nodes/edges/rosters are synced
@@ -80,6 +82,9 @@ final class GraphViewModel {
     var backTargetName: String? { navHistory.backTarget?.name }
     var isGraphReady = false
     var zoomAction: ZoomAction?
+    /// Owner 2026-11-25: the list bubble open on the canvas (graph.js says so), for the chip that names it.
+    var openBubbleId: String?
+    var openBubble: GraphBubble? { openBubbleId.flatMap { id in bubbles.first { $0.id == id } } }
     /// Sticky pan mode from the toolbar toggle; `GraphView.updateNSView` mirrors
     /// it into graph.js (`setPanToggle`). Holding Shift is the momentary twin.
     var panModeOn = false
@@ -230,6 +235,7 @@ final class GraphViewModel {
             edges = []
             bubbles = []
             bubbleOf = [:]
+            openBubbleId = nil
             resetGraphMemos()
             entities = []
             observerRoster = []

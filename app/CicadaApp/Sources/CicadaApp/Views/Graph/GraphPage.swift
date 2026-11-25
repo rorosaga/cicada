@@ -28,7 +28,8 @@ struct GraphPage: View {
 
     private var dismissState: GraphDismiss.State {
         GraphDismiss.State(findOpen: findOpen, legendOpen: legendOpen,
-                           readerOpen: provenance.isPresented, entityOpen: graphVM.selectedEntity != nil)
+                           readerOpen: provenance.isPresented, entityOpen: graphVM.selectedEntity != nil,
+                           bubbleOpen: graphVM.openBubbleId != nil)
     }
 
     var body: some View {
@@ -123,6 +124,10 @@ struct GraphPage: View {
             if findOpen {
                 GraphFindOverlay(isActive: isVisible, close: { findOpen = false })
                     .padding(inset)
+            } else if let bubble = graphVM.openBubble {
+                GraphBubbleChip(bubble: bubble)
+                    .padding(inset)
+                    .frame(maxWidth: .infinity, alignment: .top)
             }
         }
         .frame(width: width, height: height)
@@ -176,6 +181,7 @@ struct GraphPage: View {
         case .closeReader: provenance.close()
         case .closeEntity: graphVM.clearSelection()
         case .closeEntityAndReader: provenance.close(); graphVM.clearSelection()
+        case .closeBubble: graphVM.zoomAction = .closeBubbleNow
         case .none: break
         }
     }

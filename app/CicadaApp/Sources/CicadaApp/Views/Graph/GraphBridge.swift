@@ -17,6 +17,9 @@ enum GraphMessage: Equatable {
     case nodeHovered(String, x: Double, y: Double, r: Double)
     /// ROR-135 — the pointer left it, or the node moved from under the card (a pan, a zoom, a drag).
     case hoverEnded
+    /// Owner 2026-11-25 — a list's bubble opened on the canvas (its id), and closed again.
+    case bubbleOpened(String)
+    case bubbleClosed
     case jsError(String)
 
     static func parse(_ body: Any) -> GraphMessage? {
@@ -31,6 +34,8 @@ enum GraphMessage: Equatable {
         case "escape": return .escape
         case "focusCleared": return .focusCleared
         case "hoverEnded": return .hoverEnded
+        case "bubbleClosed": return .bubbleClosed
+        case "bubbleOpened": return id.map(GraphMessage.bubbleOpened)
         case "nodeHovered":
             guard let id, let x = (json["x"] as? NSNumber)?.doubleValue, let y = (json["y"] as? NSNumber)?.doubleValue,
                   let r = (json["r"] as? NSNumber)?.doubleValue, x.isFinite, y.isFinite, r.isFinite else { return nil }

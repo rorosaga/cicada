@@ -73,7 +73,7 @@ const linkPairs = (h) => h.get("links.map(l => [typeof l.source === 'object' ? l
         return ids(h, "visibleNodes").includes("list:youtube-playlists");
     })());
     h.call("applyFilters", { minDegree: 0 });
-    check("its label says what it holds", h.get("labelText(bubbleNodeById.get('list:youtube-playlists'))") === "YouTube: Playlists · 40 videos");
+    check("its label says what it holds", h.get("labelText(bubbleNodeById.get('list:youtube-playlists'))") === "YouTube: Playlists · " + (40).toLocaleString() + " videos");
 }
 
 // ---- open, close
@@ -85,7 +85,7 @@ const linkPairs = (h) => h.get("links.map(l => [typeof l.source === 'object' ? l
     check("... and Swift is told", posts.some(p => p.type === "bubbleOpened" && p.id === "list:youtube-playlists"));
     check("opening reheats nothing", h.get("simulation.alpha()") === alphaBefore);
     const L = h.get("({ cx: openLayout.cx, cy: openLayout.cy, r: openLayout.r, n: openLayout.members.length, folders: openLayout.folders.length, leafR: openLayout.leafR })");
-    check("every member is laid out inside the open circle, one folder ring", L.n === 40 && L.folders === 1, JSON.stringify(L));
+    check("every member is laid out inside the open circle: the folder, and one ring for the pages in no folder", L.n === 40 && L.folders === 2, JSON.stringify(L));
     const outside = h.get(`openLayout.members.filter(n => Math.hypot(n.x - ${L.cx}, n.y - ${L.cy}) + n._packedR > ${L.r} + 1e-6).length`);
     check("... none past its edge", outside === 0);
     check("a member is picked where it is drawn", (() => {
@@ -97,9 +97,11 @@ const linkPairs = (h) => h.get("links.map(l => [typeof l.source === 'object' ? l
     check("the camera fits the open bubble", Math.abs(h.get("transform.k") - h.get("openLayout.fitK")) < 1e-9);
     const before = h.get("openLayout.before");
     h.get("onKeyDown({ key: 'Escape', preventDefault() {} })");
-    check("Esc closes it at once", h.get("openBubbleId") === null && h.get("openLayout") === null);
+    check("Esc goes to the page, which closes panels and the column before the bubble", posts.some(p => p.type === "escape") && h.get("openBubbleId") !== null);
+    h.get("closeOpenBubble(false)");
+    check("the page's close (Esc's) closes it at once", h.get("openBubbleId") === null && h.get("openLayout") === null);
     check("... the camera is back where it was", Math.abs(h.get("transform.k") - before.k) < 1e-9);
-    check("... Swift is told, and Esc went no further", posts.some(p => p.type === "bubbleClosed") && !posts.some(p => p.type === "escape"));
+    check("... and Swift is told", posts.some(p => p.type === "bubbleClosed"));
     check("... and its members hold no stale place", h.get("rawNodes.filter(n => n.id.startsWith('video-') && (n.x != null || n._packed)).length") === 0);
 }
 

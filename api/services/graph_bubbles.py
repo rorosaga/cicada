@@ -40,11 +40,8 @@ def bubble_id(list_key: str) -> str:
 
 def _groups(memory_path: Path):
     """``list_pages.groups`` or None. Never raises: the graph without bubbles is the graph as it was."""
-    fn = getattr(list_pages, "groups", None)
-    if fn is None:
-        return None
     try:
-        return fn(Path(memory_path))
+        return list_pages.groups(Path(memory_path))
     except Exception as exc:  # noqa: BLE001 - a failed grouping must never cost the graph its answer
         logger.warning("graph bubbles: grouping failed ({})", type(exc).__name__)
         return None

@@ -129,11 +129,12 @@ def measure(bank: Path) -> dict:
         warm.append((time.perf_counter() - t) * 1000)
     body = g.model_dump_json(by_alias=True)
     nodes = g.nodes
-    folded = sum(1 for n in nodes if getattr(n, "bubble", None))
+    folded = sum(len(b.members) for b in g.bubbles)
     return {"build_cold_ms": round(cold), "build_warm_ms": round(min(warm)), "json_bytes": len(body),
+            "bubbles_bytes": len(json.dumps([b.model_dump(by_alias=True) for b in g.bubbles])),
             "nodes": len(nodes), "links": len(g.links), "quiet": sum(1 for n in nodes if n.quiet),
-            "folded": folded, "drawn_when_closed": len(nodes) - folded,
-            "bubbles": sum(1 for n in nodes if getattr(n, "bubble_count", 0))}
+            "bubbles": len(g.bubbles), "folded": folded, "drawn_when_closed": len(nodes) - folded + len(g.bubbles),
+            "lists": [(b.name, b.count, len(b.folders), len(b.outside)) for b in g.bubbles]}
 
 
 def main() -> None:
