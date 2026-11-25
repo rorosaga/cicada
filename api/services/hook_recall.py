@@ -817,10 +817,8 @@ def _with_unread(memory_path: Path, prompt: str, note: Injection, *, recent: fro
         return note
     while hits:
         block = "\n".join([recall_text.UNREAD_HEADER, *(line for _ep, line in hits), recall_text.UNREAD_FOOTER])
-        # G246: a save the message is plainly about (every hit here: two rare words, `Hit.strong`) leads a topic note,
-        # whose lines are claims found by words with no strength of their own; a page the message NAMES leads it.
-        lead = note.text and note.reason == "topic" and any(h.strong for h in hits)
-        text = (f"{block}\n\n{note.text}" if lead else f"{note.text}\n\n{block}") if note.text else block
+        # An unread conversation's lines are no saved hits and have no strength: they always follow the note.
+        text = f"{note.text}\n\n{block}" if note.text else block
         if len(text) // 4 <= MAX_TOKENS:
             return replace(note, text=text, injected=(*note.injected, *(ep for ep, _line in hits)),
                            reason=note.reason if note.text else "unread")

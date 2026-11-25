@@ -216,7 +216,7 @@ def _find(memory_path: Path, reader, stems: list[str], k: int, min_shared: int, 
         if hit.page is not None:
             title = text_fold.subject_terms(hit.title)
             said = title & set(shared)
-            strong = ((len(shared) >= 2 or (bool(said) and said == title))
+            strong = bool(title) and ((len(shared) >= 2 or (bool(said) and said == title))
                       and len(said) >= TITLE_COVER * len(title)
                       and sum(weights[s] for s in shared) >= NOTE_COVER * total)
             if min_shared > 1 and not strong:
