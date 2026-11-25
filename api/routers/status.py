@@ -25,6 +25,7 @@ from api.services import (
     env_overrides,
     git_service,
     inbox_service,
+    sleep_catch_up,
     sleep_cycle,
     sleep_debt,
     sleep_scheduler,
