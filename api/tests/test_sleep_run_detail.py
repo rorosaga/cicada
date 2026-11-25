@@ -102,6 +102,7 @@ def test_history_entries_carry_the_run_they_belong_to(tmp_path, monkeypatch):
     assert run["startedBy"] == "user" and run["pausedMs"] >= 0 and run["readMs"] >= 0
 
 
+@pytest.mark.slow
 def test_the_history_run_summary_survives_a_15_row_window(tmp_path, monkeypatch):
     """A 20-batch run alone fills a 15-row page of history; the group's numbers are the run's own."""
     ids = episode_ids(20)

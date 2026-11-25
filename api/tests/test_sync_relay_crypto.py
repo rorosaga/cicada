@@ -207,6 +207,7 @@ def test_a_large_payload_is_split_into_consecutive_parts_and_a_gap_is_refused():
     assert framed_size(len(payload)) >= sum(len(f) for f in frames) - 4 * 400
 
 
+@pytest.mark.slow
 def test_a_bootstrap_over_80_mib_is_spooled_to_a_private_file_never_held_in_memory(tmp_path):
     """The owner's bootstrap is estimated near 90 MB; the device's cap matches the relay's 256 MiB stream bound."""
     import tracemalloc

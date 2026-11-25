@@ -74,6 +74,7 @@ def _settle(env, want: int = 1, seconds: float = 8.0):  # noqa: F811
     return _episodes(env)
 
 
+@pytest.mark.slow
 def test_a_stop_during_a_stall_is_spooled_and_lands_once(env, tmp_path, server):  # noqa: F811
     home = tmp_path / "hook-home"
     _stall(server, capture.TIMEOUT_S + 2)
@@ -106,6 +107,7 @@ def test_a_last_stop_during_a_stall_with_no_later_firing_still_lands(env, tmp_pa
     assert A_TURNS[0][1] in episodes[0].read_text(encoding="utf-8")
 
 
+@pytest.mark.slow
 def test_a_per_turn_post_during_a_stall_is_kept_once(env, tmp_path, server):  # noqa: F811
     """A harness whose hook carries the turn's words (a post that names no file to read again)."""
     payload = {"session_id": "gem-session-1", "prompt": "The alpha parser question.", "prompt_response": "Its answer.",

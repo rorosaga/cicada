@@ -291,3 +291,36 @@ def test_stage_ones_standing_facts_rule_covers_what_the_user_says_of_someone_els
 
     assert "about themselves or about someone else" in prompt
     assert "only when they said it of" not in prompt   # the sentence the model read as "the owner's facts alone"
+
+
+def test_a_relative_date_held_under_a_waiting_name_is_right_and_said_so(tmp_path):
+    """A one-off thing named once ("the vet visit is in ten days", the visit its own entity) is below the promotion bar,
+    so the claim that dates it waits in the pending store. The day is resolved all the same: ``ok``, with
+    ``held_waiting`` saying it is not on a page. A wrong day held is still wrong; a page's right day is never "held"."""
+    fx = bench.load_fixture()
+    fx["gold"]["dated"] = [{"id": "X1", "why": "invented: a day ahead", "says": ["vet"], "date": -3},
+                           {"id": "X2", "why": "invented: a month", "says": ["vendange"], "month_of": 9}]
+    held = {"name": "Vet visit", "type": "concept", "held_claims": [
+        {"id": "clm_v", "text": "Vet visit date: 2026-11-20", "subject": "vet-visit", "predicate": "value-of-date",
+         "object": "2026-11-20", "object_kind": "literal", "valid_from": "2026-11-10"},
+        {"id": "clm_w", "text": "Vendange trip month: septembre", "subject": "vendange-trip", "predicate": "value-of-month",
+         "object": "septembre", "object_kind": "literal", "valid_from": "2026-08-01"}]}
+    (tmp_path / "pending_entities.jsonl").write_text(json.dumps(held) + "\n")
+    (tmp_path / "entities").mkdir()
+    snap = {"model": "t", "clock": CLOCK.isoformat(), "claims": [_claim("Ines works at Kestrel Robotics")],
+            "pages": [_page("ines-varga", "Ines Varga", owner=True)], "questions": [], "phases": [],
+            "episodes_unprocessed": 0}
+    s = bench.score(snap, tmp_path, fx)
+    x1, x2 = (next(d for d in s["dated"] if d["id"] == i) for i in ("X1", "X2"))
+    assert (x1["ok"], x1["on_page"], x1["held_waiting"], x1["want"]) == (True, False, True, "2026-11-20")
+    assert (x2["ok"], x2["held_waiting"]) == (True, True)
+    assert s["summary"]["dated_ok"] == 2 and s["summary"]["dated_held"] == 2
+    # the wrong day held stays wrong
+    held["held_claims"][0].update(object="2026-11-26", text="Vet visit date: 2026-11-26")
+    (tmp_path / "pending_entities.jsonl").write_text(json.dumps(held) + "\n")
+    x1 = next(d for d in bench.score(snap, tmp_path, fx)["dated"] if d["id"] == "X1")
+    assert (x1["ok"], x1["held_days"]) == (False, ["2026-11-10", "2026-11-26"])
+    # the right day on a page is on the page, never counted as held
+    snap["claims"].append({**_claim("Vet visit date: 2026-11-20", page="ines-varga"), "object": "2026-11-20"})
+    x1 = next(d for d in bench.score(snap, tmp_path, fx)["dated"] if d["id"] == "X1")
+    assert (x1["ok"], x1["on_page"], x1["held_waiting"]) == (True, True, False)

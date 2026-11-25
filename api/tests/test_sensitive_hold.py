@@ -262,6 +262,7 @@ def _sources():
             yield rel, path
 
 
+@pytest.mark.slow
 def test_every_model_call_goes_through_the_one_door():
     """A new call site fails here. ``providers.py`` is the door; the three engines define what it calls."""
     owners = {"api/services/providers.py", "api/services/agent_engine.py", "api/services/codex_engine.py",

@@ -170,6 +170,7 @@ def machines(tmp_path_factory):
         laptop.stop()
 
 
+@pytest.mark.slow
 def test_a_captured_session_lands_once_on_the_server_and_never_on_the_client(machines):
     server, laptop, env = machines["server"], machines["laptop"], machines["client_env"]
     transcript = machines["projects"] / f"{SID}.jsonl"
@@ -187,6 +188,7 @@ def test_a_captured_session_lands_once_on_the_server_and_never_on_the_client(mac
     assert laptop.episodes() == before_laptop                     # nothing on the client's own disk
 
 
+@pytest.mark.slow
 def test_a_server_that_is_down_loses_nothing_and_the_spool_flushes_when_it_is_back(machines):
     server, env = machines["server"], machines["client_env"]
     transcript = machines["projects"] / f"{SID}.jsonl"

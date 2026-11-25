@@ -582,6 +582,7 @@ def test_a_book_with_thousands_of_long_highlights_is_trimmed_and_never_refuses_t
     assert {p.frontmatter["name"] for p in _books(memory).values()} == {"Very Highlighted", "Small Book"}
 
 
+@pytest.mark.slow
 def test_what_a_cap_left_out_is_said_in_the_sync_answer_and_in_the_books_own_words(client):
     """Re-check of #600: trimming is never silent. The oldest highlights are kept (an edit stays an edit); the count of
     those left out comes back from the sync for the Apple Books row, and the body says so in one line that does not

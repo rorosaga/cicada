@@ -11,7 +11,8 @@ conversations said, mostly in code with no model:
 - **forbid**: what the assistant said or suggested, and the person declined, must not be held as the person's fact.
 - **people**: a nickname and a full name are one page; two people sharing a first name are two.
 - **pages**: who and what is mentioned in 2+ conversations gets a page; a one-off mention does not.
-- **dated**: "yesterday" in a dated conversation is dated from that conversation, not from the day Sleep ran.
+- **dated**: "yesterday" in a dated conversation is dated from that conversation, not from the day Sleep ran; the day
+  counts on a page's claim or on one held under a waiting name (``held_waiting``).
 - **integrity**: a password said in a chat reaches no page; no project is made by Sleep; nothing is evergreen; the share
   of claims whose evidence is a located span.
 
@@ -383,22 +384,26 @@ def held_lines(bank: Path) -> list[dict]:
     return found
 
 
-def held_claim_texts(bank: Path) -> list[str]:
-    """What the claims held under a waiting name say (``held_claims`` in ``pending_entities.jsonl``): Stage 1 wrote the
-    claim, but its subject is below the promotion bar, so it waits with the name and is written when a page is made.
-    A held claim is a claim (subject, predicate, object, a located span), not prose; it is just not on a page yet."""
+def held_claims(bank: Path) -> list[dict]:
+    """The claims held under a waiting name (``held_claims`` in ``pending_entities.jsonl``): Stage 1 wrote the claim,
+    but its subject is below the promotion bar, so it waits with the name and is written when a page is made. A held
+    claim is a claim (subject, predicate, object, its dates, a located span), not prose; it is just not on a page yet."""
     path = bank / "pending_entities.jsonl"
-    texts: list[str] = []
+    held: list[dict] = []
     if path.exists():
         for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
             try:
                 line = json.loads(raw)
             except ValueError:
                 continue
-            for c in (line.get("held_claims") or []) if isinstance(line, dict) else []:
-                if isinstance(c, dict):
-                    texts.append(claim_text(c))
-    return texts
+            held.extend(c for c in ((line.get("held_claims") or []) if isinstance(line, dict) else [])
+                        if isinstance(c, dict))
+    return held
+
+
+def held_claim_texts(bank: Path) -> list[str]:
+    """What the claims held under a waiting name say (`held_claims`)."""
+    return [claim_text(c) for c in held_claims(bank)]
 
 
 def score(snap: dict, bank: Path, fixture: dict) -> dict:
@@ -537,24 +542,42 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
     expected = [{"term": t, "ok": bool(has_page(t)), "pages": has_page(t)} for t in gold["pages"]["expected"]]
     not_expected = [{"term": t, "ok": not has_page(t), "pages": has_page(t)} for t in gold["pages"]["not_expected"]]
 
+    def days_of(hit: list[dict]) -> list[str]:
+        return sorted(({str(c.get(k) or "")[:10] for c in hit for k in ("valid_from", "expected_end", "target")}
+                       | {d for c in hit for d in re.findall(r"\d{4}-\d{2}(?:-\d{2})?", str(c.get("object") or ""))})
+                      - {""})
+
+    # A relative date is right when a claim carries the day, on a page or held under a waiting name (2026-11-25): a
+    # one-off thing the person named once ("my review is in two weeks", the review its own entity) is below the
+    # promotion bar by design, so the claim that dates it waits in the pending store. Read on a page alone, the check
+    # measured where Stage 1 put the value, not whether the day was resolved. ``held_waiting`` says which.
+    waiting_claims = held_claims(bank)
     dated = []
     for row in gold["dated"]:
-        hit = held(expand_groups(row["says"], clock))
-        froms = sorted(({str(c.get(k) or "")[:10] for c in hit for k in ("valid_from", "expected_end", "target")}
-                        | {d for c in hit for d in re.findall(r"\d{4}-\d{2}(?:-\d{2})?", str(c.get("object") or ""))})
-                       - {""})
+        groups = expand_groups(row["says"], clock)
+        on_page = held(groups)
+        waits = [c for c in waiting_claims if matches(claim_text(c), groups)]
+
         if row.get("month_of"):
             # A month said without a year or a day ("in March"): any date in that month, or the month's name.
             month = int(row["month_of"])
             want = f"month {month:02d}"
-            ok = (any(len(d) >= 7 and d[5:7] == f"{month:02d}" for d in froms)
-                  or any(matches(claim_text(c), [[date(2000, month, 1).strftime("%B"), MONTHS_FR[month - 1]]])
-                         for c in hit))
+
+            def right(hit):
+                return (any(len(d) >= 7 and d[5:7] == f"{month:02d}" for d in days_of(hit))
+                        or any(matches(claim_text(c), [[date(2000, month, 1).strftime("%B"), MONTHS_FR[month - 1]]])
+                               for c in hit))
         else:
             want = _day(clock, row["date"]).isoformat()
-            ok = want in froms
-        dated.append({"id": row["id"], "why": row["why"], "want": want, "ok": ok, "valid_from": froms,
-                      "on_run_day": date.today().isoformat() in froms})
+
+            def right(hit):
+                return want in days_of(hit)
+        page_ok = right(on_page)
+        ok = page_ok or right(waits)
+        froms = days_of(on_page + waits)
+        dated.append({"id": row["id"], "why": row["why"], "want": want, "ok": ok, "on_page": page_ok,
+                      "held_waiting": ok and not page_ok, "valid_from": froms, "page_days": days_of(on_page),
+                      "held_days": days_of(waits), "on_run_day": date.today().isoformat() in froms})
 
     # The conversations keep the person's words as said (the sensitive rail holds a secret back from engines and pages,
     # never rewrites the record), and the derived search indexes are built from them: only what Sleep wrote counts.
@@ -606,7 +629,7 @@ def score(snap: dict, bank: Path, fixture: dict) -> dict:
             "one_person_ok": total(one_person), "one_person": len(one_person),
             "name_joined_ok": total(name_joined), "name_joined": len(name_joined),
             "pages_ok": total(expected) + total(not_expected), "pages_checks": len(expected) + len(not_expected),
-            "dated_ok": total(dated), "dated": len(dated),
+            "dated_ok": total(dated), "dated_held": total(dated, "held_waiting"), "dated": len(dated),
             "pages_total": len(pages), "claims_total": len(claims), "questions": len(snap["questions"]),
             "span_rate": integrity["span_rate"],
             "integrity_breaks": len(leaked) + len(integrity["project_pages_made"]) + len(integrity["evergreen_pages"]),
@@ -940,6 +963,7 @@ def report(out: Path) -> str:
             ("name_joined_ok", f"a full name and its nickname's page joined by Sleep /{first.get('name_joined', '?')}"),
             ("pages_ok", f"page made / not made right /{first.get('pages_checks', '?')}"),
             ("dated_ok", f"relative dates right /{first.get('dated', '?')}"),
+            ("dated_held", "relative dates right only on a claim held under a waiting name"),
             ("fade_keeps_ok", f"pages kept coming back to, not fading /{first.get('fade_keeps', '?')}"),
             ("fade_order_ok", f"fading order right (held job above left job, person above a place named once) /{first.get('fade_order', '?')}"),
             ("silence_lasting_fading", f"after 6 weeks' silence: partner, sister, employer under the question line (want 0) /{first.get('silence_lasting', '?')}"),
@@ -994,7 +1018,7 @@ def compare(out: Path, a: str, b: str) -> str:
     sa = [json.loads((x / "score.json").read_text(encoding="utf-8"))["summary"] for x in ga]
     sb = [json.loads((x / "score.json").read_text(encoding="utf-8"))["summary"] for x in gb]
     for key in ("points_claim", "points_held", "points_judged", "updates_correct", "apart_ok", "forbid_ok", "roles_ok", "people_ok", "one_person_ok", "name_joined_ok", "pages_ok", "dated_ok",
-                "claims_total", "pages_total"):
+                "dated_held", "claims_total", "pages_total"):
         va = [s[key] for s in sa if s.get(key) is not None]
         vb = [s[key] for s in sb if s.get(key) is not None]
         if not va or not vb:

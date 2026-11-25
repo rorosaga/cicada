@@ -3,6 +3,7 @@ fresh viewer's first click touches. No LLM, no network: pure file + git I/O.
 """
 from __future__ import annotations
 
+import pytest
 import re
 
 from _demo_scenario import T, build, d, day_one, demo
@@ -26,6 +27,7 @@ def _client(tmp_path, monkeypatch):
     return TestClient(main.app), root
 
 
+@pytest.mark.slow
 def test_populate_writes_the_expected_counts(tmp_path):
     bank_dir = demo(tmp_path, index=False, showcase=True, today=None)   # `populate` with every step, on the real day
     assert len(list((bank_dir / "entities").glob("*.md"))) >= 60
@@ -78,6 +80,7 @@ def test_expiry_closed_the_two_past_dues_in_its_own_commit(tmp_path):
     assert f"Expiry {T.isoformat()}" in log and "Cicada-Author: cicada" in log
 
 
+@pytest.mark.slow
 def test_a_pinned_today_is_deterministic(tmp_path):
     a, b = build(tmp_path / "a", index=False), build(tmp_path / "b", index=False)   # two generations, never a copy
     for sub in ("entities", "episodes"):
@@ -105,6 +108,7 @@ def test_populate_writes_real_git_history_with_trailers(tmp_path):
     assert log.count("---END---") >= 2  # more than one commit
 
 
+@pytest.mark.slow
 def test_endpoint_creates_and_activates(tmp_path, monkeypatch):
     client, root = _client(tmp_path, monkeypatch)
     resp = client.post("/banks/demo")
@@ -120,6 +124,7 @@ def test_endpoint_creates_and_activates(tmp_path, monkeypatch):
     assert client.get("/sources/overview").status_code == 200
 
 
+@pytest.mark.slow
 def test_endpoint_reopens_the_demo_it_made(tmp_path, monkeypatch):
     """Round 4 (T-Demo): a second *Try the demo* (or Settings → General's *Explore the demo*) opens the demo that is
     there — never a 409, never a re-populate over its edits. `test_demo_mode_routes.py` holds the name rule."""
@@ -190,6 +195,7 @@ def test_every_roster_page_reads_as_its_own_fictional_thing(tmp_path):
         assert "synthetic" not in line.lower() and "cicada" not in line.lower(), line
 
 
+@pytest.mark.slow
 def test_the_demos_runs_show_source_conversation_and_pages(tmp_path):
     """G125: an opened run on the Sleep page lists each conversation with the pages it fed, so the demo's pages record
     the conversations that fed them (`source_episodes`, the way a real page does) — consistent with the run that made

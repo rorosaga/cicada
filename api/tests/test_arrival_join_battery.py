@@ -10,6 +10,7 @@ import pytest
 from benchmarks.consolidation import arrival_join_battery as battery
 
 
+@pytest.mark.slow
 def test_every_trap_answers_what_it_says_and_none_joins_that_must_not():
     result = battery.run_traps()
     assert result["failed"] == [], result["failed"]
@@ -33,6 +34,7 @@ def test_no_scene_joins_wrongly_and_none_is_missed_across_two_thousand():
     assert result["joined"] > 100 and result["joined"] == result["should_join"]       # the net exercises the joining path too
 
 
+@pytest.mark.slow
 def test_the_net_catches_a_rule_that_was_loosened(monkeypatch):
     """Widen the window to eight days and the day-8 trap, and some scenes, must fail: a net that cannot fail is no net."""
     from api.services import arrival_join as aj

@@ -55,6 +55,7 @@ def _head(m: Machine) -> str:
     return _git(m.bank, "rev-parse", "HEAD").strip()
 
 
+@pytest.mark.slow
 def test_a_computer_scans_the_qr_and_keeps_a_copy_over_the_relay(two):
     relay, home, new = two
     status, made = home.call("POST", "/devices/pairing/relay")
@@ -96,6 +97,7 @@ def test_a_computer_scans_the_qr_and_keeps_a_copy_over_the_relay(two):
     assert any(d["kind"] == "full" for d in devices)
 
 
+@pytest.mark.slow
 def test_typed_code_shows_the_same_six_digits_and_needs_both_confirmations(two):
     relay, home, new = two
     made = home.call("POST", "/devices/pairing/relay")[1]
@@ -112,6 +114,7 @@ def test_typed_code_shows_the_same_six_digits_and_needs_both_confirmations(two):
     assert _wait(lambda: (new.cicada_home / "replica_of").exists(), 30), new.log.read_text()[-3000:]
 
 
+@pytest.mark.slow
 def test_two_devices_answering_one_code_void_it(two, tmp_path):
     relay, home, new = two
     other = Machine(tmp_path, "other")
