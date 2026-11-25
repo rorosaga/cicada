@@ -359,7 +359,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   about their own life; a private
   person's name never reaches any service; every page says why it matters to the person, derived on read (`web_context`,
   `page_relevance`, `storage.md`). **Ruling 54 (2026-11-04):** a handle vs a named person is worked like an
-  agent on the Claude plan only: a tool-less model, every query and link it asks for passes `name_guard` (a name known only from the person's record never leaves; a tie blocks); cited, undoable, never a merge (`settling_agent`; ruling 83 amends). **54a:** a page's tracked
+  agent on the Claude plan only: a tool-less model, every query and link it asks for passes `name_guard` (a name known only from the person's record never leaves; a tie blocks); cited, undoable, never a merge (`settling_agent`; ruling 84 amends). **54a:** a page's tracked
   sources come first, opened directly, never a search for a private person; a walled one only by the person's agent. **A tracked source's
   dated re-check does (ruling 26):** a new dated fact; the newest evidence wins, even over the person's own words; the same
   day or undated asks once; walled pages only by the person's agent (`storage.md`, `network.md`).
@@ -450,7 +450,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   speaking only `/v1` with an agent token, like `clients/memory-tool`, is not a door (38a, 2026-10-29).
   Apps sign in through the listener's own OAuth 2.1 server (ruling 32): consent only in the app, by typing the code the
   person's own page shows, never a click or the public page; a self-registered app is never named by its claim (`network.md`).
-- **Cicada's own agent (ruling 83, 2026-11-25; amends 54 and 44's name guard for it alone):** a harness session on the
+- **Cicada's own agent (ruling 84, 2026-11-25; amends 54 and 44's name guard for it alone):** a harness session on the
   Claude plan, after the cycle and outside Sleep's window, works a few open questions read-only in **two compartments that
   never meet**: private (files and masked conversation copies; no web, no shell, never the bank) and web (search and fetch;
   no file tool). It finds, **Cicada's code writes**: located evidence read by sentence, one `found_by_agent` settle, undoable,

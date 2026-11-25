@@ -242,7 +242,7 @@ async def lifespan(app: FastAPI):
     from api.services import replica as _replica
 
     _replica.leave_copy(settings.memory_root)
-    # Ruling 83: a harness session a backend that is gone left running dies with this start (recorded by process group).
+    # Ruling 84: a harness session a backend that is gone left running dies with this start (recorded by process group).
     from api.services import harness_agent
 
     asyncio.get_running_loop().run_in_executor(None, harness_agent.reap_orphans)

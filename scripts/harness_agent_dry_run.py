@@ -1,4 +1,4 @@
-"""Dry run of Cicada's own agent (`harness_questions`, ruling 83, 2026-11-25). Writes nothing to the bank.
+"""Dry run of Cicada's own agent (`harness_questions`, ruling 84, 2026-11-25). Writes nothing to the bank.
 
 Without --work: one line per open question the agent would work, in the order it works them: the id and the kind, nothing
 else (no name, no title). With --work N (default 1 when given; keep it small): the agent really works the first N, on this

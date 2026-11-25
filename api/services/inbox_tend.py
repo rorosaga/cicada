@@ -147,7 +147,7 @@ RULES: dict[str, str] = {
     "target_faded": "The page it asked about has faded, and the name has not come up since; what is held about it is still held",
     # `name_revisit` (ruling 82 (e)): no conversation it came from says the name: a label Cicada made up for something.
     "name_not_said": "It asked about a label Cicada made up, not something that was said; what is held about it is still held",
-    # Ruling 83 (2026-11-25, `harness_agent`): Cicada's own agent read the person's files, the web or their browser.
+    # Ruling 84 (2026-11-25, `harness_agent`): Cicada's own agent read the person's files, the web or their browser.
     "found_by_agent": "Found by Cicada's agent: what it read is shown with the answer",
 }
 #: What the settled list says each retired "same as?" question became (owner 2026-11-04, `pair_evidence`).
@@ -230,7 +230,7 @@ class Decision:
     #: The located words a read rested on, ``{"episode", "start", "end", "kind"}`` (``kind``: whose words they are), ids
     #: and offsets only: the settled list shows them beside the reason (`question_revisit`, ruling 82).
     spans: list = field(default_factory=list)
-    #: ``found_by_agent`` only (ruling 83): ``{"episode": the citations' episode, "evidence": [{where, quote}], "trail": [the
+    #: ``found_by_agent`` only (ruling 84): ``{"episode": the citations' episode, "evidence": [{where, quote}], "trail": [the
     #: audit of the session]}``. The claim's span points into the episode; the record keeps the evidence and the trail.
     found: dict | None = None
 

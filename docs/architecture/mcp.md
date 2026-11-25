@@ -2540,7 +2540,7 @@ a client is one line after a test.
   person's day (ruling 34); claude.ai sends none, and its relayed ids take the server's zone.
 
 
-## Cicada's own agent (ruling 83, owner 2026-11-25)
+## Cicada's own agent (ruling 84, owner 2026-11-25)
 
 `harness_questions.run_tail` (started by `sleep_cycle` after the cycle's window closes, on its own thread; `harness_agent` is the switch) works at most three
 open questions a run, in `question_order`: a `conflict` (which of its values a document or a site states), a `clarification` that asks what something is

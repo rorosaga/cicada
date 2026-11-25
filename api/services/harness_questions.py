@@ -1,4 +1,4 @@
-"""The open questions Cicada's own agent works, and what is done with what it finds (ruling 83; G209).
+"""The open questions Cicada's own agent works, and what is done with what it finds (ruling 84; G209).
 
 `harness_agent` runs a session and checks its answer. This module chooses the questions, picks the compartment of each
 session, builds the brief, and is the one place that writes anything: **the agent finds, Cicada's code writes.**
@@ -248,7 +248,7 @@ def due(entry: dict | None, mark: str, today: date) -> bool:
 
 
 def _pair_workable(memory_path: Path, a: str, b: str) -> bool:
-    """Two person pages, neither the owner's, never a pair the person kept apart, split or undid (ruling 83)."""
+    """Two person pages, neither the owner's, never a pair the person kept apart, split or undid (ruling 84)."""
     from api.services import inbox_tend, markdown_parser
 
     try:

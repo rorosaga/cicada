@@ -1,4 +1,4 @@
-"""Cicada's own agent: a real harness session that finds an answer out (ruling 83, owner 2026-11-25; G209).
+"""Cicada's own agent: a real harness session that finds an answer out (ruling 84, owner 2026-11-25; G209).
 
 The owner: "i always said cicada should have by default access to the computer to look for stuff and use the browser
 with the browser harness skill and everything. Also to use the power of the harness itself (like claude code)". Ruling 54's

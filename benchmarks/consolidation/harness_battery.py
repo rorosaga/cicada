@@ -1,4 +1,4 @@
-"""Battery for Cicada's own agent (`harness_questions`, ruling 83): a labelled synthetic set, live on the Claude plan.
+"""Battery for Cicada's own agent (`harness_questions`, ruling 84): a labelled synthetic set, live on the Claude plan.
 
 Every case is a tiny scratch bank of invented people and things, one open question, and where its answer is (a scratch file,
 a page served on localhost over TLS, a page behind a fake login, a page or a conversation that carries an injected

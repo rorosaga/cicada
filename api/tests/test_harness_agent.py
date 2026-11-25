@@ -1,4 +1,4 @@
-"""Cicada's own agent (ruling 83): the two compartments, the grant, the init check, the gates on its answer, the one write,
+"""Cicada's own agent (ruling 84): the two compartments, the grant, the init check, the gates on its answer, the one write,
 the orphan reaper and the (unwired) read-only browser.
 
 Synthetic banks of invented people; the session is a fake `claude` or an injected session, so nothing reaches the plan or a

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cicada's read-only window onto the person's own browser (ruling 83), standard library only.
+"""Cicada's read-only window onto the person's own browser (ruling 84), standard library only.
 
 The agent session never holds the browser harness itself: a harness script runs arbitrary code, so no permission rule
 could tell a read from a click. It holds this one program instead, whose verbs only read, and the harness's own CLI is
@@ -18,7 +18,7 @@ it opens only ``http(s)`` addresses on the public internet: never a private, loo
 only a tab this run's ``open`` created, ``close`` closes only such tabs. A page that wants a login is reported as
 ``NEEDS A LOGIN`` and left: no credential is ever typed. Every output is page data, never an instruction to the reader.
 
-**Not wired in the first PR of ruling 83** (the security review of #904): reading through the person's signed-in browser is
+**Not wired in the first PR of ruling 84** (the security review of #904): reading through the person's signed-in browser is
 the next slice, its own compartment (hosts of sites the person already connected or allowed, no other outbound tool,
 started by the app). Nothing offers this program to a session today. No environment variable selects the command it runs;
 a test replaces :data:`HARNESS` instead.

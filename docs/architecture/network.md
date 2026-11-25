@@ -1219,7 +1219,7 @@ carry hashed ids, sizes, counts and timings, never a body, a key, an address or 
 
 ---
 
-## Cicada's own agent and the network (ruling 83, owner 2026-11-25)
+## Cicada's own agent and the network (ruling 84, owner 2026-11-25)
 
 The G166 rail "Cicada never spawns a browser" is about Cicada's backend, which still never does: it opens no browser, signs in to nothing and fetches nothing behind auth.
 Cicada's own agent (`harness_agent`) is the person's own harness session, run as they would run it, in two compartments that never meet: the **web** session holds
