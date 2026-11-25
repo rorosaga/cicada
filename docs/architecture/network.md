@@ -1224,7 +1224,7 @@ carry hashed ids, sizes, counts and timings, never a body, a key, an address or 
 The G166 rail "Cicada never spawns a browser" is about Cicada's backend, which still never does: it opens no browser, signs in to nothing and fetches nothing behind auth.
 Cicada's own agent (`harness_agent`) is the person's own harness session, run as they would run it, in two compartments that never meet: the **web** session holds
 `WebSearch` and `WebFetch` (the plan's tools: no `net_guard`, no cookies, nothing signed in) and no file tool, and `WebFetch` reaches only the hosts the question
-names when it names any; the **private** session reads files and holds nothing that can send. So what a page says can reach only a session that has nothing private to
+names when it names any; the **private** session reads files (the person's document folders only, document kinds only, never a secrets, tooling or Cicada folder: `harness_files`) and holds nothing that can send. So what a page says can reach only a session that has nothing private to
 send, and what the private session read can reach no address. A private person's name may be searched in public (the owner lifted that limit; ruling 44's and 54's
 `name_guard` stays on ruling 54's step and the backend's lookups); a web page settles only a public thing (ruling 27's test). Every query and address the session used
 is kept with the settle. The signed-in browser is the next slice: its own compartment, started by the app, limited to hosts of sites the person already connected or

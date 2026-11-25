@@ -153,9 +153,9 @@ each subsystem — module names, wire shapes, routes, the app's views — lives 
 | The three network gates, the remote connector, the ToS rail, credentials, video | [`docs/architecture/network.md`](docs/architecture/network.md) |
 | Headless: the server without the app, its systemd unit, the primary-writer topology (G181) | [`docs/architecture/headless.md`](docs/architecture/headless.md) |
 
-**Keeping it this size.** A PR updates the area doc its change makes wrong, in the same PR. It touches this file only
-when a *rail* changes (a new invariant, a ruling, a boundary), and then in one or two lines that point at the doc.
-`api/tests/test_claude_md_size.py` fails above 60,000 characters and checks every doc linked above exists.
+**Keeping it this size.** A PR updates the area doc its change makes wrong, and touches this file only
+when a *rail* changes (an invariant, a ruling, a boundary), in one or two lines that point at the doc.
+`api/tests/test_claude_md_size.py` fails above 60,000 characters and checks the linked docs exist.
 
 ---
 
@@ -452,9 +452,10 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   person's own page shows, never a click or the public page; a self-registered app is never named by its claim (`network.md`).
 - **Cicada's own agent (ruling 84, 2026-11-25; amends 54 and 44's name guard for it alone):** a harness session on the
   Claude plan, after the cycle and outside Sleep's window, works a few open questions read-only in **two compartments that
-  never meet**: private (files and masked conversation copies; no web, no shell, never the bank) and web (search and fetch;
-  no file tool). It finds, **Cicada's code writes**: located evidence read by sentence, one `found_by_agent` settle, undoable,
-  none of the session's own words stored; its signed-in browser is the next slice (`harness_agent`, `mcp.md`).
+  never meet**: private (files and masked conversation copies; no web, no shell, never the bank) and web (search, fetch; no
+  file tool). It finds, **Cicada's code writes**: located evidence read by sentence, one `found_by_agent` settle, undoable,
+  no session words stored; only document kinds in folders granted by what they are (never secrets, tooling or Cicada's
+  own), nothing key-shaped stored (`harness_files`, `mcp.md`); its browser is the next slice.
 - **Reading with the person's own agent (G166):** Cicada's backend never spawns a browser and never signs in to a site; it only asks
   (only ruling 47's tier 2 — an official API the person connects — signs in, never as a browser session, `network.md`). Only a
   link the person asked about, or a wall page of a site they allowed, can be recorded — and (2026-10-16, G71) the

@@ -12,12 +12,13 @@ import stat
 import subprocess
 import sys
 import time
+from datetime import date
 from pathlib import Path
 
 import pytest
 
 from api.harness_tools import read_browser
-from api.services import harness_agent as ha, harness_questions as hq, inbox_tend, markdown_parser, web_settle, write_admission
+from api.services import harness_agent as ha, harness_files as hf, harness_questions as hq, inbox_tend, markdown_parser, web_settle, write_admission
 from benchmarks.consolidation import harness_battery as hb
 
 
@@ -66,40 +67,178 @@ def test_no_compartment_is_offered_a_shell_or_the_browser_and_the_browser_is_not
     assert "BROWSE_SCRIPT" not in source and "read_browser" not in source.replace("api/harness_tools/read_browser.py", "")
 
 
-def test_secrets_are_denied_by_absolute_rules_for_every_root_and_every_tool(tmp_path):
-    roots = (str(tmp_path / "code"), str(tmp_path / "notes"))
-    deny = set(ha.settings_for(ha.Policy(ha.PRIVATE, roots=roots))["permissions"]["deny"])
-    for root in roots:
-        for tool in ("Read", "Grep", "Glob"):
-            for name in (".env*", "*.env", "secrets*", "credentials*", ".netrc", ".pgpass", "id_*", "*.pem", "*.key", "*.p12",
-                         "*.pfx", "*.jks", "*.kdbx"):
-                assert f"{tool}(/{root}/**/{name})" in deny, (tool, root, name)
-            for folder in (".aws", ".ssh", ".gnupg"):
-                assert f"{tool}(/{root}/**/{folder}/**)" in deny
-            assert f"{tool}(/{root}/**/.git/config)" in deny
-    assert "Read(**/.env*)" in deny      # and the relative spelling
+def test_a_private_grant_is_read_rules_only_and_the_kinds_that_are_not_documents_are_denied_for_every_tool(tmp_path):
+    """Glob and Grep follow the Read rules (proved live, battery `canaries`): a rule named for either is not consulted, so none is written."""
+    root = tmp_path / "notes"
+    (root / "sub").mkdir(parents=True)
+    for name in ("a.md", "sub/b.txt", "c.md", "d.md", "e.md", "sa.json", "config.yaml", "app.py", "kubeconfig", "x.PEM", ".env"):
+        (root / name).write_text("x")
+    g = hf.grant_for_roots((str(root),), refused=(str(tmp_path / "bank"),))
+    assert g.roots == (str(root),)
+    cfg = ha.settings_for(ha.Policy(ha.PRIVATE, roots=g.roots, refused=g.refused, deny=g.deny))["permissions"]
+    assert all(r.startswith("Read(") for r in cfg["allow"]) and any(str(root) in r for r in cfg["allow"])
+    deny = set(cfg["deny"])
+    r = str(root)
+    for rule in ("Read(//**/*.json)", "Read(//**/*.yaml)", "Read(//**/*.py)", "Read(//**/*.pem)", "Read(//**/kubeconfig)",
+                 "Read(//**/.env*)", "Read(//**/id_*)", "Read(//**/credential*)", "Read(//**/*.key)",
+                 f"Read(/{r}/**/.*)", f"Read(/{r}/**/secrets)", f"Read(/{r}/**/secrets/**)", f"Read(/{r}/**/credentials/**)"):
+        assert rule in deny, rule
+    assert "Read(//**/private)" not in deny and "Read(//**/.*)" not in deny    # a folder word is only ever meant inside a granted folder
+    assert "Read(//**/*.md)" not in deny and "Read(//**/*.txt)" not in deny          # document kinds are not denied
+    assert not any(r.startswith(("Glob(", "Grep(")) for r in cfg["allow"] + cfg["deny"] if r not in ha.NEVER)
+    assert any(str((tmp_path / "bank").resolve()) in r for r in cfg["deny"])             # the refused path
 
 
-def test_read_roots_grant_plain_folders_and_never_hidden_library_links_or_mounts(tmp_path, monkeypatch):
-    for name in (".ssh", ".cicada", ".claude", ".aws", "Library", "Documents", "Downloads", "Desktop", "Pictures", "Applications",
-                 "code", "notes", "mounted"):
-        (tmp_path / name).mkdir()
-    (tmp_path / "loose.txt").write_text("x")
-    (tmp_path / "link").symlink_to(tmp_path / "code")
-    names = lambda roots: sorted(Path(r).name for r in roots)   # noqa: E731
-    monkeypatch.setattr(ha, "_same_device", lambda a, b: Path(a).name != "mounted")      # `mounted` is another volume
-    assert names(ha.read_roots(tmp_path, attended=False)) == ["code", "notes"]
-    assert names(ha.read_roots(tmp_path, attended=True)) == ["Desktop", "Documents", "Downloads", "Pictures", "code", "notes"]
+def test_the_document_kinds_are_an_allow_list_and_nothing_else_is_one():
+    assert {"md", "txt", "pdf", "docx", "csv", "html", "org", "tex", "rtf", "pages", "odt", "tsv"} <= hf.DOCUMENT_KINDS
+    assert not ({"json", "yaml", "yml", "toml", "ini", "env", "pem", "key", "db", "sqlite", "zip", "py", "js", "swift", "p12", ""}
+                & hf.DOCUMENT_KINDS)
 
 
-def test_a_questions_roots_refuse_the_bank_and_cicadas_home(tmp_path, monkeypatch):
-    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
-    (tmp_path / "home").mkdir()
-    (tmp_path / "bank").mkdir()
-    roots, refused = hq.home_roots(tmp_path / "bank", attended=False, home=tmp_path)
-    assert str((tmp_path / "bank").resolve()) in refused and str((tmp_path / "home").resolve()) in refused
-    rules = ha.settings_for(ha.Policy(ha.PRIVATE, roots=roots, refused=refused))["permissions"]["deny"]
-    assert any(str((tmp_path / "bank").resolve()) in r for r in rules)
+def test_a_synthetic_home_with_one_of_each_kind_of_folder_grants_documents_and_nothing_else(tmp_path, monkeypatch):
+    """One of each: the kinds a real install has. Names are invented; what decides is the name's words and what the walk finds."""
+    home = tmp_path / "home"
+    layout = {
+        "Notes": ["a.md", "b.txt", "sa-notes.pdf"],                                  # documents
+        "Papers": ["p1.pdf", "p2.docx", "data.csv"],                                 # documents
+        "Photos": ["x.jpg", "y.png"],                                                # neither documents nor programs: granted, nothing readable
+        "secrets": ["sa-key.json", "svc.json"],                                      # name says secrets (ordinary .json names)
+        "API-Keys": ["a.txt"], "Credentials": ["a.txt"], "my_passwords": ["a.txt"], "Tokens": ["a.txt"], "certs": ["a.txt"],
+        "Wallet": ["a.txt"], "PrivateStuff": ["a.txt"], "private": ["a.txt"],
+        "go": ["a.txt"],                                                             # a known tool folder
+        "webapp": [".git/HEAD", "README.md", "a.py"],                                # holds a repository
+        "scripts": ["a.py", "b.py", "c.sh", "d.md"],                                 # more programs than documents
+        "node-app": ["package.json", "readme.md"],                                   # a build manifest
+        "cicada-bench": ["a.md"], "engine-scratch": ["a.md"],                        # Cicada's own
+        "oldbank": ["entities/e.md", "episodes/x.md"],                               # holds a bank
+        "Library": ["a.md"], "Documents": ["a.md"],                                  # protected
+    }
+    for folder, files in layout.items():
+        for f in files:
+            (home / folder / f).parent.mkdir(parents=True, exist_ok=True)
+            (home / folder / f).write_text("x")
+    (home / ".ssh").mkdir()
+    (home / "link").symlink_to(home / "Notes")
+    (home / "mounted").mkdir()
+    monkeypatch.setattr(hf, "_same_device", lambda a, b: Path(a).name != "mounted")
+    g = hf.grant_for_home(home, attended=False, refused=())
+    assert sorted(Path(r).name for r in g.roots) == ["Notes", "Papers", "Photos"]
+    why = dict(g.skipped)
+    assert {why[n] for n in ("secrets", "API-Keys", "Credentials", "my_passwords", "Tokens", "certs", "Wallet", "PrivateStuff",
+                             "private")} == {"secrets"}
+    assert {why[n] for n in ("go", "webapp", "scripts", "node-app")} == {"tooling"}
+    assert {why[n] for n in ("cicada-bench", "engine-scratch", "oldbank")} == {"cicada"}
+    assert why["Library"] == why["Documents"] == "protected" and why["mounted"] == "mount"
+    assert ".ssh" not in why and "link" not in why                                     # hidden folders and links are never candidates
+    attended = hf.grant_for_home(home, attended=True, refused=())
+    assert "Documents" in {Path(r).name for r in attended.roots} and "Library" not in {Path(r).name for r in attended.roots}
+    assert "Read(//**/*.jpg)" in g.deny and "Read(//**/*.png)" in g.deny and "Read(//**/*.pdf)" not in g.deny
+
+
+def test_a_folder_holding_the_bank_or_refused_or_too_large_to_walk_is_not_granted(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    (home / "Notes" / "memory" / "entities").mkdir(parents=True)
+    (home / "Notes" / "memory" / "episodes").mkdir()
+    (home / "Plain").mkdir()
+    (home / "Plain" / "a.md").write_text("x")
+    (home / "Big").mkdir()
+    for i in range(30):
+        (home / "Big" / f"{i}.md").write_text("x")
+    why = dict(hf.grant_for_home(home, attended=False, refused=(str(home / "Plain"),)).skipped)
+    assert why == {"Notes": "cicada", "Plain": "cicada"}
+    monkeypatch.setattr(hf, "MAX_ENTRIES", 10)
+    again = hf.grant_for_home(home, attended=False, refused=())
+    assert dict(again.skipped)["Big"] == "too_large" and not any(Path(r).name == "Big" for r in again.roots)
+
+
+def test_the_scratch_folder_is_private_and_never_inside_a_denied_path_on_a_realistic_layout(tmp_path, monkeypatch):
+    """Cicada's home under the user's home, the bank beside the person's folders: the copies are readable (not inside any refused path
+    or granted folder) and a rule that denies Cicada's home does not cover them."""
+    home = tmp_path / "user"
+    (home / ".cicada" / "engine-scratch").mkdir(parents=True)
+    (home / "Notes").mkdir()
+    (home / "Notes" / "a.md").write_text("x")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("CICADA_HOME", str(home / ".cicada"))
+    bank = home / ".cicada" / "memory"
+    bank.mkdir()
+    grant = hq.home_grant(bank, attended=False, home=home)
+    assert [Path(r).name for r in grant.roots] == ["Notes"]
+    avoid = (*grant.refused, *grant.roots)
+    base = hf.make_scratch(avoid)
+    try:
+        assert base is not None and oct(base.stat().st_mode & 0o777) == "0o700"
+        files = base / "files"
+        files.mkdir()
+        for denied in ha.spellings(grant.refused):
+            assert not hf.under(str(files), denied), denied
+        assert not any(hf.under(str(files), r) for r in grant.roots)
+        assert hf.under(str(base), str(base)) and not hf.under(str(base), str(home / ".cicada"))
+        assert not any(part.startswith(".") for part in str(files.resolve()).split("/") if part)    # the dot-file rule does not cover it
+        rules = ha.settings_for(ha.Policy(ha.PRIVATE, roots=(*grant.roots, str(files)), refused=grant.refused, deny=grant.deny))
+        assert any(str(files.resolve()) in r for r in rules["permissions"]["allow"])
+    finally:
+        if base:
+            ha.remove_scratch(base, None)
+    # a temp folder that lies inside Cicada's home is never used
+    (home / ".cicada" / "tmp").mkdir()
+    monkeypatch.setattr("tempfile.tempdir", str(home / ".cicada" / "tmp"))
+    other = hf.make_scratch(avoid)
+    try:
+        assert other is None or not hf.under(str(other), str(home / ".cicada"))
+    finally:
+        if other:
+            ha.remove_scratch(other, None)
+
+
+def test_a_dead_backends_scratch_folder_is_removed_at_the_next_start_and_a_live_ones_is_not(tmp_path, scratch_home):
+    dead = tmp_path / "cicada-harness-dead"
+    live = tmp_path / "cicada-harness-live"
+    elsewhere = tmp_path / "keep-me"
+    for d in (dead, live, elsewhere):
+        d.mkdir()
+        (d / "ep.md").write_text("a masked copy")
+    reg = scratch_home / "harness_sessions"
+    reg.mkdir()
+    (reg / "scratch-dead.json").write_text(json.dumps({"scratch": str(dead), "owner": 2, "owner_cmd": "gone"}))
+    (reg / "scratch-else.json").write_text(json.dumps({"scratch": str(elsewhere), "owner": 2, "owner_cmd": "gone"}))
+    (reg / "scratch-live.json").write_text(json.dumps({"scratch": str(live), "owner": os.getpid(), "owner_cmd": "x"}))
+    ha.reap_orphans()
+    assert not dead.exists() and live.exists() and elsewhere.exists()           # only `cicada-harness-*` of a dead owner
+    assert not (reg / "scratch-dead.json").exists() and (reg / "scratch-live.json").exists()
+    rec = ha.register_scratch(live)
+    assert rec is not None and rec.exists()
+    ha.remove_scratch(live, rec)
+    assert not live.exists() and not rec.exists()
+
+
+def test_key_material_is_recognised_and_ordinary_prose_is_not():
+    pem = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7\n-----END PRIVATE KEY-----"
+    for text in (pem, "token: ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4", "key sk-ant-" + "x" * 30, "AKIA" + "ABCDEFGHIJKLMNOP",
+                 "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N", "d41d8cd98f00b204e9800998ecf8427e",
+                 "api_key = abcd1234efgh5678", "Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123", "CANARY_JSON_222",
+                 "Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MEFCQ0RFRkdISUo="):
+        assert hf.looks_like_key(text), text
+    for text in ("Zephyr's current stable release is 4.2, shipped in March.", "Glimmer: the in-house build cache service our team runs.",
+                 "Meeting with the platform team on 2026-11-02 about the quarterly plan", "See /Users/someone/Notes/trip/itinerary.md"):
+        assert not hf.looks_like_key(text), text
+
+
+def test_a_path_is_storable_only_when_it_is_a_document_kind_under_a_granted_folder(tmp_path):
+    root, other = tmp_path / "Notes", tmp_path / "Other"
+    for d in (root / "sub", root / "secrets", root / ".hidden", other, tmp_path / "scratch"):
+        d.mkdir(parents=True)
+    for f in ("a.md", "sub/b.pdf", "sa.json", "app.py", "Makefile", "secrets/n.md", ".hidden/n.md", "credentials.txt", ".env.md"):
+        (root / f).write_text("x")
+    (other / "a.md").write_text("x")
+    (tmp_path / "scratch" / "ep_1.md").write_text("x")
+    ok = lambda p, **kw: hf.allowed_path(str(p), (str(root),), **kw)   # noqa: E731
+    assert ok(root / "a.md") and ok(root / "sub" / "b.pdf")
+    for bad in ("sa.json", "app.py", "Makefile", "secrets/n.md", ".hidden/n.md", "credentials.txt", ".env.md"):
+        assert not ok(root / bad), bad
+    assert not ok(other / "a.md") and not ok("relative/a.md") and not ok("")                    # not under a granted folder
+    assert not ok(root / "a.md", refused=(str(root),))                                            # refused wins
+    assert hf.allowed_path(str(tmp_path / "scratch" / "ep_1.md"), (str(root),), copies_dir=str(tmp_path / "scratch"))   # a conversation copy
 
 
 # --------------------------------------------------------------------------- the audit and the init check
@@ -455,11 +594,15 @@ def test_the_plan_never_hands_a_pair_to_the_web_and_a_non_public_conflict_never_
 # --------------------------------------------------------------------------- the one write
 
 
+def _case(name):
+    return next(c for c in hb.cases("http://x") if c.name == name)
+
+
 def _runner(**by_compartment):
     """A fake harness: ``by_compartment[compartment](cwd)`` makes the session (or is one)."""
     seen = []
 
-    def runner(argv, prompt, *, cwd, env=None, on_call=None, expected_tools=None, compartment=""):
+    def runner(argv, prompt, *, cwd, env=None, on_call=None, expected_tools=None, compartment="", folders=(), copies_dir=""):
         seen.append({"argv": argv, "prompt": prompt, "cwd": cwd, "compartment": compartment, "expected": expected_tools})
         spec = by_compartment.get(compartment)
         s = spec(cwd) if callable(spec) else (spec or ha.Session())
@@ -490,7 +633,8 @@ def test_a_found_answer_is_settled_through_the_one_resolver_with_a_reason_built_
     record = markdown_parser.parse(bank / "inbox" / "settled" / "inbox-001.md").frontmatter["settled"]
     assert record["rule"] == "found_by_agent" and record["answer"] == "4.2"
     assert record["found"][0]["where"] == "https://x.test/p" and record["found"][0]["quote"] == sentence
-    assert record["trail"] == [{"tool": "address", "what": "https://x.test/p", "in": "web"}]
+    assert record["trail"][0] == {"tool": "address", "what": "https://x.test/p", "in": "web"}
+    assert record["trail"][1]["tool"] == "scan"
     row = [r for r in web_settle.list_settled(bank) if r["rule"] == "found_by_agent"]
     assert row and row[0]["reason"].startswith('Read in x.test: "Zephyr')
     stored = hb.bank_text(bank)
@@ -521,7 +665,7 @@ def test_private_then_web_and_nothing_the_private_session_read_reaches_the_web_b
 
 
 def test_a_pair_read_as_two_people_is_rejected_as_the_persons_no_from_conversation_copies(bank):
-    path = hb.cases("http://x")[8].build(bank, bank, "http://x")
+    path = _case("pair_different").build(bank, bank, "http://x")
     ids = ("ep_2026-10-03_001", "ep_2026-10-20_001")
 
     def private(cwd):
@@ -539,7 +683,7 @@ def test_a_pair_read_as_two_people_is_rejected_as_the_persons_no_from_conversati
 
 
 def test_a_pair_that_reads_as_one_person_leaves_a_template_note_through_the_admitted_write_and_joins_nothing(bank):
-    path = hb.cases("http://x")[11].build(bank, bank, "http://x")
+    path = _case("pair_same").build(bank, bank, "http://x")
 
     def private(cwd):
         a = Path(cwd) / "ep_2026-10-03_001.md"
@@ -557,7 +701,7 @@ def test_a_pair_that_reads_as_one_person_leaves_a_template_note_through_the_admi
 
 
 def test_a_note_or_a_settle_waits_for_sleep_and_is_never_a_collision(bank, monkeypatch):
-    path = hb.cases("http://x")[11].build(bank, bank, "http://x")
+    path = _case("pair_same").build(bank, bank, "http://x")
 
     def private(cwd):
         a = Path(cwd) / "ep_2026-10-03_001.md"
@@ -654,3 +798,135 @@ def test_the_browser_window_has_no_verb_that_acts(tmp_path):
     source = Path(script).read_text()
     for acting in ("click_at_xy", "type_text", "press_key", "fill_input", "dispatch_key", "upload_file", "goto_url"):
         assert acting not in source, acting
+
+
+# --------------------------------------------------------------------------- what is stored, what one question may scan, the listing
+
+
+def _file_call(path, text, kind="file", denied=False):
+    return ha.Call("f1", "Read", kind, str(path), result=text, denied=denied, error=denied)
+
+
+def test_a_quote_from_a_file_is_stored_only_when_the_file_is_an_allowed_kind_under_a_granted_folder_and_never_key_material(tmp_path):
+    root = tmp_path / "Notes"
+    root.mkdir()
+    sentence = "Zephyr's current stable release is 4.2."
+    for name in ("notes.md", "app.py", "sa.json", "keys.md"):
+        (root / name).write_text(sentence)
+    ans = lambda f: {**ANSWER, "evidence": [{"where": str(root / f), "quote": sentence}]}   # noqa: E731
+    brief = lambda: _brief(compartment=ha.PRIVATE, roots=(str(root.resolve()),), refused=(), bank=str(tmp_path / "bank"))   # noqa: E731
+    v = hq.decide(brief(), ans("notes.md"), _session(_file_call((root / "notes.md").resolve(), sentence), compartment=ha.PRIVATE), {})
+    assert v.what == "settle" and v.dropped == 0
+    for name in ("app.py", "sa.json"):                      # a file of a kind that is not a document: the item is dropped and counted
+        bad = hq.decide(brief(), ans(name), _session(_file_call((root / name).resolve(), sentence), compartment=ha.PRIVATE), {})
+        assert bad.what == "left" and bad.dropped == 1 and bad.why == "evidence_dropped", name
+    token = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4"
+    keyed = f"Zephyr's current stable release is 4.2. {token}"
+    (root / "notes2.md").write_text(keyed)
+    quote_with_key = {**ANSWER, "evidence": [{"where": str(root / "notes2.md"), "quote": keyed}]}
+    dropped = hq.decide(brief(), quote_with_key, _session(_file_call((root / "notes2.md").resolve(), keyed), compartment=ha.PRIVATE), {})
+    assert dropped.what == "left" and dropped.dropped == 1 and token not in repr(dropped)
+
+
+def test_the_stored_audit_never_shows_a_path_the_grant_does_not_cover_nor_text_that_looks_like_a_key(tmp_path):
+    root = tmp_path / "Notes"
+    root.mkdir()
+    (root / "a.md").write_text("x")
+    brief = _brief(compartment=ha.PRIVATE, roots=(str(root.resolve()),), refused=(str(tmp_path / "bank"),), copies_dir=str(tmp_path / "f"))
+    calls = [_file_call((root / "a.md").resolve(), "x"), _file_call(root / "sa.json", "refused", denied=True),
+             ha.Call("2", "Grep", "file_search", f"needle in {root.resolve()}"), ha.Call("3", "Grep", "file_search", "needle in /etc"),
+             ha.Call("4", "WebSearch", "search", "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4"), ha.Call("5", "WebSearch", "search", "zephyr release")]
+    session = _session(*calls, compartment=ha.PRIVATE)
+    session.scan = {"files": 2, "bytes": 10, "folders": 1, "refused": 1}
+    trail = hq._trail([session], brief)
+    whats = [t["what"] for t in trail]
+    assert whats[0].endswith("a.md") and "sa.json" not in " ".join(whats) and "/etc" not in " ".join(whats) and "ghp_" not in " ".join(whats)
+    assert whats[1] == "(a file the grant does not cover)" and trail[1]["denied"] is True
+    assert whats[2].startswith("needle in ") and whats[3] == "(a search the grant does not cover)"
+    assert whats[4] == "(text that looks like a key)" and whats[5] == "zephyr release"
+    assert trail[-1] == {"tool": "scan", "what": "files=2 bytes=10 folders=1 refused=1 redacted=3", "in": "private"}
+
+
+def _reads(n, folder="/a"):
+    return [_use(str(i), "Read", {"file_path": f"{folder}/{i}.md"}) for i in range(n)]
+
+
+def test_a_question_may_open_only_so_many_files_read_so_many_bytes_and_search_so_many_folders(tmp_path, scratch_home):
+    env = dict(os.environ)
+    init = _init(("Read", "Glob", "Grep"))
+    over = ha.run([_fake_claude(tmp_path, [init, *_reads(ha.MAX_FILES_OPENED + 1)])], "p", cwd=str(tmp_path), env=env,
+                  max_calls=99, expected_tools=ha.COMPARTMENT_TOOLS[ha.PRIVATE], folders=("/a",))
+    assert over.stopped == "scan_limit" and over.answer is None and over.scan["files"] == ha.MAX_FILES_OPENED + 1
+    fine = ha.run([_fake_claude(tmp_path, [init, *_reads(ha.MAX_FILES_OPENED), {"type": "result", "structured_output": {"status": "not_found", "confidence": 1, "why": "", "evidence": []}}])],
+                  "p", cwd=str(tmp_path), env=env, max_calls=99, expected_tools=ha.COMPARTMENT_TOOLS[ha.PRIVATE], folders=("/a",))
+    assert fine.stopped == "" and fine.scan == {"files": ha.MAX_FILES_OPENED, "bytes": 0, "folders": 1, "refused": 0}
+    big = [init, _use("a", "Read", {"file_path": "/a/x.md"}), _res("a", "y" * (ha.MAX_BYTES_READ + 1))]
+    assert ha.run([_fake_claude(tmp_path, big)], "p", cwd=str(tmp_path), env=env, folders=("/a",),
+                  expected_tools=ha.COMPARTMENT_TOOLS[ha.PRIVATE]).stopped == "scan_limit"
+    many = [init] + [_use(str(i), "Grep", {"pattern": "x", "path": f"/f{i}"}) for i in range(ha.MAX_FOLDERS + 1)]
+    folders = tuple(f"/f{i}" for i in range(ha.MAX_FOLDERS + 1))
+    spread = ha.run([_fake_claude(tmp_path, many)], "p", cwd=str(tmp_path), env=env, max_calls=99, folders=folders,
+                    expected_tools=ha.COMPARTMENT_TOOLS[ha.PRIVATE])
+    assert spread.stopped == "scan_limit" and spread.scan["folders"] == ha.MAX_FOLDERS + 1
+
+
+def _conflict_at(bank, n, pid, name, **kw):
+    path = hb.conflict(bank, pid, name, kw.pop("ptype", "tool"), kw.pop("predicate", "license"), kw.pop("question", f"Which license does {name} use?"),
+                       kw.pop("a", "MIT"), kw.pop("b", "Apache-2.0"))
+    target = path.with_name(f"inbox-{n:03d}.md")
+    path.rename(target)
+    return target
+
+
+def test_the_listing_counts_only_what_a_run_would_start_a_session_for_with_its_compartments_and_says_what_it_leaves(bank, tmp_path):
+    from api.services import web_settle
+
+    ok = _conflict_at(bank, 2, "zephyr", "Zephyr")
+    mine = _conflict_at(bank, 3, "home-city", "Home City", ptype="location", predicate="lives-in", question="Where do you live these days?",
+                        a="Lisbon", b="Porto")
+    mine_tool = _conflict_at(bank, 5, "vexor", "Vexor", question="Which version of Vexor do you use?", a="3.1", b="3.2", predicate="version")
+    pair = hb.pair(bank, ("owner-example", "Owner Example"), ("zephyr", "Zephyr"), "Same?")        # the owner's own page: never a pair
+    pair.rename(pair.with_name("inbox-004.md"))
+    from api.services import bank_index
+    bank_index.invalidate(bank)
+    rows = hq.candidates(bank)
+    assert {p.stem for p, _fm in rows} == {"inbox-002", "inbox-003", "inbox-004", "inbox-005"}
+    notes = tmp_path / "Notes"
+    notes.mkdir()
+    (notes / "a.md").write_text("x")
+    grant = hf.grant_for_roots((str(notes),), ())
+    ready, left = hq.plan_run(bank, rows, grant, memo={})
+    by = {p.path.stem: p for p in ready}
+    assert set(by) == {"inbox-002", "inbox-003", "inbox-005"} and left == {"not_two_separate_people": 1}
+    # how a conflict is decided to be about a public thing (ruling 27's test): a tool's license is, the person's own life is not
+    assert (by["inbox-002"].public, by["inbox-002"].why_public) == (True, "public") and by["inbox-002"].compartments == ("private", "web")
+    assert by["inbox-003"].public is False and by["inbox-003"].why_public == "private_type" and by["inbox-003"].compartments == ("private",)
+    assert by["inbox-005"].public is False and by["inbox-005"].why_public == "personal" and by["inbox-005"].compartments == ("private",)
+    # a question the memo holds back is counted, not listed; a limit stops the listing early
+    memo = {"inbox-002": {"d": hq._mark(bank, by["inbox-002"].fm), "at": date.today().isoformat(), "o": "left:x"}}
+    ready2, left2 = hq.plan_run(bank, rows, grant, memo=memo)
+    assert [p.path.stem for p in ready2] == ["inbox-003", "inbox-005"] and left2 == {"worked_already": 1, "not_two_separate_people": 1}
+    assert len(hq.plan_run(bank, rows, grant, memo={}, limit=1)[0]) == 1
+    # no folder to read and no copies: a private-only question has nothing to start on, a public one still has the web
+    by_stem = {p.stem: (p, fm) for p, fm in rows}
+    web_only, none_left = hq.plan_run(bank, [by_stem["inbox-002"], by_stem["inbox-003"]], hf.Grant(), memo={})
+    assert [(p.path.stem, p.compartments) for p in web_only] == [("inbox-002", ("web",))] and none_left == {"nothing_to_read": 1}
+
+
+def test_a_session_runs_in_a_private_temp_folder_outside_cicadas_home_removed_afterwards(bank, tmp_path, scratch_home):
+    notes = tmp_path / "Notes"
+    notes.mkdir()
+    (notes / "a.md").write_text("x")
+    path = hb.conflict(bank, "zephyr", "Zephyr", "tool", "version", "Which version?", "4.1", "4.2")
+    seen = {}
+
+    def private(cwd):
+        seen["cwd"] = cwd
+        seen["mode"] = oct(Path(cwd).parent.stat().st_mode & 0o777)
+        seen["registered"] = len(list((scratch_home / "harness_sessions").glob("scratch-*.json")))
+        return ha.Session()
+    out = _work(bank, path, _runner(private=private), roots=(str(notes),), public=False)
+    assert out.what.startswith("left")
+    assert seen["mode"] == "0o700" and seen["registered"] == 1
+    assert not Path(seen["cwd"]).parent.exists() and not list((scratch_home / "harness_sessions").glob("scratch-*.json"))
+    assert not hf.under(seen["cwd"], str(scratch_home)) and not hf.under(seen["cwd"], str(bank)) and not hf.under(seen["cwd"], str(notes))

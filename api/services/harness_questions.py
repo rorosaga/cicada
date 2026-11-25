@@ -45,7 +45,6 @@ import asyncio
 import hashlib
 import json
 import shutil
-import tempfile
 import threading
 from dataclasses import dataclass, field
 from datetime import date
@@ -54,6 +53,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import harness_agent as ha
+from api.services import harness_files as hf
 
 PER_RUN = 3
 RETRY_DAYS = 14
@@ -102,6 +102,9 @@ class Brief:
     copies_dir: str = ""
     #: What each copy says (the text the code wrote into it): a quote's turn is read from this, never from what a search printed.
     copy_texts: dict = field(default_factory=dict, repr=False)
+    #: The granted folders and the refused paths: a quote from a file is stored only when the file is of an allowed kind under one.
+    roots: tuple[str, ...] = ()
+    refused: tuple[str, ...] = ()
 
 
 @dataclass
@@ -112,6 +115,7 @@ class Verdict:
     why: str = ""                      # an enum for a left; a code-built sentence for a settle or a note
     note: str = ""
     mixed: dict | None = None
+    dropped: int = 0                   # evidence items the code refused to keep (a file of a kind not allowed, key material)
 
 
 @dataclass
@@ -133,6 +137,8 @@ class Outcome:
     #: Which compartments ran, in order, and how each stopped (a word, or "").
     compartments: list = field(default_factory=list)
     transcript: list = field(default_factory=list)
+    dropped: int = 0                     # evidence items dropped before storage, and what each session scanned (files, bytes, folders)
+    scan: list = field(default_factory=list)
     #: Each call's first words of result, in memory only (the battery and the dry run look at what was refused and why).
     results: list = field(default_factory=list)
 
@@ -247,6 +253,27 @@ def due(entry: dict | None, mark: str, today: date) -> bool:
         return True
 
 
+def not_workable(memory_path: Path, fm: dict, compartment: str) -> str:
+    """Why a question cannot be worked in this compartment (``''`` when it can): the checks `brief_for` makes, in one place so the
+    listing, the run and the brief never disagree."""
+    from api.services import inbox_questions
+
+    kind = str(fm.get("kind") or "")
+    if kind == "conflict":
+        if _persons_own(memory_path, fm):
+            return "their_own_words"
+        usable = [o for o in inbox_questions.normalize_options(fm.get("options"))
+                  if str(o.get("key")) not in ("neither", "both", "other", "remind_later") and str(o.get("label") or "").strip()]
+        if len(usable) < 2:
+            return "fewer_than_two_values"
+    elif kind == "merge_suggestion":
+        if compartment == ha.WEB:
+            return "pairs_stay_private"
+        if not _pair_workable(memory_path, str(fm.get("entity_id") or ""), str(fm.get("merge_target_hint") or "")):
+            return "not_two_separate_people"
+    return ""
+
+
 def _pair_workable(memory_path: Path, a: str, b: str) -> bool:
     """Two person pages, neither the owner's, never a pair the person kept apart, split or undid (ruling 84)."""
     from api.services import inbox_tend, markdown_parser
@@ -260,16 +287,23 @@ def _pair_workable(memory_path: Path, a: str, b: str) -> bool:
     return not inbox_tend._split_apart(Path(memory_path), a, b)
 
 
-def is_public(memory_path: Path, path: Path) -> bool:
-    """Ruling 27's test (`web_settle.classify`): is this question about a public thing, which a web page may settle? Never
-    a person, the person's files, projects or life. Engine-free; ``False`` when anything is unclear."""
-    from api.services import web_settle
+def public_reason(memory_path: Path, path: Path, facts=None) -> tuple[bool, str]:
+    """``(public, why)``: ruling 27's test (`web_settle.classify`, engine-free and network-free): is this question about a public
+    thing, which a web page may settle, or about a person, the person's own files, projects or life, which stays private? ``why`` is
+    the test's own enum (``public``, ``person``, ``personal``, ``private_type``, ``private_predicate``...); anything unclear is private."""
+    from api.services import markdown_parser, web_settle
 
     try:
-        c = web_settle.candidate(Path(memory_path), Path(path), web_settle.bank_facts(Path(memory_path)))
-        return c is not None and c.scope == "public"
+        facts = facts or web_settle.bank_facts(Path(memory_path))
+        parsed = markdown_parser.parse(Path(path))
+        scope, why = web_settle.classify(Path(memory_path), parsed.frontmatter, parsed.body, facts)
+        return scope == "public", why
     except Exception:  # noqa: BLE001
-        return False
+        return False, "unclear"
+
+
+def is_public(memory_path: Path, path: Path, facts=None) -> bool:
+    return public_reason(memory_path, path, facts)[0]
 
 
 def plan_for(kind: str, public: bool) -> tuple[str, ...]:
@@ -280,6 +314,58 @@ def plan_for(kind: str, public: bool) -> tuple[str, ...]:
     if kind == "conflict":
         return (ha.PRIVATE, ha.WEB) if public else (ha.PRIVATE,)
     return (ha.PRIVATE, ha.WEB)
+
+
+@dataclass
+class Planned:
+    path: Path
+    fm: dict
+    kind: str
+    public: bool
+    why_public: str
+    compartments: tuple[str, ...]      # the compartments a session would really be started in, in order
+
+
+def plan_run(memory_path: Path, rows: list[tuple[Path, dict]], grant: hf.Grant, *, today: date | None = None,
+             memo: dict | None = None, limit: int | None = None) -> tuple[list[Planned], dict[str, int]]:
+    """``(the questions a run would really start a session for, with the compartments each would use, how many it leaves and why)``.
+    A question counts only when its memo does not hold it back, at least one compartment of its plan can work it (`not_workable`:
+    the person's own words, fewer than two values, a pair that is not two separate people...) and a private session has something to
+    read (a granted folder, or a conversation copy). ``limit`` stops after that many (a run's own budget; ``None`` for all)."""
+    from api.services import web_settle
+
+    today = today or date.today()
+    memo = _seen(memory_path) if memo is None else memo
+    facts = web_settle.bank_facts(Path(memory_path))
+    ready: list[Planned] = []
+    left: dict[str, int] = {}
+
+    def leave(why: str) -> None:
+        left[why] = left.get(why, 0) + 1
+
+    for path, fm in rows:
+        if limit is not None and len(ready) >= limit:
+            break
+        if not due(memo.get(path.stem), _mark(memory_path, fm), today):
+            leave("worked_already")
+            continue
+        kind = str(fm.get("kind") or "")
+        public, why_public = public_reason(memory_path, path, facts)
+        compartments: list[str] = []
+        why_not = ""
+        for comp in plan_for(kind, public):
+            reason = not_workable(memory_path, fm, comp)
+            if reason:
+                why_not = why_not or reason
+            elif comp == ha.WEB or grant.roots or copies_for(memory_path, kind, fm):
+                compartments.append(comp)
+            else:
+                why_not = why_not or "nothing_to_read"
+        if compartments:
+            ready.append(Planned(path, fm, kind, public, why_public, tuple(compartments)))
+        else:
+            leave(why_not or "not_workable")
+    return ready, left
 
 
 # --------------------------------------------------------------------------- the conversations a private session may read
@@ -366,7 +452,8 @@ def _question_words(fm: dict, name: str) -> str:
 
 
 def brief_for(memory_path: Path, path: Path, fm: dict, compartment: str, *, public: bool = False,
-              roots: tuple[str, ...] = (), copies: dict[str, str] | None = None, copies_dir: str = "") -> Brief | None:
+              roots: tuple[str, ...] = (), copies: dict[str, str] | None = None, copies_dir: str = "",
+              refused: tuple[str, ...] = ()) -> Brief | None:
     """The question as the session is told it. A **private** brief holds the question, its options, the page's own words (held
     back by value like every engine's) and where the conversation copies and the person's folders are. A **web** brief holds the
     question's own words and the names in it, and nothing else: no excerpt of a page, no conversation, nothing a private session
@@ -386,9 +473,9 @@ def brief_for(memory_path: Path, path: Path, fm: dict, compartment: str, *, publ
     if not web:
         lines.append(f"What the memory holds on it: {excerpt or '(nothing yet)'}")
     other_id, other_names = "", []
+    if not_workable(memory_path, fm, compartment):
+        return None
     if kind == "conflict":
-        if _persons_own(memory_path, fm):
-            return None
         for o in inbox_questions.normalize_options(fm.get("options")):
             key = str(o.get("key"))
             if key not in ("neither", "both", "other", "remind_later") and str(o.get("label") or "").strip():
@@ -402,11 +489,7 @@ def brief_for(memory_path: Path, path: Path, fm: dict, compartment: str, *, publ
         lines.append("Find out what this is. Put a short answer in `answer`, in the exact words of a sentence of your quote "
                      f"that says what {name} is (\"{name} is ...\", \"{name}: ...\").")
     else:   # merge_suggestion: a pair, private only
-        if web:
-            return None
         other_id = str(fm.get("merge_target_hint") or "")
-        if not _pair_workable(memory_path, entity_id, other_id):
-            return None
         o_type, o_excerpt, o_aliases = _page_excerpt(memory_path, other_id)
         other_names = names_of(memory_path, other_id)
         lines += [f"The question is whether this is the same as: {other_id} ({o_type})"
@@ -430,13 +513,16 @@ def brief_for(memory_path: Path, path: Path, fm: dict, compartment: str, *, publ
         held_ids = ", ".join(sorted(copies or {})) or "none"
         lines.append(f"The conversations that bear on this are copies in the folder you start in ({copies_dir or '.'}), one file "
                      f"each, named by id: {held_ids}. Other folders you may read: {folders}. Always give Glob and Grep an "
-                     "explicit path inside one of them; Read takes files, not folders. You have no web tool.")
+                     "explicit path inside one of them; Read takes files, not folders. You have no web tool. Only documents (notes, text, "
+                     f"PDFs, spreadsheets as csv) can be read; a file of any other kind is refused. Look in at most {ha.MAX_FOLDERS} folders "
+                     f"and open at most {ha.MAX_FILES_OPENED} files: pick the folders by their names.")
     lines.append("Reply with the JSON object.")
     text = "\n".join(lines)
     held = sensitive_hold.hold_back([{"role": "user", "content": text}], Path(memory_path))
     text = str((held[0] if held else {}).get("content") or text)
     return Brief(path.stem, kind, text, options, entity_id, name, _mark(memory_path, fm), str(Path(memory_path).resolve()),
-                 compartment, names, other_names, other_id, public, tuple(sorted(copies or {})), copies_dir, dict(copies or {}))
+                 compartment, names, other_names, other_id, public, tuple(sorted(copies or {})), copies_dir, dict(copies or {}),
+                 tuple(roots), tuple(refused))
 
 
 # --------------------------------------------------------------------------- what is done with the answer
@@ -497,14 +583,25 @@ def _note_text(evidence: list[ha.Evidence], brief: Brief) -> str:
 
 
 def _allowed(e: ha.Evidence, brief: Brief) -> bool:
-    """Evidence may never be Cicada's own pages or questions, and a web question's evidence is a page it fetched."""
+    """Evidence may never be Cicada's own pages or questions, never key material, a web question's evidence is a page it fetched,
+    and a quote from a file is stored only when the file is of an allowed kind under a granted folder (or is one of this
+    question's conversation copies)."""
+    if hf.looks_like_key(e.quote) or hf.looks_like_key(e.where):
+        return False
     if brief.compartment == ha.WEB:
         return e.kind == "address"
     if e.kind != "file":
         return False
     if _conversation_of(e, brief):
         return _in_person_turn(e, brief)
-    return not ha.inside_a_bank(e.where) and not e.where.startswith(brief.bank)
+    return (hf.allowed_path(e.where, brief.roots, copies_dir=brief.copies_dir, refused=brief.refused)
+            and not ha.inside_a_bank(e.where) and not e.where.startswith(brief.bank))
+
+
+def vet_evidence(evidence: list[ha.Evidence], brief: Brief) -> tuple[list[ha.Evidence], int]:
+    """``(what may be stored, how many items were dropped)``."""
+    kept = [e for e in evidence if _allowed(e, brief)]
+    return kept, len(evidence) - len(kept)
 
 
 def decide(brief: Brief, answer: dict | None, session: ha.Session, fm: dict) -> Verdict:
@@ -518,9 +615,9 @@ def decide(brief: Brief, answer: dict | None, session: ha.Session, fm: dict) -> 
     if answer.get("status") == "needs_login":
         return Verdict("left", why="needs_login")
     evidence, why = ha.verify(answer, session)
-    evidence = [e for e in evidence if _allowed(e, brief)]
+    evidence, dropped = vet_evidence(evidence, brief)
     if not evidence:
-        return Verdict("left", why=why or "evidence_not_located")
+        return Verdict("left", why=why or ("evidence_dropped" if dropped else "evidence_not_located"), dropped=dropped)
     if brief.kind == "conflict":
         key = str(answer.get("option") or "").strip()
         label = brief.options.get(key)
@@ -529,25 +626,27 @@ def decide(brief: Brief, answer: dict | None, session: ha.Session, fm: dict) -> 
         others = [v for k, v in brief.options.items() if k != key]
         good = [e for e in evidence if ha.states_value(e.quote, brief.names, label, others)]
         if not good:
-            return Verdict("left", evidence=evidence, why="quote_does_not_say_it")
-        return Verdict("settle", label, good, _template_reason("Read in", good, brief))
+            return Verdict("left", evidence=evidence, why="quote_does_not_say_it", dropped=dropped)
+        return Verdict("settle", label, good, _template_reason("Read in", good, brief), dropped=dropped)
     text = _clean(answer.get("answer"))[:120]
     for e in evidence:
         span = ha.presents_as(e.quote, brief.names, text) if text else None
         if span:
             if brief.compartment == ha.WEB and not brief.public:
-                return Verdict("note", span, [e], note=_note_text([e], brief))   # a page never settles a person's identity or life
-            return Verdict("settle", span[:120], [e], _template_reason("Read in", [e], brief))
-    return Verdict("left", evidence=evidence, why="quote_does_not_say_it")
+                return Verdict("note", span, [e], note=_note_text([e], brief), dropped=dropped)   # a page never settles a person's identity or life
+            return Verdict("settle", span[:120], [e], _template_reason("Read in", [e], brief), dropped=dropped)
+    return Verdict("left", evidence=evidence, why="quote_does_not_say_it", dropped=dropped)
 
 
 def _decide_pair(brief: Brief, answer: dict, session: ha.Session) -> Verdict:
     from api.services import pair_evidence
 
     mixed = ha.mixed_of(answer, set(brief.copies))
+    dropped = 0
     if str(answer.get("option") or "") == "different" and answer.get("status") == "answered":
         sides, _why = ha.verify(answer, session, ha.PAIR_MIN_CONFIDENCE)
         by_side: dict[str, ha.Evidence] = {}
+        sides, dropped = vet_evidence(sides, brief)
         for e in sides:
             if e.side not in ("a", "b") or e.side in by_side or not _conversation_of(e, brief) or not _in_person_turn(e, brief):
                 continue
@@ -561,16 +660,48 @@ def _decide_pair(brief: Brief, answer: dict, session: ha.Session) -> Verdict:
             by_side[e.side] = e
         if set(by_side) == {"a", "b"}:
             ev = [by_side["a"], by_side["b"]]
-            return Verdict("settle", "different", ev, "Read in " + " and ".join(label_of(e, brief) for e in ev), mixed=mixed)
+            return Verdict("settle", "different", ev, "Read in " + " and ".join(label_of(e, brief) for e in ev), mixed=mixed,
+                           dropped=dropped)
     shown, _why = ha.verify({**answer, "status": "answered", "confidence": 1.0}, session)
+    shown, dropped2 = vet_evidence(shown, brief)
     shown = [e for e in shown if _conversation_of(e, brief) and _in_person_turn(e, brief)]
     if shown:
-        return Verdict("note", evidence=shown, why="pair", note=_note_text(shown, brief), mixed=mixed)
-    return Verdict("left", why="nothing_found")
+        return Verdict("note", evidence=shown, why="pair", note=_note_text(shown, brief), mixed=mixed, dropped=dropped2)
+    return Verdict("left", why="nothing_found", dropped=dropped2)
 
 
-def _trail(sessions: list[ha.Session]) -> list[dict]:
-    return [{**line, "in": s.compartment} for s in sessions for line in s.audit]
+def _trail(sessions: list[ha.Session], brief: Brief | None = None) -> list[dict]:
+    """The audit as it is stored: every line checked first. A path is kept only when it is of an allowed kind under a granted folder
+    (or a conversation copy): any other (a refused call at a key file, a file of a kind the grant does not cover) is replaced by a
+    fixed phrase, and a pattern, address or query that looks like key material is replaced too; the count and what each session scanned
+    (files, bytes, folders, refusals) close its lines."""
+    out: list[dict] = []
+    for s in sessions:
+        hidden = 0
+        for call in s.calls:
+            what, was_hidden = _safe_what(call, brief)
+            hidden += was_hidden
+            out.append({"tool": call.kind, "what": what[:300], "in": s.compartment, **({"denied": True} if call.denied else {})})
+        out.append({"tool": "scan", "what": " ".join(f"{k}={v}" for k, v in {**s.scan, "redacted": hidden}.items()), "in": s.compartment})
+    return out
+
+
+def _safe_what(call: ha.Call, brief: Brief | None) -> tuple[str, bool]:
+    """``(what the audit may show of this call, whether it was replaced)``."""
+    roots = brief.roots if brief else ()
+    copies = brief.copies_dir if brief else ""
+    refused = brief.refused if brief else ()
+    text = call.what
+    if hf.looks_like_key(text):
+        return "(text that looks like a key)", True
+    if call.kind == "file":
+        return (text, False) if hf.allowed_path(text, roots, copies_dir=copies, refused=refused) else ("(a file the grant does not cover)", True)
+    if call.kind == "file_search":
+        pattern, _, where = text.rpartition(" in ")
+        ok = bool(where) and (where == "." or any(hf.under(where, r) for r in (*roots, copies) if r)) \
+            and not any(hf.under(where, r) for r in refused)
+        return (f"{pattern[:80]} in {where}", False) if ok else ("(a search the grant does not cover)", True)
+    return text, False
 
 
 def _found_episode(memory_path: Path, brief: Brief, evidence: list[ha.Evidence], model: str) -> str:
@@ -621,7 +752,7 @@ async def settle(memory_path: Path, settings, brief: Brief, fm: dict, verdict: V
                                 fingerprint=fingerprint, guard=guard, reason=verdict.why[:inbox_tend.MAX_REASON_CHARS],
                                 found={"episode": episode, "evidence": [{"where": stored_where(e, brief), "quote": e.quote}
                                                                         for e in verdict.evidence],
-                                       "trail": _trail(sessions)})
+                                       "trail": _trail(sessions, brief)})
         ok = False
         try:
             ok = await inbox_tend.apply(memory_path, settings, d, engine=engine)
@@ -647,7 +778,7 @@ def _write_note(memory_path: Path, brief: Brief, verdict: Verdict, sessions: lis
         fm = dict(parsed.frontmatter)
         fm["agent_found"] = {"at": date.today().isoformat(), "note": verdict.note[:600],
                              "evidence": [{"where": stored_where(e, brief), "quote": e.quote} for e in verdict.evidence],
-                             "trail": _trail(sessions), **({"mixed": verdict.mixed} if verdict.mixed else {})}
+                             "trail": _trail(sessions, brief), **({"mixed": verdict.mixed} if verdict.mixed else {})}
         before = git_service.snapshot_dirty_sync(memory_path)
         markdown_parser.write(path, fm, parsed.body)
         bank_index.invalidate(memory_path)
@@ -688,48 +819,55 @@ class Report:
         self.skipped[why] = self.skipped.get(why, 0) + 1
 
 
-def home_roots(memory_path: Path, *, attended: bool, home: Path | None = None) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """``(roots, refused)``: the person's own top-level folders a private session may read, and the paths inside them it may
-    not (the bank and Cicada's home, each spelled as given and resolved)."""
+def refused_paths(memory_path: Path) -> tuple[str, ...]:
+    """The paths a private session may never read: the bank and Cicada's home, each spelled as given and resolved."""
     from api.services import auth
 
-    home = home or Path.home()
     paths = {str(Path(memory_path)), str(Path(memory_path).resolve()), str(auth.cicada_home()), str(auth.cicada_home().resolve())}
-    refused = tuple(sorted(paths))
-    return ha.read_roots(home, attended=attended, refused=refused), refused
+    return tuple(sorted(paths))
 
 
-def _policy(compartment: str, *, roots: tuple[str, ...], refused: tuple[str, ...], files_dir: str, domains: tuple[str, ...]) -> ha.Policy:
+def home_grant(memory_path: Path, *, attended: bool, home: Path | None = None) -> hf.Grant:
+    """What a private session may read of the person's own folders (`harness_files.grant_for_home`), the bank and Cicada's home refused."""
+    return hf.grant_for_home(home or Path.home(), attended=attended, refused=refused_paths(memory_path))
+
+
+def _policy(compartment: str, *, grant: hf.Grant, files_dir: str, domains: tuple[str, ...]) -> ha.Policy:
     if compartment == ha.WEB:
         return ha.Policy(ha.WEB, domains=domains)
-    return ha.Policy(ha.PRIVATE, roots=(*roots, files_dir), refused=refused)
+    return ha.Policy(ha.PRIVATE, roots=(*grant.roots, files_dir), refused=grant.refused, deny=grant.deny)
 
 
 async def _session(memory_path: Path, settings, path: Path, fm: dict, compartment: str, model: str, *, public: bool,
-                   roots: tuple[str, ...], refused: tuple[str, ...], env: dict | None, on_call, binary: str, runner
-                   ) -> tuple[Brief | None, ha.Session | None]:
-    """One session in one compartment: its own scratch folder (conversation copies, the settings file), the harness, the
-    folder gone afterwards. ``(None, None)`` when the question is not workable in this compartment."""
+                   grant: hf.Grant, env: dict | None, on_call, binary: str, runner
+                   ) -> tuple[Brief | None, ha.Session | None, str]:
+    """One session in one compartment: its own private temp folder (conversation copies, the settings file; made owner-only outside
+    Cicada's home and every granted folder, recorded so a dead backend's is reaped), the harness, the folder gone afterwards.
+    ``(None, None, why)`` when the question is not workable in this compartment."""
     from api.services import agent_engine
 
-    base = Path(tempfile.mkdtemp(prefix="harness-", dir=agent_engine.scratch_dir()))
+    base = hf.make_scratch((*grant.refused, *grant.roots))
+    if base is None:
+        return None, None, "no_safe_scratch"
+    record = ha.register_scratch(base)
     try:
         files = base / "files"
-        files.mkdir()
+        files.mkdir(mode=0o700)
         copies: dict[str, str] = {}
         if compartment == ha.PRIVATE:
             copies = await asyncio.to_thread(copies_for, memory_path, str(fm.get("kind") or ""), fm)
             for eid, text in copies.items():
                 (files / f"{eid}.md").write_text(text, encoding="utf-8")
         files_dir = str(files.resolve())
-        brief = await asyncio.to_thread(brief_for, memory_path, path, fm, compartment, public=public, roots=roots,
-                                        copies=copies, copies_dir=files_dir)
+        if any(hf.under(files_dir, r) for r in (*grant.refused, *grant.roots)):
+            return None, None, "no_safe_scratch"           # never a copy where the grant is or where it is refused
+        brief = await asyncio.to_thread(brief_for, memory_path, path, fm, compartment, public=public, roots=grant.roots,
+                                        copies=copies, copies_dir=files_dir, refused=grant.refused)
         if brief is None:
-            return None, None
-        if compartment == ha.PRIVATE and not roots and not copies:
-            return brief, None      # nothing to read: no session is started
-        policy = _policy(compartment, roots=roots, refused=refused, files_dir=files_dir,
-                         domains=ha.hosts_in(_question_words(fm, brief.name)))
+            return None, None, "not_workable"
+        if compartment == ha.PRIVATE and not grant.roots and not copies:
+            return brief, None, "nothing_to_read"            # nothing to read: no session is started
+        policy = _policy(compartment, grant=grant, files_dir=files_dir, domains=ha.hosts_in(_question_words(fm, brief.name)))
         settings_file = base / "settings.json"
         settings_file.write_text(json.dumps(ha.settings_for(policy)), encoding="utf-8")
         argv = ha.build_argv(model=model, system_prompt=agent_engine.system_prompt_for(SYSTEM), policy=policy, binary=binary,
@@ -737,15 +875,16 @@ async def _session(memory_path: Path, settings, path: Path, fm: dict, compartmen
         cwd = files_dir if compartment == ha.PRIVATE else str(base)
         run = runner or ha.run
         session = await asyncio.to_thread(run, argv, brief.prompt, cwd=cwd, env=env or ha.session_env(), on_call=on_call,
-                                          expected_tools=ha.COMPARTMENT_TOOLS[compartment], compartment=compartment)
+                                          expected_tools=ha.COMPARTMENT_TOOLS[compartment], compartment=compartment,
+                                          folders=grant.roots, copies_dir=files_dir)
         session.compartment = compartment
-        return brief, session
+        return brief, session, ""
     finally:
-        shutil.rmtree(base, ignore_errors=True)
+        ha.remove_scratch(base, record)
 
 
 async def work_one(memory_path: Path, settings, path: Path, fm: dict, model: str, *, apply: bool, roots: tuple[str, ...] | None = None,
-                   refused: tuple[str, ...] | None = None, attended: bool = False, env: dict | None = None, on_call=None,
+                   refused: tuple[str, ...] | None = None, grant: hf.Grant | None = None, attended: bool = False, env: dict | None = None, on_call=None,
                    today: date | None = None, engine: str | None = None, binary: str = "claude", runner=None,
                    memo: dict | None = None, public: bool | None = None) -> Outcome:
     """Work one question: its compartments in order (stop at the first that answers), then the gate, then (when ``apply``) the
@@ -753,9 +892,9 @@ async def work_one(memory_path: Path, settings, path: Path, fm: dict, model: str
     from api.services import engine_identity, inbox_tend
 
     today = today or date.today()
-    if roots is None:
-        roots, refused = await asyncio.to_thread(home_roots, memory_path, attended=attended)
-    refused = refused or ()
+    if grant is None:
+        grant = (await asyncio.to_thread(hf.grant_for_roots, roots, tuple(refused or refused_paths(memory_path))) if roots is not None
+                 else await asyncio.to_thread(home_grant, memory_path, attended=attended))
     kind = str(fm.get("kind") or "")
     if public is None:
         public = await asyncio.to_thread(is_public, memory_path, path)
@@ -765,13 +904,15 @@ async def work_one(memory_path: Path, settings, path: Path, fm: dict, model: str
     sessions: list[ha.Session] = []
     verdict, brief = Verdict("left", why="not_workable"), None
     for compartment in plan_for(kind, public):
-        b, session = await _session(memory_path, settings, path, fm, compartment, model, public=public, roots=roots,
-                                    refused=refused, env=env, on_call=on_call, binary=binary, runner=runner)
+        b, session, why = await _session(memory_path, settings, path, fm, compartment, model, public=public, grant=grant,
+                                         env=env, on_call=on_call, binary=binary, runner=runner)
         if b is None:
+            if why == "no_safe_scratch":
+                verdict = Verdict("left", why=why)
             continue
         brief = b
         if session is None:
-            verdict = Verdict("left", why="nothing_to_read")
+            verdict = Verdict("left", why=why)
             continue
         sessions.append(session)
         out.compartments.append({"in": compartment, "stopped": session.stopped, "calls": len(session.calls)})
@@ -787,12 +928,15 @@ async def work_one(memory_path: Path, settings, path: Path, fm: dict, model: str
         out.audit += [{**line, "in": compartment} for line in session.audit]
         out.results += [{"what": c.what[-60:], "denied": c.denied, "error": c.error, "result": c.result[:120]} for c in session.calls]
         out.denied += len(session.denied)
+        out.dropped += verdict.dropped
+        out.scan.append({"in": compartment, **session.scan})
         out.seconds = round(out.seconds + session.seconds, 1)
         out.calls += len(session.calls)
         out.cost = (out.cost or 0.0) + session.cost if session.cost is not None else out.cost
         if verdict.what != "left":
             break
     if brief is None:
+        out.what = f"left:{verdict.why}"
         return out
     out.evidence = [{"where": stored_where(e, brief), "quote": e.quote} for e in verdict.evidence]
     out.answer = verdict.answer
@@ -835,11 +979,13 @@ async def run_tail(memory_path: Path, settings, *, user_triggered: bool, today: 
             report.skip(f"engine:{why}")   # only the Claude plan: ruling 4's switch is inside `engine_for`
             return report
         model = str(getattr(same_name_tend.main_tier(resolved), "agent_model", "") or "") or "sonnet"
-        refused = None
-        if roots is None:
-            roots, refused = await asyncio.to_thread(home_roots, memory_path, attended=False)
+        grant = (await asyncio.to_thread(hf.grant_for_roots, roots, refused_paths(memory_path)) if roots is not None
+                 else await asyncio.to_thread(home_grant, memory_path, attended=False))
         memo = _seen(memory_path)
-        for path, fm in rows:
+        ready, left = await asyncio.to_thread(plan_run, memory_path, rows, grant, today=today, memo=memo, limit=per_run)
+        report.skipped.update(left)      # why the questions before the ones it started were left, counted
+        for planned in ready:
+            path, fm = planned.path, planned.fm
             if report.worked >= per_run:
                 report.skip("per_run")
                 break
@@ -850,12 +996,8 @@ async def run_tail(memory_path: Path, settings, *, user_triggered: bool, today: 
             if agent_engine.breaker_reason():
                 report.skip("plan_limit")
                 break
-            mark = await asyncio.to_thread(_mark, memory_path, fm)
-            if not due(memo.get(path.stem), mark, today):
-                report.skip("worked_already")
-                continue
             out = await work_one(memory_path, settings, path, fm, model, apply=True, env=env, runner=runner, memo=memo,
-                                 engine=label, roots=roots, refused=refused)
+                                 engine=label, grant=grant)
             out.transcript = []      # what a private session read is dropped as soon as the question is done
             report.worked += 1
             report.outcomes.append(out)
