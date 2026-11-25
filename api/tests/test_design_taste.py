@@ -388,6 +388,7 @@ def test_the_index_is_a_table_of_the_one_meaning_index_and_follows_the_board(ban
     assert out["mode"] in ("words", "none"), "the board answers by words meanwhile"
 
 
+@pytest.mark.slow
 def test_a_lock_held_by_another_process_never_deletes_the_shared_index(bank):
     """Review of #516's repro: another process holds the one index (`BEGIN IMMEDIATE`) past the wait. The board says
     busy and answers by words; every other kind's table — here `keepme` — is still there."""

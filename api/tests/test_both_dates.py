@@ -119,6 +119,7 @@ def test_every_writer_that_mints_an_episode_records_received_at():
     assert bare == []
 
 
+@pytest.mark.slow
 def test_every_episode_the_demo_writes_has_both_dates(tmp_path):
     """The demo runs the real writers (the stager, the watch record, the media save) beside its own direct ones: every
     episode it leaves has an item date and a receipt, and the receipt is pinned to the demo's clock (deterministic)."""

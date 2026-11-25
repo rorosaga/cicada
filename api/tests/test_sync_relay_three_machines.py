@@ -221,6 +221,7 @@ def trio(tmp_path):
         relay.stop()
 
 
+@pytest.mark.slow
 def test_direct_first_then_the_relay_then_once_across_both(trio):
     relay, alpha, bravo, charlie, wires, _tokens = trio
     # 1. Direct: a commit at the home reaches the copy; the copy's write lands; the requests went direct.
@@ -258,6 +259,7 @@ def test_direct_first_then_the_relay_then_once_across_both(trio):
     assert b"Cut mid stream" not in raw and b"From bravo by relay" not in raw and b"alpha-project" not in raw
 
 
+@pytest.mark.slow
 def test_a_sleeping_home_is_caught_up_from_the_mailbox(trio):
     _relay, alpha, bravo, charlie, wires, _tokens = trio
     charlie.stop()
@@ -273,6 +275,7 @@ def test_a_sleeping_home_is_caught_up_from_the_mailbox(trio):
     assert stats["requests"]["relay"] >= 1 and stats["relay"]["waiting"] == 0, stats
 
 
+@pytest.mark.slow
 def test_revoke_takes_a_device_out_of_the_group(trio):
     _relay, alpha, bravo, charlie, wires, tokens = trio
     charlie_id = tokens[charlie].split("_")[2]
@@ -324,6 +327,7 @@ def trio_relay_only(tmp_path):
         relay.stop()
 
 
+@pytest.mark.slow
 def test_the_home_moves_over_the_relay(trio_relay_only):
     _relay, alpha, bravo, charlie, _wires, tokens = trio_relay_only
     bravo_id = tokens[bravo].split("_")[2]

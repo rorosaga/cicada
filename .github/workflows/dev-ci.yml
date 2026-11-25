@@ -1,5 +1,5 @@
 # The backend's crucial tier (docs/goals/working-method.md, "Test tiers") on every PR into dev and every push to it; the
-# whole suite in six shards on a push to dev only. The crucial job is the same
+# whole suite in six shards on a push to dev only, `slow` tests included. The crucial job is the same
 # command as `make test-crucial-backend`: `api/tests/crucial.txt` names the tests that guard CLAUDE.md's rails, and it
 # answers first. On a PR, the app's Swift lint tests run too, on a hosted macOS runner (`swift-lint`); the rest of the Swift tier needs the owner's Mac.
 # Cost: the repo is public, so standard GitHub-hosted runners, macOS included, are free.
@@ -72,7 +72,8 @@ jobs:
           sudo git config --system user.email "ci@cicada.invalid"
 
       - name: The shard's tests
-        run: api/.venv/bin/python -m pytest -q -p no:cacheprovider --tb=short $(python3 api/tests/_ci_shard.py ${{ matrix.shard }}/6)
+        # `-m 'not bench'` replaces the default run's addopts, so the `slow` tests the default run leaves out run here.
+        run: api/.venv/bin/python -m pytest -m 'not bench' -q -p no:cacheprovider --tb=short $(python3 api/tests/_ci_shard.py ${{ matrix.shard }}/6)
 
   # The app's lint tier: static checks over the Swift sources (design rules, motion, copy, provenance ids), which #517
   # merged past when only the backend ran here. `swift test --filter Lint` builds the package and runs only the

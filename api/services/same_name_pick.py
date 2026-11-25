@@ -26,11 +26,13 @@ from typing import Callable
 
 #: Bumped into `GET /inbox`'s ETag: same-title questions gained derived ``question``/``options`` (and options their
 #: additive ``pageId``/``pageName``/``qualifier``).
-SHAPE = "pick-1"
+SHAPE = "pick-2"
 #: The key of "Another one". The PR first served ``none`` ("None of these"); it is still accepted (an agent or a
 #: client that read that wording), never served.
 ANOTHER_KEY = "another"
 ANOTHER_LABEL = "Another one"
+#: Over people the same answer is said as a person says it (ruling 83); the key is the same.
+ANOTHER_PERSON_LABEL = "Someone else"
 ANOTHER_ALIASES = frozenset({ANOTHER_KEY, "none"})
 NONE_KEY = ANOTHER_KEY   # the name the resolver and tests used
 PAGE_PREFIX = "page:"
@@ -87,31 +89,47 @@ def options(memory_path, fm: dict, lookup: Lookup | None = None) -> list[dict]:
     pages = candidates(fm, lookup)
     if not pages:
         return []
+    from api.services import which_one
+
     shared = same_name.qualifiers(memory_path) if memory_path is not None else {}
-    out = []
-    for pid, page in pages:
-        name = " ".join(str(page.get("name") or pid).split())
+    names = [" ".join(str(page.get("name") or pid).split()) for pid, page in pages]
+    distinct = len({same_name.fold(n) for n in names}) == len(names)
+    rows = []
+    for (pid, page), name in zip(pages, names):
         kind = str(page.get("type") or "").strip().lower()
-        qualifier = shared.get(pid) or same_name.TYPE_WORDS.get(kind) or None
-        out.append({"key": f"{PAGE_PREFIX}{pid}", "label": same_name.display(name, qualifier),
-                    "page_id": pid, "page_name": name, "qualifier": qualifier})
-    out.append({"key": ANOTHER_KEY, "label": another_label(fm, len(pages))})
+        # A name two pages share is told apart by its qualifier; names that already differ ("<First> <Surname-a>", "<First>
+        # <Surname-b>") are told apart by themselves, and a person by the relation they are to the owner ("Your brother",
+        # only when no other candidate is the same relation, `which_one.labels`).
+        qualifier = shared.get(pid) or (None if distinct and (len(pages) > 1 or kind == "person")
+                                        else same_name.TYPE_WORDS.get(kind)) or None
+        rows.append({"id": pid, "name": name, "type": kind, "roles": which_one.roles_of(page), "qualifier": qualifier})
+    out = [{"key": f"{PAGE_PREFIX}{row['id']}", "label": label, "page_id": row["id"], "page_name": row["name"],
+            "qualifier": row["qualifier"]} for row, label in zip(rows, which_one.labels(rows))]
+    people = all(str(page.get("type") or "").strip().lower() == "person" for _pid, page in pages)
+    out.append({"key": ANOTHER_KEY, "label": another_label(fm, len(pages), people=people)})
     return out
 
 
-def another_label(fm: dict, count: int) -> str:
-    """"Another one" — this mention is its own thing with the name (the owner's final wording, 2026-10-29)."""
-    return ANOTHER_LABEL
+def another_label(fm: dict, count: int, *, people: bool = False) -> str:
+    """"Another one" — this mention is its own thing with the name (the owner's final wording, 2026-10-29); "Someone
+    else" when every candidate is a person (ruling 83)."""
+    return ANOTHER_PERSON_LABEL if people else ANOTHER_LABEL
 
 
 def is_another(key: str | None) -> bool:
     return str(key or "").strip() in ANOTHER_ALIASES
 
 
-def question(fm: dict, count: int) -> str:
-    """The question in words: "Which <name> is this?" over two or more pages; over one, "Is this <name>?"."""
+def question(fm: dict, count: int, picks: list[dict] | None = None) -> str:
+    """The question in words, for a reader with no wording layer: "Were you talking about your brother or <Full Name>?"
+    over two or more pages (built from the served ``picks``, `which_one.ask`); over one, "Is this the <name> you already
+    have?"."""
     name = _name(fm) or "this"
-    return f"Which {name} is this?" if count > 1 else f"Is this the {name} you already have?"
+    if count > 1:
+        from api.services import which_one
+
+        return which_one.ask(name, picks or [])
+    return f"Is this the {name} you already have?"
 
 
 def picked(fm: dict, key: str | None, lookup: Lookup) -> tuple[str, str] | None:

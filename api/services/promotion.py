@@ -48,7 +48,10 @@ def _fold(text: str) -> str:
     return "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
 
 
-def _names(entity: dict) -> list[str]:
+def name_variants(entity: dict) -> list[str]:
+    """Every way the rung counts a name: as written, with a trailing "(...)" removed, each alias, and a person's first name.
+    As written (not folded), de-duplicated by folding, two letters or more. The one list `measure`, `label_only` and
+    `coined_names.coined` all read, so "is it said" and "is it counted" cannot disagree on what the name is."""
     name = str(entity.get("name") or "").strip()
     out = [name, re.sub(r"\s*\([^)]*\)\s*$", "", name)]
     out += [str(a) for a in entity.get("aliases") or [] if a]
@@ -61,8 +64,12 @@ def _names(entity: dict) -> list[str]:
         folded = _fold(n).strip()
         if len(folded) >= 2 and folded not in seen:
             seen.add(folded)
-            names.append(folded)
+            names.append(n.strip())
     return names
+
+
+def _names(entity: dict) -> list[str]:
+    return [_fold(n).strip() for n in name_variants(entity)]
 
 
 def _pattern(names: list[str]) -> re.Pattern | None:

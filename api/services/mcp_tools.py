@@ -1004,7 +1004,7 @@ def _record_settle(ctx: ToolContext, memory_path: Path, item_id, source, option_
     item_path = memory_path / "inbox" / f"{item_id}.md"
     c = web_settle.candidate(memory_path, item_path, facts, agent=True) if item_path.exists() else None
     if c is None:
-        return Reply("Not recorded: that question is not one a lookup may settle — it is about a person, the person's own "
+        return Reply("Not recorded: that question is not one a web check may settle — it is about a person, the person's own "
                 "files, projects or life, or something only their conversations know, or it is no longer open. It "
                 "stays for the person.", code="refused")
     if c.scope == "repo" and not page_editors.is_trusted(ctx.author, remote=ctx.is_remote):
@@ -3328,7 +3328,7 @@ def _list_line(memory_path: Path, entity_id: str, *, rows: bool = False) -> dict
 
 
 def _list_page_refusal(memory_path: Path, *refs) -> "Reply | None":
-    """G246 (ruling 81): an agent's write to a list of saved posts' own page — a fact, an edit, a merge, a split, a link — is
+    """G246 (ruling 81): an agent's write to a list of saved posts' own page — a fact, an edit, a merge, a split, a link, a look — is
     refused with one sentence, whichever door it came by (every door runs this body). One check (``list_pages.is_list``) over
     each page a reference names, by id or by name; None when none is a list's page."""
     from api.services import bank_index, list_pages
@@ -3924,7 +3924,7 @@ def _book_preview(number: str) -> str:
         _run_async(lambda: book_lookup.resolve([number]))
         hit = book_lookup.cached(number)
     if not hit or not hit.get("found"):
-        why = ("no source knows this number" if hit else "the lookup could not be reached (or network lookups are off)")
+        why = ("no source knows this number" if hit else "the book source could not be reached (or Cicada's online fetching is turned off)")
         return f"No edition to show for {number}: {why}. Check the number, or ask the person."
     lines = [f"ISBN {number}: {hit.get('title') or '?'}" + (f" — {hit['subtitle']}" if hit.get("subtitle") else ""),
              "Authors: " + (", ".join(hit.get("authors") or []) or "unknown")]
@@ -3958,8 +3958,8 @@ def _book_add(ctx: ToolContext, number: str) -> str:
                     f"({out.get('entityId')}). It carries no reading status; say so if the person told you one. "
                     "Its description comes from a public source and is not the person's words.")
     note = "was already requested" if repeat else "is queued"
-    return (f"The book {note} (ISBN {number}). Its page appears once the lookup answers "
-            "(or after the next Sleep if network lookups are off).")
+    return (f"The book {note} (ISBN {number}). Its page appears once the book's details arrive "
+            "(or after the next Sleep if Cicada's online fetching is turned off).")
 
 
 @_holding_pages
@@ -6658,7 +6658,7 @@ def _agent_question(
 
             if picks := same_name_pick.options(memory_path, fm):
                 # G227: a name pages share is asked which page it is — the same options `GET /inbox` serves.
-                fm["question"] = str(fm.get("question") or same_name_pick.question(fm, len(picks) - 1))
+                fm["question"] = str(fm.get("question") or same_name_pick.question(fm, len(picks) - 1, picks))
                 fm["options"] = picks
                 options = inbox_questions.normalize_options(picks)
         if str(fm.get("kind") or "") == "followup":
@@ -7642,6 +7642,11 @@ def save_design(ctx: ToolContext, url=None, note=None, image_path=None, image_ba
 
     memory_path = ctx.memory_path()
     if (refusal := _demo_refusal(memory_path)) is not None:
+        return refusal
+    # G246 (ruling 81): a list of saved posts' own page is no page a look may be written onto (its "## Looks" section is
+    # a write to the page), so the same one check that holds a claim, an edit, a merge or a link holds a look — before
+    # the picture is read, on both doors (each runs this body).
+    if (refusal := _list_page_refusal(memory_path, subject)) is not None:
         return refusal
     data = _design_image(ctx, memory_path, image_path, image_base64)
     if isinstance(data, str):

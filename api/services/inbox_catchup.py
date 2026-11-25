@@ -441,7 +441,7 @@ def _neg(day: str) -> str:
 
 def spoken_for(memory_path: Path, entry: Entry, fm: dict, today: str) -> inbox_wording.Spoken:
     """The entry's human question and reason, read from its pages' frontmatter."""
-    from api.services import everyday_names
+    from api.services import everyday_names, which_one
 
     def page(pid: str) -> dict | None:
         f = bank_index.file(memory_path, "entities", f"{pid}.md") if pid else None
@@ -454,7 +454,7 @@ def spoken_for(memory_path: Path, entry: Entry, fm: dict, today: str) -> inbox_w
     for pid in fm.get("same_title") or []:
         if isinstance(pid, str) and (p := page(pid)) is not None:
             titled.append({"id": pid, "name": str(p.get("name") or pid), "type": str(p.get("type") or ""),
-                           "qualifier": same.get(pid)})
+                           "qualifier": same.get(pid), "roles": p.get("owner_roles")})
     owner_id = everyday_names.owner_id(memory_path)
     conflict = str(fm.get("kind") or "") == "conflict"
     claims = _claims(memory_path, str(fm.get("entity_id") or "")) if conflict else None
@@ -464,7 +464,8 @@ def spoken_for(memory_path: Path, entry: Entry, fm: dict, today: str) -> inbox_w
                                 claims=claims,
                                 page_name=(lambda pid: (page(pid) or {}).get("name") or None) if conflict else None,
                                 owner_name=(page(owner_id) or {}).get("name") if owner_id else None,
-                                untimed=episode_time.untimed_ids(memory_path) if conflict else frozenset())
+                                untimed=episode_time.untimed_ids(memory_path) if conflict else frozenset(),
+                                where=which_one.where_of(memory_path, fm))
 
 
 def _claims(memory_path: Path, entity_id: str) -> list:

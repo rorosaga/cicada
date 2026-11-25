@@ -440,7 +440,8 @@ struct NeedsYouSection: View {
 /// *Answer* is the page's one accent primary (DR-5 (2), DR-40; neutral while Getting started's read pill is up) opening
 /// the question in the Inbox's list, where the rest wait; *Catch me up* is a compact neutral button beside it. The
 /// page's name, its age and "N more on this page" are the question's hover and accessibility hint, not a second line of
-/// small grey type, and *All N questions* is gone (Answer lands in the list).
+/// small grey type, and *All N questions* is gone (Answer lands in the list). The one exception, owner 2026-11-25
+/// (DESIGN_RULES §9): "Asked 13 days ago by Sleep's duplicate check" is drawn, one quiet line under the question.
 struct LeadQuestionCard: View {
     let row: HomeQuestions.Row
     /// The page has something to draw (`HomeQuestions.reservesPicture`): with none, the card has no slot for it and its
@@ -463,7 +464,6 @@ struct LeadQuestionCard: View {
                                 row.reason.map { PageLine.plain($0, links: store.links) }]
         if !row.entityId.isEmpty { lines.append(row.entityName) }
         if row.age != "—" { lines.append(row.ageHelp) }
-        lines.append(row.asked)
         if total > 1 { lines.append(Copy.Catchup.allQuestions(total)) }
         return lines.compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
     }
@@ -479,23 +479,28 @@ struct LeadQuestionCard: View {
                 .help(Copy.Catchup.openPage(row.entityName))
             }
             VStack(alignment: .leading, spacing: CicadaTheme.scaled(14)) {
-                Button(action: open) {
-                    // 15 pt medium: under the field's 17 pt, so the field leads and this is what it asks. Balanced, so
-                    // the lines come out even whatever the string (no word left alone on the last line).
-                    BalancedLines {
-                        PageLineText(row.question)
-                            .font(CicadaTheme.font(size: 15, weight: .medium))
-                            .foregroundStyle(CicadaTheme.textPrimary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .multilineTextAlignment(.leading)
+                VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
+                    Button(action: open) {
+                        // 15 pt medium: under the field's 17 pt, so the field leads and this is what it asks. Balanced, so
+                        // the lines come out even whatever the string (no word left alone on the last line).
+                        BalancedLines {
+                            PageLineText(row.question)
+                                .font(CicadaTheme.font(size: 15, weight: .medium))
+                                .foregroundStyle(CicadaTheme.textPrimary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .multilineTextAlignment(.leading)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.cicadaPlain)
+                    .help(help)
+                    .accessibilityHint(help)
+                    .accessibilityAddTraits(.isHeader)
+                    if let asked = row.asked {
+                        AskedByText(text: asked, help: row.askedHelp, wraps: true)
+                    }
                 }
-                .buttonStyle(.cicadaPlain)
-                .help(help)
-                .accessibilityHint(help)
-                .accessibilityAddTraits(.isHeader)
 
                 HStack(spacing: CicadaTheme.scaled(12)) {
                     if answerIsPrimary {

@@ -44,14 +44,50 @@ def _clean(names: Iterable) -> list[str]:
     return [n for n in dict.fromkeys(" ".join(str(n or "").split()) for n in names) if n]
 
 
+class Reading:
+    """One conversation read once for every name asked of it: the person's own turns, and the folded words of each text
+    (:class:`question_revisit.Words`), built when first needed and kept. A conversation of megabytes is folded once however
+    many names and aliases are checked (measured 0.2 to 0.6 s a name before)."""
+
+    def __init__(self, text: str, *, override: str | None = None, gaps=(), persons=frozenset({"user", "speaker"}),
+                 extra: str = ""):
+        self.text = text or ""
+        self.extra = extra or ""
+        self._person = (override, gaps, persons)
+        self._cache: dict[str, object] = {}
+
+    def _once(self, key: str, make):
+        if key not in self._cache:
+            self._cache[key] = make()
+        return self._cache[key]
+
+    @property
+    def mine(self) -> str:
+        override, gaps, persons = self._person
+        return self._once("mine", lambda: person_text(self.text, override=override, gaps=gaps, persons=persons))
+
+    def words(self, which: str):
+        """The folded words of ``"text"``, ``"mine"`` or ``"extra"``, read once."""
+        from api.services import question_revisit as qr
+
+        return self._once("words:" + which, lambda: qr.Words(getattr(self, "mine" if which == "mine" else which)))
+
+    def has(self, which: str, name: str) -> bool:
+        return _located(getattr(self, which), name, self.words(which))
+
+
+def _located(text: str, name: str, words) -> bool:
+    name = " ".join(str(name or "").split())
+    if not name or not text:
+        return False
+    return evidence.locate(text, name) is not None or words.name_in(name)
+
+
 def located(text: str, name: str) -> bool:
     """Whether ``name`` is in ``text`` as the evidence spans locate a quote (never fuzzy), or as whole folded words."""
     from api.services import question_revisit as qr
 
-    name = " ".join(str(name or "").split())
-    if not name or not text:
-        return False
-    return evidence.locate(text, name) is not None or qr._hits([name], [], text)[0]
+    return _located(text, name, qr.Words(text))
 
 
 def person_text(text: str, *, override: str | None = None, gaps=(), persons=frozenset({"user", "speaker"})) -> str:
@@ -65,16 +101,17 @@ def person_text(text: str, *, override: str | None = None, gaps=(), persons=froz
 
 
 def said_in(names: Iterable, text: str, *, override: str | None = None, gaps=(),
-            persons=frozenset({"user", "speaker"}), extra: str = "") -> str:
+            persons=frozenset({"user", "speaker"}), extra: str = "", reading: Reading | None = None) -> str:
     """``"person"`` when any of ``names`` is in a turn of the person's own, else ``"others"`` when any is anywhere else in the
-    text (``extra`` is more text that is nobody's turn: a record's title or source), else ``"nowhere"``."""
+    text (``extra`` is more text that is nobody's turn: a record's title or source), else ``"nowhere"``. ``reading`` is the
+    same conversation read once for many calls; ``text`` and the options are then its own."""
     names = _clean(names)
     if not names:
         return NOWHERE
-    mine = person_text(text, override=override, gaps=gaps, persons=persons)
-    if any(located(mine, n) for n in names):
+    read = reading or Reading(text, override=override, gaps=gaps, persons=persons, extra=extra)
+    if any(read.has("mine", n) for n in names):
         return PERSON
-    if any(located(text, n) or (extra and located(extra, n)) for n in names):
+    if any(read.has("text", n) or (read.extra and read.has("extra", n)) for n in names):
         return OTHERS
     return NOWHERE
 
@@ -90,20 +127,32 @@ def words_of(name: str, text: str) -> str:
     return "all" if hit == len(words) else "some" if hit else "none"
 
 
-def coined(entity: dict, text: str, *, given: str = "", override: str | None = None, gaps=(),
-           persons=frozenset({"user", "speaker"})) -> bool:
-    """Is this Stage 1 entity's name a label nobody said? True only for a concept or a project (:data:`COINABLE_TYPES`) whose
-    name and every alias is in no text of the conversation, ``given`` (what the model was handed besides it: the owner's name
-    and the source note, so a harness's or a correspondent's name is said) included. A thing one of whose aliases the
-    conversation says is not coined, and neither is an event or application the person acted on (ruling 42) or a book's
-    record (ruling 64).
+def name_set(entity: dict) -> list[str]:
+    """The names a conversation is asked for: exactly the set `promotion.measure` counts the entity by (`promotion.name_variants`:
+    the name, the name with a trailing "(...)" removed, each alias), so a name the rung counts as said is never a label."""
+    from api.services import promotion
 
+    return promotion.name_variants(entity)
+
+
+def coined(entity: dict, text: str, *, given: str = "", override: str | None = None, gaps=(),
+           persons=frozenset({"user", "speaker"}), booked: bool = False, reading: Reading | None = None) -> bool:
+    """Is this Stage 1 entity's name a label nobody said? True only for a concept or a project (:data:`COINABLE_TYPES`) whose
+    name and every alias (`name_set`) is in no text of the conversation, ``given`` (what the model was handed besides it: the
+    owner's name and the source note, so a harness's or a correspondent's name is said) included. A thing one of whose aliases
+    the conversation says is not coined, and neither is an event or application the person acted on (ruling 42: the entity
+    carries `application_page.KEY` by now) or a book the person said a status of (ruling 61: ``booked``, the caller's
+    `book_said` mark on it; the model's own ``reading_status`` is consumed before this).
+
+    ``reading`` is the conversation read once for every entity of the episode (:class:`Reading`).
     The caller stamps the answer (:data:`COINED`); nothing is renamed, dropped or moved here: what a label is, is the caller's."""
+    from api.services import application_page
+
     if str(entity.get("type") or "").lower() not in COINABLE_TYPES:
         return False
-    if entity.get("application") or entity.get("reading_status"):
+    if booked or entity.get(application_page.KEY):
         return False
-    names = _clean([entity.get("name"), *[a for a in entity.get("aliases") or [] if isinstance(a, str)]])
+    names = _clean(name_set(entity))
     if not names:
         return False
-    return said_in(names, text, override=override, gaps=gaps, persons=persons, extra=given) == NOWHERE
+    return said_in(names, text, override=override, gaps=gaps, persons=persons, extra=given, reading=reading) == NOWHERE

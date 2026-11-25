@@ -1429,7 +1429,9 @@ async def extract(
                     day=ep_day.isoformat() if ep_day and not untimed else None,
                     override=authorship.of_episode(episode), gaps=gaps)
                     for entity in all_entities if isinstance(entity, dict)) if m]
+                booked_names = {m["name"] for m in said_books}
                 narration = 0
+                coined_reading = None
                 for entity in all_entities:
                     facts = entity.get("key_facts")
                     if isinstance(facts, list):
@@ -1472,9 +1474,12 @@ async def extract(
                     # wrote, not a name — marked from the text, never the model's to say. It asks the person nothing, and
                     # Stage 2 never gives it a page from this one conversation (`coined_names`).
                     entity.pop(coined_names.COINED, None)
-                    if coined_names.coined(entity, content, given="\n".join(t for t in (owner or "", source_note or "") if t),
-                                           override=authorship.of_episode(episode), gaps=gaps,
-                                           persons=promotion.person_kinds(episode)):
+                    if coined_reading is None:   # the conversation read once for every entity of this episode
+                        coined_reading = coined_names.Reading(
+                            content, override=authorship.of_episode(episode), gaps=gaps, persons=promotion.person_kinds(episode),
+                            extra="\n".join(t for t in (owner or "", source_note or "") if t))
+                    if coined_names.coined(entity, content, reading=coined_reading,
+                                           booked=" ".join(str(entity.get("name") or "").split()) in booked_names):
                         entity[coined_names.COINED] = True
                         entity.pop("ask_person", None)
                 if narration:

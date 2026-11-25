@@ -295,6 +295,33 @@ def _hits(a_names: list[str], b_names: list[str], text: str) -> tuple[bool, bool
     return found["a"], found["b"]
 
 
+class Words:
+    """A text read once into the words :func:`_hits` compares: folded, and with the accents off. :func:`name_in` asks it one
+    name at a time, with the answer :func:`_hits` gives for that name alone, without reading the text again — a caller that
+    checks many names against one long conversation builds this once."""
+
+    def __init__(self, text: str):
+        tokens = re.findall(r"[^\W_]+", str(text or ""))
+        seen: dict[str, tuple[str, str]] = {}   # a word is folded once however often the text says it
+        for w in tokens:
+            if w not in seen:
+                seen[w] = (text_fold.fold(w), _plain(w))
+        self.folded = [seen[w][0] for w in tokens]
+        self.plain = frozenset(p for _f, p in seen.values())
+        self.positions: dict[str, list[int]] = {}
+        for at, word in enumerate(self.folded):
+            self.positions.setdefault(word, []).append(at)
+
+    def name_in(self, name: str) -> bool:
+        """``_hits([name], [], text)[0]``."""
+        parts = _key(name).split()
+        if len(parts) > 1:
+            if any(p not in self.positions for p in parts):
+                return False
+            return any(self.folded[at:at + len(parts)] == parts for at in self.positions[parts[0]])
+        return bool(parts) and _plain(str(name).strip()) in self.plain
+
+
 def _names_both(a_names: list[str], b_names: list[str], text: str) -> bool:
     a, b = _hits(a_names, b_names, text)
     return a and b

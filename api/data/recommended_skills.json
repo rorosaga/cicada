@@ -78,7 +78,7 @@
       "id": "granola", "kind": "mcp-hosted", "rank": 4,
       "title": "Granola meetings",
       "summary": "Your agent reads your Granola meeting notes.",
-      "why": "Your agent can look up what was said in a meeting when you ask, instead of you pasting notes in.",
+      "why": "Your agent can find what was said in a meeting when you ask, instead of you pasting notes in.",
       "publisher": "Granola", "sourceUrl": "https://docs.granola.ai/help-center/sharing/integrations/mcp",
       "licence": "Hosted service", "mark": "granola", "symbol": "note.text",
       "endpoint": "https://mcp.granola.ai/mcp",

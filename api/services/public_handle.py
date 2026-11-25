@@ -373,13 +373,13 @@ def settle(memory_path: Path, item_id: str, *, ref: str, quote: str, checker: st
         shape = _shape(parsed_item.frontmatter, facts)
         if parsed_item.frontmatter.get(web_settle.UNDONE_KEY) == "undone" or not enabled() or not shape.public or (
                 shape.handle_id, shape.named_id) != (tested.handle_id, tested.named_id):
-            raise web_settle.NotSettleable("That question is not about a public handle a lookup may answer; it stays "
+            raise web_settle.NotSettleable("That question is not about a public handle a web check may answer; it stays "
                                            "for the person.")
         pair = tested
     else:
         if web_settle.classify(memory_path, parsed_item.frontmatter, parsed_item.body, facts,
                                agent=agent) != ("public", REASON):
-            raise web_settle.NotSettleable("That question is not about a public handle a lookup may answer; it stays "
+            raise web_settle.NotSettleable("That question is not about a public handle a web check may answer; it stays "
                                            "for the person.")
         pair = test(memory_path, parsed_item.frontmatter, facts, agent=agent)
     ref, host = web_settle.check_ref(ref, "public")

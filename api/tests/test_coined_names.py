@@ -7,7 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from api.services import coined_names, entity_extractor, entity_resolver, evidence, pending_store
+from api.services import (application_page, coined_names, entity_extractor, entity_resolver, evidence, pending_store, promotion,
+                          question_revisit)
 from api.tests.test_sleep_cycle_hold import _bank, _entity, _settings
 
 EP_A, TS_A = "ep_2026-10-20_001", "2026-10-20T10:00:00+00:00"
@@ -61,8 +62,6 @@ def test_words_of_a_name_the_conversation_says():
     ({"name": "Eiffel Tower", "type": "location"}, False),                               # a real name in other words: no label
     ({"name": "Acme Docs", "type": "tool"}, False),
     ({"name": "Dana Whitfield", "type": "person"}, False),
-    (_concept("Summer fellowship", application={"status": "sent", "by": "user"}), False),   # ruling 42
-    (_concept("A book", reading_status={"status": "finished"}), False),                     # ruling 64
 ])
 def test_only_a_concept_or_project_no_text_says_is_a_label(entity, expected):
     assert coined_names.coined(entity, CHAT) is expected
@@ -156,3 +155,84 @@ def test_a_name_one_conversation_says_is_not_a_label_because_another_gave_it_uns
          {"episode_id": other, "entities": [_entity("Delta Plan", "concept", other, "2026-10-21T10:00:00+00:00")],
           "relationships": []}], [], _settings(memory)))
     assert [(c["action"], c["id"]) for c in out["changes"]] == [("create", "delta-plan")]
+
+
+# --- the name set is the rung's, whole ------------------------------------------------------------------------------------
+
+MERCURY = "\n".join(f"user: Mercury needs a look at point {n}, the part where it syncs.\nassistant: Noted." for n in range(5))
+
+
+@pytest.mark.parametrize("entity", [
+    {"name": "Mercury (project)", "type": "concept"},                                  # a qualifier
+    {"name": "Mercury (project)", "type": "project", "aliases": ["Merc", "Hg (the metal)", 7, ""]},   # and aliases
+    {"name": "Delta Plan", "type": "concept"},                                          # neither
+    {"name": "  Café  Nord (v2) ", "type": "concept", "aliases": ["cafe nord"]},        # accents, case and spaces
+])
+def test_the_name_set_is_the_one_the_promotion_rung_counts(entity):
+    folded = [promotion._fold(n).strip() for n in coined_names.name_set(entity)]
+    assert folded == promotion._names(entity)
+
+
+def test_a_name_with_a_qualifier_is_said_by_what_the_rung_counts():
+    assert coined_names.name_set({"name": "Mercury (project)", "type": "concept"}) == ["Mercury (project)", "Mercury"]
+    assert coined_names.coined({"name": "Mercury (project)", "type": "concept"}, MERCURY) is False
+
+
+def test_stage_one_never_stamps_a_name_the_rung_counts_and_stage_two_still_gives_it_its_page(tmp_path, monkeypatch):
+    entity = {"name": "Mercury (project)", "type": "concept", "confidence": 0.95,
+              "description": "Discussed at length. " * 12}
+    (got,) = _read(monkeypatch, _episode(MERCURY), [entity])
+    assert got["mention_exchanges"] > 3 and got["named_by_person"] is True
+    assert coined_names.COINED not in got
+    out = _resolve(_bank(tmp_path), {**_entity("Mercury (project)", "concept", EP_A, TS_A), **got}, monkeypatch)
+    assert [c["action"] for c in out["changes"]] == ["create"]
+
+
+# --- the guards read what is there when the stamp is made -----------------------------------------------------------------
+
+
+def test_what_the_person_acted_on_or_said_a_status_of_is_never_a_label():
+    entity = _concept("Autumn residency")
+    assert coined_names.coined(entity, CHAT) is True
+    assert coined_names.coined({**entity, application_page.KEY: {"episode": EP_A, "status": "sent", "by": "user"}}, CHAT) is False
+    assert coined_names.coined(entity, CHAT, booked=True) is False
+
+
+def test_stage_one_consumes_the_models_application_and_status_before_it_stamps(monkeypatch):
+    said = "user: I sent in my application to the Autumn residency yesterday.\nassistant: Good luck."
+    entity = {"name": "Autumn residency", "type": "concept", "application": {"status": "sent", "by": "user"}}
+    (got,) = _read(monkeypatch, _episode(said), [entity])
+    assert "application" not in got and application_page.KEY in got and coined_names.COINED not in got
+    book = "user: I finished reading Salt Roads last week.\nassistant: How was it?"
+    entity = {"name": "Salt Roads", "type": "concept",
+              "reading_status": {"status": "finished", "quote": "I finished reading Salt Roads"}}
+    (got,) = _read(monkeypatch, _episode(book), [entity])
+    assert "reading_status" not in got and coined_names.COINED not in got
+
+
+# --- one conversation is folded once -------------------------------------------------------------------------------------
+
+
+def test_a_long_conversation_is_folded_once_however_many_names_are_checked(monkeypatch):
+    built = []
+    real = question_revisit.Words.__init__
+
+    def counting(self, text):
+        built.append(len(text))
+        real(self, text)
+
+    monkeypatch.setattr(question_revisit.Words, "__init__", counting)
+    text = "user: " + "tide pool anemone kelp " * 400 + "\nassistant: ok"
+    reading = coined_names.Reading(text, extra="the owner's name")
+    entities = [{"name": f"Zq{n} widget plan", "type": "concept", "aliases": [f"Zq{n} wdg", f"The Zq{n} thing"]}
+                for n in range(40)]
+    assert all(coined_names.coined(e, text, reading=reading) for e in entities)
+    assert len(built) <= 3, "the person's turns, the whole text and the extra text: once each, never once per name"
+    assert reading.has("text", "anemone kelp") and len(built) <= 3
+
+
+@pytest.mark.parametrize("name", ["anemone kelp", "Anemone", "ANEMONE KELP TIDE", "tide pool pool", "Cafe", "cafe nord", "Zebra",
+                                  "kelp-tide", "naïve idea", "naive"])
+def test_the_words_read_once_answer_as_the_pass_that_reads_every_time(name):
+    text = "Tide pool anemone kelp. Café Nord is open; a naïve idea, about the kelp tide."
+    assert question_revisit.Words(text).name_in(name) is question_revisit._hits([name], [], text)[0]
