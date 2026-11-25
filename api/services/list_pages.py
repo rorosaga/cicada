@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import hashlib
 import threading
+from functools import lru_cache
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -258,7 +259,16 @@ def _noun_of(site: str) -> str:
 
 def kinds() -> list[Kind]:
     """Every kind of list there can be, from the tables that already name them (``source_streams``, ``bookmark_sync``,
-    ``books``): a list added there appears here with no second edit."""
+    ``books``): a list added there appears here with no second edit. The tables are fixed in a process, so this is built
+    once per answer of ``saved_posts.HIDE_POSTS`` (which adds "Saved another way")."""
+    from api.services import saved_lists
+
+    # Keyed on the table object too, so a table swapped in (a test, a later track) is never answered from an old one.
+    return list(_kinds(bool(saved_posts.HIDE_POSTS), id(saved_lists.PLATFORMS)))
+
+
+@lru_cache(maxsize=8)
+def _kinds(_hide_posts: bool, _table: int) -> tuple:
     from api.services import bookmark_sync, books, saved_lists, source_streams
 
     out: list[Kind] = []
@@ -298,7 +308,7 @@ def kinds() -> list[Kind]:
                                 (books.GOODREADS_ORIGIN, "goodreads.shelves", "Shelves"),
                                 (books.SCAN_ORIGIN, "book-scan.books", "Books scanned")):
         static(stream, door, label, door, (door,), "books", how="book", name=books.DOOR_WORDS.get(door, door))
-    return out
+    return tuple(out)
 
 
 @dataclass(frozen=True)
@@ -655,7 +665,7 @@ def line_for(memory_path: Path, entity_id: str, *, rows: bool = False) -> dict |
         kind = kind_of_stream(info["stream"])
         head = (f"This page is a list of saved {kind.noun if kind else 'posts'} ({fm.get('name') or entity_id}): {count} saved"
                 + (f", newest {newest}" if newest else "")
-                + ". It holds no posts or facts of its own: the count and the rows are read from the person's saves each "
+                + f". It holds no {kind.noun if kind else 'posts'} or facts of its own: the count and the rows are read from the person's saves each "
                   "time, so find a post by its words in a search, never by this page's text.")
         out = [head]
         if rows and got.get("recent"):
