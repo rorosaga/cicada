@@ -581,8 +581,13 @@ struct CicadaApp: App {
             let prefs = SiteSavePrefs()
             for save in saves { prefs.keep(save.lesson, site: save.item.site) }
             Task {
-                for save in saves where save.outcome == .saved {
-                    await saveWhy.siteSaved(save.item, text: save.text, folder: save.folder)
+                for save in saves {
+                    // A held click whose direction the page did not say is settled by the record, as any other is.
+                    switch save.outcome {
+                    case .saved: await saveWhy.siteSaved(save.item, text: save.text, folder: save.folder)
+                    case .changed: await saveWhy.siteChanged(save.item, text: save.text, folder: save.folder)
+                    case .unsaved, .none: break
+                    }
                 }
             }
         }
@@ -684,11 +689,12 @@ struct CicadaApp: App {
         siteSaves.onOutcome = { [saveWhy] item, outcome, text, folder in
             Task {
                 // An unsave is never asked about: the save stays, marked as off the list. A change whose direction
-                // nothing settled is neither stored nor asked about.
+                // nothing on the page settled is settled by the record (owner 2026-11-25; it used to be dropped).
                 switch outcome {
                 case .saved: await saveWhy.siteSaved(item, text: text, folder: folder)
                 case .unsaved: await saveWhy.siteUnsaved(item)
-                case .changed, .none: break
+                case .changed: await saveWhy.siteChanged(item, text: text, folder: folder)
+                case .none: break
                 }
             }
         }
