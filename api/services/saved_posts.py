@@ -155,6 +155,15 @@ def is_post(fm: dict | None) -> bool:
     return post_site(url) is not None
 
 
+def is_saved_item(fm: dict | None) -> bool:
+    """Is this page a saved item of any kind — a post, a video, a bookmark, a star, a book, a feed item, a repository: any
+    ``type: media`` page that is not a list's own page? The earned rule (:func:`earned_saves`) is asked of every one, so the
+    graph's bubbles, Clusters and Home agree on which saved things sit inside their list. Pure, no I/O."""
+    if not isinstance(fm, dict) or str(fm.get("type") or "").strip().lower() != "media":
+        return False
+    return str(_media(fm).get("kind") or "").strip().lower() != "list"
+
+
 def site_of(fm: dict | None) -> str | None:
     """The :data:`POST_SITES` key of a post page, else ``None`` (a link under ``rows`` that is no site's post too)."""
     return post_site(str(_media(fm or {}).get("url") or "").strip()) if isinstance(fm, dict) else None
@@ -348,9 +357,12 @@ def _entity_record(entry):
         rec["t"] = tied
     if taken := sorted(_taken_sources(fm)):
         rec["u"] = taken
-    if is_post(fm):
-        rec["p"] = 1
-        rec["s"] = site_of(fm)
+    post = is_post(fm)
+    if post or is_saved_item(fm):
+        if post:
+            rec["p"] = 1
+        rec["v"] = 1
+        rec["s"] = site_of(fm) if post else None
         rec["o"] = str(fm.get("origin") or "")
         if fm.get("human_edited") is True or fm.get("corrections"):
             rec["e"] = 1
@@ -482,7 +494,9 @@ def _write_digest(memory_path: Path, home: Path | None = None) -> None:
 def _persist_later(memory_path: Path, changed: int) -> None:
     """Store the digest, in the background, when it is due: the first time, after a large change, or every
     :data:`PERSIST_EVERY_S` while it keeps changing. Never on the request's time, never an error."""
-    if not STORE_DIGEST or not HIDE_POSTS:    # dark, nothing is stored: a call that asks the verdict anyway leaves no file
+    # Dark, nothing is stored: a call that asks the verdict anyway (the dry run) leaves no file. A reader of every saved
+    # item's answer (:func:`earned_saves`: the graph's bubbles) stores it, so a fresh process never re-reads every page.
+    if not STORE_DIGEST or not (HIDE_POSTS or str(memory_path) in _READERS):
         return
     slot = str(memory_path)
     home = derived_store.home_or_none()
@@ -578,9 +592,13 @@ class State:
     token: int
     #: every page the rule calls a post, by id
     posts: frozenset
+    #: every saved item of any kind (:func:`is_saved_item`), posts included: the signs below are decided for each
+    saved: frozenset = frozenset()
     #: ``{post id: signs}`` from the page, its episodes and its claims, and from links the person made in other pages'
     #: frontmatter (a project's list, a taken source)
     signs: dict = field(default_factory=dict)
+    #: the same for every saved item (:attr:`saved`), posts included: what :func:`earned_saves` is made of
+    saved_signs: dict = field(default_factory=dict)
     #: ``{post id: site}`` and ``{post id: origin}`` for the report
     sites: dict = field(default_factory=dict)
     origins: dict = field(default_factory=dict)
@@ -626,7 +644,8 @@ def _resolve(memory_path: Path, digest: _Digest) -> State:
         record = row[2]
         if isinstance(record, list) and record[1]:
             saves.setdefault(record[1], []).append(name[:-3])
-    posts = {name[:-3]: row[2] for name, row in digest.ent_rel.items() if isinstance(row[2], dict) and row[2].get("p")}
+    posts = {name[:-3]: row[2] for name, row in digest.ent_rel.items() if isinstance(row[2], dict)
+             and (row[2].get("p") or row[2].get("v"))}
     signs: dict[str, set[str]] = {}
     for pid, rec in posts.items():
         out: set[str] = set()
@@ -658,9 +677,12 @@ def _resolve(memory_path: Path, digest: _Digest) -> State:
     filed = sorted((name[:-3], repr(row[2][3])) for name, row in digest.epi_rel.items()
                    if isinstance(row[2], list) and len(row[2]) > 3)
     return State(
-        token=next(_TOKENS), posts=frozenset(posts), signs={pid: frozenset(s) for pid, s in signs.items()},
+        token=next(_TOKENS), posts=frozenset(pid for pid, rec in posts.items() if rec.get("p")), saved=frozenset(posts),
+        signs={pid: frozenset(s) for pid, s in signs.items() if posts[pid].get("p")},
+        saved_signs={pid: frozenset(s) for pid, s in signs.items()},
         filed=hashlib.sha1("\x1f".join(f"{a}\x1e{b}" for a, b in filed).encode()).hexdigest()[:12] if filed else "",
-        sites={pid: rec.get("s") for pid, rec in posts.items()}, origins={pid: rec.get("o") or "" for pid, rec in posts.items()},
+        sites={pid: rec.get("s") for pid, rec in posts.items() if rec.get("p")},
+        origins={pid: rec.get("o") or "" for pid, rec in posts.items() if rec.get("p")},
         memory_path=memory_path)
 
 
@@ -733,7 +755,7 @@ def _edge_signs(memory_path: Path, st: State) -> tuple[tuple, dict[str, frozense
     out: dict[str, frozenset] = {}
     claims_of: dict[str, list] = {}
     for source, target, claim_id in _edge_rows(Path(memory_path), stat):
-        ends = [x for x in dict.fromkeys((source, target)) if x in st.posts]
+        ends = [x for x in dict.fromkeys((source, target)) if x in st.saved]
         if not ends:
             continue
         if source not in claims_of:
@@ -763,6 +785,8 @@ class Verdict:
     earned: frozenset
     #: moves only when ``earned`` does
     stamp: str
+    #: saved items of every kind that hold one (:func:`earned_saves`)
+    earned_saves: frozenset = frozenset()
 
 
 _VERDICT: dict[str, tuple[tuple, Verdict]] = {}
@@ -778,9 +802,11 @@ def verdict(memory_path: Path) -> Verdict:
         hit = _VERDICT.get(slot)
     if hit is not None and hit[0] == edge_stamp:
         return hit[1]
-    signs = {pid: frozenset(s | edge.get(pid, frozenset())) for pid, s in st.signs.items()}
-    earned = frozenset(pid for pid, s in signs.items() if s)
-    out = Verdict(state=st, signs=signs, rows=st.posts - earned, earned=earned,
+    every = {pid: frozenset(s | edge.get(pid, frozenset())) for pid, s in st.saved_signs.items()}
+    saves = frozenset(pid for pid, s in every.items() if s)
+    signs = {pid: s for pid, s in every.items() if pid in st.posts}
+    earned = saves & st.posts
+    out = Verdict(state=st, signs=signs, rows=st.posts - earned, earned=earned, earned_saves=saves,
                   stamp=hashlib.sha1("\x1f".join(sorted(earned)).encode()).hexdigest()[:12])
     with _OLD_SHAPE_LOCK:
         _VERDICT[slot] = (edge_stamp, out)
@@ -806,6 +832,20 @@ def earned_ids(memory_path: Path) -> frozenset:
     if not HIDE_POSTS:
         return _NONE
     return verdict(memory_path).earned
+
+
+#: Banks whose earned set a live reader asked for (:func:`earned_saves`): their digest is stored like the flip's.
+_READERS: set[str] = set()
+
+
+def earned_saves(memory_path: Path) -> frozenset:
+    """Saved items of EVERY kind (:func:`is_saved_item`: a post, a video, a bookmark, a star, a book, a feed item, a
+    repository) that earned a place in the person's record by the same signs a post does: their note or why-answer, their
+    own words naming it, Keep as a page, an edit, a conversation or a claim of theirs citing it, a project tie, a source
+    link they took, an edge one of their claims backs. **Not gated by** :data:`HIDE_POSTS`: the one answer to "does this
+    saved thing show outside its list" that the graph's bubbles, Clusters and Home read (``list_pages.groups``)."""
+    _READERS.add(str(Path(memory_path)))
+    return verdict(memory_path).earned_saves
 
 
 def is_hidden(memory_path: Path, entity_id: str) -> bool:
