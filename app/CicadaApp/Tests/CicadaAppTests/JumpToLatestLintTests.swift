@@ -49,4 +49,27 @@ final class JumpToLatestLintTests: XCTestCase {
         }
         XCTAssertEqual(offenders, [], "a chat opens at its newest message, history above (DESIGN_RULES 2026-10-19 (5), 2026-11-25)")
     }
+
+    /// 2026-11-25, seen in the running app: with unmeasured lazy rows above, the anchor's place in the content and the
+    /// scroll view's `visibleRect` are not one coordinate system (a constant 1,308 pt apart at the very end), so the
+    /// button showed at the newest message. The anchor measures against the scroll view's visible rectangle itself.
+    func testTheAnchorMeasuresAgainstTheScrollViewItself() throws {
+        let file = try XCTUnwrap(try ThemeTokenTests.swiftSources().first { $0.path.hasSuffix("Views/Common/JumpToLatest.swift") })
+        let code = try String(contentsOf: file, encoding: .utf8).components(separatedBy: .newlines)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+        XCTAssertTrue(code.contains("bounds(of: .scrollView)"), "the anchor judges in its own coordinates")
+        XCTAssertFalse(code.contains("onScrollGeometryChange"), "the content's coordinates are not the visible rectangle's")
+        XCTAssertTrue(code.contains(".onDisappear { away = true }"), "an anchor the lazy stack dropped is away")
+    }
+
+    /// 2026-11-25, seen in the running app: the Sleep page's title row and room traded one id as the column crossed the
+    /// beside width (opening the Reader narrows it), and the lazy stack kept both rooms. A row's id never depends on
+    /// the width.
+    func testTheSleepPagesTopRowsKeepOneIdEach() throws {
+        let file = try XCTUnwrap(try ThemeTokenTests.swiftSources().first { $0.path.hasSuffix("Views/Sleep/SleepView.swift") })
+        let code = try String(contentsOf: file, encoding: .utf8)
+        let conditional = code.components(separatedBy: .newlines).filter { $0.contains(".id(") && $0.contains("?") && $0.contains(":") }
+        XCTAssertEqual(conditional.map { $0.trimmingCharacters(in: .whitespaces) }, [], "an id chosen by a condition")
+        XCTAssertEqual(code.components(separatedBy: ".id(Self.topAnchor)").count - 1, 1, "one row is the top")
+    }
 }

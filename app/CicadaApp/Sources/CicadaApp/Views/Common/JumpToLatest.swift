@@ -6,10 +6,11 @@ import SwiftUI
 /// after its newest row, `.jumpToLatestSpace(_:)` on its scroll content, and `.jumpToLatest(anchorY:away:scroller:)` on
 /// the scroll view, which draws the button over its bottom edge while the view sits above the newest message.
 ///
-/// "Above" is the anchor's laid-out position in the content against the visible rectangle's bottom, both in the content's
-/// own coordinates — never the scroll's content height: a lazy stack's height is an estimate that can sit hundreds of
-/// points past the real end, so a height test never sees the bottom (measured on a meeting). A lazy stack drops the
-/// anchor when it is far off screen; its last position stands, and it is far below, so the button shows.
+/// "Above" is the anchor against the scroll view's visible rectangle, measured by the anchor itself in its own
+/// coordinates — never the scroll's content height (a lazy stack's height is an estimate that can sit hundreds of
+/// points past the real end, measured on a meeting) and never the anchor's place in the content (2026-11-25: with
+/// unmeasured rows above, that is not the visible rectangle's coordinate system). A lazy stack drops the anchor when it
+/// is far off screen; that is away, so the button shows.
 ///
 /// D (DESIGN_RULES §9): a circle in the other side's bubble fill with the strong ring, never a shadow (DR-9, DR-10) and
 /// never the accent (DR-5); the glyph alone carries it, its words in `.help` and the accessibility label. Appearing and
@@ -29,8 +30,13 @@ enum JumpToLatest {
     }
 }
 
-/// Right after the chat's newest row: reports where it sits in the chat's content (`JumpToLatest.space`). Before macOS
-/// 15 (no scroll geometry) its leaving the lazy stack sets `away` instead.
+/// Right after the chat's newest row: says whether the view sits above it. It measures against the scroll view's own
+/// visible rectangle, in its own coordinates (`bounds(of: .scrollView)`: the anchor is at 0), so nothing depends on
+/// where the content's origin is. That matters (measured 2026-11-25 on a thread that loads its sittings newest first):
+/// while a lazy stack holds unmeasured rows above, the anchor's place in the content and the scroll view's visible
+/// rectangle are not in one coordinate system — they sat a constant 1,308 pt apart with the view at its very end, and
+/// the button showed there. A lazy stack drops the anchor when it is far off screen: that is away too (`onDisappear`),
+/// and it measures again when it comes back. `anchorY` only says an anchor is laid out.
 struct JumpToLatestAnchor: View {
     @Binding var anchorY: CGFloat?
     @Binding var away: Bool
@@ -42,18 +48,13 @@ struct JumpToLatestAnchor: View {
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(JumpToLatest.space)).minY } action: { y in
                 if anchorY != y { anchorY = y }
             }
-            .modifier(Fallback(away: $away))
-    }
-
-    private struct Fallback: ViewModifier {
-        @Binding var away: Bool
-        func body(content: Content) -> some View {
-            if #available(macOS 15, *) {
-                content
-            } else {
-                content.onAppear { away = false }.onDisappear { away = true }
+            .onGeometryChange(for: Bool.self) { proxy in
+                guard let visible = proxy.bounds(of: .scrollView) else { return false }
+                return JumpToLatest.isAway(anchorY: 0, visibleBottom: visible.maxY)
+            } action: { isAway in
+                if away != isAway { away = isAway }
             }
-        }
+            .onDisappear { away = true }
     }
 }
 
@@ -192,8 +193,8 @@ extension View {
             .background(JumpToLatestLocator(scroller: scroller).accessibilityHidden(true))
     }
 
-    /// The chat's scroll view: while the view sits above `anchorY` (macOS 15+, from its geometry; `away` before), the
-    /// button over its bottom edge glides it to its very end.
+    /// The chat's scroll view: while its anchor says the view sits above the newest message (`away`), the button over its
+    /// bottom edge glides it to its very end.
     /// `willJump` runs first: a scroll view whose position is bound (`scrollPosition(id:)`) lets go of it there, or SwiftUI
     /// puts the view back on the bound row while it glides.
     func jumpToLatest(anchorY: CGFloat?, away: Binding<Bool>, scroller: JumpToLatestScroller,
@@ -210,26 +211,13 @@ private struct JumpToLatestModifier: ViewModifier {
     let jump: () -> Void
 
     func body(content: Content) -> some View {
-        tracked(content)
+        content
             .overlay(alignment: .bottom) {
-                if away {
+                // `anchorY` nil: this scroll view draws no chat now (the Reader on a note), whatever a chat left behind.
+                if away, anchorY != nil {
                     JumpToLatestButton(action: jump)
                         .padding(.bottom, CicadaTheme.scaled(JumpToLatest.lift))
                 }
             }
     }
-
-    @ViewBuilder
-    private func tracked(_ content: Content) -> some View {
-        if #available(macOS 15, *) {
-            content.onScrollGeometryChange(for: Bool.self) { geo in
-                JumpToLatest.isAway(anchorY: anchorY, visibleBottom: geo.visibleRect.maxY)
-            } action: { _, isAway in
-                if isAway != away { away = isAway }
-            }
-        } else {
-            content
-        }
-    }
 }
-
