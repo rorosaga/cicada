@@ -182,7 +182,7 @@ def test_an_agent_reads_the_same_citations(tmp_path, monkeypatch):
     ctx = mcp_tools.ToolContext(memory_path=lambda: memory, session_id="s", harness="unknown")
     reply = mcp_tools.recall_detail(ctx, "alpha-place", include=["citations"])
     tail = reply.split("## Page blocks")[1]
-    assert "- citations: 3 sources (2 conversations, 1 looked up, 0 pages), 4 cited lines" in tail
+    assert "- citations: 3 sources (2 conversations, 1 from the web, 0 pages), 4 cited lines" in tail
     assert '[1] conversation "Studio plan" (claude-code, 2026-10-01 – 2026-10-05)' in tail
     assert reply.data["blocks"]["citations"]["markers"][0][1:] == [1]
     remote = mcp_tools.recall_detail(mcp_tools.ToolContext(memory_path=lambda: memory, session_id="s",

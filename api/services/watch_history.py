@@ -619,7 +619,7 @@ def render_month(platform: str, month: str, days: list[tuple[date, list[dict]]])
     lines = [f"# Watched on {name} · {label}", "",
              f"{total} video{'s' if total != 1 else ''} watched on {name} over {len(days)} "
              f"day{'s' if len(days) != 1 else ''} in {label} ({len(videos)} different), counted from the day-by-day "
-             f"watch history — a record to look up, not a conversation.", ""]
+             f"watch history — a record of what was watched, not a conversation.", ""]
     ranked = sorted(channels.values(), key=lambda c: (-c["videos"], -len(c["days"]), c["name"].casefold()))
     if ranked:
         lines += ["## Channels watched most"]
