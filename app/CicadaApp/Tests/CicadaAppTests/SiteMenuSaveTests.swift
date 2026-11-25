@@ -115,6 +115,36 @@ final class SiteMenuSaveTests: XCTestCase {
         XCTAssertEqual(SiteMenuRule.item(reddit(long, clicked: 3, firstMarked: 5)).failure, .notTheSaveSlot)
     }
 
+    /// Measured 2026-11-25 on the person's own post: ten items, the save third, none of the marks the other layouts
+    /// have. What the ordinary menus taught this Mac names it there.
+    func testInAMenuOfAnUnknownLayoutTheSaveIsTheItemThisMacLearned() throws {
+        let own = ["Award this post", "Edit post body", "Save", "Pin Post To Profile", "Hide", "Delete",
+                   "Add spoiler tag", "Add NSFW tag", "Mark as brand affiliate", "Turn off reply notifications"]
+        // Nothing learned: an unknown layout is nothing, as before.
+        XCTAssertEqual(SiteMenuRule.item(reddit(own, clicked: 2)).failure, .notTheSaveSlot)
+        var learned = SiteSaveRule.Labels()
+        learned.unsaved.insert("Save")
+        learned.saved.insert("Remove from saved")
+        XCTAssertNoThrow(try SiteMenuRule.item(reddit(own, clicked: 2), learned: learned).get())
+        var saved = own
+        saved[2] = "Remove from saved"
+        XCTAssertNoThrow(try SiteMenuRule.item(reddit(saved, clicked: 2), learned: learned).get())
+        // Every other item of that menu is still nothing, and so is the label in another language until learned.
+        for other in [0, 1, 3, 4, 5, 9] {
+            XCTAssertEqual(SiteMenuRule.item(reddit(own, clicked: other), learned: learned).failure, .notTheSaveSlot)
+        }
+        var spanishOwn = own
+        spanishOwn[2] = "Guardar"
+        XCTAssertEqual(SiteMenuRule.item(reddit(spanishOwn, clicked: 2), learned: learned).failure, .notTheSaveSlot)
+        // A comment's menu and a menu outside a post stay out, whatever their items are called.
+        XCTAssertEqual(SiteMenuRule.item(reddit(own, clicked: 2, foreign: true), learned: learned).failure,
+                       .notTheSaveSlot)
+        XCTAssertEqual(SiteMenuRule.item(reddit(own, clicked: 2, fits: false), learned: learned).failure, .notTheSaveSlot)
+        // Its direction is the learned one too.
+        let verdict = SiteMenuRule.outcome(reddit(own, clicked: 2), site: .reddit, post: "p", learned: learned)
+        XCTAssertEqual(verdict, .init(outcome: .saved, basis: "learned"))
+    }
+
     func testAMenusLabelIsLearnedFromThePostsItWasClickedOn() {
         let site = SiteSaveSite.reddit
         var seen = SiteMenuRule.Seen(), learned = SiteSaveRule.Labels()

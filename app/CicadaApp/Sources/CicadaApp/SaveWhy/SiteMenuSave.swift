@@ -75,7 +75,13 @@ enum SiteMenuRule {
 
     /// The post a clicked menu item saves, and the folder it is filed in when the item is one of the person's own
     /// lists, or why this click is not a save.
-    static func item(_ reading: SiteMenuReading, opener: Opener? = nil, sites: [SiteSaveSite] = SiteSaveSite.all)
+    /// `learned` is what this Mac has learned the site's save item is called (`SiteSavePrefs.labels`). In a menu whose
+    /// layout the site's rule does not place the save in (measured 2026-11-25: Reddit's menu on the person's own post
+    /// has ten items with the save third, between items no other layout has), the item that wears one of those labels
+    /// is the save: the label was learned from the person's own clicks in a layout the rule does know, on this Mac,
+    /// in whatever language their Reddit is in. Nothing shipped is matched.
+    static func item(_ reading: SiteMenuReading, opener: Opener? = nil, sites: [SiteSaveSite] = SiteSaveSite.all,
+                     learned: SiteSaveRule.Labels = .init())
     -> Result<(item: SiteSaveItem, folder: String?, text: String), Refusal> {
         guard let site = sites.first(where: { $0.key == reading.site }), let rule = site.menu else {
             return .failure(.unknownSite)
@@ -83,14 +89,19 @@ enum SiteMenuRule {
         guard reading.fits, !reading.foreign, reading.items.indices.contains(reading.clicked) else {
             return .failure(.notTheSaveSlot)
         }
+        let placed: Bool
         if rule.markClass != nil, let marked = reading.firstMarked {
             // The menu shows the site's mark: it places the save, whatever the menu's length.
-            guard rule.markSizes.contains(reading.items.count), reading.clicked == marked - rule.beforeMark else {
-                return .failure(.notTheSaveSlot)
-            }
+            placed = rule.markSizes.contains(reading.items.count) && reading.clicked == marked - rule.beforeMark
         } else {
-            guard rule.sizes.contains(reading.items.count) else { return .failure(.notTheSaveSlot) }
-            if let fromEnd = rule.fromEnd, reading.clicked != reading.items.count - fromEnd {
+            placed = rule.sizes.contains(reading.items.count)
+                && rule.fromEnd.map { reading.clicked == reading.items.count - $0 } != false
+        }
+        if !placed {
+            // A layout the rule does not know: the item this Mac learned as the site's save, by its own label.
+            let label = reading.items[reading.clicked]
+            guard !rule.lists, reading.items.count <= Self.knownByLabelMax,
+                  learned.saved.contains(label) || learned.unsaved.contains(label) else {
                 return .failure(.notTheSaveSlot)
             }
         }
@@ -119,6 +130,9 @@ enum SiteMenuRule {
         }
         return .failure(.noPostLink)
     }
+
+    /// How long a menu of an unknown layout may be for a learned label to name its save.
+    static let knownByLabelMax = 20
 
     /// What a site's save item wore at the person's clicks, by post: the label worn on most posts is the "not saved"
     /// one. Posts are kept as short hashes, a few per label.
