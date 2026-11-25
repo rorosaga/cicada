@@ -74,7 +74,8 @@ def bank(tmp_path, monkeypatch):
     monkeypatch.setattr(logo_service, "cached_ids", lambda bank: set())
     monkeypatch.setattr(logo_service, "missed_ids", lambda bank: {})
     state = {"groups": _groups()}
-    monkeypatch.setattr(list_pages, "groups", lambda memory_path: state["groups"], raising=False)
+    monkeypatch.setattr(list_pages, "groups", lambda memory_path: state["groups"])
+    monkeypatch.setattr(list_pages, "change_token", lambda memory_path: state["groups"].stamp)
     config.get_settings.cache_clear()
     bank_index.invalidate()
     graph_builder.reset_cache()
@@ -154,7 +155,6 @@ def test_no_grouping_means_no_bubbles_and_a_failure_costs_nothing(bank, monkeypa
     graph_builder.reset_cache()
     g = graph_builder.build_graph(memory)
     assert g.bubbles == [] and len(g.nodes) == len(VIDEOS) + len(POSTS) + 2
-    assert graph_bubbles.stamp(memory) == ""
 
 
 def test_the_cache_and_the_etag_move_with_the_grouping(bank):

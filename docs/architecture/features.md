@@ -31,6 +31,32 @@ relationships skips); a list with no earned post is a lone dot on purpose. The l
 same way: the name a step down the text ladder (`CicadaTheme.quietName` = `textTertiaryOnFill`, readable on every fill,
 DR-2/DR-3), the picture at `quietPictureOpacity`, "Saved, not talked about yet" to VoiceOver; a selected
 row is fully lit.
+
+**One bubble per list (G247, owner 2026-11-25).** `GET /graph` carries `bubbles` beside the nodes (`graph_bubbles`, node
+shape `+bubbles`): one per whole list of saved things that `list_pages.groups` names (a site's bookmarks, likes or saved
+posts, YouTube's playlists, Watch later and likes, a browser's bookmarks, stars, books, feeds, his repositories), each
+`{id: "list:<key>", key, name, mark, kindNoun, count, pageId, members, folders, outside}`. `members` are the pages that sit
+inside (newest first; `inside` of `groups`, so the graph, Clusters and Home fold by one rule: on the list and not earned),
+intersected with the graph's own nodes; a folder is a ring inside its whole list, never a bubble; a page on two lists sits
+in the first whose whole list is big enough; a list with fewer than six inside is no bubble; a filtered `/graph` filters
+them too. `outside` are its earned pages. The nodes never change: every page is still a node for find, names and
+Clusters; only graph.js folds. The cache key and the ETag fold `list_pages.change_token` (the earned set and the table
+of list kinds, never a build of the lists) beside the pages listing they already follow, read inside the request's one
+listing. On the canvas a bubble is one node sized like a page with as many neighbours as it holds (never below a
+well-linked page's size, so its mark reads), a graphite disc with a ring in the media hue and the source's real mark
+(the app draws each mark once into a small PNG, `GraphMarks`, sent with the bubbles); its members are not in the
+simulation, the pick or the draw, their links are drawn to it (one line a pair), and an earned page is joined to it by
+an "on list" line. A click opens it: the members are packed inside a circle round it (`d3.pack`, folders as rings with
+their names on plates, the pages in no folder as one unnamed ring, the list's own order), at places computed once and
+never simulated, so opening or closing reheats nothing (G109); the camera fits the circle (400 ms, none under Reduce
+Motion); everything else dims; a name sits inside its dot once the dot can hold it; a member opens its page like any
+node. A click outside the circle, zooming well out, the chip's × (`GraphBubbleChip`: mark, name, what it holds, ×; the
+name opens the list's page when it has one), or Esc closes it: Esc goes to the page, whose order closes find, the
+Legend, the Reader and the column first and the bubble last, never animated (`GraphDismiss`). A reveal (find, ⌘K, a
+link) of a folded page opens its bubble and lands on it; a search match inside a closed bubble rings the bubble. A
+delta that moves a page out of a bubble seeds it beside the bubble. graph.js posts `bubbleOpened`/`bubbleClosed`
+(`GraphMessage`). Measured on a synthetic bank of 8,687 pages with 5,105 saves on 8 lists, in the app: 7.3 s to a still
+layout today, 3.9 s with the lists folded (`benchmarks/scale/graph_bubbles.py`, `Tests/graph/graph-bubbles.test.js`).
 Open ideas live in the backlog.
 
 **The page (Direction D, DS-3a).** The canvas fills the content area under the command bar. Its chrome is one

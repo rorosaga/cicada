@@ -48,9 +48,14 @@ def _groups(memory_path: Path):
 
 
 def stamp(memory_path: Path) -> str:
-    """Moves when any list's membership, count or page does (``Groups.stamp``); "" with no grouping."""
-    groups = _groups(memory_path)
-    return str(getattr(groups, "stamp", "") or "") if groups is not None else ""
+    """What a change check folds in for the bubbles, without building them (``list_pages.change_token``): the earned set
+    and the table of list kinds. Membership is made of the pages' own headers, which the graph's cache key and ETag
+    already follow (the ``entities`` listing). A save's record alone never moves it: every save also writes its page, and
+    following the conversations folder would rebuild and resend the whole graph after every captured turn."""
+    try:
+        return str(list_pages.change_token(Path(memory_path)) or "")
+    except Exception:  # noqa: BLE001 - a change check never fails a request
+        return ""
 
 
 def _top(lists: dict, key: str) -> str | None:
