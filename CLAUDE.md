@@ -294,9 +294,9 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   commits the older version first; git history is never rewritten, and the copy says so. **A wrong alarm never rewrites something unrelated:** only a confident, distinctive value rare in the bank
   travels; a token more than three other conversations hold is not masked by value either (`capture-and-sleep.md`).
 - **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges with the person's
-  own words, or a link the person made to a high-confidence page other than the owner's — counted on the conversation,
-  never guessed (`promotion`) — or the person's own words naming in full exactly one waiting Contacts card, never the "me"
-  card or a relation-only person (owner 2026-10-20, `capture-and-sleep.md`).
+  own words, or a link the person made to a high-confidence page other than the owner's — counted on the conversation
+  (`promotion`), a name nobody said excepted (`coined_names`) — or the person's own words naming in full exactly one
+  waiting Contacts card, never the "me" card or a relation-only person (owner 2026-10-20).
   **Ruling 56 (owner 2026-11-04, amends 36 D4 and 45): Sleep never makes a project and nothing is suggested. A project
   starts only from the person (app, shell) or a trusted agent on their ask; a name a page holds adopts that page, its
   history kept, never a second page; another client asks in the inbox. Only what they started is listed; every other page
