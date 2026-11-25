@@ -20,6 +20,9 @@ struct SiteSaveNode: Equatable, Sendable {
     var role: String
     var label: String = ""
     var url: String? = nil
+    /// A toggle's own state as the page gives it (a pressed toggle button is a checked checkbox to macOS); nil for
+    /// anything that is not a toggle.
+    var checked: Bool? = nil
 }
 
 /// What was read around one click: the row in reading order, which of its nodes was clicked, the row's own label
@@ -68,6 +71,31 @@ struct SiteSaveSite: Sendable {
     let listPages: [NSRegularExpression]
     /// The site keeps its save in a menu (`SiteMenuSave.swift`), not in a button of the post's row.
     var menu: Menu? = nil
+    /// The site has a feed that plays one post at a time and links to it nowhere (`Playing`).
+    var playing: Playing? = nil
+
+    /// A feed that plays one post at a time and names it in no link (measured 2026-11-25 on TikTok's For You: the
+    /// address stays the feed's, and the controls sit in one bar beside whichever video is playing). The post is the
+    /// one whose player is on screen beside the controls, named by the player's own DOM id, and its account by the
+    /// creator's link in the same bar. Structure and addresses only, the same in every interface language.
+    struct Playing: Sendable {
+        /// The player's DOM id; its one capture is the post's own id.
+        let id: NSRegularExpression
+        /// The creator's link; its one capture is the account.
+        let account: NSRegularExpression
+        /// The post's link: `$1` the account, `$2` the id.
+        let url: String
+
+        func post(account link: String, id domId: String) -> String? {
+            func capture(_ rule: NSRegularExpression, _ text: String) -> String? {
+                guard let found = rule.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+                      found.numberOfRanges > 1, let range = Range(found.range(at: 1), in: text) else { return nil }
+                return String(text[range])
+            }
+            guard let name = capture(account, link), let number = capture(id, domId) else { return nil }
+            return url.replacingOccurrences(of: "$1", with: name).replacingOccurrences(of: "$2", with: number)
+        }
+    }
 
     /// Where a menu's save sits, as the page's own structure (DOM ids and class names, which are the same in every
     /// interface language): never a word of the menu.
@@ -100,9 +128,9 @@ struct SiteSaveSite: Sendable {
         /// Every item is one of the person's lists; the first is the site's own, the others are folders.
         var lists = false
         /// Where the sheet was opened from: a class of a card that is one post (its first post link names it), and
-        /// a class found above the page's own controls (the page itself is the post).
+        /// classes found above the page's own controls (the page itself is the post).
         var cards: [String] = []
-        var pageClass: String? = nil
+        var pageClasses: [String] = []
     }
 
     enum Slot: Sendable {
@@ -121,9 +149,15 @@ struct SiteSaveSite: Sendable {
         /// count is the favourite: the share button and the player's volume sit in the same places in other rows, and
         /// neither counts anything.
         case countedBeforeLastOrLinks(least: Int)
+        /// A toggle directly after a menu button (Pinterest, measured 2026-11-25 on the feed and on a pin's own
+        /// page: the board picker, then Save). The toggle carries its own state, which says which way a click went.
+        case toggleAfterMenu
         /// No button of a row saves on this site (its save is in a menu).
         case none
     }
+
+    /// The site's save control is a toggle, not a plain button: the reader looks for one, and only on this site.
+    var togglesSave: Bool { if case .toggleAfterMenu = slot { true } else { false } }
 
     func onHost(_ url: String?) -> Bool {
         guard let host = url.flatMap({ URL(string: $0)?.host?.lowercased() }) else { return false }
@@ -193,7 +227,10 @@ struct SiteSaveSite: Sendable {
         items: [(re(web + #"tiktok\.com/@([A-Za-z0-9_.]{1,40})/(video|photo)/([0-9]{5,25})/?(?:[?#].*)?$"#),
                  "https://www.tiktok.com/@$1/$2/$3", "TikTok by @$1")],
         rowAnchor: nil, slot: .countedBeforeLastOrLinks(least: 4),
-        listPages: [])
+        listPages: [],
+        playing: Playing(id: re(#"^xgwrapper-[0-9]+-([0-9]{5,25})$"#),
+                         account: re(web + #"tiktok\.com/@([A-Za-z0-9_.]{1,40})/?(?:[?#].*)?$"#),
+                         url: "https://www.tiktok.com/@$1/video/$2"))
 
     /// Reddit's Save sits in the post's own menu (measured 2026-11-23, feed and post page: Follow, sometimes Award,
     /// Save, Hide, Report). The menu is inside the post's block, whose DOM id is the post's own (`t3_<id>`); the
@@ -228,9 +265,24 @@ struct SiteSaveSite: Sendable {
         rowAnchor: nil, slot: .none, listPages: [],
         menu: Menu(menuClass: "ytListViewModelHost", sheetClass: "ytContextualSheetLayoutHost",
                    headerClass: "ytPanelHeaderViewModelHost", lists: true,
-                   cards: ["ytLockupViewModelHost"], pageClass: "ytd-watch-metadata"))
+                   cards: ["ytLockupViewModelHost"],
+                   // The controls under a video's player, and the controls of a Short (measured 2026-11-25: a Short's
+                   // "more" menu holds the item that opens the same sheet, and the address is the Short's own).
+                   pageClasses: ["ytd-watch-metadata", "ytdReelVideoRendererHost"]))
 
-    static let all: [SiteSaveSite] = [x, instagram, github, tiktok, reddit, youtube]
+    /// Pinterest's Save is a toggle beside the board picker, on a pin in a feed (it shows when the pointer is on the
+    /// pin) and on the pin's own page; the pin is the card's own link, or the page. Its state is the control's own
+    /// (`SiteSaveNode.checked`), so no label is needed to tell a save from an unsave. A pin saved again from the
+    /// person's own board is a save like any other: there is no list page here that means leaving.
+    static let pinterest = SiteSaveSite(
+        key: "pinterest", name: "Pinterest", origin: "pinterest-saved",
+        hosts: ["pinterest.com", "pinterest.es", "pinterest.co.uk", "pinterest.fr", "pinterest.de", "pinterest.it",
+                "pinterest.pt", "pinterest.ca", "pinterest.com.mx", "pinterest.com.au", "pinterest.jp"],
+        items: [(re(#"^https?://(?:[a-z0-9-]+\.)*pinterest\.[a-z.]{2,6}/pin/([0-9]{5,25})/?(?:[?#].*)?$"#),
+                 "https://www.pinterest.com/pin/$1/", "Pin")],
+        rowAnchor: nil, slot: .toggleAfterMenu, listPages: [])
+
+    static let all: [SiteSaveSite] = [x, instagram, github, tiktok, reddit, youtube, pinterest]
     static func named(_ key: String) -> SiteSaveSite? { all.first { $0.key == key } }
 
     /// Whether a click on this site's own save control can be noticed. False for a site that is only a source.
@@ -248,7 +300,6 @@ struct SiteSaveSite: Sendable {
 
     static let offerOnly: [SiteSaveSite] = [
         offerOnly("linkedin", "LinkedIn", "linkedin-saved", ["linkedin.com"]),
-        offerOnly("pinterest", "Pinterest", "pinterest", ["pinterest.com"]),
         offerOnly(SourceCatalog.substackId, "Substack", "substack-saved", ["substack.com"]),
         offerOnly("spotify", "Spotify", "spotify-saved", ["spotify.com"]),
         offerOnly("goodreads", "Goodreads", "goodreads", ["goodreads.com"]),
@@ -281,6 +332,8 @@ enum SiteSaveRule {
     static let plainButton = "AXButton"
     static let menuButton = "AXPopUpButton"
     static let link = "AXLink"
+    /// A toggle button, as macOS names one.
+    static let toggle = "AXCheckBox"
 
     /// The site a reading is on: by its page's address, else by the one site its links belong to.
     static func site(of reading: SiteSaveReading) -> SiteSaveSite? {
@@ -308,6 +361,8 @@ enum SiteSaveRule {
                 return plain.last { $0 < split } == clicked
             }
             return plain.dropLast().last == clicked
+        case .toggleAfterMenu:
+            return row[clicked].role == toggle && clicked > 0 && row[clicked - 1].role == menuButton
         case .none:
             return false
         }
@@ -319,12 +374,14 @@ enum SiteSaveRule {
     /// block's links name (Instagram's time link, GitHub's repository link), or by the page itself when it is a
     /// post's own page. Two different posts in the enclosing block is no answer.
     static func item(_ reading: SiteSaveReading, sites: [SiteSaveSite] = SiteSaveSite.all) -> Result<SiteSaveItem, Refusal> {
-        guard reading.row.indices.contains(reading.clicked), reading.row[reading.clicked].role == plainButton else {
-            return .failure(.notAButton)
-        }
+        guard reading.row.indices.contains(reading.clicked) else { return .failure(.notAButton) }
+        let role = reading.row[reading.clicked].role
+        guard role == plainButton || role == toggle else { return .failure(.notAButton) }
         guard let site = site(of: reading), sites.contains(where: { $0.key == site.key }) else {
             return .failure(.unknownSite)
         }
+        // A toggle is a save control only on a site whose save is one, and there nothing else is.
+        guard site.togglesSave == (role == toggle) else { return .failure(.notAButton) }
         let anchors = reading.row.indices.filter { site.anchorItem(reading.row[$0].url) != nil }
         guard anchors.count <= 1 else { return .failure(.notTheSaveSlot) }
         guard inSlot(site.slot, reading, anchor: anchors.first) else { return .failure(.notTheSaveSlot) }
@@ -414,6 +471,15 @@ enum SiteSaveRule {
         guard before.row.indices.contains(before.clicked), after.row.indices.contains(after.clicked) else { return nil }
         let was = before.row[before.clicked].label, now = after.row[after.clicked].label
         return was == now ? nil : (was, now)
+    }
+
+    /// A toggle's own state moving: +1 switched on, -1 switched off, nil when the control is no toggle or did not
+    /// move. The most certain evidence there is: the control says it itself, in no language.
+    static func stateStep(before: SiteSaveReading, after: SiteSaveReading) -> Int? {
+        guard before.row.indices.contains(before.clicked), after.row.indices.contains(after.clicked),
+              let was = before.row[before.clicked].checked, let now = after.row[after.clicked].checked,
+              was != now else { return nil }
+        return now ? 1 : -1
     }
 
     /// The count that says which way a save control went: the control's own first, then the row's. Found 2026-11-25
@@ -508,6 +574,7 @@ enum SiteSaveRule {
     /// already learned, as worn or by their core; the page's other posts (`Census`). With none of them the change is reported as `changed` and nobody is asked.
     static func outcome(before: SiteSaveReading, after: SiteSaveReading, site: SiteSaveSite? = nil,
                         learned: Labels = Labels(), census: Census? = nil) -> Outcome {
+        if let state = stateStep(before: before, after: after) { return state > 0 ? .saved : .unsaved }
         guard let (was, now) = change(before: before, after: after) else { return .none }
         if let site, site.isListPage(after.page ?? before.page) { return .unsaved }
         switch countStep(before: before, after: after) {
@@ -611,6 +678,26 @@ enum SiteSaveReader {
 
     /// The plain button whose frame, widened by `halo`, holds the point: looked for under the element that was hit,
     /// then under its parent and grandparent, never across the whole page.
+    /// The toggle the hit element is, or sits inside; `other` when it sits inside another control instead.
+    private static func enclosingToggle(of hit: AXUIElement) -> (button: AXUIElement?, other: Bool) {
+        var node = hit
+        for _ in 0...4 {
+            let role = string(node, kAXRoleAttribute as String) ?? ""
+            if role == SiteSaveRule.toggle { return (node, false) }
+            if isControl(role) { return (nil, true) }
+            guard let parent = element(node, kAXParentAttribute as String) else { break }
+            node = parent
+        }
+        return (nil, false)
+    }
+
+    /// A toggle's state: checked or not, as its value says.
+    static func checked(_ element: AXUIElement) -> Bool? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value) == .success else { return nil }
+        return (value as? NSNumber)?.boolValue
+    }
+
     private static func nearestButton(around hit: AXUIElement, to point: CGPoint) -> AXUIElement? {
         var scope = hit
         for level in 0..<3 {
@@ -689,10 +776,16 @@ enum SiteSaveReader {
         // circle, so a click a little left or right of the icon is on no button at all).
         // Only on a site Cicada notices saves on: everywhere else the read ends here, with the page's address and
         // nothing else looked at.
-        guard let address = page(above: hit), SiteSaveSite.all.contains(where: { $0.onHost(address) }) else { return nil }
-        let enclosing = enclosingButton(of: hit)
+        guard let address = page(above: hit), let here = SiteSaveSite.all.first(where: { $0.onHost(address) }) else {
+            return nil
+        }
+        // On a site whose save is a toggle the toggle is what is looked for, and only there (every other site's rows
+        // are read as measured, a toggle in them being no control of the row).
+        let toggles = here.togglesSave
+        let enclosing = toggles ? enclosingToggle(of: hit) : enclosingButton(of: hit)
         guard !enclosing.other,
-              let button = enclosing.button ?? nearestButton(around: hit, to: point) ?? buttonByFrames(under: hit, at: point)
+              let button = enclosing.button
+                ?? (toggles ? nil : nearestButton(around: hit, to: point) ?? buttonByFrames(under: hit, at: point))
         else { return nil }
         // The row: the nearest ancestor that holds at least three controls (the button and its neighbours).
         var ancestor = button
@@ -705,10 +798,11 @@ enum SiteSaveReader {
             while let next = stack.popLast(), seen < maxNodes {
                 seen += 1
                 let role = string(next, kAXRoleAttribute as String) ?? ""
-                if isControl(role) {
+                if isControl(role) || (toggles && role == SiteSaveRule.toggle) {
                     if CFEqual(next, button) { clicked = row.count }
                     row.append(SiteSaveNode(role: role, label: label(next),
-                                            url: role == SiteSaveRule.link ? string(next, kAXURLAttribute as String) : nil))
+                                            url: role == SiteSaveRule.link ? string(next, kAXURLAttribute as String) : nil,
+                                            checked: role == SiteSaveRule.toggle ? checked(next) : nil))
                 } else {
                     stack.append(contentsOf: children(next).reversed())
                 }
@@ -728,6 +822,14 @@ enum SiteSaveReader {
                     let found = postLinks(around: ancestor)
                     reading.links = found.before.reversed() + found.after
                     reading.linksBefore = found.before.count
+                    // No link anywhere names a post, and the page is not one: on a feed that plays one post at a
+                    // time, the post whose player is on screen beside these controls.
+                    if reading.links.isEmpty, let site = SiteSaveSite.all.first(where: { $0.onHost(address) }),
+                       let rule = site.playing, site.item(address) == nil, let box = frame(button),
+                       let playing = playingPost(around: ancestor, rule: rule, beside: box.midY) {
+                        reading.links = [playing]
+                        reading.linksBefore = 1
+                    }
                 }
                 // The post as the page describes it: the nearest labelled block above the row whose label says more
                 // than the row's own (X's article), and the label of the post's own link in it, which marks where
@@ -754,6 +856,67 @@ enum SiteSaveReader {
 
     /// The post links (`SiteSaveSite.isItemLink`) of the nearest block above `row` that holds any, in reading order
     /// and split at the row. Climbs a few levels and reads links only; a block with none is passed over.
+    static let maxPlayingAncestors = 6
+    static let maxPlayingNodes = 600
+    /// How tall a frame around a player must be for the player to count as the one on screen (the feed keeps the
+    /// posts before and after it as slivers one point high).
+    static let playingHeight: CGFloat = 100
+
+    /// On a feed that plays one post at a time (`SiteSaveSite.Playing`): the post playing beside the controls, as its
+    /// link. Climbs from the row to the nearest block that holds both the creator's link and a player whose own
+    /// frame, or a wrapper's, is on screen at the controls' height. Every creator link in that block must name the
+    /// same account, or nothing is said. Bounded; reads roles, addresses, DOM ids and frames only.
+    private static func playingPost(around row: AXUIElement, rule: SiteSaveSite.Playing, beside y: CGFloat) -> String? {
+        var block = row
+        for _ in 0..<maxPlayingAncestors {
+            guard let parent = element(block, kAXParentAttribute as String),
+                  string(parent, kAXRoleAttribute as String) != "AXWebArea" else { return nil }
+            block = parent
+            var accounts: Set<String> = [], players: [(id: String, node: AXUIElement)] = []
+            var stack = Array(children(block).reversed()), seen = 0
+            while let next = stack.popLast(), seen < maxPlayingNodes {
+                seen += 1
+                let role = string(next, kAXRoleAttribute as String) ?? ""
+                if role == SiteSaveRule.link {
+                    if let url = string(next, kAXURLAttribute as String),
+                       rule.account.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)) != nil {
+                        accounts.insert(url)
+                    }
+                    continue
+                }
+                if let id = string(next, "AXDOMIdentifier"),
+                   rule.id.firstMatch(in: id, range: NSRange(id.startIndex..., in: id)) != nil {
+                    players.append((id, next))
+                }
+                if !isControl(role) { stack.append(contentsOf: children(next).reversed()) }
+            }
+            guard !players.isEmpty, !accounts.isEmpty else { continue }
+            // The player on screen is the one whose own wrapper is tall there. The others reach a tall frame only
+            // far up, at the column they all share (measured: one step against seven), so the nearest wins, alone.
+            let reach = players.compactMap { player in
+                stepsToScreen(player.node, within: block, beside: y).map { (id: player.id, steps: $0) }
+            }
+            guard let nearest = reach.map(\.steps).min() else { return nil }
+            let named = Set(reach.filter { $0.steps == nearest }.map(\.id))
+            let posts = Set(accounts.flatMap { account in named.compactMap { rule.post(account: account, id: $0) } })
+            // One account and one player on screen, or it is not known which post this is.
+            return posts.count == 1 ? posts.first : nil
+        }
+        return nil
+    }
+
+    /// How many wrappers up from a player the first frame is that is tall enough to be the post on screen and spans
+    /// the height `y`; nil when none below `block` is.
+    private static func stepsToScreen(_ player: AXUIElement, within block: AXUIElement, beside y: CGFloat) -> Int? {
+        var node = player
+        for step in 0..<10 {
+            if let box = frame(node), box.height >= playingHeight, box.minY <= y, y <= box.maxY { return step }
+            guard let parent = element(node, kAXParentAttribute as String), !CFEqual(parent, block) else { return nil }
+            node = parent
+        }
+        return nil
+    }
+
     private static func postLinks(around row: AXUIElement) -> (before: [String], after: [String]) {
         var block = row
         for _ in 0..<maxContextAncestors {
@@ -1263,7 +1426,10 @@ final class SiteSaveWatcher {
         // What settled the direction, and whether it is certain enough to teach this Mac the site's two labels: a
         // count moving by one and the page's other posts are; the labels already learned teach nothing new.
         var basis = "none", teaches = false
-        if let labels, outcome != .none {
+        if SiteSaveRule.stateStep(before: before, after: seen) != nil {
+            // The toggle said it itself; when its label moved too, that is the surest lesson there is.
+            (basis, teaches) = ("state", labels != nil)
+        } else if let labels, outcome != .none {
             let byCount = SiteSaveRule.countStep(before: before, after: seen) != nil
             if site.isListPage(seen.page ?? before.page) {
                 basis = "list"

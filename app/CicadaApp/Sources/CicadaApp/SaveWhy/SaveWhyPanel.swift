@@ -270,6 +270,13 @@ struct SaveWhyPanelView: View {
                 .padding(.horizontal, SaveWhyNotch.ear)
                 .opacity(notch.grown ? 1 : 0)
                 .background(CicadaTheme.Notch.surface)
+                // The untouched question's patience, drawn: it leaves when the bar has filled (owner 2026-11-25). Under
+                // the card's own clip, so the bar follows the notch's sides and its rounded bottom corners.
+                .overlay(alignment: .bottom) {
+                    NotchCountdownBar(from: center.countdown?.from, length: center.countdown?.length ?? 0)
+                        .padding(.horizontal, SaveWhyNotch.ear)
+                        .opacity(notch.grown ? 1 : 0)
+                }
                 .clipShape(shape)
                 .overlay {
                     // The sheen: a hairline on the grown edge, faded out across the band so the screen's top edge
@@ -292,12 +299,6 @@ struct SaveWhyPanelView: View {
                 .onChange(of: focus.ticket) { _, _ in textFocused = true }
                 // In the field however it got there: the person is about to write or dictate — no timer closes it.
                 .onChange(of: textFocused) { _, focused in if focused { center.input(.engage) } }
-                // The untouched question's patience, drawn: it leaves when the bar has filled (owner 2026-11-25).
-                .overlay(alignment: .bottom) {
-                    NotchCountdownBar(from: center.countdown?.from, length: center.countdown?.length ?? 0)
-                        .opacity(notch.grown ? 1 : 0)
-                        .clipShape(shape)
-                }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(Copy.SaveWhy.question)
         }

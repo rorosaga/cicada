@@ -76,6 +76,18 @@ final class SiteMenuSaveTests: XCTestCase {
                        .noPostLink)
     }
 
+    /// Measured 2026-11-25: a Short's "more" menu holds the item that opens the same sheet, and the address is the
+    /// Short's own. Opened from the Short's own controls, the sheet files that Short, under the video's one link.
+    func testOnAShortTheSheetFilesTheShortItself() throws {
+        let items = ["Watch later, Private, Not selected", "Alpha, Private, Not selected", "Beta, Unlisted, Not selected"]
+        let short = sheet(items, clicked: 1, page: "https://www.youtube.com/shorts/AbCdEfGhIjK")
+        let found = try SiteMenuRule.item(short, opener: .page).get()
+        XCTAssertEqual(found.item.url, "https://www.youtube.com/watch?v=AbCdEfGhIjK")
+        XCTAssertEqual(found.folder, "Alpha")
+        XCTAssertTrue(SiteSaveSite.youtube.menu?.pageClasses.contains("ytdReelVideoRendererHost") == true,
+                      "a Short's own controls are the page's")
+    }
+
     // MARK: - Which way
 
     func testInASheetTheOtherListsSayWhichWayInAnyLanguage() {
@@ -212,7 +224,8 @@ final class SiteMenuSaveTests: XCTestCase {
     }
 
     func testTheNewSitesAreOfferedAndStoredUnderTheirOwnSource() {
-        XCTAssertEqual(SiteSaveSite.all.map(\.key), ["x", "instagram", "github", "tiktok", "reddit", "youtube"])
+        XCTAssertEqual(SiteSaveSite.all.map(\.key), ["x", "instagram", "github", "tiktok", "reddit", "youtube",
+                                                    "pinterest"])
         XCTAssertNotNil(SiteSaveSite.youtube.item("https://www.youtube.com/shorts/AbCdEfGhIjK"))
         XCTAssertNil(SiteSaveSite.youtube.item("https://www.youtube.com/@alpha"))
         XCTAssertNil(SiteSaveSite.reddit.item("https://www.reddit.com/r/alpha_sub/comments/1abc234/a_post/k9x8y7z/"),

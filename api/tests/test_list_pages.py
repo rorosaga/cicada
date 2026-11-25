@@ -711,3 +711,13 @@ def test_has_page_follows_the_writer_and_the_stamp_moves_with_membership(bank, m
 def test_groups_never_raises(bank, monkeypatch):
     monkeypatch.setattr(list_pages, "_membership", lambda _p: (_ for _ in ()).throw(RuntimeError("boom")))
     assert list_pages.groups(bank).lists == {}
+
+
+def test_the_change_token_moves_with_the_earned_set_without_building_groups(bank, monkeypatch):
+    save(bank, 1)
+    save(bank, 2)
+    before = list_pages.change_token(bank)
+    monkeypatch.setattr(list_pages, "_membership", lambda _p: (_ for _ in ()).throw(AssertionError("built")))
+    assert list_pages.change_token(bank) == before, "the token never builds the membership"
+    save(bank, 3, named=True)                  # earned: the token moves
+    assert list_pages.change_token(bank) != before

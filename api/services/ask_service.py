@@ -883,7 +883,8 @@ def _person_names(entities: list[dict]) -> set[str]:
 
 def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None = None,
                   source_words: bool = False, owner_name: str | None = None,
-                  searched: "ask_sources.Searched | None" = None, shown: dict | None = None) -> str:
+                  searched: "ask_sources.Searched | None" = None, shown: dict | None = None,
+                  saved_lead: str = "") -> str:
     """The model's context. ``source_words`` adds WHAT WAS SAID (:mod:`ask_sources`): the conversations' own words
     behind the claims and lines shown, read from ``memory_path`` now — off for a caller without the person's
     verbatim words (a remote connector without ``sources``). ``searched`` (with ``source_words`` only) adds OTHER
@@ -937,6 +938,10 @@ def _build_prompt(query: str, entities: list[dict], *, memory_path: Path | None 
             + (f"\nunversioned background — may be outdated; never contradict current=true claims:\n{prose}"
                if prose else "")
         )
+    if saved_lead:
+        # G246: saved links the question is plainly about come right after the best page: ahead of the other pages and of
+        # the conversations' words, never ahead of the page retrieval ranked first.
+        blocks.insert(min(1, len(blocks)), saved_lead)
     context = "\n\n".join(blocks)
     if people:
         context += "\n\nLINKED PEOPLE (pages linked to the entities above):\n\n" + "\n\n".join(
@@ -1222,7 +1227,7 @@ def _watch_history_lines(memory_path: Path, query: str) -> list[str]:
         return []
 
 
-def _saved_lines(memory_path: Path, query: str, *, episodes: bool) -> tuple[list[str], list[str]]:
+def _saved_lines(memory_path: Path, query: str, *, episodes: bool) -> tuple[list[str], list[str], int]:
     """Ruling 62: saved links the question's words find, and those only its meaning does. Engine-free, and context only:
     never a reason an answer fails. A short question takes one rare word; a long one must share two. ``episodes``: also
     tab groups, only for a caller with the source scope, as recall (G135)."""
@@ -1233,10 +1238,13 @@ def _saved_lines(memory_path: Path, query: str, *, episodes: bool) -> tuple[list
         by_words = saved_lookup.find(memory_path, query, k=_SAVED_SHOWN, min_shared=need, episodes=episodes)
         by_meaning = saved_lookup.by_meaning(memory_path, query, k=_SAVED_SHOWN - len(by_words),
                                              exclude=frozenset(h.id for h in by_words))
-        return [saved_lookup.line(h) for h in by_words], [saved_lookup.line(h) for h in by_meaning]
+        # G246: a hit the question is plainly about (`Hit.strong`) is read first; the order of the rest is the lookup's.
+        by_words = sorted(by_words, key=lambda h: not h.strong)
+        return ([saved_lookup.line(h) for h in by_words], [saved_lookup.line(h) for h in by_meaning],
+                sum(1 for h in by_words if h.strong))
     except Exception as exc:  # noqa: BLE001
         logger.debug(f"ask saved leg skipped ({type(exc).__name__})")
-        return [], []
+        return [], [], 0
 
 
 def _gap_response(query: str) -> dict:
@@ -1596,7 +1604,7 @@ def answer_query(
     watched = _watch_history_lines(memory_path, query) if source_words else []
     # Ruling 62: a save no model has read holds no claim, so no leg above can reach it. A page's title and link are the
     # page's, not the person's words: no scope gates them. A tab group's is the same record recall gates (G135).
-    saved, saved_near = _saved_lines(memory_path, query, episodes=source_words)
+    saved, saved_near, saved_strong = _saved_lines(memory_path, query, episodes=source_words)
 
     # 2026-10-19: the conversations the question's own words find. Ask is page-first, and a conversation's words
     # reached the model only through a shown page's evidence or provenance — when Sleep left the detail off the page,
@@ -1638,15 +1646,16 @@ def answer_query(
     for _eid in retrieved_ids:
         page_reads.count(memory_path, _eid, "ask")
     shown: dict = {}
+    saved_block = saved_words.ask_heading() + "\n" + "\n".join([*saved, *saved_near]) if saved_strong else ""
     prompt = _build_prompt(query, entities, memory_path=memory_path, source_words=source_words,
                            owner_name=_owner_name(memory_path, entities, people) if source_words else None,
-                           searched=searched, shown=shown)
+                           searched=searched, shown=shown, saved_lead=saved_block)
     conversations: dict[str, dict] = shown.get("conversations") or {}
     if not entities and not watched and not saved and not conversations:
         # The words found nothing a turn holds: still nothing to ground on.
         return _gap_response(query)
     # A line only the vectors found never earns a model call by itself (the honest gap above), and is judged by it here.
-    if saved or saved_near:
+    if (saved or saved_near) and not saved_strong:
         prompt += "\n\n" + saved_words.ask_heading() + "\n" + "\n".join([*saved, *saved_near])
     if watched:
         from datetime import datetime

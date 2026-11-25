@@ -2644,9 +2644,14 @@ def _recall(ctx: ToolContext, query: str) -> str:
     semantic = live(_leann_search_entities(memory_path, query, top_k=8))
     keyword = live(_keyword_search_entities(entities_dir, query, top_k=8))
     claim_subjects = live(_claim_subject_search(memory_path, query, top_k=8))
-    merged = _rrf_fuse(semantic, keyword, claim_subjects)
+    # Saves pop when relevant (G246, owner 2026-11-25): a saved page the query is plainly about is a fourth leg, so a
+    # strong title match ranks among the pages and a weak one-word overlap never does (it stays in "Saved links").
+    saved_found = saved_lookup.find(memory_path, query, k=RECALL_SAVED_FIND, min_shared=1, episodes=ctx.raw_excerpts)
+    saved_leg = live([{"entity_id": h.page, "source": "saved", "score": 0.0}
+                      for h in saved_found if h.strong and h.page][:RECALL_SAVED_LEG])
+    merged = _rrf_fuse(semantic, keyword, claim_subjects, saved_leg)
     named = _named_hits(entities_dir, query, merged)
-    merged = _rrf_fuse(semantic, keyword, claim_subjects,
+    merged = _rrf_fuse(semantic, keyword, claim_subjects, saved_leg,
                        lately=search_service.lately_lift(
                            page_use.lately_of(memory_path, [h.get("entity_id") or h.get("id") for h in merged]), named))
     lately_lead = _lately_pages(memory_path, query, no_subject=not keyword)
@@ -2658,7 +2663,7 @@ def _recall(ctx: ToolContext, query: str) -> str:
     seen_ids: set[str] = {h.get("entity_id") or h.get("id") for h in merged}
     # Lean reads (2026-10-27): only pages some leg ranks near its own best are shown — at most RECALL_PAGES_SHOWN,
     # never fewer than the top one (`_above_floor`).
-    shown_hits = _above_floor(merged, semantic, keyword, claim_subjects, named=named | set(lately_lead))
+    shown_hits = _above_floor(merged, semantic, keyword, claim_subjects, saved_leg, named=named | set(lately_lead))
 
     # === Structured hints block (machine-parseable, emitted first) ===
     # A small model that ignores prose can json.loads this fenced block to get
@@ -2732,8 +2737,8 @@ def _recall(ctx: ToolContext, query: str) -> str:
 
     # === Ruling 62: saved items the query's words find, unread: enough for an agent to look further ===
     # A title and a link are the page's, not the person's words, so no scope gates them; a tab group's are its body's.
-    saved_hits = saved_lookup.find(memory_path, query, k=RECALL_SAVED_SHOWN, min_shared=1,
-                                   exclude=frozenset(entity_block_ids), episodes=ctx.raw_excerpts)
+    taken = frozenset(entity_block_ids)
+    saved_hits = [h for h in saved_found if h.page not in taken and h.episode not in taken][:RECALL_SAVED_SHOWN]
     if saved_hits:
         output_parts.append(f"{saved_heading()}\n" + "\n".join(saved_lookup.line(h) for h in saved_hits))
 
@@ -2838,6 +2843,8 @@ def _recall(ctx: ToolContext, query: str) -> str:
 
 RECALL_PICTURES_SHOWN = 3
 RECALL_SAVED_SHOWN = 3
+RECALL_SAVED_FIND = 8   # saved items the lookup reads once: the strong ones join the page legs, the rest fill "Saved links"
+RECALL_SAVED_LEG = 3    # strong saved pages that may vote with the page legs
 
 
 def saved_heading() -> str:
