@@ -294,10 +294,10 @@ when a *rail* changes (an invariant, a ruling, a boundary), in one or two lines 
   commits the older version first; git history is never rewritten, and the copy says so. **A wrong alarm never rewrites something unrelated:** only a confident, distinctive value rare in the bank
   travels; a token more than three other conversations hold is not masked by value either (`capture-and-sleep.md`).
 - **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges with the person's
-  own words, or a link the person made to a high-confidence page other than the owner's — counted on the conversation,
-  never guessed (`promotion`) — or the person's own words naming in full exactly one waiting Contacts card, never the "me"
-  card or a relation-only person (2026-10-20, `capture-and-sleep.md`).
-  **Ruling 56 (2026-11-04, amends 36 D4 and 45): Sleep never makes a project and nothing is suggested. A project
+  own words, or a link the person made to a high-confidence page other than the owner's — counted on the conversation
+  (`promotion`), a name nobody said excepted (`coined_names`) — or the person's own words naming in full exactly one
+  waiting Contacts card, never the "me" card or a relation-only person (owner 2026-10-20).
+  **Ruling 56 (owner 2026-11-04, amends 36 D4 and 45): Sleep never makes a project and nothing is suggested. A project
   starts only from the person (app, shell) or a trusted agent on their ask; a name a page holds adopts that page, its
   history kept, never a second page; another client asks in the inbox. Only what they started is listed; every other page
   stays a page, never archived or retyped in bulk (`project_ownership`, `storage.md`). Things link by a recorded fact or
@@ -455,7 +455,7 @@ when a *rail* changes (an invariant, a ruling, a boundary), in one or two lines 
   never meet**: private (files and masked conversation copies; no web, no shell, never the bank) and web (search, fetch; no
   file tool). It finds, **Cicada's code writes**: located evidence read by sentence, one `found_by_agent` settle, undoable,
   no session words stored; only document kinds in folders granted by what they are (never secrets, tooling or Cicada's
-  own), nothing key-shaped stored (`harness_files`, `mcp.md`); its browser is the next slice.
+  own), nothing key-shaped stored (`harness_files`, `mcp.md`).
 - **Reading with the person's own agent (G166):** Cicada's backend never spawns a browser and never signs in to a site; it only asks
   (only ruling 47's tier 2 — an official API the person connects — signs in, never as a browser session, `network.md`). Only a
   link the person asked about, or a wall page of a site they allowed, can be recorded — and (2026-10-16, G71) the

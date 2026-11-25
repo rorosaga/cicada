@@ -6,10 +6,15 @@ import SwiftUI
 /// after its newest row, `.jumpToLatestSpace(_:)` on its scroll content, and `.jumpToLatest(anchorY:away:scroller:)` on
 /// the scroll view, which draws the button over its bottom edge while the view sits above the newest message.
 ///
-/// "Above" is the anchor's laid-out position in the content against the visible rectangle's bottom, both in the content's
-/// own coordinates — never the scroll's content height: a lazy stack's height is an estimate that can sit hundreds of
-/// points past the real end, so a height test never sees the bottom (measured on a meeting). A lazy stack drops the
-/// anchor when it is far off screen; its last position stands, and it is far below, so the button shows.
+/// "Above" is how far the anchor sits below the scroll view's visible bottom, both read from AppKit — the anchor's own
+/// `NSView` in the scroll view's document, and the clip's bounds — each time the view moves or its content changes
+/// (`JumpToLatestScroller`), never from SwiftUI geometry. Two SwiftUI measures were tried and both failed in the
+/// running app (2026-11-25): the anchor's place in the content against the scroll geometry's visible rectangle are not
+/// one coordinate system while unmeasured lazy rows sit above (a constant 1,308 pt apart with the view at its very end,
+/// so the button showed there); and an anchor that measures itself goes silent once the lazy stack drops it, so a move
+/// back to the end in one step left the button showing. The document's end is not the measure either: the Reader draws
+/// more under a conversation, and the newest message is where the anchor is. A lazy stack drops the anchor when it is
+/// off screen; a chat that had one and has none now is away.
 ///
 /// D (DESIGN_RULES §9): a circle in the other side's bubble fill with the strong ring, never a shadow (DR-9, DR-10) and
 /// never the accent (DR-5); the glyph alone carries it, its words in `.help` and the accessibility label. Appearing and
@@ -22,15 +27,15 @@ enum JumpToLatest {
     /// The button's distance from the chat's bottom edge (owner 2026-11-23: "a bit more up").
     static let lift: CGFloat = 32
 
-    /// Whether a view whose visible bottom is `visibleBottom` sits away from an anchor at `anchorY` (same coordinates).
-    static func isAway(anchorY: CGFloat?, visibleBottom: CGFloat) -> Bool {
-        guard let anchorY else { return false }
-        return anchorY - visibleBottom > CicadaTheme.scaled(threshold)
+    /// Whether a view whose visible bottom is `distanceFromEnd` points above the newest message's end sits away from it.
+    static func isAway(distanceFromEnd: CGFloat) -> Bool {
+        distanceFromEnd > CicadaTheme.scaled(threshold)
     }
 }
 
-/// Right after the chat's newest row: reports where it sits in the chat's content (`JumpToLatest.space`). Before macOS
-/// 15 (no scroll geometry) its leaving the lazy stack sets `away` instead.
+/// Right after the chat's newest row: reports that a chat is laid out (`anchorY` non-nil; the button never shows over a
+/// scroll view that draws no chat) and carries the `NSView` the scroller measures (`JumpToLatestAnchorProbe`). `away`
+/// is the scroll view's to say (`JumpToLatestScroller`); the binding stays so every chat passes one pair.
 struct JumpToLatestAnchor: View {
     @Binding var anchorY: CGFloat?
     @Binding var away: Bool
@@ -38,22 +43,46 @@ struct JumpToLatestAnchor: View {
     var body: some View {
         Color.clear
             .frame(height: 1)
+            .background(Probe().accessibilityHidden(true))
             .accessibilityHidden(true)
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(JumpToLatest.space)).minY } action: { y in
                 if anchorY != y { anchorY = y }
             }
-            .modifier(Fallback(away: $away))
     }
 
-    private struct Fallback: ViewModifier {
-        @Binding var away: Bool
-        func body(content: Content) -> some View {
-            if #available(macOS 15, *) {
-                content
-            } else {
-                content.onAppear { away = false }.onDisappear { away = true }
-            }
-        }
+    private struct Probe: NSViewRepresentable {
+        func makeNSView(context: Context) -> JumpToLatestAnchorProbe { JumpToLatestAnchorProbe(frame: .zero) }
+        func updateNSView(_ view: JumpToLatestAnchorProbe, context: Context) {}
+    }
+}
+
+/// The anchor's own view inside the scroll view's document: where the newest message ends, in AppKit's coordinates. It
+/// tells the scroller of its scroll view when it arrives, moves or leaves (a lazy stack dropped the anchor's row).
+final class JumpToLatestAnchorProbe: NSView {
+    private weak var listed: NSScrollView?
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        MainActor.assumeIsolated { relist() }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        MainActor.assumeIsolated { relist() }
+    }
+
+    override func setFrameOrigin(_ origin: NSPoint) {
+        super.setFrameOrigin(origin)
+        MainActor.assumeIsolated { JumpToLatestScroller.moved(in: enclosingScrollView) }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    @MainActor private func relist() {
+        let now = enclosingScrollView
+        if let listed, listed !== now { JumpToLatestScroller.unlist(self, from: listed) }
+        listed = now
+        if let now { JumpToLatestScroller.list(self, in: now) }
     }
 }
 
@@ -84,8 +113,124 @@ struct JumpToLatestButton: View {
 /// measured, so it settles on the measured end afterwards, at most a few short steps.
 @MainActor
 final class JumpToLatestScroller {
-    fileprivate weak var scrollView: NSScrollView?
+    weak var scrollView: NSScrollView? {
+        didSet { if scrollView !== oldValue { watch() } }
+    }
+    /// The chat's `away`, told each time the view crosses the threshold (set by `.jumpToLatest`).
+    var onAway: ((Bool) -> Void)? {
+        didSet { told = nil; judgeSoon() }
+    }
     private var gliding = false
+    private let watching = Watching()
+    private var pending = false
+    private var told: Bool?
+    /// A chat that had an anchor and has none now: its lazy stack dropped the row, so the view is not at it.
+    private var hadAnchor = false
+
+    // MARK: Which anchor and which scroller belong to a scroll view
+
+    private struct Listed {
+        weak var scrollView: NSScrollView?
+        weak var probe: JumpToLatestAnchorProbe?
+        weak var scroller: JumpToLatestScroller?
+    }
+    private static var listed: [ObjectIdentifier: Listed] = [:]
+
+    private static func entry(_ scrollView: NSScrollView) -> Listed {
+        let key = ObjectIdentifier(scrollView)
+        if let found = listed[key], found.scrollView === scrollView { return found }
+        listed = listed.filter { $0.value.scrollView != nil }      // an address reused by a new scroll view
+        return Listed(scrollView: scrollView)
+    }
+
+    static func list(_ probe: JumpToLatestAnchorProbe, in scrollView: NSScrollView) {
+        var found = entry(scrollView)
+        found.probe = probe
+        listed[ObjectIdentifier(scrollView)] = found
+        found.scroller?.judgeSoon()
+    }
+
+    /// Only the anchor that is listed leaves: an old anchor dying after its replacement arrived changes nothing.
+    static func unlist(_ probe: JumpToLatestAnchorProbe, from scrollView: NSScrollView) {
+        var found = entry(scrollView)
+        guard found.probe === probe else { return }
+        found.probe = nil
+        listed[ObjectIdentifier(scrollView)] = found
+        found.scroller?.judgeSoon()
+    }
+
+    static func moved(in scrollView: NSScrollView?) {
+        guard let scrollView else { return }
+        entry(scrollView).scroller?.judgeSoon()
+    }
+
+    /// The observers, removed with the scroller (a plain class: its `deinit` needs no actor).
+    private final class Watching {
+        var tokens: [NSObjectProtocol] = []
+        func clear() {
+            tokens.forEach(NotificationCenter.default.removeObserver)
+            tokens = []
+        }
+        deinit { clear() }
+    }
+
+    /// Every way the distance from the end changes: the view scrolled (the clip's bounds), the content grew or was
+    /// re-measured (the document's frame), the window resized (the clip's frame).
+    private func watch() {
+        watching.clear()
+        told = nil
+        hadAnchor = false
+        guard let scrollView else { return }
+        var found = Self.entry(scrollView)
+        found.scroller = self
+        Self.listed[ObjectIdentifier(scrollView)] = found
+        let clip = scrollView.contentView
+        clip.postsBoundsChangedNotifications = true
+        clip.postsFrameChangedNotifications = true
+        var watched: [(NSNotification.Name, NSView)] = [(NSView.boundsDidChangeNotification, clip),
+                                                        (NSView.frameDidChangeNotification, clip)]
+        if let document = scrollView.documentView {
+            document.postsFrameChangedNotifications = true
+            watched.append((NSView.frameDidChangeNotification, document))
+        }
+        for (name, view) in watched {
+            watching.tokens.append(NotificationCenter.default.addObserver(forName: name, object: view, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.judgeSoon() }
+            })
+        }
+        judgeSoon()
+    }
+
+    /// Once per turn of the main queue, after everything in it moved: content that grows and is scrolled to its end
+    /// in the same pass (a new line in a chat pinned to the bottom) is judged where it came to rest, so the button
+    /// never flashes, and SwiftUI state is never written during a layout pass.
+    private func judgeSoon() {
+        guard !pending else { return }
+        pending = true
+        DispatchQueue.main.async { [weak self] in self?.judge() }
+    }
+
+    private func judge() {
+        pending = false
+        guard let scrollView, let document = scrollView.documentView else { return }
+        let clip = scrollView.contentView
+        let away: Bool
+        if let probe = Self.entry(scrollView).probe, probe.enclosingScrollView === scrollView {
+            // The anchor's top edge in the document against the visible bottom (SwiftUI's document view is flipped).
+            hadAnchor = true
+            let anchor = probe.convert(probe.bounds, to: document)
+            let below = document.isFlipped ? anchor.minY - clip.bounds.maxY : clip.bounds.minY - anchor.maxY
+            away = JumpToLatest.isAway(distanceFromEnd: below)
+        } else if hadAnchor {
+            away = true
+        } else {
+            // No anchor yet (the chat is still laying out): the document's own end.
+            away = JumpToLatest.isAway(distanceFromEnd: abs(Self.end(clip: clip, document: document) - clip.bounds.origin.y))
+        }
+        guard away != told else { return }
+        told = away
+        onAway?(away)
+    }
 
     func jumpToEnd() {
         guard !gliding, let scrollView, let document = scrollView.documentView else { return }
@@ -192,44 +337,37 @@ extension View {
             .background(JumpToLatestLocator(scroller: scroller).accessibilityHidden(true))
     }
 
-    /// The chat's scroll view: while the view sits above `anchorY` (macOS 15+, from its geometry; `away` before), the
-    /// button over its bottom edge glides it to its very end.
+    /// The chat's scroll view: while it sits above its end (`scroller` says so, into `away`), the button over its
+    /// bottom edge glides it there.
     /// `willJump` runs first: a scroll view whose position is bound (`scrollPosition(id:)`) lets go of it there, or SwiftUI
     /// puts the view back on the bound row while it glides.
     func jumpToLatest(anchorY: CGFloat?, away: Binding<Bool>, scroller: JumpToLatestScroller,
                       willJump: (() -> Void)? = nil) -> some View {
-        modifier(JumpToLatestModifier(anchorY: anchorY, away: away, jump: {
-            willJump?()
-            scroller.jumpToEnd()
-        }))
+        modifier(JumpToLatestModifier(anchorY: anchorY, away: away, scroller: scroller, willJump: willJump))
     }
 }
 private struct JumpToLatestModifier: ViewModifier {
     let anchorY: CGFloat?
     @Binding var away: Bool
-    let jump: () -> Void
+    let scroller: JumpToLatestScroller
+    let willJump: (() -> Void)?
 
     func body(content: Content) -> some View {
-        tracked(content)
+        content
             .overlay(alignment: .bottom) {
-                if away {
-                    JumpToLatestButton(action: jump)
-                        .padding(.bottom, CicadaTheme.scaled(JumpToLatest.lift))
+                // `anchorY` nil: this scroll view draws no chat now (the Reader on a note), whatever a chat left behind.
+                if away, anchorY != nil {
+                    JumpToLatestButton {
+                        willJump?()
+                        scroller.jumpToEnd()
+                    }
+                    .padding(.bottom, CicadaTheme.scaled(JumpToLatest.lift))
+                }
+            }
+            .onAppear {
+                scroller.onAway = { isAway in
+                    if away != isAway { away = isAway }
                 }
             }
     }
-
-    @ViewBuilder
-    private func tracked(_ content: Content) -> some View {
-        if #available(macOS 15, *) {
-            content.onScrollGeometryChange(for: Bool.self) { geo in
-                JumpToLatest.isAway(anchorY: anchorY, visibleBottom: geo.visibleRect.maxY)
-            } action: { _, isAway in
-                if isAway != away { away = isAway }
-            }
-        } else {
-            content
-        }
-    }
 }
-

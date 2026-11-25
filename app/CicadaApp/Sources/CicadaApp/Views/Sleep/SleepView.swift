@@ -474,15 +474,20 @@ struct SleepView: View {
                     // ROR-118 round 6 - beside the room the title is the left block's first line (the room's top
                     // edge is the title's), so only a column too narrow for both keeps the title above.
                     let columnWidth = min(plan.list, SleepLayout.pageWidth) - 2 * plan.gutter
+                    // The top is its own row, and each row keeps one id whatever the width (2026-11-25). The title row
+                    // and the room used to trade `topAnchor` as the column crossed the beside width — opening the
+                    // Reader narrows it — and the lazy stack then kept the old room under that id beside the new one:
+                    // the top block drew twice, both copies live.
+                    Color.clear.frame(height: 0).id(Self.topAnchor)
                     if !SleepLayout.roomBeside(columnWidth: columnWidth) {
                         eyebrowRow(page, gutter: plan.gutter)
-                            .id(Self.topAnchor)
+                            .id("sleep.title")
                     }
                     roomBlock(page, columnWidth: columnWidth)
                         .padding(.horizontal, plan.gutter)
                         .padding(.top, SleepLayout.roomBeside(columnWidth: columnWidth)
                                  ? CicadaTheme.scaled(EyebrowRow<EmptyView>.topPadding) : 0)
-                        .id(SleepLayout.roomBeside(columnWidth: columnWidth) ? Self.topAnchor : "sleep.room")
+                        .id("sleep.room")
                         .padding(.bottom, CicadaTheme.spacingXL)
                         // R-A12: `.saturation` is UNCONDITIONAL, at the identity 1.0 while live — an `if` around it
                         // would change the room's structural identity and rebuild it every time the connection flaps.

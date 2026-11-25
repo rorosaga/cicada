@@ -46,6 +46,10 @@ def keep_session(raw: bytes) -> dict:
     conversation, read_bytes, refused = hook_client.read_session(harness, session_id, path, host=host)
     if refused:
         raise Refused(refused)
+    if not (conversation or {}).get("kept"):
+        # Nothing worth keeping (an empty transcript): the home writes nothing for it either, so nothing is queued —
+        # the answer says so and the caller finishes (``local_spool`` counts it; the hook just logs it).
+        return {"status": "empty", "episodeId": None}
     body = {"harness": harness, "session_id": session_id, "conversation": conversation,
             "transcript_bytes": read_bytes, "cwd": fields.get("cwd"), "hook_event": fields.get("hook_event")}
     try:

@@ -249,6 +249,38 @@ class TranscriptCaptureRequest(BaseModel):
     host: str | None = Field(default=None, max_length=32)
 
 
+def transcript_job(req: "TranscriptCaptureRequest", settings: Settings):
+    """The one writer of a ``/capture/transcript`` request, as ``(target, memory_path, work, landed)``: the bank a capture
+    goes to now (the demo is never one, R-CS12), the blocking write (``work()`` returns a ``CaptureResult``) and the step
+    after a write that was not refused (``landed(result)``). The route runs it behind :func:`answer_within`; the
+    backend's own spool drain (``local_spool``) runs it in a worker thread, so a session the hook kept while this backend
+    was away is written by the same function the live request is, not a second way to open a transcript."""
+    target = bank_registry.capture_bank(settings.memory_root)
+    # No real bank to fall back to: the service is handed the demo path and
+    # refuses it unread, so the refusal lands in the ledger like any other.
+    memory_path = target.path if target is not None else settings.memory_path
+
+    def _capture():
+        return capture_transcript(
+            memory_path,
+            harness=req.harness,
+            session_id=req.session_id,
+            transcript_path=req.transcript_path,
+            cwd=req.cwd,
+            keep_assistant=settings.capture_assistant_replies,
+            bank=memory_path.name,
+            effort=req.effort,
+            hook_event=req.hook_event,
+            workspace=req.workspace,
+            host=req.host,
+            # G110: the continuity registry's every-bank guard needs the root and
+            # every configured bank — resolved once, off the event loop.
+            bank_paths=continuity_sessions.bank_paths_for(settings.memory_root),
+        )
+
+    return target, memory_path, _capture, _after_write(memory_path, target, req, settings)
+
+
 @router.post("/capture/transcript")
 async def capture_transcript_endpoint(
     req: TranscriptCaptureRequest,
@@ -274,29 +306,7 @@ async def capture_transcript_endpoint(
     bank to choose, ``409`` and nothing is read. Every Stop re-captures the
     whole session, so the first reply after switching back saves it in full.
     """
-    target = bank_registry.capture_bank(settings.memory_root)
-    # No real bank to fall back to: the service is handed the demo path and
-    # refuses it unread, so the refusal lands in the ledger like any other.
-    memory_path = target.path if target is not None else settings.memory_path
-    def _capture():
-        return capture_transcript(
-            memory_path,
-            harness=req.harness,
-            session_id=req.session_id,
-            transcript_path=req.transcript_path,
-            cwd=req.cwd,
-            keep_assistant=settings.capture_assistant_replies,
-            bank=memory_path.name,
-            effort=req.effort,
-            hook_event=req.hook_event,
-            workspace=req.workspace,
-            host=req.host,
-            # G110: the continuity registry's every-bank guard needs the root and
-            # every configured bank — resolved once, off the event loop.
-            bank_paths=continuity_sessions.bank_paths_for(settings.memory_root),
-        )
-
-    _landed = _after_write(memory_path, target, req, settings)
+    target, memory_path, _capture, _landed = transcript_job(req, settings)
     result = await answer_within(_capture, _landed)
     if result is None:
         return accepted(bank=target.name if target is not None else None,

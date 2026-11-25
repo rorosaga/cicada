@@ -90,6 +90,13 @@ struct SiteSaveSite: Sendable {
         /// is one of the person's lists (`lists`).
         var fromEnd: Int? = nil
         var sizes: ClosedRange<Int> = 1...200
+        /// A class some items' own icons carry, and how many places before the first such item the save sits. When
+        /// the menu shows the mark it decides, whatever the menu's length (a site adds items around the save: Reddit's
+        /// "show fewer" and "why this" on a recommended post); `fromEnd` is the rule only for a menu with no mark.
+        var markClass: String? = nil
+        var beforeMark = 0
+        /// How long a menu the mark is trusted in.
+        var markSizes: ClosedRange<Int> = 1...200
         /// Every item is one of the person's lists; the first is the site's own, the others are folders.
         var lists = false
         /// Where the sheet was opened from: a class of a card that is one post (its first post link names it), and
@@ -185,9 +192,13 @@ struct SiteSaveSite: Sendable {
 
     /// Reddit's Save sits in the post's own menu (measured 2026-11-23, feed and post page: Follow, sometimes Award,
     /// Save, Hide, Report). The menu is inside the post's block, whose DOM id is the post's own (`t3_<id>`); the
-    /// post's link is the one that carries that id. A longer menu (the person's own post, a moderator's) is a layout
-    /// this does not know, and a comment's own menu (measured: three items, under `comment-overflow-menu`) is not a
-    /// post's.
+    /// post's link is the one that carries that id. A comment's own menu (measured: three items, under
+    /// `comment-overflow-menu`) is not a post's.
+    /// Measured 2026-11-25 on the home feed: a recommended post's menu has seven items (Follow, Award, an item to
+    /// show fewer, Save, Hide, an item asking why, Report), so the save is no longer third from the end and every
+    /// save on such a post was read as nothing. What holds in both layouts: the items after Hide draw an icon the
+    /// page mirrors for right-to-left scripts (class `rpl-rtl-icon`), and the save is two places before the first of
+    /// them. A menu with no such icon falls back to the place from the end.
     static let reddit = SiteSaveSite(
         key: "reddit", name: "Reddit", origin: "reddit-saved", hosts: ["reddit.com"],
         items: [(re(web + #"reddit\.com/r/([A-Za-z0-9_]{2,21})/comments/([a-z0-9]{3,12})(?:/([^/?#\s]{1,120}))?/?(?:[?#].*)?$"#),
@@ -195,7 +206,8 @@ struct SiteSaveSite: Sendable {
         rowAnchor: nil, slot: .none,
         listPages: [re(web + #"reddit\.com/user/[A-Za-z0-9_-]+/saved(?:[/?#].*)?$"#)],
         menu: Menu(under: "hovercard", block: "t3_", notBlock: ["t1_", "comment-"],
-                   notClasses: ["comment-overflow-menu"], fromEnd: 3, sizes: 4...5))
+                   notClasses: ["comment-overflow-menu"], fromEnd: 3, sizes: 4...5,
+                   markClass: "rpl-rtl-icon", beforeMark: 2, markSizes: 4...8))
 
     /// YouTube's Save opens a sheet of the person's lists (measured 2026-11-23: Watch later first, then each
     /// playlist; a click files the video and closes the sheet). The video is the card the sheet was opened from, or

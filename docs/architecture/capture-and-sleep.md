@@ -1963,6 +1963,11 @@ extractor keeps crosses the wire:
   and a dropped entry never comes back — in `_flush_local` too. (3) *Said, not silent*: the spool counts what was refused for good or dropped by its bounds
   (`.counters`), and every session post carries `unsent` (`{waiting, held, rejected}`, counts only). (4) A hook that
   posts a path to a copy's own backend is answered by `replica_gateway` instead of `409 replica_read_only` (`headless.md`).
+  (5) *A local entry never waits for a hook (2026-11-25)*: the entries `_flush_local` resends (`/capture/transcript`, the
+  loopback port) are also sent by the backend itself once it is up (`local_spool`, a thread from the lifespan: first pass
+  5 s after the start, each minute while one waits, three a pass), through the route's own writer on the home or a single
+  computer and `replica_gateway` on a copy; an entry for another address or port is not taken, and one whose transcript is
+  gone, refused or empty is removed and counted in `rejected` (`_flush_local` counts a refusal too). `headless.md`.
 
 **After capture: the awake read (G207, ruling 36 D2, 2026-10-22).** A captured conversation is usable before Sleep
 reads it, through a separate job that never runs inside the capture write. `/capture/transcript`, `/capture/session`
@@ -3738,6 +3743,8 @@ else stays a mention in the index (`pending_store`), never lost, and comes back 
 Entities are NOT extracted from every mention — that pollutes the graph. First mention stays in the
 vector index only; promotion needs **2+ separate conversations**, OR substantive discussion (>3
 exchanges) in one, OR an explicit link to an existing high-confidence entity.
+
+**A name nobody said is a label (G148, 2026-11-25; `coined_names`).** Stage 1 returns each thing with a name it wrote; on a real bank 107 of 185 "same as?" questions named a thing no text of the conversation says (`name_revisit.unsaid` retires such a question). `coined_names.said_in` is the one reading of where a name is (`person`, `others`, `nowhere`, by the turn's author, `evidence.locate` then the folded whole-word check, never fuzzy) and `coined` applies it to a Stage 1 entity: a concept or project whose name and every alias no text says, the owner's name and the source note counting as said, the names being exactly the set the promotion rung counts by (`promotion.name_variants`: the name, the name with a trailing "(...)" removed, each alias; so a name the rung counts as said is never a label), never an entity that carries an `application_birth` (ruling 42) or a book the person said a status of (ruling 61, the caller's `book_said` mark). One `Reading` per episode folds and tokenises the conversation once for every entity and alias (`question_revisit.Words`). Stage 1 stamps `coined` from the text (never the model's to say) and drops the entity's `ask_person`; Stage 2 pops the stamp and, when every conversation of the batch that gave the name only described it, leaves the one-conversation rungs (a link to a page, substantive talk) closed: the name is held below the bar with what was said and its claims' evidence, and a conversation that says it, or a second one that gives it, promotes it by the ordinary rule. Nothing is renamed, dropped or moved, so recall and Ask find the description in the conversation as before. `benchmarks/consolidation/coined_labels.py` measures the birth (Stage 1 alone) and the fate (one real Sleep) on invented stories; `coined_bank.py --bank <path>` prints counts only for a real bank's held lines, pages and open questions and writes nothing.
 
 **Saves alone make no page and no mention (G245, owner 2026-11-24, ruling 80; `promotion`, `episode_time`, `quiet_pages`,
 `media_ingestor.inject_media_edges`).** "If I save it, it already has a reason" means a save is read (Track 1); this is what

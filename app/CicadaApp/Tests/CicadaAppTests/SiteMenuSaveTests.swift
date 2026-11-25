@@ -9,10 +9,12 @@ final class SiteMenuSaveTests: XCTestCase {
     private let spanish = ["Seguir publicación", "Guardar", "Ocultar", "Denunciar"]
 
     private func reddit(_ items: [String], clicked: Int, key: String = "1abc234", links: [String]? = nil,
-                        page: String = "https://www.reddit.com/", fits: Bool = true, foreign: Bool = false)
+                        page: String = "https://www.reddit.com/", fits: Bool = true, foreign: Bool = false,
+                        firstMarked: Int? = nil)
     -> SiteMenuReading {
         SiteMenuReading(site: "reddit", items: items, clicked: clicked, page: page, fits: fits, foreign: foreign,
-                        blockKey: key, links: links ?? [post], linkLabels: ["A synthetic post"])
+                        blockKey: key, links: links ?? [post], linkLabels: ["A synthetic post"],
+                        firstMarked: firstMarked)
     }
 
     private func sheet(_ items: [String], clicked: Int, page: String = "https://www.youtube.com/watch?v=AbCdEfGhIjK")
@@ -91,6 +93,26 @@ final class SiteMenuSaveTests: XCTestCase {
         learned.unsaved.insert("Not selected")
         XCTAssertEqual(SiteMenuRule.outcome(sheet(["Watch later, Private, Not selected"], clicked: 0), site: site,
                                             post: "p", learned: learned), .init(outcome: .saved, basis: "learned"))
+    }
+
+    /// Measured 2026-11-25 on the home feed: a recommended post's menu is longer, and the save was read as nothing.
+    func testOnRedditTheSaveIsTwoBeforeTheFirstMirroredIconWhateverTheMenusLength() throws {
+        let recommended = ["Follow post", "Award this post", "Show fewer posts like this", "Save", "Hide",
+                           "Why was I recommended this?", "Report"]
+        // Without the mark the seven-item menu is a layout this does not know.
+        XCTAssertEqual(SiteMenuRule.item(reddit(recommended, clicked: 3)).failure, .notTheSaveSlot)
+        XCTAssertNoThrow(try SiteMenuRule.item(reddit(recommended, clicked: 3, firstMarked: 5)).get())
+        for other in [0, 1, 2, 4, 5, 6] {
+            XCTAssertEqual(SiteMenuRule.item(reddit(recommended, clicked: other, firstMarked: 5)).failure, .notTheSaveSlot)
+        }
+        // The same mark places it in the short menus, in any language, with or without the award item.
+        XCTAssertNoThrow(try SiteMenuRule.item(reddit(english, clicked: 2, firstMarked: 4)).get())
+        XCTAssertNoThrow(try SiteMenuRule.item(reddit(spanish, clicked: 1, firstMarked: 3)).get())
+        XCTAssertEqual(SiteMenuRule.item(reddit(spanish, clicked: 2, firstMarked: 3)).failure, .notTheSaveSlot)
+        // A mark too early to have a save two places before it, or a menu too long to trust, is nothing.
+        XCTAssertEqual(SiteMenuRule.item(reddit(english, clicked: 0, firstMarked: 1)).failure, .notTheSaveSlot)
+        let long = recommended + ["Extra a", "Extra b"]
+        XCTAssertEqual(SiteMenuRule.item(reddit(long, clicked: 3, firstMarked: 5)).failure, .notTheSaveSlot)
     }
 
     func testAMenusLabelIsLearnedFromThePostsItWasClickedOn() {

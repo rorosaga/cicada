@@ -326,6 +326,11 @@ def _target_of(entry: dict) -> dict | None:
     return target if isinstance(target, dict) and isinstance(target.get("base"), str) and target["base"] else None
 
 
+def target_of(entry: dict) -> dict | None:
+    """The server (and bank) an entry was kept for, or None when it names none."""
+    return _target_of(entry)
+
+
 def _for(target: dict | None, base: str | None, banks=()) -> bool:
     """Whether an entry may go to ``base``: one that names no server (written before targets, or while no address was
     set) goes wherever this machine points; one that names a server goes only there — or, when its target names the
@@ -416,6 +421,11 @@ def _read(path: Path) -> dict | None:
         return None
 
 
+def read(path: Path) -> dict | None:
+    """One entry's JSON, or None when it cannot be read (gone, or not an entry)."""
+    return _read(path)
+
+
 def waiting(home: Path, base: str | None, banks=()) -> dict:
     """What waits, by the server it was meant for: ``{"here": n, "elsewhere": {host: n}}``. ``here`` is what a flush to
     ``base`` would send; ``base`` None (this machine is no client now) makes every entry ``elsewhere``, an entry that
@@ -454,6 +464,12 @@ def pending_for(home: Path, base: str | None, banks=()) -> int:
 COUNTERS_FILE = ".counters"
 #: :func:`counts` reads at most this many entries to tell held from waiting; the rest are counted as waiting.
 COUNT_READ_MAX = 200
+
+
+def count_rejected(home: Path, n: int = 1) -> None:
+    """An entry left without landing, refused for good (its transcript is gone or holds nothing): counted in the
+    ``rejected`` number a machine reports, never silent."""
+    _count(home, "rejected", n)
 
 
 def _count(home: Path, reason: str, n: int = 1) -> None:
