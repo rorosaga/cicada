@@ -314,11 +314,13 @@ def test_apply_replaces_only_with_an_open_claim_that_carries_the_judged_day():
         ("superseded", {"superseded_by": "x"}, {}),
         ("already replaces another", {"supersedes": "y"}, {}),
         ("another day", {}, {"valid_from": "2026-12-09"}),
+        ("the new claim carries another day", {"start": "2026-12-05"}, {}),
         ("another object", {}, {"object": "madrid"}),
         ("another predicate", {}, {"predicate": "visits"}),
         ("not this conversation", {"episodes": (OTHER,)}, {}),
     ]:
-        old, new = _claim("old", "is-moving-to", "2026-12-05"), _claim("new", "moves-to", "2026-12-08", **new_kw)
+        old = _claim("old", "is-moving-to", "2026-12-05")
+        new = _claim("new", "moves-to", new_kw.pop("start", "2026-12-08"), **new_kw)
         audit: list[dict] = []
         assert revision_pairs.apply({"lia-prueba": [old, new]}, [_verdict(**verdict_kw)], {EP: rev}, audit) == {}, label
         assert old.valid_to is None and old.superseded_by is None, label
@@ -466,3 +468,30 @@ def test_the_readings_are_made_outside_the_write_window(tmp_path, monkeypatch):
     _run_drain(memory, monkeypatch, lia())
     assert writing == [False, False]
     assert _open_days(memory) == ["2026-12-08"]
+
+
+def test_a_value_or_another_object_is_never_paired(tmp_path, monkeypatch):
+    # The first read held the destination as a stated value, and the re-read dates a move to another city: neither is
+    # the re-read claim's pair, so nothing is asked.
+    def first(chunk):
+        out = lia()(chunk)
+        if "[Revision:" not in chunk:
+            out["relationships"] = []
+            out["values"].append({"entity": "Lia Prueba", "attribute": "destination", "value": "Valencia",
+                                  "evidence_quote": "Lia Prueba moves to Valencia"})
+        return out
+
+    memory, readers = story(tmp_path, monkeypatch, [(LIA, first), (MOVED, lia())])
+    assert readers.small_calls == []
+    assert any(c.predicate.startswith("value-of-") and c.valid_to is None for c in _claims_of(memory, "lia-prueba"))
+
+    def elsewhere(chunk):
+        out = lia()(chunk)
+        if "[Revision:" in chunk:
+            for rel in out["relationships"]:
+                rel["target"] = "Madrid"
+            out["entities"].append({"name": "Madrid", "type": "location", "confidence": 0.9, "summary": "A city."})
+        return out
+
+    _memory, readers = story(tmp_path / "b", monkeypatch, [(LIA, lia()), (MOVED, elsewhere)])
+    assert readers.small_calls == []

@@ -2380,7 +2380,7 @@ page now existing); the page prose kept the old fact beside the new. `episode_re
 - **Left (G104):** a transcript's replaced reply (Cursor's final reply for a generation) closes nothing; a held claim
   only the removed text said keeps its span `stale` in the pending store rather than being closed there. The prose,
   the section rows and the held spans are slice 2, below.
-- **A stale date beside the corrected one: measured, three fixes tried and dropped, still open (2026-11-24;
+- **A stale date beside the corrected one: measured, three fixes tried and dropped, a fourth built for the date shape (2026-11-24, 2026-11-25;
   `benchmarks/consolidation/revision_e2e.py`).** A claim the first read wrote from one line but dated (or named) from
   another keeps its span on the unchanged line, so the span test never marks it; and the re-read words the
   relationship under another predicate (`is-moving-to`, then `moves-to`), which is another slot, so `redated` never
@@ -2410,14 +2410,35 @@ page now existing); the page prose kept the old fact beside the new. `episode_re
   a day number, a month's first letters and a name's spelling collide with ordinary text in every language; (b) the old
   claim must never end with nothing in its place; (c) clearing a field in place is unsafe while a claim's id carries its
   day and a merge never restores one; (d) a rule about a name must read the page's aliases and substrings, never whole
-  tokens. **Not built, not measured (a reading of the three, 2026-11-24):** act where the re-read's claim meets the old
-  one, with a judgment that the two word the same relationship (as `value_alignment` does for a value said again in
-  other words), so the same-slot path that exists (`redated`, which held under all three reviews) moves the date; a
-  wrong judgment there costs a date, never the relationship. The stories and their runner are in the repo so the next
-  attempt starts from the measure: `revision_e2e_stories.json` (17 shapes) and `revision_e2e_review_stories.json` (the
-  ten shapes the reviews attacked; today's code gets nine right and leaves two dates current after an edit made and
-  undone in 2 of 4 runs). Also found and left: a held claim dropped because its span went leaves no record of why
-  (`pending_store.drop_held`), and a held name whose spelling is corrected loses a claim from an unchanged line.
+  tokens.
+  **The fourth, for the date shape only (2026-11-25, `revision_pairs`): act where the re-read's claim meets the old one,
+  on two readings.** A *pair* is an open page claim this one edited conversation alone says (`episode_revision._closable`;
+  never a value, a number, an event, a record, the person's own or an agent's, nor a capped transcript) and a claim of the
+  same revision's re-read with the same subject, object, context and speaker, ANOTHER predicate, and a start or end the
+  old one does not carry that the changed lines say (`says_day`, the test `redated` already makes of the new claim).
+  Before Stage 2 opens the write window (pages read only), Sleep's small judge is shown each revision's pairs (at most 8
+  a revision, 12 revisions a batch) with the words each fact was recorded from, the edit and the conversation as it now
+  stands, and asked whether the two word the SAME relationship or two that can both hold; the cycle's main model is asked
+  the same of the pairs the first called the same. One call per reader per revision with pairs, none without; metered as
+  `revision_pair` (`sleep_spend.LINE_STAGES`), through `providers.resolve_llm_fn`. Only the answer `"same"` from both
+  counts; a "different", anything unreadable or a failed call leaves both claims as they were. After Stage 3 and
+  `settle`, `revision_pairs.apply` replaces the old claim the way the same-slot replacement does (`_close`: closed,
+  `superseded_by` the re-read's claim, which `supersedes` it; audit `revised` with `why: edited_same_relationship`,
+  kept by `telemetry.record_audit` and counted in the batch's Corrections record), every condition checked again then:
+  the old claim still open and still this conversation's alone (a conversation read the same night that says it keeps
+  it), the re-read's claim open on the same page, not merged into a closed claim, superseding nothing else, citing this
+  conversation and carrying the judged day; one re-read claim replaces at most one old claim. Nothing is cleared,
+  re-dated or written that the re-read did not write; held claims (a name with no page) are left exactly as before.
+  **The worst a wrong reading costs** (both readers always "same"): one claim of this conversation superseded by another
+  claim of this conversation about the same two things, carrying a day it now states — a move closed beside a visit to
+  the same city the edit put in (`test_revision_pairs`). **Left:** an edit made by a reworded re-read and then undone,
+  whose re-read restates the first wording exactly, ends with the corrected day current and the restored one closed
+  (the restatement folds into the closed claim by id, `_reread_twin`, and nothing may reopen it), where the code before
+  this left both days current; the same-slot path already ends that way when the re-read keeps its wording. Not yet
+  measured on real Sleeps. The stories and their runner are in the repo: `revision_e2e_stories.json` (17 shapes) and
+  `revision_e2e_review_stories.json` (the ten shapes the reviews attacked). Also found and left: a held claim dropped
+  because its span went leaves no record of why (`pending_store.drop_held`), and a held name whose spelling is corrected
+  loses a claim from an unchanged line.
 
 **A page's prose follows the revision (G104 slice 2, owner 2026-11-03: "Sleep regenerates a page's prose from its
 corrected claims when a revision closes one, limited to the pages a revision touched").** Measured before (the same

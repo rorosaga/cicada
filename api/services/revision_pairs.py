@@ -27,7 +27,7 @@ claim meets the old one, and only on a reading:
   closed and ``superseded_by`` the new, the new ``supersedes`` it, audit ``revised``), re-checked then: the old claim
   still open and still this conversation's alone (a conversation read the same night that also says it keeps it open),
   the new claim open on the same page, not closed, not merged into a closed claim, not superseding anything else, citing
-  this conversation and carrying the judged day. One new claim replaces at most one old claim. Nothing is cleared,
+  this conversation and carrying the judged day. One new claim replaces at most one old claim (it then supersedes one). Nothing is cleared,
   re-dated or written that the re-read did not write.
 
 **The worst a wrong reading costs** (both readers always "same"): one claim of this conversation is superseded by
@@ -325,7 +325,6 @@ def apply(reconciled: dict[str, list[Claim]], verdicts: list[Verdict], revisions
     from api.services.claim_reconciler import _close, _date_key, same_object
 
     out: dict[str, str] = {}
-    used: set[int] = set()
     for v in verdicts:
         rev = revisions.get(v.episode)
         slot = reconciled.get(v.subject) or []
@@ -335,7 +334,7 @@ def apply(reconciled: dict[str, list[Claim]], verdicts: list[Verdict], revisions
                 audit.append({"action": "revision_kept", "kept": old.id, "why": "another_conversation"})
             continue
         text = er._changed_text(rev)  # noqa: SLF001
-        new = next((c for c in slot if c is not old and id(c) not in used and c.id != old.id and _carries(c, v)
+        new = next((c for c in slot if c is not old and c.id != old.id and _carries(c, v)
                     and same_object(c, old) and any(er.says_day(text, d) for d in (v.valid_from, v.expected_end) if d)),
                    None)
         if new is None:
@@ -343,7 +342,6 @@ def apply(reconciled: dict[str, list[Claim]], verdicts: list[Verdict], revisions
         _close(old, by=new)
         if old.valid_from and _date_key(old.valid_to) < _date_key(old.valid_from):
             old.valid_to = old.valid_from   # a date moved earlier closes the old claim on its own first day
-        used.add(id(new))
         audit.append({"action": "revised", "closed": old.id, "by": new.id, "why": WHY})
         out[old.id] = v.episode
     if out:
