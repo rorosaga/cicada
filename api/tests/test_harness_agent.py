@@ -930,3 +930,15 @@ def test_a_session_runs_in_a_private_temp_folder_outside_cicadas_home_removed_af
     assert seen["mode"] == "0o700" and seen["registered"] == 1
     assert not Path(seen["cwd"]).parent.exists() and not list((scratch_home / "harness_sessions").glob("scratch-*.json"))
     assert not hf.under(seen["cwd"], str(scratch_home)) and not hf.under(seen["cwd"], str(bank)) and not hf.under(seen["cwd"], str(notes))
+
+
+def test_a_conversation_copy_is_known_by_its_folder_however_the_session_spells_the_path(tmp_path):
+    real = (tmp_path / "files").resolve()
+    real.mkdir()
+    (real / "ep_2026-10-03_001.md").write_text("user: My brother Marek is moving.\n")
+    brief = _brief(compartment=ha.PRIVATE, copies=("ep_2026-10-03_001",), copies_dir=str(real))
+    spelled = str(real / "ep_2026-10-03_001.md")
+    short = spelled[len("/private"):] if spelled.startswith("/private/") else spelled          # a Mac's /var for /private/var
+    for where in (spelled, short, str(tmp_path / "files" / ".." / "files" / "ep_2026-10-03_001.md")):
+        assert hq._conversation_of(ha.Evidence(where, "file", "x"), brief) == "ep_2026-10-03_001", where
+    assert hq._conversation_of(ha.Evidence(str(tmp_path / "ep_2026-10-03_001.md"), "file", "x"), brief) == ""     # another folder

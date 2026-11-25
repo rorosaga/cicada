@@ -44,6 +44,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import shutil
 import threading
 from dataclasses import dataclass, field
@@ -544,7 +545,8 @@ def _conversation_of(e: ha.Evidence, brief: Brief) -> str:
     stem = p.name[:-3] if p.name.endswith(".md") else p.name
     if e.kind != "file" or stem not in brief.copies:
         return ""
-    return stem if brief.copies_dir and str(p.parent) == brief.copies_dir else ""
+    # the copies' folder as the session spelled it or as the filesystem resolves it (a Mac spells /var as /private/var)
+    return stem if brief.copies_dir and os.path.realpath(p.parent) == os.path.realpath(brief.copies_dir) else ""
 
 
 def _in_person_turn(e: ha.Evidence, brief: Brief) -> bool:
