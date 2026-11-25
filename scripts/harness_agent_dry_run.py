@@ -2,13 +2,16 @@
 
 Without --work: one line per open question the agent would work, in the order it works them: the id and the kind, nothing
 else (no name, no title). With --work N (default 1 when given; keep it small): the agent really works the first N, on this
-machine, with this person's own files, web and browser. Before each question this prints the tools it will hold and the
-folders it may read; while it works, every call it makes as it makes it (a search, an address, a file); after it, what it
-concluded, what the code's gate would do with it (``would_settle`` / ``would_note`` / ``left:<why>``), the evidence it cited
-and the audit. Nothing is settled, noted or remembered.
+machine, with this person's own files and the public web, in two compartments (a private session that reads files and
+masked conversation copies and can send nothing; a web session that fetches and reads no file). Before each question this
+prints the compartments it will use, the folders the private one may read and what the web one may fetch; while it works,
+every call as it is made (a search, an address, a file); after it, what it concluded, what the code's gate would do with it
+(``would_settle`` / ``would_note`` / ``left:<why>``), the evidence it cited and the audit. Nothing is settled, noted or
+remembered.
 
---attended lets it read Documents, Desktop and Downloads (this shell's own permissions; a scheduled run never does).
-It uses the Claude plan: a metered key or another engine is refused.
+--attended lets the private session read Documents, Desktop and Downloads (this shell's own permissions; a scheduled run
+never does). It uses the Claude plan: a metered key or another engine is refused. The signed-in browser is not part of this
+run (the next slice).
 
 Usage:
   api/.venv/bin/python scripts/harness_agent_dry_run.py --memory /path/to/bank
@@ -52,17 +55,19 @@ async def main() -> int:
     from api.services import same_name_tend
 
     model = args.model or str(getattr(same_name_tend.main_tier(resolved), "agent_model", "") or "") or "sonnet"
-    policy = await asyncio.to_thread(hq.make_policy, memory, attended=args.attended)
+    roots, refused = await asyncio.to_thread(hq.home_roots, memory, attended=args.attended)
     for path, fm in rows[:args.work]:
         fm = dict(markdown_parser.parse(path).frontmatter)
+        public = await asyncio.to_thread(hq.is_public, memory, path)
+        plan = hq.plan_for(str(fm.get("kind") or ""), public)
         print(f"\n== {path.stem} ({fm.get('kind')}) on {model}")
-        print("   tools: files (Read, Glob, Grep), web search and fetch" + (", the browser, read-only" if policy.browser else
-                                                                          " (no browser reachable: skipped)"))
-        print("   folders it may read: " + ", ".join(Path(r).name or r for r in policy.roots))
-        out = await hq.work_one(memory, settings, path, fm, policy, model, apply=False,
+        print("   compartments: " + " then ".join(plan) + "  (private: files and conversation copies, no web; web: search and fetch, no files)")
+        print("   folders the private session may read: " + (", ".join(Path(r).name or r for r in roots) or "none"))
+        out = await hq.work_one(memory, settings, path, fm, model, apply=False, roots=roots, refused=refused, public=public,
                                 on_call=lambda c: print(f"   -> {c.line()['tool']}: {c.what[:160]}" + ("  [REFUSED]" if c.denied else "")))
         print(f"   concluded: {out.concluded}")
-        print(f"   gate: {out.what}  answer: {out.answer!r}  ({out.calls} calls, {out.seconds}s, {out.denied} refused)")
+        print(f"   gate: {out.what}  answer: {out.answer!r}  ({out.calls} calls, {out.seconds}s, {out.denied} refused; "
+              f"{[c['in'] + (':' + c['stopped'] if c['stopped'] else '') for c in out.compartments]})")
         for e in out.evidence:
             print(f"   evidence: {e['where']}  \"{e['quote']}\"")
     return 0

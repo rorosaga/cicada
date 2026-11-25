@@ -1222,8 +1222,10 @@ carry hashed ids, sizes, counts and timings, never a body, a key, an address or 
 ## Cicada's own agent and the network (ruling 83, owner 2026-11-25)
 
 The G166 rail "Cicada never spawns a browser" is about Cicada's backend, which still never does: it opens no browser, signs in to nothing and fetches nothing behind auth.
-Cicada's own agent (`harness_agent`) is the person's own harness session, run as they would run it: `WebSearch` and `WebFetch` are the plan's tools (no `net_guard`, no
-cookies), and its one browser program (`api/harness_tools/read_browser.py`) opens an address in a new tab of the person's own browser through the browser harness's CLI
-(telemetry and the update check turned off for that call), only when a harness daemon already exists (never a launch, never the "allow remote debugging" sheet), read-only.
-A private person's name may be searched (the owner lifted that limit; ruling 44's and 54's `name_guard` stays on ruling 54's step and the backend's lookups). Every query and
-address the session used is kept with the settle.
+Cicada's own agent (`harness_agent`) is the person's own harness session, run as they would run it, in two compartments that never meet: the **web** session holds
+`WebSearch` and `WebFetch` (the plan's tools: no `net_guard`, no cookies, nothing signed in) and no file tool, and `WebFetch` reaches only the hosts the question
+names when it names any; the **private** session reads files and holds nothing that can send. So what a page says can reach only a session that has nothing private to
+send, and what the private session read can reach no address. A private person's name may be searched in public (the owner lifted that limit; ruling 44's and 54's
+`name_guard` stays on ruling 54's step and the backend's lookups); a web page settles only a public thing (ruling 27's test). Every query and address the session used
+is kept with the settle. The signed-in browser is the next slice: its own compartment, started by the app, limited to hosts of sites the person already connected or
+allowed, with no other outbound tool.

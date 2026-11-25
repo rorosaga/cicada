@@ -218,7 +218,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   `episode_lock`, and every page write is atomic (audit K01/A01/A02).
 - **Every writer scrubs, every source-keyed writer stages through one module** (`episode_scrub`, `episode_staging`:
   hash over the scrubbed body, edits in place with `processed: false` and a `revised` record Sleep reads as a revision
-  (owner 2026-11-03), deletions tombstoned, never unlinked).
+  (2026-11-03), deletions tombstoned, never unlinked).
 - **Meetings are conversations (owner ruling 2026-11-03, G95):** a recorder's transcript (Hex's Markdown folder, any
   folder of transcripts) is an episode Sleep consolidates — one per meeting, its own date, through the folder stager;
   unlike a `media_files` recording. Only a line the recorder labels `You`/`Me` is the person's (52a); every other is
@@ -240,7 +240,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   other; a texted agent's words are its `assistant:` turns and its claims `external:<name>`, never the person's own —
   as are a harness session's or a chat export's assistant's (`external:<harness|app>`, 2026-10-27; relayed apps keep
   their own rail); an explanation is never written as the person's act, and a claim carries its episode's session.
-  **Ruling 50 (owner, 2026-10-29):** so is a note an agent saved (`cicada_save_episode` by any door, `cicada save` from
+  **Ruling 50 (2026-10-29):** so is a note an agent saved (`cicada_save_episode` by any door, `cicada save` from
   an agent's shell) — `assistant` throughout, never a promotion exchange, its claims `external:<harness>`
   (`authorship`, `storage.md`).
 
@@ -255,11 +255,11 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   2026-10-19; `SUBSCRIPTION_MODES` the one guard); on a metered engine it spends up to the person's spending limit, then pauses in words (ROR-102, ruling 63 (g), `sleep_spend`); a model with no known price stops the run.
   **Plan-first engines (ruling 31):** the default is Auto — Claude plan, ChatGPT plan — never
   a metered key nobody chose; a key (OpenRouter included) reads only when chosen.
-  **Ruling 36 D1 (owner, 2026-10-22):** with nothing chosen, Auto uses a signed-in plan (Claude Code, then Codex) and
+  **Ruling 36 D1 (2026-10-22):** with nothing chosen, Auto uses a signed-in plan (Claude Code, then Codex) and
   says in words what runs; a key secured properly is an equal option; a local model runs only when chosen, never as Auto's rung.
   **The person's own Cursor, OpenCode or Grok (G49/G50)** are plans under ruling 4's switch (Grok user-started
   only), headless with no tools or MCP context, on their own sign-in; a key-billed path is refused or stops the run (`cli_engines`).
-  **Ruling 46 (owner, 2026-10-28):** Auto is Claude plan → ChatGPT plan → Cursor → OpenCode (subscription model only), each
+  **Ruling 46 (2026-10-28):** Auto is Claude plan → ChatGPT plan → Cursor → OpenCode (subscription model only), each
   read from cached status, an unknown or hung tool skipped in words, never a stall; Grok never on Auto (`capture-and-sleep.md`).
   **Ruling 63:** a key whose provider has an official SDK row (`direct_engines`) is served by that
   SDK, every other key by LiteLLM; a key's limit is a pause that never says the person's plan (`capture-and-sleep.md`, "A Claude key").
@@ -296,13 +296,13 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Entity promotion:** a first mention stays in the index; a page needs 2+ conversations, >3 exchanges with the person's
   own words, or a link the person made to a high-confidence page other than the owner's — counted on the conversation,
   never guessed (`promotion`) — or the person's own words naming in full exactly one waiting Contacts card, never the "me"
-  card or a relation-only person (owner 2026-10-20, `capture-and-sleep.md`).
-  **Ruling 56 (owner 2026-11-04, amends 36 D4 and 45): Sleep never makes a project and nothing is suggested. A project
+  card or a relation-only person (2026-10-20, `capture-and-sleep.md`).
+  **Ruling 56 (2026-11-04, amends 36 D4 and 45): Sleep never makes a project and nothing is suggested. A project
   starts only from the person (app, shell) or a trusted agent on their ask; a name a page holds adopts that page, its
   history kept, never a second page; another client asks in the inbox. Only what they started is listed; every other page
   stays a page, never archived or retyped in bulk (`project_ownership`, `storage.md`). Things link by a recorded fact or
   an agent's stated reason, never a co-mention; a removal holds against every writer (`mcp.md`).**
-  **Ruling 53 (owner 2026-11-03):** every repository the person owns is a `media` page on sync, never added by hand and
+  **Ruling 53 (2026-11-03):** every repository the person owns is a `media` page on sync, never added by hand and
   never a project; a project lists its repositories, linked by the person, a trusted agent or D2a's origin hash, never
   a name (`github_repos`). GitHub connects by a code (`network.md`). What Stage 1 calls a
   project with no page gets, over this rule counted across the spellings the judge joins (the person's own located words
@@ -310,16 +310,16 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   place (`capture-and-sleep.md`). What is said about a
   name with no page yet is held (`pending_store`), never lost. A page only an import made, a book with nothing marked included (ruling 64), is quiet — dimmed, never
   asked about — until the person mentions it, derived on read (`quiet_pages`).
-  **Ruling 42 (owner 2026-10-27):** one conversation is enough for a specific event, program or application the person
+  **Ruling 42 (2026-10-27):** one conversation is enough for a specific event, program or application the person
   — or a harness agent, for them — acted on (applied, registered, filled its form), measured on the conversation; the
   application lives on that page, the owner's keeps only the link (`application_page`, `capture-and-sleep.md`).
   A skill needs 2+ conversations too (two notes count, ruling 65); one is held in its own store, `skill_hold` (G112, owner 2026-10-09).
   A speaker's self-reference ("the user", "me", "yo"…) is the owner's page, never a page of its own (G169).
-  **"Same person?" (owner 2026-11-04):** never the owner's page without the person's own words naming themselves so;
+  **"Same person?" (2026-11-04):** never the owner's page without the person's own words naming themselves so;
   two people only on a conversation naming both, its evidence, and names sharing nothing only on a line that suggests one person (ruling 65); the guess ≤ 0.8 (`pair_evidence`, `capture-and-sleep.md`).
   A person known only by a relation to the owner is titled by the relation, never the owner's name, and asked their
   name on a second mention (41a); merged only on their answer or recorded evidence (`role_people`, `capture-and-sleep.md`).
-- **Temporal decay is a signal; age counts from when it was said** (owner 2026-10-09/13, amends G170): what the
+- **Temporal decay is a signal; age counts from when it was said** (2026-10-09/13, amends G170): what the
   conversations prove silent is charged once, when read; a one-off may archive by age, a page or claim on 2+ dated
   conversations floors at 0.39 and only live silence archives it; ruling 1's one-week cap governs live silence; a
   mention never lowers; a decay question only when live silence crosses 0.4. **Read on time** (2026-10-16): a
@@ -342,7 +342,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   whitespace → case-insensitive, **never fuzzy**; an unlocatable quote becomes `reasoning` and **the claim is still
   written — provenance never blocks memory**. Judged on read, one shape (`source_spans`): held or stale never draws. Six evidence kinds; every claim on the wire is built by one function.
   A record's filing label (a folder, a list, a calendar) is never anyone's words nor a conversation for the 2+ rule
-  (owner 2026-10-29, `storage.md`).
+  (2026-10-29, `storage.md`).
 - **Events (G141):** only `progress.py` writes `happened`/`milestone`; a done happening is born closed; nothing relative is
   stored.
 - **Sources (G61) are a living set:** many per fact; an agent changes or removes only what it added; a removal is
@@ -353,7 +353,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   about a public thing (ruling 27):** a web lookup settles it with a cited claim (a citation, never a tracked source),
   undoable under "Settled by a check"; never a person's name, their files, projects or life (`mcp.md`); it is the default
   path on every plan run, and Cicada's own settings are never asked (27b, 2026-10-19).
-  **Ruling 44 (owner, 2026-10-27) amends 27 and 40:** a public page — a public figure only by the public test (one
+  **Ruling 44 (2026-10-27) amends 27 and 40:** a public page — a public figure only by the public test (one
   encyclopedia match, no acquaintance on the record; err private), a company, program, tool or place — gets cited, dated
   world facts on plan runs (never a metered key), re-checked by use and volatility, never over the person's own words
   about their own life; a private
@@ -369,13 +369,13 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   names that one page and the link's account is its name or alias — co-occurrence is never proof (`storage.md`).
   **An organisation's own site (ruling 40, 2026-10-26):** for a company, tool or public place — never a person (a
   public figure's context is ruling 44's, never a site), a project or a private name — Sleep trusts a site the record ties to the page or ONE unambiguous Wikidata match, only
-  when its homepage names it — a site Sleep itself first proposed included (owner 2026-10-28, D) — anything less is a proposal in that review; a removal is never re-added (`org_sites`).
+  when its homepage names it — a site Sleep itself first proposed included (2026-10-28, D) — anything less is a proposal in that review; a removal is never re-added (`org_sites`).
 - **Pictures:** one precedence (the person's choice → Contacts photo → the photo a ticked chat holds (Messages, WhatsApp, Telegram) → a
   person's public-profile photo → a brand's logo → a media thumbnail → a person's monogram; any other page with none draws
   nothing, never a type glyph — owner 2026-10-28). **A logo comes only from a trusted
   `website` source — never a domain guessed from a name; a person never gets a logo and no service is sent a private person's name (G146/G159).** A public figure ruling 44's test matched gets its encyclopedia portrait, asked by item, never by name; a project its trusted site's mark or, only when an organisation owns its repository, that organisation's avatar (`storage.md`). A public place with a ruling-40 site draws its mark. A saved link's own site may show its icon, asked of that site only (or the host its homepage declares; `network.md`, `storage.md`); a saved YouTube video its still, from YouTube's host for that id only; a book its own copy's cover, else Open Library's, never found by title (ruling 61). A person's photo is asked only
   with an identifier already on the page or record and given as their own account — the owner's hashed email, a GitHub,
-  X, Instagram or LinkedIn profile link (owner, 2026-10-09), never a proposal the person has not taken (`network.md`); a LinkedIn connection's link counts as given
+  X, Instagram or LinkedIn profile link (2026-10-09), never a proposal the person has not taken (`network.md`); a LinkedIn connection's link counts as given
   on a confident match only (2026-10-17). A chat's shared photo is its page's picture, gone on untick (`storage.md`).
   Logos, pictures, media previews (fetched once, then served from the store) and repo observations are caches outside
   every bank.
@@ -434,7 +434,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   ledger; the hook's injection, Sleep and Cicada's own spawns never count. A fact said
   long ago scores lower (age from when it was said, never `last_referenced`; merges and name questions never fade, but what came up lately lifts); the owner's page never dilutes its facts; at most one question of a type in a row; every queue uses this one order, never the stored priority (a gate test)
   (`features.md`, "The order is the expected change in what gets read"; `storage.md`, "Page-read counter").
-- **Questions come up naturally (owner, 2026-10-14):** an inbox question reaches a conversation only when it is about
+- **Questions come up naturally (2026-10-14):** an inbox question reaches a conversation only when it is about
   that question's subject (`inbox_ask_gate`), in the agent's own words; an answer the person already gave is recorded
   with their words as evidence, never guessed; the whole inbox only on request (`mcp.md`).
 - **The CLI (G180, ruling 21)** is a second door onto the same bodies: in-process from one bootstrap that reads no
@@ -450,13 +450,14 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   speaking only `/v1` with an agent token, like `clients/memory-tool`, is not a door (38a, 2026-10-29).
   Apps sign in through the listener's own OAuth 2.1 server (ruling 32): consent only in the app, by typing the code the
   person's own page shows, never a click or the public page; a self-registered app is never named by its claim (`network.md`).
-- **Cicada's own agent (ruling 83, 2026-11-25; amends G166, 54 and 44's name guard for it alone):** a harness session on the
-  Claude plan, after the cycle and outside Sleep's window, works a few open questions with the person's files, the web and their own browser, read-only
-  (no write tool, never a sign-in); what it reads is data. It finds, **Cicada's code writes**: located
-  evidence, one `found_by_agent` settle, undoable, its trail kept; a "same person?" is never joined (`harness_agent`, `mcp.md`).
+- **Cicada's own agent (ruling 83, 2026-11-25; amends 54 and 44's name guard for it alone):** a harness session on the
+  Claude plan, after the cycle and outside Sleep's window, works a few open questions read-only in **two compartments that
+  never meet**: private (files and masked conversation copies; no web, no shell, never the bank) and web (search and fetch;
+  no file tool). It finds, **Cicada's code writes**: located evidence read by sentence, one `found_by_agent` settle, undoable,
+  none of the session's own words stored; its signed-in browser is the next slice (`harness_agent`, `mcp.md`).
 - **Reading with the person's own agent (G166):** Cicada's backend never spawns a browser and never signs in to a site; it only asks
   (only ruling 47's tier 2 — an official API the person connects — signs in, never as a browser session, `network.md`). Only a
-  link the person asked about, or a wall page of a site they allowed, can be recorded — and (owner 2026-10-16, G71) the
+  link the person asked about, or a wall page of a site they allowed, can be recorded — and (2026-10-16, G71) the
   person's YouTube Watch later or history page, a standing ask once they turn that list on, stdio only; their saved list on X, Instagram or LinkedIn the same way, one site at a time, each item a
   save (G206, 2026-10-22, `mcp.md`; X reposts too, from the person's own profile, ruling 79 (a)) — and on Reddit, Pinterest or TikTok the same way, off by default until the
   person turns it on (G232, 2026-11-04; Spotify and Goodreads too, ruling 72: a site's terms don't decide this, 2026-11-06); one person's
@@ -486,7 +487,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   the app keeps only Mac readers that post bytes, per-viewer chrome and presentation.
 - **Design direction D is binding** (`docs/design/DESIGN_RULES.md`; a UI PR cites the DR ids it applies; a departure needs
   a dated ruling). SF only; the accent in six uses; depth is a ring, not a shadow; painted art is retired, the pixel study room the one
-  illustration and never behind data or text (owner 2026-10-16);
+  illustration and never behind data or text (2026-10-16);
   Liquid Glass only in the chrome layer; a keyboard action never animates; every duration is spelled in `CicadaMotion` (sprites within `CicadaMotion`'s caps, TODO ruling 18).
   **The redesign (ruling 48, owner 2026-10-28):** a page is an article carrying its beliefs as citations, never a stacked
   fold; the Inbox lives on Home and each page, off the rail (DESIGN_RULES §9 2026-10-28, DR-77…DR-81).
@@ -499,7 +500,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   sees Chrome's bookmark bubble from window bounds alone (no title, no permission), only after the person's own click,
   never on a timer (G191 v4, `app.md`). An answer given is never dropped for a dismissal or a late sync, and a touched
   panel closes only on the person's act; the star on a saved page never prompts for Automation (2026-10-19).
-- **Copy is provider-neutral** (owner, 2026-09-30): never name a provider or model as the one doing a job — describe the
+- **Copy is provider-neutral** (2026-09-30): never name a provider or model as the one doing a job — describe the
   step; a name appears only where it shows the person's own current choice.
 - **Prices and plan usage show only on the Sleep page's Past sleeps  run detail and engine menu** (ruling 12), each figure with its basis.
 - **Sync:** one Store, hydrated from disk, SSE deltas, **never blank**; writes are optimistic with rollback. **Ship an
@@ -518,7 +519,7 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
 - **Study room weather (G176):** its own opt-out app gate reads only public city weather while the room is visible (`network.md`).
 - **The ToS rail — not negotiable.** A fetched page is 4 s / ≤ 512 KB / no cookies / never behind auth. Consent
   interstitials and login walls are classified and retired **without a byte fetched**. **A block is never retried with
-  different headers.** No scraping behind authentication, ever. **One dated exception (owner, 2026-10-09):** a person's
+  different headers.** No scraping behind authentication, ever. **One dated exception (2026-10-09):** a person's
   photo through unavatar.io from an X, Instagram or LinkedIn link already on their page, behind its own gate — **on by
   default since ruling 36 D5 (2026-10-22)**, shipped with sources on people (G61); `off` still closes it.
   **Ruling 47 tier 2 (2026-10-28):** an official API or sanctioned connector the person connected, for ingestion, is not
@@ -527,14 +528,14 @@ when a *rail* changes (a new invariant, a ruling, a boundary), and then in one o
   session too, ruling 47) — never in a bank, a log or the repo.
 - **Headless (G181):** the bank's **home** (a server or any computer; ruling 51 (1), phase 2) is its one writer and binds its API to 127.0.0.1 only; reach from another machine is an
   overlay the person runs (never a public port, never funnel — only the G135 listener may be, by the person, ruling 32, 59), and no installer creates or copies a credential (`headless.md`).
-  **One click (owner 2026-10-29, amends G132 (c)):** Settings → Devices may run exactly the shown `tailscale serve --bg
+  **One click (2026-10-29, amends G132 (c)):** Settings → Devices may run exactly the shown `tailscale serve --bg
   --https=8443 <port>` (tailnet only) or that one mapping's off — argv built by the backend, never `funnel` or `up`.
-  **Ruling 59 (owner 2026-11-04):** the person's click, or their shell, may run exactly the shown `tailscale funnel --bg --https=<443|10000> <the
+  **Ruling 59 (2026-11-04):** the person's click, or their shell, may run exactly the shown `tailscale funnel --bg --https=<443|10000> <the
   connector's port>` or that one mapping's off: no port or argv from a request, never over a held port, never 8443, never `up`. The mapping outlives the listener, so the connector's switch closes it too (`network.md`, "One click opens it").
   Another machine is a client (`CICADA_API_BASE`, ruling 28) with its own revocable device
   token and no bank of its own; what it posts records `device` (`headless.md`).
-  **Ruling 51 (owner 2026-10-29, G132; decided, amends this rail as each phase ships):** one movable home writes, mints, commits and runs Sleep; other devices hold replicas and send writes as
-  transactions; all dial out to an E2E relay that never sees plaintext; nothing merged by git. **Ruling 51f (owner 2026-11-03, amends c):** nothing rented, no cloud mailbox, no Tailscale requirement; each device
+  **Ruling 51 (2026-10-29, G132; decided, amends this rail as each phase ships):** one movable home writes, mints, commits and runs Sleep; other devices hold replicas and send writes as
+  transactions; all dial out to an E2E relay that never sees plaintext; nothing merged by git. **Ruling 51f (2026-11-03, amends c):** nothing rented, no cloud mailbox, no Tailscale requirement; each device
   tries an ordered route list (the relay only under Advanced) and else queues, an unsent outbox item never expiring (`headless.md`, "The route list and the home-network door"). **The door** is the one listener besides
   loopback: sealed frames only, never the HTTP API or a token, open only while a memory is shared; **it binds loopback
   and each of this computer's own private and Tailscale addresses, one socket each — never a wildcard, a public or global address, nor a carrier's 100.64/10**
@@ -591,7 +592,7 @@ The rest of the paste-prompt install story is G76 in the backlog.
 runs it from Settings → General, G143). The app's switch is the supported login item. **A release app (G182) carries its own backend** and every agent, hook and plist runs the
 `~/.cicada/bin` launchers it rewrites on launch — never a path inside the app; a developer build is unchanged
 (`docs/architecture/app.md`, "The release app").
-**Claude Code (owner 2026-10-19): the plugin is the canonical Claude Code door; `install.sh` the canonical machine
+**Claude Code (2026-10-19): the plugin is the canonical Claude Code door; `install.sh` the canonical machine
 install.** `plugins/cicada` (id `cicada@cicada`) carries the MCP server, the skill and the
 capture/recall hooks; only when it is enabled, installed and able to run a Cicada does `install.sh` stop registering
 them for Claude Code and remove its older ones — never both, never neither (`docs/architecture/mcp.md`, "The Claude

@@ -2545,22 +2545,34 @@ a client is one line after a test.
 `harness_questions.run_tail` (started by `sleep_cycle` after the cycle's window closes, on its own thread; `harness_agent` is the switch) works at most three
 open questions a run, in `question_order`: a `conflict` (which of its values a document or a site states), a `clarification` that asks what something is
 (never `asks: name`, a speaker, a source or "still?"), and a `merge_suggestion` between two person pages (never the owner's, never a pair kept apart). A
-conflict one of whose values rests on the person's own words is left (ruling 44). Each is one `claude -p` session (`harness_agent.build_argv`): safe mode, no
-settings, `--permission-mode dontAsk --permission-prompts none`, `--json-schema` for the answer. The grant (`settings_for`): `Read`/`Glob`/`Grep` on the
-person's own top-level folders (`read_roots`: no dot-folder, no `Library`, none of Documents, Desktop, Downloads, Pictures, Movies, Music unless
-`--attended`) and on the bank, refused on Cicada's home and `.env`/key-shaped files; `WebSearch`, `WebFetch`; `Bash` only for `python3
-api/harness_tools/read_browser.py` (`status`, `open <http(s) address>`, `text <offset>`, `close`: the harness's CLI with fixed code and an existing daemon
-required, never a click, a key or a sign-in; a login page prints `NEEDS A LOGIN` and is left). `Write`, `Edit` and `NotebookEdit` are denied and not
-offered. The brief (`brief_for`) is the question, the page's own words held back by value (`sensitive_hold`), the folders and the tools; its system
-prompt says what it reads is data.
+conflict one of whose values rests on the person's own words is left (ruling 44).
 
-**The gate is code.** `harness_agent.verify` accepts an evidence item (an address or a file, a quote of at most 240 characters) only when that address or file
-is one the audit shows was read in this session, the quote is located in what the call returned (exact, whitespace, case; never fuzzy), the page did not ask
-for a login and the confidence is at least 0.8 (0.7 for "two people", whose gate is two located lines). `decide`: a conflict settles only on an option whose
-label the quote itself carries; a clarification only on words the quote carries; a pair only as "different" with one located line per side, both in the bank's
-`episodes/`; everything else about a pair is a note (`agent_found` on the question: the finding, the evidence, the trail, and `mixed` conversation ids when one
-page holds both people's facts). The settle is `inbox_tend.apply` with rule `found_by_agent`: the citations are one `source: web-check` episode (untimed, never a
-save, never the person's words; the claim's span points into it), the settled record carries `found` and `trail`, the commit is Sleep's, the undo is the generic
-one. A question the agent could not answer is not worked again until it or its page changes or 14 days pass (`harness_seen/`, outside every bank).
+**Two compartments, no tool that crosses them.** Each is one `claude -p` session (`harness_agent.build_argv`): safe mode, `--permission-mode dontAsk
+--permission-prompts none`, `--json-schema` for the answer, the rules in a settings file. `harness_questions.plan_for` picks the order: private, then web
+(a conflict only when ruling 27's test calls the thing public; a clarification always; a pair never).
+
+| | private | web |
+|---|---|---|
+| tools (`--tools`, and `system/init` must list exactly these) | `Read`, `Glob`, `Grep` | `WebSearch`, `WebFetch` |
+| reaches | `read_roots` (the home's plain top-level folders: no dot-folder, `Library`, link or other volume, and none of Documents, Desktop, Downloads, Pictures, Movies, Music unless `--attended`) plus its own scratch folder of masked copies of the conversations that bear on the question (`copies_for`: `sensitive_hold` applied; never an index-only record, locked note, saved page, agent's note or an earlier run's citation; never `entities/` or `inbox/`) | no file; `WebFetch` only the hosts the question's own words name when it names any |
+| refused | the bank and Cicada's home, secret-shaped names (`SECRET_FILES`, `SECRET_DIRS`) by absolute per-root rules in the path's as-given and resolved spelling; a link out of a root; a `..` path | every file tool |
+| brief | the question, its options, the page's own words (held back by value), the folders and the conversation ids | the question's own words and the names in it: no page excerpt, no conversation, no `agent_found` note, nothing a private session read |
+
+`Write`, `Edit`, `NotebookEdit`, `Bash`, `Task` are denied and never offered. The person's signed-in browser (`api/harness_tools/read_browser.py`) is **not wired**:
+it is the next slice, its own compartment started by the app. A session whose own `system/init` lists another tool or any MCP server (an account connector
+that loaded anyway) is killed before it calls anything and counted as skipped in words; a session is recorded by process group (`$CICADA_HOME/harness_sessions`)
+and reaped at the next backend start (`reap_orphans`).
+
+**The gate is code, and reads sentences.** `harness_agent.verify` accepts an evidence item (an address a `WebFetch` returned, or a file a `Read` or `Grep`
+returned, a quote of at most 240 characters) only when the call is in this session's audit, the quote is located in what it returned (exact, whitespace, case;
+never fuzzy), the page did not ask for a login and the confidence is at least 0.8; the evidence kept is the source's own spelling. `decide`: a conflict settles
+only when one sentence of a quote names the page (title or alias) and states the option's value, with no other option's value and no negation; a clarification
+only on a span a sentence presents as what the name is (`presents_as`); a web page settles only a public thing, else it is a note; a pair only as "different",
+one line per side in a conversation copy that is the person's own turn or a named speaker's (`evidence.speaker_kind`) and names that side and not the other.
+Everything else about a pair is a note (`agent_found` on the question). **No free text of the session is stored**: the settle's answer is an option's label or a
+span of a quote, its reason and a note are built by code from the located quotes. The settle is `inbox_tend.apply` with rule `found_by_agent`, a note is the same
+write path (`write_admission.run_admitted`), both refused while Sleep holds the pages: the citations are one `source: web-check` episode (untimed, never a save,
+never the person's words; the claim's span points into it), the settled record carries `found` and `trail`, the commit is Sleep's, the undo is the generic one. A
+question the agent could not answer is not worked again until it or its page changes or 14 days pass (`harness_seen/`, outside every bank: ids, a digest, a day and an enum).
 
 Dry run: `scripts/harness_agent_dry_run.py --memory <bank> [--work N] [--attended]` (writes nothing; prints every call as it is made). Battery: `benchmarks/consolidation/harness_battery.py`.

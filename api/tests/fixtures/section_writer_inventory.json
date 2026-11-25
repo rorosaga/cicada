@@ -2047,7 +2047,7 @@
   ],
   "services/harness_questions.py": [
     {
-      "function": "note_on_question",
+      "function": "_write_note",
       "method": "write",
       "frontmatter": "fm",
       "disposition": "uninstrumented_guarded"
