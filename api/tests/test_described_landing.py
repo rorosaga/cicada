@@ -139,12 +139,12 @@ def test_a_stale_span_and_a_closed_claim_and_a_label_held_as_the_object_are_left
     line = pending_store.load(bank)[0]
     line.held_claims[0]["valid_to"] = "2026-11-21"
     pending_store.save(bank, [line])
-    assert dl.plan_bank(bank).skipped["closed_or_event"] == 1
+    assert dl.plan_bank(bank).skipped["nothing_the_label_said_with_words"] == 1
     bank = bench.build_bank(tmp_path / "c", SPEC, CASES["r1-of"])
     line = pending_store.load(bank)[0]
     line.held_claims[0].update(subject="somebody", object=pending_store.sanitize_id(line.name))
     pending_store.save(bank, [line])
-    assert dl.plan_bank(bank).skipped["label_not_subject"] == 1
+    assert dl.plan_bank(bank).skipped["nothing_the_label_said_with_words"] == 1
 
 
 def test_a_page_the_person_said_the_mention_is_not_is_never_offered(tmp_path):
@@ -218,3 +218,20 @@ def test_the_dry_run_prints_ids_never_words(tmp_path, capsys):
     assert "extraction" not in shown and "Cedarloop" not in shown and "timing" not in shown
     eyes = [json.loads(l) for l in out.read_text().splitlines()]
     assert eyes and "timing out" in eyes[0]["sentence"] and sorted(p.name for p in bank.rglob("*")) == before
+
+
+def test_a_plan_limit_is_a_pause_nothing_lands_and_nothing_is_forgotten(tmp_path):
+    from api.services import engine_errors
+
+    bank = bench.build_bank(tmp_path, SPEC, CASES["r1-of"])
+
+    async def limited(system, prompt):
+        raise engine_errors.EngineThrottled("limit")
+
+    async def part_yes(*_a, **_k):
+        return True
+
+    report = asyncio.run(dl.tend(bank, None, limited, part_read=part_yes, plan=dl.plan_bank(bank)))
+    assert report.landed == 0 and report.skipped["plan_limit"] == 1
+    assert pending_store.load(bank)[0].held_claims, "still held"
+    assert _run(bank).landed == 1, "read again next run, not remembered as a no"

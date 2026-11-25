@@ -432,6 +432,10 @@ def plan_bank(memory_path: Path, *, lines: list[pending_store.PendingEntity] | N
         plan.lines += 1
         if not line.held_claims or (only is not None and not only(line)):
             continue
+        slug = sanitize_id(line.name)
+        if not any(d.get("subject") == slug and not d.get("valid_to") and d.get("evidence") for d in line.held_claims):
+            plan.skipped["nothing_the_label_said_with_words"] += 1   # cheap, before any conversation is read
+            continue
         if not is_label(line, docs):
             plan.skipped["line_is_not_a_label"] += 1
             continue
@@ -812,6 +816,7 @@ async def tend(memory_path: Path, settings, ask: Callable, *, today: date | None
     old = [p for p in by_pair if p not in set(fresh)]
     todo = order(fresh, reads)[:per_run] + order(old, reads)[:per_run]
     landing: dict[str, list[tuple[Item, str]]] = defaultdict(list)
+    stopped: Exception | None = None
     for pair in todo:
         items = by_pair[pair]
         key = f"{sanitize_id(pair[0])}|{pair[1]}"
@@ -824,8 +829,13 @@ async def tend(memory_path: Path, settings, ask: Callable, *, today: date | None
         async def _ask(_settings, system, prompt):
             return await ask(system, prompt)
 
-        said = await read(memory_path, settings, lines[pair[0]], pair[1], items, docs, ask=_ask, part_read=part_read)
-        await asyncio.to_thread(_remember, memory_path, key, mark)   # a no stands until a sentence or a claim changes
+        try:
+            said = await read(memory_path, settings, lines[pair[0]], pair[1], items, docs, ask=_ask, part_read=part_read)
+        except engine_errors.EngineError as exc:
+            stopped = exc   # a pause: what was read so far still lands below, the rest waits for the next run
+            break
+        if not said:
+            await asyncio.to_thread(_remember, memory_path, key, mark)   # a no stands until a sentence or a claim changes
         for i, verdict in said.items():
             landing[pair[1]].append((items[i], verdict))
     for page_id, rows in landing.items():
@@ -853,6 +863,9 @@ async def tend(memory_path: Path, settings, ask: Callable, *, today: date | None
         report.pages += 1
         report.landed += len(done.claim_ids)
         report.paths += done.paths
+    if stopped is not None:
+        report.skip("plan_limit" if isinstance(stopped, (engine_errors.EngineThrottled, engine_errors.EngineExhausted))
+                    else "engine_error")
     return report
 
 

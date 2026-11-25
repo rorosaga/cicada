@@ -808,7 +808,14 @@ returns marked `sleep_settle: undone` so Sleep never settles it again, committed
 policy to every open question — `dryRun=true` (the default) answers counts per kind and per decision only;
 `dryRun=false` runs in the background (one at a time: a second start is 409), each question settling alone under the
 bank's write admission and the tidy stopping before any judge call or settle once Sleep holds the pages; `GET
-/inbox/tidy` its counts. **A running tidy is busy for every updater** (`/sleep/status` → `inboxTidy: true`, read by
+/inbox/tidy` its counts.
+
+**A fact landed on a page shows under "Settled by Sleep" too (G148, 2026-11-25; `described_landing`).** One row a page and run (`land-NNN`, rule
+`land_described`): the answer says how many facts were said about a part of <Page>, the quote is the first of the person's own
+sentences it rests on (the record keeps every one as a span, never a copy, `inbox_tend.quote_for`), the reason says they were
+held under a label nobody said. **Undo** is the same `POST /inbox/settled/land-NNN/undo`: the facts leave the page (refused,
+409, when one was changed since), go back to their held line, and the page is remembered as one that mention is not, so no
+question comes back and it is never offered again. The Inbox needs no change: an unknown `kind` and `rule` are shown by their words. **A running tidy is busy for every updater** (`/sleep/status` → `inboxTidy: true`, read by
 `scripts/dev/auto-update.sh`, the app's `SleepProbe` and its install helper), and its counts are saved as it goes in
 `$CICADA_HOME/inbox_tidy/<bank-id>.json` (counts and enums only, outside every bank), so `GET /inbox/tidy` still
 answers after a restart — `interrupted: true` when the run was cut short (each settle had already committed alone); `judge=true` lets the judges (duplicates, conflicts, label folds, fading pages) read with the
