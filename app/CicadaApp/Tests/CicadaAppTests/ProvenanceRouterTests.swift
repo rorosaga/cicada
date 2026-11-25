@@ -217,6 +217,8 @@ final class FakeProvenanceAPI: ProvenanceAPI, @unchecked Sendable {
     var lastOverviewETag: String?
     var overviewNotModified = false
     var overviewError: Error?
+    /// Documents by episode id; any other id answers the one-line default.
+    var texts: [String: EpisodeText] = [:]
 
     func fetchEpisodeSpan(episode: String, start: Int, end: Int, hash: String?) async throws -> EpisodeSpan {
         spanCalls += 1
@@ -231,6 +233,7 @@ final class FakeProvenanceAPI: ProvenanceAPI, @unchecked Sendable {
         if case .span = focus, let spanFocusError { throw spanFocusError }
         if let textError { throw textError }
         if textNotModified { return Conditional(value: nil, etag: etag, notModified: true) }
+        if let held = texts[episode] { return Conditional(value: held, etag: "\"v1\"", notModified: false) }
         return Conditional(value: EpisodeText(episode: episode, text: "user: hi", title: "Index choice"),
                            etag: "\"v1\"", notModified: false)
     }

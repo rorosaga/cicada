@@ -57,7 +57,20 @@ final class ChatThreadTests: XCTestCase {
         XCTAssertTrue(thread.waiting)
         XCTAssertEqual(target.episode, "s4")
         XCTAssertEqual(target.knownTitle, "bob-example")
-        XCTAssertTrue(ChatThread.opensAtStart(thread), "it opens on the first message Sleep has not read")
+        XCTAssertEqual(ChatThread.loadOrder(shown: thread.sittings, before: thread.before, hasEarlier: false),
+                       ["s4", "s3", "s2"], "newest first — the end the chat opens on fills first — the snippet's sitting last")
+    }
+
+    /// Owner 2026-11-25: the chat opened from the Sleep queue sat at its oldest message with no way down. Every chat
+    /// opens at the newest; the load order never depends on how much waits.
+    func testALongWaitLoadsNewestFirstAndOnlyAsksForTheSnippetOnceNothingEarlierIsLeft() {
+        let sittings = (1...40).map { "s\($0)" }
+        let shown = ChatThread.shown(sittings, pages: 1, size: ChatThread.waitingPage)
+        XCTAssertEqual(ChatThread.loadOrder(shown: shown, before: "s0", hasEarlier: true).first, "s40")
+        XCTAssertFalse(ChatThread.loadOrder(shown: shown, before: "s0", hasEarlier: true).contains("s0"),
+                       "earlier sittings are still to show: no snippet yet")
+        XCTAssertEqual(ChatThread.loadOrder(shown: ["s1", "s2"], before: "s0", hasEarlier: false), ["s2", "s1", "s0"])
+        XCTAssertEqual(ChatThread.loadOrder(shown: [], before: nil, hasEarlier: false), [])
     }
 
     func testAChatWithNothingWaitingOpensWholeOrAsItsOneDocument() throws {
@@ -70,7 +83,7 @@ final class ChatThreadTests: XCTestCase {
         XCTAssertEqual(thread.sittings, ["s1", "s2"])
         XCTAssertFalse(thread.waiting)
         XCTAssertNil(thread.before)
-        XCTAssertFalse(ChatThread.opensAtStart(thread), "a read chat opens at its newest, as a chat does")
+        XCTAssertEqual(ChatThread.loadOrder(shown: thread.sittings, before: nil, hasEarlier: false), ["s2", "s1"])
         XCTAssertEqual(ChatThread.shown((1...40).map(String.init), pages: 1).count, ChatThread.page)
         XCTAssertTrue(ChatThread.hasEarlier((1...40).map(String.init), pages: 1))
     }

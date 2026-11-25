@@ -47,6 +47,10 @@ struct CatchupView: View {
 
     @Environment(Store.self) private var store
     @FocusState private var composing: Bool
+    /// Scrolled up from the newest line (`JumpToLatest`, owner 2026-11-23: every chat).
+    @State private var latestY: CGFloat?
+    @State private var awayFromLatest = false
+    @State private var scroller = JumpToLatestScroller()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -64,14 +68,17 @@ struct CatchupView: View {
                                 .padding(.leading, faceGutter)
                         }
                         answers
+                        JumpToLatestAnchor(anchorY: $latestY, away: $awayFromLatest)
                         Color.clear.frame(height: 1).id(Self.bottom)
                     }
                     .frame(maxWidth: CicadaTheme.scaled(HomeLayout.columnWidth), alignment: .leading)
                     .padding(.horizontal, CicadaTheme.spacingGutter)
                     .padding(.vertical, CicadaTheme.spacingLG)
                     .frame(maxWidth: .infinity)
+                    .jumpToLatestSpace(scroller)
                 }
                 .softTopScrollEdge()
+                .jumpToLatest(anchorY: latestY, away: $awayFromLatest, scroller: scroller)
                 // A new line scrolls into view in one frame: typing and ⏎ drive it, and a key never animates (DR-60).
                 .onChange(of: session.lines.count) { _, _ in proxy.scrollTo(Self.bottom, anchor: .bottom) }
                 .onChange(of: session.waiting) { _, _ in proxy.scrollTo(Self.bottom, anchor: .bottom) }
