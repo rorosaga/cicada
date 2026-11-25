@@ -29,7 +29,10 @@ extension SourceConnect.Deps {
             startReader: startReader,
             openPage: { router.routeToCatalogEntry($0) },
             raiseConsent: { router.routeToConsent($0) },
-            lastNote: { reading.note })
+            lastNote: { reading.note },
+            acknowledgeList: { setting, key in
+                await reading.setSwitch(setting: setting, key: key, on: true, acknowledge: true)
+            })
     }
 }
 

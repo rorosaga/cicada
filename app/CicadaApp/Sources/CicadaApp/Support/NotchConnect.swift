@@ -38,7 +38,9 @@ struct NotchConnector {
             openPermission(permission)
             return .openedPage
         }
-        switch await SourceConnect.run(plan, entry: id, deps: deps) {
+        // The offer said what will be read and the person pressed Yes: that is the acknowledgement, so no page opens
+        // for it (owner 2026-11-25) and the panel goes on to its ring and check.
+        switch await SourceConnect.run(plan, entry: id, deps: deps, yesIsConsent: true) {
         case .turnedOn: return turnedOn(id)
         case .openedPage: return .openedPage
         case .failed(let note): return .failed(note)

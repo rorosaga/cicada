@@ -94,6 +94,12 @@ enum BookmarkSyncSignal {
 
 /// What shows the panel. The live one is `SaveWhyPanelController` (an `NSPanel`); tests record calls.
 @MainActor
+/// The bar an untouched question shows: when its timer started, on the monotonic clock, and how long it runs.
+struct SaveWhyCountdown: Equatable, Sendable {
+    let from: TimeInterval
+    let length: TimeInterval
+}
+
 protocol SaveWhyPresenting: AnyObject {
     func show(_ center: SaveWhyCenter)
     func hide()
@@ -197,11 +203,16 @@ final class SaveWhyCenter {
     private(set) var noBookmark = false
     /// The memory on screen (the split-brain rule): a held answer is stamped with it and sent only while it is active.
     @ObservationIgnored var activeBank: (@MainActor () -> String?)?
-    /// Review 2026-10-19 — the panel closed because a click inside Chrome's bubble closed the bubble: Done or Remove,
-    /// which bounds alone cannot tell apart. Its answer is held until the file shows whether the bookmark survived:
-    /// a removal drops it (`bookmarkRemoved`), none within `SaveWhyPolicy.pendingBound` lets it go.
+    /// Review 2026-10-19 — a click inside Chrome's bubble closed the bubble: Done or Remove, which bounds alone cannot
+    /// tell apart. An answer given soon after is held until the file shows whether the bookmark survived: a removal
+    /// drops it (`bookmarkRemoved`), none within `SaveWhyPolicy.pendingBound` lets it go.
     @ObservationIgnored private(set) var removalWatch: (url: String, channel: String, confirmed: Bool)?
-    @ObservationIgnored private var leavingByBubble = false
+    /// When that click closed the bubble (uptime); nil when none did on this panel. Since 2026-11-25 the panel stays
+    /// after it (a click elsewhere never closes it at once), so "left by the bubble" is a time, not a moment.
+    @ObservationIgnored private var bubbleClosedAt: TimeInterval?
+    /// The open panel's bar: when the untouched question's timer started (uptime) and how long it runs. nil once the
+    /// person touched the panel, and for the quiet wait after they click away (owner 2026-11-25: no bar there).
+    private(set) var countdown: SaveWhyCountdown?
     /// How long a held answer waits to learn whether the bubble's click was Remove (tests shorten it).
     @ObservationIgnored var removalWait: TimeInterval = SaveWhyPolicy.pendingBound
     /// The open panel is a bookmark Cicada already holds (the star on a saved page), adopted by `adopt`.
@@ -430,6 +441,7 @@ final class SaveWhyCenter {
         self.options = options
         self.confirmed = confirmed
         bubbleFrame = nil
+        bubbleClosedAt = nil
         noBookmark = false
         onSaved = false
         unconfirmedAnswer = nil
@@ -565,6 +577,12 @@ final class SaveWhyCenter {
             SaveWhyTimings.logger.info("save-why: the bookmark was removed in the bubble; its answer was not kept")
         }
         guard isShowing, state?.channel == channel else { return }
+        if leftByBubble {
+            // The panel stayed after the bubble's click (2026-11-25), and that click was Remove: nothing to ask about.
+            send(.withdraw)
+            SaveWhyTimings.logger.info("save-why: withdrawn (the bookmark was removed in the bubble)")
+            return
+        }
         if onSaved {
             // The star on a saved page, then Remove (2026-10-19): the removal path applies — nothing is written here.
             send(.withdraw)
@@ -618,7 +636,8 @@ final class SaveWhyCenter {
     }
 
     /// A click outside the panel, in window-list coordinates. Inside Chrome's own bookmark bubble it is the person
-    /// working there, not leaving (owner 2026-10-19) — unless that click closed the bubble (Done), which leaves too.
+    /// working there, not leaving (owner 2026-10-19) — unless that click closed the bubble (Done), which is leaving.
+    /// Leaving never closes the panel at once (owner 2026-11-25): see `SaveWhyPanelState`.
     func click(at point: CGPoint) {
         guard isShowing else { return }
         guard let bubbleFrame, bubbleFrame.contains(point) else {
@@ -630,11 +649,11 @@ final class SaveWhyCenter {
             try? await Task.sleep(for: .seconds(SaveWhyPolicy.bubbleCloseCheck))
             guard let self, self.isShowing, self.bubbleFrame == bubbleFrame else { return }
             if !bubbleOpen() {
-                // Done or Remove — bounds cannot tell which: leave, holding the answer until the file says.
+                // Done or Remove — bounds cannot tell which: the person left, and an answer given before the file
+                // says which is held until it does.
                 self.bubbleFrame = nil
-                self.leavingByBubble = true
+                self.bubbleClosedAt = self.uptime()
                 self.input(.clickOutside)
-                self.leavingByBubble = false
             }
         }
     }
@@ -774,7 +793,7 @@ final class SaveWhyCenter {
     func input(_ event: SaveWhyPanelState.Event) {
         let guarded: Bool
         switch event {
-        case .tapReason, .dontAskForSite, .clickOutside, .submit: guarded = true
+        case .tapReason, .dontAskForSite, .clickOutside, .submit, .touch: guarded = true
         default: guarded = false
         }
         if guarded, let shownAt, uptime() - shownAt < SaveWhyPolicy.armDelay {
@@ -803,6 +822,8 @@ final class SaveWhyCenter {
             switch effect {
             case .startTimer(let seconds):
                 timer?.cancel()
+                // Only the untouched question's timer is shown as a bar.
+                countdown = state?.countsDown == true ? SaveWhyCountdown(from: uptime(), length: seconds) : nil
                 timer = Task { @MainActor [weak self] in
                     try? await Task.sleep(for: .seconds(seconds))
                     guard !Task.isCancelled, let self else { return }
@@ -811,11 +832,12 @@ final class SaveWhyCenter {
             case .stopTimer:
                 timer?.cancel()
                 timer = nil
+                countdown = nil
             case .post(let answer):
                 guard !previewing, let state else { continue }
                 let answer = answer.given(in: SavedBookmarkLookup.origin(forChannel: state.channel))
                 let at = now()
-                if leavingByBubble, let item = state.item {
+                if leftByBubble, let item = state.item {
                     if !confirmed { unconfirmedAnswer = (answer, at, state.channel, item.url) }
                     holdUntilTheBubblesOutcome(SaveWhyOutbox.Entry(url: item.url, answer: answer, at: at,
                                                                    addedAt: item.addedAt, channel: item.channel))
@@ -839,7 +861,7 @@ final class SaveWhyCenter {
                 let answer = answer.given(in: SavedBookmarkLookup.origin(forChannel: item.channel))
                 let entry = SaveWhyOutbox.Entry(url: item.url, answer: answer, at: now(), addedAt: item.addedAt,
                                                 channel: item.channel, editAt: at, bank: activeBank?())
-                if leavingByBubble {
+                if leftByBubble {
                     holdUntilTheBubblesOutcome(entry)
                     continue
                 }
@@ -849,10 +871,18 @@ final class SaveWhyCenter {
             case .close:
                 timer?.cancel()
                 timer = nil
+                countdown = nil
                 if case .closed(let outcome)? = state?.phase { lastOutcome = outcome }
-                presenter?.hide(returnFocus: closingEvent != .clickOutside)
+                // A timer closed it: the person is somewhere else (or never came), so the keyboard stays where it is.
+                presenter?.hide(returnFocus: closingEvent != .timeout)
             }
         }
+    }
+
+    /// A click inside Chrome's bubble closed it a moment ago, and the file has not yet had time to say whether that
+    /// was Done or Remove.
+    private var leftByBubble: Bool {
+        bubbleClosedAt.map { uptime() - $0 < removalWait } ?? false
     }
 
     /// Review 2026-10-19 — a click inside Chrome's bubble closed it: Done keeps the bookmark, Remove deletes it, and

@@ -176,11 +176,25 @@ final class ConnectSuggestTests: XCTestCase {
         XCTAssertEqual(state.handle(.tick, at: u0 + (60 + ConnectSuggestPolicy.timeout)), .timedOut)
     }
 
-    func testLeavingTheAppOrTheAskWhyQuestionIsNotNow() {
+    func testTheAskWhyQuestionTakingTheNotchIsNotNow() {
         var state = panel()
-        XCTAssertEqual(state.handle(.appChanged, at: u0)?.answer, .notNow)
-        state = panel()
         XCTAssertEqual(state.handle(.superseded, at: u0)?.answer, .notNow)
+    }
+
+    /// Owner 2026-11-25 — the bar the panel shows is its own timer: from the showing, gone while the pointer rests on
+    /// the card, from empty again when it leaves, and gone for good once Yes is pressed.
+    func testTheBarRunsFromTheShowingAndAgainFromEmptyWhenThePointerLeaves() {
+        var state = panel()
+        XCTAssertEqual(state.countdownFrom, u0)
+        _ = state.handle(.hover(true), at: u0 + 3)
+        XCTAssertNil(state.countdownFrom, "held: no bar")
+        _ = state.handle(.hover(false), at: u0 + 9)
+        XCTAssertEqual(state.countdownFrom, u0 + 9)
+        XCTAssertNil(state.handle(.tick, at: u0 + 9 + ConnectSuggestPolicy.timeout - 0.1))
+        XCTAssertEqual(state.handle(.tick, at: u0 + 9 + ConnectSuggestPolicy.timeout), .timedOut)
+        var pressed = panel()
+        _ = pressed.handle(.yes, at: u0 + 1)
+        XCTAssertNil(pressed.countdownFrom)
     }
 
     // MARK: - The apps
@@ -408,17 +422,22 @@ final class ConnectSuggestTests: XCTestCase {
     }
 
     @MainActor
-    func testLeavingTheAppClosesItAsNotNowAndTheTimeoutDoesToo() async {
+    func testLeavingTheAppNeverClosesItOnlyAnAnswerOrTheTimeoutDoes() async {
         let clock = Clock(t0)
         var front: pid_t = whatsAppPid
         let (center, presenter) = center(clock: clock, front: { front })
         await center.enter(entering("net.whatsapp.WhatsApp", pid: whatsAppPid, launched: t0))
         XCTAssertEqual(presenter.shows, 1)
+        // Owner 2026-11-25: a click into another app is not an answer. The offer stays, with nothing recorded.
         front = 77
         await center.enter(ConnectSuggestActivation(bundleId: "com.apple.finder", name: "Finder", pid: 77,
                                                     launchedAt: nil))
+        XCTAssertNotNil(center.state)
+        XCTAssertEqual(presenter.hides, 0)
+        XCTAssertNil(center.store.memory.sources["whatsapp"]?.answer)
+        clock.now = clock.now.addingTimeInterval(1)
+        center.input(.notNow)
         XCTAssertNil(center.state)
-        XCTAssertEqual(center.lastOutcome, .leftApp)
         XCTAssertEqual(center.store.memory.sources["whatsapp"]?.answer, .notNow)
 
         // Fifteen days on, Notes: shown, then untouched past the timeout.
@@ -647,8 +666,9 @@ final class ConnectSuggestTests: XCTestCase {
         XCTAssertEqual(center.held, [mine])
         clock.now = clock.now.addingTimeInterval(1)
         center.input(.yes)
-        // Yes is pressed and still connecting when the person leaves: the press stands, its save is its own.
-        center.input(.appChanged)
+        // Yes is pressed and still connecting when the ask-why question takes the notch: the press stands, its save
+        // is its own.
+        center.input(.superseded)
         XCTAssertNil(center.state)
         // A second site's offer shows meanwhile and holds its own save.
         clock.now = clock.now.addingTimeInterval(ConnectSuggestPolicy.confirmShow + 600)
@@ -674,7 +694,7 @@ final class ConnectSuggestTests: XCTestCase {
     @MainActor
     func testAHeldSaveIsDroppedByAnyAnswerButYes() async throws {
         let site = try XCTUnwrap(SiteSaveSite.named("github"))
-        for answer in [ConnectSuggestPanelState.Input.notNow, .no, .appChanged] {
+        for answer in [ConnectSuggestPanelState.Input.notNow, .no, .superseded] {
             let clock = Clock(t0)
             let (center, _) = center(clock: clock, front: { self.whatsAppPid })
             var kept = 0

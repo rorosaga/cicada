@@ -12,6 +12,12 @@ import Foundation
 //   control, noticing saves on this Mac — but only when agent reading is on with a current acknowledgement. Without it
 //   nothing is turned on silently: noticing saves alone is done now, and the first-use sheet is asked for on the source's
 //   page (`needsConsent`).
+// - **The notch's Yes is the acknowledgement (owner 2026-11-25: "remove the opening the app after selecting connect to
+//   accept the terms. skip that part. once you connect the notch should show the checkmark animation for a bit and
+//   then disappear").** The offer says what will be read and the person pressed Yes to it, so `run(yesIsConsent:)`
+//   turns the list on with the acknowledgement in the same write (what the sheet's own Turn on sends) and opens
+//   nothing. The page's switch and the root card still raise the sheet: there the click is on a switch, not on a
+//   question that said what it means.
 // - A Mac app's Yes starts its reader when one click can (macOS's own prompt follows), and opens its page only when a
 //   choice is needed (`needsChoice`) — chats to tick, a folder, a sign-in, a permission macOS asks for in Settings.
 // - What is already on, or has nothing one click can start, opens the page (`openPage`).
@@ -206,18 +212,28 @@ enum SourceConnect {
         var raiseConsent: @MainActor (_ consent: ReadingConsent) -> Void
         /// The sentence the last refused write came with.
         var lastNote: @MainActor () -> String?
+        /// Turns a list on with the first-use acknowledgement, in one go (the sheet's own Turn on:
+        /// `ReadingAgentModel.setSwitch(acknowledge:)`); false when the write was refused. Only a caller that runs
+        /// with `yesIsConsent` (the notch) needs it; a door that raises the sheet never calls it.
+        var acknowledgeList: @MainActor (_ setting: String, _ key: String) async -> Bool = { _, _ in false }
     }
 
+    /// `yesIsConsent`: the caller's click answered a question that said what will be read (the notch's Yes), so it is
+    /// the first-use acknowledgement and no sheet is raised.
     @MainActor
-    static func run(_ plan: Plan, entry: String, deps: Deps) async -> Outcome {
+    static func run(_ plan: Plan, entry: String, deps: Deps, yesIsConsent: Bool = false) async -> Outcome {
         switch plan {
         case .openPage, .needsChoice:
             deps.openPage(entry)
             return .openedPage(consent: nil)
         case .needsConsent(let consent, let now):
             for step in now { _ = await perform(step, deps: deps) }
-            deps.raiseConsent(consent)
-            return .openedPage(consent: consent)
+            guard yesIsConsent else {
+                deps.raiseConsent(consent)
+                return .openedPage(consent: consent)
+            }
+            guard await deps.acknowledgeList(consent.setting, consent.key) else { return .failed(deps.lastNote()) }
+            return .turnedOn
         case .start(let steps, let thenOpen):
             for step in steps {
                 if !(await perform(step, deps: deps)) { return .failed(deps.lastNote()) }

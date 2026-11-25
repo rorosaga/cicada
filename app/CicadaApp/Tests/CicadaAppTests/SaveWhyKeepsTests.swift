@@ -75,9 +75,24 @@ final class SaveWhyKeepsTests: XCTestCase {
     /// The three ways a panel is dismissed without Save.
     private enum Leave: CaseIterable { case clickElsewhere, escape, focusLostThenClick }
 
+    /// A click somewhere else, then the whole wait (owner 2026-11-25: the click alone never closes the panel; an
+    /// untouched one leaves when its bar has filled, a touched one after `SaveWhyPolicy.awayCooldown`).
+    private func clickAway(_ center: SaveWhyCenter) {
+        let was = center.isShowing
+        center.click(at: CGPoint(x: 5, y: 900))
+        XCTAssertEqual(center.isShowing, was, "a click elsewhere never closes it at once")
+        center.send(.timeout)
+    }
+
+    /// Waits for the look after a click in Chrome's bubble to find it closed (the person left): the state says so,
+    /// however long the machine took.
+    private func untilAway(_ center: SaveWhyCenter) async throws {
+        for _ in 0..<400 where center.state?.away != true { try await Task.sleep(for: .milliseconds(10)) }
+    }
+
     private func leave(_ how: Leave, _ center: SaveWhyCenter) {
         switch how {
-        case .clickElsewhere: center.click(at: CGPoint(x: 5, y: 900))
+        case .clickElsewhere: clickAway(center)
         case .escape: center.send(.escape)
         case .focusLostThenClick:
             // Another app's window takes the keyboard (a dictation overlay) and the question's timer runs out: a
@@ -85,8 +100,8 @@ final class SaveWhyKeepsTests: XCTestCase {
             let touched = center.state?.engaged == true
             center.send(.timeout)
             if touched { XCTAssertTrue(center.isShowing, "focus loss never closes a touched panel") }
-            // …until the person clicks elsewhere.
-            center.click(at: CGPoint(x: 5, y: 900))
+            // …until the person clicks elsewhere and stays away.
+            clickAway(center)
         }
     }
 
@@ -177,7 +192,7 @@ final class SaveWhyKeepsTests: XCTestCase {
         let center = center(api)
         await center.noticed(look([named()]), live: true, early: 1)
         center.input(.tapReason("read_later"))
-        center.input(.clickOutside)
+        center.leave()
         await center.settle()
         XCTAssertEqual(center.heldCount, 1)
         await center.syncLanded(look([]))
@@ -213,14 +228,14 @@ final class SaveWhyKeepsTests: XCTestCase {
         center.send(.draftChanged("a long thought about the layout"))   // dictation pastes it all at once
         await center.noticed(look([named()]), live: true, early: 1)
         XCTAssertTrue(center.isShowing)
-        center.click(at: CGPoint(x: 5, y: 900))
+        clickAway(center)
         await center.settle()
         let posts = await api.posts
         XCTAssertEqual(posts.map(\.answer), [SavedWhyAnswer(text: "a long thought about the layout")])
     }
 
     /// The live panel: another app's floating window taking the keyboard (a dictation overlay) never closes it; a
-    /// click elsewhere does, and keeps the words.
+    /// click elsewhere and the wait after it does, and keeps the words.
     func testLosingTheKeyboardToAnotherWindowNeverClosesThePanel() async throws {
         let api = KeepsFakeAPI()
         let controller = SaveWhyPanelController()
@@ -239,6 +254,8 @@ final class SaveWhyKeepsTests: XCTestCase {
         XCTAssertTrue(center.isShowing)
         XCTAssertNotNil(controller.window)
         center.click(at: CGPoint(x: 5, y: 900))
+        XCTAssertNotNil(controller.window, "the click alone never closes it")
+        center.send(.timeout)
         await center.settle()
         XCTAssertNil(controller.window)
         let posts = await api.posts
@@ -247,7 +264,7 @@ final class SaveWhyKeepsTests: XCTestCase {
 
     /// The panel the person clicked into is the key window — Cicada stays inactive, nothing of Cicada's comes forward
     /// — so typing and dictation land in the field; Save, Return and Esc hand the keyboard back to the browser, a
-    /// click elsewhere leaves it where the person put it.
+    /// click elsewhere (and the wait after it, 2026-11-25) leaves it where the person put it.
     func testClickingIntoTheFieldMakesThePanelKeyAndClosingGivesTheKeyboardBack() async throws {
         for (leave, givesBack) in [(SaveWhyPanelState.Event.escape, true), (.submit, true), (.clickOutside, false)] {
             defaults = TestDefaults.suite("SaveWhyKeepsTests.\(UUID().uuidString)")!
@@ -296,7 +313,13 @@ final class SaveWhyKeepsTests: XCTestCase {
                 .accessibilityRole(), .textField)
 
             center.send(.draftChanged("spoken words"))
-            if leave == .clickOutside { center.click(at: CGPoint(x: 5, y: 900)) } else { center.send(leave) }
+            if leave == .clickOutside {
+                center.click(at: CGPoint(x: 5, y: 900))
+                XCTAssertNotNil(controller.window, "a click elsewhere never closes it at once")
+                center.send(.timeout)   // the person stayed away for the whole wait
+            } else {
+                center.send(leave)
+            }
             await center.settle()
             XCTAssertNil(controller.window)
             XCTAssertEqual(given, givesBack ? [4242] : [], "\(leave)")
@@ -307,12 +330,13 @@ final class SaveWhyKeepsTests: XCTestCase {
     }
 
     /// A click inside Chrome's own bookmark bubble is the person working there, not leaving; one that closed the
-    /// bubble leaves too. Done and Remove look the same from bounds, so the answer waits to learn which: no removal in
-    /// the file (Done writes nothing) sends it; a removal (Remove) drops it.
+    /// bubble is leaving (2026-11-25: the panel stays for its wait, like any click elsewhere). Done and Remove look the
+    /// same from bounds, so an answer that goes soon after waits to learn which: no removal in the file (Done writes
+    /// nothing) sends it; a removal (Remove) drops it.
     func testAClickInsideChromesBubbleIsNotLeavingUnlessItClosedIt() async throws {
         let api = KeepsFakeAPI()
         let center = center(api)
-        center.removalWait = 0.1
+        center.removalWait = 0.5
         var bubbleShows = true
         var looks = 0
         center.bubbleOpen = { looks += 1; return bubbleShows }
@@ -327,20 +351,24 @@ final class SaveWhyKeepsTests: XCTestCase {
         XCTAssertEqual(looks, 1, "one look, right after the click")
         bubbleShows = false
         center.click(at: CGPoint(x: 1400, y: 280))              // Done
-        try await Task.sleep(for: .seconds(SaveWhyPolicy.bubbleCloseCheck + 0.05))
-        XCTAssertFalse(center.isShowing, "the bubble closed, and the panel with it")
+        try await untilAway(center)
+        XCTAssertTrue(center.isShowing, "the bubble closed; the panel stays for its wait")
+        XCTAssertEqual(center.state?.away, true, "closing the bubble was leaving")
+        center.send(.timeout)                                   // the person stayed away for the whole wait
+        XCTAssertFalse(center.isShowing)
         var posts = await api.posts
         XCTAssertTrue(posts.isEmpty, "held until the file says Done or Remove")
-        try await Task.sleep(for: .seconds(0.3))                // no removal came: it was Done
+        try await Task.sleep(for: .seconds(0.8))                // no removal came: it was Done
         await center.settle()
         posts = await api.posts
         XCTAssertEqual(posts.map(\.answer), [SavedWhyAnswer(reasons: ["design"])])
     }
 
-    /// Review 2026-10-19 — Remove pressed inside Chrome's bubble: the panel closes with the bubble, and once Chrome's
-    /// file shows the bookmark gone the answer is dropped, never posted — confirmed, unconfirmed or an edit alike.
+    /// Review 2026-10-19 — Remove pressed inside Chrome's bubble: once Chrome's file shows the bookmark gone the answer
+    /// is dropped, never posted — confirmed, unconfirmed or an edit alike. 2026-11-25: the panel stays after the
+    /// bubble's click, so the removal either withdraws the open panel or drops the answer its wait already let go.
     func testRemoveInsideTheBubbleNeverPostsTheAnswer() async throws {
-        for kind in ["confirmed", "unconfirmed", "edit"] {
+        for kind in ["confirmed", "unconfirmed", "edit"] { for waited in [false, true] {
             defaults = TestDefaults.suite("SaveWhyKeepsTests.\(UUID().uuidString)")!
             let api = KeepsFakeAPI()
             let bubble = CGRect(x: 1000, y: 80, width: 448, height: 224)
@@ -354,20 +382,23 @@ final class SaveWhyKeepsTests: XCTestCase {
                 center.candidate(named())
                 if kind == "confirmed" { await center.noticed(look([named()]), live: true, early: 1) }
             }
-            center.removalWait = 0.2
+            center.removalWait = 5                               // the file answers well inside it
             center.bubbleOpen = { false }
             center.input(.tapReason("product"))
             center.click(at: CGPoint(x: 1050, y: 280))          // Remove
-            try await Task.sleep(for: .seconds(SaveWhyPolicy.bubbleCloseCheck + 0.05))
-            XCTAssertFalse(center.isShowing, kind)
+            try await untilAway(center)
+            XCTAssertTrue(center.isShowing, "\(kind): the panel stays for its wait")
+            if waited { center.send(.timeout) }                  // the wait ended before the file was written
             center.bookmarkRemoved(on: channel)                  // Chrome writes the file without it
+            XCTAssertFalse(center.isShowing, "\(kind), waited \(waited)")
             await center.syncLanded(look([]))
             try await Task.sleep(for: .seconds(0.3))
             await center.settle()
             let posts = await api.posts, edits = await api.edits
-            XCTAssertTrue(posts.isEmpty && edits.isEmpty, "\(kind): a removed bookmark's answer is never sent")
-            XCTAssertEqual(center.heldCount, 0, kind)
-        }
+            XCTAssertTrue(posts.isEmpty && edits.isEmpty,
+                          "\(kind), waited \(waited): a removed bookmark's answer is never sent")
+            XCTAssertEqual(center.heldCount, 0, "\(kind), waited \(waited)")
+        } }
     }
 
     // MARK: - Review 2026-10-19
@@ -381,7 +412,7 @@ final class SaveWhyKeepsTests: XCTestCase {
             let center = center(api)
             center.bubbleSeen(channel: channel)
             center.input(.tapReason("design"))
-            center.input(.clickOutside)                          // closed with no link named yet
+            center.leave()                          // closed with no link named yet
             center.candidate(named())                            // Chrome writes; the diff names it
             if order == "confirmed" {
                 await center.noticed(look([named()]), live: true, early: 1)
@@ -407,7 +438,7 @@ final class SaveWhyKeepsTests: XCTestCase {
         center.activeBank = { bank }
         await center.noticed(look([named()]), live: true)
         center.input(.tapReason("someday"))
-        center.input(.clickOutside)
+        center.leave()
         await center.settle()
         XCTAssertEqual(SaveWhyOutbox(defaults: defaults).entries.first?.bank, "alpha-memory")
         bank = "beta-memory"
@@ -426,7 +457,7 @@ final class SaveWhyKeepsTests: XCTestCase {
         let center = try await openOnSaved(api, answer: SavedWhyAnswer(reasons: ["design"]))
         await api.fail(with: [APIError.httpError(404, "There's no answer from that time to change")])
         center.input(.tapReason("read_later"))
-        center.input(.clickOutside)
+        center.leave()
         await center.settle()
         XCTAssertEqual(center.heldCount, 0)
         XCTAssertEqual(SaveWhyOutbox.verdict(for: APIError.httpError(404, ""), editing: true), .drop)
@@ -489,7 +520,7 @@ final class SaveWhyKeepsTests: XCTestCase {
         XCTAssertEqual(presenter.shown, 1, "one panel")
         center.withdraw(reason: "no confirmation in time")      // no bookmark ever comes: Chrome wrote nothing
         XCTAssertTrue(center.isShowing)
-        center.click(at: CGPoint(x: 5, y: 900))
+        clickAway(center)
         await center.settle()
         let posts = await api.posts, edits = await api.edits
         XCTAssertTrue(posts.isEmpty, "never a new answer, never a second save")
@@ -509,7 +540,7 @@ final class SaveWhyKeepsTests: XCTestCase {
                                                                                  project: "alpha-project"),
                                         at: "t0", order: SavedWhyOptions.basic.reasons.map(\.key))
         _ = changed.send(.tapReason("product"))
-        XCTAssertEqual(changed.send(.clickOutside),
+        XCTAssertEqual(changed.leave(),
                        [.edit(SavedWhyAnswer(reasons: ["product", "technique"], project: "alpha-project"), at: "t0"),
                         .close])
         var emptied = SaveWhyPanelState(editing: named(), answer: SavedWhyAnswer(reasons: ["design"]), at: "t0",
@@ -526,7 +557,7 @@ final class SaveWhyKeepsTests: XCTestCase {
         XCTAssertFalse(center.state?.isEditing == true)
         XCTAssertTrue(center.confirmed)
         center.input(.tapReason("product"))
-        center.input(.clickOutside)
+        center.leave()
         await center.settle()
         let posts = await api.posts
         XCTAssertEqual(posts.map(\.url), [link])

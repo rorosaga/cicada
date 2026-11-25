@@ -639,7 +639,7 @@ final class BookmarksV3Tests: XCTestCase {
         center.candidate(saved)
         XCTAssertEqual(center.state?.item?.url, saved.url, "the diff names the link")
         XCTAssertFalse(center.confirmed, "named, not yet confirmed")
-        center.input(.clickOutside)   // the person leaves before the backend answers
+        center.leave()   // the person leaves before the backend answers
         await center.settle()
         let early = await api.posts
         XCTAssertTrue(early.isEmpty, "nothing posted before the backend agrees")
@@ -670,7 +670,7 @@ final class BookmarksV3Tests: XCTestCase {
         center.withdraw()
         XCTAssertTrue(center.isShowing, "a touched panel is never closed under the person")
         XCTAssertTrue(center.noBookmark)
-        center.input(.clickOutside)
+        center.leave()
         await center.settle()
         let posts = await api.posts
         XCTAssertTrue(posts.isEmpty, "a tap with no bookmark is never saved against a guess")
@@ -700,6 +700,9 @@ final class BookmarksV3Tests: XCTestCase {
         let (center, presenter, _) = await center(api, clock: now)
         let item = FreshBookmark(url: "https://beta.example/b", title: "Beta", origin: "safari-bookmark",
                                  channel: "safari-bookmarks")
+        // Safari dates no bookmark, so it is asked about only when Safari was in front (G245): said here, never read
+        // from whichever app happens to be in front on the Mac running the test.
+        center.frontBundleId = { "com.apple.Safari" }
         center.candidate(item)
         XCTAssertEqual(presenter.shown, 1)
         XCTAssertFalse(center.confirmed)

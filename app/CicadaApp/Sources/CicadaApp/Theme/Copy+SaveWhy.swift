@@ -17,9 +17,12 @@ extension Copy {
             // 2026-10-19: a touched panel whose browser saved no new bookmark stays open, and says so.
             if noBookmark { return "No new bookmark was saved, so there's nothing to keep this with." }
             // The star on a page already saved: its answer, filled in.
-            if editing { return "Already saved. Change anything, or click anywhere else to keep it." }
-            if chosen { return "Save, or click anywhere else — your choice is kept." }
-            return pending ? "Pick any that fit while it saves." : "Pick any that fit. Click anywhere else to skip it."
+            // 2026-11-25: a click elsewhere no longer closes the panel at once (it leaves after its bar, or after a
+            // quiet wait once touched), so the words name what is true: leaving keeps the choice, and an untouched
+            // question goes on its own.
+            if editing { return "Already saved. Change anything; leaving keeps it." }
+            if chosen { return "Save, or leave it. Your choice is kept." }
+            return pending ? "Pick any that fit while it saves." : "Pick any that fit. It leaves on its own."
         }
         static let dontAsk = "Don’t ask for this site"
         static func forProject(_ name: String) -> String { "For \(name)" }
