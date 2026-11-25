@@ -104,6 +104,7 @@ def test_a_page_already_at_the_owner_id_is_never_clobbered(tmp_path):
     assert "Not a person." in (bank / "entities" / "owner.md").read_text(encoding="utf-8")
 
 
+@pytest.mark.slow
 def test_the_demo_bank_is_excluded(tmp_path, monkeypatch):
     root = tmp_path / "root"
     root.mkdir()

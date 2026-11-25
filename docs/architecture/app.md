@@ -659,7 +659,7 @@ card, so it is never off-screen. Inside, three labelled groups 20 pt apart — C
 on this Mac* as an offer. Your past chats has one 36 pt row per vendor still to ask (`ExportVendorRow`; a vendor whose
 `chat-export:<vendor>` row has episodes is not asked again), the whole row opening onboarding's drawn walkthrough over
 **one card that leads** (`LeadQuestionCard`): the most-used page's question — its picture when it draws one
-(`EntityPicture` in a button that opens the page, nothing otherwise, DR-48), the question in 15 pt medium (under the field's 17) inside `BalancedLines`, a layout that narrows the text to the narrowest width keeping its line count so no word is stranded on the last line, and under it the one next act (round 4): *Answer*, the page's one accent primary (round 5, `PrimaryActionButton`, DR-5 (2) and DR-40; a `NeutralButton` while Getting started's own read pill is up, so never two primaries), opens the Catch me up chat on that question (app-fixes-1109: the question is the agent's opening turn, then what its card is about from the record — for a possible duplicate each page's lead side by side, `CatchupContext`, `otherSubject` on the item — no model call; the one-tap answers and the person's words resolve it through the same hold; the rest of the queue follows), and *Catch me up*, a compact `NeutralButton`, starts the chat (its hover "N questions about M pages · or say "catch me up" to your agent"). A click on the question does what Answer does (the Inbox's list is one click from the foot of the chat). The page's name, the reason, the age and "N questions" are the question's hover and accessibility hint, not a second line of small type, and *All N questions* is gone from the card (Answer lands in the list; the fallback block when no question can lead keeps it; the card is `bgFocus` with the resting ring in dark (a ring with no fill in light), a step under the field, which stays the page's highest surface). The other questions are one
+(`EntityPicture` in a button that opens the page, nothing otherwise, DR-48), the question in 15 pt medium (under the field's 17) inside `BalancedLines`, a layout that narrows the text to the narrowest width keeping its line count so no word is stranded on the last line, and under it the one next act (round 4): *Answer*, the page's one accent primary (round 5, `PrimaryActionButton`, DR-5 (2) and DR-40; a `NeutralButton` while Getting started's own read pill is up, so never two primaries), opens the Catch me up chat on that question (app-fixes-1109: the question is the agent's opening turn, then what its card is about from the record — for a possible duplicate each page's lead side by side, `CatchupContext`, `otherSubject` on the item — no model call; the one-tap answers and the person's words resolve it through the same hold; the rest of the queue follows), and *Catch me up*, a compact `NeutralButton`, starts the chat (its hover "N questions about M pages · or say "catch me up" to your agent"). A click on the question does what Answer does (the Inbox's list is one click from the foot of the chat). The page's name, the reason, the age and "N questions" are the question's hover and accessibility hint, not a second line of small type (the one exception, owner 2026-11-25: "Asked 13 days ago by Sleep's duplicate check" is drawn under the question, one quiet line, `AskedByText`), and *All N questions* is gone from the card (Answer lands in the list; the fallback block when no question can lead keeps it; the card is `bgFocus` with the resting ring in dark (a ring with no fill in light), a step under the field, which stays the page's highest surface). The other questions are one
 click away, so no two rows repeat each other's copy. Drawn from the Store's disk-hydrated snapshot, so Home never waits on
 `GET /inbox`. **The titlebar's search is quiet on Home alone** (`CommandBar.quiet`, round 2): the bar is the memory-bank selector and nothing else, since Home's own field is the same palette body; ⌘K and the menu item still open the palette, the tour's search stop draws the full bar, and every other page keeps the bar as it was;
 Last read (the status line's last segment, above) is the newest Sleep commit: its pictures are `EntityPicture` at 22 pt, one size side by side — each number once, never a Consolidate. The
@@ -1612,11 +1612,15 @@ one before the last), and which page is the person's own saved list. The post is
 the nearest post link *before* the row in the enclosing block (a post's time or heading precedes its controls; links
 only after the row belong to what follows, e.g. Instagram's stories tray), else by the page when it is a post's own.
 A save is the control's label differing a moment after the click. **Which way it went** is settled in this order: the
-saved list's own page (a toggle there is leaving it); one count moving by one (X's row label, GitHub's star count,
-TikTok's favourite count); the two labels this Mac already learned for that site (`SiteSaveRule.Labels`, kept per Mac
-in `SiteSavePrefs`, learned only from a certain change, never shipped or translated); the page's other posts
-(`Census`: at least two others still wear the label it left and none wears the one it took). With none of them the
-change is `changed`: nothing is stored and nobody is asked. On X the post's own words are cut from the block's label
+saved list's own page (a toggle there is leaving it); one count moving by one, the control's own before the row's
+(`countStep`: X's row label, GitHub's star count, TikTok's favourite count; on a post's own page X names the count in
+the control and again in the row, so only the control's own moves once); the two labels this Mac already learned for
+that site (`SiteSaveRule.Labels`, kept per Mac in `SiteSavePrefs`, learned only from a certain change, never shipped
+or translated); the page's other posts (`Census`: at least two others still wear the label it left and none wears the
+one it took). A control that names its count ("<count> Bookmarks. Bookmark") is compared, for the learned labels and
+the census, by its **tail** as well: the two labels with the lead they share removed at a word's start (`tails`, a
+digit matching any digit), which is how the same control reads where no count shows; a label naming a count teaches
+its tail or nothing (`lesson`). With none of them the change is `changed`: nothing is stored and nobody is asked. On X the post's own words are cut from the block's label
 between the handle and time link and the row's label (`text(of:item:)`), again with no word known.
 
 *Which sites are noticed (ruling 77c, 2026-11-24).* "Connected" is the Sources catalogue's own word for the site's source
@@ -3769,7 +3773,12 @@ focus card, the quick review's card and a page's questions strip — "Asked 13 d
 day from `createdDate`, the step from `askedBy.by` (an agent's proposal is the harness the record names, worded as every
 contributor is, else "an agent") — secondary text that truncates before it widens, so no answer moves; its hover says
 what kind of asker it was (a rule, a model's read, an agent, a re-check), the first asking in full and when it was seen
-again. Home's lead question carries the same sentence in its hover (`HomeQuestions.Row.asked`), not as a second line.
+again. Since 2026-11-25 (owner: "I dont see the asked by even by hovering") it is drawn where the person answers, not
+in a hover: Home's lead question carries it as one line under the question (`HomeQuestions.Row.asked`, `AskedByText`),
+the Catch me up chat's question bubble as its last line under the page link (`AskedByLine(wraps:)`: a line of its own
+wraps, never truncates), and the pinned "Confirm N links" and sensitive-text review cards under their title. A list row,
+a page's "Open in Inbox" pointer, the find palette's question rows and an agent's request card do not carry it (they
+open the card that does, or already name the agent).
 Unknown is nothing: no day, no line; no who, only "Asked 13 days ago". No model is named on it.
 **Settled by a check (owner ruling 2026-10-16):** below the questions at full width (`InboxQuestionList`'s `footer`) and
 on the empty page, `SettledChecksSection` — closed until clicked ("Settled by a check · N"), then one filled row per

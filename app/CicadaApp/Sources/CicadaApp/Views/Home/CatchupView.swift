@@ -179,16 +179,22 @@ struct CatchupView: View {
                         .foregroundStyle(CicadaTheme.textPrimary)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
-                    if let itemId, let item = store.inbox.value?.first(where: { $0.id == itemId }),
-                       !item.entityId.isEmpty {
-                        HStack(spacing: CicadaTheme.scaled(6)) {
-                            // A lone picture beside the page's name: nothing when it has none (#512).
-                            EntityPicture(id: item.entityId, name: item.displayName,
-                                          type: item.entityType.flatMap(EntityType.init(rawValue:)) ?? .unknown,
-                                          size: 18, collapsesWhenEmpty: true)
-                            InlineLink(title: item.displayName, help: Copy.Catchup.openPage(item.displayName)) {
-                                openPage(item.entityId)
+                    if let itemId, let item = store.inbox.value?.first(where: { $0.id == itemId }) {
+                        VStack(alignment: .leading, spacing: CicadaTheme.scaled(2)) {
+                            if !item.entityId.isEmpty {
+                                HStack(spacing: CicadaTheme.scaled(6)) {
+                                    // A lone picture beside the page's name: nothing when it has none (#512).
+                                    EntityPicture(id: item.entityId, name: item.displayName,
+                                                  type: item.entityType.flatMap(EntityType.init(rawValue:)) ?? .unknown,
+                                                  size: 18, collapsesWhenEmpty: true)
+                                    InlineLink(title: item.displayName, help: Copy.Catchup.openPage(item.displayName)) {
+                                        openPage(item.entityId)
+                                    }
+                                }
                             }
+                            // Who asked and when, with the question it belongs to (owner 2026-11-25): a line of its
+                            // own that wraps rather than truncates, so it is never hidden and never moves the answers.
+                            AskedByLine(item: item, wraps: true)
                         }
                     }
                 }

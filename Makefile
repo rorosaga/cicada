@@ -9,16 +9,18 @@ ABLATIONS ?= default promotion_1 promotion_3 decay_aggressive decay_loose
 
 INSTALL_FLAGS ?=
 
-.PHONY: help test test-bench test-crucial test-crucial-backend test-crucial-swift install cli doctor signing-identity embedding-model embedding-model-gemma2 embedding-model-vision app run-app install-app release-app release release-pr dev login-item no-login-item backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke eval all-safe all-full
+.PHONY: help test test-changed test-slow test-bench test-crucial test-crucial-backend test-crucial-swift install cli doctor signing-identity embedding-model embedding-model-gemma2 embedding-model-vision app run-app install-app release-app release release-pr dev login-item no-login-item backfill-structural rebuild-episodes table1 table3 table3-sleep table3-sleep-smoke ablation ablation-smoke eval all-safe all-full
 
 help:
 	@printf '%s\n' \
 	  'Targets:' \
 	  '  make install               # plug-and-play install (install.sh)' \
 	  '  make doctor                # health checks (scripts/doctor.sh)' \
+	  '  make test-changed          # while building: only the tests this branch can break (SLOW=1 adds `slow`)' \
 	  '  make test-crucial          # the daily tier: the tests that guard the rails (~2 min backend + Swift)' \
 	  '  make test                  # every backend and Swift test, benchmarks included (before a release)' \
 	  '  make test-bench            # the wall-clock budgets alone (the `bench` marker; quiet machine)' \
+	  '  make test-slow             # the multi-machine and demo-bank runs alone (the `slow` marker)' \
 	  '  make embedding-model       # fetch the on-device search model the release app ships (~130 MB, once)' \
 	  '  make embedding-model-gemma2 # EmbeddingGemma 2 on the Neural Engine, macOS 15+ (~585 MB + ~90 s, once)' \
 	  '  make embedding-model-vision # its image encoder, to search saved looks by picture (~309 MB, once)' \
@@ -55,8 +57,17 @@ install:
 # The test tiers (owner 2026-10-19, docs/goals/working-method.md). `test-crucial` is the daily tier: the tests that guard
 # CLAUDE.md's rails, listed in api/tests/crucial.txt and app/CicadaApp/Tests/crucial-tests.txt, niced so a shared Mac
 # stays usable. `test` is every test, run once before a release. The suite gives itself its own HOME and CICADA_HOME.
-# The default pytest run leaves out the `bench` marker (api/pyproject.toml's addopts: wall-clock budgets flake on a busy
-# Mac); `test-bench` runs only those, and `test` clears the addopts so it runs them too.
+# The default pytest run leaves out the `bench` and `slow` markers (api/pyproject.toml's addopts: wall-clock budgets
+# flake on a busy Mac; a `slow` test takes 5 s or more, most of them several backends talking); `test-bench` and
+# `test-slow` run only those, CI's shards run `slow` on every push to dev, and `test` clears the addopts so it runs both.
+# `test-changed` (owner 2026-11-24) runs what this branch can break, chosen by api/tests/_affected.py from the diff
+# against origin/dev: the tests that use a changed function, its callers', the routes and files it names, the gates.
+test-changed:
+	$(PYTHON) api/tests/_affected.py --run $(if $(SLOW),--slow)
+
+test-slow:
+	nice -n 10 $(PYTHON) -m pytest -m slow -q -p no:cacheprovider api/tests
+
 test-crucial: test-crucial-backend test-crucial-swift
 
 test-crucial-backend:
