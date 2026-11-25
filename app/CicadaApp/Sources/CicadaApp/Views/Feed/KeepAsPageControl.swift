@@ -104,7 +104,14 @@ struct KeepAsPageControl: View {
     }
 
     var body: some View {
-        Group {
+        // The load rides a zero-size view that is always there. A `.task` on a `Group` whose `if` is false (nothing offered
+        // yet, which is every control's first frame) is attached to nothing and never runs: the control then never reads
+        // what it may offer and never appears (seen on the scratch app with the switch on, G246).
+        VStack(alignment: .leading, spacing: 0) {
+            Color.clear.frame(width: 0, height: 0).accessibilityHidden(true)
+                .task(id: "\(url)|\(rowWord ?? "")") {
+                    if inline { model.seed(KeepAsPage.seeded(rowWord, page: url)) } else { await model.load(url: url) }
+                }
             if model.offer != nil || model.failure != nil || model.done != nil {
                 VStack(alignment: .leading, spacing: CicadaTheme.spacingXS) {
                     if let offer = model.offer {
@@ -129,9 +136,6 @@ struct KeepAsPageControl: View {
                 }
                 .padding(.top, topPadding)
             }
-        }
-        .task(id: "\(url)|\(rowWord ?? "")") {
-            if inline { model.seed(KeepAsPage.seeded(rowWord, page: url)) } else { await model.load(url: url) }
         }
     }
 

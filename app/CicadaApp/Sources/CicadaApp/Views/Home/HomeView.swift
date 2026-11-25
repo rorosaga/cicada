@@ -36,6 +36,8 @@ struct HomeView: View {
     @AppStorage(AppearanceTipPolicy.seenKey) private var tipSeen = false
     /// Review #1 — the vendor whose drawn export walkthrough is open over Home.
     @State private var seeHow: ChatVendor?
+    /// G246: this Mac's record behind Home's dated line (`HiddenPostsStrip`), read here so the observers below always run.
+    @State private var hiddenPostsRecord: HiddenPostsNote.Record?
     @Environment(AppRouter.self) private var router: AppRouter?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(InboxViewModel.self) private var inboxVM
@@ -102,7 +104,10 @@ struct HomeView: View {
                                 // first keystroke replaces them too.
                                 VStack(alignment: .leading, spacing: CicadaTheme.scaled(HomeLayout.blockGap)) {
                                     HomeExportWaitStrip()   // ROR-126: the worm waiting on an export, per provider
-                                    HiddenPostsStrip()      // G246: the posts that moved under their lists, said once
+                                    HiddenPostsStrip(record: hiddenPostsRecord) {   // G246: the posts that moved under their lists, said once
+                                        HiddenPostsNote.dismiss(bank: store.bank)
+                                        hiddenPostsRecord = HiddenPostsNote.load(bank: store.bank)
+                                    }
                                     ForEach(Array(arrangement.order.enumerated()), id: \.element) { index, id in
                                         // ROR-118 — Today and Last read are one quiet group when they sit together.
                                         block(id, today: today, gettingStartedVisible: gettingStartedVisible,
@@ -111,6 +116,12 @@ struct HomeView: View {
                                               takesLastRead: id == .today && index + 1 < arrangement.order.count
                                                   && arrangement.order[index + 1] == .lastRead)
                                     }
+                                }
+                                .onChange(of: HiddenPostsStrip.hidden(in: store), initial: true) { _, now in
+                                    hiddenPostsRecord = HiddenPostsNote.observe(hidden: now, bank: store.bank)
+                                }
+                                .onChange(of: store.bank) { _, _ in
+                                    hiddenPostsRecord = HiddenPostsNote.observe(hidden: HiddenPostsStrip.hidden(in: store), bank: store.bank)
                                 }
                                 .tourAnchor(.home)
                                 .frame(maxWidth: CicadaTheme.scaled(HomeLayout.fieldWidth))   // ROR-118 r2 — one column: the field's edges

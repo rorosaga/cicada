@@ -27,13 +27,25 @@ def _media(fm: dict) -> dict:
     return media if isinstance(media, dict) else {}
 
 
+#: An origin the saved-lists table files under that the app's mark table spells another way (``source_overview`` gives
+#: Pinterest's both origins the one mark ``pinterest``).
+_MARK_ALIASES = {"pinterest-saved": "pinterest"}
+
+
 def origin_of(fm: dict) -> str | None:
     """The origin id the page was brought in by (its ``origin:``), as the app's mark table knows it; None when none."""
     origin = str((fm or {}).get("origin") or "").strip().lower()
     listed = (fm or {}).get("list")
     if _media(fm).get("kind") == "list" and isinstance(listed, dict):
         # A list's page: the source it is a list of is its origin (the app's mark table), never the word "list".
-        return str(listed.get("source") or "").strip().lower() or None
+        source = str(listed.get("source") or "").strip().lower()
+        if not source:
+            # "Saved another way" is no list of one source (its page records ``source: ""``): it wears its site's mark.
+            from api.services import saved_lists
+
+            platform = saved_lists.PLATFORMS.get(str(listed.get("site") or "").strip().lower())
+            source = platform.origin if platform is not None else ""
+        return _MARK_ALIASES.get(source, source) or None
     if origin == "book":
         # A book page's own origin is the kind, not a source: the door it came in through is the source (Apple Books,
         # Goodreads, a scan), in the same fixed order the page's words use (`books.door_words`).
@@ -43,7 +55,7 @@ def origin_of(fm: dict) -> str | None:
             doors |= {"apple-books"} if book.get("apple_books") else set()
             doors |= {"goodreads"} if book.get("goodreads") else set()
         return next((d for d in ("apple-books", "goodreads", "book-scan") if d in doors), None)
-    return origin or None
+    return _MARK_ALIASES.get(origin, origin) or None
 
 
 def channel_of(fm: dict) -> str | None:
