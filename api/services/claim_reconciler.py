@@ -549,6 +549,102 @@ def _reread_twin(new: Claim, slot: list[Claim], *, ending: bool = False) -> Clai
     return same[0] if same else None
 
 
+#: The reason recorded when an edited conversation, edited back, takes the place of its own correction (G104).
+EDITED_BACK = "edited_back"
+#: How far a chain of one conversation's own corrections is walked (each edit adds one link).
+_CHAIN_MAX = 64
+
+
+def _only_this_conversation(c: Claim, ep: str) -> bool:
+    """``c`` rests on ``ep`` alone and nobody else's word: not the person's own, an agent's write, an event, a record (a
+    withdrawal, an ending's), a book's mark, or history ``claim_recovery`` put back."""
+    from api.services.claims import is_mark, is_recovered_history
+
+    support = {e.episode for e in c.evidence or []} | set(c.source_episodes or [])
+    return (support == {ep} and not is_human(c) and not c.recorded_ts and not is_event(c)
+            and not is_record(c) and not is_mark(c) and not is_recovered_history(c))
+
+
+def _edited_back(new: Claim, twin: Claim, slot: list[Claim], revising: dict, revised: dict[str, str] | None,
+                 redated: dict[str, str] | None) -> tuple[Claim, frozenset[str]] | None:
+    """The open claim ``new`` may take the place of, and the closed claims of the chain before it, when ``twin`` (the closed claim ``new`` re-reads) was closed only
+    because this same conversation corrected itself and the conversation now says it again (G104, 2026-11-25), else
+    ``None`` — and then "a re-read never undoes a close" holds as before. All of:
+
+    1. ``new`` is heard in one conversation only, and that conversation is a revision read in this run that may close
+       (``revising``: never a transcript's cap, a book, a re-read that is not a revision).
+    2. ``twin`` and every claim after it in its ``superseded_by`` chain rest on that conversation alone
+       (:func:`_only_this_conversation`); the chain ends in an OPEN claim (the one that took its place). A close by
+       another conversation's claim, the person, an agent, a withdrawal or ending record, or decay (closed with no
+       successor) breaks the chain: nothing is undone.
+    3. That open claim gives way by a rule that already exists, never a third: the same-slot replacement (``redated``),
+       the removed text's (``revised``), or the pair rule (`revision_pairs.meets`: another predicate, the same two
+       things, a day the changed lines say, read twice after Stage 3).
+    """
+    eps = set(new.source_episodes or [])
+    if len(eps) != 1 or not revising:
+        return None
+    (ep,) = eps
+    rev = revising.get(ep)
+    if rev is None or not _only_this_conversation(twin, ep):
+        return None
+    seen = {twin.id}
+    by_id = {c.id: c for c in slot}
+    link = twin
+    for _ in range(_CHAIN_MAX):
+        nxt = by_id.get(link.superseded_by or "")
+        if nxt is None or nxt.id in seen or not _only_this_conversation(nxt, ep):
+            return None
+        if open_(nxt):
+            break
+        seen.add(nxt.id)
+        link = nxt
+    else:
+        return None
+    tail = nxt
+    # The corrections before ``twin`` (an edit back and forth: A, B, A, B) are this conversation's own history too.
+    link = twin
+    for _ in range(_CHAIN_MAX):
+        prev = by_id.get(link.supersedes or "")
+        if prev is None or prev.id in seen or prev.superseded_by != link.id or not _only_this_conversation(prev, ep):
+            break
+        seen.add(prev.id)
+        link = prev
+    chain = frozenset(seen)
+    if (redated or {}).get(tail.id) == ep and K(tail) == K(new) and same_object(tail, new):
+        return tail, chain
+    if (revised or {}).get(tail.id) == ep and K(tail) == K(new):
+        return tail, chain
+    from api.services import revision_pairs
+
+    return (tail, chain) if K(tail) != K(new) and revision_pairs.meets(tail, new, rev) else None
+
+
+def _revised_entry(old: Claim, new: Claim) -> dict:
+    """The audit of a revision's replacement; one made by a conversation edited back says so (an enum)."""
+    entry = {"action": "revised", "closed": old.id, "by": new.id}
+    if getattr(new, "_edited_back", None):
+        entry["why"] = EDITED_BACK
+    return entry
+
+
+def _fresh_id(new: Claim, tail: Claim, slot: list[Claim]) -> str:
+    """An id for ``new`` no claim on the page holds, the same on every run over the same state: a claim id carries its
+    day (`entity_extractor._emit_claim_id`), so a restatement minted the closed claim's own id again."""
+    import hashlib
+
+    taken = {c.id for c in slot}
+    if new.id not in taken:
+        return new.id
+    day = str(new.valid_from or "")[:10] or "undated"
+    for n in range(_CHAIN_MAX):
+        digest = hashlib.sha1(f"{new.id}\x00{tail.id}\x00{n}".encode("utf-8")).hexdigest()[:8]
+        cid = f"clm_{day}_{digest}"
+        if cid not in taken:
+            return cid
+    raise ValueError("no fresh claim id")
+
+
 def _auto_settle_target(new: Claim, slot: list[Claim]) -> str | None:
     """R-PJ19 (R-PJB25): Sleep may settle only conservatively — a done happening
     closes an OLDER open ongoing one on the same subject when they share at
@@ -669,19 +765,21 @@ def _reconcile_milestone(new, slot, settings, *, today, nudges, audit) -> None:
 
 
 def _departed_on(new: Claim, slot: list[Claim], over: set[str], untimed=frozenset(),
-                 canonical: str | None = None) -> str | None:
+                 canonical: str | None = None, mine: frozenset[str] = frozenset()) -> str | None:
     """The latest day a departure from ``new``'s place was said on this page, or ``None`` (2026-10-14 review).
 
     A departure is a claim on the same subject and object whose predicate is an ``over`` label ("left", kept under
     its own label when nothing was open) or whose own words are one ("Bob previously worked at Acme", an ending
     record) — so the order claims are read in never decides the belief: a re-read of the older conversation, an
-    older mention read after the departure, or "left" listed before "works at" in one extraction."""
+    older mention read after the departure, or "left" listed before "works at" in one extraction. ``mine``: the claims
+    of a conversation edited back that its own corrections closed (:func:`_edited_back`) — a correction, not a
+    departure."""
     days = []
     target = _norm_object(new.object)
     for c in slot:
         # Cheapest tests first: on the owner's page this runs over thousands of claims per placement.
         if c is new or (not over and c.valid_to is None) or c.subject != new.subject \
-                or _norm_object(c.object) != target or is_event(c) or is_record(c):
+                or _norm_object(c.object) != target or is_event(c) or is_record(c) or c.id in mine:
             continue
         said_label = bool(over) and (predicates._slugify_predicate(c.predicate) in over or (
             c.predicate in (new.predicate, canonical) and c.valid_to is not None and _says_any(c.text, over)))
@@ -726,7 +824,7 @@ def _says_any(text: str, labels: set[str]) -> bool:
 def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinality_fn: CardinalityFn,
                  nudges: list[dict], audit: list[dict], untimed=frozenset(), over: set[str] = frozenset(),
                  canonical: str | None = None, revised: dict[str, str] | None = None,
-                 redated: dict[str, str] | None = None) -> Claim | None:
+                 redated: dict[str, str] | None = None, revising: dict | None = None) -> Claim | None:
     """One non-event incoming claim against its subject's slot (the K table).
     Returns the claim the page keeps for it — ``new``, or the existing claim a
     restatement reinforced — or ``None`` when it is not stored (a conflict to
@@ -747,12 +845,21 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
     carries another start or end (`episode_revision.redated`). The date was said on another line than the claim's span,
     so the claim is not "removed text" and ``revised`` cannot name it; the revision's own dated claim replaces it the way
     a same-revision new value does — closed, ``superseded_by`` the new one, no question."""
+    mine: frozenset[str] = frozenset()
     twin = _reread_twin(new, slot)
     if twin is not None:
-        _merge_episodes(twin, new)
-        return twin
+        back = _edited_back(new, twin, slot, revising or {}, revised, redated)
+        if back is None:
+            _merge_episodes(twin, new)
+            return twin
+        tail, mine = back
+        # G104 (2026-11-25): the conversation was edited back. ``new`` is born under an id of its own (the closed claim
+        # and the chain after it stay as they are: history reads A, then B, then A again) and meets ``tail`` below.
+        new.id = _fresh_id(new, tail, slot)
+        setattr(new, "_edited_back", twin.id)
+        audit.append({"action": "revision_edited_back", "restates": twin.id, "as": new.id, "kept": tail.id})
     if not is_human(new):
-        departed = _departed_on(new, slot, over, untimed, canonical)
+        departed = _departed_on(new, slot, over, untimed, canonical, mine)
         said = str(_said(new, untimed) or new.valid_from or today)[:10]
         if departed is not None and said <= departed:
             _stamp_new(new, settings, today=today)
@@ -783,7 +890,7 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
             if old.valid_from and _date_key(old.valid_to) < _date_key(old.valid_from):
                 old.valid_to = old.valid_from   # a date moved earlier closes the old claim on its own first day
             slot.append(new)
-            audit.append({"action": "revised", "closed": old.id, "by": new.id})
+            audit.append(_revised_entry(old, new))
             return new
 
     single = value or cardinality_fn(new.predicate)
@@ -809,7 +916,7 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
         if not value or may_close(new, [existing]):
             _close(existing, by=_stamp_new(new, settings, today=today))
             slot.append(new)
-            audit.append({"action": "revised", "closed": existing.id, "by": new.id})
+            audit.append(_revised_entry(existing, new))
             return new
     action = trust_decision(new, existing)
     if value and action in ("SUPERSEDE", "CONFLICT_NUDGE"):
@@ -1181,6 +1288,7 @@ def reconcile_stage3(
     revised: dict[str, str] | None = None,
     redated: dict[str, str] | None = None,
     ended_values: dict[str, set[str]] | None = None,
+    revising: dict | None = None,
 ) -> tuple[dict[str, list[Claim]], list[dict], list[dict]]:
     """Trust-gated invalidate-and-supersede over claims. Nothing deleted.
 
@@ -1315,7 +1423,7 @@ def reconcile_stage3(
         canonical = (ended_by(new.predicate) if ended_by else None) or new.predicate
         over = getattr(endings_fn, "over", {}).get(canonical, frozenset())
         kept = _place_claim(new, slot, settings, today, cardinality_fn, nudges, audit, untimed, over, canonical,
-                            revised=revised, redated=redated)
+                            revised=revised, redated=redated, revising=revising)
         if (revised and kept is not None and kept is not new and kept.id in revised
                 and revised[kept.id] in (new.source_episodes or [])):
             # G104: the revision said a marked claim again — whatever its evidence (an unlocatable quote is a

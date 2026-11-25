@@ -618,6 +618,8 @@ def run_claim_pipeline(
         [c for claims in existing_by_subject.values() for c in claims] + released,
         [c for c in incoming if c.id in stage1_ids], revisions or {})
 
+    revising = {ep: rev for ep, rev in (revisions or {}).items() if rev.closes and rev.changed and not rev.book}
+
     # ---- Stage 3: reconcile against existing in-page claims (trust-gated) ----
     reconciled, nudges, audit = reconcile_stage3(
         incoming,
@@ -628,7 +630,12 @@ def run_claim_pipeline(
         **({"ended_values": ended_values} if ended_values else {}),
         **({"revised": revision_plan.revised_out} if revision_plan.revised_out else {}),
         **({"redated": redated} if redated else {}),
+        # G104 (2026-11-25): the revisions read now that may close — a claim closed only by this conversation's own
+        # correction, which its re-read states again, is current again (`claim_reconciler._edited_back`).
+        **({"revising": revising} if revising else {}),
     )
+    # A restatement born under an id of its own is as new to this pass as the id Stage 1 gave it.
+    emitted_ids |= {c.id for c in incoming if getattr(c, "_edited_back", None)}
     audit.extend(number_audit)
     audit.extend(routed)
     # G245 (ruling 80, Track 2c): what a save's words were kept to, counted so it is never silent (`saves_bounded`).

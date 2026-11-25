@@ -155,6 +155,14 @@ def _same_things(o: Claim, n: Claim) -> bool:
             and slot_observer(o) == slot_observer(n) and o.predicate != n.predicate)
 
 
+def meets(o: Claim, n: Claim, rev: er.Revision) -> bool:
+    """Is ``o`` (on a page) the pair of ``n`` (a claim of ``rev``'s re-read)? See the module: ``o`` open and this one
+    conversation's alone, the same things under another predicate, and a day of ``n`` the changed lines say that ``o``
+    does not carry. The one test :func:`candidates` and the reconciler's edited-back rule share."""
+    days = _new_days(n, rev)
+    return bool(days) and _pairable_old(o, rev.episode_id) and _same_things(o, n) and _differs(o, n, days)
+
+
 def _resolver(memory_path: Path, ep: str, settings) -> Callable[[str], str]:
     """Names to page ids before Stage 2: a name or alias of exactly one page the first read of ``ep`` produced, else
     the id Stage 1's projection would give it. Only a candidate filter: :func:`apply` matches what Stage 3 holds."""
@@ -203,7 +211,7 @@ def candidates(memory_path: Path, revisions: dict[str, er.Revision], extracted: 
     per_rev: dict[str, int] = {}
     for rev, n, days in news:
         for o in existing.get(n.subject, []):
-            if not (_pairable_old(o, rev.episode_id) and _same_things(o, n) and _differs(o, n, days)):
+            if not meets(o, n, rev):
                 continue
             count = per_rev.get(rev.episode_id, 0)
             per_rev[rev.episode_id] = count + 1
@@ -342,7 +350,11 @@ def apply(reconciled: dict[str, list[Claim]], verdicts: list[Verdict], revisions
         _close(old, by=new)
         if old.valid_from and _date_key(old.valid_to) < _date_key(old.valid_from):
             old.valid_to = old.valid_from   # a date moved earlier closes the old claim on its own first day
-        audit.append({"action": "revised", "closed": old.id, "by": new.id, "why": WHY})
+        # A conversation edited back (`claim_reconciler._edited_back`) says so; any other pair says it was edited.
+        from api.services.claim_reconciler import EDITED_BACK
+
+        audit.append({"action": "revised", "closed": old.id, "by": new.id,
+                      "why": EDITED_BACK if getattr(new, "_edited_back", None) else WHY})
         out[old.id] = v.episode
     if out:
         logger.info(f"Revision pairs: {len(out)} claim(s) replaced by the revision's own wording of them")
