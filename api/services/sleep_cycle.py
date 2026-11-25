@@ -1361,7 +1361,7 @@ async def _catchup_questions_safely(memory_path: Path) -> None:
     (`inbox_catchup.propose_nicknames`), under ONE per-drain budget of new questions (`inbox_catchup.Budget`), each in
     its own `cicada` commit. The follow-ups' rules: pages dirty before it ran are skipped, an unreadable tree means
     nothing tonight, a failed commit undoes what it wrote. Never raises."""
-    from api.services import inbox_catchup, person_duplicates, still_questions
+    from api.services import inbox_catchup, person_duplicates, still_questions, which_one
 
     today = date.today()
     skip: frozenset[str] = frozenset()
@@ -1381,6 +1381,10 @@ async def _catchup_questions_safely(memory_path: Path) -> None:
         # person spots at a glance, engine-free (`person_duplicates`).
         (lambda: person_duplicates.propose(memory_path, today, budget=budget, skip=skip),
          lambda r: person_duplicates.commit_message(r.written, today)),
+        # Ruling 83 (owner 2026-11-25): what the lanes above and Stage 2 left as one pairwise question per candidate for a
+        # mention that could be several pages is rewritten into the one "were you talking about A or B?" (engine-free).
+        (lambda: which_one.tend(memory_path, today, skip=skip),
+         lambda r: which_one.commit_message(r, today)),
     )
     for propose, message in steps:
         try:

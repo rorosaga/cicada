@@ -6658,7 +6658,7 @@ def _agent_question(
 
             if picks := same_name_pick.options(memory_path, fm):
                 # G227: a name pages share is asked which page it is — the same options `GET /inbox` serves.
-                fm["question"] = str(fm.get("question") or same_name_pick.question(fm, len(picks) - 1))
+                fm["question"] = str(fm.get("question") or same_name_pick.question(fm, len(picks) - 1, picks))
                 fm["options"] = picks
                 options = inbox_questions.normalize_options(picks)
         if str(fm.get("kind") or "") == "followup":

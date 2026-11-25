@@ -85,7 +85,7 @@ def _list(names: list[str]) -> str:
 
 #: The wording's shape on the wire. It rides the inbox ETag (`routers/inbox.py`): a release that words the same stored
 #: question differently must make every client take one fresh 200, not keep the old words on a 304.
-SHAPE = "question-words-1"
+SHAPE = "question-words-2"
 
 _SYNTHETIC = ("neither", "both")
 #: A bookkeeping lead the contradiction check's prompt once put in an option's description ("Existing description,
@@ -306,7 +306,7 @@ _NOUNS = {"person": "person", "company": "company", "project": "project", "tool"
 def spoken(fm: dict, today: str, *, page_fm: dict | None = None, other_fm: dict | None = None,
            owner_id: str | None = None, group: list[str] | None = None, same: dict[str, str] | None = None,
            titled: list[dict] | None = None, claims=None, page_name=None, owner_name: str | None = None,
-           untimed=frozenset()) -> Spoken:
+           untimed=frozenset(), where: str | None = None) -> Spoken:
     """The human question and its reason for one item. ``fm`` is the item as the readers serve it (decay and
     follow-up already synthesised); ``page_fm`` its page's frontmatter, ``other_fm`` a duplicate pair's other page;
     ``group`` the names when several duplicate questions are one person (:mod:`inbox_catchup`).
@@ -318,7 +318,9 @@ def spoken(fm: dict, today: str, *, page_fm: dict | None = None, other_fm: dict 
 
     A conflict is spoken from its options as :func:`present_options` serves them (``claims``: the page's claims;
     ``page_name``: an id → its page's name, or None; ``untimed``: the episodes that say nothing about when), so no
-    caller can reach a raw date. ``owner_name`` is the owner page's own name, for a stored question that names them."""
+    caller can reach a raw date. ``owner_name`` is the owner page's own name, for a stored question that names them.
+    ``where``: the conversation the question came from, said in a few words (its title, clipped), read from the record
+    by the caller — a name asked about with no hint of where it came up is not a question a person would ask (ruling 83)."""
     kind = str(fm.get("kind") or "")
     entity_id = str(fm.get("entity_id") or "")
     own = bool(owner_id) and entity_id == owner_id
@@ -345,7 +347,11 @@ def spoken(fm: dict, today: str, *, page_fm: dict | None = None, other_fm: dict 
     if kind == "page_edit":
         return _page_edit(fm, name)
     if kind == "clarification":
-        return _clarification(fm, today, name, page_type)
+        return _clarification(fm, today, name, page_type, where)
+    if kind == "divergence":
+        return _divergence(fm, name)
+    if kind == "normalization":
+        return _normalization(fm, name)
     if kind == "followup":
         dated = str(fm.get("predicate") or "") in ("milestone", "due")
         return Spoken(_ask(str(fm.get("question") or fm.get("title") or f"How did {name} go?")),
@@ -482,6 +488,12 @@ def _thing(name: str, page: dict) -> str:
     return f"the {name} saved from {word}" if _is_site(word) else f"the {name} {word}"
 
 
+def thing_phrase(name: str, qualifier: str) -> str:
+    """"the <name> IDE" / "the <name> saved from example.com": a page said by its name and what tells it from the others."""
+    word = _clip(qualifier, MAX_LABEL)
+    return f"the {name} saved from {word}" if _is_site(word) else f"the {name} {word}"
+
+
 def _which(page: dict) -> str:
     """One page among several with a name, said by what it is: "the IDE", "the one saved from example.com"."""
     word = _clip(_thing_word(page), MAX_LABEL)
@@ -497,15 +509,23 @@ def _same_name(fm: dict, today: str, name: str, other_fm: dict | None, same: dic
     `same_name_pick` serves). One page: "Is this the <name-a> IDE?", its options that page or "another one"."""
     target = str(fm.get("merge_target_hint") or "")
     pages = list(titled)
-    if len(pages) >= 2 and all(_fold(p.get("name")) == _fold(name) for p in pages):
-        things = [_which(p) for p in pages]
-        question = _ask(f"Which {name} is this: {', '.join(things[:-1])} or {things[-1]}")
-        if len(question) >= MAX_QUESTION:
-            question = _ask(f"Which {name} is this")
+    if len(pages) >= 2:
+        # Ruling 83 (owner 2026-11-25): a mention that could be several pages is ONE question, said as a person would ask
+        # it — "Were you talking about your brother or <Full Name>?" — about what was said, in its conversation; the pages
+        # are the answers, whatever they are called (a title they share, a nickname, a short name inside two full names).
+        from api.services import which_one
+
+        options = [{"key": f"page:{p.get('id')}",
+                    "label": which_one.label(str(p.get("id")), {"name": p.get("name"), "type": p.get("type"),
+                                                                "owner_roles": p.get("roles")}, p.get("qualifier")),
+                    "page_name": str(p.get("name") or ""), "qualifier": p.get("qualifier")} for p in pages]
+        question = which_one.ask(name, options)
         when = _ago(fm.get("source_episode_timestamp") or fm.get("created_date"), today)
-        said = f"{_opening(name)} came up {when}" if when else f"{_opening(name)} came up"
-        reason = (f"{said}, and {len(pages)} things are called {name}; if it's another one, say so and I'll keep it "
-                  "as its own.")
+        said = f"“{_clip(name, 32)}” came up {when}" if when else f"“{_clip(name, 32)}” came up"
+        who = "people" if all(str(p.get("type") or "") == "person" for p in pages) else "things"
+        other = "someone else" if who == "people" else "another one"
+        reason = (f"{said}, and {len(pages)} {who} could be it; nothing in the conversation says which. If it's {other}, "
+                  "say so and I'll keep it apart.")
         return Spoken(question, reason)
     if not pages and other_fm and _fold(speakable(other_fm.get("name"), other_fm)) == _fold(name):
         pages = [{"id": target, "name": str(other_fm.get("name") or name), "type": str(other_fm.get("type") or ""),
@@ -796,7 +816,34 @@ def _page_edit(fm: dict, name: str) -> Spoken:
     return Spoken(_ask(f"Should “{_clip(alias, 32)}” stop being another name for {name}"), f"I think so because: {why}")
 
 
-def _clarification(fm: dict, today: str, name: str, page_type: str) -> Spoken:
+_BOTH = re.compile(r"^(?:both|neither|all of these)\b", re.IGNORECASE)
+
+
+def _divergence(fm: dict, name: str) -> Spoken:
+    """"I'm reading something different about X" is a title, not a question: asked as the question it is, the two sides
+    being the answers. Fewer than two sides keep the stored words (an empty :class:`Spoken`)."""
+    sides = [o for o in inbox_questions.normalize_options(fm.get("options")) if not _BOTH.match(str(o.get("label") or ""))]
+    if len(sides) < 2:
+        return Spoken("", "")
+    return Spoken(_ask(str(fm.get("question") or "") or f"Which is right about {name}"),
+                  "What you told me and what I have just read about it differ, and I can't tell which is current.")
+
+
+def _normalization(fm: dict, name: str) -> Spoken:
+    """"Confirm a predicate fold for X": the fold said as the question it is. Anything else keeps its stored words."""
+    raw, canonical = str(fm.get("raw_predicate") or "").strip(), str(fm.get("canonical_predicate") or "").strip()
+    if not raw or not canonical:
+        return Spoken("", "")
+    return Spoken(_ask(f"When I read “{_clip(raw, 40)}” about {name}, did I rightly take it as “{_clip(canonical.replace('-', ' '), 40)}”"),
+                  "I folded the first into the second on my own; say no and I'll keep them apart.")
+
+
+def _where(where: str | None) -> str:
+    text = " ".join(str(where or "").split())
+    return f", from “{_clip(text, 44)}”" if text else ""
+
+
+def _clarification(fm: dict, today: str, name: str, page_type: str, where: str | None = None) -> Spoken:
     asks = str(fm.get("asks") or "")
     when = _ago(fm.get("source_episode_timestamp") or fm.get("created_date"), today)
     if asks == "name":
@@ -810,6 +857,7 @@ def _clarification(fm: dict, today: str, name: str, page_type: str) -> Spoken:
         return Spoken(_ask(f"Who is {name} to you"),
                       why_asked or (f"{_opening(name)} came up {when}, but not how you know them." if when
                                     else f"{_opening(name)} came up, but not how you know them."))
-    return Spoken(_ask(str(fm.get("question") or f"Who or what is {name}")),
+    stored = str(fm.get("question") or "")
+    return Spoken(_ask(stored or f"Who or what is {name}{_where(where)}"),
                   why_asked or (f"{_opening(name)} came up {when}, and I couldn't tell who or what it is." if when
                                 else f"{_opening(name)} came up, and I couldn't tell who or what it is."))

@@ -294,8 +294,8 @@ def test_a_name_pages_share_is_asked_which_page_and_one_page_yes_or_no():
               {"id": "media-alpha", "name": "Alpha", "type": "media", "qualifier": "example.com"}]
     same = {"alpha": "IDE", "alpha-program": "program", "media-alpha": "example.com"}
     said = inbox_wording.spoken(fm, "2026-10-29", other_fm={"name": "Alpha", "type": "tool"}, same=same, titled=titled)
-    assert said.question == "Which Alpha is this: the program, the IDE or the one saved from example.com?"
-    assert "3 things are called Alpha" in said.reason and "another one" in said.reason
+    assert said.question == "Were you talking about the Alpha program, the Alpha IDE or the Alpha saved from example.com?"
+    assert "3 things could be it" in said.reason and "another one" in said.reason
     # Whatever the merge target, it is the same one question.
     assert inbox_wording.spoken({**fm, "merge_target_hint": "media-alpha"}, "2026-10-29", same=same,
                                 titled=titled).question == said.question
@@ -357,7 +357,7 @@ def test_the_inbox_serves_display_names_and_the_question(bank):
     item = items[0]
     assert item.same_title == ["alpha", "alpha-program"]
     assert item.merge_target_display_name == "Alpha (IDE)"
-    assert item.spoken_question == "Which Alpha is this: the IDE or the program?"
+    assert item.spoken_question == "Were you talking about the Alpha IDE or the Alpha program?"
     assert [(o.key, o.page_name, o.qualifier) for o in item.options] == [
         ("page:alpha", "Alpha", "IDE"), ("page:alpha-program", "Alpha", "program"), ("another", None, None)]
 

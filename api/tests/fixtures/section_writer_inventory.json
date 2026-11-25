@@ -2044,5 +2044,19 @@
       "frontmatter": "{**fields, 'created_date': today}",
       "disposition": "fresh_frontmatter_untracked"
     }
+  ],
+  "services/which_one.py": [
+    {
+      "function": "raise_question",
+      "method": "write",
+      "frontmatter": "frontmatter",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "tend",
+      "method": "write",
+      "frontmatter": "rewritten",
+      "disposition": "fresh_frontmatter_untracked"
+    }
   ]
 }

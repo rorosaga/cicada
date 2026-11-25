@@ -155,7 +155,7 @@ def _item_from_file(
             picks = same_name_pick.options(context.memory_path, fm, _lookup)
             if picks:
                 raw_options = picks
-                question = question or same_name_pick.question(fm, len(picks) - 1)
+                question = question or same_name_pick.question(fm, len(picks) - 1, picks)
         if kind == "decay" and not raw_options:
             # G115 R5: decay is SERVED as a question object and never written as
             # one — the age phrase is computed from the subject page's live
@@ -339,7 +339,8 @@ def _came_up_in(cause, today: str) -> str:
 
 #: Kinds Cicada asks in plain words (`inbox_wording`); the rest (a removal, a page edit, an agent's request…) are the
 #: person's own housekeeping and keep their stored words.
-_SPOKEN_KINDS = frozenset({"conflict", "decay", "clarification", "merge_suggestion", "followup", "page_edit"})
+_SPOKEN_KINDS = frozenset({"conflict", "decay", "clarification", "merge_suggestion", "followup", "page_edit", "divergence",
+                           "normalization"})
 
 
 def _page_namer(context: "inbox_context.InboxContext"):
@@ -375,8 +376,19 @@ def _spoken(fm: dict, kind: str, question: str | None, entity_id: str,
                                 claims=context.claims(entity_id) if conflict else None,
                                 page_name=_page_namer(context) if conflict else None,
                                 owner_name=(page(owner_id) or {}).get("name") if owner_id else None,
-                                untimed=context.untimed() if conflict else frozenset())
+                                untimed=context.untimed() if conflict else frozenset(),
+                                where=_where_it_came_up(fm, context))
     return {"spoken_question": said.question or None, "spoken_reason": said.reason or None}
+
+
+def _where_it_came_up(fm: dict, context: "inbox_context.InboxContext") -> str | None:
+    """The title of the conversation a question was raised from (ruling 83), read from the record at read; None when it has
+    none. A name's question says where the name came up."""
+    if str(fm.get("kind") or "") != "clarification":
+        return None
+    episode = context.episode(str(fm.get("source_episode") or "") or None)
+    title = str(((episode.frontmatter if episode is not None else {}) or {}).get("title") or "").strip()
+    return title or None
 
 
 def _same_name_fields(fm: dict, entity_id: str, context: "inbox_context.InboxContext") -> dict:
@@ -387,6 +399,11 @@ def _same_name_fields(fm: dict, entity_id: str, context: "inbox_context.InboxCon
     same = same_name.qualifiers(context.memory_path)
     out: dict = {}
     if not same:
+        # Ruling 83: a question about a mention that could be several pages (a nickname, a short name) names them whether
+        # or not any two share a title.
+        titled = [pid for pid in fm.get("same_title") or [] if isinstance(pid, str) and context.entity(pid) is not None]
+        if titled and str(fm.get("kind") or "") == "merge_suggestion":
+            out["same_title"] = titled
         return out
 
     def named(pid) -> str | None:
@@ -420,7 +437,7 @@ def _titled_pages(fm: dict, context: "inbox_context.InboxContext") -> list[dict]
             continue
         fmp = page.frontmatter or {}
         out.append({"id": pid, "name": str(fmp.get("name") or pid), "type": str(fmp.get("type") or ""),
-                    "qualifier": same_name.qualifier(context.memory_path, pid)})
+                    "qualifier": same_name.qualifier(context.memory_path, pid), "roles": fmp.get("owner_roles")})
     return out
 
 

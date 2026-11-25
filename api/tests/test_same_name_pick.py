@@ -51,9 +51,9 @@ def test_the_question_is_served_with_one_option_per_page_and_another(picked_bank
     assert all(o.page_name == "Alex" and o.qualifier for o in item.options[:2])
     assert item.options[0].qualifier != item.options[1].qualifier, "the qualifier tells them apart"
     assert item.options[0].label == f"Alex ({item.options[0].qualifier})", "the label keeps it in text for agents"
-    assert item.options[2].label == "Another one"
-    assert item.question == "Which Alex is this?"
-    assert item.spoken_question.startswith("Which Alex is this:")
+    assert item.options[2].label == "Someone else", "over people the answer is said as a person says it (ruling 83)"
+    assert item.question.startswith("Were you talking about Alex (")
+    assert item.spoken_question.startswith("Were you talking about Alex (")
 
 
 def test_picking_a_page_merges_the_held_mention_into_that_page_by_id(picked_bank):
@@ -133,7 +133,7 @@ def test_the_catch_up_and_the_agent_doors_offer_the_same_keys(picked_bank):
     assert [k["key"] for k in catchup_chat.answer_keys(item)] == ["page:alex", "page:alex-2", "another"]
     fm = markdown_parser.parse(picked_bank / "inbox" / "inbox-002.md").frontmatter
     asked, _cause, _rec = mcp_tools._agent_question(picked_bank, fm, "2026-10-29")
-    assert asked["question"] == "Which Alex is this?"
+    assert asked["question"].startswith("Were you talking about Alex (")
     assert [o["key"] for o in asked["options"]] == ["page:alex", "page:alex-2", "another"]
     assert "page:<id>" in mcp_tools._format_inbox_blurb(fm, "")
 
