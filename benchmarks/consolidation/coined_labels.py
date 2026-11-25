@@ -187,6 +187,15 @@ def table_birth(rows: list[dict]) -> str:
         for g, rs in sorted(groups.items()):
             c = Counter(r["where"] for r in rs)
             lines.append(f"{g:14}{len(rs):>8}   {_pct(c['person'], len(rs))}   {_pct(c['others'], len(rs))}   {_pct(c['nowhere'], len(rs))}")
+    lines.append("-- concepts and projects only (the types a label takes; `coined_names.COINABLE_TYPES`), named nowhere")
+    for key in ("kind", "lang"):
+        groups = defaultdict(list)
+        for r in rows:
+            if r["type"] in ("concept", "project"):
+                groups[str(r[key])].append(r)
+        lines.append("   by " + key + ": " + ", ".join(f"{g} {sum(1 for r in rs if r['where'] == 'nowhere')}/{len(rs)}" for g, rs in sorted(groups.items())))
+    cp = [r for r in rows if r["type"] in ("concept", "project")]
+    lines.append(f"   all: {sum(1 for r in cp if r['where'] == 'nowhere')} of {len(cp)} ({100 * sum(1 for r in cp if r['where'] == 'nowhere') // max(len(cp), 1)}%)")
     c = Counter(r["where"] for r in rows)
     lines.append(f"{'ALL':14}{len(rows):>8}   {_pct(c['person'], len(rows))}   {_pct(c['others'], len(rows))}   {_pct(c['nowhere'], len(rows))}")
     nowhere = [r for r in rows if r["where"] == "nowhere"]

@@ -15,7 +15,7 @@ from loguru import logger
 from thefuzz import fuzz
 
 from api.config import Settings
-from api.services import (agent_engine, alias_collisions, alias_policy, application_page, authorship, contact_identity, contacts_local, linkedin_people, phone_numbers, correspondents, engine_errors,
+from api.services import (agent_engine, alias_collisions, alias_policy, application_page, authorship, coined_names, contact_identity, contacts_local, linkedin_people, phone_numbers, correspondents, engine_errors,
                           entity_body, entity_relations, entity_types, fact_policy, json_parse, link_names, owner_identity, pair_evidence, people_directory, person_leads,
                           project_birth, promotion, quiet_pages, role_people, same_name_people, saves_bounded, section_provenance,
                           text_fold, wrong_aliases)
@@ -270,6 +270,8 @@ async def resolve(
             entity["name"] = full
             entity["aliases"] = [*(entity.get("aliases") or []), handle]
 
+    coined_here: set[str] = set()   # names Stage 1 marked a label in some conversation of this batch (`coined_names`)
+    said_here: set[str] = set()     # names some conversation of this batch says
     for extraction in extracted:
         episode_id = extraction["episode_id"]
         per_episode_names: list[str] = []
@@ -285,6 +287,12 @@ async def resolve(
                 # reminder's list) is no mention: never a conversation for the 2+ rule, never a held line.
                 logger.debug("Stage 2: dropped a name only a filing label carried")
                 continue
+            # 2026-11-25 (G148): Stage 1 marks a concept or project whose name no text of the conversation says. A name is
+            # described when EVERY conversation that gave it this batch only described it (a conversation that says it is a mention).
+            if entity.pop(coined_names.COINED, False):
+                coined_here.add(name.strip().lower())
+            else:
+                said_here.add(name.strip().lower())
             # A texted person saved under a relation ("Mom") is `role_people`'s: one relation page, a person already.
             if (correspondents.from_mark(entity.get(correspondents.MARK)) is not None
                     and not entity.get(role_people.UNNAMED_KEY)):
@@ -749,7 +757,10 @@ async def resolve(
             # (owner 2026-10-09, `skill_hold`) holds for a skill Stage 1 names too, so its one-conversation rungs do not
             # apply and it waits in the index (G239). A note's lines are all the person's own, so before this a phrase
             # typed `skill` got a page from one note the moment it was linked to any page.
-            one_conversation_rungs = _written_type(entity, siblings) != "skill" and (
+            # 2026-11-25 (G148): nor does a label nobody said (`coined_names`): a page is born under a name the person can say,
+            # so a described thing waits with what was said about it until a conversation says it or a second one gives it.
+            described = name_lower in coined_here and name_lower not in said_here
+            one_conversation_rungs = _written_type(entity, siblings) != "skill" and not described and (
                 linked_to_existing or any(promotion.substantive(e) for e in (entity, *siblings)))
             should_promote = (
                 # Ruling 43: counted by conversation — an agent's memory note is its session's, never one of its own.

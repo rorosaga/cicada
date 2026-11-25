@@ -14,7 +14,7 @@ from loguru import logger
 from tqdm import tqdm
 
 from api.config import Settings
-from api.services import (act_object, meeting_speakers, authorship, book_marks, contact_identity, turn_signals, correspondents, decay_policy, engine_errors, entity_types, episode_time,
+from api.services import (act_object, coined_names, meeting_speakers, authorship, book_marks, contact_identity, turn_signals, correspondents, decay_policy, engine_errors, entity_types, episode_time,
                           episode_revision, evidence, fact_policy, grouped_save_read, participation, phone_numbers, project_birth, promotion, saved_reading, section_provenance,
                           sensitive_flags, source_dates)
 from api.services.json_parse import parse_json_object
@@ -1468,6 +1468,15 @@ async def extract(
                     sanitize_entity_type(entity)
                     sanitize_decay_class(entity)
                     sanitize_website(entity)
+                    # 2026-11-25 (G148): a concept or project whose name no text of the conversation says is a label the model
+                    # wrote, not a name — marked from the text, never the model's to say. It asks the person nothing, and
+                    # Stage 2 never gives it a page from this one conversation (`coined_names`).
+                    entity.pop(coined_names.COINED, None)
+                    if coined_names.coined(entity, content, given="\n".join(t for t in (owner or "", source_note or "") if t),
+                                           override=authorship.of_episode(episode), gaps=gaps,
+                                           persons=promotion.person_kinds(episode)):
+                        entity[coined_names.COINED] = True
+                        entity.pop("ask_person", None)
                 if narration:
                     # "X was mentioned in a conversation": the page's sources already say so.
                     logger.debug(f"  {ep_id}: {narration} fact(s) that only said the thing came up were left out")

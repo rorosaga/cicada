@@ -27,6 +27,16 @@ PERSON = "person"
 OTHERS = "others"
 NOWHERE = "nowhere"
 
+#: Stage 1's mark on an entity whose name is a label (:func:`coined`): computed from the conversation, never the model's, and
+#: popped by Stage 2 before anything is written. Same shape as `promotion.LABEL_ONLY`.
+COINED = "coined"
+
+#: The types a described thing takes. A company, a place, a tool or a person the model names in other words than the
+#: conversation did is the model normalising a real name ("gdocs" to a tool's full name, "Muenchen" to "Munich", a relation
+#: to a person): those are no label, and nothing here changes for them. A skill is named by Sleep as an instruction, never by
+#: what anyone said.
+COINABLE_TYPES = frozenset({"concept", "project"})
+
 _WORD = re.compile(r"[^\W_]+", re.U)
 
 
@@ -78,3 +88,22 @@ def words_of(name: str, text: str) -> str:
     said = {text_fold.fold(w) for w in _WORD.findall(str(text or ""))}
     hit = sum(1 for w in words if w in said)
     return "all" if hit == len(words) else "some" if hit else "none"
+
+
+def coined(entity: dict, text: str, *, given: str = "", override: str | None = None, gaps=(),
+           persons=frozenset({"user", "speaker"})) -> bool:
+    """Is this Stage 1 entity's name a label nobody said? True only for a concept or a project (:data:`COINABLE_TYPES`) whose
+    name and every alias is in no text of the conversation, ``given`` (what the model was handed besides it: the owner's name
+    and the source note, so a harness's or a correspondent's name is said) included. A thing one of whose aliases the
+    conversation says is not coined, and neither is an event or application the person acted on (ruling 42) or a book's
+    record (ruling 64).
+
+    The caller stamps the answer (:data:`COINED`); nothing is renamed, dropped or moved here: what a label is, is the caller's."""
+    if str(entity.get("type") or "").lower() not in COINABLE_TYPES:
+        return False
+    if entity.get("application") or entity.get("reading_status"):
+        return False
+    names = _clean([entity.get("name"), *[a for a in entity.get("aliases") or [] if isinstance(a, str)]])
+    if not names:
+        return False
+    return said_in(names, text, override=override, gaps=gaps, persons=persons, extra=given) == NOWHERE
