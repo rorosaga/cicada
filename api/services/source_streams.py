@@ -158,7 +158,7 @@ _KIND_BY_NAME = {"likes": "liked", "liked": "liked", "upvoted": "liked", "repost
 #: The sources a person saves from inside the site itself, whose save click the app notices on this Mac (the plan's
 #: "Saves you make" stream). The state is the app's own switch, which the app writes over this row.
 _CLICK_SITES = (("x", "X"), ("instagram", "Instagram"), ("github", "GitHub"), ("tiktok", "TikTok"),
-                ("reddit", "Reddit"), ("youtube", "YouTube"))
+                ("reddit", "Reddit"), ("youtube", "YouTube"), ("pinterest", "Pinterest"))
 
 #: Where the sources sit on the page's wire, as the app's catalogue lists them; one a table adds later follows.
 _SOURCE_ORDER = ("x", "youtube", "instagram", "linkedin", "reddit", "pinterest", "github", "linear", "spotify", "tiktok",

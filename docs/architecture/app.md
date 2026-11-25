@@ -1636,6 +1636,14 @@ links that split the row — measured 2026-11-25 with real clicks: there the row
 links, Share, Copy link, each count alone as the label, and the old place named Share and missed the favourite; in
 both rows only a control whose own label names a count is the favourite, which also keeps the share button and the
 player's volume from being read as one, `Slot.countedBeforeLastOrLinks`), and which page is the person's own saved list.
+**A site whose save is a toggle** (`Slot.toggleAfterMenu`, Pinterest, owner 2026-11-25: "everything else you say its
+not covered should be covered"): measured on the feed (the control shows while the pointer is on a pin) and on a
+pin's own page, the save is a toggle button directly after the board picker's menu button, and a toggle button is a
+checkbox to macOS that carries its own state. So only on such a site the reader looks for the toggle under the click
+(`enclosingToggle`), counts toggles among the row's controls and reads each one's state (`SiteSaveNode.checked`), and
+**the state moving is the direction** (`stateStep`: on is saved, off is unsaved), ahead of every other evidence and
+with no label and no count; when the label moved too it is learned. The pin is the card's own link, else the page.
+Every other site's rows are read exactly as before: a toggle in them is no control of the row.
 **A feed that plays one post at a time** (`SiteSaveSite.Playing`, owner 2026-11-25: "everything else you say its not
 covered should be covered"; measured on TikTok's For You): the address stays the feed's and no link names the video, so
 the row read as `noPostLink`. The controls sit in one bar beside whichever video is playing; the reader climbs from the
@@ -1766,8 +1774,9 @@ its switch, No is kept and listed in Settings, Not now waits two hours and then 
 sources does not hold a site's offer) asks "Connect X to Cicada?" with the site's mark. **This is the one case where the
 page in the front tab triggers an offer** (owner 2026-11-23, amending the 2026-10-19 note in `ConnectSuggestApps`): only
 with Accessibility already granted and the offer switch on; the address is compared and kept nowhere. The offer covers
-the sites with a save control (`SiteSaveSite.all`) and the sites that are only sources — LinkedIn, Pinterest, Substack,
-Spotify, Goodreads (`SiteSaveSite.offerOnly`, matched by address alone, never read for a save). **One truth:** a source
+the sites with a save control (`SiteSaveSite.all`, Pinterest among them since 2026-11-25) and the sites that are only
+sources — LinkedIn, Substack, Spotify, Goodreads (`SiteSaveSite.offerOnly`, matched by address alone, never read for a
+save). **One truth:** a source
 is offered only while the catalogue's own word for it is Off (`ConnectSuggestApps.status`, which reads the lists the
 person turned on and the sites their agent may open like the page does) — never because a per-Mac flag is unset, and a
 source the page shows as set up is neither offered nor listened to. **One path:** Yes is `NotchConnector`, which is
