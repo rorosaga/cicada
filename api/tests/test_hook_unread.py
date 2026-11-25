@@ -96,3 +96,13 @@ def test_a_page_named_keeps_its_note_and_the_unread_line_rides_below(bank):
                           "## Summary\nThe person renting out the flat.\n")
     note = _note(bank, "did the landlord ever get that plumber invoice?")
     assert "landlord" in note.injected and "plumber invoice before the lease renewal" in note.text
+
+
+def test_a_topic_note_with_unread_lines_keeps_its_order_and_never_raises(bank, monkeypatch):
+    # Review of #925: unread lines are (episode, line) pairs, no saved hits; a topic note keeps them below it.
+    monkeypatch.setattr(hook_recall, "_unread_turn_lines",
+                        lambda *a, **k: [("ep_2026-11-20_001", "- [ep_2026-11-20_001] (2026-11-20, not yet read by Sleep): x")])
+    note = hook_recall.Injection(text="TOPIC NOTE", injected=("alpha",), reason="topic")
+    out = hook_recall._with_unread(bank, "anything", note, recent=frozenset(), session_id=None, deadline=None,
+                                   clock=lambda: 0.0)
+    assert out.text.startswith("TOPIC NOTE") and "ep_2026-11-20_001" in out.text and out.reason == "topic"

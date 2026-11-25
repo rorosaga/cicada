@@ -358,6 +358,98 @@ def retrieval(bank: Path, manifest: dict, rows_by_key: dict) -> dict:
             "meaning": "not measured: the search model is not loaded (fake hash embedder), so meaning cases are not run"}
 
 
+def _surface_items(text: str, kind: str) -> list[str]:
+    """What a surface shows, in output order, one string per result: a page (its heading, or Ask's ``entity_id`` line, or
+    the hook's topic line) and a saved line. The rank of a save is its place in this list. ``kind``: ``recall``, ``ask``
+    or ``hook``."""
+    items: list[str] = []
+    in_saved = False
+    for ln in text.splitlines():
+        if kind == "recall" and ln.startswith("### "):
+            items.append(ln)
+        elif kind == "ask" and ln.startswith("### entity_id:"):
+            items.append(ln)
+        if "Saved links" in ln or ln.startswith("SAVED LINKS") or "links the person saved" in ln:
+            in_saved = True
+            continue
+        if in_saved and ln.startswith("- "):
+            items.append(ln)
+        elif in_saved and not ln.strip():
+            in_saved = False
+        elif kind == "hook" and not in_saved and ln.startswith("- "):
+            items.append(ln)
+    return items
+
+
+def _rank(items: list[str], row: dict, is_group: bool = False) -> int | None:
+    """1-based place of the save among ``items`` (matched by its link or, for a page heading, its title), else None."""
+    for i, it in enumerate(items, 1):
+        if (row.get("url") and row["url"] in it) or (row["title"] in it):
+            return i
+    return None
+
+
+def ranks(bank: Path, manifest: dict, rows_by_key: dict) -> dict:
+    """G246: where a saved item sits among everything each surface shows. Recall (``mcp_tools.recall``), Ask (the
+    context its model is handed, through a stand-in model) and the hook's note, for ruling 62's cases, a message that
+    names a save by its title, and the weak cases (a one- or two-word overlap, which must not outrank the right page).
+    The search model is the fake hash embedder here, so the vector leg is a bag of hashed words, not meaning: a real
+    model moves the pages, never the saves' words leg. Never a gate."""
+    from unittest.mock import patch
+
+    from api.services import ask_service, bank_index, hook_recall, mcp_tools, providers, search_index
+    from api.services.vector_index import SqliteVecIndexer
+    from benchmarks.consolidation import saves_fixture as fx
+    from benchmarks.system.engine import embed
+
+    fake = lambda *a, **k: (embed, "fake-hash-v1")  # noqa: E731
+    bank_index.invalidate()
+    search_index.refresh(bank)
+    with patch.object(providers, "resolve_embed_fn", fake), patch.object(providers, "resolve_embed_fn_for_model", fake), \
+            patch.object(providers, "cached_embed_fn_for_model", fake):
+        SqliteVecIndexer(bank).index_entities()
+        ctx = mcp_tools.ToolContext(memory_path=lambda: bank, session_id="rank", harness="claude-code")
+        seen: dict = {}
+
+        def llm(prompt: str) -> str:
+            seen["prompt"] = prompt
+            return json.dumps({"answer": "x", "confidence": 0.5, "citations": [], "gaps": []})
+
+        def survey(cases):
+            out = []
+            for key, query in cases:
+                row = rows_by_key.get(key) or {}
+                query = query or row.get("title")
+                if row.get("via") == "tab-group":
+                    continue
+                recall_items = _surface_items(str(mcp_tools.recall(ctx, query)), "recall")
+                seen.clear()
+                ask_service.answer_query(bank, query, llm_fn=llm, no_engine=False, search_fn=lambda *_: None)
+                ask_items = _surface_items(seen.get("prompt", ""), "ask")
+                note = hook_recall.prompt_context(bank, query).text or ""
+                hook_items = _surface_items(note, "hook")
+                out.append({"case": key, "recall": _rank(recall_items, row), "ask": _rank(ask_items, row),
+                            "hook": _rank(hook_items, row), "recall_shown": len(recall_items)})
+            return out
+
+        cases = survey([*fx.RETRIEVAL_CASES, *fx.TITLE_CASES])
+        weak = []
+        for key, query in fx.WEAK_CASES:
+            row = rows_by_key.get(key) or {}
+            items = _surface_items(str(mcp_tools.recall(ctx, query)), "recall")
+            save_at = _rank(items, row)
+            pages = sum(1 for it in items if it.startswith("### "))
+            weak.append({"case": key, "save_rank": save_at, "pages_shown": pages,
+                         "ok": save_at is None or save_at > pages or not any(
+                             it.startswith("### ") and row["title"] in it for it in items)})
+    summary = {}
+    for surface in ("recall", "ask", "hook"):
+        found = sorted(c[surface] for c in cases if c[surface] is not None)
+        summary[surface] = {"found": len(found), "of": len(cases), "median": found[len(found) // 2] if found else None,
+                            "max": found[-1] if found else None}
+    return {"summary": summary, "cases": cases, "weak": weak}
+
+
 def usage(home: Path) -> dict:
     """The scratch ledger by stage: calls, input, cache, output tokens, model seconds (``benchmarks.perf.ledger``)."""
     from benchmarks.engine_parity import _usage_events
@@ -653,6 +745,10 @@ def selfcheck(out: Path, grouped: bool = False) -> int:
     expect(prep["waiting_if_all_woken"]["waiting_saves"] == 0, f"the bulk list waits its turn, none of it waits tonight: {prep['waiting_if_all_woken']}")
     r = prep["retrieval_at_capture"]
     expect(r["words"] == r["cases"] and r["hook_note"] >= r["cases"] - 2, f"retrieval cases on the pile (the hook never brings up a list row, so 10 of 12 is dev today): {r['words']}/{r['cases']} words, {r['hook_note']}/{r['cases']} hook, missed {r['missed']}")
+    rk = ranks(out / "bank", prep["manifest"], prep["rows_by_key"])
+    expect(rk["summary"]["recall"]["max"] is not None and rk["summary"]["recall"]["max"] <= 2,
+           f"G246: a save ranks among recall's first two results (max {rk['summary']['recall']['max']}), Ask {rk['summary']['ask']}, hook {rk['summary']['hook']}")
+    expect(all(w["ok"] for w in rk["weak"]), f"G246: a weak overlap stays below the pages: {rk['weak']}")
     sleep = run_sleep(out, stand_in=True)
     expect(sleep["error"] is None and sleep["stand_in_calls"] > 0, f"Sleep ran through the stand-in engine ({sleep['stand_in_calls']} calls, error {sleep['error']})")
     code = finish(out, "grouped" if grouped else "single", prep, sleep, clock, stand_in=True)
@@ -667,6 +763,15 @@ def selfcheck(out: Path, grouped: bool = False) -> int:
     return 1 if fails else 0
 
 
+def rank_run(out: Path) -> int:
+    """Seed and capture on a scratch bank (no Sleep, no model), then print :func:`ranks`."""
+    isolate(out, stand_in=True)
+    prep = prepare(out, "single", date.today())
+    result = ranks(out / "bank", prep["manifest"], prep["rows_by_key"])
+    print(json.dumps(result, indent=1))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -678,6 +783,8 @@ def main(argv: list[str] | None = None) -> int:
     rs.add_argument("out", type=Path)
     rp = sub.add_parser("report", help="print finished legs and the marginal cost of a read")
     rp.add_argument("legs", nargs="+", type=Path)
+    rk = sub.add_parser("ranks", help="G246: the rank of a save among each surface's results, no model (fake hash embedder)")
+    rk.add_argument("--out", type=Path, required=True, help="a new scratch folder")
     s = sub.add_parser("selfcheck", help="the fixture and the whole path through a stand-in engine, no model")
     s.add_argument("--out", type=Path, default=None)
     s.add_argument("--grouped", action="store_true", help="with the grouped read on: the stand-in answers a group, so that path runs")
@@ -688,6 +795,8 @@ def main(argv: list[str] | None = None) -> int:
         return report(a.legs)
     if a.cmd == "rescore":
         return rescore(a.out)
+    if a.cmd == "ranks":
+        return rank_run(a.out)
     import tempfile
     out = a.out or Path(tempfile.mkdtemp(prefix="saves-battery-selfcheck-"))
     return selfcheck(out, grouped=a.grouped)
