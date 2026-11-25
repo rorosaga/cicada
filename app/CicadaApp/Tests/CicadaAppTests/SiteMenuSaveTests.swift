@@ -224,7 +224,8 @@ final class SiteMenuSaveTests: XCTestCase {
     }
 
     func testTheNewSitesAreOfferedAndStoredUnderTheirOwnSource() {
-        XCTAssertEqual(SiteSaveSite.all.map(\.key), ["x", "instagram", "github", "tiktok", "reddit", "youtube"])
+        XCTAssertEqual(SiteSaveSite.all.map(\.key), ["x", "instagram", "github", "tiktok", "reddit", "youtube",
+                                                    "pinterest"])
         XCTAssertNotNil(SiteSaveSite.youtube.item("https://www.youtube.com/shorts/AbCdEfGhIjK"))
         XCTAssertNil(SiteSaveSite.youtube.item("https://www.youtube.com/@alpha"))
         XCTAssertNil(SiteSaveSite.reddit.item("https://www.reddit.com/r/alpha_sub/comments/1abc234/a_post/k9x8y7z/"),

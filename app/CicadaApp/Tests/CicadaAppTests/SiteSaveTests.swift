@@ -209,6 +209,46 @@ final class SiteSaveTests: XCTestCase {
         XCTAssertEqual(SiteSaveRule.item(unnamed), .failure(.noPostLink))
     }
 
+    /// Measured 2026-11-25 on Pinterest's feed (the pointer on a pin) and on a pin's own page: the board picker, then a
+    /// toggle. The toggle carries its own state, so a save is told from an unsave with no label and no count.
+    func testOnPinterestTheSaveIsTheToggleAfterTheBoardPickerAndItsOwnStateSaysWhichWay() throws {
+        let pin = "https://www.pinterest.com/pin/123456789012345678/"
+        func toggle(_ on: Bool, _ label: String = "a") -> SiteSaveNode {
+            SiteSaveNode(role: "AXCheckBox", label: label, checked: on)
+        }
+        // A card in the feed: the pin's own link, the picker, the toggle, the card's own menu.
+        let card = SiteSaveReading(row: [link("https://es.pinterest.com/pin/123456789012345678/?x=1"), menu("board"),
+                                         toggle(false), menu("more")],
+                                   clicked: 2, page: "https://www.pinterest.com/")
+        XCTAssertEqual(try SiteSaveRule.item(card).get(),
+                       SiteSaveItem(site: "pinterest", origin: "pinterest-saved", url: pin, title: "Pin"))
+        var saved = card
+        saved.row[2] = toggle(true)
+        XCTAssertEqual(SiteSaveRule.stateStep(before: card, after: saved), 1)
+        XCTAssertEqual(SiteSaveRule.outcome(before: card, after: saved, site: .pinterest), .saved)
+        XCTAssertEqual(SiteSaveRule.outcome(before: saved, after: card, site: .pinterest), .unsaved)
+        XCTAssertEqual(SiteSaveRule.outcome(before: card, after: card, site: .pinterest), .none)
+        // The label may change with it or not: the state decides either way, in any language.
+        var renamed = card
+        renamed.row[2] = toggle(true, "保存済み")
+        XCTAssertEqual(SiteSaveRule.outcome(before: card, after: renamed, site: .pinterest), .saved)
+
+        // The pin's own page: other controls beside it, no pin link in the row, the page names the pin.
+        let own = SiteSaveReading(row: [button("comments"), menu("share"), menu("more"), menu("board"), toggle(false)],
+                                  clicked: 4, page: pin + "?utm=x")
+        XCTAssertEqual(try SiteSaveRule.item(own).get().url, pin)
+        // Another toggle (the reaction), or a toggle with no picker before it, is not the save.
+        let react = SiteSaveReading(row: [toggle(false), button("comments"), menu("board"), toggle(false)],
+                                    clicked: 0, page: pin)
+        XCTAssertEqual(SiteSaveRule.item(react), .failure(.notTheSaveSlot))
+        // A plain button is never Pinterest's save, and a toggle is never another site's.
+        let plain = SiteSaveReading(row: [menu("board"), button("a"), menu("more")], clicked: 1, page: pin)
+        XCTAssertEqual(SiteSaveRule.item(plain), .failure(.notAButton))
+        var onX = timeline(save: "b", counts: "")
+        onX.row[4] = toggle(false)
+        XCTAssertEqual(SiteSaveRule.item(onX), .failure(.notAButton))
+    }
+
     func testOnlyTheSitesHandedToTheRuleAreRead() {
         let feed = timeline(save: "b", counts: "")
         XCTAssertEqual(SiteSaveRule.item(feed, sites: [.instagram]), .failure(.unknownSite))
