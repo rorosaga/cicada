@@ -761,3 +761,79 @@ def test_a_drain_commits_a_long_session_on_its_own_before_a_stop_can_cost_it(tmp
                                 user_triggered=True, drain=True))
     assert rig.extract_batches == [["ep_2026-09-01_100"], ["ep_2026-09-01_101", "ep_2026-09-01_102"]]
     assert sleep_cycle.get_sleep_state().drain.committed_batches == 2
+
+
+# --- G246: a save pops when relevant (owner 2026-11-25) ----------------------------------------------------------------
+
+
+def _recall_text(found, monkeypatch, query):
+    from api.services import mcp_tools, vector_index
+    from _stdio_server import stdio_server
+
+    class _NoIndex:
+        def __init__(self, *a, **k):
+            raise RuntimeError("no vector index in this bank")
+
+    monkeypatch.setattr(vector_index, "SqliteVecIndexer", _NoIndex)
+    monkeypatch.setattr(mcp_tools, "_relevant_inbox", lambda memory_path, query, **_: [])
+    mcp = stdio_server()
+    monkeypatch.setattr(mcp, "get_memory_path", lambda: found)
+    monkeypatch.setattr(mcp, "_STATE_HINT_SENT", False)
+    return str(mcp.handle_recall(query))
+
+
+def test_a_hit_is_strong_only_when_the_message_is_about_it(found):
+    # Two rare words and half the title's own words: about it.
+    [strong] = saved_lookup.find(found, "I'm building a local-first sync engine with CRDTs", min_shared=1)
+    assert strong.strong
+    # One word of a longer title: a weak overlap, found by a short lookup but never strong.
+    [weak] = saved_lookup.find(found, "scree", min_shared=1)
+    assert weak.url == "https://example.com/guide-d" and not weak.strong
+    # The hook's two-word rule keeps only strong hits, so every hook hit is strong.
+    assert all(h.strong for h in saved_lookup.find(found, "rust ownership explained", min_shared=2))
+
+
+def test_recall_ranks_a_strongly_matching_save_among_the_pages_and_a_weak_one_never(found, monkeypatch):
+    # No leg of a natural question ranks the save's page (the word leg wants every word); the saved leg does, as a page.
+    text = _recall_text(found, monkeypatch, "I'm building a local-first sync engine with CRDTs")
+    assert "### CRDTs for local-first apps" in text
+    assert text.count("https://example.com/crdts") == 1   # once: as the page, not again under "Saved links"
+    # One shared word of a three-word title is no page: it stays in the trailing section, as before.
+    weak = _recall_text(found, monkeypatch, "scree hiking trip")
+    assert "### A field guide to scree" not in weak and "https://example.com/guide-d" in weak
+
+
+def test_ask_reads_a_strong_save_right_after_the_best_page_and_a_weak_one_last(found):
+    from api.services import ask_service
+
+    prompts: list[str] = []
+
+    def llm(prompt):
+        prompts.append(prompt)
+        return '{"answer": "x", "confidence": 0.5, "used_entities": []}'
+
+    pages = [{"entity_id": f"page-{n}", "entity_name": f"Page {n}", "type": "concept", "claims": [], "claim_rows": []}
+             for n in range(3)]
+    ask_service.answer_query(found, "I'm building a local-first sync engine with CRDTs",
+                             retrieve_fn=lambda q, k: [], llm_fn=llm, search_fn=lambda *a, **k: None)
+    assert prompts[0].count("SAVED LINKS") == 1 and "https://example.com/crdts" in prompts[0]
+    lead = ask_service._build_prompt("q", pages, saved_lead="SAVED LINKS (x):\n- a save")
+    assert lead.index("page-0") < lead.index("SAVED LINKS") < lead.index("page-1")
+    plain = ask_service._build_prompt("q", pages)
+    assert "SAVED LINKS" not in plain
+    assert ask_service._saved_lines(found, "scree", episodes=False)[2] == 0
+    assert ask_service._saved_lines(found, "I'm building a local-first sync engine with CRDTs", episodes=False)[2] == 1
+
+
+def test_the_hook_puts_a_strong_save_ahead_of_a_topic_note_and_after_a_named_page(found, monkeypatch):
+    from api.services import hook_recall, recall_text
+
+    topic = hook_recall.Injection(f"{recall_text.TOPIC_HEADER}\n- a claim — Some Page (`some-page`)", ("some-page",), "topic")
+    named = hook_recall.Injection(f"{recall_text.INJECTION_PREFIX} named page note", ("some-page",), "injected")
+    prompt = "I'm building a local-first sync engine with CRDTs"
+    for note, saved_first in ((topic, True), (named, False)):
+        out = hook_recall._with_saved(None, found, prompt, note, recent=frozenset(), deadline=None, clock=time.monotonic)
+        assert "https://example.com/crdts" in out.text
+        link, own = out.text.index("https://example.com/crdts"), out.text.index(note.text.splitlines()[0])
+        assert (link < own) is saved_first
+        assert out.tokens <= hook_recall.MAX_TOKENS

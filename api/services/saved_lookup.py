@@ -14,7 +14,7 @@ A hit is the page's words: a line here is never the person's, and being found ch
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from loguru import logger
@@ -65,6 +65,10 @@ class Hit:
     #: Where the save stands (``history_index.save_state``): ``waiting``, ``pile``, ``no-words`` or ``read``; what the
     #: line says about it (``saved_words.tag``). ``""`` from a caller that built a hit by hand.
     state: str = ""
+    #: The message is about this one, not about something near it: two of its rare words (or all of a one-word title)
+    #: cover :data:`NOTE_COVER` of the message's rare weight and :data:`TITLE_COVER` of the title's own subject words.
+    #: The unasked note's strictness, measured here for every caller; recall, Ask and the hook let only a strong hit lead.
+    strong: bool = False
 
 
 def subject_stems(text: str) -> list[str]:
@@ -209,12 +213,15 @@ def _find(memory_path: Path, reader, stems: list[str], k: int, min_shared: int, 
         shared = [s for s in weights if s in own]
         if hit.page is not None and (len(shared) < min_shared or sum(weights[s] for s in shared) < MIN_COVER * total):
             continue
-        if hit.page is not None and min_shared > 1:
+        if hit.page is not None:
             title = text_fold.subject_terms(hit.title)
-            if title and len(title & set(shared)) < TITLE_COVER * len(title):
+            said = title & set(shared)
+            strong = ((len(shared) >= 2 or (bool(said) and said == title))
+                      and len(said) >= TITLE_COVER * len(title)
+                      and sum(weights[s] for s in shared) >= NOTE_COVER * total)
+            if min_shared > 1 and not strong:
                 continue
-            if sum(weights[s] for s in shared) < NOTE_COVER * total:
-                continue
+            hit = replace(hit, strong=strong)
         out.append(hit)
         if len(out) == k:
             break

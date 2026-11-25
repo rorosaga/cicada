@@ -142,6 +142,19 @@ conversation label (id, who was on the other side, "not yet read") is given on a
 link's address is shown without its share tracking (`saved_lookup.shown_url`, display only); the hints fence is
 compact. Recall median 2,024 → 1,930 (−4.6%), p90 2,836 → 2,771.
 
+**A save pops when it is relevant (G246, owner 2026-11-25).** A saved item is a `media` page, but recall's word leg wants
+every word of the query in the page, so a natural question reached it only through the trailing "Saved links on this"
+section, after five pages. `saved_lookup.find` now marks a hit `strong` when the message is about it, not about
+something near it: two of its rare words (or all of a one-word title) cover 0.6 of the message's rare weight and half
+of the title's own subject words — the unasked note's strictness, said once for every door. Recall fuses the strong
+saved pages (at most 3) as a fourth leg beside the vector, word and claim legs (reciprocal rank, the same floor and cap
+of five), so a strong title match ranks among the pages and a page two legs agree on still beats it; a weak overlap (one
+word, or two of a long title) never joins and stays in the trailing section, as before. A saved page shown as a page is
+not listed again under "Saved links". Ask places strong saved lines right after the best page, ahead of the other pages
+and of the conversations' words (weak ones stay last); the hook's note puts them ahead of a topic note's claim lines
+and after a page the message names. Headings, the hints block and the tool descriptions are unchanged. Measured with
+`benchmarks/consolidation/saves_battery.py ranks` (fake hash embedder): recall max rank 3 → 1, Ask median 7 → 2.
+
 **Before Sleep (G207, 2026-10-22).** Recall's "Related conversation excerpts" (under the `sources` scope, R-R22)
 rank-fuse two legs, keeping 3: the vector leg (`_leann_search_episodes`), which step 0 fills right after capture
 (`capture-and-sleep.md`, "After capture"), and a word leg over the FTS passages (`_lexical_search_episodes`:

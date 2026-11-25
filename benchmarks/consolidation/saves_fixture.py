@@ -306,6 +306,21 @@ RETRIEVAL_CASES = [
     ("bulk010", None),   # the row's own title: its series name is the only word no other row shares
     ("group02", "operational transform explained"),
 ]
+#: G246 (owner 2026-11-25, "i want them to pop when relevant"): a message that NAMES a save by its title is plainly about
+#: it, whatever else the bank holds on the topic: the save must rank among the first results of every surface.
+TITLE_CASES = [
+    ("quill38", "Quillnote extends version history to 90 days"),
+    ("sour05", "Dutch ovens for sourdough, tested"),
+    ("why01", "Designing a billing API that survives refunds"),
+    ("riley01", "Line length and readability"),
+    ("old40a", None),   # the row's own title
+]
+#: ``(save key, a message that shares only a word or two with it)``: the save is not strong, so it stays in the trailing
+#: "Saved links" section, below every page block ("confidence does not rank recall": a weak overlap pushes nothing aside).
+WEAK_CASES = [
+    ("why01", "the Helio billing API rewrite and its refunds"),
+    ("quill00", "Quillnote company news this month"),
+]
 #: A feed item has no page, so the saved lookup cannot serve it (docs say indexed; the code reads it with a model, plan 0.10):
 #: reported apart, never a gate.
 FEED_CASE = ("feed01", "weekly build notes issue 41 scheduler")
