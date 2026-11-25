@@ -1726,8 +1726,12 @@ item's place. **Reddit:** the menu sits under `#hovercard` inside the post's own
 one to show fewer before the save and one asking why before Report, where the old place from the end read every save
 as nothing; a menu that shows no such icon falls back to the third shown item from the end of four or five (a hidden
 zero-size item on a post's page is not counted); the post is the link that carries the block's id, or the page itself
-on the post's page; a comment's menu (`comment-overflow-menu`, three items) reads as nothing, and the person's own
-post's or a moderator's menu is unmeasured. **YouTube:** the sheet of lists
+on the post's page; a comment's menu (`comment-overflow-menu`, three items) reads as nothing. **A menu whose layout
+no rule places the save in** is read by the label this Mac learned (`SiteMenuRule.item(learned:)`, owner 2026-11-25:
+"reddit own posts menu should be covered"): on the person's own post the menu has ten items, the save third, between
+items no other layout has and with no mirrored icon (measured 2026-11-25), so the item wearing a label already learned
+as this site's save or unsave, from the person's own clicks on an ordinary post, is the save, in a menu of at most
+twenty items inside a post's block. A moderator's menu is read the same way, unmeasured. **YouTube:** the sheet of lists
 (`ytListViewModelHost` inside a `ytContextualSheetLayoutHost` that has a header and ends in a button — the same list
 class without them is another menu); every item is a list, the first the site's own (Watch later), any other a
 playlist whose name is sent as the save's folder and becomes its list label; the video is where the sheet was opened
