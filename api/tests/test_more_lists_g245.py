@@ -636,6 +636,18 @@ def test_the_x_reposts_and_following_words_do_not_hang_on_a_tab_name_or_an_addre
     assert "the person's own profile, then its Following list" in lines and "never an account's profile" in lines
 
 
+def test_the_moved_list_line_is_on_a_list_read_from_a_list_page_and_not_on_the_reposts_timeline(reading):
+    """Its scope, pinned: the line belongs to the queue of a list read from a list page of its own. The reposts are rows of the
+    person's own profile, never a list page, so their queue says where to read and never a list that moved."""
+    server, memory = reading
+    for key in ("x", "x-likes"):
+        _only(key)
+        assert "If X has moved this list" in _queue(server), key
+    _only("x-reposts")
+    out = _queue(server)
+    assert "their own profile" in out and "has moved this list" not in out
+
+
 def test_every_x_address_lives_in_the_one_table_and_no_queue_code_names_one():
     import inspect
 
