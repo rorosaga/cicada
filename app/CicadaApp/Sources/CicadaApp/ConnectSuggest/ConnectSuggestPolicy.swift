@@ -212,7 +212,8 @@ enum ConnectSuggestPolicy {
     /// How long the app must stay in front before the panel shows: a ⌘-Tab that passes through it is not entering it.
     static let dwell: TimeInterval = 1.5
     /// How long an untouched panel stays (the ask-why question's own patience, `SaveWhyPolicy.askTimeout`); the
-    /// pointer resting on the panel holds it.
+    /// pointer resting on the panel holds it. The panel shows it as a bar filling along its bottom edge, and nothing
+    /// but this and the person's own answer closes it (owner 2026-11-25).
     static let timeout: TimeInterval = SaveWhyPolicy.askTimeout
     /// A click on the panel this soon after it shows was aimed at what was beneath it (`SaveWhyPolicy.armDelay`).
     static let armDelay: TimeInterval = SaveWhyPolicy.armDelay
@@ -375,13 +376,16 @@ enum ConnectSuggestResult: Equatable, Sendable {
 
 /// How an open suggestion closes, and what each way records. Pure, with the clock passed in, so the timeout, the
 /// hover hold and the arm delay are tested as values.
+///
+/// **Only the person's answer or the bar closes it (owner 2026-11-25: "the notification doesn't go away on the first
+/// click, but rather when pressing no or a timer of sorts that has a bar filling up at the bottom from left to
+/// right").** Until then a click into another app closed it and counted as Not now; now bringing another app forward
+/// changes nothing, and the panel stays until No, Not now, Yes, or its bar has filled (`countdownFrom`).
 struct ConnectSuggestPanelState: Equatable {
     enum Input: Equatable {
         case yes, no, notNow
         /// The pointer entered or left the card.
         case hover(Bool)
-        /// The person brought another app forward: the suggestion was about the one they left.
-        case appChanged
         /// The ask-why question is about to drop from the same notch: it goes first.
         case superseded
         /// A tick of the clock.
@@ -391,15 +395,14 @@ struct ConnectSuggestPanelState: Equatable {
     }
 
     enum Outcome: Equatable {
-        case yes, no, notNow, timedOut, leftApp, superseded
+        case yes, no, notNow, timedOut, superseded
 
-        /// What the memory keeps: the panel leaving on its own, the person leaving the app, or the ask-why question
-        /// taking the notch, is Not now.
+        /// What the memory keeps: the panel leaving on its own, or the ask-why question taking the notch, is Not now.
         var answer: ConnectSuggestMemory.Answer {
             switch self {
             case .yes: .yes
             case .no: .no
-            case .notNow, .timedOut, .leftApp, .superseded: .notNow
+            case .notNow, .timedOut, .superseded: .notNow
             }
         }
 
@@ -410,7 +413,6 @@ struct ConnectSuggestPanelState: Equatable {
             case .no: "no"
             case .notNow: "not_now"
             case .timedOut: "timed_out"
-            case .leftApp: "left_app"
             case .superseded: "superseded"
             }
         }
@@ -447,6 +449,11 @@ struct ConnectSuggestPanelState: Equatable {
     /// Whether the Yes has been pressed and is not yet answered.
     var isConnecting: Bool { confirmedAt != nil && result == nil }
 
+    /// When the bar the panel shows started filling (it runs for `ConnectSuggestPolicy.timeout`): from the showing,
+    /// and from empty again each time the pointer leaves the card. nil while the pointer rests on it (the panel is
+    /// held, the bar gone) and once Yes was pressed (no timer of the person's runs then).
+    var countdownFrom: TimeInterval? { confirmedAt == nil && !hovering ? clockFrom : nil }
+
     /// What Yes came to: opening the page leaves at once (the page is the answer); anything else is said first. Returns
     /// the outcome when the panel is done now.
     mutating func finish(_ result: ConnectSuggestResult, at now: TimeInterval) -> Outcome? {
@@ -474,8 +481,6 @@ struct ConnectSuggestPanelState: Equatable {
             hovering = inside
             if !inside { clockFrom = now }
             return nil
-        case .appChanged:
-            return left(.leftApp)
         case .superseded:
             return left(.superseded)
         case .tick:
@@ -493,8 +498,8 @@ struct ConnectSuggestPanelState: Equatable {
         }
     }
 
-    /// The person left, or the ask-why question took the notch: before a Yes that is Not now; after one the Yes stands
-    /// (what it started goes on), unless it was refused.
+    /// The ask-why question took the notch: before a Yes that is Not now; after one the Yes stands (what it started
+    /// goes on), unless it was refused.
     private func left(_ before: Outcome) -> Outcome {
         guard confirmedAt != nil else { return before }
         return result?.isFailure == true ? .notNow : .yes

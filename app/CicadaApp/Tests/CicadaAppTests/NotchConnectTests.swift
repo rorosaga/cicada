@@ -22,6 +22,7 @@ final class NotchConnectTests: XCTestCase {
         var started: [String] = []
         var opened: [String] = []
         var consents: [ReadingConsent] = []
+        var acknowledged: [String] = []
         var permissions: [MacPermission] = []
         var listWriteWorks = true
         var readerStarts = true
@@ -42,7 +43,11 @@ final class NotchConnectTests: XCTestCase {
                 startReader: { world.started.append($0); return world.readerStarts },
                 openPage: { world.opened.append($0) },
                 raiseConsent: { world.consents.append($0) },
-                lastNote: { world.listWriteWorks ? nil : "Agent reading is not on." }),
+                lastNote: { world.listWriteWorks ? nil : "Agent reading is not on." },
+                acknowledgeList: { setting, key in
+                    if world.listWriteWorks { world.acknowledged.append("\(setting).\(key)") }
+                    return world.listWriteWorks
+                }),
             accessibilityGranted: { world.trusted },
             noticing: { world.noticed.contains($0) },
             openPermission: { world.permissions.append($0) })
@@ -59,14 +64,42 @@ final class NotchConnectTests: XCTestCase {
         XCTAssertEqual(result, .turnedOn(asksWhy: true, needsAccessibility: false))
     }
 
-    func testWithoutTheAcknowledgementOnlyNoticingSavesIsOnAndThePageRaisesTheSheet() async {
+    /// Owner 2026-11-25 — "remove the opening the app after selecting connect to accept the terms. skip that part. once
+    /// you connect the notch should show the checkmark animation for a bit and then disappear." The offer said what is
+    /// read and the person pressed Yes, so the Yes is the acknowledgement: the list goes on with it in one write, no
+    /// page opens, and the panel goes on to its ring and check.
+    func testWithoutTheAcknowledgementTheYesIsTheAcknowledgementAndNoPageOpens() async {
         let world = World()
         world.state = SourceConnect.State(status: .off, agentEnabled: false, ackCurrent: false)
         let result = await connector(world).connect("site-save:instagram")
-        XCTAssertTrue(world.lists.isEmpty, "nothing about the list is turned on silently")
+        XCTAssertEqual(world.acknowledged, ["savedLists.instagram"], "the list, turned on with the acknowledgement")
+        XCTAssertTrue(world.lists.isEmpty, "never by the plain switch, which the backend would refuse")
         XCTAssertEqual(world.noticed, ["instagram"])
-        XCTAssertEqual(world.consents, [ReadingConsent(entryId: "instagram", setting: "savedLists", key: "instagram")])
-        XCTAssertEqual(result, .openedPage)
+        XCTAssertTrue(world.consents.isEmpty, "no sheet")
+        XCTAssertTrue(world.opened.isEmpty, "no page")
+        XCTAssertEqual(result, .turnedOn(asksWhy: true, needsAccessibility: false))
+    }
+
+    func testAnAcknowledgementTheBackendRefusesSaysSoAndOpensNothing() async {
+        let world = World()
+        world.state = SourceConnect.State(status: .off, agentEnabled: false, ackCurrent: false)
+        world.listWriteWorks = false
+        let result = await connector(world).connect("site-save:instagram")
+        XCTAssertEqual(result, .failed("Agent reading is not on."))
+        XCTAssertTrue(world.consents.isEmpty)
+        XCTAssertTrue(world.opened.isEmpty)
+    }
+
+    /// The page's switch and the root card are not a question that said what is read: they still raise the sheet.
+    func testADoorThatIsNotTheNotchStillRaisesTheSheet() async throws {
+        let world = World()
+        let state = SourceConnect.State(status: .off, agentEnabled: false, ackCurrent: false)
+        let plan = SourceConnect.plan(try entry("instagram"), state)
+        let outcome = await SourceConnect.run(plan, entry: "instagram", deps: connector(world).deps)
+        let consent = ReadingConsent(entryId: "instagram", setting: "savedLists", key: "instagram")
+        XCTAssertEqual(outcome, .openedPage(consent: consent))
+        XCTAssertEqual(world.consents, [consent])
+        XCTAssertTrue(world.acknowledged.isEmpty)
     }
 
     func testWithoutAccessibilityTheWordsSayItInsteadOfPromisingTheQuestion() async {
@@ -256,7 +289,7 @@ final class NotchConnectTests: XCTestCase {
         XCTAssertEqual(state.handle(.tick, at: u0 + 1 + ConnectSuggestPolicy.connectBound), .timedOut)
         var left = panel()
         _ = left.handle(.yes, at: u0 + 1)
-        XCTAssertEqual(left.handle(.appChanged, at: u0 + 2), .yes, "what it started goes on")
+        XCTAssertEqual(left.handle(.superseded, at: u0 + 2), .yes, "what it started goes on")
         var refused = panel()
         _ = refused.handle(.yes, at: u0 + 1)
         _ = refused.finish(.failed("no"), at: u0 + 2)
@@ -331,10 +364,10 @@ final class NotchConnectTests: XCTestCase {
         center.offer(saved: first, site: site, pid: 7, bundleId: "com.google.Chrome")
         advance()
         center.input(.yes)
-        // A save made while the Yes is still turning things on is held too, then the person leaves the app.
+        // A save made while the Yes is still turning things on is held too, then the ask-why question takes the notch.
         let second = candidate("https://github.com/alpha/gamma")
         center.offer(saved: second, site: site, pid: 7, bundleId: "com.google.Chrome")
-        center.input(.appChanged)
+        center.input(.superseded)
         XCTAssertNil(center.state)
         XCTAssertTrue(kept.isEmpty, "not before it is turned on")
         await gate.open()

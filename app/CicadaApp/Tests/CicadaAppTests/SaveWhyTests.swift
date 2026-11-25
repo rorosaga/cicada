@@ -135,17 +135,64 @@ final class SaveWhyTests: XCTestCase {
     }
 
     /// G191 v3 — one tap and leaving is an answer: the panel waits for more (no linger that closes it under the
-    /// person's hand) and a click elsewhere keeps the tap. 2026-10-19: a tap stops every timer.
+    /// person's hand) and leaving keeps the tap. 2026-10-19: a tap stops every timer. 2026-11-25: a click elsewhere
+    /// starts a quiet wait instead of closing at once, and the answer goes when it ends.
     func testOneTapAndLeavingIsAnAnswer() {
         var s = panel()
         XCTAssertEqual(SaveWhyPanelState.opening(), [.startTimer(SaveWhyPolicy.askTimeout)])
+        XCTAssertTrue(s.countsDown, "untouched: the bar shows")
         XCTAssertEqual(s.send(.tapReason("design")), [.stopTimer])
+        XCTAssertFalse(s.countsDown, "touched: no bar")
         XCTAssertEqual(s.phase, .answered)
-        XCTAssertEqual(s.send(.timeout), [], "no timer closes a touched panel")
+        XCTAssertEqual(s.send(.timeout), [], "no timer closes a panel the person is in")
         let answer = SavedWhyAnswer(reasons: ["design"])
-        XCTAssertEqual(s.send(.clickOutside), [.post(answer), .close])
+        XCTAssertEqual(s.send(.clickOutside), [.startTimer(SaveWhyPolicy.awayCooldown)])
+        XCTAssertTrue(s.isOpen)
+        XCTAssertFalse(s.countsDown, "the wait shows no bar")
+        XCTAssertEqual(s.send(.timeout), [.post(answer), .close])
         XCTAssertEqual(s.phase, .closed(.answered(answer)))
         XCTAssertEqual(s.send(.tapReason("product")), [], "a closed panel ignores everything")
+    }
+
+    /// Owner 2026-11-25 — "every time you hop out of it, it has some sort of cooldown before it disappears … and the
+    /// cooldown resets every time I click on it again."
+    func testAClickBackEndsTheWaitAndTheNextClickAwayStartsItAgain() {
+        var s = panel()
+        _ = s.send(.draftChanged("half"))
+        XCTAssertEqual(s.send(.clickOutside), [.startTimer(SaveWhyPolicy.awayCooldown)])
+        XCTAssertTrue(s.away)
+        XCTAssertEqual(s.send(.clickOutside), [], "a second click elsewhere does not push the wait back")
+        // Back on the panel, anywhere on it: the wait is over and nothing closes it while they are there.
+        XCTAssertEqual(s.send(.touch), [.stopTimer])
+        XCTAssertFalse(s.away)
+        XCTAssertEqual(s.send(.timeout), [], "a wait that was ended closes nothing")
+        XCTAssertTrue(s.isOpen)
+        // Away again: the whole wait, from the beginning.
+        XCTAssertEqual(s.send(.clickOutside), [.startTimer(SaveWhyPolicy.awayCooldown)])
+        // A tap, a word or the field ends it too.
+        XCTAssertEqual(s.send(.tapReason("design")), [.stopTimer])
+        XCTAssertEqual(s.send(.clickOutside), [.startTimer(SaveWhyPolicy.awayCooldown)])
+        XCTAssertEqual(s.send(.engage), [.stopTimer])
+        XCTAssertEqual(s.send(.clickOutside), [.startTimer(SaveWhyPolicy.awayCooldown)])
+        XCTAssertEqual(s.send(.timeout),
+                       [.post(SavedWhyAnswer(reasons: ["design"], text: "half")), .close], "what was chosen is kept")
+    }
+
+    /// Owner 2026-11-25 — "the notification doesn't go away on the first click": an untouched question is closed by
+    /// its bar alone, and a click on the panel itself (not a chip, not the field) is the person reaching for it.
+    func testAClickElsewhereNeverClosesAnUntouchedQuestionAndAClickOnItStopsTheBar() {
+        var s = panel()
+        XCTAssertEqual(s.send(.clickOutside), [], "the bar decides")
+        XCTAssertTrue(s.isOpen)
+        XCTAssertTrue(s.countsDown)
+        XCTAssertEqual(s.send(.timeout), [.close], "the bar filled: it leaves, silently")
+        var touched = panel()
+        XCTAssertEqual(touched.send(.touch), [.stopTimer])
+        XCTAssertFalse(touched.countsDown)
+        XCTAssertEqual(touched.send(.timeout), [])
+        XCTAssertEqual(touched.send(.clickOutside), [.startTimer(SaveWhyPolicy.awayCooldown)])
+        XCTAssertEqual(touched.send(.timeout), [.close], "nothing chosen: nothing posted")
+        XCTAssertEqual(touched.phase, .closed(.dismissed))
     }
 
     /// G191 v3 — the chips are toggles: any number on, in the panel's order whatever the tap order; a second tap
@@ -184,7 +231,7 @@ final class SaveWhyTests: XCTestCase {
     }
 
     func testClosingWithNothingChosenIsSilent() {
-        for event in [SaveWhyPanelState.Event.escape, .clickOutside, .timeout, .submit] {
+        for event in [SaveWhyPanelState.Event.escape, .timeout, .submit] {
             var s = panel()
             XCTAssertEqual(s.send(event), [.close], "\(event) posts nothing")
             XCTAssertEqual(s.phase, .closed(.dismissed))
@@ -410,7 +457,7 @@ final class SaveWhyTests: XCTestCase {
 
         await center.noticed(result([fresh()]), live: true)
         center.send(.tapReason("design"))
-        center.send(.clickOutside)
+        center.leave()
         await center.settle()
         XCTAssertEqual(center.heldCount, 1, "a 409 holds the answer instead of losing it")
         XCTAssertEqual(SaveWhyOutbox(defaults: defaults).entries.first?.at, now, "held with the time it was given")

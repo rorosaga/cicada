@@ -99,3 +99,41 @@ struct SaveWhyNotchShape: Shape {
         return path
     }
 }
+
+/// Owner 2026-11-25 ("a timer of sorts that has a bar filling up at the bottom from left to right") — a notch panel's
+/// patience, drawn along the card's bottom edge: it fills from the leading side over the panel's own timer, and the
+/// panel leaves when it is full. Not there when no timer shows (`from` nil): once the person touched the ask-why
+/// panel, or pressed Yes on the connect offer. A new `from` starts it again from empty.
+struct NotchCountdownBar: View {
+    /// When the timer started, on the monotonic clock; nil when the panel shows none.
+    let from: TimeInterval?
+    let length: TimeInterval
+
+    /// Two points: a hairline would vanish against the notch's black, anything taller would read as a control.
+    static let height: CGFloat = 2
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            if let from, length > 0 {
+                Fill(length: length).id(from)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: CicadaTheme.scaled(Self.height))
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    /// One run of the bar. Its own state, so a new timer (a new `id`) starts from empty.
+    private struct Fill: View {
+        let length: TimeInterval
+        @State private var full = false
+
+        var body: some View {
+            Rectangle()
+                .fill(CicadaTheme.Notch.textTertiary)
+                .scaleEffect(x: full ? 1 : 0, y: 1, anchor: .leading)
+                .onAppear { withAnimation(CicadaMotion.notchCountdown(length: length)) { full = true } }
+        }
+    }
+}

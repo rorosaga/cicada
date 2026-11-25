@@ -14,11 +14,16 @@ import Foundation
 /// - **Leaving keeps what was chosen.** A click elsewhere, Esc or a newer bookmark closes the panel with the taps and
 ///   the words as they stand — one tap and leaving is still an answer. With nothing chosen and nothing typed, closing
 ///   is silent.
-/// - **Once touched, only the person closes it (owner 2026-10-19: "If I clicked on the text box to start writing then
-///   it should stay there unless I click anywhere else on the screen").** A tap, a word or a click into the field
-///   (`engage` — dictation types nothing until it is done) stops every timer: the panel closes only on Save, Return,
-///   Esc, a click outside it and Chrome's bubble, or a newer bookmark. Only an untouched question leaves on its own
-///   (`SaveWhyPolicy.askTimeout`).
+/// - **A click somewhere else never closes it at once (owner 2026-11-25: "the notification doesn't go away on the
+///   first click, but rather … a timer of sorts that has a bar filling up at the bottom from left to right"; this
+///   amends 2026-10-19's "unless I click anywhere else on the screen").** An untouched question leaves only when its
+///   bar has filled (`SaveWhyPolicy.askTimeout`, `countsDown`); a click elsewhere changes nothing.
+/// - **Touched, the bar's timer stops ("when clicked to type something the timer stops").** A tap, a word, a click
+///   into the field (`engage` — dictation types nothing until it is done) or a click anywhere on the panel (`touch`)
+///   stops it, and the bar goes. From then on, each time the person clicks somewhere else a quiet wait starts
+///   (`SaveWhyPolicy.awayCooldown`, no bar, `away`), after which the panel leaves keeping what was chosen; a click
+///   back on the panel ends the wait ("the cooldown resets every time I click on it again"), and the next click
+///   away starts it from the beginning. Save, Return, Esc and a newer bookmark still close it at once.
 /// - **A bookmark already saved is edited, not asked again (owner 2026-10-19: "It should just put the same Cicada
 ///   prompt, but with the text already filled in or the selection already made").** `init(editing:)` opens with the
 ///   newest answer's taps and words; leaving with a change is an `edit` of that answer, leaving unchanged writes
@@ -58,10 +63,14 @@ struct SaveWhyPanelState: Equatable {
         case engage
         /// Return in the field, or Save.
         case submit
-        /// Nothing done for `askTimeout`.
+        /// The panel's timer ran out: the untouched question's (`askTimeout`), or the wait after the person clicked
+        /// away from a panel they had touched (`awayCooldown`).
         case timeout
         case escape
+        /// A click somewhere else. Never closes the panel itself: it starts the wait when the panel was touched.
         case clickOutside
+        /// A click anywhere on the panel: the person is in it, so no timer runs.
+        case touch
         case dontAskForSite
         /// G191 live: a newer bookmark took the panel's place — closes like leaving, keeping what was chosen.
         case superseded
@@ -98,8 +107,10 @@ struct SaveWhyPanelState: Equatable {
     private(set) var reasons: Set<String> = []
     private(set) var draft = ""
     let maxText: Int
-    /// The person has tapped, typed or clicked into the field: only they close it now.
+    /// The person has tapped, typed or clicked on the panel: the bar's timer no longer runs.
     private(set) var engaged = false
+    /// They touched the panel and then clicked somewhere else: the quiet wait is running.
+    private(set) var away = false
     /// They clicked into the field (and may be dictating, with no words yet).
     private(set) var inField = false
     /// Set when the panel edits an answer already saved.
@@ -143,6 +154,8 @@ struct SaveWhyPanelState: Equatable {
     }
 
     var isOpen: Bool { if case .closed = phase { return false } else { return true } }
+    /// The untouched question's timer is running: the panel shows its bar.
+    var countsDown: Bool { isOpen && !engaged }
     var isPending: Bool { item == nil }
     var isEditing: Bool { editing != nil }
     /// The person is writing — typed words, or the field clicked into (dictation types nothing until it is done):
@@ -195,11 +208,21 @@ struct SaveWhyPanelState: Equatable {
         case .engage:
             inField = true
             return afterInput()
-        case .submit, .escape, .clickOutside, .superseded:
+        case .touch:
+            return present()
+        case .clickOutside:
+            // Untouched: the bar decides. Touched: the quiet wait starts, once per leaving (a second click elsewhere
+            // does not push it back, or working in the page would keep the panel for ever).
+            guard engaged, !away else { return [] }
+            away = true
+            inField = false
+            return [.startTimer(SaveWhyPolicy.awayCooldown)]
+        case .submit, .escape, .superseded:
             return finish(leaving())
         case .timeout:
-            // Only an untouched question leaves on its own (owner 2026-10-19).
-            guard !engaged else { return [] }
+            // The untouched question's bar filled, or the person stayed away for the whole wait. While they are in
+            // the panel no timer closes it (owner 2026-10-19).
+            guard !engaged || away else { return [] }
             return finish(leaving())
         case .withdraw:
             phase = .closed(.withdrawn)
@@ -232,8 +255,15 @@ struct SaveWhyPanelState: Equatable {
 
     private mutating func afterInput() -> [Effect] {
         phase = selection.isEmpty ? .asking : .answered
-        guard !engaged else { return [] }
+        return present()
+    }
+
+    /// The person is in the panel: whichever timer was running stops (the bar's on the first touch, the quiet wait
+    /// when they come back).
+    private mutating func present() -> [Effect] {
+        guard !engaged || away else { return [] }
         engaged = true
+        away = false
         return [.stopTimer]
     }
 

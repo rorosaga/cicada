@@ -166,8 +166,8 @@ final class ConnectSuggestCenter {
         }
     }
 
-    /// An app came to the front. Cicada itself coming forward (a Yes, a click on its window) never closes the panel —
-    /// a Yes already did; any other app does.
+    /// An app came to the front. It never closes an open panel (owner 2026-11-25: only the person's answer or the
+    /// panel's own bar does); it may be an app worth offering once the open one is gone.
     func activated(_ app: ConnectSuggestActivation) {
         Task { @MainActor [weak self] in await self?.enter(app) }
     }
@@ -175,7 +175,6 @@ final class ConnectSuggestCenter {
     /// The whole of one activation, awaitable (tests drive it with an instant `wait`).
     func enter(_ app: ConnectSuggestActivation) async {
         if app.pid == ProcessInfo.processInfo.processIdentifier { return }
-        if let open = state, open.bundleId != app.bundleId { input(.appChanged) }
         guard let target = ConnectSuggestApps.target(bundleId: app.bundleId), let bundleId = app.bundleId else {
             pendingPid = nil
             return

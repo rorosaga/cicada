@@ -194,6 +194,12 @@ enum CicadaMotion {
         reduceMotion ? nil : CicadaCurve.out(connectCheckDuration).delay(connectRingDuration)
     }
 
+    /// Owner 2026-11-25 — a notch panel's patience, drawn: the bar along its bottom edge fills at a steady rate over
+    /// the panel's own timer (`SaveWhyPolicy.askTimeout`), so the length is the timer's, never a number spelled
+    /// here. It runs under Reduce Motion too: it is the clock itself (a determinate progress bar), two points high,
+    /// and a bar that jumped would not say how long is left.
+    static func notchCountdown(length: TimeInterval) -> Animation { .linear(duration: max(0, length)) }
+
     static func notchShrink(reduceMotion: Bool) -> Animation {
         reduceMotion ? fade : .spring(duration: notchShrinkDuration)
     }
