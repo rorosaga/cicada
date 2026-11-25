@@ -1688,10 +1688,14 @@ about whatever the bookmark question's switch says: connecting the site is its s
 button in a post's row, so their table rows carry a `Menu` rule instead of a slot, again structure only: DOM ids and
 class names (read through `AXDOMIdentifier` and `AXDOMClassList`, the same in every interface language) and the saving
 item's place. **Reddit:** the menu sits under `#hovercard` inside the post's own block, whose id is the post's
-(`t3_<id>`); the save is the third shown item from the end of a menu of four or five (measured: Follow, sometimes
-Award, Save, Hide, Report; a hidden zero-size item on a post's page is not counted); the post is the link that carries
-the block's id, or the page itself on the post's page; a comment's menu (`comment-overflow-menu`, three items) and a
-longer menu (the person's own post, a moderator's) read as nothing. **YouTube:** the sheet of lists
+(`t3_<id>`); the save is two places before the first item whose icon the page mirrors for right-to-left scripts
+(class `rpl-rtl-icon`, `Menu.markClass`: the items after Hide carry it), in a menu of four to eight — measured
+2026-11-25: Follow, sometimes Award, Save, Hide, Report, and on a recommended post of the home feed seven items, with
+one to show fewer before the save and one asking why before Report, where the old place from the end read every save
+as nothing; a menu that shows no such icon falls back to the third shown item from the end of four or five (a hidden
+zero-size item on a post's page is not counted); the post is the link that carries the block's id, or the page itself
+on the post's page; a comment's menu (`comment-overflow-menu`, three items) reads as nothing, and the person's own
+post's or a moderator's menu is unmeasured. **YouTube:** the sheet of lists
 (`ytListViewModelHost` inside a `ytContextualSheetLayoutHost` that has a header and ends in a button — the same list
 class without them is another menu); every item is a list, the first the site's own (Watch later), any other a
 playlist whose name is sent as the save's folder and becomes its list label; the video is where the sheet was opened
