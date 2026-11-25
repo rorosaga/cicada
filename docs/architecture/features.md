@@ -1015,7 +1015,29 @@ engine and models, the plan usage or cost with its basis (ruling 12), how long i
 lists the conversations it read, the pages it made and changed and the questions it raised and settled, each opening
 where it lives (`GET /sleep/runs/{id}/items`, `GET /sleep/history/{commit}/items`; `api.md`, `app.md`).
 A plan-pinned scheduled run (`CICADA_LLM_MODE=agent|codex`, one batch, no run summary) catches up the same way but its
-row carries no catch-up words. **The menu bar counts what waits for Sleep:** `GET /status` `episodes.readable`
+row carries no catch-up words.
+**A scheduled run the write window refused is tried again the same night (2026-11-25; amends "runs once").** The stamps
+precede the read so a run that *failed after it started* is never repeated on every wake (the plan's and the person's
+money; unchanged). A run refused at the write window before it read anything (`write_admission`: a writer admitted
+before it still held the bank past `WAIT_MAX_S`) read nothing and spent nothing, yet both stamps said the night was
+taken, so one slow write cost a whole night with nothing to say so (the 2026-11-24 03:00 run: the cron fired 2 min 36 s
+late, the catch-up took it, a write held the bank, 63 conversations waited the next day). `sleep_cycle.run` now stamps
+`last_run_at` only once the window is open (it did before, so a refused run counted as a run) and, for a scheduled run
+that is neither upkeep nor a Continue and only on a `daily`/`interval` bank (`after_import` probes again by itself),
+records the refusal in `schedule.json` (`window_refused`: the time it serves, first and last refusal, count — timestamps
+only). The probe tries it again through the very gates of a catch-up (the settle, never on a running cycle, never over a
+pause, `user_triggered=False`, ruling 4 untouched): at most **4 attempts** for one time (the run and three retries), the
+next one **10 min, then 30 min, then 90 min** after the last refusal, and none past **6 h** from the first, so it is one
+night's run and a stuck writer is never hammered. A run that opens the window clears the record (the retries end on a
+run that read, which also keeps the tried-once rule for one that then failed), and so do a pause and a queue with
+nothing readable. While a record stands, `GET /sleep/status` and `GET /status` serve `error` in words —
+`sleep_catch_up.refusal_notice`: the run did not start because something was still writing, nothing was read or used,
+and either when it will try again (try N of 4) or that it tried 4 times, will run at its next scheduled time and can be
+started by hand; the run's own `error`/`progress` carry the same sentence. The record is machine-local and survives a
+restart, so a morning with an idle Sleep still says it. A person's own click is unchanged (`WINDOW_BUSY`, never retried
+for them). `_open_window` also carries a wall-clock bound over the whole wait (`WAIT_MAX_S + WINDOW_START_SLACK_S`):
+`wait_for_writers` bounds its wait only from the moment its thread runs, and a default thread pool kept busy queued it
+for as long as the pool stayed busy — with the probe (APScheduler runs one at a time) held behind it. **The menu bar counts what waits for Sleep:** `GET /status` `episodes.readable`
 (`sleep_debt.readable_count`) is the bookworm's badge (`app.md`).
 
 ### 5. Conversation upload

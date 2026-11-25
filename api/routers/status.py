@@ -177,7 +177,8 @@ async def _status(settings: Settings) -> StatusResponse:
             stage=state.stage,
             total_stages=state.total_stages,
             cycle_id=state.cycle_id,
-            error=state.error,
+            error=state.error or (None if state.status == "running"
+                                  else sleep_catch_up.refusal_notice(settings.memory_path)),
             writing=sleep_cycle.writing_of(state),
         ),
         inbox=StatusInbox(total=total, by_kind=by_kind),
