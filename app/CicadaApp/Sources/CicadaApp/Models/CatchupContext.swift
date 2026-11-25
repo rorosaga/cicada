@@ -7,6 +7,9 @@ enum CatchupContext {
     static func summary(for item: InboxItem) -> String? {
         let mine = clean(item.subject?.summary)
         if item.kind == .mergeSuggestion {
+            // Ruling 83: a mention that could be several pages is asked once and the answers name the candidates; one
+            // page's summary beside a question about all of them would favour it, and its id is no copy.
+            if (item.sameTitle?.count ?? 0) >= 2 { return nil }
             let other = clean(item.otherSubject?.summary)
             let a = item.entityDisplayName ?? item.entityName
             let b = item.mergeTargetDisplayName ?? item.mergeTargetHint ?? ""

@@ -404,9 +404,26 @@ def test_a_write_claim_that_raises_names_the_class_only_and_is_an_error(srv, mon
     assert "/Users" not in _text(result) and "PermissionError" in _text(result)
 
 
+def _png_96() -> str:
+    import base64
+    import struct
+    import zlib
+
+    def chunk(kind, data):
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    raw = b"".join(b"\x00" + bytes([200, 30, 30, 255]) * 96 for _ in range(96))
+    return base64.b64encode(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 96, 96, 8, 6, 0, 0, 0))
+                            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")).decode()
+
+
+_PNG_96 = _png_96()
+
+
 def test_a_write_to_a_lists_own_page_is_a_refusal_with_its_code_on_both_doors(memory, srv):
     """G246 (ruling 81): the page of a list of saved posts stands for the list, so no agent writes a fact, an edit, a merge,
-    a split or a link to it: one sentence, the code `refused`, flagged as an error, on the stdio door and the remote one."""
+    a split, a link or a look to it: one sentence, the code `refused`, flagged as an error, on the stdio door and the remote one."""
     from api.services import list_pages, markdown_parser
 
     markdown_parser.write(memory / "entities" / "list-x-bookmarks.md", {
@@ -417,11 +434,14 @@ def test_a_write_to_a_lists_own_page_is_a_refusal_with_its_code_on_both_doors(me
     calls = [("cicada_write_claim", {"subject": "list-x-bookmarks", "predicate": "uses", "object": "x"}),
              ("cicada_merge_pages", {"page": "list-x-bookmarks", "into": "alpha-project", "reason": "same"}),
              ("cicada_split_page", {"page": "list-x-bookmarks", "reason": "two", "sentences": [1]}),
-             ("cicada_link_entity", {"project": "alpha-project", "entity": "list-x-bookmarks", "reason": "fed it"})]
+             ("cicada_link_entity", {"project": "alpha-project", "entity": "list-x-bookmarks", "reason": "fed it"}),
+             ("cicada_save_design", {"subject": "list-x-bookmarks", "note": "the spacing", "image_base64": _PNG_96})]
     for tool, arguments in calls:
         result = srv.call_tool(tool, arguments)
         assert result["isError"] is True and result["structuredContent"] == {
             "code": "refused", "data": None, "message": list_pages.AGENT_REFUSAL}, tool
+        if tool in catalog.NEVER_REMOTE:         # a look's picture is a file a local agent saved: no remote door at all
+            continue
         text, status = _remote(memory).call(_connector(), tool, arguments)
         assert str(text) == list_pages.AGENT_REFUSAL and text.code == "refused", tool
     edit = srv.call_tool("cicada_edit_page", {"subject": "list-x-bookmarks", "reason": "tidy", "section": "Summary",

@@ -6,6 +6,7 @@ are written the way the ingest leaves them (`test_list_pages.save`).
 """
 from __future__ import annotations
 
+import json
 import time
 
 import pytest
@@ -272,6 +273,23 @@ def test_a_recall_hit_for_a_list_page_says_it_is_a_list(bank, on, srv):
 
 # ---------------------------------------------------------------------------------- agents are held to it
 
+def _png() -> str:
+    """A real 96x96 PNG, so a refusal is the list's and never a bad picture's."""
+    import base64
+    import struct
+    import zlib
+
+    def chunk(kind, data):
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    raw = b"".join(b"\x00" + bytes([200, 30, 30, 255]) * 96 for _ in range(96))
+    return base64.b64encode(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 96, 96, 8, 6, 0, 0, 0))
+                            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")).decode()
+
+
+_PNG = _png()
+
 WRITES = [
     ("cicada_write_claim", {"subject": "list-x-bookmarks", "predicate": "uses", "object": "x"}),
     ("cicada_edit_page", {"subject": "list-x-bookmarks", "reason": "tidy", "section": "Summary", "text": "Other words."}),
@@ -286,15 +304,21 @@ WRITES = [
     ("cicada_change_source", {"subject": "list-x-bookmarks", "ref": "https://example.com/a", "action": "remove",
                               "reason": "wrong"}),
     ("cicada_create_project", {"project": "list-x-bookmarks", "reason": "they asked"}),
+    # A look is written onto its subject page (a "## Looks" section), so it is a write to that page like the rest.
+    ("cicada_save_design", {"subject": "list-x-bookmarks", "note": "the spacing", "image_base64": _PNG}),
+    ("cicada_save_design", {"subject": "X: Bookmarks", "url": "https://example.com/a", "note": "the look",
+                           "image_base64": _PNG}),
 ]
+#: ``cicada_save_design`` is stdio and command line only (``catalog.NEVER_REMOTE``: its picture is a file the local agent saved),
+#: so it has no remote door to refuse on; the command line runs the same body (the test below).
 REMOTE_TOOLS = {"cicada_write_claim", "cicada_merge_pages", "cicada_split_page", "cicada_undo_join",
                 "cicada_link_entity", "cicada_add_source", "cicada_change_source", "cicada_create_project"}
 
 
 def _untouched(bank):
-    """Every page and every inbox file, by name: a refused write changes none and files no proposal."""
-    return {f"{d}/{p.name}": p.read_bytes() for d in ("entities", "inbox") if (bank / d).is_dir()
-            for p in (bank / d).glob("*.md")}
+    """Every page, inbox file and design record, by name: a refused write changes none and files no proposal."""
+    return {f"{d}/{p.relative_to(bank / d)}": p.read_bytes() for d in ("entities", "inbox", "design")
+            if (bank / d).is_dir() for p in (bank / d).rglob("*") if p.is_file()}
 
 
 @pytest.mark.parametrize("tool, arguments", WRITES, ids=[f"{t}-{i}" for i, (t, _) in enumerate(WRITES)])
@@ -337,6 +361,14 @@ def test_a_refusal_finds_the_page_by_its_name_as_well_as_its_id(bank, on, srv):
     a_list(bank, 2)
     result = srv.call_tool("cicada_write_claim", {"subject": "X: Bookmarks", "predicate": "uses", "object": "x"})
     assert result["isError"] is True and result["structuredContent"]["message"] == list_pages.AGENT_REFUSAL
+
+
+def test_a_look_on_any_other_page_is_still_saved(bank, on, srv):
+    a_list(bank, 1)
+    result = srv.call_tool("cicada_save_design", {"subject": "alpha-project", "note": "the spacing", "image_base64": _PNG})
+    assert "isError" not in result and "Saved" in _text(result) and "alpha-project" in _text(result)
+    assert "## Looks" in (bank / "entities" / "alpha-project.md").read_text()
+    assert "## Looks" not in (bank / "entities" / "list-x-bookmarks.md").read_text()
 
 
 def test_every_other_page_is_written_as_before(bank, on, srv):
@@ -458,3 +490,25 @@ def test_the_items_etag_follows_the_earned_set_only_once_the_flip_is_on(bank, cl
     one = client.get(url).headers["etag"]
     monkeypatch.setattr(saved_posts, "stamp", lambda mp: "d4e5f6")
     assert one != dark and client.get(url).headers["etag"] != one, "a post earning its page moves the rows' ETag"
+
+
+def test_the_tool_door_for_another_machine_refuses_a_look_on_a_list_page_in_the_same_words(bank, on, client):
+    """`POST /tools/call` runs the same body as the MCP tool (G181): the sentence is the same, nothing is written. The
+    command line has no `design save` yet (`cli_map`, `exposed=False`) and the remote connector never carries a look
+    (`catalog.NEVER_REMOTE`), so these are the doors the tool has."""
+    a_list(bank, 2)
+    settle(bank)
+    before, head = _untouched(bank), commits(bank)
+    answer = client.post("/tools/call", json={"tool": "cicada_save_design", "surface": "mcp", "arguments": {
+        "subject": "X: Bookmarks", "note": "the spacing", "image_base64": _PNG}})
+    assert answer.status_code == 200, answer.text
+    body = answer.json()
+    assert list_pages.AGENT_REFUSAL in json.dumps(body), body
+    assert _untouched(bank) == before and commits(bank) == head
+
+
+def test_no_design_door_can_reach_a_list_page_by_the_remote_connector_or_the_command_line():
+    assert "cicada_save_design" in catalog.NEVER_REMOTE
+    from api.services import cli_map
+
+    assert not [r for r in cli_map.ROWS if r.tool == "cicada_save_design" and r.exposed]

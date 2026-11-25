@@ -138,6 +138,8 @@ RULES: dict[str, str] = {
     "alias_apart": "Two different things: one no longer lists the other's name as its own",
     "alias_quiet": "A saved link shares the name; it is no question about your memory",
     "alias_doubt": "Sleep could not tell whether they are one thing; nothing was changed",
+    # Ruling 83 (`which_one`): a pairwise question about a mention that could be several pages, folded into the one question.
+    "which_one_folded": "Asked once, as one question with every page the name could be on it",
     # 2026-11-24 (`question_revisit`, ruling 82): an open question read again, by the main model, against the whole record.
     "revisit_one": "Read again against everything on record: it says they are one person",
     # `name_revisit` (ruling 82): a name with no page, read again against the page it was asked about.
@@ -162,7 +164,7 @@ ENGINE_FREE = frozenset({"subject_gone", "same_spelling", "spelling_fold", "seed
                          "multi_valued", "in_passing", "newest_words", "own_settings", "named_account",
                          "owner_unsaid", "no_pair_evidence", "two_signals", "not_started", "name_once", "same_value", "moved_on",
                          "own_bookkeeping", "already_described", "not_fading", "source_corrected",
-                         "already_one_page", "already_a_name", "names_one_page"})
+                         "already_one_page", "already_a_name", "names_one_page", "which_one_folded"})
 #: The judged kinds (owner, 2026-10-17: the inbox keeps only what genuinely needs the person).
 JUDGED_KINDS = frozenset({"merge_suggestion", "conflict", "normalization", "decay"})
 MAX_REASON_CHARS = 160
@@ -1661,7 +1663,7 @@ def _cited_episodes(memory_path: Path, fm: dict) -> set[str]:
     """The conversations a question already rests on: the one that raised it and each option claim's evidence."""
     from api.services.claims import parse_claims
 
-    out = {str(fm.get("source_episode") or "")}
+    out = {str(fm.get("source_episode") or ""), *(str(e) for e in fm.get("source_episodes") or [])}   # a folded which-one question's too
     ids = {str(o.get("claim_id")) for o in inbox_questions.normalize_options(fm.get("options")) if o.get("claim_id")}
     if ids:
         page = _page(memory_path, str(fm.get("entity_id") or ""))

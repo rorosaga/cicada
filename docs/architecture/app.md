@@ -693,6 +693,7 @@ held with Undo); the chat stays on the chain until every pair is answered or ski
 "And C and B, one too?" — each joined only on its own *Yes* (#536 review). Never joined by one answer or
 by typed words (ruling 41); no fold, no placeholder tile.
 
+**A pick question (ruling 83):** the chat and the card draw the served spoken question and one button per option (a candidate in the person's words, then "Someone else"); `CatchupContext` adds no page summary under a question over two or more candidates. 
 **Catch me up, the chat (ruling 48 (8), owner 2026-10-28: "not a monotone interrogation").** *Start* opens the chat in
 place on Home (`CatchupView`, mock `08-catchup`; held by `HomeSearch.catchup`, so opening a page from it and coming
 back resumes it; Home's cell, Esc, × or *Stop for now* leave it; a bank switch ends it). Cicada on the left, the person
@@ -1617,10 +1618,12 @@ saved list's own page (a toggle there is leaving it); one count moving by one, t
 the control and again in the row, so only the control's own moves once); the two labels this Mac already learned for
 that site (`SiteSaveRule.Labels`, kept per Mac in `SiteSavePrefs`, learned only from a certain change, never shipped
 or translated); the page's other posts (`Census`: at least two others still wear the label it left and none wears the
-one it took). A control that names its count ("<count> Bookmarks. Bookmark") is compared, for the learned labels and
-the census, by its **tail** as well: the two labels with the lead they share removed at a word's start (`tails`, a
-digit matching any digit), which is how the same control reads where no count shows; a label naming a count teaches
-its tail or nothing (`lesson`). With none of them the change is `changed`: nothing is stored and nobody is asked. On X the post's own words are cut from the block's label
+one it took). A control whose label names its count or the thing it is about ("<count> Bookmarks. Bookmark", GitHub's
+"Star <owner>/<repo>", TikTok's "Add to Favorites. <count> added to Favorites") is compared, for the learned labels
+and the census, by its **core** as well: the two labels with the lead they share removed at a word's start and the
+trail they share removed at a word's end (`core`, a digit matching any digit), which is how the same control reads
+where neither is named; a settled click teaches the core when the labels have one, and nothing that still holds a
+number (`lesson`). So what a list taught settles a repository's own page. With none of them the change is `changed`: nothing is stored and nobody is asked. On X the post's own words are cut from the block's label
 between the handle and time link and the row's label (`text(of:item:)`), again with no word known.
 
 *Which sites are noticed (ruling 77c, 2026-11-24).* "Connected" is the Sources catalogue's own word for the site's source

@@ -516,7 +516,7 @@ def words(blocks: dict, kinds: tuple[str, ...], *, verbatim: bool = True) -> str
         elif kind == "citations":
             c = page_citations.for_caller(blocks["citations"], verbatim=verbatim)
             lines.append(f"- citations: {c['total']} sources ({c.get('conversations', 0)} conversations, "
-                         f"{c.get('web', 0)} looked up, {c.get('pages', 0)} pages), {c.get('markersTotal', 0)} "
+                         f"{c.get('web', 0)} from the web, {c.get('pages', 0)} pages), {c.get('markersTotal', 0)} "
                          "cited lines; each source is a reference [n] in the article")
             for ref in c.get("refs") or []:
                 lines.append(f"  - {page_citations.ref_words(ref)}")

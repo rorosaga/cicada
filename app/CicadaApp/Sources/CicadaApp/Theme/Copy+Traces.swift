@@ -71,7 +71,7 @@ extension Copy {
         /// "What you watch and read" (2026-10-28): every site, not one (ruling 39b, generalised).
         static let watchAndRead = "What you watch and read"
         static let watchAndReadHelp = "Videos you watch join your watch history and pages you stay on join that day's "
-            + "reading, on any site, from browsers you allow. Kept to look up later; nothing is read by a model."
+            + "reading, on any site, from browsers you allow. Kept so you and your agent can search it later; nothing is read by a model."
 
         // MARK: - How long
 
@@ -137,7 +137,7 @@ extension Copy {
         static let howLong = "The timeline for 30 days; screenshots and their text for 7 days. Then they are deleted on "
             + "their own."
         static let intoMemoryTitle = "What joins your memory"
-        static let intoMemory = "What you watch and read on any site joins your watch history and reading, to look up. "
+        static let intoMemory = "What you watch and read on any site joins your watch history and reading, which you and your agent can search. "
             + "A daily summary Sleep learns from only if you turn it on."
         static let wipeTitleConsent = "How to wipe"
         static let wipeHow = "Wipe all traces deletes everything and its key. Pause any time from the menu bar."
@@ -221,7 +221,7 @@ extension Copy {
         static let allScreensOffer = "Screenshots can now cover every screen you have connected."
         /// Once, for someone upgraded with the YouTube switch on (2026-10-28).
         static let readingNotice = "This used to be YouTube only. It now keeps the pages you stay on and the videos "
-            + "you watch on any site, from browsers you allow — still only to look up, never read by a model. The switch "
+            + "you watch on any site, from browsers you allow — kept to search, never read by a model. The switch "
             + "is right above if you'd rather not."
         static let gotIt = "Got it"
         static let review = "Review…"

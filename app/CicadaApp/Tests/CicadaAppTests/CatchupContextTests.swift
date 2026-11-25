@@ -17,6 +17,11 @@ final class CatchupContextTests: XCTestCase {
         XCTAssertNil(CatchupContext.summary(for: try item("")), "nothing on the record adds nothing")
     }
 
+    func testAPickQuestionAddsNoOnePagesSummaryAndNoId() throws {
+        let pick = try item(#","sameTitle":["alpha","beta"],"subject":{"summary":"A synthetic tool for lamps."}"#)
+        XCTAssertNil(CatchupContext.summary(for: pick), "the answers name the candidates (ruling 83)")
+    }
+
     func testAnswerOpensTheChatNotTheInboxList() throws {
         let dir = try XCTUnwrap(ThemeTokenTests.swiftSources().first { $0.path.hasSuffix("Views/Home/HomeSections.swift") })
         let source = try String(contentsOf: dir, encoding: .utf8)

@@ -212,16 +212,45 @@ final class SiteSaveTests: XCTestCase {
         labels.learn(was: "Bookmark", now: "Bookmarked", outcome: .saved)
         XCTAssertEqual(SiteSaveRule.outcome(before: before, after: after, site: .x, learned: labels), .saved)
         XCTAssertEqual(SiteSaveRule.outcome(before: after, after: before, site: .x, learned: labels), .unsaved)
-        // The tails are the two labels without the lead they share, in any language, and a moved count does not end it.
-        XCTAssertEqual(SiteSaveRule.tails(was: "11.4K Bookmarks. Bookmark", now: "11.4K Bookmarks. Bookmarked")?.now,
+        // The core is the two labels without the lead they share, in any language, and a moved count does not end it.
+        XCTAssertEqual(SiteSaveRule.core(was: "11.4K Bookmarks. Bookmark", now: "11.4K Bookmarks. Bookmarked")?.now,
                        "Bookmarked")
-        XCTAssertEqual(SiteSaveRule.tails(was: "1,204 guardados. Guardar", now: "1,205 guardados. Quitar")?.was, "Guardar")
-        XCTAssertEqual(SiteSaveRule.tails(was: "1.2万件。保存", now: "1.2万件。削除")?.now, "削除")
-        XCTAssertNil(SiteSaveRule.tails(was: "Bookmark", now: "Bookmarked"))
-        XCTAssertNil(SiteSaveRule.tails(was: "Guardar", now: "Quitar"))
+        XCTAssertEqual(SiteSaveRule.core(was: "1,204 guardados. Guardar", now: "1,205 guardados. Quitar")?.was, "Guardar")
+        XCTAssertEqual(SiteSaveRule.core(was: "1.2万件。保存", now: "1.2万件。削除")?.now, "削除")
+        XCTAssertNil(SiteSaveRule.core(was: "Bookmark", now: "Bookmarked"))
+        XCTAssertNil(SiteSaveRule.core(was: "Guardar", now: "Quitar"))
     }
 
-    func testALabelThatNamesACountTeachesItsTailOrNothing() {
+    /// Measured 2026-11-25 (labels and structure, no click): GitHub's repository page calls its control by the
+    /// repository ("Star <owner>/<repo>") with no count, and its lists call it "Star this repository"; TikTok's names a
+    /// count after the words, rounded on a popular video. What differs is the same on every page of a site.
+    func testAControlNamedByWhatItIsAboutIsKnownByItsCore() {
+        let star = SiteSaveRule.core(was: "Star alpha-org/alpha-repo", now: "Unstar alpha-org/alpha-repo")
+        XCTAssertEqual(star?.was, "Star")
+        XCTAssertEqual(star?.now, "Unstar")
+        let list = SiteSaveRule.core(was: "Star this repository", now: "Starred, click to unstar this repository")
+        XCTAssertEqual(list?.was, "Star")
+        XCTAssertEqual(list?.now, "Starred, click to unstar")
+        let rounded = SiteSaveRule.core(was: "Add to Favorites. 12.3K added to Favorites",
+                                        now: "Remove from Favorites. 12.3K added to Favorites")
+        XCTAssertEqual(rounded?.was, "Add to")
+        XCTAssertEqual(rounded?.now, "Remove from")
+        // The trail never reaches back into the lead: each label keeps something of its own.
+        XCTAssertEqual(SiteSaveRule.core(was: "a a", now: "a b a")?.was, "a")
+        XCTAssertEqual(SiteSaveRule.core(was: "a a", now: "a b a")?.now, "b a")
+
+        // What a list taught settles the repository's own page, both ways, for any repository.
+        var labels = SiteSaveRule.Labels()
+        let lesson = SiteSaveRule.lesson(was: "Star this repository", now: "Starred, click to unstar this repository")
+        labels.learn(was: lesson?.was ?? "", now: lesson?.now ?? "", outcome: .saved)
+        XCTAssertEqual(labels.saysAny(was: "Star beta-org/beta-repo", now: "Unstar beta-org/beta-repo"), .saved)
+        XCTAssertEqual(labels.saysAny(was: "Unstar beta-org/beta-repo", now: "Star beta-org/beta-repo"), .unsaved)
+        XCTAssertEqual(labels.saysAny(was: "Star this repository", now: "Starred, click to unstar this repository"), .saved)
+        // A site nothing was learned on still says nothing.
+        XCTAssertNil(SiteSaveRule.Labels().saysAny(was: "Star beta-org/beta-repo", now: "Unstar beta-org/beta-repo"))
+    }
+
+    func testALabelThatNamesACountTeachesItsCoreOrNothing() {
         XCTAssertEqual(SiteSaveRule.lesson(was: "Bookmark", now: "Bookmarked")?.was, "Bookmark")
         let counted = SiteSaveRule.lesson(was: "1,204 Bookmarks. Bookmark", now: "1,205 Bookmarks. Bookmarked")
         XCTAssertEqual(counted?.was, "Bookmark")
