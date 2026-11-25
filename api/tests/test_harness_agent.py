@@ -957,3 +957,32 @@ def test_the_record_of_what_was_found_is_scrubbed_like_every_episode(tmp_path):
     body = markdown_parser.parse(written).body
     assert secret not in body and "Zephyr 4.2 shipped" in body
     assert str(path)
+
+
+def test_a_run_that_has_not_started_leaves_quietly_when_the_process_is_going_down(tmp_path, monkeypatch):
+    """A background run waiting out its delay must not start, or log, once the process is exiting: a daemon thread that
+    logs during shutdown aborts the interpreter (exit 134 at the end of a test run)."""
+    import subprocess as sp
+
+    memory = tmp_path / "memory"
+    memory.mkdir()
+    sp.run(["git", "init", "-q", str(memory)], check=True)
+    ran = []
+
+    async def never(*a, **k):
+        ran.append(1)
+        return hq.Report()
+
+    monkeypatch.setattr(hq, "run_tail", never)
+    hq._STOPPING.clear()
+
+    class S:
+        harness_agent = True
+
+    try:
+        assert hq.start_run(memory, S(), user_triggered=True, delay_s=30.0) is True
+        hq._stop_runs()                      # what `atexit` runs
+        assert ran == [] and not any(t.is_alive() for t in hq._THREADS)
+        assert hq.start_run(memory, S(), user_triggered=True) is False, "nothing starts once the process is stopping"
+    finally:
+        hq._STOPPING.clear()

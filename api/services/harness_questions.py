@@ -42,6 +42,7 @@ A plan only (ruling 4's switch for a scheduled run), the one switch ``harness_ag
 from __future__ import annotations
 
 import asyncio
+import atexit
 import hashlib
 import json
 import os
@@ -1021,6 +1022,22 @@ async def run_tail(memory_path: Path, settings, *, user_triggered: bool, today: 
 
 _RUNNING: set[str] = set()
 _GUARD = threading.Lock()
+#: Set when the process is going down: a run that has not started does not start, and one that is waiting wakes and
+#: leaves without a word. A daemon thread that logs while the interpreter finalises takes the stream's lock with it and
+#: aborts the process (seen as exit 134 at the end of a test run).
+_STOPPING = threading.Event()
+_THREADS: list[threading.Thread] = []
+
+
+def _stop_runs() -> None:
+    _STOPPING.set()
+    with _GUARD:
+        threads = list(_THREADS)
+    for thread in threads:
+        thread.join(timeout=2.0)
+
+
+atexit.register(_stop_runs)
 
 
 def start_run(memory_path, settings, *, user_triggered: bool, delay_s: float = 5.0) -> bool:
@@ -1036,18 +1053,24 @@ def start_run(memory_path, settings, *, user_triggered: bool, delay_s: float = 5
             _RUNNING.add(key)
 
         def body() -> None:
-            import time
-
             try:
-                time.sleep(delay_s)
+                if _STOPPING.wait(delay_s):
+                    return
                 report = asyncio.run(run_tail(memory_path, settings, user_triggered=user_triggered))
-                if report.worked:
+                if report.worked and not _STOPPING.is_set():
                     logger.info(f"Harness agent: {report.worked} worked, {report.settled} settled, {report.noted} noted")
             finally:
                 with _GUARD:
                     _RUNNING.discard(key)
 
-        threading.Thread(target=body, name="cicada-harness-agent", daemon=True).start()
+        if _STOPPING.is_set():
+            with _GUARD:
+                _RUNNING.discard(key)
+            return False
+        thread = threading.Thread(target=body, name="cicada-harness-agent", daemon=True)
+        with _GUARD:
+            _THREADS[:] = [t for t in _THREADS if t.is_alive()] + [thread]
+        thread.start()
         return True
     except Exception as exc:  # noqa: BLE001
         logger.debug(f"harness agent: not started ({type(exc).__name__})")
