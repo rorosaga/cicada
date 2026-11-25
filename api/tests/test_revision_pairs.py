@@ -227,39 +227,212 @@ def test_a_conversation_read_the_same_night_that_says_the_old_relationship_keeps
     assert len(readers.main_calls) == 1          # it was judged the same; the close was refused when applied
 
 
-def test_a_held_claim_is_never_paired(tmp_path, monkeypatch):
-    # review 3, s8: a name with no page holds its claim; the edit moves the day; nothing held changes or is asked.
-    from api.services import pending_store
+# --------------------------------------------------------------------------- #
+# a claim wherever it waits: held under a name with no page yet, or released onto its page in the same pass
+# (the benchmark's U4: the person's page did not exist when the edit was read)
+# --------------------------------------------------------------------------- #
 
-    z1 = "user: Notes.\nZed Unknown moves to Lisbon.\nHe leaves on 5 December.\nalpha tasks continue."
-    z2 = z1.replace("5 December", "9 December")
+Z1 = "user: Notes.\nZed Unknown moves to Lisbon.\nHe leaves on 5 December.\nalpha tasks continue."
+Z2 = Z1.replace("5 December", "9 December")
+Z_EMPTY = Z1.replace("He leaves on 5 December.", "He likes it there.")
+Z_MET = "user: I met Zed Unknown again today."
+Z_SAYS_OLD = "user: Zed Unknown moves to Lisbon.\nuser: He leaves on 5 December, he told me."
+ZED_PAGE = "zed-unknown"
 
-    def zed(label):
-        def answer(chunk):
-            ents, rels = [], []
-            if "Zed Unknown" in chunk:
-                ents.append({"name": "Zed Unknown", "type": "person", "confidence": 0.6, "summary": "A person."})
-            day = re.search(r"leaves on (\d+) December", chunk)
-            if "moves to Lisbon" in chunk and day:
-                rels.append({"source": "Zed Unknown", "target": "Lisbon", "starts": f"2026-12-{int(day[1]):02d}",
-                             "label": label if "[Revision:" in chunk else "is moving to",
-                             "evidence_quote": "Zed Unknown moves to Lisbon"})
-            return {"entities": ents, "relationships": rels, "values": []}
-        return answer
 
+def zed(first="is moving to", reread="moves to", *, reread_empty=False):
+    """Night 1 reads the move under ``first``; a re-read (the chunk carries the revision note) words it ``reread``."""
+    def answer(chunk: str) -> dict:
+        is_reread = "[Revision:" in chunk
+        if is_reread and reread_empty:
+            return {"entities": [], "relationships": [], "values": []}
+        ents, rels = [], []
+        if "Zed Unknown" in chunk:
+            ents.append({"name": "Zed Unknown", "type": "person", "confidence": 0.6, "summary": "A person."})
+        day = re.search(r"leaves on (\d+) December", chunk)
+        if "moves to Lisbon" in chunk and day:
+            rels.append({"source": "Zed Unknown", "target": "Lisbon", "starts": f"2026-12-{int(day[1]):02d}",
+                         "label": reread if is_reread else first, "evidence_quote": "Zed Unknown moves to Lisbon"})
+        return {"entities": ents, "relationships": rels, "values": []}
+    return answer
+
+
+class Ledger:
+    """What the ledger keeps of a replacement (`telemetry.record_audit`), and the Corrections record each batch made."""
+
+    def __init__(self, monkeypatch):
+        from api.services import corrections_record
+
+        self.rows: list[dict] = []
+        self.records: list[dict] = []
+        monkeypatch.setattr(telemetry, "record", lambda event: self.rows.append(dict(event.refs or {})))
+        real = corrections_record.batch_entry
+
+        def batch_entry(*a, **kw):
+            entry = real(*a, **kw)
+            if entry:
+                self.records.append(entry)
+            return entry
+        monkeypatch.setattr(corrections_record, "batch_entry", batch_entry)
+
+    def revised(self):
+        return [r for r in self.rows if r.get("action") == "revised"]
+
+
+def zed_story(tmp_path, monkeypatch, nights, *, small=always("same"), main=always("same"), others=None):
+    """``nights``: ``[(body, answer)]``, the first read fresh and every later one an edit of the one before; ``others``:
+    ``{night index: body}`` of a second conversation read that night (it names Zed again, so his page is made)."""
     memory = _bank(tmp_path)
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
-    _write(memory, EP, z1)
+    body, answer = nights[0]
+    _write(memory, EP, body)
     _git(memory, "init", "-q")
     _commit(memory, "capture")
-    readers = Readers(monkeypatch, always("same"), always("same"))
-    _run(memory, monkeypatch, zed("moves to"))
-    _commit(memory, "c")
-    held_before = [c for line in pending_store.load(memory) for c in line.held_claims]
-    _revise(memory, EP, z1, z2)
-    _run(memory, monkeypatch, zed("moves to"))
-    assert readers.small_calls == []
-    assert held_before, "the first night held the claim"
+    readers = Readers(monkeypatch, small, main)
+    ledger = Ledger(monkeypatch)
+    _run(memory, monkeypatch, answer)
+    _commit(memory, "Sleep cycle")
+    prior = body
+    for i, (body, answer) in enumerate(nights[1:], 1):
+        if body != prior:
+            _revise(memory, EP, prior, body)
+        if others and i in others:
+            _write(memory, f"ep_2026-11-0{7 + i}_002", others[i])
+        _run(memory, monkeypatch, answer)
+        _commit(memory, "Sleep cycle")
+        prior = body
+    return memory, readers, ledger
+
+
+def _line(memory):
+    from api.services import pending_store
+
+    return next((e for e in pending_store.load(memory) if e.name == "Zed Unknown"), None)
+
+
+def _held_moves(memory):
+    """(predicate, start, episodes, id) of each claim the line holds about Lisbon."""
+    line = _line(memory)
+    return sorted((d["predicate"], str(d.get("valid_from") or "")[:10], tuple(d.get("source_episodes") or ()), d["id"])
+                  for d in (line.held_claims if line else []) if d.get("object") == "lisbon")
+
+
+def _page_moves(memory):
+    """(predicate, start, open, superseded_by, id, supersedes, valid_to) of each claim Zed's page holds about Lisbon."""
+    if not (memory / "entities" / f"{ZED_PAGE}.md").is_file():
+        return []
+    return sorted(((c.predicate, str(c.valid_from or "")[:10], c.valid_to is None, c.superseded_by, c.id, c.supersedes,
+                    str(c.valid_to or "")[:10])
+                   for c in _claims_of(memory, ZED_PAGE) if c.object == "lisbon" and not is_record(c)),
+                  key=lambda row: tuple(str(x) for x in row))
+
+
+def test_a_held_claim_reworded_with_the_corrected_day_gives_way_in_its_line(tmp_path, monkeypatch):
+    # 6a, 6b and a second run: the name has no page; the re-read's claim is held in the same line, so the old one leaves.
+    memory, readers, ledger = zed_story(tmp_path, monkeypatch, [(Z1, zed()), (Z2, zed())])
+    assert not (memory / "entities" / f"{ZED_PAGE}.md").is_file(), "the name still has no page"
+    (kept,) = _held_moves(memory)
+    assert kept[:3] == ("moves-to", "2026-12-09", (EP,))
+    assert len(readers.small_calls) == 1 and len(readers.main_calls) == 1
+    # 6b: recorded where the page path's replacement is — the ledger, with its reason, and the Corrections record.
+    (row,) = ledger.revised()
+    assert row == {"action": "revised", "subject": ZED_PAGE, "closed": row["closed"], "by": kept[3],
+                   "why": revision_pairs.WHY, "held": True}
+    assert row["closed"].startswith("clm_2026-12-05_")
+    assert ledger.records and ledger.records[-1]["claims_superseded"] == 1 and EP in ledger.records[-1]["revised"]
+    # A second run over the same state changes nothing and asks nothing.
+    store = (memory / "pending_entities.jsonl").read_text()
+    _run(memory, monkeypatch, zed())
+    assert (memory / "pending_entities.jsonl").read_text() == store and len(readers.small_calls) == 1
+    # Promoted later (a second conversation names him): the page is born from the line as it now stands; the record
+    # stays in the ledger, which a promotion never deletes; nothing is dated a day nobody said (6c).
+    _write(memory, OTHER, Z_MET)
+    _run(memory, monkeypatch, zed())
+    _commit(memory, "Sleep cycle")
+    moves = _page_moves(memory)
+    assert [(p, start, is_open) for p, start, is_open, *_ in moves] == [("moves-to", "2026-12-09", True)]
+    assert _line(memory) is None or not _held_moves(memory)
+    assert len(ledger.revised()) == 1
+    page = (memory / "entities" / f"{ZED_PAGE}.md").read_text()
+    _run(memory, monkeypatch, zed())
+    assert (memory / "entities" / f"{ZED_PAGE}.md").read_text() == page
+
+
+@pytest.mark.parametrize("small,main", [
+    (always("different"), always("same")),
+    (always("same"), always("different")),
+    (lambda p, ids: {"pairs": "same"}, always("same")),
+    (raising, always("same")),
+    (always("same"), raising),
+], ids=["first-different", "second-different", "unreadable", "first-raises", "second-raises"])
+def test_a_held_claim_stays_held_on_anything_but_same_twice(tmp_path, monkeypatch, small, main):
+    memory, readers, ledger = zed_story(tmp_path, monkeypatch, [(Z1, zed()), (Z2, zed())], small=small, main=main)
+    assert [(p, start) for p, start, *_ in _held_moves(memory)] == [("is-moving-to", "2026-12-05"),
+                                                                     ("moves-to", "2026-12-09")]
+    assert not ledger.revised()
+
+
+def test_a_held_claim_released_in_the_same_pass_gives_way_on_its_new_page(tmp_path, monkeypatch):
+    # U4's shape: the edit is read the night the name gets its page; the old claim leaves the line and the re-read's
+    # claim lands on the page in the same pass. 6c: the released claim keeps its own day; it is closed on the day the
+    # conversation now states.
+    memory, readers, ledger = zed_story(tmp_path, monkeypatch, [(Z1, zed()), (Z2, zed())], others={1: Z_MET})
+    rows = {p: rest for p, *rest in _page_moves(memory)}
+    assert set(rows) == {"is-moving-to", "moves-to"}
+    old_start, old_open, old_by, old_id, _sup, old_to = rows["is-moving-to"]
+    new_start, new_open, new_by, new_id, new_sup, _to = rows["moves-to"]
+    assert (old_start, old_open, old_to, old_by) == ("2026-12-05", False, "2026-12-09", new_id)
+    assert (new_start, new_open, new_by, new_sup) == ("2026-12-09", True, None, old_id)
+    assert _line(memory) is None or not _held_moves(memory)
+    assert len(readers.main_calls) == 1
+    assert [r["why"] for r in ledger.revised()] == [revision_pairs.WHY] and "held" not in ledger.revised()[0]
+    page = (memory / "entities" / f"{ZED_PAGE}.md").read_text()
+    _run(memory, monkeypatch, zed())
+    assert (memory / "entities" / f"{ZED_PAGE}.md").read_text() == page and len(readers.small_calls) == 1
+
+
+def test_a_released_claim_stays_open_on_anything_but_same_twice(tmp_path, monkeypatch):
+    memory, readers, ledger = zed_story(tmp_path, monkeypatch, [(Z1, zed()), (Z2, zed())], others={1: Z_MET},
+                                        small=always("same"), main=always("different"))
+    assert [(p, start, is_open) for p, start, is_open, *_ in _page_moves(memory)] == [
+        ("is-moving-to", "2026-12-05", True), ("moves-to", "2026-12-09", True)]
+    assert not ledger.revised() and len(readers.main_calls) == 1
+
+
+def test_a_conversation_read_the_same_night_that_says_the_old_held_claim_keeps_it(tmp_path, monkeypatch):
+    # 6d (review 3, s6, on a held claim): another conversation read the night of the edit says the old day; it is
+    # judged the same and refused when applied — the old claim stays open, with both conversations as its support.
+    memory, readers, ledger = zed_story(tmp_path, monkeypatch, [(Z1, zed()), (Z2, zed())], others={1: Z_SAYS_OLD})
+    rows = {p: rest for p, *rest in _page_moves(memory)}
+    assert tuple(rows["is-moving-to"][:2]) == ("2026-12-05", True) and tuple(rows["moves-to"][:2]) == ("2026-12-09", True)
+    old = next(c for c in _claims_of(memory, ZED_PAGE) if c.predicate == "is-moving-to")
+    assert set(old.source_episodes) == {EP, "ep_2026-11-08_002"}
+    assert len(readers.main_calls) == 1 and not ledger.revised()
+
+
+@pytest.mark.parametrize("third", ["is moving to", "moves to", "relocates to"])
+@pytest.mark.parametrize("promote", [False, True], ids=["held", "released-on-the-third-night"])
+def test_an_edit_undone_while_held_ends_on_the_restored_day_alone(tmp_path, monkeypatch, third, promote):
+    # The review story `undone` with no page: A, B, A. The old claim left the line whole, so the restore is a new claim
+    # that meets the correction by the pair rule (or the same-slot rule when the wording is the same); no third rule.
+    nights = [(Z1, zed()), (Z2, zed()), (Z1, zed(reread=third))]
+    memory, readers, ledger = zed_story(tmp_path, monkeypatch, nights, others={2: Z_MET} if promote else None)
+    if promote:
+        assert [(p, start) for p, start, is_open, *_ in _page_moves(memory) if is_open] == [(
+            third.replace(" ", "-"), "2026-12-05")]
+    else:
+        assert [(p, start) for p, start, *_ in _held_moves(memory)] == [(third.replace(" ", "-"), "2026-12-05")]
+
+
+def test_a_held_claim_the_reread_says_nothing_of_keeps_its_own_day_when_released(tmp_path, monkeypatch):
+    # review 3, s8 (6c): the day line is replaced and the re-read writes nothing for the move: nothing is dropped,
+    # nothing asked; released later, the claim keeps the day it was heard with, never the run's day.
+    memory, readers, ledger = zed_story(tmp_path, monkeypatch,
+                                        [(Z1, zed()), (Z_EMPTY, zed(reread_empty=True)), (Z_EMPTY, zed())],
+                                        others={2: Z_MET})
+    assert readers.small_calls == [] and not ledger.revised()
+    assert [(p, start, is_open) for p, start, is_open, *_ in _page_moves(memory)] == [
+        ("is-moving-to", "2026-12-05", True)]
 
 
 def test_forty_claims_dated_from_one_line_none_closed_without_a_reread_claim(tmp_path, monkeypatch):
@@ -303,7 +476,8 @@ def _rev():
 
 def _verdict(**kw):
     base = dict(episode=EP, old_id="old", subject="lia-prueba", context="general", observer="agent",
-                predicate="moves-to", object="valencia", valid_from="2026-12-08", expected_end="")
+                predicate="moves-to", object="valencia", valid_from="2026-12-08", expected_end="",
+                old_subject="lia-prueba", old_object="valencia", old_from="2026-12-05", old_end="")
     return revision_pairs.Verdict(**{**base, **kw})
 
 
@@ -723,3 +897,184 @@ def test_a_close_this_conversation_did_not_make_alone_is_never_undone(label, mak
     assert {c.id for c in page} == {c.id for c in slot}, label            # nothing born: the restatement folded in
     assert not any(a.get("action") == "revision_edited_back" for a in audit), label
     assert not nudges, label
+
+
+# --------------------------------------------------------------------------- #
+# held claims, engine-free: the drop from a line (6a, 6b, 6d) and the released claim (6e)
+# --------------------------------------------------------------------------- #
+
+def _zrev():
+    from api.services import episode_revision
+
+    return episode_revision.build({"id": EP, "content": Z2, "source": "note"}, Z1)
+
+
+def _zclaim(cid, predicate, start, *, episodes=(EP,), subject=ZED_PAGE, obj="lisbon", **kw):
+    from api.services.claims import Claim, Evidence
+
+    return Claim(id=cid, text=f"Zed {predicate} Lisbon", subject=subject, predicate=predicate, object=obj,
+                 valid_from=start, source_episodes=list(episodes),
+                 evidence=[Evidence(episode=e, start=0, end=5, kind="user", hash="h") for e in episodes], **kw)
+
+
+def _zverdict(**kw):
+    base = dict(episode=EP, old_id="old", subject=ZED_PAGE, context="general", observer="agent",
+                predicate="moves-to", object="lisbon", valid_from="2026-12-09", expected_end="", held="Zed Unknown",
+                old_subject=ZED_PAGE, old_object="lisbon", old_from="2026-12-05", old_end="")
+    return revision_pairs.Verdict(**{**base, **kw})
+
+
+def _store(tmp_path, lines):
+    """A scratch bank whose pending store holds ``{name: [claims]}``; returns (memory, the store's bytes)."""
+    from api.services import pending_store
+    from api.services.pending_store import PendingEntity
+
+    memory = tmp_path / "bank"
+    memory.mkdir(parents=True, exist_ok=True)
+    pending_store.save(memory, [
+        PendingEntity(name=name, type="person", description="A person.", source_episode=EP, confidence=0.6, tags=[],
+                      history_entries=[], held_claims=[c.to_dict() for c in claims]) for name, claims in lines.items()])
+    return memory, (memory / "pending_entities.jsonl").read_bytes()
+
+
+def _held_ids(memory, name="Zed Unknown"):
+    from api.services import pending_store
+
+    return [d["id"] for e in pending_store.load(memory) if e.name == name for d in e.held_claims]
+
+
+def test_apply_held_drops_the_old_claim_only_from_its_line_and_records_it(tmp_path):
+    rev = _zrev()
+    assert rev is not None and rev.changed
+    other_line = _zclaim("old", "is-moving-to", "2026-12-05", subject="ana-x")     # the same id on another line
+    memory, _ = _store(tmp_path, {"Zed Unknown": [_zclaim("old", "is-moving-to", "2026-12-05"),
+                                                  _zclaim("keep", "works-at", "2026-10-01", obj="acme"),
+                                                  _zclaim("new", "moves-to", "2026-12-09")],
+                                  "Ana X": [other_line]})
+    from api.services import pending_store
+
+    before = {d["id"]: d for e in pending_store.load(memory) for d in e.held_claims if e.name == "Zed Unknown"}
+    audit: list[dict] = []
+    assert revision_pairs.apply_held(memory, [_zverdict()], {EP: rev}, audit) == {"old": EP}
+    assert _held_ids(memory) == ["keep", "new"] and _held_ids(memory, "Ana X") == ["old"]
+    after = {d["id"]: d for e in pending_store.load(memory) for d in e.held_claims if e.name == "Zed Unknown"}
+    assert after == {k: v for k, v in before.items() if k != "old"}       # 6c: nothing else re-dated or rewritten
+    assert audit == [{"action": "revised", "closed": "old", "by": "new", "why": revision_pairs.WHY, "held": True}]
+    # A second run over the same state changes nothing.
+    data = (memory / "pending_entities.jsonl").read_bytes()
+    assert revision_pairs.apply_held(memory, [_zverdict()], {EP: rev}, []) == {}
+    assert (memory / "pending_entities.jsonl").read_bytes() == data
+
+
+def _old(**kw):
+    return _zclaim("old", "is-moving-to", kw.pop("start", "2026-12-05"), **kw)
+
+
+def _new(**kw):
+    return _zclaim("new", "moves-to", kw.pop("start", "2026-12-09"), **kw)
+
+
+@pytest.mark.parametrize("label,lines,verdict_kw,closes", [
+    # 6a: the re-read's claim must stand in the same line, open, the same things, the judged day, this conversation.
+    ("the new claim was not held (refused at the cap)", lambda: {"Zed Unknown": [_old()]}, {}, True),
+    ("the new claim is held under another name", lambda: {"Zed Unknown": [_old()], "Zed Other": [_new()]}, {}, True),
+    ("the new claim is closed", lambda: {"Zed Unknown": [_old(), _new(valid_to="2026-12-10")]}, {}, True),
+    ("the new claim is superseded", lambda: {"Zed Unknown": [_old(), _new(superseded_by="x")]}, {}, True),
+    ("the new claim carries another day", lambda: {"Zed Unknown": [_old(), _new(start="2026-12-10")]}, {}, True),
+    ("the new claim is about another object", lambda: {"Zed Unknown": [_old(), _new(obj="porto")]}, {}, True),
+    ("the new claim is another wording", lambda: {"Zed Unknown": [_old(), _zclaim("new", "visits", "2026-12-09")]},
+     {}, True),
+    ("the new claim is another conversation's", lambda: {"Zed Unknown": [_old(), _new(episodes=(OTHER,))]}, {}, True),
+    ("the judged day is not said by the changed lines",
+     lambda: {"Zed Unknown": [_old(), _new(start="2026-12-07")]}, {"valid_from": "2026-12-07"}, True),
+    # 6d: independent support, checked on the line as it is now.
+    ("another conversation also says the old claim",
+     lambda: {"Zed Unknown": [_old(episodes=(EP, OTHER)), _new()]}, {}, True),
+    ("the old claim is the person's own",
+     lambda: {"Zed Unknown": [_old(source_trust="user_stated", origin="manual_edit"), _new()]}, {}, True),
+    ("the old claim is an agent's", lambda: {"Zed Unknown": [_old(recorded_ts="2026-11-07T10:00:00Z"), _new()]},
+     {}, True),
+    ("the old claim is an event", lambda: {"Zed Unknown": [_zclaim("old", "happened", "2026-12-05"), _new()]},
+     {"old_object": "lisbon"}, True),
+    ("a capped transcript's revision", lambda: {"Zed Unknown": [_old(), _new()]}, {}, False),
+    # 6e and the verdict's own fingerprint: the claim judged, not one like it.
+    ("the old claim's day moved since it was judged", lambda: {"Zed Unknown": [_old(start="2026-12-06"), _new()]},
+     {}, True),
+    ("the verdict names another line", lambda: {"Zed Unknown": [_old(), _new()]}, {"held": "Zed Other"}, True),
+    ("a verdict on a page claim", lambda: {"Zed Unknown": [_old(), _new()]}, {"held": ""}, True),
+    ("already replaced on its page this pass", lambda: {"Zed Unknown": [_old(), _new()]}, {"done": True}, True),
+])
+def test_apply_held_leaves_the_line_byte_for_byte_unless_the_new_claim_stands_in_its_place(
+        tmp_path, label, lines, verdict_kw, closes):
+    rev = _zrev()
+    rev.closes = closes
+    verdict_kw = dict(verdict_kw)
+    done = {"old": EP} if verdict_kw.pop("done", False) else None
+    memory, data = _store(tmp_path, lines())
+    audit: list[dict] = []
+    assert revision_pairs.apply_held(memory, [_zverdict(**verdict_kw)], {EP: rev}, audit, done=done) == {}, label
+    assert (memory / "pending_entities.jsonl").read_bytes() == data, label
+    assert not [a for a in audit if a.get("action") == "revised"], label
+
+
+def test_apply_held_one_new_claim_stands_for_one_old_claim(tmp_path):
+    rev = _zrev()
+    memory, _ = _store(tmp_path, {"Zed Unknown": [_old(), _zclaim("old2", "relocates-to", "2026-12-05"), _new()]})
+    out = revision_pairs.apply_held(memory, [_zverdict(), _zverdict(old_id="old2")], {EP: rev}, [])
+    assert out == {"old": EP} and _held_ids(memory) == ["old2", "new"]
+
+
+def test_apply_held_records_every_drop_whatever_a_line_holds(tmp_path):
+    # review 2, e1: a record per dropped claim, never capped below what a line can hold.
+    from api.services import pending_store
+
+    rev = _zrev()
+    n = pending_store.MAX_HELD_CLAIMS
+    olds = [_zclaim(f"old{i}", f"is-moving-to-{i}", "2026-12-05", obj=f"city{i}") for i in range(n)]
+    news = [_zclaim(f"new{i}", "moves-to", "2026-12-09", obj=f"city{i}") for i in range(n)]
+    memory, _ = _store(tmp_path, {"Zed Unknown": olds + news})
+    verdicts = [_zverdict(old_id=f"old{i}", object=f"city{i}", old_object=f"city{i}") for i in range(n)]
+    audit: list[dict] = []
+    assert len(revision_pairs.apply_held(memory, verdicts, {EP: rev}, audit)) == n
+    assert len([a for a in audit if a["action"] == "revised" and a.get("held")]) == n
+    assert _held_ids(memory) == [f"new{i}" for i in range(n)]
+
+
+def _moved(claim, line="Zed Unknown", slug=ZED_PAGE, target=ZED_PAGE):
+    return {claim.id: revision_pairs.Moved(claim, line, slug, target)}
+
+
+def test_apply_closes_the_claim_this_pass_released_from_its_line_and_no_other():
+    # 6e: the verdict made on a held claim is applied to the very claim released from that line.
+    rev = _zrev()
+    old, new = _old(), _new()
+    audit: list[dict] = []
+    assert revision_pairs.apply({ZED_PAGE: [old, new]}, [_zverdict()], {EP: rev}, audit, released=_moved(old)) == {
+        "old": EP}
+    assert (old.valid_from, old.valid_to, old.superseded_by, new.supersedes) == ("2026-12-05", "2026-12-09", "new",
+                                                                                 "old")   # 6c: its own day kept
+    for label, slot, released in [
+        ("a look-alike the page already held under the same id", lambda o, n: [_old(), n], lambda o: _moved(o)),
+        ("nothing released this pass (the line still holds it)", lambda o, n: [o, n], lambda o: None),
+        ("released from another line", lambda o, n: [o, n], lambda o: _moved(o, line="Zed Other")),
+        ("released, then its day changed", lambda o, n: [o, n], lambda o: _moved(o)),
+    ]:
+        o, n = _old(), _new()
+        if label.endswith("its day changed"):
+            o.valid_from = "2026-12-06"
+        page = slot(o, n)
+        assert revision_pairs.apply({ZED_PAGE: page}, [_zverdict()], {EP: rev}, [], released=released(o)) == {}, label
+        assert all(c.valid_to is None and c.superseded_by is None for c in page), label
+
+
+def test_apply_follows_a_released_claim_onto_the_page_its_name_was_matched_to():
+    # Stage 2 matched the held name to a page with another id: the line's claims went there (`pending_store.repointed`),
+    # and so did the re-read's claim of that name; a claim about the name as an object went with its own subject.
+    rev = _zrev()
+    old, new = _old(subject="zed-u"), _new(subject="zed-u")
+    assert revision_pairs.apply({"zed-u": [old, new]}, [_zverdict()], {EP: rev}, [],
+                                released=_moved(old, target="zed-u")) == {"old": EP}
+    old, new = _old(subject="zed-u"), _new(subject="zed-v")          # the re-read's claim went elsewhere
+    assert revision_pairs.apply({"zed-u": [old], "zed-v": [new]}, [_zverdict()], {EP: rev}, [],
+                                released=_moved(old, target="zed-u")) == {}
+    assert old.valid_to is None

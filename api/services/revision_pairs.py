@@ -10,8 +10,8 @@ Three designs that decided something about the OLD claim from the text were drop
 date beside the corrected one"). This step decides nothing from the text. It acts only where the revision's own re-read
 claim meets the old one, and only on a reading:
 
-* **A pair** (:func:`candidates`, before Stage 2, pages read only): an open claim on a page that this one edited
-  conversation alone says (`episode_revision._closable`; not a value, a number, an event, a record, the person's own or
+* **A pair** (:func:`candidates`, before Stage 2, read only): an open claim, on a page or held under a name with no
+  page yet (`pending_store`, wherever it waits), that this one edited conversation alone says (`episode_revision._closable`; not a value, a number, an event, a record, the person's own or
   an agent's), and a claim of the same revision's re-read with the same subject, the same object, the same context and
   speaker, ANOTHER predicate, and a start or end the old one does not carry that the changed lines say
   (`episode_revision.says_day`, the test `redated` already uses for the new claim). Predicates are never compared by
@@ -35,7 +35,23 @@ another claim of this conversation about the same two things, carrying a day the
 beside a visit to the same city that the edit put in. Never another object, another subject, another conversation's
 fact, the person's own claim, an agent's, an event, a record, a value, a number or a capped transcript.
 
-**Held claims** (a name with no page yet, `pending_store`) are left exactly as before: only page claims are paired.
+**Held claims** (a name with no page yet, `pending_store`, 2026-11-25): the benchmark's edited conversation and most
+stored failures sit there. A held claim is paired and read like a page claim, and its verdict remembers the line it
+waited on. Where it is when the replacement is applied decides how:
+
+* released onto its page in this same pass (the name got its page tonight): :func:`apply` closes the very claim the
+  pass released from that line (``Moved``, by identity, its subject and object re-keyed as the release re-keyed them),
+  never a look-alike the page already held, exactly as a page claim is closed;
+* still held when the store has settled (release, then hold): :func:`apply_held` drops it from that ONE line only when
+  the re-read's claim is held in the same line in its place (`pending_store.replace_held`, under the store's lock, after
+  this pass's hold merged any other conversation that also says it). The line keeps no closed claims (a closed claim
+  released later could close an open one), so the old claim leaves whole, as the same-slot rule's held claims do
+  (``claim_pipeline._move_held``); its record is the ledger's ``revised`` row with ``held`` and the batch's Corrections
+  record, neither of which a promotion deletes. Nothing in a held claim is cleared or re-dated, and the claim the line
+  then holds is the re-read's, dated as the conversation now says.
+
+An edit undone while the name has no page (A, B, A) needs no rule of its own: the old claim left the line whole, so the
+restored wording is a new claim that meets the correction by this rule or the same-slot one.
 No word list of any language is used here.
 """
 from __future__ import annotations
@@ -88,8 +104,10 @@ Reply with JSON only, one answer per pair: {{"pairs": [{{"pair": "<pair id>", "a
 
 @dataclass(frozen=True)
 class Verdict:
-    """A pair both readers called the same relationship: the old claim by id, the re-read's claim by what it says
-    (its id is minted again by Stage 3's projection, so it is matched on its content, never guessed)."""
+    """A pair both readers called the same relationship: the old claim by id and by what it said when it was judged
+    (``old_*``), the re-read's claim by what it says (its id is minted again by Stage 3's projection, so it is matched
+    on its content, never guessed). ``held``: the pending line the old claim waited on when it was judged (a name with no
+    page yet), ``""`` for a claim on a page."""
 
     episode: str
     old_id: str
@@ -100,6 +118,22 @@ class Verdict:
     object: str
     valid_from: str
     expected_end: str
+    held: str = ""
+    old_subject: str = ""
+    old_object: str = ""
+    old_from: str = ""
+    old_end: str = ""
+
+
+@dataclass(frozen=True)
+class Moved:
+    """A held claim this pass released onto a page (`claim_pipeline._releases`): the claim object Stage 3 was handed,
+    the line it left, that line's slug and the page it went to."""
+
+    claim: Claim
+    line: str
+    slug: str
+    target: str
 
 
 @dataclass
@@ -109,6 +143,7 @@ class Pair:
     old: Claim
     new: Claim
     days: tuple[str, ...]
+    held: str = ""
 
 
 @dataclass
@@ -184,9 +219,29 @@ def _resolver(memory_path: Path, ep: str, settings) -> Callable[[str], str]:
     return subject_resolver({k: next(iter(v)) for k, v in table.items() if len(v) == 1}, owner)
 
 
+def _held_pool(memory_path: Path, existing: dict[str, list[Claim]]) -> dict[str, list[tuple[Claim, str]]]:
+    """The claims waiting under a name with no page yet (`pending_store`), by subject, each with its line's name — as
+    the store holds them now, before this pass re-anchors, releases or holds anything. A held claim whose id its
+    subject's page already holds is not offered: the page's own is the one a release would leave (`_releases`)."""
+    from api.services import pending_store
+
+    out: dict[str, list[tuple[Claim, str]]] = {}
+    for line in pending_store.load(memory_path):
+        for data in line.held_claims:
+            try:
+                c = Claim.from_dict(data)
+            except (TypeError, ValueError):
+                continue
+            if any(p.id == c.id for p in existing.get(c.subject, [])):
+                continue
+            out.setdefault(c.subject, []).append((c, line.name))
+    return out
+
+
 def candidates(memory_path: Path, revisions: dict[str, er.Revision], extracted: list[dict],
                settings=None) -> list[Pair]:
-    """The pairs of this batch's revisions (see the module). Pure reads; pages only."""
+    """The pairs of this batch's revisions (see the module). Pure reads: the claims on pages and the claims held under
+    a name with no page yet (`pending_store`), wherever the old claim waits."""
     from api.services.claim_pipeline import _load_existing_claims_by_subject
     from api.services.entity_extractor import entities_to_claims
 
@@ -207,16 +262,18 @@ def candidates(memory_path: Path, revisions: dict[str, er.Revision], extracted: 
     if not news:
         return []
     existing = _load_existing_claims_by_subject(memory_path)
+    held = _held_pool(memory_path, existing)
     out: list[Pair] = []
     per_rev: dict[str, int] = {}
     for rev, n, days in news:
-        for o in existing.get(n.subject, []):
+        waiting = [(o, "") for o in existing.get(n.subject, [])] + held.get(n.subject, [])
+        for o, line in waiting:
             if not meets(o, n, rev):
                 continue
             count = per_rev.get(rev.episode_id, 0)
             per_rev[rev.episode_id] = count + 1
             if count < MAX_PAIRS:
-                out.append(Pair("", rev, o, n, days))
+                out.append(Pair("", rev, o, n, days, held=line))
     for ep in per_rev:
         for i, p in enumerate((p for p in out if p.rev.episode_id == ep), 1):
             p.key = f"p{i}"
@@ -263,10 +320,12 @@ def same_keys(reply) -> set[str]:
 def _verdict(p: Pair) -> Verdict:
     from api.services.claim_reconciler import _norm_object, slot_observer
 
-    n = p.new
-    return Verdict(episode=p.rev.episode_id, old_id=p.old.id, subject=n.subject, context=n.context,
+    n, o = p.new, p.old
+    return Verdict(episode=p.rev.episode_id, old_id=o.id, subject=n.subject, context=n.context,
                    observer=slot_observer(n), predicate=n.predicate, object=_norm_object(n.object),
-                   valid_from=_day(n.valid_from), expected_end=_day(n.expected_end))
+                   valid_from=_day(n.valid_from), expected_end=_day(n.expected_end), held=p.held,
+                   old_subject=o.subject, old_object=_norm_object(o.object), old_from=_day(o.valid_from),
+                   old_end=_day(o.expected_end))
 
 
 def read(memory_path: Path, revisions: dict[str, er.Revision], extracted: list[dict],
@@ -313,36 +372,80 @@ def read(memory_path: Path, revisions: dict[str, er.Revision], extracted: list[d
     return out
 
 
-def _carries(c: Claim, v: Verdict) -> bool:
+def _carries(c: Claim, v: Verdict, subject: str, obj: str) -> bool:
+    """``c`` is the re-read's claim the verdict judged, as it stands now: open, superseding nothing, the same words of
+    the relationship, the judged day, this conversation cited, about ``subject`` and ``obj`` (where it went)."""
     from api.services.claim_reconciler import _norm_object, open_, slot_observer
 
     return (open_(c) and not c.superseded_by and not c.supersedes and not is_record(c) and not is_event(c)
-            and c.subject == v.subject and c.predicate == v.predicate and c.context == v.context
-            and slot_observer(c) == v.observer and _norm_object(c.object) == v.object
+            and c.subject == subject and c.predicate == v.predicate and c.context == v.context
+            and slot_observer(c) == v.observer and _norm_object(c.object) == obj
             and _day(c.valid_from) == v.valid_from and _day(c.expected_end) == v.expected_end
             and v.episode in (c.source_episodes or []))
 
 
+def _was(c: Claim, v: Verdict, subject: str, obj: str) -> bool:
+    """``c`` is still the claim the verdict was made on: about ``subject`` and ``obj``, the day it carried when judged,
+    open and this conversation's alone (`_pairable_old`; a conversation read since that also says it keeps it)."""
+    from api.services.claim_reconciler import _norm_object
+
+    return (c.subject == subject and _norm_object(c.object) == obj and _day(c.valid_from) == v.old_from
+            and _day(c.expected_end) == v.old_end and _pairable_old(c, v.episode))
+
+
+def _where(v: Verdict, moved: Moved | None) -> tuple[str, str, str, str]:
+    """Where the old claim and the re-read's claim are now: ``(old subject, old object, new subject, new object)``. A
+    claim released from its line this pass was re-keyed onto the page Stage 2 gave the name (`pending_store.repointed`),
+    and the re-read's claim of that name went to the same page by the same verdict."""
+    from api.services import pending_store
+    from api.services.claim_reconciler import _norm_object
+
+    if moved is None:
+        return v.old_subject, v.old_object, v.subject, v.object
+    slug, target = _norm_object(moved.slug), moved.target
+    old_s, old_o = pending_store.repointed(v.old_subject, v.old_object, slug, target)
+    return (old_s, _norm_object(old_o), target if v.subject == slug else v.subject,
+            _norm_object(target) if v.object == slug else v.object)
+
+
+def _kept(old: Claim | None, v: Verdict, audit: list[dict]) -> None:
+    if old is not None and old.valid_to is None and _support(old) != {v.episode}:
+        audit.append({"action": "revision_kept", "kept": old.id, "why": "another_conversation"})
+
+
 def apply(reconciled: dict[str, list[Claim]], verdicts: list[Verdict], revisions: dict[str, er.Revision],
-          audit: list[dict]) -> dict[str, str]:
+          audit: list[dict], released: dict[str, Moved] | None = None) -> dict[str, str]:
     """After Stage 3 (and ``episode_revision.settle``): each verdict's re-read claim, as Stage 3 left it, replaces its old
-    claim the way the same-slot replacement does, every condition checked again now (see the module). Returns
-    ``{closed claim id: the revised episode}``. Mutates the claims in ``reconciled``."""
+    claim the way the same-slot replacement does, every condition checked again now (see the module). The old claim is
+    the one on its page (by id), or, for one judged while it was held, the very claim this pass released from that line
+    (``released``: ``{claim id: Moved}``, matched by identity, never a look-alike the page already held); a verdict on a
+    claim still held waits for :func:`apply_held`. Returns ``{closed claim id: the revised episode}``. Mutates the claims
+    in ``reconciled``."""
     if not verdicts:
         return {}
-    from api.services.claim_reconciler import _close, _date_key, same_object
+    from api.services.claim_reconciler import EDITED_BACK, _close, _date_key, same_object
 
     out: dict[str, str] = {}
     for v in verdicts:
         rev = revisions.get(v.episode)
-        slot = reconciled.get(v.subject) or []
-        old = next((c for c in slot if c.id == v.old_id), None)
-        if rev is None or not rev.closes or old is None or not _pairable_old(old, v.episode):
-            if old is not None and old.valid_to is None and _support(old) != {v.episode}:
-                audit.append({"action": "revision_kept", "kept": old.id, "why": "another_conversation"})
+        if rev is None or not rev.closes:
+            continue
+        if v.held:
+            moved = (released or {}).get(v.old_id)
+            if moved is None or moved.line != v.held:
+                continue   # still held (or not released from that line): `apply_held`, once the store has settled
+            old_s, old_o, new_s, new_o = _where(v, moved)
+            slot = reconciled.get(moved.claim.subject) or []
+            old = next((c for c in slot if c is moved.claim), None)
+        else:
+            old_s, old_o, new_s, new_o = _where(v, None)
+            slot = reconciled.get(v.subject) or []
+            old = next((c for c in slot if c.id == v.old_id), None)
+        if old is None or not _was(old, v, old_s, old_o):
+            _kept(old, v, audit)
             continue
         text = er._changed_text(rev)  # noqa: SLF001
-        new = next((c for c in slot if c is not old and c.id != old.id and _carries(c, v)
+        new = next((c for c in slot if c is not old and c.id != old.id and _carries(c, v, new_s, new_o)
                     and same_object(c, old) and any(er.says_day(text, d) for d in (v.valid_from, v.expected_end) if d)),
                    None)
         if new is None:
@@ -351,11 +454,53 @@ def apply(reconciled: dict[str, list[Claim]], verdicts: list[Verdict], revisions
         if old.valid_from and _date_key(old.valid_to) < _date_key(old.valid_from):
             old.valid_to = old.valid_from   # a date moved earlier closes the old claim on its own first day
         # A conversation edited back (`claim_reconciler._edited_back`) says so; any other pair says it was edited.
-        from api.services.claim_reconciler import EDITED_BACK
-
         audit.append({"action": "revised", "closed": old.id, "by": new.id,
                       "why": EDITED_BACK if getattr(new, "_edited_back", None) else WHY})
         out[old.id] = v.episode
     if out:
         logger.info(f"Revision pairs: {len(out)} claim(s) replaced by the revision's own wording of them")
+    return out
+
+
+def apply_held(memory_path: Path, verdicts: list[Verdict], revisions: dict[str, er.Revision], audit: list[dict],
+               done: dict[str, str] | None = None) -> dict[str, str]:
+    """After the pending store settled (this pass's release and hold): each verdict on a claim judged while held, whose
+    line still holds it, drops it from that ONE line only when the re-read's claim now stands in its place in that same
+    line — open, the same subject and object, the judged day, this conversation cited, held (not refused at the line's
+    cap, not folded into another claim, not under another name) — and the old claim is still what was judged and still
+    this conversation's alone (`pending_store.replace_held` checks under the store's lock, after this pass's hold merged
+    any other conversation that says it). Nothing is cleared or re-dated: the old claim leaves the line whole, the new
+    one stays as the re-read wrote it. One new claim stands for one old claim. ``done``: what :func:`apply` already
+    replaced. Recorded as the page path's replacement is (audit ``revised``, ``held``), never on the line itself, which
+    a promotion deletes. Returns ``{dropped claim id: the revised episode}``."""
+    from api.services import pending_store
+    from api.services.claim_reconciler import same_object
+
+    out: dict[str, str] = {}
+    used: set[str] = set()
+    for v in verdicts:
+        if not v.held or v.old_id in (done or {}):
+            continue
+        rev = revisions.get(v.episode)
+        if rev is None or not rev.closes:
+            continue
+        text = er._changed_text(rev)  # noqa: SLF001
+
+        def stands(old: Claim, others: list[Claim], v: Verdict = v, text: str = text) -> str | None:
+            if not _was(old, v, v.old_subject, v.old_object):
+                _kept(old, v, audit)
+                return None
+            new = next((c for c in others if c.id not in used and c.id != old.id
+                        and _carries(c, v, v.subject, v.object) and same_object(c, old)
+                        and any(er.says_day(text, d) for d in (v.valid_from, v.expected_end) if d)), None)
+            return new.id if new is not None else None
+
+        by = pending_store.replace_held(memory_path, v.held, v.old_id, stands)
+        if not by:
+            continue
+        used.add(by)
+        audit.append({"action": "revised", "closed": v.old_id, "by": by, "why": WHY, "held": True})
+        out[v.old_id] = v.episode
+    if out:
+        logger.info(f"Revision pairs: {len(out)} held claim(s) replaced by the revision's own wording of them")
     return out

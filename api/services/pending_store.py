@@ -741,15 +741,54 @@ def ready(memory_path: Path, target_of: Callable[[str, str], str],
     return out
 
 
+def repointed(subject: str, obj: str, slug: str, target: str) -> tuple[str, str]:
+    """``(subject, object)`` of a claim of the line ``slug`` once it is re-keyed onto ``target`` (:func:`_repoint`'s one
+    rule, also read by `revision_pairs` to know where a released claim went)."""
+    if subject != slug and obj == slug:
+        return subject, target
+    return target, obj
+
+
 def _repoint(claims: list[Claim], slug: str, target: str) -> list[Claim]:
     """A line's claims re-keyed onto ``target``: a claim held for this name as another page's OBJECT keeps its subject
     (that page keeps the claim) and points its object at ``target``; every other claim takes ``target`` as subject."""
     for claim in claims:
-        if claim.subject != slug and claim.object == slug:
-            claim.object = target
-        else:
-            claim.subject = target
+        claim.subject, claim.object = repointed(claim.subject, claim.object, slug, target)
     return claims
+
+
+def replace_held(memory_path: Path, name: str, old_id: str,
+                 stands: Callable[[Claim, list[Claim]], str | None]) -> str | None:
+    """G104 (2026-11-25, `revision_pairs.apply_held`): take the held claim ``old_id`` off the ONE line named ``name``
+    (case-insensitive) when ``stands(old, the line's other claims)`` names the claim of that same line that now stands in
+    its place; the check runs under the lock on the line as it is now, after this pass's hold merged what it heard (a
+    conversation read the same night that also says the old claim has added itself to its support by then). Every
+    other line and claim is untouched, byte for byte; one write only when the claim left. Returns the id of the claim
+    standing in its place, or ``None`` when nothing left."""
+    key = (name or "").strip().lower()
+    if not key or not old_id:
+        return None
+    with _LOCK:
+        entries = load(memory_path)
+        for e in entries:
+            if e.name.lower() != key:
+                continue
+            parsed: list[tuple[int, Claim]] = []
+            for i, data in enumerate(e.held_claims):
+                try:
+                    parsed.append((i, Claim.from_dict(data)))
+                except (TypeError, ValueError):
+                    continue
+            old = next(((i, c) for i, c in parsed if c.id == old_id), None)
+            if old is None:
+                return None
+            by = stands(old[1], [c for i, c in parsed if i != old[0]])
+            if not by:
+                return None
+            del e.held_claims[old[0]]
+            save(memory_path, entries)
+            return by
+        return None
 
 
 def answered(memory_path: Path, name: str, target: str, *, subject_page: str = "") -> Release | None:

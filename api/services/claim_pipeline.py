@@ -588,6 +588,11 @@ def run_claim_pipeline(
     # compares against this to render only the pages that changed (F6, benchmarks/scale).
     as_read = {subject: [c.to_dict() for c in claims] for subject, claims in existing_by_subject.items()}
     releases, released, credit = _releases(memory_path, name_to_id, existing_by_subject, decided_names)
+    # G104 (2026-11-25): which line each claim released now left and the page it went to, by the claim object Stage 3 is
+    # handed — a verdict made on a held claim is applied to that claim alone (`revision_pairs.apply`).
+    offered_now = {id(c) for c in released}
+    moved = {c.id: revision_pairs.Moved(c, rel.name, sanitize_id(rel.name), rel.target)
+             for rel in releases for c in rel.claims if id(c) in offered_now}
     incoming = released + incoming
     # G61 S1 reads this as "newly written by this pass" — true of a released claim too (R-HP8).
     emitted_ids = stage1_ids | {c.id for c in released}
@@ -647,7 +652,7 @@ def run_claim_pipeline(
     withdrawn = episode_revision.settle(reconciled, revision_plan, revisions or {}, today, audit)
     # G104 (2026-11-25): the revision's re-read claim of the same relationship, worded under another predicate, takes the
     # old claim's place — only on two readings' "the same", checked again here, after Stage 3 merged the batch.
-    paired = revision_pairs.apply(reconciled, list(revision_verdicts or []), revisions or {}, audit)
+    paired = revision_pairs.apply(reconciled, list(revision_verdicts or []), revisions or {}, audit, released=moved)
     if revisions:
         superseded = sum(1 for a in audit if a.get("action") == "revised")
         logger.info(f"Claim pipeline: {len(revisions)} revised conversation(s) — {revision_plan.reanchored} span(s) "
@@ -748,6 +753,21 @@ def run_claim_pipeline(
     # ---- G141 PJ-0b: settle the pending store — release, then hold (R-HP4, R-HP10) ----
     hold = _settle_store(memory_path, releases, set(written_subjects), page_less_offers, stage1_ids,
                          refs.reserved_slugs())
+    # G104 (2026-11-25): a claim judged while held, whose line still holds it, gives way to the re-read's claim of the
+    # same relationship only once that claim is held in the same line (`revision_pairs.apply_held`, after the hold).
+    if revision_verdicts and revisions:
+        try:
+            held_audit: list[dict] = []
+            held_paired = revision_pairs.apply_held(memory_path, list(revision_verdicts), revisions, held_audit,
+                                                    done=paired)
+            for entry in held_audit:
+                telemetry.record_audit([entry], subject_hint=next(
+                    (v.old_subject for v in revision_verdicts if v.old_id == (entry.get("closed") or entry.get("kept"))),
+                    None), bank=memory_path.name, stage="reconcile")
+            audit.extend(held_audit)
+            paired = {**paired, **held_paired}
+        except Exception as e:  # noqa: BLE001 - a store failure costs the replacement, never the cycle (R-HP10)
+            logger.warning(f"Held revision pairs not applied: {type(e).__name__}")
     claims_page_less = sum(len(claims) for claims in page_less_offers.values()) - hold["claims_held"]
 
     # ---- G61 phase 2 S1 (spec §5.2, plan R-AC33): a link the cited words contain ----

@@ -243,6 +243,9 @@ def record_audit(
                 refs = {
                     "action": "revised", "subject": subject_hint,
                     "closed": entry.get("closed"), "by": entry.get("by"), "why": str(entry.get("why") or "revision"),
+                    # A claim held under a name with no page yet, dropped from its line (its only record: a promotion
+                    # deletes the line).
+                    **({"held": True} if entry.get("held") else {}),
                 }
             elif action == "rejected":
                 refs = {

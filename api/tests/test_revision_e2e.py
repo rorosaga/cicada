@@ -42,3 +42,26 @@ def test_a_story_is_judged_on_what_is_open_never_on_what_was_closed(claims, verd
     got = e2e.judge_story(_story(), claims, [], CLOCK, None)
     assert got["verdict"] == verdict
     assert bool(got["stale_open"]) == (verdict in ("both_current", "stale_only"))
+
+
+@pytest.mark.parametrize("path", [e2e.STORIES, REVIEW], ids=["stories", "review"])
+def test_a_story_reads_the_same_on_any_clock(path):
+    # A date the clock places (`{date:N}`) is expected only where the conversation's own text is dated by the clock
+    # (`{day:+N}`); a story whose text names a fixed day expects that day, spelled with no year (2026-11-25: two review
+    # stories read `never_made` on any day but the one they were written on).
+    fixture = json.loads(path.read_text(encoding="utf-8"))
+    for story in fixture["expect"]["stories"]:
+        expected = json.dumps([story.get(k) for k in ("current", "stale", "kept")])
+        turns = " ".join(t for c in fixture["conversations"] if c["id"] == story["conversation"]
+                         for t in c.get("turns") or [text for _, text in c.get("lines") or []])
+        if "{date:" in expected:
+            assert "{day:" in turns, story["id"]
+
+
+def test_a_fixed_day_is_found_whatever_the_clock():
+    review = json.loads(REVIEW.read_text(encoding="utf-8"))
+    story = next(s for s in review["expect"]["stories"] if s["id"] == "n04")
+    claims = [_claim("2026-12-12", object="tromso", subject="karin", predicate="moves-to",
+                     text="Karin moves to Tromso 2026-12-12")]
+    for clock in (CLOCK, date(2026, 11, 25), date(2027, 3, 1)):
+        assert e2e.judge_story(story, claims, [], clock, None)["verdict"] == "correct", clock
