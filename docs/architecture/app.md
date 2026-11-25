@@ -693,6 +693,7 @@ held with Undo); the chat stays on the chain until every pair is answered or ski
 "And C and B, one too?" — each joined only on its own *Yes* (#536 review). Never joined by one answer or
 by typed words (ruling 41); no fold, no placeholder tile.
 
+**A pick question (ruling 83):** the chat and the card draw the served spoken question and one button per option (a candidate in the person's words, then "Someone else"); `CatchupContext` adds no page summary under a question over two or more candidates. 
 **Catch me up, the chat (ruling 48 (8), owner 2026-10-28: "not a monotone interrogation").** *Start* opens the chat in
 place on Home (`CatchupView`, mock `08-catchup`; held by `HomeSearch.catchup`, so opening a page from it and coming
 back resumes it; Home's cell, Esc, × or *Stop for now* leave it; a bank switch ends it). Cicada on the left, the person
