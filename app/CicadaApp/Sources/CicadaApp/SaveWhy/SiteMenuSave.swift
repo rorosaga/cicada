@@ -34,6 +34,8 @@ struct SiteMenuReading: Equatable, Sendable {
     var linkLabels: [String] = []
     /// The clicked item's frame on screen (top-left coordinates): a rest's reading is used only for a click inside it.
     var frame: CGRect = .zero
+    /// The first item that carries the site's mark (`SiteSaveSite.Menu.markClass`), when the menu shows one.
+    var firstMarked: Int? = nil
 }
 
 enum SiteMenuRule {
@@ -78,10 +80,19 @@ enum SiteMenuRule {
         guard let site = sites.first(where: { $0.key == reading.site }), let rule = site.menu else {
             return .failure(.unknownSite)
         }
-        guard reading.fits, !reading.foreign, reading.items.indices.contains(reading.clicked),
-              rule.sizes.contains(reading.items.count) else { return .failure(.notTheSaveSlot) }
-        if let fromEnd = rule.fromEnd, reading.clicked != reading.items.count - fromEnd {
+        guard reading.fits, !reading.foreign, reading.items.indices.contains(reading.clicked) else {
             return .failure(.notTheSaveSlot)
+        }
+        if rule.markClass != nil, let marked = reading.firstMarked {
+            // The menu shows the site's mark: it places the save, whatever the menu's length.
+            guard rule.markSizes.contains(reading.items.count), reading.clicked == marked - rule.beforeMark else {
+                return .failure(.notTheSaveSlot)
+            }
+        } else {
+            guard rule.sizes.contains(reading.items.count) else { return .failure(.notTheSaveSlot) }
+            if let fromEnd = rule.fromEnd, reading.clicked != reading.items.count - fromEnd {
+                return .failure(.notTheSaveSlot)
+            }
         }
         if rule.lists {
             let named: SiteSaveItem?
@@ -342,9 +353,21 @@ extension SiteSaveReader {
         let fits = (rule.menuClass.map { classes(menu).contains($0) } ?? true) && underSeen && sheetSeen
             && (rule.block == nil || block != nil || foreign)
         let found = block.map { itemLinks(in: $0, site: site) } ?? ([], [])
+        let firstMarked = rule.markClass.flatMap { mark in items.firstIndex { carries(mark, in: $0) } }
         return SiteMenuReading(site: site.key, items: items.map(label), clicked: clicked, page: address, fits: fits,
                                foreign: foreign, blockKey: blockKey, links: found.0, linkLabels: found.1,
-                               frame: row)
+                               frame: row, firstMarked: firstMarked)
+    }
+
+    /// Whether a menu item, or one of the few things drawn inside it (its icon), carries a class. Bounded.
+    private static func carries(_ mark: String, in item: AXUIElement) -> Bool {
+        var stack = [item], seen = 0
+        while let next = stack.popLast(), seen < 12 {
+            seen += 1
+            if classes(next).contains(mark) { return true }
+            stack.append(contentsOf: children(next))
+        }
+        return false
     }
 
     /// `opener`, asked a second time when the first answer places the click nowhere known (`secondAsk`).
