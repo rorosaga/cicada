@@ -731,6 +731,20 @@ def state(memory_path: Path) -> State:
     return out
 
 
+def change_token(memory_path: Path) -> str:
+    """What a change check (an ETag) folds in for :func:`groups`, without building it: membership is made of the pages'
+    and the saves' own headers, so a caller that already folds the ``entities`` and ``episodes`` listings
+    (``bank_index.stamps`` or a request's shared scans) only needs what else moves the answer — the earned set
+    (``saved_posts.earned_saves_stamp``, which also follows ``graph_edges.yaml``) and the code's own table of kinds.
+    Never raises; "" when it cannot tell (the caller's listings still move)."""
+    try:
+        kinds_sig = hashlib.sha1("\x1f".join(f"{k.stream}:{k.how}:{k.folders}" for k in kinds()).encode()).hexdigest()[:8]
+        return f"{kinds_sig}.{saved_posts.earned_saves_stamp(Path(memory_path))}"
+    except Exception as exc:  # noqa: BLE001 - a change check never fails a request
+        logger.debug(f"list pages: change token skipped ({type(exc).__name__})")
+        return ""
+
+
 def stamp(memory_path: Path) -> str:
     """Moves when a list is drawn or gone, or its count or newest day moves (a graph's cache key and a node's hash fold
     it in); empty while dark."""
@@ -1019,6 +1033,6 @@ def _retry(memory_path: Path) -> None:
         runner.timer.start()
 
 
-__all__ = ["KIND", "PAGE_ORIGIN", "is_list", "list_of", "wanted", "block", "state", "stamp", "drawn_ids",
+__all__ = ["change_token", "groups", "kinds", "KIND", "PAGE_ORIGIN", "is_list", "list_of", "wanted", "block", "state", "stamp", "drawn_ids",
            "read_time_edges", "sync", "start_sync", "retire_source", "page_id", "sentence", "stream_pages",
            "line_for", "AGENT_REFUSAL"]
