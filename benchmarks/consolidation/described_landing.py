@@ -5,8 +5,8 @@
 one conversation, one held line with one or several located claims) and each claim carries ``expect``: ``land`` where the
 conversation says the fact is about a page it names (in the claim's own sentence, or a turn or two earlier), ``left`` for the
 rest. A ``left`` case says who must refuse it: ``by: code`` (the code before the read: an assistant's words, a company, an
-owner's, an archived or ambiguous page, a label the conversation said, no page named) or ``by: reader`` (the engine's main
-model: a fact about neither of two pages, about the person, a person named nearby, a tool used with the page, a relation noun
+owner's, an archived or ambiguous page, a tool or a concept page, a label the conversation said, no page named) or ``by: reader`` (the engine's main
+model: a fact about neither of two projects, about the person, a person named nearby, a project used with the page, a relation noun
 such as "the maintainer of <Page>", a topic switch). Each case is run through the real tending step
 (`described_landing.tend`: code gates, two reads, the landing) with these judges:
 

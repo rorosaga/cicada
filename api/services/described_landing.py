@@ -21,9 +21,9 @@ not a label); the label was the claim's SUBJECT, the claim is open and no event;
 source is now (`source_spans.Source.status`), inside a turn the person's own (`promotion.person_kinds`: in a meeting a named
 speaker's, in a group chat only the person's), never an assistant's, an agent note's or a saved page's; and the SAME
 CONVERSATION names at least one candidate page, in a turn of the person's (or a named speaker's), by its title or an alias,
-located by `evidence.locate` (exact, whitespace, case: never fuzzy), a name only one page bears. A candidate is a live project,
-tool or concept: never the owner's, never a person, a company or a place, never one the person said the mention is not
-(`apart`). No candidate: the claim stays held. The old gates (the sentence names exactly one page, is short, holds the label's
+located by `evidence.locate` (exact, whitespace, case: never fuzzy), a name only one page bears. A candidate is a live
+project: never the owner's, never a tool, a concept, a person, a company or a place, never one the person said the mention is
+not (`apart`). No candidate: the claim stays held. The old gates (the sentence names exactly one page, is short, holds the label's
 words beside the name) are no longer gates; what they measured is the reader's context.
 
 **The read.** The reader is shown the claim, the turn it was said in, the turns just before and after it (bounded) and each
@@ -35,14 +35,26 @@ window. A disagreement, "none", an unusable reply or a sentence that does not lo
 remembered (a hash outside every bank) so the pair is not read again until the line, the conversation or a candidate changes.
 A line's claims said in one conversation are read in one call (at most :data:`MAX_CLAIMS_PER_CALL`).
 
+**Only a project is a page a fact lands on (2026-11-25, after the dry run on the owner's bank, real values redacted).** The
+first reader accepted a project, a tool or a concept page. Of the 33 claims it would have landed on 17 pages, I judged each
+against its sentence: on a **project** page (4 pages, 17 claims) 17 were right (a description of the project in other words, a
+deliverable of it, its repository, a component); on a **tool** page (4 pages, 6 claims) 2 were right and 4 doubtful (a thing the
+person built WITH the tool, or an account or instance of theirs IN it, landed as "a part of" the tool); on a **concept** page
+(9 pages, 10 claims) 3 were right and 7 wrong (a specific thing of the person's landed on the page of a general notion that
+shares a word with it). The reader is right when the page is something of the person's that has parts, and wrong when the page
+is a general notion or a product that the thing merely uses or runs in: a property the code can hold. So a tool or a concept is
+never a candidate; a conversation that names only tools and concepts leaves the claim held, counted as
+``named_pages_not_projects``, before any read (310 claims reached the reader on that bank, 0.59 calls a claim).
+
 **After the read (code).** The landed claim records the sentence copied as a second evidence span; the settle's record keeps
 every one. A relation ("the landlord of <Page>", "<Page>'s accountant"), the person's own life and a tool used with the page
 are the reader's to refuse; the battery carries them.
 
 **What landing means.** The claim is written on the page as a claim OF the page: subject the page, predicate and object as
 held, id kept, its evidence span, source conversation, observer, trust and dates unchanged, its text kept with the label's own
-words (marked ``(a part of <Page>)`` when both reads said a part) — never re-worded by a model, so a located span still backs
-every word. The line keeps whatever did not land (`pending_store.drop_released`) and is closed only when nothing is left. The
+words with what the two reads said it is marked: ``(a part of <Page>)`` when both said a part, ``(about <Page> itself)`` when both
+said the label is the page in other words, nothing when they did not say the same (the weaker wording, never a refusal) —
+never re-worded by a model, so a located span still backs every word. The line keeps whatever did not land (`pending_store.drop_released`) and is closed only when nothing is left. The
 page's `source_episodes` and `last_referenced` are NOT moved: the conversation is no new mention for decay or promotion unless
 it already counted. A page gets one settle per run: one commit of its own paths, one record `inbox/settled/land-NNN.md` under
 "Settled by Sleep" with the sentences shown, undoable as one (`undo`: the claims go back to the line, and the person's undo is
@@ -76,9 +88,12 @@ RECORD_PREFIX = "land-"
 SETTLED_DIR = "settled"
 REASON = "What you said about this page, in a conversation that names it, was held under a label nobody said."
 
-#: The pages a fact can be about. A person, the owner, a company, a place, an event, a media record or a skill is never the
-#: thing a label's fact is about (a "part" of a person is a different claim, and a media page's parts are its own).
-TARGET_TYPES = frozenset({"project", "tool", "concept"})
+#: The only pages a fact can land on: something of the person's that has parts (see the module's docstring for the measurement).
+#: A tool or a concept is a general notion or a product the thing merely uses or runs in; a person, the owner, a company, a place,
+#: an event, a media record or a skill is never the thing a label's fact is about either.
+TARGET_TYPES = frozenset({"project"})
+#: Live pages a conversation may name that are turned away by type, counted (`named_pages_not_projects`): never a candidate.
+TURNED_AWAY_TYPES = frozenset({"tool", "concept"})
 ACTIVE = frozenset({"active", "decaying", ""})
 #: A single-word page name this short is a common word more often than a name.
 MIN_SINGLE_NAME = 4
@@ -93,6 +108,9 @@ WINDOW_CHARS = 9000
 MIN_SENTENCE = 8
 SUMMARY_CHARS = 240
 LETTERS = "ABCDEF"
+#: What a read says the fact is about: a part of the page, or the page itself (the label being its description in other words).
+#: Anything else (no word, another word) is "" and the claim carries no marker.
+SCOPES = ("part", "whole")
 
 _WORD = re.compile(r"[^\W_]+", re.U)
 
@@ -123,7 +141,7 @@ Also copy, exactly as written and without changing a character, the one sentence
 
 Respond with JSON only:
 {{"claims": [{{"n": 1, "page": "A" | "B" | ... | "none", "scope": "part" | "whole", "sentence": "copied words"}}]}}
-("scope": "part" when the fact is about a part, feature or aspect of the candidate, "whole" when it is about the candidate itself.)
+("scope": "part" when the fact is about a part, feature, deliverable or aspect of the candidate; "whole" when the label is just another way of describing the candidate itself and the fact is about the candidate as a whole.)
 """
 
 SKEPTIC = """
@@ -158,6 +176,11 @@ class Page:
     @property
     def eligible(self) -> bool:
         return not self.owner and self.type in TARGET_TYPES and self.status in ACTIVE
+
+    @property
+    def turned_away(self) -> bool:
+        """A live tool or concept: named, counted, never offered."""
+        return not self.owner and self.type in TURNED_AWAY_TYPES and self.status in ACTIVE
 
 
 class PageNames:
@@ -221,6 +244,7 @@ class Conv:
         self.turns = evidence.turns(masked, override=authorship.of(fm), gaps=evidence.gap_ranges(fm, body))
         self.title = str(fm.get("title") or "")
         self._named: dict[str, list[int]] | None = None
+        self.not_projects: set[str] = set()    # live tools and concepts the person's turns name (never candidates)
         self.ambiguous = 0
 
     def is_person(self, i: int) -> bool:
@@ -237,7 +261,8 @@ class Conv:
         return t.content_start, t.end
 
     def named(self, names: PageNames) -> dict[str, list[int]]:
-        """``{page id: [indexes of the person's turns that name it]}`` for the eligible pages whose name or alias the
+        """``{page id: [indexes of the person's turns that name it]}`` for the eligible pages (projects; the tools and concepts
+        named go to ``not_projects``) whose name or alias the
         conversation says (a name found by words, then located by `evidence.locate`: whole word, never fuzzy). A name two
         pages bear names none of them."""
         if self._named is not None:
@@ -253,10 +278,13 @@ class Conv:
                     self.ambiguous += 1
                     continue
                 page = names.pages.get(next(iter(m.pages)))
-                if page is None or not page.eligible or i in out.get(page.id, ()):
+                if page is None or not (page.eligible or page.turned_away) or i in out.get(page.id, ()):
                     continue
                 if any(evidence.locate(chunk, n, whole_word=True) for n in page.names):
-                    out[page.id].append(i)
+                    if page.eligible:
+                        out[page.id].append(i)
+                    else:
+                        self.not_projects.add(page.id)
         self._named = dict(out)
         return self._named
 
@@ -380,6 +408,8 @@ def gate_line(line: pending_store.PendingEntity, docs: Docs, names: Callable[[],
                 own = str(it.claim.object or "") if it.claim.object_kind != "literal" else ""
                 if any(p != own for p in ranked):    # a page the claim's own other end names is no page it is about
                     kept.append(it)
+                elif not ranked and conv is not None and conv.not_projects:
+                    plan.skipped["named_pages_not_projects"] += 1   # it names tools or concepts only: held, never read
                 else:
                     plan.skipped["no_candidate_page"] += 1
             if kept:
@@ -538,7 +568,7 @@ def locate_sentence(conv: Conv, shown: list[Shown], sentence: object) -> tuple[i
 class Pick:
     """What both reads agreed on for one claim."""
     page: str
-    scope: str                       # part | whole
+    scope: str                       # part | whole | "" (the two reads did not say the same: the weaker wording, no marker)
     start: int                       # the copied sentence, offsets into the conversation text
     end: int
     turn: str
@@ -605,7 +635,7 @@ async def _one_read(label: str, summary: str, conv: Conv, shown: list[Shown], ca
         if hit is None:
             out[k] = (page, None, "sentence_not_located")
             continue
-        out[k] = (page, {"start": hit[0], "end": hit[1], "turn": hit[2]}, row["scope"] if row["scope"] == "part" else "whole")
+        out[k] = (page, {"start": hit[0], "end": hit[1], "turn": hit[2]}, row["scope"] if row["scope"] in SCOPES else "")
     return out
 
 
@@ -673,7 +703,7 @@ async def read_group(memory_path: Path, group: Group, docs: Docs, ask: Callable)
         elif p2 != p1:
             result.left[k - 1] = "reads_disagree"
         else:
-            result.picks[k - 1] = Pick(page=p1, scope="part" if (s1 == "part" and s2 == "part") else "whole", start=h1["start"],
+            result.picks[k - 1] = Pick(page=p1, scope=s1 if s1 == s2 and s1 in SCOPES else "", start=h1["start"],
                                        end=h1["end"], turn=conv.turns[h1["turn"]].role, hash=it.hash)
     return result
 
@@ -708,12 +738,15 @@ def is_record_id(item_id: str) -> bool:
 def landed_claim(claim: Claim, page_id: str, page_name: str, pick: Pick, episode: str = "") -> Claim:
     """The held claim as a claim of the page: subject the page, everything else — id, predicate, object, source conversation,
     observer, trust, dates — as it was held, its own evidence spans first. The text keeps the label's own words, so a located
-    span still backs every word, and a part says so. The sentence the reader copied (the one that shows which page the fact
+    span still backs every word; a part says so, and a label that is the page in other words says so too ("about <Page> itself"),
+    while two reads that did not say the same leave the words as they were. The sentence the reader copied (the one that shows which page the fact
     is about) is recorded as one more evidence span, unless it is the claim's own."""
     data = claim.to_dict()
     data["subject"] = page_id
     if pick.scope == "part":
         data["text"] = f"{claim.text} (a part of {page_name})"
+    elif pick.scope == "whole":
+        data["text"] = f"{claim.text} (about {page_name} itself)"
     ev = list(data.get("evidence") or [])
     copied = {"episode": episode, "start": pick.start, "end": pick.end, "kind": pick.turn, "hash": pick.hash}
     if episode and not any(isinstance(e, dict) and (e.get("episode"), e.get("start"), e.get("end")) == (episode, pick.start, pick.end)

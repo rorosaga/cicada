@@ -4,7 +4,7 @@ Made-up names only.
 The labelled set (`benchmarks/consolidation/described_landing_cases.json`) is the contract for the CODE conditions around the
 read: every case is a scratch bank of its own, and a reader rigged to always name the same candidate must land NOTHING a case
 marks ``by: code`` (an assistant's words, a company, an owner's, an archived or ambiguous page, a label the conversation
-said, no page named). What it lands among the ``by: reader`` cases is exactly what rests on the engine's main model, which the
+said, no page named, a page that is a tool or a concept). What it lands among the ``by: reader`` cases is exactly what rests on the engine's main model, which the
 benchmark measures (`benchmarks/consolidation/described_landing.py --judges real`)."""
 from __future__ import annotations
 
@@ -103,6 +103,40 @@ def test_the_candidates_are_the_live_pages_the_conversation_names_in_the_persons
     assert not plan.groups and plan.skipped["no_candidate_page"] == 1
 
 
+@pytest.mark.parametrize("case_id", ["r3-tool-in-of", "r4-concept", "t3-tool-used-for", "t4-runs-in-tool",
+                                     "n11-tool-used-with-earlier-turn", "w1-function-runs-on-a-cloud-tool",
+                                     "w2-account-switch-in-a-business-tool", "w3-exercise-query-on-a-concept",
+                                     "w4-portfolio-on-an-idea"])
+def test_only_a_project_is_a_page_a_fact_lands_on_a_tool_or_a_concept_is_held_by_code_before_any_read(tmp_path, case_id):
+    # the dry run on a real bank: a thing built with a tool, an account in it, a specific thing on a general notion's page
+    case = CASES[case_id]
+    assert case["by"] == "code" and all(c["expect"] == "left" for c in case["claims"])
+    bank = bench.build_bank(tmp_path, SPEC, case)
+    plan = dl.plan_bank(bank)
+    assert not plan.groups and plan.skipped["named_pages_not_projects"] == len(case["claims"]), plan.skipped
+    calls: list[str] = []
+    report = _run(bank, ask=scripted({1: {"page": "none"}}, calls=calls))
+    assert not calls and report.landed == 0, "no model is asked"
+    assert report.skipped["named_pages_not_projects"] == len(case["claims"])
+    assert pending_store.load(bank)[0].held_claims, "the fact stays held"
+
+
+def test_a_tool_named_beside_a_project_is_no_candidate_and_the_project_still_is(tmp_path):
+    bank = bench.build_bank(tmp_path, SPEC, CASES["w5-project-named-beside-a-tool"])
+    plan = dl.plan_bank(bank)
+    assert [g.candidates for g in plan.groups] == [["tidewell"]] and not plan.skipped["named_pages_not_projects"]
+    # a conversation that names no page at all is still the old reason
+    assert dl.plan_bank(bench.build_bank(tmp_path / "none", SPEC, CASES["t1-person-only"])).skipped["no_candidate_page"] == 1
+
+
+def test_a_label_that_is_the_project_in_other_words_lands_with_the_page_itself_named(tmp_path):
+    bank = bench.build_bank(tmp_path, SPEC, CASES["w6-project-description-in-other-words"])
+    sentence = "The open-source importer project is written in Rust, and Cedarloop ships it every Friday"
+    _run(bank, ask=scripted({1: {"page": "Cedarloop", "scope": "whole", "sentence": sentence}}))
+    (c,) = _page_claims(bank, "cedarloop")
+    assert c.text.endswith("(about Cedarloop itself)") and "a part of" not in c.text
+
+
 def test_a_page_the_person_said_the_mention_is_not_is_never_offered(tmp_path):
     bank = bench.build_bank(tmp_path, SPEC, CASES["r1-of"])
     pending_store.mark_apart(bank, "Cedarloop extraction worker", ["cedarloop"], [bench.EPISODE])
@@ -130,10 +164,10 @@ def test_a_stale_span_and_a_closed_claim_and_a_label_held_as_the_object_are_left
 
 
 def test_the_claims_own_other_end_is_never_the_page_it_is_about(tmp_path):
-    # "The export step of Quillnote writes everything to Cedarloop": the fact's own object is Cedarloop, so a reader that
-    # names Cedarloop is refused in code; Quillnote stays offered
+    # "The export step of Tidewell writes everything to Cedarloop": the fact's own object is Cedarloop, so a reader that
+    # names Cedarloop is refused in code; Tidewell stays offered
     bank = bench.build_bank(tmp_path, SPEC, CASES["r6-other-endpoint"])
-    ask = scripted({1: {"page": "Cedarloop", "scope": "whole", "sentence": "The export step of Quillnote writes everything to Cedarloop every night."}})
+    ask = scripted({1: {"page": "Cedarloop", "scope": "whole", "sentence": "The export step of Tidewell writes everything to Cedarloop every night."}})
     report = _run(bank, ask=ask)
     assert report.landed == 0 and "first_read_names_the_claims_own_object" in report.skipped
 
@@ -174,13 +208,23 @@ def test_a_landing_is_the_claim_of_the_page_with_its_spans_and_no_new_mention(tm
     assert line.held_claims == [] and line.summary
 
 
-def test_a_fact_about_the_whole_carries_no_part_marker(tmp_path):
-    bank = bench.build_bank(tmp_path, SPEC, CASES["r2-possessive"])
+def test_the_claims_words_follow_what_both_reads_said_the_label_is(tmp_path):
     sentence = "Tidewell's weekly digest email goes out on Fridays now."
-    _run(bank, ask=scripted({1: {"page": "Tidewell", "scope": "part", "sentence": sentence}},
-                            {1: {"page": "Tidewell", "scope": "whole", "sentence": sentence}}))
-    (c,) = _page_claims(bank, "tidewell")
-    assert c.text == "Tidewell weekly digest email goes out on Fridays", "the readings disagree on the scope: no marker"
+
+    def landed_text(name: str, first: dict, second: dict | None = None) -> str:
+        bank = bench.build_bank(tmp_path / name, SPEC, CASES["r2-possessive"])
+        _run(bank, ask=scripted({1: {"page": "Tidewell", "sentence": sentence, **first}},
+                                None if second is None else {1: {"page": "Tidewell", "sentence": sentence, **second}}))
+        (c,) = _page_claims(bank, "tidewell")
+        return c.text
+
+    base = "Tidewell weekly digest email goes out on Fridays"
+    assert landed_text("part", {"scope": "part"}) == f"{base} (a part of Tidewell)"
+    assert landed_text("whole", {"scope": "whole"}) == f"{base} (about Tidewell itself)", "the label is the page in other words"
+    # a disagreement, a reader that said nothing on it, or a word it was not asked: the weaker wording, never a refusal
+    assert landed_text("split", {"scope": "part"}, {"scope": "whole"}) == base
+    assert landed_text("silent", {}) == base
+    assert landed_text("odd", {"scope": "mostly"}) == base
 
 
 def test_a_page_named_two_turns_earlier_is_read_with_the_turns_before_it_and_lands_on_the_sentence_copied(tmp_path):
@@ -300,12 +344,12 @@ def test_a_plan_limit_is_a_pause_nothing_lands_and_nothing_is_forgotten(tmp_path
 
 
 def test_the_settle_is_recorded_with_the_sentence_and_listed_under_what_sleep_settled(tmp_path):
-    bank = bench.build_bank(tmp_path, SPEC, CASES["r3-tool-in-of"])
+    bank = bench.build_bank(tmp_path, SPEC, CASES["r1-of"])
     _run(bank)
     rows = web_settle.list_settled(bank)
     assert len(rows) == 1 and rows[0]["id"] == "land-001" and rows[0]["group"] == "sleep" and rows[0]["rule"] == dl.RULE
-    assert rows[0]["entity_id"] == "quillnote"
-    assert rows[0]["quote"].startswith("There is a bug in the export step of Quillnote that drops tables")
+    assert rows[0]["entity_id"] == "cedarloop"
+    assert rows[0]["quote"].startswith("The extraction worker of Cedarloop keeps timing out")
 
 
 def test_the_same_fact_is_never_landed_twice_and_a_single_valued_belief_is_never_overwritten(tmp_path):
@@ -392,9 +436,20 @@ def test_the_dry_run_prints_ids_never_words_and_writes_nothing_to_the_bank(tmp_p
     assert dry.main(["--bank", str(bank)]) == 0
     shown = capsys.readouterr().out
     assert bench.claim_id(CASES["r1-of"], 0) in shown and "candidates=1" in shown and "user" in shown
+    assert "claims that reach the reader 1 in 1 group(s)" in shown and "only tools or concepts, no project: 0 claim(s)" in shown
     for word in ("extraction", "Cedarloop", "timing", "worker"):
         assert word not in shown
     assert sorted(p.name for p in bank.rglob("*")) == before
+
+
+def test_the_dry_run_counts_what_names_only_tools_or_concepts_and_reads_none_of_it(tmp_path, capsys):
+    from benchmarks.consolidation import described_landing_bank as dry
+
+    bank = bench.build_bank(tmp_path, SPEC, CASES["w3-exercise-query-on-a-concept"])
+    assert dry.main(["--bank", str(bank)]) == 0
+    shown = capsys.readouterr().out
+    assert "claims that reach the reader 0 in 0 group(s)" in shown
+    assert "only tools or concepts, no project: 1 claim(s)" in shown and "named_pages_not_projects 1" in shown
 
 
 def test_the_dry_run_reads_resumes_and_writes_the_words_only_to_the_eyes_file(tmp_path, capsys, monkeypatch):

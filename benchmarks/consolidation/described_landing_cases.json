@@ -67,6 +67,26 @@
    "id": "pebblegrid-co",
    "name": "Pebblegrid Cooperative",
    "type": "company"
+  },
+  {
+   "id": "skyfold-cloud",
+   "name": "Skyfold Cloud",
+   "type": "tool"
+  },
+  {
+   "id": "ledgerly",
+   "name": "Ledgerly",
+   "type": "tool"
+  },
+  {
+   "id": "join-query",
+   "name": "Join query",
+   "type": "concept"
+  },
+  {
+   "id": "rebalancing",
+   "name": "Rebalancing",
+   "type": "concept"
   }
  ],
  "cases": [
@@ -105,9 +125,10 @@
      "quote": "There is a bug in the export step of Quillnote that drops tables",
      "label": "drops",
      "object": "tables",
-     "expect": "land"
+     "expect": "left"
     }
-   ]
+   ],
+   "by": "code"
   },
   {
    "id": "r4-concept",
@@ -119,9 +140,10 @@
      "label": "are off by",
      "object": "a factor of two",
      "literal": true,
-     "expect": "land"
+     "expect": "left"
     }
-   ]
+   ],
+   "by": "code"
   },
   {
    "id": "r5-adjacent",
@@ -139,11 +161,11 @@
   },
   {
    "id": "r6-other-endpoint",
-   "line": "Quillnote export step",
-   "conversation": "user: The export step of Quillnote writes everything to Cedarloop every night.\nassistant: Ok.",
+   "line": "Tidewell export step",
+   "conversation": "user: The export step of Tidewell writes everything to Cedarloop every night.\nassistant: Ok.",
    "claims": [
     {
-     "quote": "The export step of Quillnote writes everything to Cedarloop every night",
+     "quote": "The export step of Tidewell writes everything to Cedarloop every night",
      "label": "writes to",
      "object": "cedarloop",
      "expect": "land"
@@ -205,7 +227,7 @@
      "expect": "left"
     }
    ],
-   "by": "reader"
+   "by": "code"
   },
   {
    "id": "t4-runs-in-tool",
@@ -220,15 +242,15 @@
      "expect": "left"
     }
    ],
-   "by": "reader"
+   "by": "code"
   },
   {
    "id": "t5-split-phrase",
    "line": "newsletter export step",
-   "conversation": "user: The export step of the newsletter in Quillnote is slow.\nassistant: Ok.",
+   "conversation": "user: The export step of the newsletter in Tidewell is slow.\nassistant: Ok.",
    "claims": [
     {
-     "quote": "The export step of the newsletter in Quillnote is slow",
+     "quote": "The export step of the newsletter in Tidewell is slow",
      "label": "is",
      "object": "slow",
      "literal": true,
@@ -371,10 +393,10 @@
   {
    "id": "t15-two-pages",
    "line": "Cedarloop export step",
-   "conversation": "user: Quillnote and Cedarloop both have an export step.\nassistant: Ok.",
+   "conversation": "user: Tidewell and Cedarloop both have an export step.\nassistant: Ok.",
    "claims": [
     {
-     "quote": "Quillnote and Cedarloop both have an export step",
+     "quote": "Tidewell and Cedarloop both have an export step",
      "label": "exists in",
      "object": "both",
      "literal": true,
@@ -501,11 +523,11 @@
   },
   {
    "id": "n6-relation-maintainer",
-   "line": "Quillnote maintainer reply",
-   "conversation": "user: I filed an issue on Quillnote yesterday.\nassistant: Any answer?\nuser: The maintainer of Quillnote answered my issue within an hour.",
+   "line": "Tidewell maintainer reply",
+   "conversation": "user: I filed an issue on Tidewell yesterday.\nassistant: Any answer?\nuser: The maintainer of Tidewell answered my issue within an hour.",
    "claims": [
     {
-     "quote": "The maintainer of Quillnote answered my issue within an hour",
+     "quote": "The maintainer of Tidewell answered my issue within an hour",
      "label": "answered within",
      "object": "an hour",
      "expect": "left",
@@ -587,7 +609,7 @@
      "literal": true
     }
    ],
-   "by": "reader"
+   "by": "code"
   },
   {
    "id": "n12-company-sibling-name",
@@ -650,7 +672,7 @@
   {
    "id": "m3-three-claims-with-a-relation",
    "line": "project notes",
-   "conversation": "user: Quick notes on Quillnote.\nassistant: Go ahead.\nuser: The export step drops tables.\nassistant: Which version?\nuser: The maintainer of Quillnote is on holiday until June.\nassistant: Ok.\nuser: I use Quillnote for my newsletter drafts.",
+   "conversation": "user: Quick notes on Tidewell.\nassistant: Go ahead.\nuser: The export step drops tables.\nassistant: Which version?\nuser: The maintainer of Tidewell is on holiday until June.\nassistant: Ok.\nuser: I use Tidewell for my newsletter drafts.",
    "claims": [
     {
      "quote": "The export step drops tables",
@@ -660,14 +682,14 @@
      "literal": true
     },
     {
-     "quote": "The maintainer of Quillnote is on holiday until June",
+     "quote": "The maintainer of Tidewell is on holiday until June",
      "label": "mention",
      "object": "maintainer holiday",
      "expect": "left",
      "literal": true
     },
     {
-     "quote": "I use Quillnote for my newsletter drafts",
+     "quote": "I use Tidewell for my newsletter drafts",
      "label": "mention",
      "object": "newsletter drafts",
      "expect": "left",
@@ -675,6 +697,94 @@
     }
    ],
    "by": "reader"
+  },
+  {
+   "id": "w1-function-runs-on-a-cloud-tool",
+   "line": "nightly summary function",
+   "conversation": "user: My nightly digest function runs on Skyfold Cloud and uses its storage SDK.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "My nightly digest function runs on Skyfold Cloud and uses its storage SDK",
+     "label": "uses",
+     "object": "storage SDK",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "code"
+  },
+  {
+   "id": "w2-account-switch-in-a-business-tool",
+   "line": "account switch between my two companies",
+   "conversation": "user: In Ledgerly I switch between the accounts of my two companies all day.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "In Ledgerly I switch between the accounts of my two companies all day",
+     "label": "happens",
+     "object": "all day",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "code"
+  },
+  {
+   "id": "w3-exercise-query-on-a-concept",
+   "line": "exercise two query",
+   "conversation": "user: For exercise two my join query returns duplicate rows.\nassistant: Check the keys.",
+   "claims": [
+    {
+     "quote": "For exercise two my join query returns duplicate rows",
+     "label": "returns",
+     "object": "duplicate rows",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "code"
+  },
+  {
+   "id": "w4-portfolio-on-an-idea",
+   "line": "April allocation list",
+   "conversation": "user: My spring allocation sheet is a mess, I do the rebalancing by hand every April.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "My spring allocation sheet is a mess",
+     "label": "is",
+     "object": "a mess",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "code"
+  },
+  {
+   "id": "w5-project-named-beside-a-tool",
+   "line": "signup form timeout",
+   "conversation": "user: Tidewell runs on Skyfold Cloud.\nassistant: Ok.\nuser: The signup form times out on slow phones.\nassistant: Check the logs.",
+   "claims": [
+    {
+     "quote": "The signup form times out on slow phones",
+     "label": "times out on",
+     "object": "slow phones",
+     "literal": true,
+     "expect": "land"
+    }
+   ]
+  },
+  {
+   "id": "w6-project-description-in-other-words",
+   "line": "open importer project",
+   "conversation": "user: The open-source importer project is written in Rust, and Cedarloop ships it every Friday.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "The open-source importer project is written in Rust",
+     "label": "is written in",
+     "object": "Rust",
+     "literal": true,
+     "expect": "land"
+    }
+   ]
   }
  ]
 }

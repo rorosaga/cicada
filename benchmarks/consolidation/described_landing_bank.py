@@ -5,7 +5,7 @@
 
 Reads a bank's held lines, pages and conversations and runs the CODE conditions of `described_landing` (a label, the label as
 the claim's subject, an open claim, located current words in the person's own turn, a conversation that names at least one
-live project, tool or concept page). It WRITES NOTHING to the bank, opens no path a file names, never `~/.claude`, and calls no
+live project page; a tool or a concept is never a candidate). It WRITES NOTHING to the bank, opens no path a file names, never `~/.claude`, and calls no
 model unless ``--read`` is given.
 
 Without ``--read`` it prints, per claim that WOULD GO TO THE READER, one stable line of ids and enums, never a word of anyone's:
@@ -19,7 +19,8 @@ locates):
 
     would_land line=<8 hex> claim=<claim id> page=<page id> rule=land_described scope=<part|whole> turn=<kind> conversation=<id>
 
-then counts: held lines, labels, claims looked at, what each code gate turned away, groups read, the calls made (this run and in
+then counts: held lines, labels, claims looked at, the claims that reach the reader, what each code gate turned away
+(``named_pages_not_projects``: the conversation names only tools or concepts, so nothing is read; stated on a line of its own), groups read, the calls made (this run and in
 all), the claims that would land and why each other one stays held.
 
 ``--eyes FILE`` also writes, to a file OUTSIDE the repository (refused inside it), for the owner's eyes only, one JSON line per
@@ -199,6 +200,8 @@ def main(argv: list[str] | None = None) -> int:
     claims_in_groups = sum(len(g.items) for g in groups)
     print(f"held lines {plan.lines}; labels {plan.labels}; claims looked at {plan.claims}; "
           f"claims that reach the reader {claims_in_groups} in {len(groups)} group(s)")
+    print(f"turned away because the conversation names only tools or concepts, no project: "
+          f"{plan.skipped.get('named_pages_not_projects', 0)} claim(s)")
     print("turned away before the read: " + ", ".join(f"{k} {v}" for k, v in sorted(plan.skipped.items(), key=lambda kv: -kv[1])))
     if a.read:
         total_calls = sum(e.get("calls", 0) for e in cache.values())
