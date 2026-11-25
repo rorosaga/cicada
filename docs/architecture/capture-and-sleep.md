@@ -2448,6 +2448,22 @@ page now existing); the page prose kept the old fact beside the new. `episode_re
   read this conversation's own chain as a departure. The close is recorded where the correction's was (audit
   `revised`, `why: edited_back`, in the ledger and the Corrections record). A close by another conversation, the
   person, an agent, an ending or decay is never undone, and a re-read that is not such a revision undoes nothing.
+  **Measured (2026-11-25, plan, Sonnet main, Haiku judge, `--clock 2026-11-25`).** The 17 stories, 4 runs: a corrected
+  date wrong in 9 of 28 (before, 10 runs on the code without either rule: 29 of 70); a corrected name 8 of 8 (18 of 20);
+  a removed sentence 0 of 8 (2 of 20); the other three shapes 0 of 24 (0 of 60). The date gain is inside the spread:
+  of the 29 before, 1 had its stale claim on a page other than the owner's, the shape the pair rule reads; 24 were
+  claims held under a name with no page yet, which neither rule touches, and the rest were the owner's own claims about
+  helping with the move, which the re-read does not restate. The pair reading fired 3 times in 4 runs (one pair, two
+  calls, "same" twice, replaced each time). The ten review stories, 2 runs: 14 of 14 right on the seven shapes the run's
+  day does not touch; `date_words` and `date_language` read "never made" because their text writes an absolute date the
+  expectation dates from the run's day (rescored at the day they were written for, no model: 4 of 4 right); `undone`: both days current in both runs — its person had no page, the claims were held. Four
+  invented edited-back stories whose person has a page (A, B, A twice; A, B, A, B; A, B, C), 1 run: 4 of 4 right; the
+  rule fired 6 times (3 relationships, 3 dated values), the pair reading 4 times. The benchmark's edited conversation
+  (`U4`, 3 legs each, the same day): right in 1 of 3 before and 1 of 3 after; its person's page is made the night the
+  edit is read, so the old claim is a held claim released onto the page in the same pass and neither rule meets it;
+  every other measure within the spread (span rate 1.0). **Left:** the held claim (and one released in the same pass)
+  whose relationship the re-read words under another predicate — the shape of the benchmark's `U4`, of 7 of 9 story
+  failures and of `undone`.
   The stories and their runner are in the repo: `revision_e2e_stories.json` (17 shapes) and
   `revision_e2e_review_stories.json` (the ten shapes the reviews attacked). Also found and left: a held claim dropped
   because its span went leaves no record of why (`pending_store.drop_held`), and a held name whose spelling is corrected
