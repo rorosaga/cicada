@@ -392,7 +392,7 @@ final class SaveWhyLiveTests: XCTestCase {
     /// and a withdraw never add a reason or words, in any order.
     func testNothingButThePersonsOwnInputChooses() {
         let item = FreshBookmark(url: "https://alpha.example/a", channel: "chrome-bookmarks")
-        let others: [SaveWhyPanelState.Event] = [.submit, .engage, .timeout, .escape, .clickOutside,
+        let others: [SaveWhyPanelState.Event] = [.submit, .engage, .timeout, .escape, .clickOutside, .touch,
                                                  .dontAskForSite, .superseded, .withdraw]
         for a in others { for b in others {
             var state = SaveWhyPanelState(item: item, order: ["design"])
@@ -401,6 +401,42 @@ final class SaveWhyLiveTests: XCTestCase {
             XCTAssertTrue(state.selection.isEmpty, "\([a, b])")
             XCTAssertFalse(effects.contains { if case .post = $0 { return true } else { return false } }, "\([a, b])")
         } }
+    }
+
+    /// Owner 2026-11-25 — the bar is the untouched question's own timer and nothing else: there from the showing, gone
+    /// the moment the person touches the panel, and not back for the quiet wait after they click away.
+    func testTheBarShowsOnlyTheUntouchedQuestionsTimer() async {
+        let prefs = SaveWhyPrefs(defaults: defaults)
+        prefs.enabled = true
+        var uptime: TimeInterval = 100
+        let center = SaveWhyCenter(prefs: prefs, api: LiveFakeAPI(now: Date()), presenter: TimingPresenter(),
+                                   uptime: { uptime })
+        await center.refreshOptions()
+        var result = BookmarkSyncResult(new: 1, skipped: 0, sources: [])
+        result.fresh = [FreshBookmark(url: "https://alpha.example/a", channel: "chrome-bookmarks")]
+        result.freshTotal = 1
+        await center.noticed(result, live: true)
+        XCTAssertEqual(center.countdown, SaveWhyCountdown(from: 100, length: SaveWhyPolicy.askTimeout))
+
+        // A click somewhere else: the panel stays, and so does its bar.
+        uptime += 2
+        center.input(.clickOutside)
+        XCTAssertTrue(center.isShowing)
+        XCTAssertEqual(center.countdown?.from, 100)
+
+        // A click on the panel: the timer stops and the bar goes.
+        center.input(.touch)
+        XCTAssertNil(center.countdown)
+        XCTAssertEqual(center.state?.engaged, true)
+
+        // Away again: the quiet wait runs, with no bar; back again: still none.
+        center.input(.clickOutside)
+        XCTAssertEqual(center.state?.away, true)
+        XCTAssertNil(center.countdown, "no bar for the wait")
+        center.input(.touch)
+        XCTAssertEqual(center.state?.away, false)
+        XCTAssertNil(center.countdown)
+        XCTAssertTrue(center.isShowing)
     }
 
     /// A click that lands on the panel as it appears was aimed at the page beneath: it chooses nothing and closes
@@ -419,7 +455,7 @@ final class SaveWhyLiveTests: XCTestCase {
         XCTAssertTrue(center.isShowing)
 
         uptime += SaveWhyPolicy.armDelay / 2
-        for event: SaveWhyPanelState.Event in [.submit, .tapReason("design"), .dontAskForSite, .clickOutside] {
+        for event: SaveWhyPanelState.Event in [.submit, .tapReason("design"), .dontAskForSite, .clickOutside, .touch] {
             center.input(event)
             XCTAssertEqual(center.lastIgnored, event)
         }

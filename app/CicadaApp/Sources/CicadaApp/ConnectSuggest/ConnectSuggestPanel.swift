@@ -109,6 +109,12 @@ struct ConnectSuggestPanelView: View {
                                        : CicadaMotion.notchShrink(reduceMotion: reduceMotion), value: notch.grown)
                 // The pointer resting on it holds it; leaving starts its patience again.
                 .onHover { center.input(.hover($0)) }
+                // That patience, drawn: the offer leaves when the bar has filled (owner 2026-11-25).
+                .overlay(alignment: .bottom) {
+                    NotchCountdownBar(from: state.countdownFrom, length: ConnectSuggestPolicy.timeout)
+                        .opacity(notch.grown ? 1 : 0)
+                        .clipShape(shape)
+                }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(Copy.ConnectSuggest.title(state.appName))
         }

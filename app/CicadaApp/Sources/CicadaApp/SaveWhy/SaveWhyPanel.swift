@@ -24,6 +24,8 @@ final class SaveWhyNSPanel: NSPanel {
     /// A click in that clear band: leaving, as a click anywhere else is. (macOS usually passes a click on a fully
     /// transparent pixel to the window beneath; when it does not, this keeps the band from swallowing it silently.)
     var onClickBelowCard: (() -> Void)?
+    /// Owner 2026-11-25 — a click anywhere on the card: the person is in the panel, so no timer runs.
+    var onClickInside: (() -> Void)?
 
     override func sendEvent(_ event: NSEvent) {
         if Self.isPersonsClick(event.type) {
@@ -33,6 +35,7 @@ final class SaveWhyNSPanel: NSPanel {
             }
             clickedInside = true
             if !isKeyWindow { onTakingKey?() }
+            onClickInside?()
         }
         super.sendEvent(event)
     }
@@ -115,6 +118,7 @@ final class SaveWhyPanelController: SaveWhyPresenting {
             guard let self else { return }
             self.returnTo = self.frontmostPID() ?? self.returnTo
         }
+        panel.onClickInside = { [weak center] in center?.input(.touch) }
         panel.onClickBelowCard = { [weak center] in
             let primary = NSScreen.screens.first?.frame.height ?? 0
             center?.click(at: BookmarkBubblePolicy.windowListPoint(NSEvent.mouseLocation, primaryHeight: primary))
@@ -149,9 +153,10 @@ final class SaveWhyPanelController: SaveWhyPresenting {
         self.panel = panel
         // Next turn of the run loop, so the view has drawn the shape at rest and the spring has a start to leave.
         DispatchQueue.main.async { [notch] in notch.grown = true }
-        // A click anywhere else — another app (global) or another of Cicada's windows (local) — closes it; a click
-        // inside Chrome's own bookmark bubble does not (2026-10-19: the person is working there), unless it closed it.
-        // Nothing else does: losing the keyboard to another app's window (a dictation tool's overlay) never closes it.
+        // A click anywhere else — another app (global) or another of Cicada's windows (local) — is the person leaving
+        // (it never closes the panel at once, owner 2026-11-25: `SaveWhyPanelState`); a click inside Chrome's own
+        // bookmark bubble is not (2026-10-19: the person is working there), unless it closed it. Nothing else is:
+        // losing the keyboard to another app's window (a dictation tool's overlay) changes nothing.
         if let global = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: {
             [weak center] _ in
             let location = NSEvent.mouseLocation
@@ -287,6 +292,12 @@ struct SaveWhyPanelView: View {
                 .onChange(of: focus.ticket) { _, _ in textFocused = true }
                 // In the field however it got there: the person is about to write or dictate — no timer closes it.
                 .onChange(of: textFocused) { _, focused in if focused { center.input(.engage) } }
+                // The untouched question's patience, drawn: it leaves when the bar has filled (owner 2026-11-25).
+                .overlay(alignment: .bottom) {
+                    NotchCountdownBar(from: center.countdown?.from, length: center.countdown?.length ?? 0)
+                        .opacity(notch.grown ? 1 : 0)
+                        .clipShape(shape)
+                }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(Copy.SaveWhy.question)
         }

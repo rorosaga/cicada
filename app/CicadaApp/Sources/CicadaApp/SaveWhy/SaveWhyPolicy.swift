@@ -37,9 +37,14 @@ enum SaveWhyPolicy {
     static let repeatGuard: TimeInterval = 3
     /// The same save is not asked about again within this (G191 v3: a re-save with its own instant is another save).
     static let sameLinkGuard: TimeInterval = 60
-    /// How long an unanswered question stays before it leaves on its own.
+    /// How long an unanswered question stays before it leaves on its own. The panel shows it: a bar along its bottom
+    /// edge fills from left to right over this long (owner 2026-11-25).
     static let askTimeout: TimeInterval = 12
-    /// (G191 v3's `answerIdle`/`writingIdle` are gone, owner 2026-10-19: once the person touches the panel no timer
+    /// Owner 2026-11-25 — how long a panel the person touched stays after they click somewhere else, before it leaves
+    /// keeping what they chose and wrote. A click back on the panel ends the wait; the next click away starts it again
+    /// from the beginning. Long enough to fetch a word from the page and come back; no bar shows for it.
+    static let awayCooldown: TimeInterval = 8
+    /// (G191 v3's `answerIdle`/`writingIdle` are gone, owner 2026-10-19: while the person is in the panel no timer
     /// closes it — dictation types nothing for many seconds, then everything at once.)
     /// G191 v3 — how long a pending panel (opened on Chrome's bookmark bubble) waits for the bookmark: Chrome writes
     /// 2.5 s after the click, the watch settles 0.3 s, the read and the look take well under a second. Past this,

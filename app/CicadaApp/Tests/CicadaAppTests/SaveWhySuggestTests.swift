@@ -385,7 +385,7 @@ final class SaveWhySuggestTests: XCTestCase {
 
     // MARK: - The window: as tall as the card can grow, the band below it never swallowing a click
 
-    func testTheWindowLeavesRoomToGrowAndAClickBelowTheCardLeaves() async throws {
+    func testTheWindowLeavesRoomToGrowAndAClickBelowTheCardIsLeaving() async throws {
         let api = SuggestFakeAPI(more: bank)
         let controller = SaveWhyPanelController()
         let center = await center(api, presenter: controller)
@@ -407,8 +407,10 @@ final class SaveWhySuggestTests: XCTestCase {
                                                      context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
         panel.sendEvent(below)
         XCTAssertFalse(panel.clickedInside, "a click in the clear band never takes the keyboard")
+        XCTAssertEqual(center.state?.away, true, "it is leaving, as a click anywhere else is (2026-11-25: the wait)")
+        center.send(.timeout)
         await center.settle()
-        XCTAssertFalse(center.isShowing, "it leaves, as a click anywhere else does")
+        XCTAssertFalse(center.isShowing, "and the panel goes when the wait ends")
         let posts = await api.posts
         XCTAssertEqual(posts.map(\.answer), [SavedWhyAnswer(reasons: ["design"])], "keeping what was chosen")
     }

@@ -297,11 +297,11 @@ final class SiteSaveTests: XCTestCase {
         XCTAssertNil(panel.finish(.turnedOn(asksWhy: true, needsAccessibility: false), at: 102.3))
         XCTAssertNil(panel.handle(.tick, at: 102.5))
         XCTAssertEqual(panel.handle(.tick, at: 102.4 + ConnectSuggestPolicy.confirmShow), .yes)
-        // Leaving the browser while it says so keeps the yes.
+        // The ask-why question taking the notch while it says so keeps the yes.
         var leaving = ConnectSuggestPanelState(target: ConnectSuggestApps.site("x"), appName: "X",
                                                bundleId: "com.google.Chrome", shownAt: 100)
         _ = leaving.handle(.yes, at: 102)
-        XCTAssertEqual(leaving.handle(.appChanged, at: 102.3), .yes)
+        XCTAssertEqual(leaving.handle(.superseded, at: 102.3), .yes)
         // An app's yes is the same plan: it says what it did, and a page it opened is the answer.
         var app = ConnectSuggestPanelState(target: .init(entryId: "notes", kind: .notes), appName: "Notes",
                                            bundleId: "com.apple.Notes", shownAt: 100)

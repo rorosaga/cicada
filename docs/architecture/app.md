@@ -1510,11 +1510,33 @@ during Sleep is read again at once. A withdraw closes only an untouched panel; a
 nothing stays and says "No new bookmark was saved, so there's nothing to keep this with." — an answer with no bookmark is
 the one thing never kept. Remove pressed in Chrome's bubble, or the backend naming another link, still withdraws and
 keeps nothing.
+*How a notch panel leaves since 2026-11-25 (owner; read this first, it supersedes what this section says elsewhere
+about a click elsewhere closing the panel).* Owner: "when cicada asks to connect an app the notification doesn't go
+away on the first click, but rather when pressing no or a timer of sorts that has a bar filling up at the bottom from
+left to right … same with the ask for reason, but when clicked to type something the timer stops and every time you
+hop out of it, it has some sort of cooldown before it disappears (no need to show the bar again here), and the
+cooldown resets every time I click on it again." So: **a click somewhere else never closes either panel at once.**
+An untouched panel leaves when its own timer ends (`SaveWhyPolicy.askTimeout`, 12 s), and shows that timer as a bar
+along the card's bottom edge filling from the leading side (`NotchCountdownBar`, two points, the notch's tertiary ink,
+`CicadaMotion.notchCountdown`; it runs under Reduce Motion too, being the clock itself). **The ask-why panel:** a tap,
+a word, a click into the field or a click anywhere on the card (`SaveWhyNSPanel.onClickInside` → `touch`) stops the
+timer and the bar goes (`SaveWhyPanelState.countsDown`, `SaveWhyCenter.countdown`). From then on each click somewhere
+else (`clickOutside`: another app, another Cicada window, the clear band under the card, or a click that closed
+Chrome's bubble) starts a quiet wait (`SaveWhyPolicy.awayCooldown`, 8 s, no bar, `away`); a click back on the card
+ends it, the next click away starts it from the beginning, a second click elsewhere during it does not push it back,
+and when it ends the panel leaves keeping what was chosen and written (the same leaving as before: an answer, an edit,
+or nothing). Save, Return, Esc, "Don't ask for this site" and a newer bookmark still close it at once. A click that
+closed Chrome's bubble is remembered as a time (`bubbleClosedAt`): an answer that goes within `removalWait` of it is
+still held until the file says Done or Remove, and a removal seen while the panel is still open withdraws it.
+**The connect offer:** bringing another app forward no longer closes it (it used to, as Not now); only No, Not now,
+Yes, the ask-why question taking the notch, or the bar filling does. The pointer resting on the card holds it and the
+bar goes; leaving starts the bar again from empty (`ConnectSuggestPanelState.countdownFrom`).
 *Only the person closes a touched panel* ("I use Wispr Flow a lot for dictation … I selected the text box and was
 dictating and [the panel] went away"): dictation types nothing until it is done, so the field read empty and the
 question's own 12 s timer (`askTimeout`) dismissed it — and an unconfirmed one also met `pendingBound`. A tap, a word or
 a click into the field (`engage`, also on the field taking focus) stops every timer (`answerIdle`/`writingIdle` are gone):
-the panel closes only on Save, Return, Esc, a newer bookmark, or a click outside both it and Chrome's bubble. Losing the
+the panel closes only on Save, Return, Esc, a newer bookmark, or (until 2026-11-25; now after the quiet wait above) a
+click outside both it and Chrome's bubble. Losing the
 keyboard to another app's floating window never closes it (nothing listens for it). A click inside Chrome's bookmark
 bubble (its frame from the watcher's own read, `BookmarkBubbleWatcher.lastBubble`) is the person working there: the panel
 stays, and one window-list read 0.25 s after that click (`SaveWhyPolicy.bubbleCloseCheck`, bounds only) tells whether it
@@ -1541,8 +1563,8 @@ Remove bookmark…; **owner ruling 2026-10-19**: the prefill reads Chrome's fron
 allowed, never prompting), right after the star click opened the bubble; the URL is matched exactly against what Chrome's file held
 before the click (the diff's baseline) and the Store's `chrome-bookmark` records, and is never stored, logged or posted.
 A match turns the pending panel into that bookmark's (`SaveWhyCenter.adopt`, confirmed — Cicada holds it): its newest
-answer's chips and words filled in ("Already saved · <title>", "Already saved. Change anything, or click anywhere else to
-keep it."). Leaving unchanged writes nothing; a change is one `PUT /sources/saved-why` of that answer (by its `at`, held
+answer's chips and words filled in ("Already saved · <title>", "Already saved. Change anything; leaving keeps it." since
+2026-11-25). Leaving unchanged writes nothing; a change is one `PUT /sources/saved-why` of that answer (by its `at`, held
 through a 409 like any answer), never a new answer or a second save; an emptied answer is never written as a deletion; a
 retired reason or a project the panel cannot show is kept. A saved bookmark never answered asks as usual and posts a first
 answer for that save's own moment. Remove in Chrome's bubble withdraws it, writing nothing. Without the Automation grant
@@ -1726,8 +1748,13 @@ person turned on and the sites their agent may open like the page does) — neve
 source the page shows as set up is neither offered nor listened to. **One path:** Yes is `NotchConnector`, which is
 `SourceConnect.plan` and `run` (the page's switch and the root card use the same): a site's Yes turns on its existing
 saved list (with agent reading on and a current acknowledgement) and, where the site has a save control, noticing saves
-on this Mac; without the acknowledgement it turns on only noticing saves and opens the source's page with the
-acknowledgement sheet raised (`AppRouter.pendingConsent`); GitHub notices saves and opens its page for the sign-in; a Mac
+on this Mac; without the acknowledgement **the notch's Yes is the acknowledgement** (owner 2026-11-25: "remove the
+opening the app after selecting connect to accept the terms. skip that part. once you connect the notch should show
+the checkmark animation for a bit and then disappear"): the offer said what is read and the person pressed Yes, so the
+list goes on with the acknowledgement in the same write (`SourceConnect.run(yesIsConsent:)`,
+`Deps.acknowledgeList`, the sheet's own Turn on), no page opens, and the panel goes on to "Turned on", its ring and
+check — the page's switch and the root card are not such a question and still raise the sheet
+(`AppRouter.pendingConsent`); GitHub notices saves and opens its page for the sign-in; a Mac
 app's Yes starts its reader when one click can (`ReaderStarter`: browsers' bookmarks, Calendar, Contacts, Notes, Voice
 Memos, Apple Books — macOS's own prompt follows from the reader's own call) and opens its page only when a choice is
 needed (chats, folders, a sign-in, a key), or Settings' permission row when Full Disk Access is missing. **Honest words:**
@@ -1764,7 +1791,8 @@ connected, needs sign-in and waiting for an agent never are, and an entry not re
 the offer only ever names an app the person just chose to open, and the caps keep it to a handful a month);
 **Not now** — and the panel leaving on its own after `timeout` (12 s, the ask-why question's patience; the
 pointer resting on it holds it; measured on `systemUptime`, as the ask-why panel's clock is, so a wall clock stepped back
-never freezes it), the person leaving the app, or the ask-why question taking the notch (`SaveWhyCenter.willShow`, set
+never freezes it; shown as a bar since 2026-11-25, when the person leaving the app stopped closing it), or the ask-why
+question taking the notch (`SaveWhyCenter.willShow`, set
 by `ConnectSuggestCenter.yields(to:)` at launch, so it holds with the main window closed) — puts the
 source off for a wait that grows each time (`waits`, owner 2026-11-23: two hours, a day, three days, a week, two weeks),
 and the offer after the two-week wait is the last (`maxShows` 6; one untouched panel used to silence a source for 14
