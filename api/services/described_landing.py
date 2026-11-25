@@ -3,43 +3,50 @@
 Stage 1 sometimes writes a label for a thing the conversation only described ("<Feature> redesign", "<Project> extraction
 worker"; `coined_names`). Stage 2 gives such a label no page from one conversation, so what was said about it waits in a
 held line (`pending_store`) that nothing will ever name again. Measured on a real bank (real values redacted), 1,351 of
-5,912 held lines were such labels, and in 200 of them a claim's located words sit in a sentence that names exactly one
-existing page. A fact the person (or a named speaker) said in a sentence that names one of their pages, about a part of it,
-is a fact about that page, and should be readable there with that sentence as its evidence.
+5,912 held lines were such labels.
 
-**The rule is code first, the model second, and a fact that fails either stays held** (leaving a fact held is always
-allowed; a wrong landing is the one failure that matters). A claim lands only when ALL of these hold:
+**The first version of this rule was code alone, and it landed nothing on a real memory.** It asked that the claim's own
+sentence name exactly one page and stand the label's words beside the page's name ("the <part> of <Page>"). Dry-run on the
+owner's bank: 953 claims looked at, 0 would land. Of the 341 claims that cleared the turn, span and located-words gates only 22
+sat in a sentence naming exactly one eligible page, and the last gate turned every one of those away, as it must: a label is
+words nobody said that way, so the words of the label never stand beside the page. What tells which page a described fact is
+about is the conversation AROUND it ("I have been on <Page> all week ... the importer keeps timing out"), and reading that is a
+reader's job (the owner, three times in a week, about questions: "a Claude Code session with the same context would figure it
+out easy"; and he ruled accuracy over model price). So the rule is now **code before, a read by the engine's main model, code
+after**; a fact that fails any of them stays held (leaving a fact held is always allowed).
 
-1. the line is a label: a concept or project whose name and aliases no text of any conversation it cites says
-   (`coined_names.said_in` is ``nowhere`` in every one; one that cannot be read is not a label);
-2. the label was the claim's SUBJECT (a claim held as the label's object stays held), the claim is open, not an event;
-3. the claim's evidence is a located span, current as the source is now (`source_spans.Source.status`), inside a turn the
-   person's own (`promotion.person_kinds`: in a meeting a named speaker's, in a group chat only the person's) — never an
-   assistant's, an agent note's or a saved page's words;
-4. its sentence is short, names exactly ONE page — counted over every page of the bank, a person's and the owner's
-   included, ambiguous names included, with the claim's own other endpoint taken out of the count — and that page is a
-   project, tool or concept, active, not the owner's and not one the person said the mention is not (`apart`). A sentence
-   that names a person and a project ("<person> told me the importer is slow") names two, and nothing lands;
-5. the claim's own subject is said in that sentence: every distinctive word of the label that is not a word of the page's
-   own name (the label's other words are what the sentence describes), whole and folded, as ONE run of words (in any order),
-   and none of them names what something is to a thing ("competitor", "owner", "client": `RELATIONAL`);
-6. and the sentence STATES the part: that run sits right beside the page's name joined by containment or possession only
-   ("the <part> of <Page>", "<Page>'s <part>", "<Page> <part>"), never by "for", "with", "using" or a verb
-   ("I use <Tool> for the <part>" names a tool that is not the whole).
+**Before the read (code).** A claim goes to the reader only when: the line is a label (a concept or project whose name and
+aliases no text of any conversation it cites says, `coined_names.said_in` ``nowhere`` in every one; one that cannot be read is
+not a label); the label was the claim's SUBJECT, the claim is open and no event; its evidence is a located span, current as the
+source is now (`source_spans.Source.status`), inside a turn the person's own (`promotion.person_kinds`: in a meeting a named
+speaker's, in a group chat only the person's), never an assistant's, an agent note's or a saved page's; and the SAME
+CONVERSATION names at least one candidate page, in a turn of the person's (or a named speaker's), by its title or an alias,
+located by `evidence.locate` (exact, whitespace, case: never fuzzy), a name only one page bears. A candidate is a live project,
+tool or concept: never the owner's, never a person, a company or a place, never one the person said the mention is not
+(`apart`). No candidate: the claim stays held. The old gates (the sentence names exactly one page, is short, holds the label's
+words beside the name) are no longer gates; what they measured is the reader's context.
 
-Then the engine's MAIN model reads it twice, once as `part_landing.confirms` already does for a name the pair judge called
-a part (it must agree the label is a part of the page: the two rules agree where they meet), and once on the sentences
-(`SYSTEM`/`PROMPT` here, one call a page): "is this fact about that page or a part of it, said by the person?". Anything
-but "part" or "whole" for a claim, an unreadable answer, a failed call, no engine: the claim is left held.
+**The read.** The reader is shown the claim, the turn it was said in, the turns just before and after it (bounded) and each
+candidate with its name and a one-line summary, and answers which ONE candidate the fact is about (a fact about that thing or a
+part of it), or none, and copies the sentence from a turn of the person's that shows it. It reads TWICE: the second time in
+the reverse candidate order, told to look for the reason the fact is about something else or about nothing on the list. Both
+reads must name the same candidate, and each copied sentence must be located (never fuzzy) in a person's turn inside the shown
+window. A disagreement, "none", an unusable reply or a sentence that does not locate leaves the claim held; what was read is
+remembered (a hash outside every bank) so the pair is not read again until the line, the conversation or a candidate changes.
+A line's claims said in one conversation are read in one call (at most :data:`MAX_CLAIMS_PER_CALL`).
+
+**After the read (code).** The landed claim records the sentence copied as a second evidence span; the settle's record keeps
+every one. A relation ("the landlord of <Page>", "<Page>'s accountant"), the person's own life and a tool used with the page
+are the reader's to refuse; the battery carries them.
 
 **What landing means.** The claim is written on the page as a claim OF the page: subject the page, predicate and object as
-held, id kept, evidence span, source conversation, observer, trust and dates unchanged, its text kept with the label's own
-words and marked ``(a part of <Page>)`` when it is a part — never re-worded by a model, so a located span still backs every
-word. The line keeps whatever did not land (`pending_store.drop_released`) and is closed only when nothing is left. The page's
-`source_episodes` and `last_referenced` are NOT moved: the conversation is no new mention for decay or promotion unless it
-already counted. A page gets one settle per run: one commit of its own paths, one record `inbox/settled/land-NNN.md`
-under "Settled by Sleep" with the sentences shown, undoable as one (`undo`: the claims go back to the line, and the person's
-undo is remembered as `apart`, so the page is never offered the mention again).
+held, id kept, its evidence span, source conversation, observer, trust and dates unchanged, its text kept with the label's own
+words (marked ``(a part of <Page>)`` when both reads said a part) — never re-worded by a model, so a located span still backs
+every word. The line keeps whatever did not land (`pending_store.drop_released`) and is closed only when nothing is left. The
+page's `source_episodes` and `last_referenced` are NOT moved: the conversation is no new mention for decay or promotion unless
+it already counted. A page gets one settle per run: one commit of its own paths, one record `inbox/settled/land-NNN.md` under
+"Settled by Sleep" with the sentences shown, undoable as one (`undo`: the claims go back to the line, and the person's undo is
+remembered as `apart`, so the page is never offered the mention again).
 
 Rails held here: no model at capture time (this is a Sleep tail step); located spans only, never fuzzy; no name or sentence
 is logged or kept outside the bank (what was read is a hash outside every bank, `_seen`); a plan limit is a pause; a
@@ -61,63 +68,66 @@ from loguru import logger
 
 from api.services import (authorship, coined_names, engine_errors, evidence, markdown_parser, pending_store, promotion,
                           source_spans, text_fold)
-from api.services.claims import Claim, MalformedClaimsBlockError, is_event, parse_claims, write_claims
+from api.services.claims import Claim, Evidence, MalformedClaimsBlockError, is_event, parse_claims, write_claims
 from api.services.id_utils import sanitize_id
 
 RULE = "land_described"
 RECORD_PREFIX = "land-"
 SETTLED_DIR = "settled"
-REASON = "What you said about a part of this page, in a sentence that names it, was held under a label nobody said."
+REASON = "What you said about this page, in a conversation that names it, was held under a label nobody said."
 
-#: The pages a part can belong to. A person, the owner, a company, a place, an event, a media record or a skill is never the
+#: The pages a fact can be about. A person, the owner, a company, a place, an event, a media record or a skill is never the
 #: thing a label's fact is about (a "part" of a person is a different claim, and a media page's parts are its own).
 TARGET_TYPES = frozenset({"project", "tool", "concept"})
 ACTIVE = frozenset({"active", "decaying", ""})
-MAX_SENTENCE = 400
 #: A single-word page name this short is a common word more often than a name.
 MIN_SINGLE_NAME = 4
-#: Pairs (a line and the page it would land on) read by the model per run, per bucket (old, and fresh: said in the last days).
-PAIRS_PER_RUN = 25
+#: Groups (a line's claims from one conversation) read per run, per bucket (old, and fresh: said in the last days).
+GROUPS_PER_RUN = 25
 FRESH_DAYS = 3
-MAX_CLAIMS_PER_READ = 8
-CONTEXT_CHARS = 700
+#: What the reader is shown: candidates, claims a call, turns around a claim, characters.
+MAX_CANDIDATES = 6
+MAX_CLAIMS_PER_CALL = 6
+TURNS_BEFORE, TURNS_AFTER = 3, 2
+WINDOW_CHARS = 9000
+MIN_SENTENCE = 8
+SUMMARY_CHARS = 240
+LETTERS = "ABCDEF"
 
-_SENTENCE = re.compile(r"[^.!?\n]+")
 _WORD = re.compile(r"[^\W_]+", re.U)
-_MARKER = re.compile(r"(?:user|assistant|human|you|me|speaker:[^:\n]{1,60}):[ \t]*", re.I)
-#: Words a label's distinctiveness is never counted on.
-_STOP = frozenset("the and for with from into onto this that these those its our their his her are was were has have had "
-                  "new old one two part page thing".split())
-#: A label whose words name what something is TO a thing (its rival, its owner, its client) is about that other thing, not
-#: a part of this one. A closed English list: another language, or a word not here, is the second reading's.
-RELATIONAL = frozenset("""competitor competitors rival rivals alternative alternatives successor successors predecessor
-predecessors replacement replacements client clients customer customers user users owner owners author authors creator
-creators founder founders maintainer maintainers contributor contributors investor investors sponsor sponsors team teams
-manager managers boss employee employees partner partners supplier suppliers vendor vendors friend friends mentor mentors
-fork forks clone clones copy copies""".split())
-_CONTAINS = frozenset({"of", "in", "within", "inside", "from", "on", "at"})
-_DETS = frozenset({"the", "a", "an", "our", "my", "their", "its", "this", "that"})
 
-SYSTEM = ("You decide whether a fact the person said is about a named thing of theirs, or a part of it, from the words you "
-          "are given, and answer in JSON.")
+SYSTEM = ("You read part of a conversation a person had and decide which one of the things they work on a fact they stated is "
+          "about, from the words you are given only, and answer in JSON.")
 
-PROMPT = """A person's knowledge graph holds the things they work on. Sleep read the conversation sentences below, said by the person themselves, and wrote each fact under a label of its own ("{label}") that nobody said in those words. Each sentence names exactly one thing the graph has a page for: A. If you agree a fact is about A or one of its parts (a feature, stage, component, task, bug, plan or aspect of A), it is written on A's page; a wrong yes puts a belief about one thing on another thing's page, and a no costs little (the fact stays held).
+PROMPT = """A person's knowledge graph holds the things they work on. While reading the conversation below, Sleep wrote each fact listed under a label of its own ("{label}") that nobody said in those words, so the fact is not yet written on any page. The conversation names the things in the list of candidates. Decide, for each fact, which ONE candidate it is about: a fact about that thing itself, or about a part, feature, stage, task, bug or aspect of it. If you agree, the fact is written on that candidate's page; a wrong yes puts a belief about one thing on another thing's page for good, and a no costs little (the fact stays where it is). Only what the person (or a named speaker) said counts; an assistant's words are context, never proof.
 
-A: {page}
-A's page:
-{body}
+What Sleep read about the label (its own summary): {summary}
 
-What was read about the label (Sleep's own summary): {summary}
+The conversation (turns are numbered; "..." marks turns left out):
+{window}
 
-{items}
+Candidates (things of the person's the conversation names):
+{candidates}
 
-For each numbered item answer:
-- "part": the fact is about a part, feature, stage, task or aspect of A, and the sentence says it belongs to A;
-- "whole": the fact is about A itself and the label only described it;
-- "no": anything else. Answer "no" when the fact is about another thing the sentence names or only mentions (a tool A uses, a person, an event, a place); when A is only where or when something happened or what something is used with; when the sentence says the thing is separate from A, or it is the person's own life or opinion about something other than A's part; or when you are not sure.
+Facts:
+{facts}
+{second}
+For each fact give the ONE candidate it is about, or "none". Answer "none" when any of these holds:
+- the fact is about the person themself, their life, health, habits, taste, opinion or plans, and no candidate;
+- the fact is about a person, a place, a company or another thing, even one named beside a candidate or nearby;
+- the fact states a relation TO a candidate ("the landlord of X", "X's accountant", a competitor, client, owner, maintainer, a fork of X): it is about that other person or thing;
+- a candidate is only where or when something happened, where something runs or lives, or what something is used with or for ("I use X for the newsletter", "the export runs in X"): a thing that runs in or uses a candidate is not a part of it;
+- the person says the thing is separate from the candidate, or has moved away from it;
+- two candidates would fit equally, or you are not sure. A wrong guess is worse than "none".
+Also copy, exactly as written and without changing a character, the one sentence or clause (at most {max_chars} characters) from a turn of the PERSON (or named speaker), not the assistant, that shows the fact is about that candidate: usually the sentence that states the fact, or an earlier sentence of theirs that names the thing it is about. Never copy a sentence from an assistant turn, and never write words of your own in "sentence".
 
 Respond with JSON only:
-{{"claims": [{{"n": 1, "verdict": "part" | "whole" | "no"}}]}}
+{{"claims": [{{"n": 1, "page": "A" | "B" | ... | "none", "scope": "part" | "whole", "sentence": "copied words"}}]}}
+("scope": "part" when the fact is about a part, feature or aspect of the candidate, "whole" when it is about the candidate itself.)
+"""
+
+SKEPTIC = """
+Be a skeptic. A first reading proposed an answer for each fact; do not assume it was right. Before you answer, look for the reason each fact is about something else than any candidate, or about nothing on the list (the person themself, a person named, another thing, a relation, a tool used with a candidate, a different job or place); answer a candidate only when you cannot find one. The candidates are listed in a different order from before: read each name.
 """
 
 
@@ -130,7 +140,7 @@ def _fold_words(text: str) -> list[str]:
 
 @dataclass(frozen=True)
 class Mention:
-    """A page name found in a sentence: its words' positions and the pages that bear that name (more than one: ambiguous)."""
+    """A page name found in a text: its words' positions and the pages that bear that name (more than one: ambiguous)."""
     start: int
     end: int
     pages: frozenset[str]
@@ -139,29 +149,32 @@ class Mention:
 @dataclass
 class Page:
     id: str
+    name: str
     type: str
     owner: bool
     status: str
-    words: frozenset[str]
+    names: tuple[str, ...]    # the name and the aliases as written
+
+    @property
+    def eligible(self) -> bool:
+        return not self.owner and self.type in TARGET_TYPES and self.status in ACTIVE
 
 
 class PageNames:
-    """Every name and alias of every page of the bank, to find which pages a sentence names. Persons, the owner, archived pages
-    included: a sentence that names them is not a sentence about one thing. A name two pages bear is kept as ambiguous."""
+    """Every name and alias of every page of the bank, to find which pages a conversation names. Persons, the owner, archived
+    pages included: a name two pages bear is ambiguous and offered to nobody."""
 
     def __init__(self, pages: list[dict]) -> None:
         owners: dict[tuple, set[str]] = defaultdict(set)
         self.pages: dict[str, Page] = {}
         for p in pages:
             names = [p["name"], *p["aliases"]]
-            words: set[str] = set()
             for n in names:
                 key = tuple(_fold_words(n))
                 if not key or (len(key) == 1 and len(key[0]) < MIN_SINGLE_NAME):
                     continue
                 owners[key].add(p["id"])
-                words.update(key)
-            self.pages[p["id"]] = Page(p["id"], p["type"], p["owner"], p["status"], frozenset(words))
+            self.pages[p["id"]] = Page(p["id"], p["name"], p["type"], p["owner"], p["status"], tuple(dict.fromkeys(names)))
         self.by_first: dict[str, list[tuple[tuple, frozenset[str]]]] = defaultdict(list)
         for key, ids in owners.items():
             self.by_first[key[0]].append((key, frozenset(ids)))
@@ -194,106 +207,77 @@ class PageNames:
         return sorted(taken, key=lambda m: m.start)
 
 
-# ---------------------------------------------------------------------------------------------------- the sentence
+# ---------------------------------------------------------------------------------------------------- a conversation
 
 
-def sentence_around(text: str, start: int, end: int) -> tuple[int, int] | None:
-    """The sentences ``[start, end)`` lies in, as one range of ``text``; ``None`` when they run past :data:`MAX_SENTENCE`."""
-    first = last = None
-    for m in _SENTENCE.finditer(text):
-        if first is None and m.start() <= start < m.end():
-            first = m.start()
-        if m.start() < end <= m.end() or (m.start() <= max(end - 1, start) < m.end()):
-            last = m.end()
-        if first is not None and last is not None:
-            break
-    if first is None or last is None or last <= first:
+class Conv:
+    """One conversation: its text, its turns, and which eligible pages its person's turns name."""
+
+    def __init__(self, episode: str, doc: tuple[dict, str]) -> None:
+        fm, body = doc
+        self.episode, self.fm, self.text = episode, fm, body
+        self.persons = promotion.person_kinds(fm)
+        masked = evidence.mask_labels(body)
+        self.turns = evidence.turns(masked, override=authorship.of(fm), gaps=evidence.gap_ranges(fm, body))
+        self.title = str(fm.get("title") or "")
+        self._named: dict[str, list[int]] | None = None
+        self.ambiguous = 0
+
+    def is_person(self, i: int) -> bool:
+        return 0 <= i < len(self.turns) and self.turns[i].role in self.persons
+
+    def turn_at(self, pos: int) -> int | None:
+        for i, t in enumerate(self.turns):
+            if t.start <= pos < t.end:
+                return i
         return None
-    a, b = first, last
-    while a < b and text[a].isspace():
-        a += 1
-    marker = _MARKER.match(text, a, b)
-    if marker:   # a turn's own marker line ("user: ", "speaker:<label>: ") is nobody's words
-        a = marker.end()
-    return (a, b) if b - a <= MAX_SENTENCE else None
 
+    def content(self, i: int) -> tuple[int, int]:
+        t = self.turns[i]
+        return t.content_start, t.end
 
-def windows(words: list[str], wanted: list[str]) -> list[tuple[int, int]]:
-    """Where the label's distinctive words stand as ONE run of the sentence (any order: a label is often the same words
-    in another order): ``[(first index, end index)]``. Words that are only somewhere in the sentence are no run."""
-    k, want = len(wanted), set(wanted)
-    return [(i, i + k) for i in range(len(words) - k + 1) if set(words[i:i + k]) == want]
-
-
-def states_part(words: list[str], page_at: Mention, runs: list[tuple[int, int]]) -> bool:
-    """Whether the sentence joins the label's run of words to the page's name by containment or possession only: the run sits
-    just before the name behind one of "of / in / within / inside / from / on / at" (and articles), or just after it
-    ("<Page>'s <part>", "<Page> <part>", behind articles only). A verb, "for", "with" or "using" between them is no part."""
-    for a, b in runs:
-        if b <= page_at.start:
-            between = words[b:page_at.start]
-            core = [w for w in between if w not in _DETS]
-            if len(core) == 1 and core[0] in _CONTAINS and len(between) <= 3:
-                return True
-        elif a >= page_at.end:
-            between = words[page_at.end:a]
-            core = [w for w in between if w not in _DETS]
-            if (not core or core == ["s"]) and len(between) <= 3:
-                return True
-    return False
-
-
-def label_words(label: str, page_words: frozenset[str]) -> list[str]:
-    """The distinctive words of a label that are not a word of the page's own name (what the sentence has to describe)."""
-    out = []
-    for w in _fold_words(label):
-        if len(w) >= 3 and w not in _STOP and w not in page_words and w not in out:
-            out.append(w)
-    return out
-
-
-# ---------------------------------------------------------------------------------------------------- the candidates
-
-
-@dataclass
-class Item:
-    """One claim that passed every code gate: it may land on ``page`` if the second reading agrees."""
-    line: str                 # the held line's name (its key)
-    claim: Claim
-    page: str
-    episode: str
-    start: int                # the located words of the claim
-    end: int
-    turn: str                 # whose turn: user | speaker
-    sentence: tuple[int, int]
-    rule: str = RULE
-
-    @property
-    def line_slug(self) -> str:
-        return sanitize_id(self.line)
-
-
-@dataclass
-class Plan:
-    """What the gates decided for a bank (or a part of it): the items, and counts of what each gate turned away."""
-    items: list[Item] = field(default_factory=list)
-    skipped: Counter = field(default_factory=Counter)
-    lines: int = 0
-    labels: int = 0
-    claims: int = 0
+    def named(self, names: PageNames) -> dict[str, list[int]]:
+        """``{page id: [indexes of the person's turns that name it]}`` for the eligible pages whose name or alias the
+        conversation says (a name found by words, then located by `evidence.locate`: whole word, never fuzzy). A name two
+        pages bear names none of them."""
+        if self._named is not None:
+            return self._named
+        out: dict[str, list[int]] = defaultdict(list)
+        for i, t in enumerate(self.turns):
+            if t.role not in self.persons:
+                continue
+            a, b = self.content(i)
+            chunk = self.text[a:b]
+            for m in names.mentions(_fold_words(chunk)):
+                if len(m.pages) != 1:
+                    self.ambiguous += 1
+                    continue
+                page = names.pages.get(next(iter(m.pages)))
+                if page is None or not page.eligible or i in out.get(page.id, ()):
+                    continue
+                if any(evidence.locate(chunk, n, whole_word=True) for n in page.names):
+                    out[page.id].append(i)
+        self._named = dict(out)
+        return self._named
 
 
 class Docs:
-    """Episode documents read once each: ``(frontmatter, text)``, or ``None`` for one that cannot be read."""
+    """Episode documents read once each: ``(frontmatter, text)``, or ``None`` for one that cannot be read; and `Conv`s."""
 
     def __init__(self, memory_path: Path) -> None:
-        self.memory_path, self._seen = Path(memory_path), {}
+        self.memory_path, self._seen, self._conv = Path(memory_path), {}, {}
 
     def get(self, episode: str):
         if episode not in self._seen:
             doc = evidence.source_document(self.memory_path, episode) if str(episode).startswith("ep_") else None
             self._seen[episode] = doc
         return self._seen[episode]
+
+    def conv(self, episode: str) -> Conv | None:
+        if episode not in self._conv:
+            doc = self.get(episode)
+            self._conv[episode] = Conv(episode, doc) if doc is not None else None
+        return self._conv[episode]
 
 
 def is_label(line: pending_store.PendingEntity, docs: Docs) -> bool:
@@ -316,20 +300,58 @@ def is_label(line: pending_store.PendingEntity, docs: Docs) -> bool:
     return True
 
 
-def _turn_of(doc, start: int) -> str:
-    """The role of the turn ``start`` lies in (``user``, ``speaker``, ``assistant`` …) — recomputed from the document."""
-    fm, body = doc
-    text = evidence.mask_labels(body)
-    for t in evidence.turns(text, override=authorship.of(fm), gaps=evidence.gap_ranges(fm, body)):
-        if t.start <= start < t.end:
-            return t.role
-    return ""
+# ---------------------------------------------------------------------------------------------------- the candidates
 
 
-def gate_line(line: pending_store.PendingEntity, docs: Docs, names: Callable[[], PageNames], plan: Plan) -> list[Item]:
-    """The claims of one held line that pass every code gate, with a count of what turned each other one away."""
-    out: list[Item] = []
+@dataclass
+class Item:
+    """One claim that passed every code gate before the read: the reader says which candidate it is about, if any."""
+    line: str                 # the held line's name (its key)
+    claim: Claim
+    episode: str
+    start: int                # the claim's own located words
+    end: int
+    hash: str
+    turn: str                 # whose turn: user | speaker
+    turn_index: int
+    rule: str = RULE
+
+    @property
+    def line_slug(self) -> str:
+        return sanitize_id(self.line)
+
+
+@dataclass
+class Group:
+    """A line's claims said in ONE conversation, with the pages that conversation names: one reader call (two reads)."""
+    line: str
+    episode: str
+    items: list[Item]
+    candidates: list[str]     # page ids, nearest the claims first, at most MAX_CANDIDATES
+    summary: str = ""         # what Stage 1 read about the label (its own summary)
+
+    def sub(self, items: list[Item]) -> "Group":
+        return Group(self.line, self.episode, items, self.candidates, self.summary)
+
+
+@dataclass
+class Plan:
+    """What the code gates decided for a bank (or a part of it): the groups, and counts of what each gate turned away."""
+    groups: list[Group] = field(default_factory=list)
+    skipped: Counter = field(default_factory=Counter)
+    lines: int = 0
+    labels: int = 0
+    claims: int = 0
+
+    @property
+    def items(self) -> list[Item]:
+        return [i for g in self.groups for i in g.items]
+
+
+def gate_line(line: pending_store.PendingEntity, docs: Docs, names: Callable[[], PageNames], plan: Plan) -> list[Group]:
+    """The groups of one held line's claims that pass every code gate, with a count of what turned each other one away."""
     slug = sanitize_id(line.name)
+    by_episode: dict[str, list[Item]] = defaultdict(list)
     for data in line.held_claims:
         plan.claims += 1
         try:
@@ -343,13 +365,43 @@ def gate_line(line: pending_store.PendingEntity, docs: Docs, names: Callable[[],
         if claim.valid_to is not None or is_event(claim):
             plan.skipped["closed_or_event"] += 1
             continue
-        item = _gate_claim(line, claim, docs, names(), plan)
+        item = _gate_claim(line, claim, docs, plan)
         if item is not None:
-            out.append(item)
+            by_episode[item.episode].append(item)
+    out: list[Group] = []
+    for episode, items in by_episode.items():
+        conv = docs.conv(episode)
+        named = conv.named(names()) if conv is not None else {}
+        apart = line.apart_pages()
+        for chunk in _chunks(sorted(items, key=lambda i: (i.start, i.claim.id))):
+            ranked = _candidates(named, chunk, apart)
+            kept = []
+            for it in chunk:
+                own = str(it.claim.object or "") if it.claim.object_kind != "literal" else ""
+                if any(p != own for p in ranked):    # a page the claim's own other end names is no page it is about
+                    kept.append(it)
+                else:
+                    plan.skipped["no_candidate_page"] += 1
+            if kept:
+                out.append(Group(line.name, episode, kept, _candidates(named, kept, apart),
+                                 summary=str(line.summary or line.description or "")))
     return out
 
 
-def _gate_claim(line, claim: Claim, docs: Docs, names: PageNames, plan: Plan) -> Item | None:
+def _chunks(items: list[Item]) -> list[list[Item]]:
+    return [items[i:i + MAX_CLAIMS_PER_CALL] for i in range(0, len(items), MAX_CLAIMS_PER_CALL)]
+
+
+def _candidates(named: dict[str, list[int]], items: list[Item], apart: set[str]) -> list[str]:
+    """The pages the conversation names, nearest the claims' turns first (then by id), at most MAX_CANDIDATES."""
+    def near(page: str) -> int:
+        return min(abs(t - it.turn_index) for t in named[page] for it in items)
+
+    pages = [p for p in named if p not in apart]
+    return sorted(pages, key=lambda p: (near(p), p))[:MAX_CANDIDATES]
+
+
+def _gate_claim(line, claim: Claim, docs: Docs, plan: Plan) -> Item | None:
     spans = [e for e in claim.evidence if e.is_span()]
     if not spans:
         plan.skipped["no_located_words"] += 1
@@ -357,62 +409,22 @@ def _gate_claim(line, claim: Claim, docs: Docs, names: PageNames, plan: Plan) ->
     why = "no_located_words"
     for ev in spans:
         doc = docs.get(ev.episode)
-        if doc is None:
+        conv = docs.conv(ev.episode)
+        if doc is None or conv is None:
             why = "source_unreadable"
             continue
         src = source_spans.Source.of(ev.episode, doc[0], doc[1])
         if src.status(ev.start, ev.end, ev.hash) not in (source_spans.CURRENT, source_spans.GROWN):
             why = "span_stale_or_held"
             continue
-        turn = _turn_of(doc, ev.start)
-        if turn not in promotion.person_kinds(doc[0]):
+        at = conv.turn_at(ev.start)
+        if at is None or not conv.is_person(at):
             why = "not_the_persons_turn"
             continue
-        text = doc[1]
-        sent = sentence_around(text, ev.start, ev.end)
-        if sent is None:
-            why = "sentence_too_long"
-            continue
-        page, reason = _page_for(line, claim, text[sent[0]:sent[1]], names)
-        if page is None:
-            why = reason
-            continue
-        return Item(line=line.name, claim=claim, page=page, episode=ev.episode, start=ev.start, end=ev.end, turn=turn,
-                    sentence=sent)
+        return Item(line=line.name, claim=claim, episode=ev.episode, start=ev.start, end=ev.end, hash=ev.hash,
+                    turn=conv.turns[at].role, turn_index=at)
     plan.skipped[why] += 1
     return None
-
-
-def _page_for(line, claim: Claim, sentence: str, names: PageNames) -> tuple[str | None, str]:
-    """``(the one page the sentence is about, "")`` — or ``(None, why not)``."""
-    words = _fold_words(sentence)
-    other = {str(claim.object or "")} if claim.object_kind != "literal" else set()
-    found = [m for m in names.mentions(words) if not (m.pages <= other)]
-    if not found:
-        return None, "names_no_page"
-    ids = {p for m in found for p in m.pages}
-    if len(ids) > 1:
-        return None, "names_more_than_one_page"
-    if any(len(m.pages) > 1 for m in found):
-        return None, "name_is_ambiguous"
-    page = names.pages.get(next(iter(ids)))
-    if page is None or page.owner or page.type not in TARGET_TYPES or page.status not in ACTIVE:
-        return None, "page_may_not_hold_a_part"
-    if page.id in line.apart_pages():
-        return None, "person_said_not_that_page"
-    wanted = label_words(line.name, page.words)
-    if not wanted:
-        return None, "label_adds_nothing"
-    if not set(wanted) <= set(words):
-        return None, "label_not_said_here"
-    if set(wanted) & RELATIONAL:
-        return None, "label_names_a_relation"
-    runs = windows(words, wanted)
-    if not runs:
-        return None, "label_words_not_one_phrase"
-    if not any(states_part(words, m, runs) for m in found):
-        return None, "no_part_relation"
-    return page.id, ""
 
 
 def plan_bank(memory_path: Path, *, lines: list[pending_store.PendingEntity] | None = None,
@@ -440,97 +452,230 @@ def plan_bank(memory_path: Path, *, lines: list[pending_store.PendingEntity] | N
             plan.skipped["line_is_not_a_label"] += 1
             continue
         plan.labels += 1
-        plan.items.extend(gate_line(line, docs, names, plan))
+        plan.groups.extend(gate_line(line, docs, names, plan))
     return plan
 
 
-# ---------------------------------------------------------------------------------------------------- the second reading
+# ---------------------------------------------------------------------------------------------------- the reader
 
 
-def _context(text: str, sentence: tuple[int, int]) -> str:
-    a, b = sentence
-    pad = max(0, (CONTEXT_CHARS - (b - a)) // 2)
-    return " ".join(text[max(0, a - pad):b + pad].split())
-
-
-def prompt_for(label: str, summary: str, page_name: str, page_body: str, rows: list[tuple[str, str, str]]) -> str:
+def _page_text(memory_path: Path, page_id: str) -> tuple[str, str, str] | None:
+    """``(name, one-line summary, body)`` of a page, or ``None``."""
     from api.services.claims import strip_claims_block
 
-    items = "\n\n".join(f"Item {i}:\nThe person said: {ctx}\nThe fact written about the label: {fact}" for i, (ctx, fact, _s)
-                        in enumerate(rows, 1))
-    body = strip_claims_block(page_body or "").strip()[:1500] or "(empty)"
-    return PROMPT.format(label=label, page=page_name, body=body, summary=(summary or "").strip()[:500] or "(empty)",
-                         items=items)
-
-
-def verdicts_of(parsed: object, n: int) -> dict[int, str]:
-    """``{item number: "part" | "whole"}`` for the items the answer says yes to; every other shape is no."""
-    out: dict[int, str] = {}
-    rows = parsed.get("claims") if isinstance(parsed, dict) else None
-    for row in rows if isinstance(rows, list) else []:
-        if not isinstance(row, dict):
-            continue
-        try:
-            k = int(row.get("n"))
-        except (TypeError, ValueError):
-            continue
-        verdict = str(row.get("verdict") or "").strip().lower()
-        if 1 <= k <= n and verdict in ("part", "whole"):
-            out[k] = verdict
-    return out
-
-
-async def read(memory_path: Path, settings, line: pending_store.PendingEntity, page_id: str, items: list[Item], docs: Docs, *,
-               ask: Callable | None = None, part_read: Callable | None = None) -> dict[int, str]:
-    """``{index into items: "part" | "whole"}`` — the claims the engine's main model agrees are about the page. Two calls at
-    most: `part_landing.confirms` (the label is a part of the page, as the pair judge's second reading asks it), then the
-    sentences. An engine failure propagates (the caller pauses); any other failure is no claim landing."""
-    from api.services import entity_resolver, part_landing, same_name_tend
-
-    entity = _page_text(memory_path, page_id)
-    if entity is None:
-        return {}
-    page_name, page_body = entity
-    confirm = part_read or part_landing.confirms
-    try:
-        agreed = await confirm(line.name, line.summary or line.description, line.episodes(), page_name, page_body, settings,
-                               memory_path=memory_path)
-    except engine_errors.EngineError:
-        raise
-    except Exception as e:  # noqa: BLE001
-        logger.debug(f"Described landing: part reading failed: {type(e).__name__}")
-        return {}
-    if not agreed:
-        return {}
-    rows, picked = [], []
-    for i, it in enumerate(items):
-        doc = docs.get(it.episode)
-        if doc is None or len(picked) >= MAX_CLAIMS_PER_READ:
-            continue
-        rows.append((_context(doc[1], it.sentence), it.claim.text, ""))
-        picked.append(i)
-    if not rows:
-        return {}
-    prompt = prompt_for(line.name, line.summary or line.description, page_name, page_body, rows)
-    ask = ask or entity_resolver._same_name_ask
-    try:
-        parsed = await ask(same_name_tend.main_tier(settings), SYSTEM, prompt)
-    except engine_errors.EngineError:
-        raise
-    except Exception as e:  # noqa: BLE001
-        logger.debug(f"Described landing: reading failed: {type(e).__name__}")
-        return {}
-    said = verdicts_of(parsed, len(rows))
-    return {picked[k - 1]: v for k, v in said.items()}
-
-
-def _page_text(memory_path: Path, page_id: str) -> tuple[str, str] | None:
     path = Path(memory_path) / "entities" / f"{page_id}.md"
     try:
         parsed = markdown_parser.parse(path)
     except Exception:  # noqa: BLE001
         return None
-    return str((parsed.frontmatter or {}).get("name") or page_id), parsed.body
+    fm = parsed.frontmatter or {}
+    body = strip_claims_block(parsed.body or "").strip()
+    one = str(fm.get("summary") or fm.get("description") or "").strip()
+    if not one:
+        one = next((ln.strip() for ln in body.splitlines() if ln.strip() and not ln.lstrip().startswith("#")), "")
+    return str(fm.get("name") or page_id), " ".join(one.split())[:SUMMARY_CHARS] or "(no description)", body
+
+
+@dataclass
+class Shown:
+    """The part of a turn the reader is shown: ``[a, b)`` of the conversation text."""
+    index: int
+    a: int
+    b: int
+
+
+def window_for(conv: Conv, items: list[Item]) -> list[Shown]:
+    """The turns around every claim of the group (``TURNS_BEFORE`` before, ``TURNS_AFTER`` after), each cut to its share of
+    ``WINDOW_CHARS``; the claim's own turn is cut around the claim's words."""
+    wanted: set[int] = set()
+    for it in items:
+        wanted.update(range(max(0, it.turn_index - TURNS_BEFORE), min(len(conv.turns), it.turn_index + TURNS_AFTER + 1)))
+    order = sorted(wanted)
+    cap = max(300, min(1500, WINDOW_CHARS // max(1, len(order))))
+    focus = {it.turn_index: (it.start, it.end) for it in items}
+    shown: list[Shown] = []
+    for i in order:
+        a, b = conv.content(i)
+        if b - a > cap:
+            if i in focus:
+                lo, hi = focus[i]
+                mid = (lo + hi) // 2
+                a2 = max(a, min(mid - cap // 2, b - cap))
+                a, b = a2, min(b, a2 + cap)
+            else:
+                b = a + cap
+        shown.append(Shown(i, a, b))
+    return shown
+
+
+def window_text(conv: Conv, shown: list[Shown]) -> str:
+    out, last = [], None
+    for s in shown:
+        if last is not None and s.index != last + 1:
+            out.append("...")
+        role = conv.turns[s.index].marker or conv.turns[s.index].role
+        out.append(f"[{s.index + 1}] {role}: {conv.text[s.a:s.b].strip()}")
+        last = s.index
+    return "\n".join(out)
+
+
+def locate_sentence(conv: Conv, shown: list[Shown], sentence: object) -> tuple[int, int, int] | None:
+    """``(start, end, turn index)`` of the copied sentence inside a PERSON's turn of the shown window — exact, whitespace or
+    case, never fuzzy — or ``None``. A reply too short or too long to be one sentence is none."""
+    quote = " ".join(str(sentence or "").split())
+    if not (MIN_SENTENCE <= len(quote) <= evidence.MAX_QUOTE_CHARS):
+        return None
+    for s in shown:
+        if not conv.is_person(s.index):
+            continue
+        hit = evidence.locate(conv.text[s.a:s.b], quote)
+        if hit is not None:
+            return s.a + hit[0], s.a + hit[1], s.index
+    return None
+
+
+@dataclass
+class Pick:
+    """What both reads agreed on for one claim."""
+    page: str
+    scope: str                       # part | whole
+    start: int                       # the copied sentence, offsets into the conversation text
+    end: int
+    turn: str
+    hash: str = ""
+
+
+@dataclass
+class GroupRead:
+    picks: dict[int, Pick] = field(default_factory=dict)        # item index -> the agreed pick
+    left: dict[int, str] = field(default_factory=dict)          # item index -> why it stays held
+    calls: int = 0
+    failed: bool = False                                        # a call failed: nothing is remembered
+    #: item index -> (page the first read named, the sentence it copied, the page the second read named): what a dry run shows
+    #: about a claim that stayed held; never stored, never logged.
+    seen: dict[int, tuple[str, str, str]] = field(default_factory=dict)
+
+
+def prompt_for(label: str, summary: str, window: str, candidates: list[tuple[str, str]], facts: list[tuple[int, str, int]],
+               *, second: bool = False) -> str:
+    cands = "\n".join(f"{LETTERS[i]}. {name} — {one}" for i, (name, one) in enumerate(candidates))
+    rows = "\n".join(f"{n}. {text} (said in turn [{turn + 1}])" for n, text, turn in facts)
+    return PROMPT.format(label=label, summary=(summary or "").strip()[:500] or "(empty)", window=window, candidates=cands,
+                         facts=rows, second=SKEPTIC if second else "", max_chars=evidence.MAX_QUOTE_CHARS)
+
+
+def answers_of(parsed: object) -> dict[int, dict]:
+    """``{fact number: {"page": letter | "none", "scope": ..., "sentence": ...}}``; every other shape is no answer."""
+    out: dict[int, dict] = {}
+    rows = parsed.get("claims") if isinstance(parsed, dict) else None
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            n = int(row.get("n"))
+        except (TypeError, ValueError):
+            continue
+        out[n] = {"page": str(row.get("page") or "").strip().upper().rstrip("."), "sentence": row.get("sentence"),
+                  "scope": str(row.get("scope") or "").strip().lower()}
+    return out
+
+
+async def _one_read(label: str, summary: str, conv: Conv, shown: list[Shown], cands: list[tuple[str, str, str]],
+                    facts: list[tuple[int, Item]], ask: Callable, *, second: bool) -> dict[int, tuple[str | None, dict | None, str]]:
+    """One call: ``{fact number: (page id or None, located sentence or None, scope | why-not)}``."""
+    prompt = prompt_for(label, summary, window_text(conv, shown), [(n, o) for _i, n, o in cands],
+                        [(k, it.claim.text, it.turn_index) for k, it in facts], second=second)
+    parsed = await ask(SYSTEM, prompt)
+    said = answers_of(parsed)
+    out: dict[int, tuple[str | None, dict | None, str]] = {}
+    ids = {LETTERS[i]: cands[i][0] for i in range(len(cands))}
+    for k, it in facts:
+        row = said.get(k)
+        if row is None:
+            out[k] = (None, None, "unusable_reply")
+            continue
+        if row["page"] in ("", "NONE"):
+            out[k] = (None, None, "none")
+            continue
+        page = ids.get(row["page"])
+        if page is None:
+            out[k] = (None, None, "unusable_reply")
+            continue
+        hit = locate_sentence(conv, shown, row["sentence"])
+        if hit is None:
+            out[k] = (page, None, "sentence_not_located")
+            continue
+        out[k] = (page, {"start": hit[0], "end": hit[1], "turn": hit[2]}, row["scope"] if row["scope"] == "part" else "whole")
+    return out
+
+
+async def read_group(memory_path: Path, group: Group, docs: Docs, ask: Callable) -> GroupRead:
+    """The two reads. ``ask(system, prompt)`` is the engine's main model, JSON back. An engine failure propagates (the caller
+    pauses); any other failure is no claim landing and nothing remembered."""
+    result = GroupRead()
+    conv = docs.conv(group.episode)
+    if conv is None:
+        result.failed = True
+        return result
+    cands: list[tuple[str, str, str]] = []   # (page id, name, one-line summary)
+    for pid in group.candidates:
+        got = _page_text(memory_path, pid)
+        if got is not None:
+            cands.append((pid, got[0], got[1]))
+    summary = group.summary
+    if not cands:
+        for i in range(len(group.items)):
+            result.left[i] = "no_candidate_page"
+        return result
+    shown = window_for(conv, group.items)
+    facts = [(i + 1, it) for i, it in enumerate(group.items)]
+    try:
+        first = await _one_read(group.line, summary, conv, shown, cands, facts, ask, second=False)
+        result.calls += 1
+    except engine_errors.EngineError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Described landing: reading failed: {type(e).__name__}")
+        result.failed = True
+        return result
+    keep: list[tuple[int, Item]] = []
+    for k, it in facts:
+        page, hit, why = first[k]
+        if page is not None:
+            result.seen[k - 1] = (page, " ".join(conv.text[hit["start"]:hit["end"]].split()) if hit else "", "")
+        obj = str(it.claim.object or "") if it.claim.object_kind != "literal" else ""
+        if page is None:
+            result.left[k - 1] = f"first_read_{why}"
+        elif hit is None:
+            result.left[k - 1] = f"first_read_{why}"
+        elif page == obj:
+            result.left[k - 1] = "first_read_names_the_claims_own_object"
+        else:
+            keep.append((k, it))
+    if not keep:
+        return result
+    backwards = list(reversed(cands))
+    try:
+        again = await _one_read(group.line, summary, conv, shown, backwards, keep, ask, second=True)
+        result.calls += 1
+    except engine_errors.EngineError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Described landing: second reading failed: {type(e).__name__}")
+        result.failed = True
+        return result
+    for k, it in keep:
+        p1, h1, s1 = first[k]
+        p2, h2, s2 = again[k]
+        result.seen[k - 1] = (p1, result.seen[k - 1][1], p2 or "")
+        if p2 is None or h2 is None:
+            result.left[k - 1] = f"second_read_{s2}"
+        elif p2 != p1:
+            result.left[k - 1] = "reads_disagree"
+        else:
+            result.picks[k - 1] = Pick(page=p1, scope="part" if (s1 == "part" and s2 == "part") else "whole", start=h1["start"],
+                                       end=h1["end"], turn=conv.turns[h1["turn"]].role, hash=it.hash)
+    return result
 
 
 # ---------------------------------------------------------------------------------------------------- landing
@@ -560,18 +705,25 @@ def is_record_id(item_id: str) -> bool:
     return bool(re.fullmatch(rf"{RECORD_PREFIX}\d{{3,}}", item_id or ""))
 
 
-def landed_claim(claim: Claim, page_id: str, page_name: str, verdict: str) -> Claim:
-    """The held claim as a claim of the page: subject the page, everything else — id, predicate, object, evidence, source
-    conversation, observer, trust, dates — as it was held. The text keeps the label's own words, so a located span still
-    backs every word, and a part says so."""
+def landed_claim(claim: Claim, page_id: str, page_name: str, pick: Pick, episode: str = "") -> Claim:
+    """The held claim as a claim of the page: subject the page, everything else — id, predicate, object, source conversation,
+    observer, trust, dates — as it was held, its own evidence spans first. The text keeps the label's own words, so a located
+    span still backs every word, and a part says so. The sentence the reader copied (the one that shows which page the fact
+    is about) is recorded as one more evidence span, unless it is the claim's own."""
     data = claim.to_dict()
     data["subject"] = page_id
-    if verdict == "part":
+    if pick.scope == "part":
         data["text"] = f"{claim.text} (a part of {page_name})"
+    ev = list(data.get("evidence") or [])
+    copied = {"episode": episode, "start": pick.start, "end": pick.end, "kind": pick.turn, "hash": pick.hash}
+    if episode and not any(isinstance(e, dict) and (e.get("episode"), e.get("start"), e.get("end")) == (episode, pick.start, pick.end)
+                           for e in ev):
+        ev.append(copied)
+    data["evidence"] = ev
     return Claim.from_dict(data)
 
 
-def land_page(memory_path: Path, page_id: str, items: list[tuple[Item, str]], *, by: str, engine: str | None = None,
+def land_page(memory_path: Path, page_id: str, items: list[tuple[Item, Pick]], *, by: str, engine: str | None = None,
               cardinal: Callable[[str], bool] | None = None, today: str | None = None) -> Landed | None:
     """Write one page's claims, take them off their lines, write the settle's record. The caller holds the bank and commits
     ``paths``; ``None`` when nothing changes (everything is already there, or would clash with a single-valued belief)."""
@@ -589,9 +741,9 @@ def land_page(memory_path: Path, page_id: str, items: list[tuple[Item, str]], *,
     cardinal = cardinal or predicates.build_cardinality_fn(memory_path)
     page_name = str((parsed.frontmatter or {}).get("name") or page_id)
     have = {c.id for c in claims}
-    new: list[tuple[Item, Claim, str]] = []
+    new: list[tuple[Item, Claim, Pick]] = []
     heal: dict[str, list[str]] = defaultdict(list)   # on the page already (an earlier write that did not finish): only taken off the line
-    for it, verdict in items:
+    for it, pick in items:
         if it.claim.id in have:
             heal[it.line].append(it.claim.id)
             continue
@@ -600,21 +752,21 @@ def land_page(memory_path: Path, page_id: str, items: list[tuple[Item, str]], *,
             continue   # the page already says it: nothing is lost by leaving it held, nothing is written twice
         if same and cardinal(it.claim.predicate):
             continue   # a single-valued belief the page already holds: left for the person, never decided here
-        new.append((it, landed_claim(it.claim, page_id, page_name, verdict), verdict))
+        new.append((it, landed_claim(it.claim, page_id, page_name, pick, it.episode), pick))
     if not new and not heal:
         return None
     paths: list[str] = []
     lines: list[str] = []
     ids: list[str] = []
     if new:
-        markdown_parser.write(path, parsed.frontmatter, write_claims(parsed.body, claims + [n for _i, n, _v in new]))
-        ids = [n.id for _i, n, _v in new]
+        markdown_parser.write(path, parsed.frontmatter, write_claims(parsed.body, claims + [n for _i, n, _p in new]))
+        ids = [n.id for _i, n, _p in new]
         paths.append(f"entities/{page_id}.md")
         ledger = memory_path / "entities" / f"{page_id}.claims.jsonl"
         if ledger.is_file():
             paths.append(f"entities/{page_id}.claims.jsonl")
     taken = defaultdict(list)
-    for it, n, _v in new:
+    for it, n, _p in new:
         taken[it.line].append(n.id)
     for line, cids in heal.items():
         taken[line].extend(cids)
@@ -628,22 +780,23 @@ def land_page(memory_path: Path, page_id: str, items: list[tuple[Item, str]], *,
     paths.append(pending_store.PENDING_STORE_FILE)
     record_id = ""
     if new:
-        spans = [{"episode": it.episode, "start": it.sentence[0], "end": it.sentence[1], "kind": it.turn} for it, _n, _v in new]
+        spans = [{"episode": it.episode, "start": p.start, "end": p.end, "kind": p.turn, "claim_id": n.id}
+                 for it, n, p in new]
         record_id = _next_record_id(memory_path)
         settled_dir = memory_path / "inbox" / SETTLED_DIR
         settled_dir.mkdir(parents=True, exist_ok=True)
         record = {
             "group": "sleep", "rule": RULE, "at": episode_ids.utc_now_iso(), "by": by, "by_kind": "sleep",
-            "reason": REASON, "answer": f"{len(new)} fact(s) said about a part of {page_name}",
+            "reason": REASON, "answer": f"{len(new)} fact(s) said about {page_name}",
             "entity_id": page_id, "entity_name": page_name, "predicate": new[0][0].claim.predicate,
             "claim_id": new[0][1].id, "claim_ids": ids, "evidence": spans[0], "evidence_spans": spans,
-            "lines": sorted({it.line for it, _n, _v in new}),
-            "held": [it.claim.to_dict() for it, _n, _v in new], "closed_lines": closed, "landed": [n.to_dict() for _i, n, _v in new],
-            "episodes": sorted({it.episode for it, _n, _v in new}),
+            "lines": sorted({it.line for it, _n, _p in new}),
+            "held": [it.claim.to_dict() for it, _n, _p in new], "closed_lines": closed, "landed": [n.to_dict() for _i, n, _p in new],
+            "episodes": sorted({it.episode for it, _n, _p in new}),
             **({"engine": engine} if engine else {}),
         }
         markdown_parser.write(settled_dir / f"{record_id}.md",
-                              {"kind": "landing", "question": f"What was said about parts of {page_name}?",
+                              {"kind": "landing", "question": f"What was said about {page_name}?",
                                "entity_id": page_id, "entity_name": page_name, "settled": record}, "")
         paths.append(f"inbox/{SETTLED_DIR}/{record_id}.md")
         source = new[0][0].episode
@@ -717,6 +870,7 @@ def undo(memory_path: Path, record_id: str) -> tuple[list[str], list[str], dict]
 class Report:
     looked: int = 0
     read: int = 0
+    calls: int = 0
     landed: int = 0
     pages: int = 0
     skipped: Counter = field(default_factory=Counter)
@@ -753,12 +907,18 @@ def _remember(memory_path: Path, key: str, digest: str) -> None:
         pass
 
 
-def _digest(items: list[Item], docs: Docs) -> str:
+def _digest(memory_path: Path, group: Group, docs: Docs) -> str:
+    """What the reader was shown, as a hash: the claims, the window and each candidate's name and summary. A read that left
+    its claims held is not made again until one of these changes (the line, the conversation or a page)."""
     h = hashlib.sha256()
-    for it in sorted(items, key=lambda i: i.claim.id):
-        doc = docs.get(it.episode)
-        h.update(it.claim.id.encode())
-        h.update((doc[1][it.sentence[0]:it.sentence[1]] if doc else "").encode())
+    conv = docs.conv(group.episode)
+    for it in sorted(group.items, key=lambda i: i.claim.id):
+        h.update(f"{it.claim.id}|{it.claim.text}|{it.start}|{it.end}".encode())
+    if conv is not None:
+        h.update(window_text(conv, window_for(conv, group.items)).encode())
+    for pid in group.candidates:
+        got = _page_text(memory_path, pid)
+        h.update(f"|{pid}|{got[0]}|{got[1]}".encode() if got else f"|{pid}".encode())
     return h.hexdigest()[:16]
 
 
@@ -781,16 +941,19 @@ def nothing_left(line: pending_store.PendingEntity | None) -> bool:
                                 or line.description)
 
 
-def order(pairs: list[tuple[str, str]], reads: dict[str, float]) -> list[tuple[str, str]]:
-    """The pages read most come first (`page_reads`), then by name — never the order the bank happens to list them."""
-    return sorted(pairs, key=lambda p: (-reads.get(p[1], 0.0), p[1], p[0]))
+def order(groups: list[Group], reads: dict[str, float]) -> list[Group]:
+    """The groups whose candidate pages are read most come first (`page_reads`), then by line — never the order the bank
+    happens to list them."""
+    def heat(g: Group) -> float:
+        return max((reads.get(p, 0.0) for p in g.candidates), default=0.0)
+
+    return sorted(groups, key=lambda g: (-heat(g), sanitize_id(g.line), g.episode))
 
 
-async def tend(memory_path: Path, settings, ask: Callable, *, today: date | None = None, per_run: int = PAIRS_PER_RUN,
-               part_read: Callable | None = None, engine: str | None = None, commit: Callable | None = None,
-               plan: Plan | None = None) -> Report:
+async def tend(memory_path: Path, settings, ask: Callable, *, today: date | None = None, per_run: int = GROUPS_PER_RUN,
+               engine: str | None = None, commit: Callable | None = None, plan: Plan | None = None) -> Report:
     """Read and land. ``ask(system, prompt)`` is the main model's call. Each page is one write and one commit of its own
-    paths; the reads run outside any write. An engine failure stops the step (the pairs are read again next run)."""
+    paths; the reads run outside any write. An engine failure stops the step (the groups are read again next run)."""
     from api.services import page_reads, web_settle
 
     memory_path = Path(memory_path)
@@ -800,44 +963,45 @@ async def tend(memory_path: Path, settings, ask: Callable, *, today: date | None
     report.looked = plan.labels
     for why, n in plan.skipped.items():
         report.skip(why, n)
-    if not plan.items:
+    if not plan.groups:
         return report
     lines = {l.name: l for l in pending_store.load(memory_path)}
     docs = Docs(memory_path)
-    by_pair: dict[tuple[str, str], list[Item]] = defaultdict(list)
-    for it in plan.items:
-        by_pair[(it.line, it.page)].append(it)
     try:
         reads = await asyncio.to_thread(page_reads.table, memory_path, today=today)
     except Exception:  # noqa: BLE001 - the order is a courtesy
         reads = {}
     seen = _seen(memory_path)
-    fresh = [p for p in by_pair if lines.get(p[0]) and _fresh(lines[p[0]], today)]
-    old = [p for p in by_pair if p not in set(fresh)]
+    fresh = [g for g in plan.groups if lines.get(g.line) and _fresh(lines[g.line], today)]
+    fresh_ids = {id(g) for g in fresh}
+    old = [g for g in plan.groups if id(g) not in fresh_ids]
     todo = order(fresh, reads)[:per_run] + order(old, reads)[:per_run]
-    landing: dict[str, list[tuple[Item, str]]] = defaultdict(list)
+    landing: dict[str, list[tuple[Item, Pick]]] = defaultdict(list)
     stopped: Exception | None = None
-    for pair in todo:
-        items = by_pair[pair]
-        key = f"{sanitize_id(pair[0])}|{pair[1]}"
-        mark = _digest(items, docs)
-        if seen.get(key) == mark:
-            report.skip("read_already")
+    for whole in todo:
+        marks = {it.claim.id: await asyncio.to_thread(_digest, memory_path, whole.sub([it]), docs) for it in whole.items}
+        todo_items = [it for it in whole.items if seen.get(f"{sanitize_id(it.line)}|{it.claim.id}") != marks[it.claim.id]]
+        report.skip("read_already", len(whole.items) - len(todo_items))
+        if not todo_items:
             continue
+        group = whole.sub(todo_items)
         report.read += 1
-
-        async def _ask(_settings, system, prompt):
-            return await ask(system, prompt)
-
         try:
-            said = await read(memory_path, settings, lines[pair[0]], pair[1], items, docs, ask=_ask, part_read=part_read)
+            got = await read_group(memory_path, group, docs, ask)
         except engine_errors.EngineError as exc:
             stopped = exc   # a pause: what was read so far still lands below, the rest waits for the next run
             break
-        if not said:
-            await asyncio.to_thread(_remember, memory_path, key, mark)   # a no stands until a sentence or a claim changes
-        for i, verdict in said.items():
-            landing[pair[1]].append((items[i], verdict))
+        report.calls += got.calls
+        if got.failed:
+            report.skip("read_failed")
+            continue
+        for why in got.left.values():
+            report.skip(why)
+        for i, it in enumerate(group.items):
+            if i not in got.picks:   # what was left stands until the claim, the conversation or a candidate changes
+                await asyncio.to_thread(_remember, memory_path, f"{sanitize_id(it.line)}|{it.claim.id}", marks[it.claim.id])
+        for i, pick in got.picks.items():
+            landing[pick.page].append((group.items[i], pick))
     for page_id, rows in landing.items():
         by = engine or "agent"
         before = {rel: _bytes(memory_path / rel) for rel in
@@ -852,7 +1016,7 @@ async def tend(memory_path: Path, settings, ask: Callable, *, today: date | None
         if done is None:
             report.skip("nothing_to_write")
             continue
-        message = web_settle.commit_message("Facts about a part landed", done.lines, authors=[by], engine=engine)
+        message = web_settle.commit_message("Facts about a page landed", done.lines, authors=[by], engine=engine)
         try:
             await asyncio.to_thread(commit or web_settle.commit_sync, memory_path, message, done.paths)
         except Exception as exc:  # noqa: BLE001
@@ -895,9 +1059,9 @@ def _restore(memory_path: Path, before: dict[str, bytes | None], record_id: str 
 
 
 async def run_tail(memory_path: Path, settings, *, user_triggered: bool, ask: Callable | None = None,
-                   part_read: Callable | None = None, today: date | None = None) -> Report:
+                   today: date | None = None) -> Report:
     """Sleep's tail step, inside the run's window: no engine is resolved and nothing is sent unless a held line is a label
-    with a claim that passes every code gate. A scheduled run reaches a plan only through the person's switch (ruling 4b), a
+    with a claim that passes every code gate and a conversation that names a page. A scheduled run reaches a plan only through the person's switch (ruling 4b), a
     plan limit is a pause (nothing is lost), no engine means no read. Never raises."""
     from api.services import full_name_join, same_name_tend
 
@@ -905,7 +1069,7 @@ async def run_tail(memory_path: Path, settings, *, user_triggered: bool, ask: Ca
     report = Report()
     try:
         plan = await asyncio.to_thread(plan_bank, memory_path)
-        if not plan.items:
+        if not plan.groups:
             report.looked, report.skipped = plan.labels, plan.skipped
             return report
         engine = None
@@ -920,7 +1084,7 @@ async def run_tail(memory_path: Path, settings, *, user_triggered: bool, ask: Ca
                 return await full_name_join.ask_main(strong, system, prompt)
 
             settings = strong
-        return await tend(memory_path, settings, ask, today=today, part_read=part_read, engine=engine, plan=plan)
+        return await tend(memory_path, settings, ask, today=today, engine=engine, plan=plan)
     except (engine_errors.EngineThrottled, engine_errors.EngineExhausted, engine_errors.EngineOverage):
         report.skip("plan_limit")
     except Exception as exc:  # noqa: BLE001 - landing never fails a Sleep

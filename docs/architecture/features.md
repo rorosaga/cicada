@@ -812,9 +812,9 @@ bank's write admission and the tidy stopping before any judge call or settle onc
 /inbox/tidy` its counts.
 
 **A fact landed on a page shows under "Settled by Sleep" too (G148, 2026-11-25; `described_landing`).** One row a page and run (`land-NNN`, rule
-`land_described`): the answer says how many facts were said about a part of <Page>, the quote is the first of the person's own
-sentences it rests on (the record keeps every one as a span, never a copy, `inbox_tend.quote_for`), the reason says they were
-held under a label nobody said. **Undo** is the same `POST /inbox/settled/land-NNN/undo`: the facts leave the page (refused,
+`land_described`): the answer says how many facts were said about <Page>, the quote is the sentence the reader copied from the person's own
+turn to show it (the record keeps every one as a span with its claim id, never a copy, `inbox_tend.quote_for`; the landed claim
+carries it as a second evidence span), the reason says they were held under a label nobody said. **Undo** is the same `POST /inbox/settled/land-NNN/undo`: the facts leave the page (refused,
 409, when one was changed since), go back to their held line, and the page is remembered as one that mention is not, so no
 question comes back and it is never offered again. The Inbox needs no change: an unknown `kind` and `rule` are shown by their words. **A running tidy is busy for every updater** (`/sleep/status` → `inboxTidy: true`, read by
 `scripts/dev/auto-update.sh`, the app's `SleepProbe` and its install helper), and its counts are saved as it goes in
