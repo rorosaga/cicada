@@ -113,9 +113,14 @@ struct SiteSaveSite: Sendable {
         case last(least: Int)
         /// A plain button directly followed by a menu button (GitHub: Star, then its lists menu).
         case beforeMenu
-        /// The plain button directly before the row's last plain button, in a row with at least `least`
-        /// (TikTok: like, comments, favourite, share).
-        case beforeLast(least: Int)
+        /// TikTok's favourite, in both of its rows, each with at least `least` plain buttons. On a video's own page it
+        /// is the plain button directly before the row's last (like, comments, favourite, share). In the viewer a profile's
+        /// grid opens (measured 2026-11-25: comments, favourite, five share links, Share, Copy link; the like is a
+        /// checkbox) the share links sit between it and the row's last buttons, so it is the plain button directly
+        /// before the first link that follows a plain button. Either way only a control whose own label names a
+        /// count is the favourite: the share button and the player's volume sit in the same places in other rows, and
+        /// neither counts anything.
+        case countedBeforeLastOrLinks(least: Int)
         /// No button of a row saves on this site (its save is in a menu).
         case none
     }
@@ -187,7 +192,7 @@ struct SiteSaveSite: Sendable {
         key: "tiktok", name: "TikTok", origin: "tiktok-saved", hosts: ["tiktok.com"],
         items: [(re(web + #"tiktok\.com/@([A-Za-z0-9_.]{1,40})/(video|photo)/([0-9]{5,25})/?(?:[?#].*)?$"#),
                  "https://www.tiktok.com/@$1/$2/$3", "TikTok by @$1")],
-        rowAnchor: nil, slot: .beforeLast(least: 4),
+        rowAnchor: nil, slot: .countedBeforeLastOrLinks(least: 4),
         listPages: [])
 
     /// Reddit's Save sits in the post's own menu (measured 2026-11-23, feed and post page: Follow, sometimes Award,
@@ -293,8 +298,14 @@ enum SiteSaveRule {
             return plain.count >= least && plain.last == clicked
         case .beforeMenu:
             return row.indices.contains(clicked + 1) && row[clicked + 1].role == menuButton
-        case let .beforeLast(least):
-            return plain.count >= least && plain.dropLast().last == clicked
+        case let .countedBeforeLastOrLinks(least):
+            guard plain.count >= least, !numbers(in: row[clicked].label).isEmpty else { return false }
+            // Links that follow a plain button and are followed by one split the row: the favourite ends the first part.
+            if let first = plain.first, let last = plain.last,
+               let split = row.indices.first(where: { $0 > first && $0 < last && row[$0].role == link }) {
+                return plain.last { $0 < split } == clicked
+            }
+            return plain.dropLast().last == clicked
         case .none:
             return false
         }

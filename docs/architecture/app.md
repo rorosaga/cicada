@@ -1609,7 +1609,11 @@ structure and addresses, **never a word of the site's interface in any language*
 that are one post (and the one spelling it is stored under), where the save control sits among its row's controls
 (`Slot`: X the first plain button after the post's own views link, or the last of three on a post's own page;
 Instagram the last plain button of a row with four; GitHub the plain button directly before a menu button; TikTok the
-one before the last), and which page is the person's own saved list. The post is named by the row's own link, else by
+one before the last on a video's own page and, in the viewer a profile's grid opens, the one directly before the share
+links that split the row — measured 2026-11-25 with real clicks: there the row is comments, favourite, five share
+links, Share, Copy link, each count alone as the label, and the old place named Share and missed the favourite; in
+both rows only a control whose own label names a count is the favourite, which also keeps the share button and the
+player's volume from being read as one, `Slot.countedBeforeLastOrLinks`), and which page is the person's own saved list. The post is named by the row's own link, else by
 the nearest post link *before* the row in the enclosing block (a post's time or heading precedes its controls; links
 only after the row belong to what follows, e.g. Instagram's stories tray), else by the page when it is a post's own.
 A save is the control's label differing a moment after the click. **Which way it went** is settled in this order: the

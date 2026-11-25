@@ -157,6 +157,33 @@ final class SiteSaveTests: XCTestCase {
         XCTAssertEqual(SiteSaveRule.item(share), .failure(.notTheSaveSlot))
     }
 
+    /// Measured 2026-11-25 with real clicks and the reader: a video opened from a profile's grid shows its controls as
+    /// comments, favourite, five share links, Share, Copy link (the like is a checkbox), each count alone as the label.
+    /// The old place (before the last button) named Share as the save control and the favourite as nothing.
+    func testInTheViewerAProfileOpensTheFavouriteIsTheCountedButtonBeforeTheShareLinks() throws {
+        let page = "https://www.tiktok.com/@alpha.user/video/7300000000000000002"
+        let shared = SiteSaveNode(role: "AXLink", label: "Repost", url: page)
+        let elsewhere = SiteSaveNode(role: "AXLink", label: "Send", url: "https://wa.me/?text=x")
+        let row = [button("31"), button("604"), shared, shared, shared, elsewhere, elsewhere, button("Share"),
+                   button("Copy link")]
+        let viewer = SiteSaveReading(row: row, clicked: 1, page: page)
+        XCTAssertEqual(try SiteSaveRule.item(viewer).get().url, page)
+        for other in [0, 7, 8] {
+            var reading = viewer
+            reading.clicked = other
+            XCTAssertEqual(SiteSaveRule.item(reading), .failure(.notTheSaveSlot), "button \(other)")
+        }
+        // Its count moving by one says which way, as on the video's own page.
+        var saved = viewer
+        saved.row[1].label = "605"
+        XCTAssertEqual(SiteSaveRule.outcome(before: viewer, after: saved, site: .tiktok), .saved)
+        XCTAssertEqual(SiteSaveRule.outcome(before: saved, after: viewer, site: .tiktok), .unsaved)
+        // The player's own row (two buttons, volume, full screen) holds no favourite: nothing in it counts anything.
+        let player = SiteSaveReading(row: [button("Play"), button("Next"), button("Volume"), button("Full screen")],
+                                     clicked: 2, page: page)
+        XCTAssertEqual(SiteSaveRule.item(player), .failure(.notTheSaveSlot))
+    }
+
     func testOnlyTheSitesHandedToTheRuleAreRead() {
         let feed = timeline(save: "b", counts: "")
         XCTAssertEqual(SiteSaveRule.item(feed, sites: [.instagram]), .failure(.unknownSite))
