@@ -68,6 +68,31 @@ struct SiteSaveSite: Sendable {
     let listPages: [NSRegularExpression]
     /// The site keeps its save in a menu (`SiteMenuSave.swift`), not in a button of the post's row.
     var menu: Menu? = nil
+    /// The site has a feed that plays one post at a time and links to it nowhere (`Playing`).
+    var playing: Playing? = nil
+
+    /// A feed that plays one post at a time and names it in no link (measured 2026-11-25 on TikTok's For You: the
+    /// address stays the feed's, and the controls sit in one bar beside whichever video is playing). The post is the
+    /// one whose player is on screen beside the controls, named by the player's own DOM id, and its account by the
+    /// creator's link in the same bar. Structure and addresses only, the same in every interface language.
+    struct Playing: Sendable {
+        /// The player's DOM id; its one capture is the post's own id.
+        let id: NSRegularExpression
+        /// The creator's link; its one capture is the account.
+        let account: NSRegularExpression
+        /// The post's link: `$1` the account, `$2` the id.
+        let url: String
+
+        func post(account link: String, id domId: String) -> String? {
+            func capture(_ rule: NSRegularExpression, _ text: String) -> String? {
+                guard let found = rule.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+                      found.numberOfRanges > 1, let range = Range(found.range(at: 1), in: text) else { return nil }
+                return String(text[range])
+            }
+            guard let name = capture(account, link), let number = capture(id, domId) else { return nil }
+            return url.replacingOccurrences(of: "$1", with: name).replacingOccurrences(of: "$2", with: number)
+        }
+    }
 
     /// Where a menu's save sits, as the page's own structure (DOM ids and class names, which are the same in every
     /// interface language): never a word of the menu.
@@ -100,9 +125,9 @@ struct SiteSaveSite: Sendable {
         /// Every item is one of the person's lists; the first is the site's own, the others are folders.
         var lists = false
         /// Where the sheet was opened from: a class of a card that is one post (its first post link names it), and
-        /// a class found above the page's own controls (the page itself is the post).
+        /// classes found above the page's own controls (the page itself is the post).
         var cards: [String] = []
-        var pageClass: String? = nil
+        var pageClasses: [String] = []
     }
 
     enum Slot: Sendable {
@@ -193,7 +218,10 @@ struct SiteSaveSite: Sendable {
         items: [(re(web + #"tiktok\.com/@([A-Za-z0-9_.]{1,40})/(video|photo)/([0-9]{5,25})/?(?:[?#].*)?$"#),
                  "https://www.tiktok.com/@$1/$2/$3", "TikTok by @$1")],
         rowAnchor: nil, slot: .countedBeforeLastOrLinks(least: 4),
-        listPages: [])
+        listPages: [],
+        playing: Playing(id: re(#"^xgwrapper-[0-9]+-([0-9]{5,25})$"#),
+                         account: re(web + #"tiktok\.com/@([A-Za-z0-9_.]{1,40})/?(?:[?#].*)?$"#),
+                         url: "https://www.tiktok.com/@$1/video/$2"))
 
     /// Reddit's Save sits in the post's own menu (measured 2026-11-23, feed and post page: Follow, sometimes Award,
     /// Save, Hide, Report). The menu is inside the post's block, whose DOM id is the post's own (`t3_<id>`); the
@@ -228,7 +256,10 @@ struct SiteSaveSite: Sendable {
         rowAnchor: nil, slot: .none, listPages: [],
         menu: Menu(menuClass: "ytListViewModelHost", sheetClass: "ytContextualSheetLayoutHost",
                    headerClass: "ytPanelHeaderViewModelHost", lists: true,
-                   cards: ["ytLockupViewModelHost"], pageClass: "ytd-watch-metadata"))
+                   cards: ["ytLockupViewModelHost"],
+                   // The controls under a video's player, and the controls of a Short (measured 2026-11-25: a Short's
+                   // "more" menu holds the item that opens the same sheet, and the address is the Short's own).
+                   pageClasses: ["ytd-watch-metadata", "ytdReelVideoRendererHost"]))
 
     static let all: [SiteSaveSite] = [x, instagram, github, tiktok, reddit, youtube]
     static func named(_ key: String) -> SiteSaveSite? { all.first { $0.key == key } }
@@ -728,6 +759,14 @@ enum SiteSaveReader {
                     let found = postLinks(around: ancestor)
                     reading.links = found.before.reversed() + found.after
                     reading.linksBefore = found.before.count
+                    // No link anywhere names a post, and the page is not one: on a feed that plays one post at a
+                    // time, the post whose player is on screen beside these controls.
+                    if reading.links.isEmpty, let site = SiteSaveSite.all.first(where: { $0.onHost(address) }),
+                       let rule = site.playing, site.item(address) == nil, let box = frame(button),
+                       let playing = playingPost(around: ancestor, rule: rule, beside: box.midY) {
+                        reading.links = [playing]
+                        reading.linksBefore = 1
+                    }
                 }
                 // The post as the page describes it: the nearest labelled block above the row whose label says more
                 // than the row's own (X's article), and the label of the post's own link in it, which marks where
@@ -754,6 +793,67 @@ enum SiteSaveReader {
 
     /// The post links (`SiteSaveSite.isItemLink`) of the nearest block above `row` that holds any, in reading order
     /// and split at the row. Climbs a few levels and reads links only; a block with none is passed over.
+    static let maxPlayingAncestors = 6
+    static let maxPlayingNodes = 600
+    /// How tall a frame around a player must be for the player to count as the one on screen (the feed keeps the
+    /// posts before and after it as slivers one point high).
+    static let playingHeight: CGFloat = 100
+
+    /// On a feed that plays one post at a time (`SiteSaveSite.Playing`): the post playing beside the controls, as its
+    /// link. Climbs from the row to the nearest block that holds both the creator's link and a player whose own
+    /// frame, or a wrapper's, is on screen at the controls' height. Every creator link in that block must name the
+    /// same account, or nothing is said. Bounded; reads roles, addresses, DOM ids and frames only.
+    private static func playingPost(around row: AXUIElement, rule: SiteSaveSite.Playing, beside y: CGFloat) -> String? {
+        var block = row
+        for _ in 0..<maxPlayingAncestors {
+            guard let parent = element(block, kAXParentAttribute as String),
+                  string(parent, kAXRoleAttribute as String) != "AXWebArea" else { return nil }
+            block = parent
+            var accounts: Set<String> = [], players: [(id: String, node: AXUIElement)] = []
+            var stack = Array(children(block).reversed()), seen = 0
+            while let next = stack.popLast(), seen < maxPlayingNodes {
+                seen += 1
+                let role = string(next, kAXRoleAttribute as String) ?? ""
+                if role == SiteSaveRule.link {
+                    if let url = string(next, kAXURLAttribute as String),
+                       rule.account.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)) != nil {
+                        accounts.insert(url)
+                    }
+                    continue
+                }
+                if let id = string(next, "AXDOMIdentifier"),
+                   rule.id.firstMatch(in: id, range: NSRange(id.startIndex..., in: id)) != nil {
+                    players.append((id, next))
+                }
+                if !isControl(role) { stack.append(contentsOf: children(next).reversed()) }
+            }
+            guard !players.isEmpty, !accounts.isEmpty else { continue }
+            // The player on screen is the one whose own wrapper is tall there. The others reach a tall frame only
+            // far up, at the column they all share (measured: one step against seven), so the nearest wins, alone.
+            let reach = players.compactMap { player in
+                stepsToScreen(player.node, within: block, beside: y).map { (id: player.id, steps: $0) }
+            }
+            guard let nearest = reach.map(\.steps).min() else { return nil }
+            let named = Set(reach.filter { $0.steps == nearest }.map(\.id))
+            let posts = Set(accounts.flatMap { account in named.compactMap { rule.post(account: account, id: $0) } })
+            // One account and one player on screen, or it is not known which post this is.
+            return posts.count == 1 ? posts.first : nil
+        }
+        return nil
+    }
+
+    /// How many wrappers up from a player the first frame is that is tall enough to be the post on screen and spans
+    /// the height `y`; nil when none below `block` is.
+    private static func stepsToScreen(_ player: AXUIElement, within block: AXUIElement, beside y: CGFloat) -> Int? {
+        var node = player
+        for step in 0..<10 {
+            if let box = frame(node), box.height >= playingHeight, box.minY <= y, y <= box.maxY { return step }
+            guard let parent = element(node, kAXParentAttribute as String), !CFEqual(parent, block) else { return nil }
+            node = parent
+        }
+        return nil
+    }
+
     private static func postLinks(around row: AXUIElement) -> (before: [String], after: [String]) {
         var block = row
         for _ in 0..<maxContextAncestors {
