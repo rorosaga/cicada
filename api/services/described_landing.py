@@ -31,8 +31,9 @@ candidate with its name and a one-line summary, and answers which ONE candidate 
 part of it), or none, and copies the sentence from a turn of the person's that shows it. It reads TWICE: the second time in
 the reverse candidate order, told to look for the reason the fact is about something else or about nothing on the list. Both
 reads must name the same candidate, and each copied sentence must be located (never fuzzy) in a person's turn inside the shown
-window. A disagreement, "none", an unusable reply or a sentence that does not locate leaves the claim held; what was read is
-remembered (a hash outside every bank) so the pair is not read again until the line, the conversation or a candidate changes.
+window. A disagreement, "none", an unusable reply or a sentence that does not locate leaves the claim held; a "no" is
+remembered (a hash under a hashed key, outside every bank) so the pair is not read again until the line, the conversation or a
+candidate changes, while an unusable reply or an unlocated sentence says nothing and is read again.
 A line's claims said in one conversation are read in one call (at most :data:`MAX_CLAIMS_PER_CALL`).
 
 **Only a project is a page a fact lands on (2026-11-25, after the dry run on the owner's bank, real values redacted).** The
@@ -57,7 +58,8 @@ said the label is the page in other words, nothing when they did not say the sam
 never re-worded by a model, so a located span still backs every word. The line keeps whatever did not land (`pending_store.drop_released`) and is closed only when nothing is left. The
 page's `source_episodes` and `last_referenced` are NOT moved: the conversation is no new mention for decay or promotion unless
 it already counted. A page gets one settle per run: one commit of its own paths, one record `inbox/settled/land-NNN.md` under
-"Settled by Sleep" with the sentences shown, undoable as one (`undo`: the claims go back to the line, and the person's undo is
+"Settled by Sleep" with the sentences shown, undoable as one (`undo`: each claim leaves the page only while it is as the landing wrote it, whatever Sleep's decay pass has done
+to its bookkeeping since; it goes back to its line, checked before anything is written, and the person's undo is
 remembered as `apart`, so the page is never offered the mention again).
 
 Rails held here: no model at capture time (this is a Sleep tail step); located spans only, never fuzzy; no name or sentence
@@ -780,11 +782,13 @@ def land_page(memory_path: Path, page_id: str, items: list[tuple[Item, Pick]], *
         if it.claim.id in have:
             heal[it.line].append(it.claim.id)
             continue
-        same = [c for c in claims if c.valid_to is None and c.predicate == it.claim.predicate]
+        # The page's own claims AND the ones accepted before this one in the same call: two held values of one
+        # single-valued predicate never land together (this path does not go through the reconciler).
+        same = [c for c in [*claims, *(n for _i, n, _p in new)] if c.valid_to is None and c.predicate == it.claim.predicate]
         if any(c.object == it.claim.object for c in same):
             continue   # the page already says it: nothing is lost by leaving it held, nothing is written twice
         if same and cardinal(it.claim.predicate):
-            continue   # a single-valued belief the page already holds: left for the person, never decided here
+            continue   # a single-valued belief the page already holds (or one landing just now): left for the person, never decided here
         new.append((it, landed_claim(it.claim, page_id, page_name, pick, it.episode), pick))
     if not new and not heal:
         return None
@@ -841,11 +845,52 @@ def land_page(memory_path: Path, page_id: str, items: list[tuple[Item, Pick]], *
     return Landed(record_id, page_id, ids, paths, lines)
 
 
+#: What a landing wrote and a later change would be the person's or a conversation's: the claim's identity and its words, and
+#: whether it is still open. Everything else on a claim is bookkeeping Sleep keeps up every night (confidence, the decay
+#: watermark and its day-placing `read_late`, `faded_by_age`, the sessions, episodes and reactions a restatement adds,
+#: `recorded_at` / `recorded_ts`), and never makes the claim another claim.
+LANDED_IDENTITY = ("id", "subject", "predicate", "object", "object_kind", "text", "valid_to", "superseded_by", "supersedes")
+
+
+def as_written(now: Claim, wrote: dict) -> bool:
+    """The claim on the page is still what the landing wrote: the same identity and words, still open (never closed,
+    superseded or withdrawn), and every evidence span the landing recorded still cites its place. A restatement may add
+    spans, and Sleep's nightly passes move the bookkeeping fields, neither of which is a change."""
+    data = now.to_dict()
+    if any(data.get(k) != wrote.get(k) for k in LANDED_IDENTITY):
+        return False
+    have = {(e.get("episode"), e.get("start"), e.get("end")) for e in data.get("evidence") or [] if isinstance(e, dict)}
+    return all((e.get("episode"), e.get("start"), e.get("end")) in have
+               for e in wrote.get("evidence") or [] if isinstance(e, dict))
+
+
+def _gone(what: str = "A held line this settle took facts from") -> NotLandable:
+    return NotLandable(f"{what} changed since; nothing was changed.")
+
+
+def _places(memory_path: Path, names: list[str], held: list[Claim], closed: set[str]) -> None:
+    """Every claim an undo is about to put back has a line to go to, with room — checked before anything is written.
+    A line the record closed is recreated from the record; any other must still be held. :class:`NotLandable` otherwise."""
+    for name in names:
+        slug = sanitize_id(name)
+        mine = [c for c in held if c.subject == slug]
+        if not mine or name.lower() in closed:
+            continue
+        line = pending_store.held_line(memory_path, name)
+        if line is None:
+            raise _gone()   # released by promotion, taken, or gone: the facts would be written nowhere
+        have = {d.get("id") for d in line.held_claims}
+        if len(line.held_claims) + sum(1 for c in mine if c.id not in have) > pending_store.MAX_HELD_CLAIMS:
+            raise _gone("A held line this settle took facts from is full and")
+
+
 def undo(memory_path: Path, record_id: str) -> tuple[list[str], list[str], dict]:
-    """Take back one landing: its claims leave the page (each only while it is still as it was written), go back to their
-    lines, the page is remembered as one the mention is not (`pending_store.mark_apart`), the record goes. Returns
-    ``(paths, manifest lines, record)``; :class:`NotLandable` and nothing written when the page changed under a claim."""
-    from api.services import bank_index
+    """Take back one landing: its claims leave the page (each only while it is still as the landing wrote it, whatever
+    Sleep's bookkeeping did to it since), go back to their lines, the page is remembered as one the mention is not
+    (`pending_store.mark_apart`), the record goes. Returns ``(paths, manifest lines, record)``; :class:`NotLandable` and
+    nothing written when the page changed under a claim or a fact has no line to go back to; a held count that comes up short
+    after the write puts every path back as it was."""
+    from api.services import bank_index, claims_ledger
 
     memory_path = Path(memory_path)
     if not is_record_id(record_id):
@@ -857,10 +902,16 @@ def undo(memory_path: Path, record_id: str) -> tuple[list[str], list[str], dict]
     if not isinstance(rec, dict) or rec.get("rule") != RULE:
         raise NotLandable("No such settled landing.")
     page_id = str(rec.get("entity_id") or "")
-    path = memory_path / "entities" / f"{page_id}.md"
+    page_rel = f"entities/{page_id}.md"
+    path = memory_path / page_rel
     landed = {str(d.get("id")): d for d in rec.get("landed") or [] if isinstance(d, dict)}
-    paths: list[str] = []
-    lines: list[str] = []
+    names = [str(n) for n in rec.get("lines") or []]
+    episodes = [str(e) for e in rec.get("episodes") or []]
+    held = [Claim.from_dict(d) for d in rec.get("held") or [] if isinstance(d, dict)]
+    closed_lines = [d for d in rec.get("closed_lines") or [] if isinstance(d, dict) and d.get("name")]
+    # Everything is checked before anything is written.
+    kept: list[Claim] | None = None
+    parsed = None
     if path.is_file():
         parsed = markdown_parser.parse(path)
         try:
@@ -868,28 +919,43 @@ def undo(memory_path: Path, record_id: str) -> tuple[list[str], list[str], dict]
         except MalformedClaimsBlockError as exc:
             raise NotLandable("The page's claims could not be read; nothing was changed.") from exc
         for c in claims:
-            if c.id in landed and json.dumps(c.to_dict(), sort_keys=True) != json.dumps(landed[c.id], sort_keys=True):
+            if c.id in landed and not as_written(c, landed[c.id]):
                 raise NotLandable("A fact this settle wrote was changed since; nothing was changed.")
         kept = [c for c in claims if c.id not in landed]
-        if len(kept) != len(claims):
-            markdown_parser.write(path, parsed.frontmatter, write_claims(parsed.body, kept))
-            paths.append(f"entities/{page_id}.md")
-            lines.append(f"entities/{page_id}.md: updated (source: {record_id}, trigger: sleep/land-described/undone)")
-    for d in rec.get("closed_lines") or []:
-        if isinstance(d, dict) and d.get("name"):
+        if len(kept) == len(claims):
+            kept = None
+    _places(memory_path, names, held, {str(d["name"]).lower() for d in closed_lines})
+    ledger_rel = claims_ledger.rel_for(page_rel) or ""
+    snapshot = {rel: _bytes(memory_path / rel) for rel in (page_rel, ledger_rel, pending_store.PENDING_STORE_FILE) if rel}
+    paths: list[str] = []
+    lines: list[str] = []
+    try:
+        for d in closed_lines:
             pending_store.upsert(memory_path, pending_store.PendingEntity.from_dict(d))
-    names = [str(n) for n in rec.get("lines") or []]
-    episodes = [str(e) for e in rec.get("episodes") or []]
-    held = [Claim.from_dict(d) for d in rec.get("held") or [] if isinstance(d, dict)]
-    for name in names:
-        slug = sanitize_id(name)
-        mine = [c for c in held if c.subject == slug]
-        if mine:
-            pending_store.hold(memory_path, {slug: mine})
-        pending_store.mark_apart(memory_path, name, [page_id], episodes)
+        for name in names:
+            slug = sanitize_id(name)
+            mine = [c for c in held if c.subject == slug]
+            if mine:
+                pending_store.hold(memory_path, {slug: mine})
+            pending_store.mark_apart(memory_path, name, [page_id], episodes)
+        for name in names:   # the held count, as written: a claim that is not on its line was written nowhere
+            slug = sanitize_id(name)
+            mine = {c.id for c in held if c.subject == slug}
+            line = pending_store.held_line(memory_path, name)
+            if mine and (line is None or not mine <= {d.get("id") for d in line.held_claims}):
+                raise _gone()
+            if line is not None and page_id not in line.apart_pages():
+                raise _gone()
+        if kept is not None and parsed is not None:
+            markdown_parser.write(path, parsed.frontmatter, write_claims(parsed.body, kept))
+            paths += [rel for rel in (page_rel, ledger_rel) if rel and ((memory_path / rel).exists() or snapshot.get(rel) is not None)]
+            lines.append(f"{page_rel}: updated (source: {record_id}, trigger: sleep/land-described/undone)")
+        rec_path.unlink()
+    except BaseException:
+        _restore(memory_path, snapshot)
+        raise
     paths.append(pending_store.PENDING_STORE_FILE)
     lines.append(f"{pending_store.PENDING_STORE_FILE}: updated (source: {record_id}, trigger: sleep/land-described/undone)")
-    rec_path.unlink()
     bank_index.invalidate(memory_path)
     paths.append(f"inbox/{SETTLED_DIR}/{record_id}.md")
     lines.append(f"inbox/{SETTLED_DIR}/{record_id}.md: removed (source: {record_id}, trigger: sleep/land-described/undone)")
@@ -926,6 +992,16 @@ def _seen(memory_path: Path) -> dict[str, str]:
         return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
     except (OSError, ValueError):
         return {}
+
+
+def _memo_key(line: str, claim_id: str) -> str:
+    """The memo's key: a hash of the line's slug and the claim's id, so the file outside the bank holds no label."""
+    return hashlib.sha256(f"{sanitize_id(line)}|{claim_id}".encode()).hexdigest()[:24]
+
+
+#: A read that ended in one of these says nothing about the fact (the reply was no answer, or its sentence is not in the
+#: conversation): it is read again, never remembered as a no.
+UNSETTLED = ("unusable_reply", "sentence_not_located")
 
 
 def _remember(memory_path: Path, key: str, digest: str) -> None:
@@ -1013,7 +1089,7 @@ async def tend(memory_path: Path, settings, ask: Callable, *, today: date | None
     stopped: Exception | None = None
     for whole in todo:
         marks = {it.claim.id: await asyncio.to_thread(_digest, memory_path, whole.sub([it]), docs) for it in whole.items}
-        todo_items = [it for it in whole.items if seen.get(f"{sanitize_id(it.line)}|{it.claim.id}") != marks[it.claim.id]]
+        todo_items = [it for it in whole.items if seen.get(_memo_key(it.line, it.claim.id)) != marks[it.claim.id]]
         report.skip("read_already", len(whole.items) - len(todo_items))
         if not todo_items:
             continue
@@ -1031,25 +1107,31 @@ async def tend(memory_path: Path, settings, ask: Callable, *, today: date | None
         for why in got.left.values():
             report.skip(why)
         for i, it in enumerate(group.items):
-            if i not in got.picks:   # what was left stands until the claim, the conversation or a candidate changes
-                await asyncio.to_thread(_remember, memory_path, f"{sanitize_id(it.line)}|{it.claim.id}", marks[it.claim.id])
+            if i in got.picks or str(got.left.get(i, "")).endswith(UNSETTLED):
+                continue   # landed, or a read that said nothing: read again
+            # what was left stands until the claim, the conversation or a candidate changes
+            await asyncio.to_thread(_remember, memory_path, _memo_key(it.line, it.claim.id), marks[it.claim.id])
         for i, pick in got.picks.items():
             landing[pick.page].append((group.items[i], pick))
     for page_id, rows in landing.items():
         by = engine or "agent"
+        # Every path the write can create or change: the page, the ledger its claims may spill into (past 64k characters),
+        # the held lines and the settle's record. A restore puts back what was there and removes what was not.
         before = {rel: _bytes(memory_path / rel) for rel in
-                  (f"entities/{page_id}.md", pending_store.PENDING_STORE_FILE)}
+                  (f"entities/{page_id}.md", f"entities/{page_id}.claims.jsonl", pending_store.PENDING_STORE_FILE)}
+        next_record = _next_record_id(memory_path)
         try:
             done = await asyncio.to_thread(land_page, memory_path, page_id, rows, by=by, engine=engine)
         except Exception as exc:  # noqa: BLE001 - one page never stops the others
             logger.warning(f"Described landing: a page was not written ({type(exc).__name__})")
-            await asyncio.to_thread(_restore, memory_path, before)
+            await asyncio.to_thread(_restore, memory_path, before, next_record)
             report.skip("write_failed")
             continue
         if done is None:
             report.skip("nothing_to_write")
             continue
-        message = web_settle.commit_message("Facts about a page landed", done.lines, authors=[by], engine=engine)
+        # As the sibling tail steps: the author is Cicada, the engine that served the read is the trailer's.
+        message = web_settle.commit_message("Facts about a page landed", done.lines, authors=["cicada"], engine=engine)
         try:
             await asyncio.to_thread(commit or web_settle.commit_sync, memory_path, message, done.paths)
         except Exception as exc:  # noqa: BLE001

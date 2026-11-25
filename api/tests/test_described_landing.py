@@ -385,7 +385,34 @@ def test_an_undo_takes_the_facts_back_to_their_line_and_the_page_is_never_offere
         dl.undo(bank, "land-001")
 
 
-def test_an_undo_is_refused_whole_when_a_landed_fact_was_edited_since(tmp_path):
+def _edit_landed(bank: Path, **changes):
+    from api.services.claims import write_claims
+
+    page = bank / "entities" / "cedarloop.md"
+    parsed = markdown_parser.parse(page)
+    claims = parse_claims(parsed.body)
+    for k, v in changes.items():
+        setattr(claims[0], k, v)
+    markdown_parser.write(page, parsed.frontmatter, write_claims(parsed.body, claims))
+
+
+@pytest.mark.parametrize("changes", [{"text": "Something else entirely"}, {"object": "small files"},
+                                     {"valid_to": "2026-11-26"}, {"superseded_by": "clm_other"}])
+def test_an_undo_is_refused_whole_when_a_landed_fact_was_really_changed_since(tmp_path, changes):
+    bank = bench.build_bank(tmp_path, SPEC, CASES["r1-of"])
+    _run(bank)
+    _edit_landed(bank, **changes)
+    with pytest.raises(dl.NotLandable, match="changed"):
+        dl.undo(bank, "land-001")
+    assert _page_claims(bank, "cedarloop"), "nothing was changed"
+    assert not pending_store.load(bank)[0].held_claims
+    assert (bank / "inbox" / "settled" / "land-001.md").exists()
+
+
+def test_an_undo_still_works_after_sleeps_nightly_passes_moved_the_claims_bookkeeping(tmp_path):
+    # Every Sleep's decay pass rewrites each open claim (confidence, the decay watermark); the next night's undo must not
+    # be refused for that.
+    from api.services import claim_reconciler, decay_policy
     from api.services.claims import write_claims
 
     bank = bench.build_bank(tmp_path, SPEC, CASES["r1-of"])
@@ -393,11 +420,149 @@ def test_an_undo_is_refused_whole_when_a_landed_fact_was_edited_since(tmp_path):
     page = bank / "entities" / "cedarloop.md"
     parsed = markdown_parser.parse(page)
     claims = parse_claims(parsed.body)
-    claims[0].confidence = 0.99
+    before = (claims[0].confidence, claims[0].decayed_through)
+    settings = type("S", (), {"memory_path": bank})()
+    claim_reconciler._decay_claims({"cedarloop": claims}, set(), settings, [], "2027-03-01",
+                                   lambda sid: "durable", decay_policy.subject_lookup(bank))
+    assert (claims[0].confidence, claims[0].decayed_through) != before, "the pass really moved the claim"
+    claims[0].read_late = [["2026-11-01", 0.5]]
+    claims[0].session_ids = ["s1"]
     markdown_parser.write(page, parsed.frontmatter, write_claims(parsed.body, claims))
-    with pytest.raises(dl.NotLandable):
+    dl.undo(bank, "land-001")
+    assert not _page_claims(bank, "cedarloop")
+    assert [c["id"] for c in pending_store.load(bank)[0].held_claims] == [bench.claim_id(CASES["r1-of"], 0)]
+
+
+def test_an_undo_is_refused_before_any_write_when_the_held_line_is_gone(tmp_path):
+    bank = bench.build_bank(tmp_path, SPEC, CASES["r1-of"])
+    _run(bank)
+    pending_store.release(bank, ["Cedarloop extraction worker"])
+    store = (bank / pending_store.PENDING_STORE_FILE).read_bytes() if (bank / pending_store.PENDING_STORE_FILE).exists() else b""
+    with pytest.raises(dl.NotLandable, match="changed"):
         dl.undo(bank, "land-001")
-    assert _page_claims(bank, "cedarloop"), "nothing was changed"
+    assert len(_page_claims(bank, "cedarloop")) == 1, "the fact is not deleted"
+    assert (bank / "inbox" / "settled" / "land-001.md").exists()
+    got = bank / pending_store.PENDING_STORE_FILE
+    assert (got.read_bytes() if got.exists() else b"") == store
+
+
+def test_an_undo_is_refused_when_the_held_line_has_no_room(tmp_path):
+    bank = bench.build_bank(tmp_path, SPEC, CASES["r1-of"])
+    _run(bank)
+    line = pending_store.PendingEntity.from_dict(
+        {**pending_store.PendingEntity(name="Cedarloop extraction worker", type="concept", description="", source_episode="ep_x",
+                                       confidence=0.6, tags=[], history_entries=[]).to_dict(),
+         "held_claims": [{"id": f"clm_fill_{i}", "text": "x", "subject": "cedarloop-extraction-worker"}
+                         for i in range(pending_store.MAX_HELD_CLAIMS)]})
+    pending_store.upsert(bank, line)
+    with pytest.raises(dl.NotLandable, match="changed"):
+        dl.undo(bank, "land-001")
+    assert len(_page_claims(bank, "cedarloop")) == 1
+
+
+def test_an_undo_puts_everything_back_when_the_held_count_comes_up_short(tmp_path, monkeypatch):
+    bank = bench.build_bank(tmp_path, SPEC, CASES["r1-of"])
+    _run(bank)
+    page_before = (bank / "entities" / "cedarloop.md").read_bytes()
+    monkeypatch.setattr(pending_store, "hold", lambda *a, **k: {})   # a hold that wrote nothing
+    with pytest.raises(dl.NotLandable, match="changed"):
+        dl.undo(bank, "land-001")
+    assert (bank / "entities" / "cedarloop.md").read_bytes() == page_before
+    assert (bank / "inbox" / "settled" / "land-001.md").exists()
+    assert not pending_store.load(bank) or not pending_store.load(bank)[0].apart_pages()
+
+
+def test_two_held_values_of_one_single_valued_predicate_never_land_together(tmp_path):
+    bank = bench.build_bank(tmp_path, SPEC, CASES["r1-of"])
+    plan = dl.plan_bank(bank)
+    (group,) = plan.groups
+    first = group.items[0]
+    from dataclasses import replace
+    from api.services.claims import Claim
+
+    twin = Claim.from_dict({**first.claim.to_dict(), "id": "clm_twin", "object": "small files", "text": "twin"})
+    other = replace(first, claim=twin)
+    pending_store.hold(bank, {twin.subject: [twin]})
+    pick = dl.Pick(page="cedarloop", scope="", start=first.start, end=first.end, turn="user", hash=first.hash)
+    done = dl.land_page(bank, "cedarloop", [(first, pick), (other, pick)], by="x", cardinal=lambda p: True)
+    assert done is not None and done.claim_ids == [first.claim.id]
+    assert [c.id for c in _page_claims(bank, "cedarloop")] == [first.claim.id]
+    assert "clm_twin" in {d["id"] for d in pending_store.load(bank)[0].held_claims}, "the second stays held"
+    # a many-valued predicate takes both
+    bank2 = bench.build_bank(tmp_path / "many", SPEC, CASES["r1-of"])
+    (g2,) = dl.plan_bank(bank2).groups
+    f2 = g2.items[0]
+    t2 = replace(f2, claim=Claim.from_dict({**f2.claim.to_dict(), "id": "clm_twin", "object": "small files", "text": "twin"}))
+    done2 = dl.land_page(bank2, "cedarloop", [(f2, pick), (t2, pick)], by="x", cardinal=lambda p: False)
+    assert done2 is not None and len(done2.claim_ids) == 2
+
+
+def test_a_failed_commit_removes_a_ledger_file_the_landing_created(tmp_path):
+    from api.services import claims_ledger
+    from api.services.claims import Claim, write_claims
+
+    bank = bench.build_bank(tmp_path, SPEC, CASES["r1-of"])
+    page = bank / "entities" / "cedarloop.md"
+    parsed = markdown_parser.parse(page)
+    filler: list[Claim] = []
+
+    def sized(n_text: int) -> Claim:
+        return Claim(id=f"clm_fill_{len(filler)}", text="x" * n_text, subject="cedarloop", predicate="has-note",
+                     object=f"note-{len(filler)}", object_kind="literal")
+
+    # fill the page up to just under the split point, so the one landed claim tips it over
+    while len(write_claims(parsed.body, filler + [sized(400)])) < claims_ledger.FENCE_MAX_CHARS - 300:
+        filler.append(sized(400))
+    while len(write_claims(parsed.body, filler + [sized(0)])) < claims_ledger.FENCE_MAX_CHARS - 100:
+        filler.append(sized(0))
+    body = write_claims(parsed.body, filler)
+    markdown_parser.write(page, parsed.frontmatter, body)
+    ledger = claims_ledger.path_for(page)
+    assert not ledger.exists() and len(body) < claims_ledger.FENCE_MAX_CHARS, "just under the split point"
+    snapshot = page.read_bytes()
+    store = (bank / pending_store.PENDING_STORE_FILE).read_bytes()
+
+    def boom(*a, **k):
+        raise RuntimeError("commit refused")
+
+    report = _run(bank, commit=boom)
+    assert report.skipped["commit_failed"] == 1 and report.landed == 0
+    assert not ledger.exists(), "no stray ledger file"
+    assert page.read_bytes() == snapshot
+    assert (bank / pending_store.PENDING_STORE_FILE).read_bytes() == store
+    assert not (bank / "inbox" / "settled" / "land-001.md").exists()
+    # and a commit that goes through writes the ledger and names it
+    kept: list = []
+    again = _run(bank, commit=lambda m, msg, paths: kept.append(paths))
+    assert again.landed == 1 and ledger.exists() and f"entities/cedarloop.claims.jsonl" in kept[0]
+
+
+def test_the_commit_is_authored_by_cicada_with_the_engine_as_its_trailer(tmp_path):
+    bank = bench.build_bank(tmp_path, SPEC, CASES["r1-of"])
+    seen: list[str] = []
+    _run(bank, engine="claude", commit=lambda m, msg, paths: seen.append(msg))
+    assert "Cicada-Author: cicada" in seen[0] and "Cicada-Engine: claude" in seen[0]
+    assert "Cicada-Author: claude" not in seen[0]
+
+
+def test_a_read_that_said_nothing_usable_is_read_again_and_the_memo_holds_no_label(tmp_path, monkeypatch):
+    from api.services import auth
+
+    for name, reply in (("unusable", "not json at all"),
+                        ("unlocated", {1: {"page": "Cedarloop", "sentence": "The extraction worker of Cedarloop crashed on small files."}})):
+        bank = bench.build_bank(tmp_path / name, SPEC, CASES["r1-of"])
+        calls: list[str] = []
+        for _ in range(2):
+            _run(bank, ask=scripted(reply, calls=calls))
+        assert len(calls) == 2, name   # read again the second night: a reply that says nothing is no "no"
+    nights = []
+    bank = bench.build_bank(tmp_path / "none", SPEC, CASES["r1-of"])
+    for _ in range(2):
+        _run(bank, ask=scripted({1: {"page": "none"}}, calls=nights))
+    assert len(nights) == 1, "a clear no is remembered"
+    memo = (auth.cicada_home() / "described_landing_reads").glob("*.json")
+    text = "".join(p.read_text() for p in memo)
+    assert text and "cedarloop" not in text.lower() and "extraction" not in text.lower()
 
 
 def test_the_page_order_is_the_pages_read_most_first(tmp_path):
@@ -489,3 +654,86 @@ def test_the_dry_run_refuses_a_file_inside_the_repository(tmp_path, capsys):
     bank = bench.build_bank(tmp_path, SPEC, CASES["r1-of"])
     with pytest.raises(SystemExit):
         dry.main(["--bank", str(bank), "--eyes", str(Path(dry.REPO) / "eyes.jsonl")])
+
+
+# ---------------------------------------------------------------------------------------------------- the undo route
+
+
+def _git(bank: Path, *args: str) -> str:
+    import subprocess
+
+    return subprocess.run(["git", "-C", str(bank), *args], check=True, capture_output=True, text=True).stdout
+
+
+def _landed_bank(tmp_path: Path) -> Path:
+    bank = bench.build_bank(tmp_path, SPEC, CASES["r1-of"])
+    _run(bank)
+    _git(bank, "init", "-q")
+    _git(bank, "config", "user.email", "t@example.net")
+    _git(bank, "config", "user.name", "t")
+    _git(bank, "add", "-A")
+    _git(bank, "commit", "-qm", "landed")
+    return bank
+
+
+def _client(bank: Path, monkeypatch, *, auth: str = "off"):
+    from fastapi.testclient import TestClient
+
+    from api import config, main
+
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(bank))
+    monkeypatch.setenv("CICADA_API_AUTH", auth)
+    monkeypatch.delenv("CICADA_API_TOKEN", raising=False)
+    config.get_settings.cache_clear()
+    return TestClient(main.app), config
+
+
+def test_the_undo_route_takes_a_landing_back_and_answers_404_the_second_time(tmp_path, monkeypatch):
+    bank = _landed_bank(tmp_path)
+    client, config = _client(bank, monkeypatch)
+    try:
+        with client:
+            assert [r["id"] for r in client.get("/inbox/settled").json()] == ["land-001"]
+            resp = client.post("/inbox/settled/land-001/undo")
+            assert resp.status_code == 200 and resp.json() == {"status": "kept_apart", "id": "land-001"}
+            assert client.post("/inbox/settled/land-001/undo").status_code == 404
+    finally:
+        config.get_settings.cache_clear()
+    assert not _page_claims(bank, "cedarloop") and pending_store.load(bank)[0].held_claims
+    log = _git(bank, "log", "-2", "--format=%s%n%b")
+    assert "Landing undone" in log and "Cicada-Author: user" in log
+
+
+def test_the_undo_route_answers_409_when_a_landed_fact_was_really_changed_and_writes_nothing(tmp_path, monkeypatch):
+    bank = _landed_bank(tmp_path)
+    _edit_landed(bank, text="The person's own rewording")
+    _git(bank, "commit", "-qam", "edited")
+    client, config = _client(bank, monkeypatch)
+    try:
+        with client:
+            resp = client.post("/inbox/settled/land-001/undo")
+            assert resp.status_code == 409 and "changed" in resp.json()["detail"]
+    finally:
+        config.get_settings.cache_clear()
+    # (the app's start-up stamps a decay watermark on the claim: bookkeeping, which the undo already ignores)
+    (still,) = _page_claims(bank, "cedarloop")
+    assert still.text == "The person's own rewording" and not pending_store.load(bank)[0].held_claims
+    assert (bank / "inbox" / "settled" / "land-001.md").exists()
+    assert "Landing undone" not in _git(bank, "log", "--format=%s"), "no commit"
+
+
+def test_the_undo_route_needs_the_token_like_its_siblings(tmp_path, monkeypatch):
+    from api.services import auth
+
+    bank = _landed_bank(tmp_path)
+    monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
+    client, config = _client(bank, monkeypatch, auth="on")
+    try:
+        with client:
+            assert client.post("/inbox/settled/land-001/undo").status_code == 401
+            assert client.post("/inbox/settled/land-001/undo", headers={"Authorization": "Bearer nope"}).status_code == 401
+            assert (bank / "inbox" / "settled" / "land-001.md").exists()
+            ok = client.post("/inbox/settled/land-001/undo", headers={"Authorization": f"Bearer {auth.get_token()}"})
+            assert ok.status_code == 200, ok.text
+    finally:
+        config.get_settings.cache_clear()
