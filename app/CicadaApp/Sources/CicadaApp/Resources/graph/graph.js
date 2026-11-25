@@ -219,6 +219,7 @@ let nodes = [];
 let links = [];
 let visibleNodes = [];
 let visibleLinks = [];
+let visibleBubbles = [];     // the bubbles among visibleNodes (owner 2026-11-25), hit-tested as discs
 let neighborsById = new Map();  // id -> Set<id> for hover highlighting + focus BFS
 
 let memberToHub = new Map();    // member id -> hub id, for hubGravity force
@@ -337,7 +338,7 @@ function axisShift(s, extent) {
     return 0;
 }
 function ensureVisible(id, animate) {
-    const n = visibleNodes.find((x) => x.id === id);
+    const n = visibleNodes.find((x) => x.id === id) || packedNode(id);
     if (!n || n.x == null || width <= 0 || height <= 0) return false;
     if (revealing) return true;   // the reveal lands on it, then re-checks (revealNode)
     const dx = axisShift(n.x * transform.k + transform.x, width);
@@ -353,6 +354,7 @@ function ensureVisible(id, animate) {
     }
     return true;
 }
+let pressMember = null;          // a press on a member inside an open bubble (owner 2026-11-25)
 let lastPointer = null;         // { sx, sy } of the last mousemove, for the keyup re-pick
 function setPanMode(on) {
     if (on === panModifierHeld) return;
@@ -575,6 +577,8 @@ function onKeyDown(e) {
     if (e.key === "Shift") setPanMode(true);
     if (e.key !== "Escape") return;
     e.preventDefault();
+    // An open bubble closes first, at once (a keyboard action never animates).
+    if (openBubbleId) { closeBubble({ animate: false }); return; }
     if (focusNodeId) { clearFocus(); return; }
     postToSwift({ type: "escape" });
 }
@@ -711,8 +715,7 @@ function updateGraph(dataStr) {
         if (n.x != null) prevPositions.set(n.id, { x: n.x, y: n.y, vx: n.vx || 0, vy: n.vy || 0 });
     }
 
-    nodes = data.nodes || [];
-    links = data.links || [];
+    ingestFull(data);
     hubsOnlyMode = Boolean(data.hubsOnly ?? data.hubs_only);
 
     computeDegree();
@@ -769,6 +772,7 @@ function updateGraph(dataStr) {
     if (cold || rescale) armInitialFit();
 
     if (focusNodeId) { computeFocusSet(); applyFocusPinning(); }
+    relayoutOpenBubble();
     scheduleRedraw();
 }
 
@@ -786,6 +790,10 @@ const DELTA_OPTIONAL_KEYS = ["hubId", "observers", "contexts", "isFacet", "paren
 
 function updateGraphDelta(dataStr) {
     const data = typeof dataStr === "string" ? JSON.parse(dataStr) : dataStr;
+    // Owner 2026-11-25: with bubbles in play the delta applies to the page set as sent, then folds again.
+    if (bubbleRows.length || (Array.isArray(data.bubbles) && data.bubbles.length)) {
+        if (!(data.isFull || !nodes.length)) return updateGraphDeltaFolded(data);
+    }
 
     // A delta is only meaningful on top of an existing simulation. A full
     // payload, or a first paint, goes down the full path — reshaped so nothing
@@ -893,6 +901,61 @@ function updateGraphDelta(dataStr) {
     startSimulation({ reheat: 0.3, relax: fresh, seeded: fresh });
 
     if (focusNodeId) { computeFocusSet(); applyFocusPinning(); }
+    scheduleRedraw();
+}
+
+// `updateGraphDelta` with bubbles (owner 2026-11-25): the same four steps, on `rawNodes`/`rawLinks`, then one fold. Every
+// page object keeps its simulation state; a page that leaves a bubble is seeded beside it and relaxes, like a newcomer.
+function updateGraphDeltaFolded(data) {
+    resizeCanvas();
+    if (!bubbleRows.length) { rawNodes = nodes; rawLinks = copyLinks(links); }   // the first bubbles arrive in a delta
+    const added = (data.added || []).slice();
+    const updated = data.updated || [];
+    const removed = data.removed || [];
+    if (removed.length) {
+        const gone = new Set(removed);
+        rawNodes = rawNodes.filter(n => !gone.has(n.id));
+        rawLinks = rawLinks.filter(l => !gone.has(l.source) && !gone.has(l.target));
+        for (const id of removed) prevPositions.delete(id);
+        if (focusNodeId && gone.has(focusNodeId)) focusNodeId = null;
+    }
+    if (updated.length) {
+        const byId = new Map(rawNodes.map(n => [n.id, n]));
+        for (const u of updated) {
+            const cur = byId.get(u.id);
+            if (!cur) { added.push(u); continue; }
+            const keep = { x: cur.x, y: cur.y, vx: cur.vx, vy: cur.vy, fx: cur.fx, fy: cur.fy, index: cur.index,
+                           _packed: cur._packed, _packedR: cur._packedR, _packedIn: cur._packedIn };
+            for (const k of DELTA_OPTIONAL_KEYS) delete cur[k];
+            Object.assign(cur, u, keep);
+        }
+    }
+    if (Array.isArray(data.links)) rawLinks = copyLinks(data.links);
+    if (added.length) {
+        const present = new Set(rawNodes.map(n => n.id));
+        for (const a of added) if (!present.has(a.id)) { present.add(a.id); rawNodes.push(a); }
+    }
+    if (Array.isArray(data.bubbles)) bubbleRows = data.bubbles;
+    if (data.marks) setBubbleMarks(data.marks);
+    const before = new Set(nodes.map(n => n.id));
+    ({ nodes, links } = foldGraph());
+
+    computeDegree();
+    buildHubIndex();
+    beginSeeding();
+    const fresh = new Set();
+    for (const n of nodes) {
+        if (n.x != null) continue;
+        const p = before.has(n.id) ? null : prevPositions.get(n.id);
+        if (p) { n.x = p.x; n.y = p.y; n.vx = 0; n.vy = 0; }
+        else { const sp = seedPositionFor(n); n.x = sp.x; n.y = sp.y; n.vx = 0; n.vy = 0; fresh.add(n.id); }
+    }
+    for (const n of nodes) if (n.x != null && !nodeIsBubble(n)) prevPositions.set(n.id, { x: n.x, y: n.y, vx: n.vx || 0, vy: n.vy || 0 });
+    rebuildVisible();
+    rebuildNeighborsIndex();
+    startSimulation({ reheat: 0.3, relax: fresh, seeded: fresh });
+    if (focusNodeId) { computeFocusSet(); applyFocusPinning(); }
+    relayoutOpenBubble();
     scheduleRedraw();
 }
 
@@ -1009,6 +1072,12 @@ function seedAround(key, x, y) {
 }
 
 function seedPositionFor(n) {
+    // Owner 2026-11-25: a page that just left its bubble (it earned a place in the record) starts beside the bubble.
+    if (n._seedNear) {
+        const b = bubbleNodeById.get(n._seedNear);
+        delete n._seedNear;
+        if (b && b.x != null) return seedAround(b.id, b.x, b.y);
+    }
     // 2026-10-15: a page with a big fan starts in the middle — d3 moves an end of a link in inverse proportion to its
     // link count, so the owner's page, seeded at the person anchor, barely moved and settled off to one side.
     if ((n._neighbours || 0) > DISSUADE_FROM && !nodeIsHub(n)) return seedAround("middle", 0, 0);
@@ -1056,7 +1125,8 @@ function rebuildVisible() {
     visibleNodes = nodes.filter(n => {
         // Facet sub-nodes are exempt from the min-degree cull (they only ever
         // hold a single facetOf edge to their parent).
-        if (!nodeIsFacet(n) && (n._localDegree || 0) < minDeg) return false;
+        // A list's bubble is the summary of what it folds: never culled for having few links (owner 2026-11-25).
+        if (!nodeIsFacet(n) && !nodeIsBubble(n) && (n._localDegree || 0) < minDeg) return false;
         if (typeFilter && !typeFilter.has(n.type)) return false;
         if (statusFilter && !statusFilter.has(n.status)) return false;
         if ((n.confidence || 0) < minConf) return false;
@@ -1083,6 +1153,7 @@ function rebuildVisible() {
     });
 
     anyPending = visibleNodes.some(nodeHasPending);
+    visibleBubbles = visibleNodes.filter(nodeIsBubble);
 }
 
 function rebuildNeighborsIndex() {
@@ -1095,6 +1166,378 @@ function rebuildNeighborsIndex() {
         neighborsById.get(sid).add(tid);
         neighborsById.get(tid).add(sid);
     });
+}
+
+// ---------- List bubbles (owner 2026-11-25) ----------
+// "if we have so many points that are youtube, linkedin, x,... saves/history/likes/reposts/etc, a single symbolic bubble
+// can be rendered and when clicked we zoom into it and we can see the individual bubbles. maybe as a trick to make the
+// whole page be faster." A list of saved things (`bubbles` on the payload, `graph_bubbles` on the server) is ONE node
+// here, wearing its source's mark and sized by what it holds; its members are folded: not in `nodes`, the simulation,
+// the quadtree or the draw, so they cost nothing until it opens. Every page keeps its node on the Swift side (search,
+// names, Clusters read them all); only this canvas folds. A member's links are drawn to its bubble instead, one line a
+// pair; a page that earned a place in the record (`outside`) stays a node, joined to its bubble.
+//
+// Opening is a camera move into the bubble: its members are packed inside a circle round it (d3.pack, folders as rings,
+// newest first), at fixed places computed once — never simulated (G109: the layout is not reheated, no alpha moves),
+// so a list of 3,000 costs one pack. Everything else dims. Esc, a click outside the circle, zooming well out, or the
+// Swift chip's × closes it. A reveal (search, a link to a member) opens its bubble and lands on the member.
+let rawNodes = [];                 // every page node of the payload, folded or not (the same objects as in `nodes`)
+let rawLinks = [];                 // the payload's links, string endpoints (never handed to d3)
+let bubbleRows = [];               // the payload's bubbles
+const bubbleNodeById = new Map();  // bubble id -> its node object (kept across pushes, so it keeps its place)
+let memberBubble = new Map();      // folded page id -> its bubble id
+let foldedById = new Map();        // folded page id -> its node object
+const markImages = new Map();      // a source mark (origin) -> { img, ready }
+let openBubbleId = null;
+let openLayout = null;             // { id, cx, cy, r, leafR, fitK, members, folders, tree, before }
+const BUBBLE_MOVE_MS = 400;        // = CicadaMotion.maxDuration (DR-61's ceiling); never for a key or under Reduce Motion
+const BUBBLE_OPEN_DIM = 0.08;      // what the rest of the graph keeps while a bubble is open
+const BUBBLE_LEAF_PT = 2.4;        // a member's dot inside an open bubble, in layout units at size scale 1
+const BUBBLE_CLOSE_BELOW = 0.35;   // zooming out past this share of the open bubble's fit closes it
+const BUBBLE_LABEL_PX = 9;         // a member is named once its dot is this big on screen
+const BUBBLE_LABEL_BUDGET = 240;
+
+function nodeIsBubble(n) { return Boolean(n && n.isBubble); }
+function nodeIsPacked(n) { return Boolean(n && n._packed); }
+function endpointId(e) { return typeof e === "object" && e !== null ? e.id : e; }
+function copyLinks(rows) { return rows.map(l => ({ ...l, source: endpointId(l.source), target: endpointId(l.target) })); }
+function reducedMotion() {
+    try { return Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); }
+    catch (e) { return false; }
+}
+
+// The marks arrive as data URLs with the bubbles (Swift draws them from the app's own logos; the page has no network).
+function setBubbleMarks(marks) {
+    for (const [mark, url] of Object.entries(marks || {})) {
+        if (markImages.has(mark) || typeof url !== "string") continue;
+        const entry = { img: new Image(), ready: false };
+        entry.img.onload = () => { entry.ready = true; scheduleRedraw(); };
+        entry.img.src = url;
+        markImages.set(mark, entry);
+    }
+}
+
+function bubbleNodeFor(row) {
+    let n = bubbleNodeById.get(row.id);
+    if (!n) { n = { id: row.id }; bubbleNodeById.set(row.id, n); }
+    Object.assign(n, {
+        name: row.name || row.id, type: "media", status: "active", confidence: 1, tags: [], degree: 0,
+        isBubble: true, count: Number(row.count || 0), kindNoun: row.kindNoun || "pages", mark: row.mark || null,
+        pageId: row.pageId || null, row,
+    });
+    return n;
+}
+
+// Fold `rawNodes`/`rawLinks` by `bubbleRows`: the nodes and links the layout and the draw see.
+function foldGraph() {
+    const was = memberBubble;
+    memberBubble = new Map();
+    foldedById = new Map();
+    const present = new Map(rawNodes.map(n => [n.id, n]));
+    const live = [];
+    const joins = [];
+    for (const row of bubbleRows) {
+        const members = (row.members || []).filter(id => present.has(id) && !memberBubble.has(id));
+        if (!members.length) continue;
+        const b = bubbleNodeFor(row);
+        live.push(b);
+        for (const id of members) { memberBubble.set(id, b.id); foldedById.set(id, present.get(id)); }
+        // The list's own page IS the bubble on this canvas: its links are the bubble's.
+        if (row.pageId && present.has(row.pageId) && !memberBubble.has(row.pageId)) {
+            memberBubble.set(row.pageId, b.id); foldedById.set(row.pageId, present.get(row.pageId));
+        }
+        for (const id of row.outside || []) if (present.has(id)) joins.push({ source: id, target: b.id, label: "on list", kind: "bubble" });
+    }
+    const liveIds = new Set(live.map(b => b.id));
+    for (const id of [...bubbleNodeById.keys()]) if (!liveIds.has(id)) bubbleNodeById.delete(id);
+    const shown = rawNodes.filter(n => !memberBubble.has(n.id));
+    for (const n of shown) {
+        // A page that just left its bubble (it earned a place) starts beside it, never at a stale packed place.
+        if (n._packed) { n._seedNear = n._packedIn; clearPacked(n); }
+        else if (n.x == null && was.has(n.id)) n._seedNear = was.get(n.id);
+    }
+    const seen = new Set();
+    const out = [];
+    const pair = (s, t) => (s < t ? s + "\u0000" + t : t + "\u0000" + s);
+    for (const l of rawLinks) {
+        const s0 = endpointId(l.source), t0 = endpointId(l.target);
+        const s = memberBubble.get(s0) || s0, t = memberBubble.get(t0) || t0;
+        if (s === t) continue;
+        if (s === s0 && t === t0) { out.push({ ...l, source: s, target: t }); continue; }
+        const key = pair(s, t);
+        if (seen.has(key)) continue;   // many members' links to one page are one line from their bubble
+        seen.add(key);
+        out.push({ ...l, source: s, target: t, context: null, claimId: null, kind: "bubble" });
+    }
+    for (const j of joins) {
+        const s = memberBubble.get(j.source) || j.source;
+        if (s === j.target || seen.has(pair(s, j.target))) continue;
+        seen.add(pair(s, j.target));
+        out.push({ ...j, source: s });
+    }
+    if (openBubbleId && !liveIds.has(openBubbleId)) closeBubble({ silent: false, camera: false });
+    return { nodes: shown.concat(live), links: out };
+}
+
+function clearPacked(n) {
+    delete n._packed; delete n._packedR; delete n._packedIn;
+    n.x = null; n.y = null; n.vx = 0; n.vy = 0;
+}
+
+// Ingest a full payload's nodes, links and bubbles into `nodes`/`links`. Without bubbles nothing is copied or folded:
+// the graph is exactly what it was.
+function ingestFull(data) {
+    rawNodes = data.nodes || [];
+    bubbleRows = Array.isArray(data.bubbles) ? data.bubbles : [];
+    if (data.marks) setBubbleMarks(data.marks);
+    if (!bubbleRows.length) {
+        rawLinks = null;     // built on demand, the first time a delta brings bubbles
+        memberBubble = new Map(); foldedById = new Map(); bubbleNodeById.clear();
+        if (openBubbleId) closeBubble({ camera: false });
+        nodes = rawNodes;
+        links = data.links || [];
+        return;
+    }
+    rawLinks = copyLinks(data.links || []);
+    ({ nodes, links } = foldGraph());
+}
+
+function bubbleBaseRadius(n) {
+    return R_BASE + R_CONFIDENCE + R_PER_SQRT_NEIGHBOUR * Math.sqrt(Math.min(R_NEIGHBOURS_CAP, n.count || 0));
+}
+
+function bubbleLabel(n) {
+    const count = Number(n.count || 0).toLocaleString("en-US");
+    return `${n.name} · ${count} ${n.kindNoun || "pages"}`;
+}
+function labelText(n) { return nodeIsBubble(n) ? bubbleLabel(n) : n.name; }
+
+function bubbleWorld(id) {
+    const b = bubbleNodeById.get(id);
+    return b && b.x != null ? b : null;
+}
+
+// The members of one bubble packed round its centre: folders as circles of their members, then the loose ones, in the
+// list's own order (newest first, so the newest sit near the middle).
+function layoutOpenBubble(b) {
+    const row = b.row || {};
+    const leafR = Math.max(0.6, BUBBLE_LEAF_PT * sizeScale);
+    const mine = id => foldedById.has(id) && memberBubble.get(id) === b.id && id !== b.pageId;
+    const placed = new Set();
+    const kids = [];
+    for (const f of row.folders || []) {
+        const ids = (f.members || []).filter(id => mine(id) && !placed.has(id));
+        ids.forEach(id => placed.add(id));
+        if (ids.length) kids.push({ name: f.name, children: ids.map(id => ({ id })) });
+    }
+    for (const id of row.members || []) if (mine(id) && !placed.has(id)) { placed.add(id); kids.push({ id }); }
+    if (!kids.length) return null;
+    const root = d3.hierarchy({ children: kids });
+    d3.pack().radius(() => leafR).padding(leafR * 0.6)(root);
+    const dx = b.x - root.x, dy = b.y - root.y;
+    const members = [], folders = [];
+    for (const d of root.descendants()) {
+        if (d === root) continue;
+        if (d.data.id) {
+            const n = foldedById.get(d.data.id);
+            n.x = d.x + dx; n.y = d.y + dy; n.vx = 0; n.vy = 0;
+            n._packed = true; n._packedR = leafR; n._packedIn = b.id;
+            members.push(n);
+        } else {
+            folders.push({ name: d.data.name, x: d.x + dx, y: d.y + dy, r: d.r });
+        }
+    }
+    const r = Math.max(root.r + leafR * 2, nodeRadius(b));
+    return { id: b.id, cx: b.x, cy: b.y, r, leafR, members, folders,
+             tree: d3.quadtree(members, n => n.x, n => n.y) };
+}
+
+function transformForCircle(cx, cy, r, padPx) {
+    const span = Math.max(1, 2 * r);
+    const k = Math.max(MIN_ZOOM, Math.min((width - 2 * padPx) / span, (height - 2 * padPx) / span));
+    return d3.zoomIdentity.translate(width / 2, height / 2).scale(k).translate(-cx, -cy);
+}
+
+function moveCamera(t, animate) {
+    if (!currentZoom) { transform = t; return; }
+    const sel = d3.select(canvas);
+    if (animate && !reducedMotion()) sel.transition().duration(BUBBLE_MOVE_MS).call(currentZoom.transform, t);
+    else sel.interrupt().call(currentZoom.transform, t);
+}
+
+// Open a bubble: lay its members out, let the zoom reach their names, and move the camera onto it (`camera: false` for
+// a reveal, which moves the camera itself). Returns false for an id that is no bubble here.
+function openBubble(id, { animate = true, camera = true } = {}) {
+    const b = bubbleWorld(id);
+    if (!b) return false;
+    if (openBubbleId === id && openLayout) {
+        if (camera) moveCamera(transformForCircle(openLayout.cx, openLayout.cy, openLayout.r, 40), animate);
+        return true;
+    }
+    const before = openLayout ? openLayout.before : transform;
+    if (openBubbleId) closeBubble({ silent: true, camera: false });
+    const layout = layoutOpenBubble(b);
+    if (!layout) return false;
+    layout.before = before;
+    const fit = transformForCircle(layout.cx, layout.cy, layout.r, 40);
+    layout.fitK = fit.k;
+    openBubbleId = id;
+    openLayout = layout;
+    hoveredNode = null;
+    if (currentZoom) currentZoom.scaleExtent([MIN_ZOOM, Math.max(MAX_ZOOM, (BUBBLE_LABEL_PX * 2.5) / layout.leafR)]);
+    postToSwift({ type: "bubbleOpened", id });
+    if (camera) moveCamera(fit, animate);
+    scheduleRedraw();
+    return true;
+}
+
+// Close the open bubble. `camera`: go back to the view it was opened from (a click, the chip); a key never animates.
+function closeBubble({ animate = false, silent = false, camera = true } = {}) {
+    if (!openBubbleId) return false;
+    const layout = openLayout;
+    for (const n of layout ? layout.members : []) clearPacked(n);
+    if (hoveredNode && (nodeIsPacked(hoveredNode) || hoveredNode.x == null)) hoveredNode = null;
+    openBubbleId = null;
+    openLayout = null;
+    if (currentZoom) currentZoom.scaleExtent([MIN_ZOOM, MAX_ZOOM]);
+    if (!silent) postToSwift({ type: "bubbleClosed" });
+    if (camera && layout && layout.before) moveCamera(layout.before, animate);
+    scheduleRedraw();
+    return true;
+}
+
+// Re-lay the open bubble after a push changed the graph under it (members added or gone); closes it when it is gone.
+function relayoutOpenBubble() {
+    if (!openBubbleId) return;
+    const b = bubbleWorld(openBubbleId);
+    if (!b) { closeBubble({ camera: false }); return; }
+    const before = openLayout ? openLayout.before : null;
+    const fitK = openLayout ? openLayout.fitK : transform.k;
+    for (const n of openLayout ? openLayout.members : []) if (memberBubble.get(n.id) !== b.id) clearPacked(n);
+    const layout = layoutOpenBubble(b);
+    if (!layout) { closeBubble({ camera: false }); return; }
+    layout.before = before; layout.fitK = fitK;
+    openLayout = layout;
+}
+
+// Swift-facing: the chip's ×, and a bank switch.
+function closeOpenBubble() { return closeBubble({ animate: true }); }
+
+// What the pointer is over inside the open bubble: a member, or `inside` (on the bubble but between members).
+function pickInOpenBubble(wx, wy) {
+    if (!openLayout) return { member: null, inside: false };
+    const inside = Math.hypot(wx - openLayout.cx, wy - openLayout.cy) <= openLayout.r;
+    if (!inside) return { member: null, inside: false };
+    const reach = Math.max(openLayout.leafR * 1.25, 4 / transform.k);
+    return { member: openLayout.tree.find(wx, wy, reach) || null, inside: true };
+}
+
+// A closed bubble is a disc: it is hit anywhere on it, not only near its centre.
+function pickBubble(wx, wy) {
+    let best = null, bestD = Infinity;
+    for (const b of visibleBubbles) {
+        if (b.x == null) continue;
+        const d = Math.hypot(wx - b.x, wy - b.y);
+        if (d <= nodeRadius(b) && d < bestD) { best = b; bestD = d; }
+    }
+    return best;
+}
+
+function drawBubbleDisc(n, r, alpha) {
+    const k = transform.k;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = PALETTE.plateStrong;
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+    ctx.fill();
+    // Depth is a ring, not a shadow (DR-9): the media hue, as every saved thing's dot (DR-8: no hue moves).
+    ctx.lineWidth = Math.max(1, r * k * 0.08) / k;
+    ctx.strokeStyle = typeColors.media;
+    ctx.stroke();
+    const entry = n.mark ? markImages.get(n.mark) : null;
+    if (entry && entry.ready && r * k >= 6) {
+        const s = r * 1.05;
+        ctx.drawImage(entry.img, n.x - s / 2, n.y - s / 2, s, s);
+    } else if (r * k >= 14) {
+        ctx.fillStyle = PALETTE.label;
+        ctx.font = `600 ${Math.min(13, r * k * 0.5) / k}px -apple-system, 'SF Pro Text', system-ui, sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(Number(n.count || 0).toLocaleString("en-US"), n.x, n.y);
+    }
+    ctx.globalAlpha = alpha;
+}
+
+function drawOpenBubble() {
+    const L = openLayout;
+    if (!L) return;
+    const k = transform.k;
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = PALETTE.plateStrong;
+    ctx.beginPath();
+    ctx.arc(L.cx, L.cy, L.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 1 / k;
+    ctx.strokeStyle = typeColors.media;
+    ctx.globalAlpha = 0.7;
+    ctx.stroke();
+    // Folders: a hairline ring and the folder's name over it, once the ring is big enough to carry it.
+    ctx.strokeStyle = PALETTE.edge;
+    ctx.globalAlpha = 1;
+    for (const f of L.folders) {
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    const vx0 = -transform.x / k, vy0 = -transform.y / k, vx1 = (width - transform.x) / k, vy1 = (height - transform.y) / k;
+    const inView = (x, y, pad) => x > vx0 - pad && x < vx1 + pad && y > vy0 - pad && y < vy1 + pad;
+    for (const n of L.members) {
+        if (!inView(n.x, n.y, L.leafR)) continue;
+        const color = typeColors[n.type] || typeColors.unknown;
+        const hovered = hoveredNode === n;
+        let alpha = STATUS_ALPHA[n.status] ?? 0.92;
+        if (nodeIsQuiet(n) && !hovered) alpha = Math.min(alpha, QUIET_FILL_ALPHA * 2.5);
+        ctx.globalAlpha = hovered ? 1 : alpha;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, L.leafR, 0, Math.PI * 2);
+        ctx.fill();
+        const ring = (searchHighlight && searchHighlight.has(n.id)) || (selectedNodeId !== null && n.id === selectedNodeId);
+        if (ring) {
+            ctx.globalAlpha = 1;
+            ctx.lineWidth = 2 / k;
+            ctx.strokeStyle = PALETTE.nodeStroke;
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, L.leafR + 3 / k, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+    }
+    ctx.globalAlpha = 1;
+    const fontPx = 10;
+    ctx.font = `${fontPx / k}px -apple-system, 'SF Pro Text', system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillStyle = PALETTE.plateText;
+    for (const f of L.folders) {
+        if (f.r * k < 40 || !inView(f.x, f.y - f.r, f.r)) continue;
+        ctx.fillText(f.name, f.x, f.y - f.r - 2 / k);
+    }
+    if (L.leafR * k >= BUBBLE_LABEL_PX) {
+        ctx.textBaseline = "top";
+        ctx.fillStyle = PALETTE.label;
+        const maxPx = L.leafR * k * 3.2;
+        let drawn = 0;
+        for (const n of L.members) {
+            if (drawn >= BUBBLE_LABEL_BUDGET) break;
+            if (!inView(n.x, n.y, 0)) continue;
+            let text = n.name || "";
+            while (text.length > 4 && ctx.measureText(text).width * k > maxPx) text = text.slice(0, -2);
+            if (text !== n.name) text = text.replace(/\s+$/, "") + "…";
+            ctx.fillText(text, n.x, n.y + L.leafR + 2 / k);
+            drawn++;
+        }
+    }
+    ctx.globalAlpha = 1;
 }
 
 // Per-tick force pulling each member node toward its hub's current position.
@@ -1686,11 +2129,14 @@ const R_CONFIDENCE = 0.8;
 const R_PER_SQRT_NEIGHBOUR = 0.45;
 const R_NEIGHBOURS_CAP = 2500;
 function nodeRadius(d) {
+    if (d._packed) return d._packedR;   // a member inside an open bubble: one size for all (owner 2026-11-25)
     return sizeScale * baseRadius(d);
 }
 // A node's size relative to the others, in layout units at scale 1: bigger means more connected.
 function baseRadius(d) {
     if (nodeIsFacet(d)) return 1.5 + (d.confidence || 0) * 1.5;
+    // A bubble is sized like a page with as many neighbours as it holds pages: big for a big list, never dominant.
+    if (nodeIsBubble(d)) return bubbleBaseRadius(d);
     const nb = Math.min(R_NEIGHBOURS_CAP, d._neighbours ?? nodeDegree(d));
     return R_BASE + (d.confidence || 0) * R_CONFIDENCE + R_PER_SQRT_NEIGHBOUR * Math.sqrt(nb);
 }
@@ -1852,6 +2298,8 @@ function highlightSearch(idsStr) {
     let arr = [];
     try { arr = JSON.parse(idsStr); } catch (e) { arr = []; }
     searchHighlight = (arr && arr.length) ? new Set(arr) : null;
+    // A match folded inside a closed bubble rings its bubble (owner 2026-11-25).
+    if (searchHighlight) for (const id of arr) { const b = memberBubble.get(id); if (b) searchHighlight.add(b); }
     scheduleRedraw();
 }
 
@@ -1861,6 +2309,15 @@ function highlightSearch(idsStr) {
 // Returns false when the node is not in the visible set (hidden by a filter),
 // so the caller can say so instead of silently doing nothing.
 function revealNode(id) {
+    // Owner 2026-11-25: a page folded in a bubble — its bubble opens (no motion of its own) and the reveal lands on the
+    // page inside it; the list's own page reveals its bubble, opened.
+    const home = memberBubble.get(id);
+    if (home && !visibleNodes.some(x => x.id === id)) {
+        const b = bubbleNodeById.get(home);
+        if (b && b.pageId === id) return openBubble(home, { animate: true });
+        if (!openBubble(home, { animate: false, camera: false })) return false;
+        return revealPacked(id);
+    }
     const n = visibleNodes.find(x => x.id === id);
     if (!n || n.x == null) return false;
     const nb = neighborsById.get(id) || new Set();
@@ -1888,6 +2345,33 @@ function revealNode(id) {
             .on("interrupt cancel", release);
     } else {
         transform = t;   // headless (no zoom behaviour attached): apply directly
+    }
+    scheduleRedraw();
+    return true;
+}
+
+// A member inside the open bubble, by id, or null.
+function packedNode(id) {
+    if (!openLayout) return null;
+    const n = foldedById.get(id);
+    return n && n._packed ? n : null;
+}
+
+// The reveal onto a member of the open bubble: centred on it, at a zoom where members are named.
+function revealPacked(id) {
+    const n = packedNode(id);
+    if (!n) return false;
+    const k = Math.min(currentZoom ? currentZoom.scaleExtent()[1] : MAX_ZOOM,
+                       Math.max(openLayout.fitK, (BUBBLE_LABEL_PX * 1.6) / openLayout.leafR));
+    const t = d3.zoomIdentity.translate(width / 2, height / 2).scale(k).translate(-n.x, -n.y);
+    if (currentZoom) {
+        const seq = ++revealSeq;
+        const release = () => { if (seq === revealSeq) revealing = false; };
+        revealing = true;
+        d3.select(canvas).transition().duration(reducedMotion() ? 0 : 450).call(currentZoom.transform, t)
+            .on("end", release).on("interrupt cancel", release);
+    } else {
+        transform = t;
     }
     scheduleRedraw();
     return true;
@@ -2018,6 +2502,7 @@ function draw() {
             alpha = bothIn ? Math.max(alpha, 0.7) : 0.04;
             lit = bothIn;
         }
+        if (openLayout) { alpha = Math.min(alpha, BUBBLE_OPEN_DIM * 0.5); lit = false; }
         if (hoverActive) {
             const touchesHover =
                 src.id === hoveredNode.id ||
@@ -2065,6 +2550,7 @@ function draw() {
         // contrast reads as "this is the slice X asserts." Reuses focus-alpha.
         if (!nodeMatchesObservers(n)) alpha = Math.min(alpha, 0.1);
         if (focusActive && !focusSet.has(n.id)) alpha = Math.min(alpha, 0.06);
+        if (openLayout) alpha = Math.min(alpha, BUBBLE_OPEN_DIM);
         if (hoverActive) {
             const isHover = n.id === hoveredNode.id;
             const isNeighbor = neighbors.has(n.id);
@@ -2089,6 +2575,9 @@ function draw() {
 
         ctx.globalAlpha = alpha;
 
+        if (nodeIsBubble(n)) {
+            drawBubbleDisc(n, r, alpha);
+        } else {
         // Decaying nodes get a dashed stroke so the viewer can tell they
         // are on their way out. Canvas doesn't have a per-shape dash cache
         // so we set the line dash inline — cheap at this scale.
@@ -2101,7 +2590,7 @@ function draw() {
         // Glow only for the hovered node. The original implementation put
         // an SVG feGaussianBlur on every circle and that was the single
         // biggest perf cost in the SVG version.
-        if (hoverActive && n.id === hoveredNode.id) {
+        if (hoverActive && n.id === hoveredNode.id && !nodeIsBubble(n)) {
             ctx.shadowColor = color;
             ctx.shadowBlur = 12;
         } else {
@@ -2147,12 +2636,14 @@ function draw() {
             ctx.globalAlpha = alpha;
         }
 
+        }
+
         // (2026-10-15: hubs no longer carry a ring — 37 thick gold rings read as "rings everywhere". A hub reads by
         // its size and its fan of links, as in Obsidian.)
 
         // Search highlight — a bright outer ring on matched nodes so they
         // glow in place while the user types in the toolbar search.
-        if (searchHighlight && searchHighlight.has(n.id)) {
+        if (searchHighlight && searchHighlight.has(n.id) && !openLayout) {
             ctx.globalAlpha = 1;
             ctx.lineWidth = 2.5 / transform.k;
             ctx.strokeStyle = PALETTE.nodeStroke;
@@ -2194,12 +2685,17 @@ function draw() {
 
     ctx.globalAlpha = 1;
 
+    // ---- The open bubble (owner 2026-11-25): over the dimmed graph, its members and their names ----
+    if (openLayout) drawOpenBubble();
+
     // ---- Node labels ----
     // Hovering a node labels it and its neighbours; focus mode labels the drilled-in neighbourhood. Otherwise names
     // fade in with zoom, as in Obsidian (2026-10-15): a node's label appears as its dot grows on screen, the biggest
     // first, never overlapping and never more than LABEL_BUDGET — so the fit view stays clean (only a page as large as
     // the owner's is named there) and the word soup of ambient labels at every zoom does not come back.
-    if (hoverActive || focusActive) {
+    if (openLayout) {
+        // the open bubble names its own members (drawOpenBubble); the dimmed graph behind stays unnamed
+    } else if (hoverActive || focusActive) {
         drawNodeLabels(hoverActive, neighbors, focusActive);
     } else {
         drawAmbientLabels();
@@ -2209,7 +2705,7 @@ function draw() {
     // NOT gated on hover: a high-degree node has hundreds of incident edges and
     // labeling them all floods the canvas. Hovering still brightens the edges
     // themselves; their verbs read once you zoom in or enter focus mode.
-    if (focusActive || transform.k >= ZOOM_EDGE_LABELS) {
+    if (!openLayout && (focusActive || transform.k >= ZOOM_EDGE_LABELS)) {
         drawEdgeLabels(focusActive);
     }
 
@@ -2234,7 +2730,8 @@ function draw() {
 const HOVER_MOVE_PX = 2;
 let reportedHover = null;   // { id, x, y, r, k, tx, ty, hidden } — the last thing Swift was told
 function reportHover() {
-    const n = (hoveredNode && !draggingNode && !hoverSuppressed) ? hoveredNode : null;
+    // A bubble's name and count are drawn here (drawHoverLabel); Swift's hover card is for pages.
+    const n = (hoveredNode && !draggingNode && !hoverSuppressed && !nodeIsBubble(hoveredNode)) ? hoveredNode : null;
     if (!n) {
         if (reportedHover) { reportedHover = null; postToSwift({ type: "hoverEnded" }); }
         return;
@@ -2371,7 +2868,7 @@ function drawAmbientLabels() {
     let drawn = 0;
     for (const [r, n] of candidates) {
         if (drawn >= LABEL_BUDGET) break;
-        const w = ctx.measureText(n.name).width * k;
+        const w = ctx.measureText(labelText(n)).width * k;
         const sx = n.x * k + transform.x;
         const sy = (n.y + r) * k + transform.y + 3;
         const rect = { x: sx - w / 2 - 2, y: sy - 1, w: w + 4, h: 15 };
@@ -2384,7 +2881,7 @@ function drawAmbientLabels() {
         placed.push(rect);
         drawn++;
         ctx.globalAlpha = 0.85 * labelFade(baseRadius(n) * k) * Math.min(1, (STATUS_ALPHA[n.status] ?? 0.92) + 0.2);
-        ctx.fillText(n.name, n.x, n.y + r + 3 / k);
+        ctx.fillText(labelText(n), n.x, n.y + r + 3 / k);
     }
     ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
@@ -2453,7 +2950,7 @@ function drawHoverLabel(n) {
     ctx.font = `${fontSize}px -apple-system, 'SF Pro Text', system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    const text = n.name;
+    const text = labelText(n);
     const metrics = ctx.measureText(text);
     const padX = 6 / k;
     const padY = 4 / k;
@@ -2534,6 +3031,10 @@ function makeZoom() {
         .scaleExtent([MIN_ZOOM, MAX_ZOOM])
         .on("zoom", (event) => {
             transform = event.transform;
+            // Zooming well out of an open bubble leaves it (owner 2026-11-25); the camera stays where the person put it.
+            if (openLayout && event.sourceEvent && transform.k < openLayout.fitK * BUBBLE_CLOSE_BELOW) {
+                closeBubble({ camera: false });
+            }
             scheduleRedraw();
         })
         .on("end.background", onZoomGestureEnd);
@@ -2551,7 +3052,14 @@ function onZoomGestureEnd(e) {
     if (!s || s.type !== "mouseup" || !pressStart || pressStart.onNode || pressStart.pan) return;
     const [sx, sy] = eventScreenXY(s);
     if (Math.hypot(sx - pressStart.x, sy - pressStart.y) <= DRAG_CLICK_THRESHOLD) {
-        postToSwift({ type: "backgroundClicked" });
+        if (openLayout) {
+            // Owner 2026-11-25: a click outside the open bubble goes back out; one inside it, between members, does
+            // nothing.
+            const [wx, wy] = screenToWorld(sx, sy);
+            if (!pickInOpenBubble(wx, wy).inside) closeBubble({ animate: true });
+        } else {
+            postToSwift({ type: "backgroundClicked" });
+        }
     }
     pressStart = null;
 }
@@ -2562,8 +3070,12 @@ function eventScreenXY(event) {
 }
 
 function pickNode(sx, sy) {
-    if (!simulation) return null;
     const [wx, wy] = screenToWorld(sx, sy);
+    // Owner 2026-11-25: while a bubble is open only its members are under the pointer; a closed bubble is a disc.
+    if (openLayout) return pickInOpenBubble(wx, wy).member;
+    if (!simulation) return null;
+    const bubble = pickBubble(wx, wy);
+    if (bubble) return bubble;
     // simulation.find uses a quadtree so this is cheap even at 1500 nodes.
     // The search radius is in world units; we scale it by 1/k so the
     // pick target stays roughly constant in screen space.
@@ -2598,6 +3110,13 @@ function onMouseDown(event) {
         return;
     }
     const picked = pickNode(sx, sy);
+    if (picked && nodeIsPacked(picked)) {
+        // A member inside an open bubble sits where the pack put it: a press is a click, never a drag or a reheat.
+        pressStart.onNode = true;
+        pressMember = picked;
+        event.stopImmediatePropagation();
+        return;
+    }
     if (picked) {
         pressStart.onNode = true;
         draggingNode = picked;
@@ -2701,6 +3220,13 @@ function onMouseMove(event) {
 }
 
 function onMouseUp(event) {
+    if (pressMember) {
+        const member = pressMember;
+        pressMember = null;
+        if (pressStart && !pressStart.moved) handleNodeClick(member.id);
+        pressStart = null;
+        return;
+    }
     if (draggingNode) {
         const wasClick = pressStart && !pressStart.moved;
         const clickedId = draggingNode.id;
@@ -2765,6 +3291,13 @@ function onMouseUp(event) {
 // same node within DOUBLE_CLICK_MS → enter ego/focus mode. This repurposes
 // the old double-click-to-reset; reset moved to fitGraph()/the toolbar.
 function handleNodeClick(id) {
+    // Owner 2026-11-25: a click on a list's bubble zooms into it. A member inside opens its page; no ego focus there.
+    if (bubbleNodeById.has(id)) { openBubble(id, { animate: true }); return; }
+    if (openLayout && foldedById.has(id)) {
+        try { window.webkit.messageHandlers.cicada.postMessage(JSON.stringify({ type: "nodeClicked", id })); }
+        catch (e) { console.log("click:", id); }
+        return;
+    }
     const now = Date.now();
     const isDouble = (id === lastClickId) && (now - lastClickTime < DOUBLE_CLICK_MS);
     lastClickTime = now;
