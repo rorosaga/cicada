@@ -198,7 +198,9 @@ struct SiteSaveSite: Sendable {
     /// Reddit's Save sits in the post's own menu (measured 2026-11-23, feed and post page: Follow, sometimes Award,
     /// Save, Hide, Report). The menu is inside the post's block, whose DOM id is the post's own (`t3_<id>`); the
     /// post's link is the one that carries that id. A comment's own menu (measured: three items, under
-    /// `comment-overflow-menu`) is not a post's.
+    /// `comment-overflow-menu`) is not a post's. The menu on the person's own post (measured 2026-11-25: ten items,
+    /// the save third, no mirrored icon) is placed by no rule here: its save is known by the label this Mac learned
+    /// (`SiteMenuRule.item(learned:)`).
     /// Measured 2026-11-25 on the home feed: a recommended post's menu has seven items (Follow, Award, an item to
     /// show fewer, Save, Hide, an item asking why, Report), so the save is no longer third from the end and every
     /// save on such a post was read as nothing. What holds in both layouts: the items after Hide draw an icon the
@@ -1194,7 +1196,7 @@ final class SiteSaveWatcher {
             return false
         }
         let from = opener.flatMap { SaveWhyTimings.now() - $0.at <= Self.openerFresh ? $0.from : nil }
-        switch SiteMenuRule.item(reading, opener: from, sites: menus) {
+        switch SiteMenuRule.item(reading, opener: from, sites: menus, learned: prefs.labels(site.key)) {
         case let .failure(why):
             SiteSaveReader.logger.info("menu item on \(site.key, privacy: .public): \(why.rawValue, privacy: .public)")
         case let .success(found):

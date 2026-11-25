@@ -123,12 +123,20 @@ def test_a_list_is_born_when_its_first_item_arrives_and_not_before(bank, on):
     assert lists(bank) == ["list-instagram-saved", "list-x-bookmarks", "list-x-likes"]
 
 
-def test_a_list_of_works_and_a_browsers_folder_get_no_page(bank, on):
+def test_every_kind_of_list_gets_a_page_and_every_saved_thing_keeps_its_own(bank, on):
+    # Owner 2026-11-25: "build the whole thing, and then we also do the page per thing" — a playlist, a browser's
+    # bookmarks and each of its folders, a site's library: each a list page, beside the saved pages it holds.
     save(bank, 1, origin="youtube-playlist", folder="Watch later", url="https://www.youtube.com/watch?v=abcdefghijk")
     save(bank, 2, origin="chrome-bookmark", folder="Reading", url="https://example.com/a")
     save(bank, 3, origin="spotify-saved", folder="Library", url="https://open.spotify.com/track/1234567890abcdef")
     list_pages.sync(bank)
-    assert lists(bank) == []
+    want = {list_pages.page_id("youtube.watch_later"), list_pages.page_id("browser:chrome.bookmarks"),
+            list_pages.page_id("browser:chrome.bookmarks", "reading"), list_pages.page_id("spotify.library")}
+    assert want <= set(lists(bank))
+    assert page_of(bank, list_pages.page_id("browser:chrome.bookmarks", "reading")).body.strip().endswith(
+        "Pages in “Reading”, a folder of your Chrome bookmarks.")
+    assert all((bank / "entities" / f"media-{o}-{n}.md").is_file()
+               for n, o in ((1, "youtube-playlist"), (2, "chrome-bookmark"), (3, "spotify-saved")))
 
 
 def test_the_page_holds_what_the_list_is_and_nothing_that_goes_stale(bank, on):
@@ -142,7 +150,7 @@ def test_the_page_holds_what_the_list_is_and_nothing_that_goes_stale(bank, on):
     assert fm["tags"] == [] and fm["related"] == [] and fm["source_episodes"] == [] and fm["decay_class"] == "evergreen"
     assert fm["list"] == {"site": "x", "stream": "x.bookmarks", "folder": None, "source": "x-bookmarks",
                           "label": "Bookmarks", "named": "X: Bookmarks", "said": "Posts you bookmarked on X."}
-    assert parsed.body.strip() == "Posts you bookmarked on X."
+    assert parsed.body.strip() == "## Summary\nPosts you bookmarked on X."   # the heading the app lifts as the row's line
     text = (bank / "entities" / "list-x-bookmarks.md").read_text()
     assert not any(word in text for word in ("A post 1", "A post 2", "2026-11-12", "status/1000001")), \
         "no row, no count and no newest day on the page"
@@ -538,7 +546,7 @@ def test_the_card_of_a_list_page_carries_its_media_block_and_its_list_block(bank
     assert block["channel"] == "x" and block["source"] == "x-bookmarks" and block["folder"] is None
     assert [r["title"] for r in block["recent"]] == ["A post 3", "A post 2", "A post 1"]
     assert "list" in body["blocks"]["order"]
-    assert body["markdownContent"].strip() == "Posts you bookmarked on X."
+    assert body["markdownContent"].strip() == "## Summary\nPosts you bookmarked on X."
 
 
 def test_the_card_moves_with_a_new_save_and_no_file_changes(bank, on, client):
@@ -615,4 +623,91 @@ def test_a_rename_never_replaces_words_the_person_wrote(bank, on, monkeypatch):
     assert list_pages.sync(bank)["updated"] == 2
     assert page_of(bank, "list-x-likes").body.strip() == "What I like to keep."
     assert page_of(bank, "list-x-likes").frontmatter["name"] == "X — Likes"
-    assert page_of(bank, "list-x-bookmarks").body.strip() == "Posts you bookmarked on X."
+    assert page_of(bank, "list-x-bookmarks").body.strip() == "## Summary\nPosts you bookmarked on X."
+
+
+def test_a_pages_body_is_its_sentence_under_summary_so_its_row_keeps_its_line(bank, on):
+    """Seen on the scratch app: a bare sentence was no `## Summary`, so a row lost its line once its page was opened.
+    A page an earlier build wrote bare is still renamed in place (the sentence this writer wrote is replaced)."""
+    save(bank, 1)
+    list_pages.sync(bank)
+    assert page_of(bank, "list-x-bookmarks").body.startswith("## Summary\n")
+    path = bank / "entities" / "list-x-bookmarks.md"
+    old = page_of(bank, "list-x-bookmarks")
+    markdown_parser.write(path, old.frontmatter, "Posts you bookmarked on X.\n")       # the shape before this change
+    bank_index.invalidate()
+    list_pages.sync(bank)
+    assert page_of(bank, "list-x-bookmarks").body.strip() == "Posts you bookmarked on X."   # unchanged: no rename, no rewrite
+
+
+# ---------------------------------------------------------------------------------------------- groups(): one answer for every view
+# Owner 2026-11-25: "a single symbolic bubble can be rendered and when clicked we zoom into it and we can see the individual
+# bubbles". `groups` says which list each saved page is on and which members sit inside it; the graph, Clusters and Home
+# read only it. It answers with the writer dark (has_page false).
+
+
+def test_groups_covers_every_kind_of_list_with_folders_under_their_whole_list(bank):
+    save(bank, 1)
+    save(bank, 2, origin="youtube-playlist", folder="Watch later", url="https://www.youtube.com/watch?v=aaaaaaaaaaa")
+    save(bank, 3, origin="youtube-playlist", folder="Lectures", url="https://www.youtube.com/watch?v=bbbbbbbbbbb")
+    save(bank, 4, origin="chrome-bookmark", folder="Bookmarks Bar/Reading", url="https://example.com/a")
+    save(bank, 5, origin="github-starred", folder="", url="https://github.com/example/tool")
+    g = list_pages.groups(bank)
+    key = list_pages.page_id
+    assert {key("x.bookmarks"), key("youtube.watch_later"), key("youtube.playlists"),
+            key("youtube.playlists", "lectures"), key("browser:chrome.bookmarks"),
+            key("browser:chrome.bookmarks", "bookmarks bar/reading"), key("github.stars")} <= set(g.lists)
+    folder = g.lists[key("browser:chrome.bookmarks", "bookmarks bar/reading")]
+    assert folder.parent == key("browser:chrome.bookmarks") and folder.folder == "Bookmarks Bar/Reading"
+    assert folder.kind_noun == "pages" and folder.site_name == "Chrome" and folder.has_page is False
+    assert g.lists[key("youtube.playlists", "lectures")].parent == key("youtube.playlists")
+    assert g.lists[key("x.bookmarks")].parent is None and g.lists[key("x.bookmarks")].mark
+    # Most specific first: a folder before its whole list.
+    assert g.of_page["media-chrome-bookmark-4"] == (key("browser:chrome.bookmarks", "bookmarks bar/reading"),
+                                                    key("browser:chrome.bookmarks"))
+    assert "media-youtube-playlist-2" not in g.lists[key("youtube.playlists")].members, "Watch later is no playlist"
+
+
+def test_members_are_newest_first_an_unknown_date_last_and_the_earned_sit_outside(bank):
+    save(bank, 1, day="2026-11-01")
+    save(bank, 2, day="2026-11-10", named=True)       # his own words named it: earned
+    save(bank, 3, day="2026-11-05")
+    page = bank / "entities" / "media-x-bookmarks-4.md"
+    save(bank, 4)
+    parsed = markdown_parser.parse(page)
+    parsed.frontmatter.pop("created")
+    markdown_parser.write(page, parsed.frontmatter, parsed.body)
+    bank_index.invalidate()
+    li = list_pages.groups(bank).lists[list_pages.page_id("x.bookmarks")]
+    assert li.members == ("media-x-bookmarks-2", "media-x-bookmarks-3", "media-x-bookmarks-1", "media-x-bookmarks-4")
+    assert li.newest == "2026-11-10" and li.count == 4
+    assert "media-x-bookmarks-2" not in li.inside and len(li.inside) == 3
+    g = list_pages.groups(bank)
+    assert set(g.earned_of) == {"media-x-bookmarks-2"}
+
+
+def test_the_earned_rule_covers_every_kind_of_saved_thing_not_only_posts(bank):
+    save(bank, 1, origin="chrome-bookmark", folder="Reading", url="https://example.com/a", named=True)
+    save(bank, 2, origin="chrome-bookmark", folder="Reading", url="https://example.com/b")
+    assert saved_posts.earned_saves(bank) == frozenset({"media-chrome-bookmark-1"})
+    assert saved_posts.verdict(bank).earned == frozenset(), "a bookmark is no post: the posts-as-rows answer is unchanged"
+
+
+def test_has_page_follows_the_writer_and_the_stamp_moves_with_membership(bank, monkeypatch):
+    save(bank, 1)
+    first = list_pages.groups(bank)
+    assert first.lists[list_pages.page_id("x.bookmarks")].has_page is False
+    monkeypatch.setattr(list_pages, "ON", True)
+    assert saved_posts.HIDE_POSTS is False and list_pages.enabled()
+    assert list_pages.sync(bank)["created"] == 1
+    bank_index.invalidate()
+    second = list_pages.groups(bank)
+    assert second.lists[list_pages.page_id("x.bookmarks")].has_page is True and second.stamp != first.stamp
+    assert list_pages.page_id("x.bookmarks") not in second.of_page, "a list page is no member of any list"
+    save(bank, 2)
+    assert list_pages.groups(bank).stamp != second.stamp
+
+
+def test_groups_never_raises(bank, monkeypatch):
+    monkeypatch.setattr(list_pages, "_membership", lambda _p: (_ for _ in ()).throw(RuntimeError("boom")))
+    assert list_pages.groups(bank).lists == {}

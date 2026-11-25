@@ -7,6 +7,7 @@ else, behind `HIDE_POSTS` (off: every reader returns what it did before). Synthe
 """
 from __future__ import annotations
 
+import itertools
 import re
 import subprocess
 from pathlib import Path
@@ -153,6 +154,16 @@ def test_a_list_page_has_a_kind_and_its_source_is_its_origin():
     assert not saved_posts.is_post(page)
 
 
+@pytest.mark.parametrize("site", saved_posts.POST_SITES)
+def test_a_saved_another_way_page_wears_its_sites_mark(site):
+    """Seen on the scratch app: the page records ``source: ""`` (no stream of its own), so Clusters drew no mark for it."""
+    page = {"name": "x", "type": "media", "media": {"kind": "list"},
+            "list": {"stream": f"{site}.another-way", "site": site, "source": ""}}
+    mark = media_kinds.origin_of(page)
+    app_marks = (Path(__file__).resolve().parents[2] / "app/CicadaApp/Sources/CicadaApp/Views/Capture/OriginIconography.swift").read_text()
+    assert mark and f'"{mark}"' in app_marks
+
+
 # --------------------------------------------------------------------------------------------------- a bank
 
 
@@ -161,6 +172,7 @@ class Bank:
         self.root = root
         (root / "entities").mkdir(parents=True, exist_ok=True)
         (root / "episodes").mkdir(parents=True, exist_ok=True)
+        self._save_numbers = itertools.count(100)
 
     def episode(self, eid, fm=None, body="body\n"):
         markdown_parser.write(self.root / "episodes" / f"{eid}.md",
@@ -172,7 +184,10 @@ class Bank:
 
     def post(self, pid="media-a-post", *, save=None, page=None, url=X, episodes=(), claim_list=None, save_body="body\n"):
         """A saved post: its page, its save episode (with ``save`` on it) and any other episode it cites."""
-        save_id = f"ep_2026-11-20_{abs(hash(pid)) % 900 + 100}"
+        # One number per save, in the order the posts are made. It was ``hash(pid) % 900``, which varies per process: two
+        # posts collided about one run in 300 and the second save overwrote the first's episode (a row inherited a
+        # neighbour's why-answer), the failure seen once on CI.
+        save_id = f"ep_2026-11-20_{next(self._save_numbers)}"
         self.episode(save_id, {"url": url, "origin": "x-bookmarks", "media_entity_id": pid, **(save or {})}, save_body)
         self.page(pid, {"name": pid.replace("-", " "), "type": "media", "status": "active",
                         "source_episodes": [save_id, *episodes],

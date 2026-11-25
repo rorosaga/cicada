@@ -279,6 +279,9 @@ class Settings(BaseSettings):
     # person's own Sleep engine. A cheap Sleep tier answered "not sure" on what its own search plainly said. Empty = the
     # person's Sleep model. Never applied to a metered key (that spend is the person's own choice of model).
     web_check_agent_model: str = "sonnet"      # CICADA_WEB_CHECK_AGENT_MODEL
+    # Ruling 84 (owner 2026-11-25): Cicada's own agent works open questions with the person's files, the web and their browser
+    # on plan runs. The one switch; `harness_agent`, `harness_questions`.
+    harness_agent: bool = True                 # CICADA_HARNESS_AGENT
     # Owner ruling 44 (2026-10-27, G121): light web context for public pages on Sleep's tail — at most this many
     # lookups a run (one plan web-search call each, plus at most `web_context.WIKIDATA_BUDGET` public-test lookups);
     # 0 turns the step off. Plan only: a metered key is never spent here. `web_context`.

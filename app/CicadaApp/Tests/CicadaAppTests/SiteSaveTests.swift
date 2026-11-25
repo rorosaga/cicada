@@ -398,6 +398,39 @@ final class SiteSaveTests: XCTestCase {
         XCTAssertNil(unasked.state)
     }
 
+    /// Owner 2026-11-25 — a click that changed a save control with nothing on the page to say which way used to be
+    /// dropped. The record decides: not held as on the list is a save, asked about like any other; held is an unsave,
+    /// never asked about; a refusal lets it go and holds nothing.
+    @MainActor
+    func testAChangeThePageCouldNotReadIsSettledByTheRecord() async {
+        let item = SiteSaveItem(site: "github", origin: "github-starred", url: "https://github.com/alpha-org/alpha-repo",
+                                title: "alpha-org/alpha-repo")
+        func center(_ api: SiteSaveFakeAPI) -> SaveWhyCenter {
+            SaveWhyCenter(prefs: SaveWhyPrefs(defaults: TestDefaults.suite("SiteSaveTests.\(UUID().uuidString)")!),
+                          api: api)
+        }
+        let api = SiteSaveFakeAPI()
+        let asked = center(api)
+        await asked.siteChanged(item)
+        XCTAssertEqual(asked.state?.item?.url, item.url, "not on the list as Cicada holds it: a save, asked about")
+        var changes = await api.changed
+        XCTAssertEqual(changes, ["github https://github.com/alpha-org/alpha-repo"])
+
+        // The same post again: the record now holds it, so this click took it off. Nothing is asked.
+        let quiet = center(api)
+        await quiet.siteChanged(item)
+        XCTAssertNil(quiet.state)
+        changes = await api.changed
+        XCTAssertEqual(changes.count, 2)
+
+        let refusing = SiteSaveFakeAPI()
+        await refusing.refuse()
+        let dropped = center(refusing)
+        await dropped.siteChanged(item)
+        XCTAssertNil(dropped.state)
+        XCTAssertTrue(dropped.siteOutbox.entries.isEmpty, "a guess is never held to be sent later")
+    }
+
     /// A save made while Sleep held the pages used to vanish (the refusal was swallowed). It is held, stored when the
     /// backend can take it, and asked about only while the moment is still near; a stale one is stored and not asked.
     @MainActor
@@ -461,6 +494,8 @@ final class SiteSaveTests: XCTestCase {
 
 private actor SiteSaveFakeAPI: SavedWhyAPI {
     var saved: [String] = []
+    /// Clicks sent for the record to decide; a post is on the list after an odd number of them.
+    var changed: [String] = []
     var refusing = false
     func refuse(_ on: Bool = true) { refusing = on }
 
@@ -474,5 +509,15 @@ private actor SiteSaveFakeAPI: SavedWhyAPI {
         saved.append("\(site) \(url)")
         return SiteSaveReply(status: "created", url: url, title: "Post by @alpha_user", origin: "x-bookmarks",
                              episodeId: "ep_2027-01-15_001", addedAt: ISO8601DateFormatter().string(from: Date()))
+    }
+    func changeSiteItem(site: String, url: String, text: String, folder: String?) async throws -> SiteChangeReply {
+        if refusing { throw APIError.httpError(409, "Sleep is updating your memory") }
+        let key = "\(site) \(url)"
+        let held = changed.filter { $0 == key }.count % 2 == 1
+        changed.append(key)
+        guard !held else { return SiteChangeReply(direction: "unsaved", save: nil) }
+        return SiteChangeReply(direction: "saved", save: SiteSaveReply(
+            status: "created", url: url, title: "alpha-org/alpha-repo", origin: "github-starred",
+            episodeId: "ep_2027-01-15_002", addedAt: ISO8601DateFormatter().string(from: Date())))
     }
 }

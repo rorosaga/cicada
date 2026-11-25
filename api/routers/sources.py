@@ -685,6 +685,15 @@ class SiteUnsaveResponse(BaseModel):
     url: str
 
 
+class SiteChangeResponse(BaseModel):
+    #: Which way the record says the click went: ``saved`` or ``unsaved``.
+    direction: str
+    #: The save as stored, when the click was a save (the body of ``POST /sources/site-save``).
+    save: SiteSaveResponse | None = None
+    #: What the unsave did, when it was one (the body of ``POST /sources/site-unsave``).
+    unsave: SiteUnsaveResponse | None = None
+
+
 #: A save noticed while Sleep holds the pages (the app tries again with the next save; nothing is written).
 SITE_SAVE_BUSY = "Sleep is updating your memory — this save is not in Cicada yet."
 
@@ -787,6 +796,30 @@ async def unsave_site_item(request: SiteSaveRequest, settings: Settings = Depend
         return SiteUnsaveResponse(status="marked" if changed else "unchanged", url=target.url)
 
     return await write_admission.run_admitted(memory_path, write, refuse=lambda: SleepWriting(SITE_SAVE_BUSY))
+
+
+@router.post("/sources/site-change", response_model=SiteChangeResponse, dependencies=_DEMO_GATE)
+async def change_site_item(request: SiteSaveRequest, settings: Settings = Depends(get_settings)) -> SiteChangeResponse:
+    """G221 (owner 2026-11-25: "everything else you say its not covered should be covered") — the person clicked a
+    site's save control and the app saw it change, but nothing on the page said which way: no count moved by one, the
+    labels are not ones this Mac has learned, and there is no other post on the page to compare (a post's own page on
+    Instagram, a repository's page on GitHub, the first click on a menu's save). Until now such a click was dropped.
+
+    The record decides: a post Cicada holds as on the person's list (``site_saves.on_list``) was taken off it, and is
+    marked as ``POST /sources/site-unsave`` marks it; any other post was saved, and is stored as
+    ``POST /sources/site-save`` stores it. Both bodies, refusals and commits are those routes' own. This is a guess of
+    the direction from what Cicada holds, never from the page: a post saved somewhere else since the list was last
+    read and taken off the list now is read as a save. The app says so in the answer's ``direction`` and teaches
+    itself nothing from it."""
+    from api.services import site_saves
+
+    target = site_saves.target(request.site, request.url)
+    if target is None:
+        raise HTTPException(status_code=422, detail="That is not a post of a site Cicada keeps saves for.")
+    held = await run_in_threadpool(site_saves.on_list, Path(settings.memory_path), target.url)
+    if held:
+        return SiteChangeResponse(direction="unsaved", unsave=await unsave_site_item(request, settings))
+    return SiteChangeResponse(direction="saved", save=await save_site_item(request, settings))
 
 
 @router.get("/sources/saved-why/options", response_model=SavedWhyOptions)

@@ -1649,7 +1649,13 @@ one it took). A control whose label names its count or the thing it is about ("<
 and the census, by its **core** as well: the two labels with the lead they share removed at a word's start and the
 trail they share removed at a word's end (`core`, a digit matching any digit), which is how the same control reads
 where neither is named; a settled click teaches the core when the labels have one, and nothing that still holds a
-number (`lesson`). So what a list taught settles a repository's own page. With none of them the change is `changed`: nothing is stored and nobody is asked. On X the post's own words are cut from the block's label
+number (`lesson`). So what a list taught settles a repository's own page. With none of them the change is `changed`, and **the record decides** (owner 2026-11-25: "everything else you say its
+not covered should be covered"; until then such a click was dropped, which is why a first save on an Instagram post's
+own page, a first star on a repository's page and a menu's first click asked nothing): the click goes to
+`POST /sources/site-change` (`SaveWhyCenter.siteChanged`), a post Cicada does not hold as on the list is stored and
+asked about as a save, and one it holds is marked off the list. It is a guess from what Cicada holds, never from the
+page (a post saved elsewhere since the list was last read and taken off it now is read as a save), so nothing is
+taught from it and a refused call is let go, never held. On X the post's own words are cut from the block's label
 between the handle and time link and the row's label (`text(of:item:)`), again with no word known.
 
 *Which sites are noticed (ruling 77c, 2026-11-24).* "Connected" is the Sources catalogue's own word for the site's source
@@ -1720,8 +1726,12 @@ item's place. **Reddit:** the menu sits under `#hovercard` inside the post's own
 one to show fewer before the save and one asking why before Report, where the old place from the end read every save
 as nothing; a menu that shows no such icon falls back to the third shown item from the end of four or five (a hidden
 zero-size item on a post's page is not counted); the post is the link that carries the block's id, or the page itself
-on the post's page; a comment's menu (`comment-overflow-menu`, three items) reads as nothing, and the person's own
-post's or a moderator's menu is unmeasured. **YouTube:** the sheet of lists
+on the post's page; a comment's menu (`comment-overflow-menu`, three items) reads as nothing. **A menu whose layout
+no rule places the save in** is read by the label this Mac learned (`SiteMenuRule.item(learned:)`, owner 2026-11-25:
+"reddit own posts menu should be covered"): on the person's own post the menu has ten items, the save third, between
+items no other layout has and with no mirrored icon (measured 2026-11-25), so the item wearing a label already learned
+as this site's save or unsave, from the person's own clicks on an ordinary post, is the save, in a menu of at most
+twenty items inside a post's block. A moderator's menu is read the same way, unmeasured. **YouTube:** the sheet of lists
 (`ytListViewModelHost` inside a `ytContextualSheetLayoutHost` that has a header and ends in a button — the same list
 class without them is another menu); every item is a list, the first the site's own (Watch later), any other a
 playlist whose name is sent as the save's folder and becomes its list label; the video is where the sheet was opened

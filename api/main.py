@@ -248,6 +248,10 @@ async def lifespan(app: FastAPI):
     from api.services import replica as _replica
 
     _replica.leave_copy(settings.memory_root)
+    # Ruling 84: a harness session a backend that is gone left running dies with this start (recorded by process group).
+    from api.services import harness_agent
+
+    asyncio.get_running_loop().run_in_executor(None, harness_agent.reap_orphans)
 
     # The query embedder is preloaded (so the first /search request doesn't pay the model-load cost) by `_staged_warm`,
     # after the page headers: never awaited here, and `warm_query_embedder` swallows its own errors.

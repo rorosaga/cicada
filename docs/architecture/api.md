@@ -1307,6 +1307,12 @@ in a coroutine. `GET /sleep/episodes` and `/sleep/kept` read their rows in a fun
 the loop and a thread sampling its stack whenever the heartbeat was 50 ms late. Left on the loop: the fork of `git remote
 get-url` under `GET /contributors` (about 70 ms, scales with the process, not the bank).
 
+**`POST /sources/site-change` (G221, owner 2026-11-25)** — the same body as the two routes below, for a click that
+changed a site's save control when nothing on the page said which way. The record decides (`site_saves.on_list`): a
+post held as on the person's list is marked as `site-unsave` marks it, any other is stored as `site-save` stores it.
+Answers `{direction: saved|unsaved, save, unsave}` with that route's own body in the matching field; 422 and 409 are
+theirs. A guess from what Cicada holds, never from the page; the app teaches itself nothing from it.
+
 **`POST /sources/site-save` and `POST /sources/site-unsave` (G221, ruling 77, 2026-11-23)** — a save the person made
 inside a site, noticed by the app from the control they clicked (`app.md`, "A save inside a site"). Body
 `{site, url, text?, folders?, removeFolders?}`: `site` is `x`, `instagram`, `tiktok`, `reddit` (and any other key of

@@ -112,6 +112,8 @@ PROBE_SITES = {
                                         "staging and its commit admit themselves and refuse while Sleep writes",
     "api/services/source_polls.py": "the feed, calendar and connector job's early skip before any fetch (G245); the "
                                     "ingest and its commit run inside run_admitted and refuse while Sleep writes",
+    "api/services/harness_questions.py": "Cicada's own agent's early skip before it starts a session (ruling 84); the "
+                                         "settle and the note each run inside run_admitted and refuse while Sleep writes",
     "api/services/capture_commit.py": "the capture commit's early skip (G132 51e1) before it takes any lock; its "
                                       "commit runs inside admitted() and asks again",
 }
@@ -457,6 +459,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/saved-why": (ADMITTED, None),       # G191: the answer on the link's episode, committed alone
     "POST /sources/site-save": (ADMITTED, None),       # G221: a save noticed inside a site, committed alone
     "POST /sources/site-unsave": (ADMITTED, None),     # G221: the off-the-list mark, committed alone
+    # G221: one of the two routes above, by what the record holds; the admission is theirs.
+    "POST /sources/site-change": (ADMITTED, "api.routers.sources.save_site_item"),
     "PUT /sources/saved-why": (ADMITTED, None),        # G191 v3: the person's edit of one answer, committed alone
     "POST /sources/save-folder-reason": (ADMITTED, None),   # G221: a folder's reason and its saves' readiness, committed alone
     "PUT /sources/save-folder-reason": (ADMITTED, None),

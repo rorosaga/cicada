@@ -689,6 +689,17 @@ protocol SavedWhyAPI: Sendable {
     func saveSiteItem(site: String, url: String, text: String, folder: String?) async throws -> SiteSaveReply
     /// G221 — the person took a post off their list on the site: the save stays, marked since when.
     func unsaveSiteItem(site: String, url: String) async throws
+    /// G221 (owner 2026-11-25) — the person's click changed a site's save control and nothing on the page said which
+    /// way: the record decides (`POST /sources/site-change`), and the answer says which it was.
+    func changeSiteItem(site: String, url: String, text: String, folder: String?) async throws -> SiteChangeReply
+}
+
+/// `POST /sources/site-change` — which way the record says an unreadable click went, and the save as stored when it
+/// was a save.
+struct SiteChangeReply: Codable, Equatable, Sendable {
+    /// `saved` or `unsaved`.
+    var direction: String
+    var save: SiteSaveReply?
 }
 
 /// `POST /sources/site-save` (G221) — a save made inside a site, as the backend stored it: the link in its canonical
@@ -711,6 +722,9 @@ extension SavedWhyAPI {
         throw APIError.httpError(404, "site saves are not supported here")
     }
     func unsaveSiteItem(site: String, url: String) async throws {}
+    func changeSiteItem(site: String, url: String, text: String, folder: String?) async throws -> SiteChangeReply {
+        throw APIError.httpError(404, "site saves are not supported here")
+    }
 
     /// A client that cannot edit (tests that never edit): refused as the backend refuses an unknown answer.
     func editSavedWhy(url: String, at: String, answer: SavedWhyAnswer) async throws -> SavedWhyReply {
@@ -2796,6 +2810,13 @@ actor APIClient {
 
     func unsaveSiteItem(site: String, url: String) async throws {
         try await post("/sources/site-unsave", body: ["site": site, "url": url])
+    }
+
+    func changeSiteItem(site: String, url: String, text: String, folder: String?) async throws -> SiteChangeReply {
+        var body: [String: Any] = ["site": site, "url": url]
+        if !text.isEmpty { body["text"] = text }
+        if let folder, !folder.isEmpty { body["folders"] = [folder] }
+        return try await post("/sources/site-change", body: body)
     }
 
     /// G191 — the person's answer, attached by the backend to that bookmark's episode (`POST /sources/saved-why`).

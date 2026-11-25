@@ -2544,3 +2544,43 @@ a client is one line after a test.
   "Hookless apps, through the remote connector". Its schema takes no zone: the listener reads the IANA `timezone` of
   the `openai/userLocation` hint ChatGPT puts in a call's `_meta` (only that field) so the episode id carries the
   person's day (ruling 34); claude.ai sends none, and its relayed ids take the server's zone.
+
+
+## Cicada's own agent (ruling 84, owner 2026-11-25)
+
+`harness_questions.run_tail` (started by `sleep_cycle` after the cycle's window closes, on its own thread; `harness_agent` is the switch) works at most three
+open questions a run, in `question_order`: a `conflict` (which of its values a document or a site states), a `clarification` that asks what something is
+(never `asks: name`, a speaker, a source or "still?"), and a `merge_suggestion` between two person pages (never the owner's, never a pair kept apart). A
+conflict one of whose values rests on the person's own words is left (ruling 44).
+
+**Two compartments, no tool that crosses them.** Each is one `claude -p` session (`harness_agent.build_argv`): safe mode, `--permission-mode dontAsk
+--permission-prompts none`, `--json-schema` for the answer, the rules in a settings file. `harness_questions.plan_for` picks the order: private, then web
+(a conflict only when ruling 27's test calls the thing public; a clarification always; a pair never).
+
+| | private | web |
+|---|---|---|
+| tools (`--tools`, and `system/init` must list exactly these) | `Read`, `Glob`, `Grep` | `WebSearch`, `WebFetch` |
+| reaches | `harness_files.grant_for_home` (the home's top-level folders chosen by what they are: never a hidden one, `Library`, a link, another volume, none of Documents, Desktop, Downloads, Pictures, Movies, Music unless `--attended`, one whose name says secrets, a tooling folder, one of Cicada's own, or one too large to walk completely; and inside them only document kinds) plus its own private temp folder of masked copies of the conversations that bear on the question (`copies_for`: `sensitive_hold` applied; never an index-only record, locked note, saved page, agent's note or an earlier run's citation; never `entities/` or `inbox/`) | no file; `WebFetch` only the hosts the question's own words name when it names any |
+| refused | the bank and Cicada's home; every file kind that is not a document kind (the exact complement over a complete walk, as root-independent `Read` deny rules: `Glob` and `Grep` follow the `Read` rules only and filter by its denies, proved live); dot-files and dot-folders and secret-shaped folder names per granted folder; secret-shaped file names; a link out of a root; a `..` path | every file tool |
+| brief | the question, its options, the page's own words (held back by value), the folders and the conversation ids | the question's own words and the names in it: no page excerpt, no conversation, no `agent_found` note, nothing a private session read |
+
+`Write`, `Edit`, `NotebookEdit`, `Bash`, `Task` are denied and never offered. The person's signed-in browser (`api/harness_tools/read_browser.py`) is **not wired**:
+it is the next slice, its own compartment started by the app. A session whose own `system/init` lists another tool or any MCP server (an account connector
+that loaded anyway) is killed before it calls anything and counted as skipped in words; a session is recorded by process group (`$CICADA_HOME/harness_sessions`)
+and reaped at the next backend start (`reap_orphans`).
+
+**The gate is code, and reads sentences.** `harness_agent.verify` accepts an evidence item (an address a `WebFetch` returned, or a file a `Read` or `Grep`
+returned, a quote of at most 240 characters) only when the call is in this session's audit, the quote is located in what it returned (exact, whitespace, case;
+never fuzzy), the page did not ask for a login and the confidence is at least 0.8; the evidence kept is the source's own spelling. `decide`: a conflict settles
+only when one sentence of a quote names the page (title or alias) and states the option's value, with no other option's value and no negation; a clarification
+only on a span a sentence presents as what the name is (`presents_as`); a web page settles only a public thing, else it is a note; a pair only as "different",
+one line per side in a conversation copy that is the person's own turn or a named speaker's (`evidence.speaker_kind`) and names that side and not the other.
+Everything else about a pair is a note (`agent_found` on the question). **No free text of the session is stored**: the settle's answer is an option's label or a
+span of a quote, its reason and a note are built by code from the located quotes. The settle is `inbox_tend.apply` with rule `found_by_agent`, a note is the same
+write path (`write_admission.run_admitted`), both refused while Sleep holds the pages: the citations are one `source: web-check` episode (untimed, never a save,
+never the person's words; the claim's span points into it), the settled record carries `found` and `trail`, the commit is Sleep's, the undo is the generic one. A
+question the agent could not answer is not worked again until it or its page changes or 14 days pass (`harness_seen/`, outside every bank: ids, a digest, a day and an enum).
+
+**What is stored, and what one question may scan.** A quote from a file is kept only when the file is of an allowed kind under a granted folder (or is one of the question's conversation copies, which live in a private `mkdtemp` folder outside Cicada's home and every granted folder, recorded in `harness_sessions/scratch-*.json`, removed at the end of the session and by `reap_orphans` for a dead backend); anything that looks like key material (`harness_files.looks_like_key`) is never kept, the item is dropped and counted (`Verdict.dropped`); each path and query of the stored `trail` is checked the same way and replaced by a fixed phrase when it is not covered, and the trail closes with a `scan` line (files opened, bytes read, folders touched, calls refused, lines redacted). A session that opens more than 12 files, reads more than 300,000 bytes or touches more than 4 granted folders is killed (`scan_limit`).
+
+Dry run: `scripts/harness_agent_dry_run.py --memory <bank> [--work N] [--attended]` lists only what a run would really start a session for (`plan_run`: the compartments each would use, the public test's reason, what it leaves and why, the folders granted and the kinds not granted) and writes nothing; with `--work` it prints every call as it is made. Battery: `benchmarks/consolidation/harness_battery.py`.

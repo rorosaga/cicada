@@ -1,4 +1,4 @@
-"""One small page for each list of saved posts, and for each folder on a site that has them (G246, ruling 81, owner
+"""One small page for each list of saved things, and for each folder or playlist in one (G246, ruling 81, owner
 2026-11-24: "maybe a small entity page that has all the saved posts would be good, no? i want to somehow see saved things
 somewhere even if i haven't referred to them yet").
 
@@ -24,16 +24,27 @@ never decays (a ``media`` page is evergreen), never merged (``entity_merge`` ref
 and no member of any stream or hub. A browser's own bookmark folders get none, and neither do lists of works (a playlist, a
 Substack list): those are a property of what they hold.
 
-**Which lists.** Every stream of X, Instagram, LinkedIn, Reddit, Pinterest and TikTok that counts by membership
-(``source_streams``), plus one page per folder those sites file saves into (``save_folders``). A list or folder with
-nothing in it is not drawn and not counted (derived on read), so a renamed folder leaves no orphan node; a page the person
-archived or dropped keeps its key and is never made again; turning a list off keeps its page; **removing a source retires
-its pages undoably** (:func:`retire_source`: status ``archived`` in one commit, git keeps the rest).
+**Which lists (owner 2026-11-25: "build the whole thing, and then we also do the page per thing").** Every kind of list a
+saved page can be on (:func:`kinds`): each stream of a site that counts by membership (X, Instagram, LinkedIn, Reddit,
+Pinterest, TikTok, Spotify; YouTube's Watch later, Liked videos and Playlists; Substack's saved), with one page per folder
+a site files saves into (``save_folders``) and per YouTube playlist; GitHub's stars and the person's own repositories;
+each browser's bookmarks with one page per bookmark folder; the feeds, one per feed; and each door's books. Every saved
+thing keeps its own page as well: a list page stands for the list (the graph draws it as one bubble that opens onto its
+pages), it replaces nothing. This reverses, for these pages only, "a saved list is provenance, never a tag or a hub" and
+"playlists not hubs" (2026-10-19): a list page is still no hub and no tag, and holds no ``member of`` edge. YouTube's watch
+history makes no pages (one record a day), so it has no list. A list or folder with nothing in it is not drawn and not
+counted (derived on read), so a renamed folder leaves no orphan node; a page the person archived or dropped keeps its key
+and is never made again; turning a list off keeps its page; **removing a source retires its pages undoably**
+(:func:`retire_source`: status ``archived`` in one commit, git keeps the rest).
 
-**Ships dark.** While ``saved_posts.HIDE_POSTS`` is ``False`` this module **writes nothing**: no list page file is born, so
-there is nothing for any reader of the pages folder — the status count, the search index, a hub, the graph — to show, and
-nothing a person sees changes. The first sync after the flip makes every list's page at once. (The graph, Clusters and
-find draw nothing of a list page that is not in :func:`state`, which is empty while dark.)
+**Which list each page is on, and what sits inside it** (:func:`groups`): the one answer the graph, Clusters and Home read.
+A member that earned a place in the person's record (``saved_posts.earned_saves``: their note, reason, words, Keep as a
+page, a conversation or claim of theirs, a project tie) is drawn outside its list, joined to it; the rest sit inside.
+
+**Ships dark.** While :data:`ON` (or ``saved_posts.HIDE_POSTS``) is ``False`` this module **writes nothing**: no list page
+file is born, so there is nothing for any reader of the pages folder — the status count, the search index, a hub, the
+graph — to show. :func:`groups` answers either way (with ``has_page`` false). The first sync after the switch makes every
+list's page at once.
 
 **Rails.** The writer runs only on the home (a replica refuses), never into a demo bank, inside ``write_admission`` and the
 page lock, one commit per batch under ``cicada``, and a bank Sleep holds is tried again (``media_pages.RETRY_S``). The page
@@ -44,15 +55,26 @@ from __future__ import annotations
 
 import hashlib
 import threading
+from functools import lru_cache
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 from loguru import logger
 
-from api.services import (bank_index, decay_policy, demo_guard, git_service, markdown_parser, page_lock, replica_guard,
-                          saved_posts, write_admission)
+from api.services import (bank_index, decay_policy, demo_guard, git_service, id_utils, markdown_parser, page_lock,
+                          replica_guard, saved_at, saved_posts, write_admission)
 from api.services.id_utils import sanitize_id
+
+#: **The switch** (owner 2026-11-25: "build the whole thing, and then we also do the page per thing"): list pages are written
+#: for every kind of list while every saved thing keeps its own page. ``False`` until the graph draws a list as one bubble;
+#: :func:`groups` answers either way. ``saved_posts.HIDE_POSTS`` turns the writer on too, as it did before.
+ON = False
+
+
+def enabled() -> bool:
+    """Are list pages written and drawn? :data:`ON`, or the older posts-as-rows switch."""
+    return bool(ON or saved_posts.HIDE_POSTS)
 
 KIND = "list"
 #: The page's own origin: never a list's (``source_streams._build_members`` would count the page a member of its own list).
@@ -125,8 +147,13 @@ def _noun(label: str) -> str:
     return "saved posts" if folded in ("saved", "saved posts") else folded or "list"
 
 
-def sentence(site_name: str, label: str, folder: str | None = None) -> str:
+_FOLDER_WORD = {"videos": "playlist", "items": "feed"}
+
+
+def sentence(site_name: str, label: str, folder: str | None = None, *, noun: str = "posts", site: str = "") -> str:
     """The one fixed line a page says about itself — the list's kind and its site, no model's words."""
+    if noun != "posts":
+        return _other_sentence(site_name, label, folder, noun, site)
     if _cf(label) == _cf(saved_posts.ANOTHER_LABEL) and not folder:
         return (f"Posts from {site_name} you saved another way: a link you pasted, a browser bookmark, "
                 f"or a link an agent or a chat saved for you.")
@@ -134,6 +161,29 @@ def sentence(site_name: str, label: str, folder: str | None = None) -> str:
         return f"Posts in “{folder}”, a folder of your {_noun(label)} on {site_name}."
     verb = _VERBS.get(_cf(label))
     return f"Posts you {verb} on {site_name}." if verb else f"Posts in your {_noun(label)} on {site_name}."
+
+
+def _other_sentence(site_name: str, label: str, folder: str | None, noun: str, site: str) -> str:
+    Noun = noun[:1].upper() + noun[1:]
+    if site.startswith("browser:"):
+        return (f"Pages in “{folder}”, a folder of your {site_name} bookmarks." if folder
+                else f"Pages you bookmarked in {site_name}.")
+    if site == "rss":
+        return f"Items from “{folder}”, a feed you follow." if folder else "Items from the feeds you follow."
+    if noun == "books":
+        return f"Books from {site_name}."
+    if folder:
+        return f"{Noun} in “{folder}”, a {_FOLDER_WORD.get(noun, 'folder')} of yours on {site_name}."
+    if noun == "repositories":
+        return (f"Repositories you starred on {site_name}." if _cf(label) == "stars"
+                else f"Your own repositories on {site_name}.")
+    if _cf(label) in ("liked videos", "liked", "likes"):
+        return f"{Noun} you liked on {site_name}."
+    verb = _VERBS.get(_cf(label))
+    if verb:
+        return f"{Noun} you {verb} on {site_name}."
+    shown = _cf(label) if _cf(label) in ("playlists", "saved") else (label or "list")
+    return f"{Noun} in your {shown} on {site_name}."
 
 
 def page_id(stream: str, folded_folder: str = "") -> str:
@@ -165,36 +215,331 @@ def post_specs() -> list[tuple]:
     return out
 
 
-def _want(group, spec, folder: str | None, folded: str) -> Want:
+# --------------------------------------------------------------------------- every kind of list (owner 2026-11-25)
+
+
+@dataclass(frozen=True)
+class Kind:
+    """One kind of list a saved page can be on: a site's list, a browser's bookmarks, a door's books, the feeds."""
+    stream: str              # ``x.bookmarks``, ``youtube.playlists``, ``browser:chrome.bookmarks``, ``github.stars``
+    site: str                # the source group (``x``, ``browser:chrome``)
+    site_name: str           # "X", "Chrome"
+    label: str               # "Bookmarks"
+    channel: str             # the items route's channel
+    key: str                 # the saved-lists table key where "last read" lives, or "" for a list with none
+    origin: str              # the list's own origin, where it has one
+    mark: str                # the app's mark key (``source_overview.CATALOG``'s ``mark``)
+    noun: str                # what it holds: posts | videos | pages | repositories | books | items
+    how: str                 # members (``source_streams``) | origin | book
+    origins: tuple = ()
+    #: How a list files into folders: save_folders (the site's own, by the save) | playlists (a video's other lists) |
+    #: page_lists (a bookmark's folder) | feed (the feed an item came from) | None.
+    folders: str | None = None
+    #: playlists: the labels that are this source's own lists, never a playlist (Watch later, Liked videos).
+    own_labels: frozenset = frozenset()
+
+
+def _mark(origin: str, fallback: str) -> str:
+    from api.services import source_overview
+
+    sid = source_overview._ORIGIN_TO_ID.get(origin)
+    spec = source_overview._BY_ID.get(sid) if sid else None
+    return spec.mark if spec is not None else (origin or fallback)
+
+
+_NOUNS = {"youtube": "videos", "github": "repositories", "rss": "items", "spotify": "items", "goodreads": "books",
+          "apple-books": "books", "book-scan": "books"}
+
+
+def _noun_of(site: str) -> str:
+    if site.startswith("browser:"):
+        return "pages"
+    return _NOUNS.get(site, "posts")
+
+
+def kinds() -> list[Kind]:
+    """Every kind of list there can be, from the tables that already name them (``source_streams``, ``bookmark_sync``,
+    ``books``): a list added there appears here with no second edit. The tables are fixed in a process, so this is built
+    once per answer of ``saved_posts.HIDE_POSTS`` (which adds "Saved another way")."""
     from api.services import saved_lists
 
-    site_name = group.label
-    label = spec.label
-    key = spec.key if spec.key in saved_lists.PLATFORMS else group.id
-    return Want(id=page_id(spec.id, folded), site=group.id, site_name=site_name, stream=spec.id,
-                channel=spec.channel or group.id, key=key, origin=spec.origin or "", label=label, folder=folder,
-                folded=folded, name=_name(site_name, label, folder), sentence=sentence(site_name, label, folder))
+    # Keyed on the table object too, so a table swapped in (a test, a later track) is never answered from an old one.
+    return list(_kinds(bool(saved_posts.HIDE_POSTS), id(saved_lists.PLATFORMS)))
+
+
+@lru_cache(maxsize=8)
+def _kinds(_hide_posts: bool, _table: int) -> tuple:
+    from api.services import bookmark_sync, books, saved_lists, source_streams
+
+    out: list[Kind] = []
+    table = source_streams.groups()
+    for group in table:
+        own = frozenset(_cf(s.list_label) for s in group.specs if s.match == "label" and s.list_label)
+        for spec in group.specs:
+            if spec.counts != "members" or not (spec.family in ("saved", "youtube", "substack")
+                                                or saved_posts.is_another_way(spec.id)):
+                continue
+            folders = {"save_folders": "save_folders", "playlists": "playlists"}.get(spec.folders or "")
+            origin = spec.origin or (spec.origins[0] if spec.origins else "")
+            key = (spec.key if spec.key in saved_lists.PLATFORMS else group.id) if spec.family == "saved" else ""
+            out.append(Kind(stream=spec.id, site=group.id, site_name=group.label, label=spec.label,
+                            channel=spec.channel or group.id, key=key, origin=origin, mark=_mark(origin, group.id),
+                            noun=_noun_of(group.id), how="members", folders=folders,
+                            own_labels=own if folders == "playlists" else frozenset()))
+    names = {g.id: g.label for g in table}
+
+    def static(stream, site, label, channel, origins, noun, *, how="origin", folders=None, name=None):
+        origin = origins[0] if origins else ""
+        out.append(Kind(stream=stream, site=site, site_name=name or names.get(site, site), label=label, channel=channel,
+                        key="", origin=origin, mark=_mark(origin, site), noun=noun, how=how, origins=tuple(origins),
+                        folders=folders))
+
+    static("github.stars", "github", "Stars", "github", ("github-starred",), "repositories")
+    static("github.repositories", "github", "Your repositories", "github", ("github-owned", "github-added"),
+           "repositories")
+    browsers = (*bookmark_sync.CHROMIUM_BROWSERS, "safari")
+    for browser in browsers:
+        origin = bookmark_sync.SAFARI_ORIGIN if browser == "safari" else bookmark_sync.origin_for(browser)
+        site = f"browser:{browser}"
+        static(f"{site}.bookmarks", site, "Bookmarks", bookmark_sync.CHANNEL_BY_ORIGIN.get(origin, origin), (origin,),
+               "pages", folders="page_lists", name=source_streams._BROWSER_NAMES.get(browser, browser.capitalize()))
+    static("rss.feeds", "rss", "Feeds you follow", "rss", ("rss",), "items", folders="feed", name="RSS")
+    for door, stream, label in ((books.APPLE_ORIGIN, "apple-books.books", "Books"),
+                                (books.GOODREADS_ORIGIN, "goodreads.shelves", "Shelves"),
+                                (books.SCAN_ORIGIN, "book-scan.books", "Books scanned")):
+        static(stream, door, label, door, (door,), "books", how="book", name=books.DOOR_WORDS.get(door, door))
+    return tuple(out)
+
+
+@dataclass(frozen=True)
+class ListInfo:
+    """One list as the graph, Clusters and Home draw it: what it is, what it holds (newest first) and which of those sit
+    inside it (never earned a place of their own)."""
+    key: str                 # the list's page id (:func:`page_id`): a pure function, so a list exists before its page
+    stream: str
+    folder: str | None
+    parent: str | None       # a folder's whole list, always set for a folder
+    site: str
+    site_name: str
+    label: str
+    name: str
+    mark: str
+    kind_noun: str
+    count: int
+    newest: str | None
+    has_page: bool
+    members: tuple           # page ids, newest first by the item's own saved date, an unknown date last
+    inside: tuple            # the members that sit inside the list: not earned (``saved_posts.earned_saves``)
+
+
+@dataclass(frozen=True)
+class Groups:
+    lists: dict = field(default_factory=dict)       # key -> ListInfo
+    #: page id -> the lists it is on, most specific first (a folder before its whole list)
+    of_page: dict = field(default_factory=dict)
+    #: page id -> the lists it is on, for a member that EARNED a place: drawn outside, joined to these
+    earned_of: dict = field(default_factory=dict)
+    stamp: str = ""
+
+
+_NO_GROUPS = Groups()
+
+
+def _when(fm: dict):
+    media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
+    for value in (media.get("saved_at"), fm.get("saved_at"), fm.get("created")):
+        if value:
+            got = saved_at.sort_instant(str(value))
+            if got.year > 1:
+                return got
+    return saved_at.sort_instant(None)
+
+
+def _book_doors(fm: dict) -> set[str]:
+    book = fm.get("book") if isinstance(fm.get("book"), dict) else {}
+    doors = {str(d) for d in (book.get("doors") or []) if d}
+    if book.get("apple_books"):
+        doors.add("apple-books")
+    if book.get("goodreads"):
+        doors.add("goodreads")
+    return doors
+
+
+@dataclass
+class _Membership:
+    kinds: dict             # stream -> Kind
+    held: dict              # (stream, folded folder) -> set of page ids
+    folder_names: dict      # (stream, folded folder) -> the folder's name as shown
+    when: dict              # page id -> sort instant
+    pages: set              # live list page ids
+
+
+def _build_membership(memory_path: Path, entities, episodes) -> _Membership:
+    from api.services import quiet_pages, save_folders, source_overview, source_streams
+
+    table = {k.stream: k for k in kinds()}
+    mem = source_streams.members(memory_path).members
+    held: dict[tuple, set] = {}
+    names: dict[tuple, str] = {}
+    when: dict[str, object] = {}
+    pages: set[str] = set()
+    by_origin: dict[str, list] = {}
+    for k in table.values():
+        for o in k.origins:
+            by_origin.setdefault(o, []).append(k)
+        if k.how == "members" and mem.get(k.stream):
+            held[(k.stream, "")] = set(mem[k.stream])
+    member_of: dict[str, list] = {}
+    for (stream, _f), ids in list(held.items()):
+        for pid in ids:
+            member_of.setdefault(pid, []).append(table[stream])
+
+    def put(k: Kind, pid: str, folder: str | None = None):
+        held.setdefault((k.stream, ""), set()).add(pid)
+        name = " ".join(str(folder or "").split())
+        if name:
+            slot = (k.stream, _cf(name))
+            held.setdefault(slot, set()).add(pid)
+            names.setdefault(slot, name)
+
+    for entry in entities:
+        fm = entry.frontmatter or {}
+        if str(fm.get("type") or "") != "media":
+            continue
+        if is_list(fm):
+            if _live(fm):
+                pages.add(entry.stem)
+            continue
+        if source_overview.is_hidden(fm):
+            continue
+        pid = entry.stem
+        when[pid] = _when(fm)
+        origin = str(fm.get("origin") or "").strip()
+        for k in member_of.get(pid, ()):
+            if k.folders == "playlists":
+                for name in id_utils.page_lists(fm):
+                    if _cf(name) not in k.own_labels:
+                        put(k, pid, name)
+        for k in by_origin.get(origin, ()):
+            if k.how != "origin":
+                continue
+            if k.folders == "page_lists":
+                lists = id_utils.page_lists(fm)
+                put(k, pid, lists[0] if lists else None)
+                for name in lists[1:]:
+                    put(k, pid, name)
+            elif k.folders == "feed":
+                media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
+                put(k, pid, str(media.get("channel") or "") or None)
+            else:
+                put(k, pid)
+        if origin == "book" or fm.get("book"):
+            for door in _book_doors(fm):
+                for k in by_origin.get(door, ()):
+                    if k.how == "book":
+                        put(k, pid)
+    # A site's own folders (X's bookmark folders), filed by the save: the save's episode names its page.
+    filing = {k.origin: k for k in table.values() if k.folders == "save_folders" and k.origin}
+    if filing:
+        for entry in episodes:
+            fm = entry.frontmatter or {}
+            pid = str(fm.get(quiet_pages.SAVE_KEY) or "").strip()
+            if not pid or fm.get("source_deleted_at") or pid not in when:
+                continue
+            for origin, name in save_folders.folders_of(fm):
+                k = filing.get(origin)
+                if k is not None and pid in held.get((k.stream, ""), ()):
+                    put(k, pid, name)
+    return _Membership(table, held, names, when, pages)
+
+
+def _membership(memory_path: Path) -> _Membership:
+    memory_path = Path(memory_path)
+    return bank_index.derived_over(memory_path, ("entities", "episodes"), "list_pages.membership",
+                                   lambda entities, episodes: _build_membership(memory_path, entities, episodes))
+
+
+_GROUPS: dict[str, tuple] = {}
+_GROUPS_LOCK = threading.Lock()
+
+
+def _order(ids, when) -> tuple:
+    floor = saved_at.sort_instant(None)
+    return tuple(sorted(ids, key=lambda p: (-(when.get(p, floor) - floor).total_seconds(), p)))
+
+
+def groups(memory_path: Path) -> Groups:
+    """Which list each saved page is on, which page stands for each list, and which members sit inside their list — the
+    one answer the graph's bubbles, Clusters and Home read (owner 2026-11-25: "a single symbolic bubble ... when clicked
+    we zoom into it"). Every kind of list (:func:`kinds`), whether or not its page has been written (``has_page``).
+    Derived on read, never stored, kept until the pages, the saves or the earned set move. Never raises."""
+    memory_path = Path(memory_path)
+    try:
+        m = _membership(memory_path)
+        try:
+            earned = saved_posts.earned_saves(memory_path)
+        except Exception as exc:  # noqa: BLE001 - nothing earned is the safe answer: every member sits inside
+            logger.debug(f"list pages: earned skipped ({type(exc).__name__})")
+            earned = frozenset()
+        slot = str(memory_path)
+        with _GROUPS_LOCK:
+            hit = _GROUPS.get(slot)
+        if hit is not None and hit[0] is m and hit[1] == earned:
+            return hit[2]
+        out = _groups_of(m, earned)
+        with _GROUPS_LOCK:
+            _GROUPS[slot] = (m, earned, out)
+        return out
+    except Exception as exc:  # noqa: BLE001 - no bubbles is the safe answer
+        logger.debug(f"list pages: groups skipped ({type(exc).__name__})")
+        return _NO_GROUPS
+
+
+def _groups_of(m: _Membership, earned: frozenset) -> Groups:
+    lists: dict[str, ListInfo] = {}
+    of_page: dict[str, list] = {}
+    for (stream, folded), ids in sorted(m.held.items(), key=lambda kv: (kv[0][0], kv[0][1] != "", kv[0][1])):
+        if not ids:
+            continue
+        k = m.kinds[stream]
+        folder = m.folder_names.get((stream, folded)) if folded else None
+        key = page_id(stream, folded)
+        members = _order(ids, m.when)
+        newest = next((m.when[p].date().isoformat() for p in members if m.when.get(p) and m.when[p].year > 1), None)
+        lists[key] = ListInfo(
+            key=key, stream=stream, folder=folder, parent=page_id(stream) if folded else None, site=k.site,
+            site_name=k.site_name, label=k.label, name=_name(k.site_name, k.label, folder), mark=k.mark,
+            kind_noun=k.noun, count=len(members), newest=newest, has_page=key in m.pages, members=members,
+            inside=tuple(p for p in members if p not in earned))
+        for pid in members:
+            of_page.setdefault(pid, []).append(key)
+    # Most specific first: a folder before its whole list.
+    ordered = {pid: tuple(sorted(keys, key=lambda key: lists[key].parent is None)) for pid, keys in of_page.items()}
+    earned_of = {pid: keys for pid, keys in ordered.items() if pid in earned}
+    digest = hashlib.sha1()
+    for key, li in sorted(lists.items()):
+        digest.update(f"{key}\x1f{li.has_page}\x1f{len(li.inside)}\x1f{'|'.join(li.members)}\x1e".encode())
+    return Groups(lists=lists, of_page=ordered, earned_of=earned_of, stamp=digest.hexdigest()[:12] if lists else "")
+
+
+def kind_of_stream(stream: str) -> Kind | None:
+    return next((k for k in kinds() if k.stream == stream), None)
+
+
+def _want_of(li: ListInfo, k: Kind) -> Want:
+    folded = _cf(li.folder) if li.folder else ""
+    return Want(id=li.key, site=k.site, site_name=k.site_name, stream=k.stream, channel=k.channel, key=k.key,
+                origin=k.origin, label=k.label, folder=li.folder, folded=folded, name=li.name,
+                sentence=sentence(k.site_name, k.label, li.folder, noun=k.noun, site=k.site))
 
 
 def wanted(memory_path: Path) -> list[Want]:
-    """Every list that could have a page right now and holds something: each post stream with a member, and each folder a
-    save is filed in under a stream that files into folders. The count is the one the card shows (:func:`_read`)."""
-    from api.services import source_streams
-
+    """Every list that holds something and could have a page right now: one per list of every kind and one per folder."""
     memory_path = Path(memory_path)
-    mem = source_streams.members(memory_path)
-    eps = source_streams.episodes(memory_path)
-    out: list[Want] = []
-    for group, spec in post_specs():
-        whole = _want(group, spec, None, "")
-        if mem.members.get(spec.id):
-            out.append(whole)
-        if spec.folders != "save_folders" or not spec.origin:
-            continue
-        for (origin, folded), (name, saves) in sorted(eps.folder_names.items()):
-            if origin == spec.origin and saves > 0 and folded:
-                out.append(_want(group, spec, name, folded))
-    return out
+    g = groups(memory_path)
+    table = {k.stream: k for k in kinds()}
+    return [_want_of(li, table[li.stream]) for _key, li in sorted(g.lists.items()) if li.count > 0
+            and li.stream in table]
 
 
 # --------------------------------------------------------------------------- what a list holds, read now
@@ -242,6 +587,22 @@ def _last_read(memory_path: Path, key: str) -> str | None:
         return None
 
 
+def _page_row(memory_path: Path, entity_id: str) -> dict | None:
+    """One member's row, from its page's own header: its name, the day it was saved and its site."""
+    entry = bank_index.file(Path(memory_path), "entities", f"{entity_id}.md")
+    fm = entry.frontmatter if entry is not None else None
+    if not isinstance(fm, dict):
+        return None
+    media = fm.get("media") if isinstance(fm.get("media"), dict) else {}
+    out = {"title": str(fm.get("name") or entity_id)}
+    when = _when(fm)
+    if when.year > 1:
+        out["saved"] = when.date().isoformat()
+    if media.get("site"):
+        out["host"] = str(media["site"])
+    return out
+
+
 def block(memory_path: Path, entity_id: str, fm: dict | None) -> dict | None:
     """The page's ``list`` block (``page_blocks``): what the list is, how many it holds, the newest day and the
     :data:`RECENT` newest rows, read from the saves now. None for any other page. Never raises."""
@@ -250,18 +611,27 @@ def block(memory_path: Path, entity_id: str, fm: dict | None) -> dict | None:
         return None
     memory_path = Path(memory_path)
     try:
-        read = _read(memory_path, info["stream"], info["folder"], limit=RECENT) or {}
-        spec = next((s for g, s in post_specs() if s.id == info["stream"]), None)
-        key = (spec.key if spec is not None else None) or info["site"]
+        k = kind_of_stream(info["stream"])
+        if k is None or k.how == "members":
+            read = _read(memory_path, info["stream"], info["folder"], limit=RECENT) or {}
+            count, newest = int(read.get("all") or 0), read.get("latest")
+            recent = [_row(item) for item in (read.get("items") or [])[:RECENT]]
+        else:
+            li = groups(memory_path).lists.get(entity_id)
+            count, newest = (li.count, li.newest) if li is not None else (0, None)
+            recent = [row for pid in (li.members[:RECENT] if li is not None else ())
+                      if (row := _page_row(memory_path, pid)) is not None]
+        key = k.key if k is not None else info["site"]
         return {
             "site": info["site"], "stream": info["stream"], "folder": info["folder"],
-            "channel": spec.channel if spec is not None and spec.channel else info["site"],
+            "channel": k.channel if k is not None else info["site"],
             "label": info["label"], "source": info["source"],
-            "count": int(read.get("all") or 0), "newest": read.get("latest"),
-            # Nothing reads "Saved another way": it holds what other doors brought, so it has no read time of its own.
-            "lastReadAt": None if spec is not None and saved_posts.is_another_way(spec.id) else _last_read(memory_path, key),
+            "count": count, "newest": newest,
+            # Nothing reads "Saved another way" (it holds what other doors brought) or a list with no list table of its
+            # own (a browser's bookmarks, the feeds): neither has a read time.
+            "lastReadAt": _last_read(memory_path, key) if key and not saved_posts.is_another_way(info["stream"]) else None,
             "why": _why(memory_path, info["source"], info["folder"]),
-            "recent": [_row(item) for item in (read.get("items") or [])[:RECENT]],
+            "recent": recent,
         }
     except Exception as exc:  # noqa: BLE001 - a derived block never fails a page read
         logger.debug(f"list pages: block skipped ({type(exc).__name__})")
@@ -274,8 +644,8 @@ def block(memory_path: Path, entity_id: str, fm: dict | None) -> dict | None:
 #: The one sentence every agent write to a list's own page is refused with, on every door (the stdio tools, the remote
 #: connection, the command line, the agent API): the page stands for the list, so it takes no belief, edit, merge, split, link or
 #: look. No name in it: a folder's name is the person's own word.
-AGENT_REFUSAL = ("That page is a list of saved posts, read from the person's saves each time, so it takes no fact, edit, "
-                 "merge, split, link or look and nothing was changed; record a fact on the page of the thing a post is about "
+AGENT_REFUSAL = ("That page is a list of saved things, read from the person's saves each time, so it takes no fact, edit, "
+                 "merge, split, link or look and nothing was changed; record a fact on the page of the saved thing itself "
                  "instead.")
 
 
@@ -292,9 +662,10 @@ def line_for(memory_path: Path, entity_id: str, *, rows: bool = False) -> dict |
             return None
         got = block(memory_path, entity_id, fm) or {}
         count, newest = int(got.get("count") or 0), got.get("newest")
-        head = (f"This page is a list of saved posts ({fm.get('name') or entity_id}): {count} saved"
+        kind = kind_of_stream(info["stream"])
+        head = (f"This page is a list of saved {kind.noun if kind else 'posts'} ({fm.get('name') or entity_id}): {count} saved"
                 + (f", newest {newest}" if newest else "")
-                + ". It holds no posts or facts of its own: the count and the rows are read from the person's saves each "
+                + f". It holds no {kind.noun if kind else 'posts'} or facts of its own: the count and the rows are read from the person's saves each "
                   "time, so find a post by its words in a search, never by this page's text.")
         out = [head]
         if rows and got.get("recent"):
@@ -324,7 +695,6 @@ class State:
     """What the pages say about the lists that are on screen: the live list pages with their counts, and which folders each
     page's saves are filed in (for the read-time edges)."""
     drawn: dict = field(default_factory=dict)       # page id -> Drawn
-    folders_of: dict = field(default_factory=dict)  # page id -> ((origin, folded folder), ...)
     stamp: str = ""
 
 
@@ -335,42 +705,30 @@ def _live(fm: dict) -> bool:
     return str(fm.get("status") or "active").strip().lower() not in ("archived", "dropped")
 
 
-def _build(memory_path: Path, entities, episodes) -> State:
-    from api.services import quiet_pages, save_folders
-
-    drawn: dict[str, Drawn] = {}
-    for entry in entities:
-        fm = entry.frontmatter or {}
-        info = list_of(fm)
-        if info is None or not _live(fm):
-            continue
-        read = _read(memory_path, info["stream"], info["folder"], limit=1)
-        count = int((read or {}).get("all") or 0)
-        if count > 0:
-            drawn[entry.stem] = Drawn(info["stream"], info["folder"], count, (read or {}).get("latest"))
-    filed: dict[str, list] = {}
-    for entry in episodes:
-        fm = entry.frontmatter or {}
-        page = str(fm.get(quiet_pages.SAVE_KEY) or "").strip()
-        if not page or fm.get("source_deleted_at"):
-            continue
-        for origin, name in save_folders.folders_of(fm):
-            pair = (origin, _cf(name))
-            if pair not in filed.setdefault(page, []):
-                filed[page].append(pair)
+def _state_of(g: Groups) -> State:
+    drawn = {key: Drawn(li.stream, li.folder, li.count, li.newest) for key, li in g.lists.items()
+             if li.has_page and li.count > 0}
     stamp = hashlib.sha1("\x1f".join(f"{pid}:{d.count}:{d.newest}" for pid, d in sorted(drawn.items())).encode()
                          ).hexdigest()[:12] if drawn else ""
-    return State(drawn=drawn, folders_of={p: tuple(v) for p, v in filed.items()}, stamp=stamp)
+    return State(drawn=drawn, stamp=stamp)
+
+
+_STATE: dict[str, tuple] = {}
 
 
 def state(memory_path: Path) -> State:
-    """The lists that are drawn, kept until the pages' or the saves' cached headers change. Empty while
-    ``saved_posts.HIDE_POSTS`` is off, so every reader behaves as before."""
-    if not saved_posts.HIDE_POSTS:
+    """The lists whose pages are drawn, from :func:`groups`. Empty while :func:`enabled` is off, so every reader behaves
+    as before."""
+    if not enabled():
         return _EMPTY
-    memory_path = Path(memory_path)
-    return bank_index.derived_over(memory_path, ("entities", "episodes"), "list_pages.state",
-                                   lambda entities, episodes: _build(memory_path, entities, episodes))
+    slot = str(Path(memory_path))
+    g = groups(memory_path)
+    hit = _STATE.get(slot)
+    if hit is not None and hit[0] is g:
+        return hit[1]
+    out = _state_of(g)
+    _STATE[slot] = (g, out)
+    return out
 
 
 def stamp(memory_path: Path) -> str:
@@ -397,34 +755,23 @@ def stream_pages(memory_path: Path) -> dict[str, dict]:
 
 
 def read_time_edges(memory_path: Path, entity_ids, earned) -> list[tuple[str, str, str]]:
-    """``[(source, target, label)]`` for the graph, computed on read and never stored: each earned post that is a member of
-    a drawn list is joined to that list's page, and each drawn folder's page to its list's page. Only between pages that
-    are nodes (``entity_ids``). A list with no earned post has none, on purpose: a fake edge would be worse than none."""
-    from api.services import source_streams
-
+    """``[(source, target, label)]`` for the graph, computed on read and never stored: each earned member of a drawn list
+    is joined to that list's page (its folder's and its whole list's), and each drawn folder's page to its list's page.
+    Only between pages that are nodes (``entity_ids``). A list with no earned member has none, on purpose: a fake edge
+    would be worse than none."""
     st = state(memory_path)
     if not st.drawn:
         return []
-    memory_path = Path(memory_path)
+    g = groups(memory_path)
     out: list[tuple[str, str, str]] = []
-    for pid, d in st.drawn.items():
-        if d.folder and pid in entity_ids:
-            whole = page_id(d.stream)
-            if whole in st.drawn and whole in entity_ids:
-                out.append((pid, whole, "part of"))
-    streams_of = source_streams.members(memory_path).streams_of
-    origin_of = {s.id: s.origin for _g, s in post_specs()}
+    for pid in sorted(st.drawn):
+        li = g.lists.get(pid)
+        if li is not None and li.parent and pid in entity_ids and li.parent in st.drawn and li.parent in entity_ids:
+            out.append((pid, li.parent, "part of"))
     for post in sorted(set(earned) & set(entity_ids)):
-        held = streams_of.get(post, ())
-        for stream in held:
-            whole = page_id(stream)
-            if whole in st.drawn and whole in entity_ids:
-                out.append((post, whole, "saved in"))
-            for origin, folded in st.folders_of.get(post, ()):
-                if origin and origin == origin_of.get(stream):
-                    folder_page = page_id(stream, folded)
-                    if folder_page in st.drawn and folder_page in entity_ids:
-                        out.append((post, folder_page, "saved in"))
+        for key in g.of_page.get(post, ()):
+            if key in st.drawn and key in entity_ids:
+                out.append((post, key, "saved in"))
     return out
 
 
@@ -449,8 +796,14 @@ def _list_block(w: Want) -> dict:
             "named": w.name, "said": w.sentence}
 
 
+_SUMMARY = "## Summary\n"
+
+
 def _body(w: Want) -> str:
-    return w.sentence + "\n"
+    # Under the heading every page's one line lives under: the app lifts a page's `## Summary` as its row's line, and a
+    # full page with no Summary has none, so a bare sentence drew the row's line until the page was first opened (seen on
+    # the scratch app with the switch on).
+    return _SUMMARY + w.sentence + "\n"
 
 
 def _pages(memory_path: Path) -> dict[str, dict]:
@@ -474,7 +827,7 @@ def _commit(memory_path: Path, rows: list[tuple[str, str]], *, trigger: str, aut
 
 
 def _refused(memory_path: Path) -> bool:
-    return not saved_posts.HIDE_POSTS or demo_guard.is_demo(memory_path) or replica_guard.blocks()
+    return not enabled() or demo_guard.is_demo(memory_path) or replica_guard.blocks()
 
 
 def sync(memory_path: Path) -> dict:
@@ -490,13 +843,7 @@ def sync(memory_path: Path) -> dict:
     todo = wanted(memory_path)
     lists = {w.id: w for w in todo}
     have = set(pages)
-    make = []
-    for w in todo:
-        if w.id in have:
-            continue                                # exists in any status: its key is held
-        count = (_read(memory_path, w.stream, w.folder, limit=1) or {}).get("all") or 0
-        if count > 0:
-            make.append(w)
+    make = [w for w in todo if w.id not in have]    # a page in any status holds its key; ``wanted`` holds something
     gone = _gone_streams(pages)
     changed = [pid for pid, fm in pages.items() if _live(fm) and pid in lists and _rename_due(fm, lists[pid])]
     retire = [pid for pid, fm in pages.items() if _live(fm) and (list_of(fm) or {}).get("stream") in gone]
@@ -518,7 +865,7 @@ def sync(memory_path: Path) -> dict:
 
 def _gone_streams(pages: dict[str, dict]) -> set[str]:
     """The streams a page names that no longer exist in the table: their source was removed."""
-    known = {spec.id for _g, spec in post_specs()}
+    known = {k.stream for k in kinds()}
     if not known:
         return set()           # a table that could not be read retires nothing
     return {info["stream"] for fm in pages.values() if (info := list_of(fm)) and info["stream"] not in known}
@@ -559,7 +906,8 @@ def _write_chunk(memory_path: Path, chunk, lists: dict[str, Want], today: str, o
             fm["name"] = w.name
             held = fm.get("list") if isinstance(fm.get("list"), dict) else {}
             # The words stay the person's when they edited them: only the sentence this writer wrote is replaced.
-            body = _body(w) if parsed.body.strip() == str(held.get("said") or "").strip() else parsed.body
+            said = str(held.get("said") or "").strip()
+            body = _body(w) if parsed.body.strip() in (said, (_SUMMARY + said).strip()) else parsed.body
             fm["list"] = {**held, **_list_block(w)}
             markdown_parser.write(path, fm, body)
             rows.append((f"entities/{item}.md", "updated"))

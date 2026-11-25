@@ -2547,6 +2547,13 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
             except Exception as e:  # noqa: BLE001 — never a reason for a run to fail
                 logger.debug(f"media pages skipped: {type(e).__name__}")
             try:
+                # Ruling 84: Cicada's own agent works a few open questions, after the window, on its own thread.
+                from api.services import harness_questions
+
+                harness_questions.start_run(memory_path, settings, user_triggered=user_triggered)
+            except Exception as e:  # noqa: BLE001 — never a reason for a run to fail
+                logger.debug(f"harness agent skipped: {type(e).__name__}")
+            try:
                 # G246 (ruling 81): the saves this run filed may have made a list's first item; its page is made in the
                 # writer's own commit once the window is open (a no-op before the flip, on a replica and on a demo bank).
                 from api.services import list_pages
