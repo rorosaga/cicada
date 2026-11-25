@@ -942,3 +942,18 @@ def test_a_conversation_copy_is_known_by_its_folder_however_the_session_spells_t
     for where in (spelled, short, str(tmp_path / "files" / ".." / "files" / "ep_2026-10-03_001.md")):
         assert hq._conversation_of(ha.Evidence(where, "file", "x"), brief) == "ep_2026-10-03_001", where
     assert hq._conversation_of(ha.Evidence(str(tmp_path / "ep_2026-10-03_001.md"), "file", "x"), brief) == ""     # another folder
+
+
+def test_the_record_of_what_was_found_is_scrubbed_like_every_episode(tmp_path):
+    """R-LS6: the web-check episode the agent's settle cites goes through `episode_scrub`, so a secret a quote still
+    carries never reaches the bank."""
+    from api.services import markdown_parser
+
+    memory = tmp_path / "memory"
+    secret = "sk-" + "Z" * 24
+    evidence = [ha.Evidence("https://example.com/zephyr", "address", f"Zephyr 4.2 shipped; token {secret}")]
+    path = hq._found_episode(memory, _brief(bank=str(memory)), evidence, "m")
+    (written,) = (memory / "episodes").glob("*.md")
+    body = markdown_parser.parse(written).body
+    assert secret not in body and "Zephyr 4.2 shipped" in body
+    assert str(path)

@@ -711,13 +711,16 @@ def _found_episode(memory_path: Path, brief: Brief, evidence: list[ha.Evidence],
     words), in the shape `evidence.locate` finds a quote in."""
     from datetime import date as _date
 
-    from api.services import episode_ids, reading_hosts
+    from api.services import episode_ids, episode_scrub, reading_hosts
 
     lines = [f"assistant: Looked into {brief.name} with Cicada's agent.", ""]
     for e in evidence:
         host = (reading_hosts.display_host(reading_hosts.host_of(e.where)) if e.kind == "address" else "file") or "page"
         lines += [f"attachment [{host}]: as Cicada's agent read it at {stored_where(e, brief)}", f"> {e.quote}"]
-    body = "\n".join(lines)
+    # Every episode writer scrubs (R-LS6): what a page or a file said goes through the same scrubber as a capture,
+    # after the key-shaped drop in `harness_files`, so a secret a quote still carries never reaches the bank.
+    body, scrubbed = episode_scrub.scrub("\n".join(lines))
+    episode_scrub.record("mcp", scrubbed)
     episodes_dir = Path(memory_path) / "episodes"
     episodes_dir.mkdir(parents=True, exist_ok=True)
     fm = {"id": episode_ids.next_episode_id(episodes_dir, _date.today().isoformat()), "timestamp": episode_ids.utc_now_iso(),
