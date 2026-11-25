@@ -2053,6 +2053,12 @@
       "disposition": "fresh_frontmatter_untracked"
     },
     {
+      "function": "_retire",
+      "method": "write",
+      "frontmatter": "{**fm, 'settled': inbox_tend._record(fm, decision, 'cicada', None)}",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
       "function": "tend",
       "method": "write",
       "frontmatter": "rewritten",

@@ -1372,21 +1372,25 @@ async def _catchup_questions_safely(memory_path: Path) -> None:
             logger.warning(f"Catch-up questions skipped: tree status unreadable ({type(exc).__name__})")
             return
     budget = inbox_catchup.Budget(inbox_catchup.NEW_PER_DRAIN)
+    def undo_written(memory_path: Path, report) -> None:
+        still_questions.restore(memory_path, report.written)   # a step that only wrote new files: unlink them
+
+    # (propose, commit message, undo): a step that REWRITES tracked files (which_one) puts back what it read, never only unlinks.
     steps = (
         (lambda: still_questions.propose(memory_path, today, budget=budget, skip=skip),
-         lambda r: still_questions.commit_message(r.written, today)),
+         lambda r: still_questions.commit_message(r.written, today), undo_written),
         (lambda: inbox_catchup.propose_nicknames(memory_path, today, budget=budget, skip=skip),
-         lambda r: inbox_catchup.nickname_commit_message(r.written, today)),
+         lambda r: inbox_catchup.nickname_commit_message(r.written, today), undo_written),
         # ROR-136: a misspelling, a first name beside the full one, a shared account — the same-person question a
         # person spots at a glance, engine-free (`person_duplicates`).
         (lambda: person_duplicates.propose(memory_path, today, budget=budget, skip=skip),
-         lambda r: person_duplicates.commit_message(r.written, today)),
+         lambda r: person_duplicates.commit_message(r.written, today), undo_written),
         # Ruling 83 (owner 2026-11-25): what the lanes above and Stage 2 left as one pairwise question per candidate for a
         # mention that could be several pages is rewritten into the one "were you talking about A or B?" (engine-free).
         (lambda: which_one.tend(memory_path, today, skip=skip),
-         lambda r: which_one.commit_message(r, today)),
+         lambda r: which_one.commit_message(r, today), which_one.restore),
     )
-    for propose, message in steps:
+    for propose, message, undo in steps:
         try:
             report = await asyncio.to_thread(propose)
         except Exception as exc:
@@ -1400,7 +1404,7 @@ async def _catchup_questions_safely(memory_path: Path) -> None:
             logger.info(f"Catch-up questions: {len(report.written)} asked")
         except Exception as exc:
             logger.warning(f"Catch-up questions commit failed — undoing: {type(exc).__name__}: {exc}")
-            await asyncio.to_thread(still_questions.restore, memory_path, report.written)
+            await asyncio.to_thread(undo, memory_path, report)
 
 
 async def _link_sources_safely(memory_path: Path) -> None:

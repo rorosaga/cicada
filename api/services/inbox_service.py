@@ -3271,15 +3271,17 @@ def _keep_apart(settings, fm: dict, pages: list[str]) -> list[str] | None:
     THAT mention apart — on its pending line, with the conversations it holds (`pending_store.mark_apart`) — never as a
     name→page rejection. The mention's slug is often a page's own id (the page it was held against), so a name-keyed
     pair kept every later mention of that page from joining it. Returns the manifest lines, or ``None`` for a question
-    about a page (a page pair, a fold-page question, an older unflagged one), which keeps the page-pair rejection."""
-    from api.services import pending_store
+    about a page (a page pair, a fold-page question, an older unflagged one), which keeps the page-pair rejection. A
+    which-one question (`which_one`, ruling 83) is always about a mention, whoever raised it: Stage 2 marks only its own."""
+    from api.services import pending_store, which_one
     from api.services.entity_resolver import HELD_MENTION_KEY
 
-    if fm.get(HELD_MENTION_KEY) is not True or fm.get("fold_page") is True:
+    if fm.get("fold_page") is True or not (fm.get(HELD_MENTION_KEY) is True or which_one.about_mention(fm)):
         return None
     mention = str(fm.get("entity_name") or fm.get("entity_mention") or "").strip()
-    episode = str(fm.get("source_episode") or "").strip()
-    if pending_store.mark_apart(settings.memory_path, mention, pages, [episode] if episode else []):
+    # Every conversation the question came from (a folded one's too, `which_one.episodes_of`), never only the first.
+    episodes = which_one.episodes_of(fm)
+    if pending_store.mark_apart(settings.memory_path, mention, pages, episodes):
         return [f"{pending_store.PENDING_STORE_FILE}: updated (trigger: inbox/merge_suggestion/rejected)"]
     return []   # nothing held under the name any more: a later mention is a new question, never a name-wide verdict
 
@@ -3514,9 +3516,12 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
         rename = survivor_file is None or survivor_file != target_path
 
         if source_episode:
+            from api.services import which_one as _which_one
+
             episodes = list(target.frontmatter.get("source_episodes", []) or [])
-            if source_episode not in episodes:
-                episodes.append(source_episode)
+            for ep in dict.fromkeys([source_episode, *_which_one.episodes_of(parsed.frontmatter)]):   # a folded question's too
+                if ep not in episodes:
+                    episodes.append(ep)
             target.frontmatter["source_episodes"] = episodes
 
         existing_last = str(
@@ -3553,7 +3558,15 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
         fold_flag = (parsed.frontmatter.get("fold_page") is True
                      or str(parsed.frontmatter.get("detected") or "") == "person_duplicate")
         subject_file = resolve_entity_file(settings.memory_path, entity_id) if entity_id else None
-        about_mention = parsed.frontmatter.get(HELD_MENTION_KEY) is True and not fold_flag
+        from api.services import which_one
+
+        about_mention = (parsed.frontmatter.get(HELD_MENTION_KEY) is True or which_one.about_mention(
+            parsed.frontmatter)) and not fold_flag
+        # Ruling 83: a pick of one page among several the name could be is an answer about THIS mention in THIS
+        # conversation. The name is not made the page's alias and the page keeps no "the person said" note for it (Stage 2
+        # reads both as the person's word that the name is that page, and would join every later mention there with no
+        # look at its own conversation).
+        a_pick = str(parsed.frontmatter.get("detected") or "") == which_one.DETECTED
         subject_page = subject_file.stem if subject_file is not None and not about_mention else ""
         unflagged_recent = (not fold_flag
                             and str(parsed.frontmatter.get("created_date") or "")[:10] >= UNFLAGGED_FOLD_CUTOFF)
@@ -3571,7 +3584,7 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             from api.services import pending_store, person_leads
 
             note = "\n\n" + person_leads.answered_note(mention)
-            new_body = append_note(target.body, note)
+            new_body = target.body if a_pick else append_note(target.body, note)
             pageless = bool(mention) and (not entity_id or resolve_entity_file(settings.memory_path, entity_id) is None)
             if pageless:
                 # G209: a name still below the promotion bar has no page to fold. The answer makes it one of the target's
@@ -3579,7 +3592,7 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 # on instead of being asked about again.
                 names = [str(a) for a in target.frontmatter.get("aliases") or [] if str(a).strip()]
                 own = str(target.frontmatter.get("name") or "")
-                if (mention.lower() != own.lower() and all(a.lower() != mention.lower() for a in names)
+                if (not a_pick and mention.lower() != own.lower() and all(a.lower() != mention.lower() for a in names)
                         and alias_policy.admits(mention)):
                     target.frontmatter["aliases"] = [*names, mention]
             markdown_parser.write(target_path, target.frontmatter, new_body)
@@ -3635,8 +3648,11 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                         409, f"'{survivor_path.stem}' has an unreadable claims block; repair it before merging ({exc})")
                 existing = markdown_parser.parse(survivor_path)
                 eps = list(existing.frontmatter.get("source_episodes", []) or [])
-                if source_episode and source_episode not in eps:
-                    eps.append(source_episode)
+                from api.services import which_one as _which_one
+
+                for ep in dict.fromkeys([source_episode, *_which_one.episodes_of(parsed.frontmatter)]):
+                    if ep and ep not in eps:
+                        eps.append(ep)
                 if eps:
                     existing.frontmatter["source_episodes"] = eps
                 ex_last = str(

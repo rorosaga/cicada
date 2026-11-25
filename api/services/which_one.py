@@ -20,14 +20,21 @@ Three halves, one module (`same_name_pick` keeps the answering: the keys, the ve
 
 The words are `inbox_wording`'s, at read; nothing here stores wording. The answer is the existing verbs: a picked page is
 ``merge`` (the held mention folded into it, G209); "Someone else" keeps the mention apart from every candidate
-(`pending_store.mark_apart`, scoped to the mention, never a name→page rejection). **A nickname both candidates answer to
-stays usable for both with no alias written to either:** after a pick the name is listed by the picked page (a merge
-lists it, as always) and the other keeps what it already listed; a name two or more person pages list is never a direct
-join (`entity_resolver._shared_name`) — a later mention goes to its own conversation and is asked again only if that
-does not decide either. Pure apart from the page reads it is handed; never raises into Sleep.
+(`pending_store.mark_apart`, scoped to the mention and every conversation the question came from, never a name→page
+rejection) whoever raised the question. **A pick is that mention's answer and nothing more:** what was held lands on the picked
+page, but the name is neither made its alias nor left as its "the person said so" note, which Stage 2 reads as the person's
+word and uses to join every later mention with no look at its own conversation (`entity_resolver._answered_match`); a later
+mention is decided by its own context and asked again only if that does not decide either.
+
+Folding keeps everything: the survivor takes every candidate, every conversation (``source_episodes``, :func:`episodes_of`) and
+every distinct body of the questions folded into it, and each folded file is closed as Sleep closes any question — moved whole
+to ``inbox/settled/<id>.md`` (rule :data:`RULE`), so the Inbox lists it and Sleep's undo reopens it. The report remembers the
+bytes read before each write (:func:`restore`), so a failed commit puts every question back as it was. Pure apart from the page
+reads it is handed; never raises into Sleep.
 """
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -43,6 +50,16 @@ MAX_CANDIDATES = 6
 _DEAD = frozenset({"dropped", "archived"})
 #: The relation a person page holds to the owner, said as the person says it ("your brother").
 ROLES_KEY = "owner_roles"
+#: A first or last word of a full name matches a mention only from this many letters ("Al", "J" are no one's short name).
+MIN_SHORT_NAME = 3
+#: A short name — a mention that is the first or last word of a full name — adds a page the question did not name only
+#: while at most this many live pages answer to it: three buttons still read as one sentence ("A, B or C") on the card. A
+#: name more people share is a common name, and a common name alone says nothing about which of them was meant.
+MAX_SHORT_NAME = 3
+#: The same, when the question or the held line already points at a page of that name: then the name is demonstrably a
+#: short name of that page, and its namesakes are real alternatives the question had not listed. Capped at the five the
+#: card is built and tested to show (`test_question_inventory`), never the six a question may hold.
+MAX_SHORT_NAME_POINTED = 5
 
 
 def _live(fm: dict) -> bool:
@@ -57,29 +74,42 @@ def _tokens(name) -> list[str]:
     return same_name.fold(name).split()
 
 
-def answering(memory_path, mention: str, *, exclude: frozenset[str] | set[str] = frozenset()) -> list[str]:
+def is_owner(fm: dict) -> bool:
+    """The person's own page: never a candidate (it is who is asking, not someone they could have meant)."""
+    return bool((fm or {}).get("owner"))
+
+
+def answering(memory_path, mention: str, *, exclude: frozenset[str] | set[str] = frozenset(),
+              pointed: frozenset[str] | set[str] | list[str] = frozenset()) -> list[str]:
     """The ids of the live pages ``mention`` could be: titled by it, listing it as another name, or — for a person and a
-    one-word mention — carrying it as the first or last word of a full name. Stable order, at most
-    :data:`MAX_CANDIDATES`; empty for a mention that is not a name. Headers only, no model."""
+    one-word mention of at least :data:`MIN_SHORT_NAME` letters — carrying it as the first or last word of a full name.
+    The owner's own page is never one. A short-name match adds a page only while at most :data:`MAX_SHORT_NAME` pages
+    answer to the name, or :data:`MAX_SHORT_NAME_POINTED` when ``pointed`` (the pages the question or the held line already
+    names) holds one of them; past that the short-name pages are left out and the question keeps the candidates it had. A
+    thing is never matched to a person by a word they share. Stable order, at most :data:`MAX_CANDIDATES`; empty for a
+    mention that is not a name. Headers only, no model."""
     key = same_name.fold(mention)
     if not key:
         return []
-    single = " " not in key
-    found: list[str] = []
+    short_ok = " " not in key and len(key) >= MIN_SHORT_NAME
+    hits: list[tuple[str, bool]] = []   # (page id, found only as a short name)
     for entry in bank_index.files(Path(memory_path), "entities"):
         fm = entry.frontmatter or {}
-        if entry.stem in exclude or not _live(fm):
+        if entry.stem in exclude or not _live(fm) or is_owner(fm):
             continue
         names = [fm.get("name") or entry.stem.replace("-", " "), *(a for a in (fm.get("aliases") or [])
                                                                     if isinstance(a, str))]
-        folded = {same_name.fold(n) for n in names}
-        hit = key in folded
-        if not hit and single and _is_person(fm):
+        if key in {same_name.fold(n) for n in names}:
+            hits.append((entry.stem, False))
+        elif short_ok and _is_person(fm):
             words = _tokens(fm.get("name") or "")
-            hit = len(words) >= 2 and key in (words[0], words[-1])
-        if hit:
-            found.append(entry.stem)
-    return found[:MAX_CANDIDATES]
+            if len(words) >= 2 and key in (words[0], words[-1]):
+                hits.append((entry.stem, True))
+    if any(short for _stem, short in hits):
+        points = set(pointed) & {stem for stem, _short in hits}
+        if len(hits) > (MAX_SHORT_NAME_POINTED if points else MAX_SHORT_NAME):
+            hits = [(stem, short) for stem, short in hits if not short]
+    return [stem for stem, _short in hits][:MAX_CANDIDATES]
 
 
 def roles_of(fm: dict) -> list[str]:
@@ -87,14 +117,32 @@ def roles_of(fm: dict) -> list[str]:
     return [str(r).strip().lower() for r in raw if str(r).strip()] if isinstance(raw, list) else []
 
 
+def labels(pages: list[dict]) -> list[str]:
+    """The answer buttons for ``pages`` (``{id, name, type, roles, qualifier}`` each), as the person refers to them: a
+    relation to the owner ("Your brother") — but only when it is unique among these pages (two brothers are not told apart
+    by "your brother") — else the name, said with its qualifier only when the name alone would not tell it from another
+    (`same_name`). Two choices never show the same words: a pair that still reads alike is told apart by the qualifier
+    `same_name_pick` derives, else the page's type word, else its id."""
+    rows = []
+    for page in pages:
+        person = str(page.get("type") or "").lower() == "person"
+        roles = roles_of({ROLES_KEY: page.get("roles")}) if person else []
+        rows.append((" ".join(str(page.get("name") or page.get("id") or "").split()), roles[0] if roles else None,
+                     page.get("qualifier") or None, str(page.get("type") or "").strip().lower(), str(page.get("id") or "")))
+    taken = Counter(role for _n, role, _q, _t, _i in rows if role)
+    out = [f"Your {role}" if role and taken[role] == 1 else same_name.display(name, qualifier)
+           for name, role, qualifier, _t, _i in rows]
+    for step in (lambda r: r[2] or same_name.TYPE_WORDS.get(r[3]), lambda r: r[4]):
+        seen = Counter(same_name.fold(o) for o in out)
+        out = [same_name.display(r[0], step(r)) if seen[same_name.fold(o)] > 1 and step(r) else o
+               for r, o in zip(rows, out)]
+    return out
+
+
 def label(page_id: str, fm: dict, qualifier: str | None = None) -> str:
-    """One page as the person refers to it, for an answer button: a relation to the owner ("Your brother"), else the
-    name, said with its qualifier only when the name alone would not tell it from another (`same_name`)."""
-    name = " ".join(str((fm or {}).get("name") or page_id).split())
-    roles = roles_of(fm) if _is_person(fm) else []
-    if roles:
-        return f"Your {roles[0]}"
-    return same_name.display(name, qualifier)
+    """One page as the person refers to it (:func:`labels` over a single page)."""
+    return labels([{"id": page_id, "name": (fm or {}).get("name"), "type": (fm or {}).get("type"),
+                    "roles": roles_of(fm), "qualifier": qualifier}])[0]
 
 
 def phrase(option: dict) -> str:
@@ -163,8 +211,8 @@ def _open_for(memory_path, mention_id: str) -> Path | None:
 
 
 def usable(memory_path, mention: str, candidates: list[str]) -> list[str]:
-    """The candidates a question may still offer: live, not refused for this mention, and not already said to be
-    "another one" for it."""
+    """The candidates a question may still offer: live, never the owner's own page, not refused for this mention, and
+    not already said to be "another one" for it."""
     from api.services import merge_rejections, pending_store
     from api.services.id_utils import sanitize_id
 
@@ -173,7 +221,8 @@ def usable(memory_path, mention: str, candidates: list[str]) -> list[str]:
     out: list[str] = []
     for pid in dict.fromkeys(str(c) for c in candidates if str(c).strip()):
         entry = bank_index.file(Path(memory_path), "entities", f"{pid}.md")
-        if entry is None or not _live(entry.frontmatter or {}) or pid == mention_id or pid in apart:
+        if (entry is None or not _live(entry.frontmatter or {}) or is_owner(entry.frontmatter or {})
+                or pid == mention_id or pid in apart):
             continue
         if merge_rejections.is_rejected(Path(memory_path), mention_id, pid):
             continue
@@ -225,6 +274,28 @@ def raise_question(memory_path, mention: str, source_episode: str, candidates: l
 
 # --------------------------------------------------------------------------- Sleep's tending
 
+#: The rule a folded question's settled record carries (`inbox_tend.RULES`): Sleep closed it because its candidates are on
+#: the one question, and the person may take that back like any other settle.
+RULE = "which_one_folded"
+
+
+def episodes_of(fm: dict) -> list[str]:
+    """Every conversation a which-one question came from: the one that raised it, then the ones folded questions came
+    from (``source_episodes``). One reading for everything that uses the question's conversations: the evidence shown,
+    "Someone else" keeping the mention apart, the page a pick joins the mention to."""
+    out: list[str] = []
+    for value in [(fm or {}).get("source_episode"), *((fm or {}).get("source_episodes") or [])]:
+        text = str(value or "").strip()
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
+def about_mention(fm: dict) -> bool:
+    """The question is about a mention (a name said in a conversation), never about a page: Stage 2's held mention, or a
+    question this module raised or rewrote."""
+    return (fm or {}).get("held_mention") is True or str((fm or {}).get("detected") or "") == DETECTED
+
 
 @dataclass
 class Report:
@@ -232,18 +303,47 @@ class Report:
     rewritten: int = 0
     folded: int = 0
     skipped: dict[str, int] = field(default_factory=dict)
+    #: ``{memory-relative path: the bytes it held before this run touched it}`` (``None``: it did not exist): what
+    #: :func:`restore` puts back when the run's commit fails. Unlike a step that only writes new files, this one rewrites a
+    #: tracked question and moves others, so undoing means writing back what was read, never only unlinking.
+    before: dict[str, bytes | None] = field(default_factory=dict)
 
     def skip(self, why: str) -> None:
         self.skipped[why] = self.skipped.get(why, 0) + 1
 
+    def remember(self, memory_path: Path, rel: str) -> None:
+        if rel not in self.before:
+            path = Path(memory_path) / rel
+            self.before[rel] = path.read_bytes() if path.is_file() else None
+
+
+def restore(memory_path, report: Report, rels: list[str] | None = None) -> None:
+    """Put every file the run touched (or just ``rels``) back as it was: the rewritten question and the ones folded into
+    it as the bytes read before, a settled record that did not exist as gone. Never raises."""
+    memory_path = Path(memory_path)
+    for rel, data in report.before.items():
+        if rels is not None and rel not in rels:
+            continue
+        path = memory_path / rel
+        try:
+            if data is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+        except OSError as exc:
+            logger.warning(f"which-one restore skipped {rel}: {type(exc).__name__}")
+    bank_index.invalidate(memory_path)
+
 
 def _mention_like(memory_path: Path, fm: dict) -> bool:
     """The question's subject is a name, not a page the person has: no page of that id yet (a held mention, G209) or a
-    page titled by a nickname — or the question Stage 2 marked as one about a mention it held (``held_mention``)."""
+    page titled by a nickname — or the question Stage 2 marked as one about a mention it held (``held_mention``), or one
+    of this module's own."""
     from api.services import role_people
     from api.services.id_utils import resolve_entity_file
 
-    if fm.get("held_mention"):
+    if about_mention(fm):
         return True
     path = resolve_entity_file(memory_path, str(fm.get("entity_id") or ""))
     if path is None:
@@ -252,13 +352,62 @@ def _mention_like(memory_path: Path, fm: dict) -> bool:
     return entry is not None and bool((entry.frontmatter or {}).get(role_people.NICKNAME_KEY))
 
 
+def _name_of(memory_path: Path, pid: str) -> str:
+    entry = bank_index.file(memory_path, "entities", f"{pid}.md")
+    return " ".join(str(((entry.frontmatter if entry is not None else {}) or {}).get("name") or pid).split())
+
+
+def _carried(survivor: dict, body: str, folded: list[tuple[Path, dict, str]]) -> tuple[dict, str]:
+    """What the survivor takes from the questions folded into it: every conversation they came from (``source_episodes``),
+    the first reason and timestamp it lacks, ``held_mention`` when any was, and each distinct body — so what a folded
+    question stored is on the one question as well as in its settled record (ruling 73)."""
+    out = dict(survivor)
+    episodes = episodes_of(survivor)
+    bodies = [body.strip()] if body.strip() else []
+    for _path, fm, text in folded:
+        episodes += [e for e in episodes_of(fm) if e not in episodes]
+        for key in ("why_asked", "source_episode_timestamp"):
+            if fm.get(key) and not out.get(key):
+                out[key] = fm[key]
+        if fm.get("held_mention") is True:
+            out["held_mention"] = True
+        if text.strip() and text.strip() not in bodies:
+            bodies.append(text.strip())
+    if len(episodes) > 1:
+        out["source_episodes"] = episodes
+    if episodes and not out.get("source_episode"):
+        out["source_episode"] = episodes[0]
+    return out, "\n\n".join(bodies)
+
+
+def _retire(memory_path: Path, report: Report, path: Path, fm: dict, body: str, into: str) -> bool:
+    """Close a folded question the way Sleep closes any other: moved, whole, to its settled record
+    (``inbox/settled/<id>.md``, `inbox_tend.RULES`) so the Inbox lists it and the person can take it back. False (nothing
+    written) when a settled record of that number already waits for its undo."""
+    from api.services import inbox_tend, markdown_parser
+
+    record_rel = f"inbox/{inbox_tend.SETTLED_DIR}/{path.stem}.md"
+    if (memory_path / record_rel).exists():
+        return False
+    decision = inbox_tend.Decision(path.stem, "merge_suggestion", RULE, None, answer=f"Asked once, in {into}")
+    report.remember(memory_path, record_rel)
+    report.remember(memory_path, f"inbox/{path.name}")
+    (memory_path / record_rel).parent.mkdir(parents=True, exist_ok=True)
+    markdown_parser.write(memory_path / record_rel, {**fm, "settled": inbox_tend._record(fm, decision, "cicada", None)}, body)
+    path.unlink()
+    report.written += [f"inbox/{path.name}", record_rel]
+    return True
+
+
 def tend(memory_path, today: date | None = None, *, skip: frozenset[str] = frozenset()) -> Report:
     """Rewrite every pairwise "is <mention> the same as <page>?" whose mention could be two or more pages into the one
-    question (see the module). One question per mention is kept — the oldest — and the rest of that mention's pairwise
-    files are removed after their candidates are on it. Untouched: a question with a ``detected`` marker (a page pair
-    another rule asked), one that names where each side was heard, one the person took back or put off, a file the
-    caller marks dirty (``skip``)."""
-    from api.services import inbox_tend
+    question (see the module). One question per mention is kept — the one already in the which-one form, else the oldest —
+    and the rest of that mention's pairwise files are folded into it: their candidates and conversations carried onto it,
+    each closed through its settled record (:func:`_retire`). A later pairwise question about a mention that already has the
+    one is folded into it, never a second. Untouched: a question with another ``detected`` marker (a page pair another rule
+    asked), one that names where each side was heard, one the person took back or put off, a file the caller marks dirty
+    (``skip``). Every file it touches is remembered in the report for :func:`restore`."""
+    from api.services import inbox_tend, markdown_parser, pending_store
     from api.services.id_utils import sanitize_id
 
     memory_path = Path(memory_path)
@@ -271,10 +420,11 @@ def tend(memory_path, today: date | None = None, *, skip: frozenset[str] = froze
             continue
         rel = f"inbox/{path.name}"
         entity_id = sanitize_id(str(fm.get("entity_id") or ""))
-        if inbox_tend._blocked(fm, day):
-            theirs.add(entity_id)
+        ours = str(fm.get("detected") or "") == DETECTED
+        if inbox_tend._blocked(fm, day) or (ours and rel in skip):
+            theirs.add(entity_id)   # ... or one this run may not touch: no second question is made beside it
             continue
-        if fm.get("detected") or fm.get("heard_in") or fm.get("fold_page") or rel in skip:
+        if (fm.get("detected") and not ours) or fm.get("heard_in") or fm.get("fold_page") or rel in skip:
             continue
         if entity_id and _mention_like(memory_path, fm):
             groups.setdefault(entity_id, []).append((path, fm, body))
@@ -282,37 +432,49 @@ def tend(memory_path, today: date | None = None, *, skip: frozenset[str] = froze
         if entity_id in theirs:
             report.skip("the_persons")
             continue
+        items.sort(key=lambda item: str(item[1].get("detected") or "") != DETECTED)   # the one already asked first (stable)
         first_path, first, body = items[0]
         mention = str(first.get("entity_name") or entity_id)
         named = [str(fm.get("merge_target_hint") or "") for _p, fm, _b in items]
         stored = [pid for _p, fm, _b in items for pid in (fm.get("same_title") or []) if isinstance(pid, str)]
-        wanted = usable(memory_path, mention, [*named, *stored, *answering(memory_path, mention, exclude={entity_id})])
+        pointed = {*named, *stored, pending_store.held_against(memory_path, mention)}
+        wanted = usable(memory_path, mention, [*stored, *named, *answering(memory_path, mention, exclude={entity_id},
+                                                                          pointed=pointed)])
         if len(wanted) < 2:
             report.skip("one_candidate")
             continue
         if len(items) == 1 and list(first.get("same_title") or []) == wanted:
             continue   # already the question
-        names = [" ".join(str((bank_index.file(memory_path, "entities", f"{p}.md").frontmatter or {}).get("name") or p).split())
-                 for p in wanted]
-        rewritten = {**first, "same_title": wanted, "merge_target_hint": wanted[0], "detected": DETECTED,
+        folding = []
+        for item in items[1:]:
+            if (memory_path / "inbox" / inbox_tend.SETTLED_DIR / f"{item[0].stem}.md").exists():
+                report.skip("record_waits")   # a settled question of this number waits for its undo: left alone
+            else:
+                folding.append(item)
+        rewritten, merged_body = _carried(first, body, folding)
+        names = [_name_of(memory_path, p) for p in wanted]
+        rewritten = {**rewritten, "same_title": wanted, "merge_target_hint": wanted[0], "detected": DETECTED,
                      "uncertainty_type": f"Possible duplicate of {names[0]}",
                      "title": (f"Were you talking about {_or(names)}?"
                                if len(f"Were you talking about {_or(names)}?") <= MAX_QUESTION
                                else f"Which one did you mean by {mention}?"), "updated_date": day}
+        first_rel = f"inbox/{first_path.name}"
+        touched, folded_here, mark = [first_rel], 0, len(report.written)
         try:
-            markdown_parser.write(first_path, rewritten, body)
-        except OSError as exc:
+            report.remember(memory_path, first_rel)
+            for path, fm, text in folding:
+                touched += [f"inbox/{path.name}", f"inbox/{inbox_tend.SETTLED_DIR}/{path.stem}.md"]
+                if _retire(memory_path, report, path, fm, text, first_path.stem):
+                    folded_here += 1
+            markdown_parser.write(first_path, rewritten, merged_body)
+        except Exception as exc:  # noqa: BLE001 — a group that will not write is put back; the others go on
             logger.warning(f"which-one rewrite failed: {type(exc).__name__}")
+            restore(memory_path, report, touched)
+            del report.written[mark:]
             continue
-        report.written.append(f"inbox/{first_path.name}")
+        report.written.insert(mark, first_rel)
         report.rewritten += 1
-        for path, _fm, _b in items[1:]:
-            try:
-                path.unlink()
-            except OSError:
-                continue
-            report.written.append(f"inbox/{path.name}")
-            report.folded += 1
+        report.folded += folded_here
     if report.written:
         bank_index.invalidate(memory_path)
     return report
@@ -323,4 +485,4 @@ def commit_message(report: Report, today) -> str:
 
     return git_service.build_commit_message(
         f"Which-one questions {today.isoformat()}",
-        [f"{p}: updated (source: n/a, trigger: {TRIGGER})" for p in report.written], authors=["cicada"])
+        [f"{p}: updated (source: n/a, trigger: {TRIGGER})" for p in dict.fromkeys(report.written)], authors=["cicada"])

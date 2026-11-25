@@ -94,15 +94,17 @@ def options(memory_path, fm: dict, lookup: Lookup | None = None) -> list[dict]:
     shared = same_name.qualifiers(memory_path) if memory_path is not None else {}
     names = [" ".join(str(page.get("name") or pid).split()) for pid, page in pages]
     distinct = len({same_name.fold(n) for n in names}) == len(names)
-    out = []
+    rows = []
     for (pid, page), name in zip(pages, names):
         kind = str(page.get("type") or "").strip().lower()
         # A name two pages share is told apart by its qualifier; names that already differ ("<First> <Surname-a>", "<First>
-        # <Surname-b>") are told apart by themselves, and a person by the relation they are to the owner ("Your brother").
+        # <Surname-b>") are told apart by themselves, and a person by the relation they are to the owner ("Your brother",
+        # only when no other candidate is the same relation, `which_one.labels`).
         qualifier = shared.get(pid) or (None if distinct and (len(pages) > 1 or kind == "person")
                                         else same_name.TYPE_WORDS.get(kind)) or None
-        out.append({"key": f"{PAGE_PREFIX}{pid}", "label": which_one.label(pid, page, qualifier),
-                    "page_id": pid, "page_name": name, "qualifier": qualifier})
+        rows.append({"id": pid, "name": name, "type": kind, "roles": which_one.roles_of(page), "qualifier": qualifier})
+    out = [{"key": f"{PAGE_PREFIX}{row['id']}", "label": label, "page_id": row["id"], "page_name": row["name"],
+            "qualifier": row["qualifier"]} for row, label in zip(rows, which_one.labels(rows))]
     people = all(str(page.get("type") or "").strip().lower() == "person" for _pid, page in pages)
     out.append({"key": ANOTHER_KEY, "label": another_label(fm, len(pages), people=people)})
     return out

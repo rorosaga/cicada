@@ -495,6 +495,12 @@ class InboxContext:
             candidates.append(("item", pair_ep, None))
         if item_ep:
             candidates.append(("item", item_ep, None))
+        # A which-one question that took others in (ruling 83) came up in each of their conversations: the card may draw any.
+        from api.services import which_one
+
+        for more in which_one.episodes_of(fm):
+            if more != item_ep:
+                candidates.append(("item", more, None))
         by_id = {c.id: c for c in self.claims(entity_id)} if claim_ids else {}
         option_claims = [by_id[c] for c in claim_ids if c in by_id]
         option_claims.sort(key=lambda c: str(c.recorded_at or c.valid_from or ""), reverse=True)

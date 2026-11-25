@@ -515,10 +515,11 @@ def _same_name(fm: dict, today: str, name: str, other_fm: dict | None, same: dic
         # are the answers, whatever they are called (a title they share, a nickname, a short name inside two full names).
         from api.services import which_one
 
-        options = [{"key": f"page:{p.get('id')}",
-                    "label": which_one.label(str(p.get("id")), {"name": p.get("name"), "type": p.get("type"),
-                                                                "owner_roles": p.get("roles")}, p.get("qualifier")),
-                    "page_name": str(p.get("name") or ""), "qualifier": p.get("qualifier")} for p in pages]
+        options = [{"key": f"page:{p.get('id')}", "label": label, "page_name": str(p.get("name") or ""),
+                    "qualifier": p.get("qualifier")}
+                   for p, label in zip(pages, which_one.labels(
+                       [{"id": p.get("id"), "name": p.get("name"), "type": p.get("type"), "roles": p.get("roles"),
+                         "qualifier": p.get("qualifier")} for p in pages]))]
         question = which_one.ask(name, options)
         when = _ago(fm.get("source_episode_timestamp") or fm.get("created_date"), today)
         said = f"“{_clip(name, 32)}” came up {when}" if when else f"“{_clip(name, 32)}” came up"

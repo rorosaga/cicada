@@ -11,6 +11,7 @@ what may be sensitive, the where-to-check rows) keep their stored words: ``STORE
 """
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -152,12 +153,87 @@ def test_every_kind_a_raiser_can_write_has_an_example():
     assert {k.value for k in InboxKind} <= covered, sorted({k.value for k in InboxKind} - covered)
 
 
+#: Writers of an ``asks`` / ``detected`` KEY that are not a question's raiser, with why (a reader's keyword, an unrelated
+#: file format): (module, the source text of the value). An entry no code matches any more fails the gate, so it cannot rot.
+NOT_RAISERS = {
+    ("reading_asks", "rows"): "the reading-asks file's own list of rows, not a question",
+    ("skill_actions", "ob.get('asks')"): "a skill action reading its own field",
+    ("inbox_service", "_opt_str(fm.get('asks'))"): "the wire object copying a stored question's value",
+    ("list_defaults", "detected(memory_path)"): "a keyword naming the lists detected on this Mac",
+}
+
+
+def _string_constants() -> dict[str, dict[str, str]]:
+    """Every module-level ``NAME = "text"`` in the services, by module."""
+    out: dict[str, dict[str, str]] = {}
+    for path in ROOT.glob("*.py"):
+        found = {}
+        for node in ast.parse(path.read_text()).body:
+            if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)
+                    and isinstance(node.value.value, str)):
+                found.update({t.id: node.value.value for t in node.targets if isinstance(t, ast.Name)})
+        out[path.stem] = found
+    return out
+
+
+def raised_values() -> tuple[dict[str, set[str]], set[tuple[str, str]]]:
+    """``({"asks": {...}, "detected": {...}}, unresolved)`` from the code itself: every dict literal key, keyword argument
+    and subscript assignment named ``asks`` or ``detected`` in a service, its value read as a literal, or as a module
+    constant (``DETECTED``, ``alias_collisions.DETECTED``), and every module-level constant named ``DETECTED`` or ending
+    ``_DETECTED``. A value the gate cannot read is reported, so a raiser cannot hide behind a variable."""
+    constants = _string_constants()
+    found: dict[str, set[str]] = {"asks": set(), "detected": set()}
+    unresolved: set[tuple[str, str]] = set()
+    for module, names in constants.items():
+        for name, value in names.items():
+            if module != "inbox_wording" and (name == "DETECTED" or name.endswith("_DETECTED")):
+                found["detected"].add(value)
+    for path in ROOT.glob("*.py"):
+        if path.name == "inbox_wording.py":
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            pairs: list[tuple[str, ast.expr]] = []
+            if isinstance(node, ast.Dict):
+                pairs += [(k.value, v) for k, v in zip(node.keys, node.values)
+                          if isinstance(k, ast.Constant) and k.value in found]
+            elif isinstance(node, ast.keyword) and node.arg in found:
+                pairs.append((node.arg, node.value))
+            elif isinstance(node, ast.Assign):
+                pairs += [(t.slice.value, node.value) for t in node.targets
+                          if isinstance(t, ast.Subscript) and isinstance(t.slice, ast.Constant) and t.slice.value in found]
+            for key, value in pairs:
+                if isinstance(value, ast.Constant):
+                    if isinstance(value.value, str) and value.value:
+                        found[key].add(value.value)
+                elif isinstance(value, ast.Name) and value.id in constants[path.stem]:
+                    found[key].add(constants[path.stem][value.id])
+                elif (isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name)
+                      and value.attr in constants.get(value.value.id, {})):
+                    found[key].add(constants[value.value.id][value.attr])
+                else:
+                    unresolved.add((path.stem, ast.unparse(value)))
+    return found, unresolved
+
+
 def test_every_asks_and_detected_value_in_the_code_has_an_example():
-    """A raiser that writes a new ``asks`` or ``detected`` value without a spoken form here fails this."""
-    source = "\n".join(p.read_text() for p in ROOT.glob("*.py") if p.name != "inbox_wording.py")
-    asks = set(re.findall(r"\"asks\": \"([a-z_]+)\"", source)) | set(re.findall(r"\basks=\"([a-z_]+)\"", source))
-    detected = set(re.findall(r"\"detected\": \"([a-z_]+)\"", source))
+    """A raiser that writes a new ``asks`` or ``detected`` value without a spoken form here fails this — whether it writes
+    the literal, a module constant (``"detected": DETECTED``) or a keyword (``asks="x"``)."""
+    found, unresolved = raised_values()
     covered_asks = {k[1] for k in (*SPOKEN, *STORED)}
     covered_detected = {k[2] for k in (*SPOKEN, *STORED)}
-    assert asks <= covered_asks, sorted(asks - covered_asks)
-    assert detected <= covered_detected, sorted(detected - covered_detected)
+    assert found["asks"] <= covered_asks, sorted(found["asks"] - covered_asks)
+    assert found["detected"] <= covered_detected, sorted(found["detected"] - covered_detected)
+
+
+def test_a_value_the_gate_cannot_read_is_listed_with_a_reason_or_fails():
+    """``{"detected": some_variable}`` would hide a raiser from the gate: it is either made a constant or named here."""
+    _found, unresolved = raised_values()
+    assert unresolved <= set(NOT_RAISERS), sorted(unresolved - set(NOT_RAISERS))
+    assert set(NOT_RAISERS) <= unresolved, f"{sorted(set(NOT_RAISERS) - unresolved)}: no longer written; drop the entry"
+
+
+def test_the_gate_sees_a_constant_and_a_keyword_a_literal_grep_would_miss():
+    found, _ = raised_values()
+    # which_one.py writes `"detected": DETECTED`, a literal grep never saw it; person_duplicates passes it as a keyword.
+    assert {"which_one", "person_duplicate", "alias_collision", "spelling", "same_name_doubt"} <= found["detected"]
+    assert {"still", "sources", "speaker", "name"} <= found["asks"]
