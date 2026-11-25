@@ -1635,7 +1635,15 @@ one before the last on a video's own page and, in the viewer a profile's grid op
 links that split the row — measured 2026-11-25 with real clicks: there the row is comments, favourite, five share
 links, Share, Copy link, each count alone as the label, and the old place named Share and missed the favourite; in
 both rows only a control whose own label names a count is the favourite, which also keeps the share button and the
-player's volume from being read as one, `Slot.countedBeforeLastOrLinks`), and which page is the person's own saved list. The post is named by the row's own link, else by
+player's volume from being read as one, `Slot.countedBeforeLastOrLinks`), and which page is the person's own saved list.
+**A feed that plays one post at a time** (`SiteSaveSite.Playing`, owner 2026-11-25: "everything else you say its not
+covered should be covered"; measured on TikTok's For You): the address stays the feed's and no link names the video, so
+the row read as `noPostLink`. The controls sit in one bar beside whichever video is playing; the reader climbs from the
+row to the nearest block that holds both the creator's link (`tiktok.com/@<account>`) and a player whose DOM id names a
+post (`xgwrapper-<n>-<id>`), takes the player whose own wrapper is tall on screen at the controls' height (the posts
+before and after are kept as slivers one point high, and reach a tall frame only far up, at the column they share: the
+nearest wins, alone), and names the post `tiktok.com/@<account>/video/<id>` (`SiteSaveReader.playingPost`). Two
+accounts, or two players equally near, name nothing. The post is named by the row's own link, else by
 the nearest post link *before* the row in the enclosing block (a post's time or heading precedes its controls; links
 only after the row belong to what follows, e.g. Instagram's stories tray), else by the page when it is a post's own.
 A save is the control's label differing a moment after the click. **Which way it went** is settled in this order: the
@@ -1782,7 +1790,7 @@ only for a turned-on source.
 **Not built:** LinkedIn (its feed exposes no link or id for a post, so a save there cannot be tied to one; it stays on
 the saved-list read); YouTube's one-click "save to Watch later" item in a card's menu and Shorts; Reddit's menus on
 the person's own posts and on old Reddit; a real save through the installed app on Reddit or YouTube (the reader was
-run on the live pages, the click itself was not); TikTok's For You feed (no link for the video — its own page works);
+run on the live pages, the click itself was not);
 Safari and a keyboard save (unmeasured); the site's folders at the moment of saving and a screen to give a folder its
 reason (the backend holds both, `api.md`); the post's words on sites other than X. **The notch's mascot is the worm's
 small head (`WormFace`) in both notch panels — a trial on the owner's word (2026-11-23), pending their look.** Tests:

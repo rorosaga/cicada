@@ -184,6 +184,31 @@ final class SiteSaveTests: XCTestCase {
         XCTAssertEqual(SiteSaveRule.item(player), .failure(.notTheSaveSlot))
     }
 
+    /// Measured 2026-11-25 on TikTok's For You feed: the address stays the feed's and no link names the video. The
+    /// reader names it from the player's own DOM id and the creator's link, and the rule takes it like any post link.
+    func testAFeedThatPlaysOnePostAtATimeNamesItByItsPlayerAndItsCreator() throws {
+        let rule = try XCTUnwrap(SiteSaveSite.tiktok.playing)
+        XCTAssertEqual(rule.post(account: "https://www.tiktok.com/@alpha.user", id: "xgwrapper-0-7300000000000000003"),
+                       "https://www.tiktok.com/@alpha.user/video/7300000000000000003")
+        XCTAssertNil(rule.post(account: "https://www.tiktok.com/@alpha.user/video/7300000000000000003",
+                               id: "xgwrapper-0-7300000000000000003"), "a video's link is not an account's")
+        XCTAssertNil(rule.post(account: "https://www.tiktok.com/@alpha.user", id: "one-column-item-0"))
+        XCTAssertNil(rule.post(account: "https://www.tiktok.com/foryou", id: "xgwrapper-0-7300000000000000003"))
+        // The bar beside the playing video: the like's inner button, comments, favourite, share; the feed's address.
+        let feed = SiteSaveReading(row: [button(""), button("31 comments"), button("Add to Favorites. 604 added"),
+                                         button("12 shares")],
+                                   clicked: 2, page: "https://www.tiktok.com/foryou",
+                                   links: ["https://www.tiktok.com/@alpha.user/video/7300000000000000003"],
+                                   linksBefore: 1)
+        XCTAssertEqual(try SiteSaveRule.item(feed).get().url,
+                       "https://www.tiktok.com/@alpha.user/video/7300000000000000003")
+        // With no player named, the feed's row is still nothing.
+        var unnamed = feed
+        unnamed.links = []
+        unnamed.linksBefore = 0
+        XCTAssertEqual(SiteSaveRule.item(unnamed), .failure(.noPostLink))
+    }
+
     func testOnlyTheSitesHandedToTheRuleAreRead() {
         let feed = timeline(save: "b", counts: "")
         XCTAssertEqual(SiteSaveRule.item(feed, sites: [.instagram]), .failure(.unknownSite))
