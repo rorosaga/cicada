@@ -149,6 +149,8 @@ RULES: dict[str, str] = {
     "target_faded": "The page it asked about has faded, and the name has not come up since; what is held about it is still held",
     # `name_revisit` (ruling 82 (e)): no conversation it came from says the name: a label Cicada made up for something.
     "name_not_said": "It asked about a label Cicada made up, not something that was said; what is held about it is still held",
+    # Ruling 84 (2026-11-25, `harness_agent`): Cicada's own agent read the person's files, the web or their browser.
+    "found_by_agent": "Found by Cicada's agent: what it read is shown with the answer",
 }
 #: What the settled list says each retired "same as?" question became (owner 2026-11-04, `pair_evidence`).
 RETIRED = {"owner_unsaid": "Not asked: nothing you said names you that",
@@ -230,6 +232,9 @@ class Decision:
     #: The located words a read rested on, ``{"episode", "start", "end", "kind"}`` (``kind``: whose words they are), ids
     #: and offsets only: the settled list shows them beside the reason (`question_revisit`, ruling 82).
     spans: list = field(default_factory=list)
+    #: ``found_by_agent`` only (ruling 84): ``{"episode": the citations' episode, "evidence": [{where, quote}], "trail": [the
+    #: audit of the session]}``. The claim's span points into the episode; the record keeps the evidence and the trail.
+    found: dict | None = None
 
 
 @dataclass
@@ -2182,6 +2187,9 @@ def _record(fm: dict, d: Decision, by: str, evidence_span: dict | None) -> dict:
         rec["evidence"] = evidence_span
     if d.spans:
         rec["evidence_spans"] = [dict(s) for s in d.spans]
+    if d.found:
+        rec["found"] = [dict(e) for e in d.found.get("evidence") or []]
+        rec["trail"] = [dict(t) for t in d.found.get("trail") or []]
     return rec
 
 
@@ -2262,15 +2270,20 @@ async def apply(memory_path: Path, settings, d: Decision, *, engine: str | None 
     line = f"{record_rel}: created (source: {d.item_id}, trigger: {TRIGGER}:{d.rule})"
     # The record is written by the commit itself (after the resolver's dirty snapshot), so it rides in that commit.
     # A "same" merge folds the duplicate's page into the target (`fold_pages`): never a question gone, both pages left.
+    found_rel = f"episodes/{d.found['episode']}.md" if d.found else ""
     actor = inbox_actor.Actor(rule=d.rule, authors=authors, engine=engine if d.model else None,
-                              extra_paths=[record_rel], extra_lines=[line],
+                              extra_paths=[record_rel, *([found_rel] if found_rel else [])],
+                              extra_lines=[line, *([f"{found_rel}: created (source: {d.item_id}, trigger: {TRIGGER}:{d.rule})"]
+                                                   if found_rel else [])],
                               record=(record_path, {**fm, "settled": _record(fm, d, authors[0], span)}, body),
                               fold_pages=bool(d.request and d.request.get("action") == "merge"))
     if d.request and d.request.get("action") == NICKNAME_ACTION:
         # Not a settle (ruling 41): no record, no Sleep actor, no answer quote set — its own commit (`_nickname`).
         return await asyncio.to_thread(_nickname, memory_path, path, d, settings)
     token = inbox_actor.set_actor(actor)
-    quote_token = inbox_service._ANSWER_QUOTE.set([d.quote] if d.quote else None)
+    found_quote = ([{"episode": d.found["episode"], "quote": d.found["evidence"][0]["quote"]}]
+                   if d.found and d.found.get("evidence") else None)
+    quote_token = inbox_service._ANSWER_QUOTE.set([d.quote] if d.quote else found_quote)
     try:
         if d.request is None:
             await asyncio.to_thread(_retire, memory_path, path, fm, d, actor)

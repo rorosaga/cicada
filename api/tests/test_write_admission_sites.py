@@ -112,6 +112,8 @@ PROBE_SITES = {
                                         "staging and its commit admit themselves and refuse while Sleep writes",
     "api/services/source_polls.py": "the feed, calendar and connector job's early skip before any fetch (G245); the "
                                     "ingest and its commit run inside run_admitted and refuse while Sleep writes",
+    "api/services/harness_questions.py": "Cicada's own agent's early skip before it starts a session (ruling 84); the "
+                                         "settle and the note each run inside run_admitted and refuse while Sleep writes",
     "api/services/capture_commit.py": "the capture commit's early skip (G132 51e1) before it takes any lock; its "
                                       "commit runs inside admitted() and asks again",
 }

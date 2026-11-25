@@ -2045,6 +2045,14 @@
       "disposition": "fresh_frontmatter_untracked"
     }
   ],
+  "services/harness_questions.py": [
+    {
+      "function": "_write_note",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "uninstrumented_guarded"
+    }
+  ],
   "services/which_one.py": [
     {
       "function": "raise_question",

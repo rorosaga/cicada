@@ -412,6 +412,13 @@ def _disable_connector_fetch(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _disable_harness_agent(monkeypatch):
+    """Ruling 84's agent starts a background run after a Sleep cycle. No test's cycle may start one (it would outlive
+    the test and log while the interpreter shuts down); the agent's own tests build their settings and call it directly."""
+    monkeypatch.setenv("CICADA_HARNESS_AGENT", "off")
+
+
+@pytest.fixture(autouse=True)
 def _no_wikidata(monkeypatch):
     """Ruling 40: no test may ask Wikidata. The person's click (``/maintenance/verify-sites``) is ungated by design, so
     the default getter answers "no answer" here; ``org_sites``' own tests inject theirs."""
