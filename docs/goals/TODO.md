@@ -4031,6 +4031,14 @@ A whole row moves to DONE only after its remaining implementation and required a
    Yes set a per-Mac flag the Sources page never read. **Trigger to revisit:** a list the owner turned on that reads past
    its bound or a login wall it should have stopped at, a wrong page made from a connection (counted), or a mention ask
    that fires without the person's own words.
+   *Amended 2026-11-25 (owner; #916; amends plan section 7's "the page raises the sheet" for the notch door only):* "remove the
+   opening the app after selecting connect to accept the terms. skip that part. once you connect the notch should show the
+   checkmark animation for a bit and then dissapear." The notch offer's Yes is itself the first-use acknowledgement of agent
+   reading: the list goes on with the acknowledgement in one write, no page opens, and the panel shows "Turned on" with its check.
+   The Sources page's own switch and the root card still raise the sheet. On the panels: "the notification doesnt go away on the
+   first click, but rather when pressing no or a timer … bar filling up at the bottom from left to right": a click elsewhere never
+   closes either notch panel; an untouched one leaves when its drawn timer fills; a touched ask-why panel waits quietly after each
+   click away (`docs/architecture/app.md`, DESIGN_RULES §9 2026-11-25).
 
 79. **The six answers to ruling 78's open questions (owner, 2026-11-24; G245; amends ruling 78 "Waiting on the owner" 1 to 6, ruling 29's "never a person's identity without their words" and ruling 74 for one case, ruling 78 (f)'s "a connection never makes a page", and the CLAUDE.md rails on LinkedIn connections and on the person's own agent only where a part says so; plan `docs/plans/2026-11-24-sources-answers.md`).**
    The owner answered the six questions ruling 78 left open: "1. yes? 2. yes 3. yes ofc join. and this should happen accross
