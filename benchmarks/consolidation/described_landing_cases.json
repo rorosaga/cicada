@@ -1,0 +1,790 @@
+{
+ "pages": [
+  {
+   "id": "cedarloop",
+   "name": "Cedarloop",
+   "type": "project"
+  },
+  {
+   "id": "tidewell",
+   "name": "Tidewell",
+   "type": "project"
+  },
+  {
+   "id": "pebblegrid",
+   "name": "Pebblegrid",
+   "type": "project"
+  },
+  {
+   "id": "quillnote",
+   "name": "Quillnote",
+   "type": "tool"
+  },
+  {
+   "id": "orchard-rubric",
+   "name": "Orchard rubric",
+   "type": "concept"
+  },
+  {
+   "id": "maren-ostrov",
+   "name": "Maren Ostrov",
+   "type": "person",
+   "aliases": [
+    "Maren"
+   ]
+  },
+  {
+   "id": "fernwick-labs",
+   "name": "Fernwick Labs",
+   "type": "company"
+  },
+  {
+   "id": "atlas",
+   "name": "Atlas",
+   "type": "project"
+  },
+  {
+   "id": "atlas-co",
+   "name": "Atlas",
+   "type": "company"
+  },
+  {
+   "id": "old-harbor",
+   "name": "Old Harbor",
+   "type": "project",
+   "status": "archived"
+  },
+  {
+   "id": "samira-example",
+   "name": "Samira Example",
+   "type": "person",
+   "owner": true,
+   "aliases": [
+    "Samira"
+   ]
+  },
+  {
+   "id": "pebblegrid-co",
+   "name": "Pebblegrid Cooperative",
+   "type": "company"
+  },
+  {
+   "id": "skyfold-cloud",
+   "name": "Skyfold Cloud",
+   "type": "tool"
+  },
+  {
+   "id": "ledgerly",
+   "name": "Ledgerly",
+   "type": "tool"
+  },
+  {
+   "id": "join-query",
+   "name": "Join query",
+   "type": "concept"
+  },
+  {
+   "id": "rebalancing",
+   "name": "Rebalancing",
+   "type": "concept"
+  }
+ ],
+ "cases": [
+  {
+   "id": "r1-of",
+   "line": "Cedarloop extraction worker",
+   "conversation": "user: The extraction worker of Cedarloop keeps timing out on large files.\nassistant: Try a smaller batch size.",
+   "claims": [
+    {
+     "quote": "The extraction worker of Cedarloop keeps timing out on large files",
+     "label": "keeps timing out on",
+     "object": "large files",
+     "expect": "land"
+    }
+   ]
+  },
+  {
+   "id": "r2-possessive",
+   "line": "Tidewell weekly digest email",
+   "conversation": "user: Tidewell's weekly digest email goes out on Fridays now.\nassistant: Noted.",
+   "claims": [
+    {
+     "quote": "Tidewell's weekly digest email goes out on Fridays now",
+     "label": "goes out on",
+     "object": "Fridays",
+     "expect": "land"
+    }
+   ]
+  },
+  {
+   "id": "r3-tool-in-of",
+   "line": "Quillnote export step",
+   "conversation": "user: There is a bug in the export step of Quillnote that drops tables.\nassistant: Which version?",
+   "claims": [
+    {
+     "quote": "There is a bug in the export step of Quillnote that drops tables",
+     "label": "drops",
+     "object": "tables",
+     "expect": "left"
+    }
+   ],
+   "by": "code"
+  },
+  {
+   "id": "r4-concept",
+   "line": "rubric scoring weights",
+   "conversation": "user: The scoring weights in the Orchard rubric are off by a factor of two.\nassistant: Which criteria?",
+   "claims": [
+    {
+     "quote": "The scoring weights in the Orchard rubric are off by a factor of two",
+     "label": "are off by",
+     "object": "a factor of two",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "code"
+  },
+  {
+   "id": "r5-adjacent",
+   "line": "pricing page for Pebblegrid",
+   "conversation": "user: Pebblegrid pricing page is live and the copy is final.\nassistant: Congratulations.",
+   "claims": [
+    {
+     "quote": "Pebblegrid pricing page is live and the copy is final",
+     "label": "is",
+     "object": "live",
+     "literal": true,
+     "expect": "land"
+    }
+   ]
+  },
+  {
+   "id": "r6-other-endpoint",
+   "line": "Tidewell export step",
+   "conversation": "user: The export step of Tidewell writes everything to Cedarloop every night.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "The export step of Tidewell writes everything to Cedarloop every night",
+     "label": "writes to",
+     "object": "cedarloop",
+     "expect": "land"
+    }
+   ]
+  },
+  {
+   "id": "r7-literal",
+   "line": "Tidewell login screen",
+   "conversation": "user: The login screen of Tidewell takes four seconds to load.\nassistant: That is slow.",
+   "claims": [
+    {
+     "quote": "The login screen of Tidewell takes four seconds to load",
+     "label": "takes",
+     "object": "four seconds to load",
+     "literal": true,
+     "expect": "land"
+    }
+   ]
+  },
+  {
+   "id": "t1-person-only",
+   "line": "importer slowness",
+   "conversation": "user: Maren told me the importer is slow on Mondays.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "Maren told me the importer is slow on Mondays",
+     "label": "is slow on",
+     "object": "mondays",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "code"
+  },
+  {
+   "id": "t2-person-and-project",
+   "line": "Cedarloop extraction worker",
+   "conversation": "user: Maren said the extraction worker of Cedarloop is flaky.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "Maren said the extraction worker of Cedarloop is flaky",
+     "label": "is",
+     "object": "flaky",
+     "literal": true,
+     "expect": "land"
+    }
+   ]
+  },
+  {
+   "id": "t3-tool-used-for",
+   "line": "newsletter export step",
+   "conversation": "user: I use Quillnote for the export step of the newsletter.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "I use Quillnote for the export step of the newsletter",
+     "label": "uses",
+     "object": "quillnote",
+     "expect": "left"
+    }
+   ],
+   "by": "code"
+  },
+  {
+   "id": "t4-runs-in-tool",
+   "line": "step for newsletter export",
+   "conversation": "user: The newsletter export step runs in Quillnote and is slow.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "The newsletter export step runs in Quillnote and is slow",
+     "label": "is",
+     "object": "slow",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "code"
+  },
+  {
+   "id": "t5-split-phrase",
+   "line": "newsletter export step",
+   "conversation": "user: The export step of the newsletter in Tidewell is slow.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "The export step of the newsletter in Tidewell is slow",
+     "label": "is",
+     "object": "slow",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "reader"
+  },
+  {
+   "id": "t6-assistants-words",
+   "line": "Cedarloop extraction worker",
+   "conversation": "user: Anything on Cedarloop?\nassistant: The extraction worker of Cedarloop keeps timing out on large files.",
+   "claims": [
+    {
+     "quote": "The extraction worker of Cedarloop keeps timing out on large files",
+     "label": "keeps timing out on",
+     "object": "large files",
+     "expect": "left"
+    }
+   ],
+   "by": "code"
+  },
+  {
+   "id": "t7-company",
+   "line": "Fernwick hiring plan",
+   "conversation": "user: The hiring plan of Fernwick Labs slipped to spring.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "The hiring plan of Fernwick Labs slipped to spring",
+     "label": "slipped to",
+     "object": "spring",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "code"
+  },
+  {
+   "id": "t8-ambiguous-name",
+   "line": "Atlas export step",
+   "conversation": "user: The export step of Atlas is slow.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "The export step of Atlas is slow",
+     "label": "is",
+     "object": "slow",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "code"
+  },
+  {
+   "id": "t9-archived-page",
+   "line": "Old Harbor export step",
+   "conversation": "user: The export step of Old Harbor is slow.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "The export step of Old Harbor is slow",
+     "label": "is",
+     "object": "slow",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "code"
+  },
+  {
+   "id": "t10-owners-page",
+   "line": "Samira garden plan",
+   "conversation": "user: The garden plan of Samira is on hold.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "The garden plan of Samira is on hold",
+     "label": "is",
+     "object": "on hold",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "code"
+  },
+  {
+   "id": "t11-label-was-said",
+   "line": "extraction worker",
+   "conversation": "user: The extraction worker of Cedarloop keeps timing out on large files.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "The extraction worker of Cedarloop keeps timing out on large files",
+     "label": "keeps timing out on",
+     "object": "large files",
+     "expect": "left"
+    }
+   ],
+   "by": "code"
+  },
+  {
+   "id": "t12-relation-word",
+   "line": "Cedarloop competitor",
+   "conversation": "user: The competitor of Cedarloop raised a round last week.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "The competitor of Cedarloop raised a round last week",
+     "label": "raised",
+     "object": "a round",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "reader"
+  },
+  {
+   "id": "t13-label-word-missing",
+   "line": "Cedarloop extraction worker pool",
+   "conversation": "user: The worker of Cedarloop keeps timing out on large files.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "The worker of Cedarloop keeps timing out on large files",
+     "label": "keeps timing out on",
+     "object": "large files",
+     "expect": "land"
+    }
+   ]
+  },
+  {
+   "id": "t14-moved-away",
+   "line": "Cedarloop extraction worker",
+   "conversation": "user: I moved the extraction worker away from Cedarloop last week.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "I moved the extraction worker away from Cedarloop last week",
+     "label": "moved",
+     "object": "last week",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "reader"
+  },
+  {
+   "id": "t15-two-pages",
+   "line": "Cedarloop export step",
+   "conversation": "user: Tidewell and Cedarloop both have an export step.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "Tidewell and Cedarloop both have an export step",
+     "label": "exists in",
+     "object": "both",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "reader"
+  },
+  {
+   "id": "s1-semantic-landlord",
+   "line": "Tidewell landlord",
+   "conversation": "user: The landlord of Tidewell wants the keys back.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "The landlord of Tidewell wants the keys back",
+     "label": "wants",
+     "object": "the keys back",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "reader"
+  },
+  {
+   "id": "s2-semantic-accountant",
+   "line": "Pebblegrid accountant",
+   "conversation": "user: The accountant of Pebblegrid files the taxes late every year.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "The accountant of Pebblegrid files the taxes late every year",
+     "label": "files late",
+     "object": "taxes",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "reader"
+  },
+  {
+   "id": "n1-named-one-turn-earlier",
+   "line": "Cedarloop extraction worker",
+   "conversation": "user: I spent the whole week on Cedarloop.\nassistant: How did it go?\nuser: The extraction worker keeps timing out on large files.",
+   "claims": [
+    {
+     "quote": "The extraction worker keeps timing out on large files",
+     "label": "keeps timing out on",
+     "object": "large files",
+     "expect": "land",
+     "literal": true
+    }
+   ]
+  },
+  {
+   "id": "n2-named-two-turns-earlier",
+   "line": "nightly importer size limit",
+   "conversation": "user: Quick update on Cedarloop.\nassistant: Go ahead.\nuser: The nightly importer rejects files over fifty megabytes.",
+   "claims": [
+    {
+     "quote": "The nightly importer rejects files over fifty megabytes",
+     "label": "rejects",
+     "object": "files over fifty megabytes",
+     "expect": "land",
+     "literal": true
+    }
+   ]
+  },
+  {
+   "id": "n3-topic-switch-about-neither",
+   "line": "wedding venue double booking",
+   "conversation": "user: Cedarloop is my main project right now.\nassistant: Understood.\nuser: Unrelated, my sister's wedding planner keeps double booking the venue.",
+   "claims": [
+    {
+     "quote": "my sister's wedding planner keeps double booking the venue",
+     "label": "keeps double booking",
+     "object": "the venue",
+     "expect": "left",
+     "literal": true
+    }
+   ],
+   "by": "reader"
+  },
+  {
+   "id": "n4a-two-pages-fact-about-the-first",
+   "line": "checklist freezing at launch",
+   "conversation": "user: Tidewell and Pebblegrid are both on my plate.\nassistant: Which one is behind?\nuser: Tidewell is behind, the onboarding checklist freezes on startup.",
+   "claims": [
+    {
+     "quote": "the onboarding checklist freezes on startup",
+     "label": "freezes on",
+     "object": "startup",
+     "expect": "land",
+     "literal": true
+    }
+   ]
+  },
+  {
+   "id": "n4b-two-pages-fact-about-the-second",
+   "line": "signup form timeout",
+   "conversation": "user: Tidewell and Pebblegrid are both on my plate.\nassistant: Which one is behind?\nuser: Pebblegrid is behind, the signup form times out on slow phones.",
+   "claims": [
+    {
+     "quote": "the signup form times out on slow phones",
+     "label": "times out on",
+     "object": "slow phones",
+     "expect": "land",
+     "literal": true
+    }
+   ]
+  },
+  {
+   "id": "n5-two-pages-fact-about-neither",
+   "line": "conference train departure",
+   "conversation": "user: I am comparing Tidewell and Pebblegrid for a talk next month.\nassistant: Which angle?\nuser: My train to the conference leaves at six on Friday.",
+   "claims": [
+    {
+     "quote": "My train to the conference leaves at six on Friday",
+     "label": "leaves at",
+     "object": "six on Friday",
+     "expect": "left",
+     "literal": true
+    }
+   ],
+   "by": "reader"
+  },
+  {
+   "id": "n6-relation-maintainer",
+   "line": "Tidewell maintainer reply",
+   "conversation": "user: I filed an issue on Tidewell yesterday.\nassistant: Any answer?\nuser: The maintainer of Tidewell answered my issue within an hour.",
+   "claims": [
+    {
+     "quote": "The maintainer of Tidewell answered my issue within an hour",
+     "label": "answered within",
+     "object": "an hour",
+     "expect": "left",
+     "literal": true
+    }
+   ],
+   "by": "reader"
+  },
+  {
+   "id": "n7-relation-lawyer-possessive",
+   "line": "Pebblegrid lawyer contract",
+   "conversation": "user: Pebblegrid is almost ready to launch.\nassistant: Great.\nuser: Pebblegrid's lawyer sent the contract back with comments.",
+   "claims": [
+    {
+     "quote": "Pebblegrid's lawyer sent the contract back with comments",
+     "label": "sent back",
+     "object": "the contract",
+     "expect": "left",
+     "literal": true
+    }
+   ],
+   "by": "reader"
+  },
+  {
+   "id": "n8-relation-customer-earlier-turn",
+   "line": "biggest customer renewal",
+   "conversation": "user: Cedarloop is doing well.\nassistant: Great.\nuser: The biggest customer of mine renewed for two years.",
+   "claims": [
+    {
+     "quote": "The biggest customer of mine renewed for two years",
+     "label": "renewed for",
+     "object": "two years",
+     "expect": "left",
+     "literal": true
+    }
+   ],
+   "by": "reader"
+  },
+  {
+   "id": "n9-about-the-person",
+   "line": "sleep deprivation weeks",
+   "conversation": "user: I am building Cedarloop at night.\nassistant: Sounds heavy.\nuser: I have not slept properly in weeks.",
+   "claims": [
+    {
+     "quote": "I have not slept properly in weeks",
+     "label": "has not slept in",
+     "object": "weeks",
+     "expect": "left",
+     "literal": true
+    }
+   ],
+   "by": "reader"
+  },
+  {
+   "id": "n10-about-a-person-named-nearby",
+   "line": "Maren relocation",
+   "conversation": "user: Maren is helping me with Cedarloop.\nassistant: Good.\nuser: She is moving to Lisbon next spring.",
+   "claims": [
+    {
+     "quote": "She is moving to Lisbon next spring",
+     "label": "is moving to",
+     "object": "Lisbon next spring",
+     "expect": "left",
+     "literal": true
+    }
+   ],
+   "by": "reader"
+  },
+  {
+   "id": "n11-tool-used-with-earlier-turn",
+   "line": "newsletter export step",
+   "conversation": "user: I write my newsletter in Quillnote.\nassistant: Nice.\nuser: The export step of the newsletter keeps adding blank pages.",
+   "claims": [
+    {
+     "quote": "The export step of the newsletter keeps adding blank pages",
+     "label": "keeps adding",
+     "object": "blank pages",
+     "expect": "left",
+     "literal": true
+    }
+   ],
+   "by": "code"
+  },
+  {
+   "id": "n12-company-sibling-name",
+   "line": "Pebblegrid cooperative dues",
+   "conversation": "user: Pebblegrid is my project and Pebblegrid Cooperative is where I buy my parts.\nassistant: Ok.\nuser: The cooperative dues went up ten percent.",
+   "claims": [
+    {
+     "quote": "The cooperative dues went up ten percent",
+     "label": "went up",
+     "object": "ten percent",
+     "expect": "left",
+     "literal": true
+    }
+   ],
+   "by": "reader"
+  },
+  {
+   "id": "m1-two-claims-one-about-the-page",
+   "line": "weekly notes",
+   "conversation": "user: I have been on Cedarloop all week.\nassistant: Ok.\nuser: The nightly importer rejects files over fifty megabytes.\nassistant: Try chunking.\nuser: My back has been sore after long sessions.",
+   "claims": [
+    {
+     "quote": "The nightly importer rejects files over fifty megabytes",
+     "label": "mention",
+     "object": "importer limit",
+     "expect": "land",
+     "literal": true
+    },
+    {
+     "quote": "My back has been sore after long sessions",
+     "label": "mention",
+     "object": "sore back",
+     "expect": "left",
+     "literal": true
+    }
+   ],
+   "by": "reader"
+  },
+  {
+   "id": "m2-two-pages-two-claims",
+   "line": "status notes",
+   "conversation": "user: Tidewell and Pebblegrid are my two builds this month.\nassistant: Which needs work?\nuser: The Tidewell login screen takes four seconds to load.\nassistant: Slow.\nuser: Meanwhile the Pebblegrid billing job fails every Sunday.",
+   "claims": [
+    {
+     "quote": "The Tidewell login screen takes four seconds to load",
+     "label": "mention",
+     "object": "slow login",
+     "expect": "land",
+     "literal": true
+    },
+    {
+     "quote": "the Pebblegrid billing job fails every Sunday",
+     "label": "mention",
+     "object": "failing billing",
+     "expect": "land",
+     "literal": true
+    }
+   ]
+  },
+  {
+   "id": "m3-three-claims-with-a-relation",
+   "line": "project notes",
+   "conversation": "user: Quick notes on Tidewell.\nassistant: Go ahead.\nuser: The export step drops tables.\nassistant: Which version?\nuser: The maintainer of Tidewell is on holiday until June.\nassistant: Ok.\nuser: I use Tidewell for my newsletter drafts.",
+   "claims": [
+    {
+     "quote": "The export step drops tables",
+     "label": "mention",
+     "object": "dropped tables",
+     "expect": "land",
+     "literal": true
+    },
+    {
+     "quote": "The maintainer of Tidewell is on holiday until June",
+     "label": "mention",
+     "object": "maintainer holiday",
+     "expect": "left",
+     "literal": true
+    },
+    {
+     "quote": "I use Tidewell for my newsletter drafts",
+     "label": "mention",
+     "object": "newsletter drafts",
+     "expect": "left",
+     "literal": true
+    }
+   ],
+   "by": "reader"
+  },
+  {
+   "id": "w1-function-runs-on-a-cloud-tool",
+   "line": "nightly summary function",
+   "conversation": "user: My nightly digest function runs on Skyfold Cloud and uses its storage SDK.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "My nightly digest function runs on Skyfold Cloud and uses its storage SDK",
+     "label": "uses",
+     "object": "storage SDK",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "code"
+  },
+  {
+   "id": "w2-account-switch-in-a-business-tool",
+   "line": "account switch between my two companies",
+   "conversation": "user: In Ledgerly I switch between the accounts of my two companies all day.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "In Ledgerly I switch between the accounts of my two companies all day",
+     "label": "happens",
+     "object": "all day",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "code"
+  },
+  {
+   "id": "w3-exercise-query-on-a-concept",
+   "line": "exercise two query",
+   "conversation": "user: For exercise two my join query returns duplicate rows.\nassistant: Check the keys.",
+   "claims": [
+    {
+     "quote": "For exercise two my join query returns duplicate rows",
+     "label": "returns",
+     "object": "duplicate rows",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "code"
+  },
+  {
+   "id": "w4-portfolio-on-an-idea",
+   "line": "April allocation list",
+   "conversation": "user: My spring allocation sheet is a mess, I do the rebalancing by hand every April.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "My spring allocation sheet is a mess",
+     "label": "is",
+     "object": "a mess",
+     "literal": true,
+     "expect": "left"
+    }
+   ],
+   "by": "code"
+  },
+  {
+   "id": "w5-project-named-beside-a-tool",
+   "line": "signup form timeout",
+   "conversation": "user: Tidewell runs on Skyfold Cloud.\nassistant: Ok.\nuser: The signup form times out on slow phones.\nassistant: Check the logs.",
+   "claims": [
+    {
+     "quote": "The signup form times out on slow phones",
+     "label": "times out on",
+     "object": "slow phones",
+     "literal": true,
+     "expect": "land"
+    }
+   ]
+  },
+  {
+   "id": "w6-project-description-in-other-words",
+   "line": "open importer project",
+   "conversation": "user: The open-source importer project is written in Rust, and Cedarloop ships it every Friday.\nassistant: Ok.",
+   "claims": [
+    {
+     "quote": "The open-source importer project is written in Rust",
+     "label": "is written in",
+     "object": "Rust",
+     "literal": true,
+     "expect": "land"
+    }
+   ]
+  }
+ ]
+}

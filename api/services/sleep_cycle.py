@@ -1229,6 +1229,24 @@ async def _question_revisit_safely(memory_path: Path, settings: Settings, *, use
                     + (f", skipped {sum(report.skipped.values())}" if report.skipped else ""))
 
 
+async def _described_landing_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
+    """G148 (2026-11-25, `described_landing`): what the person said in a sentence naming one of their pages, about a part of it,
+    held under a label nobody said, is written on that page — code gates first, then the main model twice — one undoable
+    Sleep settle a page ("Settled by Sleep"). Nothing of the shape held: no engine and no commit. Counts only. Never raises."""
+    from api.services import described_landing
+
+    if not (memory_path / ".git").exists():
+        return
+    try:
+        report = await described_landing.run_tail(memory_path, settings, user_triggered=user_triggered)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Described landing failed: {type(exc).__name__}")
+        return
+    if report.read or report.landed:
+        logger.info(f"Described landing: {report.read} pair(s) read, {report.landed} fact(s) landed on {report.pages} page(s)"
+                    + (f", skipped {sum(report.skipped.values())}" if report.skipped else ""))
+
+
 async def _alias_collisions_safely(memory_path: Path, settings: Settings, *, user_triggered: bool, no_model: bool) -> None:
     """G21 (2026-11-24, `alias_collisions`): two pages that go by one name — one lists the other's title among its aliases —
     settled by what the record says (a saved link is quiet, a pair held as two things loses the alias), else read by the
@@ -2000,6 +2018,8 @@ async def _run_engine_independent_tail(
             await _typo_join_safely(memory_path, settings, user_triggered=user_triggered)
             # Ruling 82 (2026-11-24): what those lanes left open, read again by the main model against the whole record.
             await _question_revisit_safely(memory_path, settings, user_triggered=user_triggered)
+            # G148 (2026-11-25): a fact said about a part of a page, held under a label nobody said, lands on that page.
+            await _described_landing_safely(memory_path, settings, user_triggered=user_triggered)
         # G21 (2026-11-24): two pages that go by one name; the engine-free half runs with no model too.
         await _alias_collisions_safely(memory_path, settings, user_triggered=user_triggered, no_model=no_model)
         # G245 (owner 2026-11-24): a first-name page and the person who newly appeared the same week — decided and reported

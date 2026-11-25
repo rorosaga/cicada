@@ -101,9 +101,12 @@ async def undo_settled(item_id: str, settings: Settings = Depends(get_settings))
     from api.services.sleep_refusal import SleepWriting
 
     memory_path = settings.memory_path
+    from api.services import described_landing, web_context
+
+    if described_landing.is_record_id(item_id):
+        return await _undo_landing(item_id, settings)
     if _settled_group(memory_path, item_id) == "sleep":
         return await _undo_sleep_settle(item_id, settings)
-    from api.services import web_context
 
     if web_context.is_record_id(item_id):
         return await _undo_context(item_id, settings)
@@ -126,6 +129,33 @@ async def undo_settled(item_id: str, settings: Settings = Depends(get_settings))
     web_settle.record_event(memory_path, action="undo", item_id=item_id, entity_id=None, by_kind="person")
     await state_dictionary.refresh_admitted(memory_path, settings)   # admitted; skipped while Sleep holds the pages
     return {"status": "reopened", "id": target}
+
+
+async def _undo_landing(item_id: str, settings: Settings) -> dict:
+    """G148 — a landing of facts said about a part of a page taken back (`described_landing.undo`): its claims leave the page
+    and go back to their held lines, the page is remembered as one the mention is not. Committed as the person's."""
+    from api.services import described_landing, git_service, inbox_tend, page_lock, state_dictionary, web_settle, write_admission
+    from api.services.sleep_refusal import SleepWriting
+
+    memory_path = settings.memory_path
+    before = await git_service.snapshot_dirty(memory_path)
+    out: dict = {}
+
+    def work() -> None:
+        with page_lock.page_lock(memory_path):
+            paths, lines, rec = described_landing.undo(memory_path, item_id)
+            web_settle.commit_sync(memory_path, web_settle.commit_message("Landing undone", lines, authors=["user"]),
+                                   paths, before=before)
+            out["rec"] = rec
+
+    try:
+        await write_admission.run_admitted(memory_path, lambda: asyncio.to_thread(work),
+                                           refuse=lambda: SleepWriting(inbox_service.SLEEP_BUSY))
+    except described_landing.NotLandable as exc:
+        raise HTTPException(409 if "changed" in str(exc) else 404, str(exc)) from exc
+    inbox_tend.record_undo(memory_path, item_id, out.get("rec") or {})
+    await state_dictionary.refresh_admitted(memory_path, settings)
+    return {"status": "kept_apart", "id": item_id}
 
 
 async def _undo_context(item_id: str, settings: Settings) -> dict:

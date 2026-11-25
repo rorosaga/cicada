@@ -7,6 +7,26 @@
       "disposition": "uninstrumented_guarded"
     }
   ],
+  "services/described_landing.py": [
+    {
+      "function": "land_page",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "land_page",
+      "method": "write",
+      "frontmatter": "{'kind': 'landing', 'question': f'What was said about {page_name}?', 'entity_id': page_id, 'entity_name': page_name, 'settled': record}",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "undo",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    }
+  ],
   "services/org_sites.py": [
     {
       "function": "_write_page_locked",
