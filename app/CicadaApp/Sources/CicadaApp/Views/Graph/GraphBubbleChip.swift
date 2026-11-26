@@ -20,7 +20,7 @@ struct GraphBubbleChip: View {
                 title
             }
             Text(Copy.Graph.bubbleHolds(bubble.count, noun: bubble.kindNoun))
-                .font(CicadaTheme.font(size: 12))
+                .font(CicadaTheme.captionFont)
                 .foregroundStyle(CicadaTheme.textSecondary)
                 .lineLimit(1)
             IconButton(systemName: "xmark", help: Copy.Graph.bubbleClose) { graphVM.zoomAction = .closeBubble }
@@ -35,7 +35,7 @@ struct GraphBubbleChip: View {
 
     private var title: some View {
         Text(bubble.name)
-            .font(CicadaTheme.font(size: 13, weight: .semibold))
+            .font(CicadaTheme.rowFont)
             .foregroundStyle(CicadaTheme.textPrimary)
             .lineLimit(1)
     }

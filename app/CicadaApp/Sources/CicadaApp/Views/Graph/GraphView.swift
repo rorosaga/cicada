@@ -233,6 +233,8 @@ struct GraphView: NSViewRepresentable {
                 case .graphReady:
                     isGraphReady = true
                     viewModel.isGraphReady = true
+                    // A new page holds no open list bubble: the chip never outlives the page that opened it.
+                    viewModel.openBubbleId = nil
                     pushGraphData()
                     if let call = themeCall() { webView?.evaluateJavaScript(call, completionHandler: nil) }
                     if let call = activeCall(wanted: wantsActive) {
