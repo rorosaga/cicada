@@ -6069,11 +6069,13 @@ def _render_entity_summary(entities_dir: Path, hit: dict, *, ranked_ids: frozens
     listing = _list_line(entities_dir.parent, eid) if etype == "media" else None
     shown_type = etype
     if listing is not None:
-        shown_type = "list of saved posts"
+        shown_type = f"list of saved {listing.get('noun') or 'posts'}"
         said = f"{listing['count']} saved" + (f", newest {listing['newest']}" if listing["newest"] else "")
     related = fm.get("related", []) or []
 
     truncated = _type_aware_truncate(body, etype, max_chars=body_max, collapse=body_max is not None)
+    if etype == "media":
+        truncated = _without_saved_lead(truncated)
 
     # G227: a title another page shares is shown with its qualifier and its id, so an agent names the right one.
     qualifier = same_name.qualifier(entities_dir.parent, eid)
@@ -6096,6 +6098,26 @@ def _render_entity_summary(entities_dir: Path, hit: dict, *, ranked_ids: frozens
         lines.append("")
         lines.append(truncated)
     return "\n".join(lines)
+
+
+#: A saved page's generated first line, "Saved url — <its title>." or "Saved url." (``media_ingestor._entity_body``): the
+#: heading already says the title and the type, so the line is the store's word for its door, not something to read.
+_SAVED_LEAD = re.compile(r"^Saved [a-z_-]{1,12}(?: — |\.$)")
+
+
+def _without_saved_lead(text: str) -> str:
+    """A media page's body as recall quotes it, less the generated "Saved <kind> —" lead of its summary line (the app drops
+    the same lead, ``ClustersModel.repeatsName``); a line that is only that lead goes, the rest of a line stays."""
+    out = []
+    for line in (text or "").splitlines():
+        if _SAVED_LEAD.match(line):
+            rest = _SAVED_LEAD.sub("", line, count=1).strip()
+            if not rest or rest.rstrip(".") == "":
+                continue
+            line = rest
+        out.append(line)
+    cleaned = "\n".join(out)
+    return "" if cleaned.strip() in ("", "## Summary") else cleaned
 
 
 def _type_aware_truncate(body: str, entity_type: str, *, max_chars: int | None = None,
