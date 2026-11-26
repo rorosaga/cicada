@@ -269,6 +269,8 @@ def not_workable(memory_path: Path, fm: dict, compartment: str) -> str:
         if len(usable) < 2:
             return "fewer_than_two_values"
     elif kind == "merge_suggestion":
+        if str(fm.get("detected") or "") == "which_one":
+            return "not_a_pair"   # ruling 83: "which one?" is the conversation's (`which_one_reader`), never a pair's "no, different"
         if compartment == ha.WEB:
             return "pairs_stay_private"
         if not _pair_workable(memory_path, str(fm.get("entity_id") or ""), str(fm.get("merge_target_hint") or "")):

@@ -1,0 +1,38 @@
+{
+  "about": "Invented people and things; English and Spanish. Every story is one held mention ('Nick', 'Mara', 'Atlas') with one or two conversations. `expect`: 'file:<page id>' when the conversation itself says which one and the record can tie it, 'left' for the rest. `by` for a 'left': 'code' when the code conditions alone must refuse it whatever a reader says, 'reader' when only a careful reader refuses it.",
+  "pages": [
+    {"id": "nick-rowe", "name": "Nick Rowe", "type": "person", "roles": ["brother"]},
+    {"id": "nick-vale", "name": "Nick Vale", "type": "person", "links": ["acme-labs", "cedarloop"]},
+    {"id": "nico-sol", "name": "Nico Sol", "type": "person", "roles": ["hermano"]},
+    {"id": "nico-pardo", "name": "Nico Pardo", "type": "person", "links": ["brightwell"]},
+    {"id": "mara-quill", "name": "Mara Quill", "type": "person", "links": ["northpier-bank"]},
+    {"id": "mara-fenn", "name": "Mara Fenn", "type": "person", "roles": ["sister"]},
+    {"id": "atlas-editor", "name": "Atlas Editor", "aliases": ["Atlas"], "type": "tool"},
+    {"id": "atlas-relay", "name": "Atlas Relay", "aliases": ["Atlas"], "type": "project", "links": ["brightwell"]},
+    {"id": "acme-labs", "name": "Acme Labs", "type": "company"},
+    {"id": "brightwell", "name": "Brightwell", "type": "company"},
+    {"id": "northpier-bank", "name": "Northpier Bank", "type": "company"},
+    {"id": "cedarloop", "name": "Cedarloop", "type": "project"}
+  ],
+  "stories": [
+    {"id": "relation-en", "mention": "Nick", "expect": "file:nick-rowe", "conversations": ["user: My brother Nick is coming to stay next week.\nassistant: Lovely, how long for?\nuser: Five days, I need to clean the spare room."]},
+    {"id": "relation-es", "mention": "Nico", "expect": "file:nico-sol", "conversations": ["user: Mi hermano Nico llega el viernes y quiere ir al mercado.\nassistant: Qué bien.\nuser: Sí, hace meses que no lo veo."]},
+    {"id": "full-name-two-turns-earlier", "mention": "Nick", "expect": "file:nick-vale", "conversations": ["user: I had lunch with Nick Vale on Tuesday about the deck.\nassistant: How did it go?\nuser: Good, we went through the slides.\nassistant: Great.\nuser: Nick wants me to send the final version tonight."]},
+    {"id": "full-name-two-turns-earlier-es", "mention": "Nico", "expect": "file:nico-pardo", "conversations": ["user: Hablé con Nico Pardo ayer sobre el contrato.\nassistant: ¿Y qué dijo?\nuser: Que lo revisa.\nassistant: Perfecto.\nuser: Nico me va a mandar los comentarios mañana."]},
+    {"id": "project-only-one-is-on", "mention": "Nick", "expect": "file:nick-vale", "conversations": ["user: Nick and I are splitting the Cedarloop launch tasks this week.\nassistant: Which part is yours?\nuser: The onboarding emails."]},
+    {"id": "employer-only-one-has", "mention": "Mara", "expect": "file:mara-quill", "conversations": ["user: Mara from Northpier Bank sent the loan papers this morning.\nassistant: Do you need to sign them?\nuser: Yes, by Friday."]},
+    {"id": "sister-vs-banker", "mention": "Mara", "expect": "file:mara-fenn", "conversations": ["user: My sister Mara is moving to Lisbon in March.\nassistant: Exciting.\nuser: She starts a new job there."]},
+    {"id": "thing-by-its-client", "mention": "Atlas", "expect": "file:atlas-relay", "conversations": ["user: Atlas is blocked until Brightwell signs off on the review.\nassistant: Who is chasing them?\nuser: I am, tomorrow."]},
+    {"id": "nothing-decides", "mention": "Nick", "expect": "left", "by": "code", "conversations": ["user: Nick called me again this afternoon.\nassistant: Did you pick up?\nuser: No, I was in a meeting."]},
+    {"id": "nothing-decides-es", "mention": "Nico", "expect": "left", "by": "code", "conversations": ["user: Nico me escribió otra vez esta tarde.\nassistant: ¿Le contestaste?\nuser: Todavía no."]},
+    {"id": "sentence-names-both", "mention": "Nick", "expect": "left", "by": "code", "conversations": ["user: My brother Nick and Nick Vale were both at the party.\nassistant: Did they meet?\nuser: Yes, they talked all night."]},
+    {"id": "denial-names-both-clues", "mention": "Nick", "expect": "left", "by": "code", "conversations": ["user: Nick is not my brother, he works with me at Acme Labs.\nassistant: Understood."]},
+    {"id": "first-name-inside-two-full-names", "mention": "Mara", "expect": "left", "by": "code", "conversations": ["user: Mara asked if the report can wait until Monday.\nassistant: Can it?\nuser: Probably."]},
+    {"id": "tool-or-project-undecided", "mention": "Atlas", "expect": "left", "by": "code", "conversations": ["user: Atlas crashed again after the update.\nassistant: Which version?\nuser: The latest one."]},
+    {"id": "neither-candidate", "mention": "Nick", "expect": "left", "by": "reader", "conversations": ["user: My cousin Nick lives in Lima and runs a bakery.\nassistant: Nice.\nuser: I visit him every other year."]},
+    {"id": "other-person-with-the-clue", "mention": "Nick", "expect": "left", "by": "reader", "conversations": ["user: My brother told me Nick quit his job last week.\nassistant: Which Nick?\nuser: The new neighbour, I think."]},
+    {"id": "only-the-assistant-said-it", "mention": "Nick", "expect": "left", "by": "code", "conversations": ["user: Remind me who is visiting.\nassistant: Your brother Nick is visiting next week.\nuser: Right."]},
+    {"id": "two-conversations-two-answers", "mention": "Nick", "expect": "left", "by": "code", "conversations": ["user: My brother Nick is coming to stay.\nassistant: Nice.", "user: Nick Vale from Acme Labs sent the invoice.\nassistant: Ok."]},
+    {"id": "two-conversations-one-answer", "mention": "Nick", "expect": "file:nick-vale", "conversations": ["user: Nick from Acme Labs sent the invoice.\nassistant: Ok.", "user: I met Nick Vale again at the Cedarloop demo.\nassistant: How was it?"]}
+  ]
+}
