@@ -139,8 +139,9 @@ PLATFORMS: dict[str, Platform] = {
                         "choose its Likes tab; failing that, the person's own profile, then its Likes tab. Read that tab "
                         "and no other",
                         "x-likes", "Likes", "x.com", "to read your likes", ("x.com", "twitter.com"), base="x"),
-    # G245 (owner 2026-11-24, "Should reposts be kept as their own list?": "1. yes?"): the posts the person reposted. X has
-    # no page that holds only those: they are rows of the person's OWN profile timeline, between their own posts, so this is
+    # G245 (owner 2026-11-24, "Should reposts be kept as their own list?": "1. yes?"): the posts the person reposted. When
+    # measured on 2026-11-24 X had no page that held only those; on 2026-11-26 the person's own profile showed a Reposts
+    # tab that does (each row "You reposted"), so the words send the agent there first. Read either way, it is still
     # the one list that reads a timeline (ruling 79 amends "never a feed or timeline" for that page and those rows alone).
     # A timeline has no end: the first read stops at ``max_screens`` and never claims the end; a row the person wrote
     # themselves is dropped by their handle (``mcp_tools.record_saved_list``). Files under its own origin and label, which
@@ -149,8 +150,9 @@ PLATFORMS: dict[str, Platform] = {
     # key in ``reading_settings.SAVED_LISTS`` and the tool's enum); what was kept stays kept.
     "x-reposts": Platform(
         "x-reposts", "X", "Reposts", "https://x.com/",
-        " (the person's own profile, on the tab that shows their posts, called Posts when measured: it mixes their own "
-        "posts with the posts they reposted)", "x-reposts",
+        " (the person's own profile, on its Reposts tab, which holds only the posts they reposted, each marked \"You "
+        "reposted\" (seen 2026-11-26); if the profile shows no such tab, the tab that shows their posts, where reposts sit "
+        "between their own)", "x-reposts",
         "Reposts", "x.com", "to read your reposts", ("x.com", "twitter.com"), base="x",
         reads="the original post's author as the page shows it, and the words the post shows",
         cadence=timedelta(days=3), max_screens=folder_pass.FIRST_READ_SCREENS),
@@ -412,9 +414,29 @@ def due(memory_path: Path, now: datetime | None = None, *, unattended: bool = Fa
     list that has not been read to its end (:func:`whole`: a first read takes many screens and minutes), never an
     ``accounts`` list, and orders posts, then people, then books, a timeline last (reposts share their site's pause, so a
     block met reading them must never come before bookmarks). The person's own read keeps the fair order above: with more
-    lists on than a day's reads, a timeline last of all would never be read."""
+    lists on than a day's reads, a timeline last of all would never be read.
+
+    One site's list at a time holds across Substack's lists too (``substack_lists``): whichever of the two tables ranks
+    first by the same order is offered, the other waits — so a Substack list is no longer starved while any one of these
+    sites is due (2026-11-26)."""
     if reads_today(memory_path, now) >= DAILY_READS:
         return []
+    mine = candidate(memory_path, now, unattended=unattended)
+    if mine is None:
+        return []
+    from api.services import substack_lists   # late: substack_lists imports this module
+
+    theirs = substack_lists.candidate(memory_path, now, unattended=unattended)
+    return [] if theirs is not None and theirs < mine else [mine[-1]]
+
+
+#: Where each table stands in a tie, in :func:`candidate`'s rank: these sites' lists before Substack's.
+TABLE_ORDER = 0
+
+
+def candidate(memory_path: Path, now: datetime | None = None, *, unattended: bool = False) -> tuple | None:
+    """The list :func:`due` would offer from this table alone, as its rank — ``(asked first, unattended rank, when,
+    table, order, key)``, comparable with ``substack_lists.candidate`` — or ``None``. The day's bound is :func:`due`'s."""
     moment = _now(now)
     floor = datetime.min.replace(tzinfo=timezone.utc)
     ranked = []
@@ -430,8 +452,8 @@ def due(memory_path: Path, now: datetime | None = None, *, unattended: bool = Fa
         if asked is None and at is not None and moment - at < cadence_of(memory_path, key):
             continue
         rank = (_UNATTENDED_ORDER.get(p.kind, 9) + (10 if p.bounded else 0)) if unattended else 0
-        ranked.append((0 if asked is not None else 1, rank, asked or at or floor, order, key))
-    return [min(ranked)[4]] if ranked else []
+        ranked.append((0 if asked is not None else 1, rank, asked or at or floor, TABLE_ORDER, order, key))
+    return min(ranked) if ranked else None
 
 
 def request_check(memory_path: Path, key: str, now: datetime | None = None) -> bool:
@@ -878,7 +900,8 @@ def _timeline_lines(memory_path: Path, p: Platform, can_record: bool) -> list[st
     the one kind of row a read may take from a timeline: only what the page marks as the person's own repost, and nothing
     of their own posts, replies, quotes, anyone else's profile, their feed or messages (ruling 79)."""
     profile = last(memory_path, p.key).get("profile_url")
-    where = (f"{profile} (their own profile)" if profile else f"{p.url}{p.how}")
+    # The table's words say which tab (X's own Reposts tab since 2026-11-26), so no address or tab name lives here.
+    where = f"{profile}{p.how}" if profile else f"{p.url}{p.how}"
     tail = (f"Record it with `cicada_record_saved_list(platform, outcome, items=[{{url, author, text}}], handle, "
             f"profile_url, via)` (platform `{p.key}`); always send the person's own `handle` (one word, as the page shows "
             "it) and `profile_url`: without their handle Cicada cannot tell a repost from their own post and keeps "
@@ -887,7 +910,7 @@ def _timeline_lines(memory_path: Path, p: Platform, can_record: bool) -> list[st
             f"If {p.name} asks you to sign in, do not sign in or type credentials: stop and tell the person.")
     return [f"The person asked their agent to keep their {p.name} {p.label.lower()} current in Cicada. Open their own "
             "profile in their own signed-in browser session. This is the one page where a timeline may be read, and only "
-            "for the rows the page marks as the person's own repost (\"<name> reposted\"): never their own posts, "
+            "for the rows the page marks as the person's own repost (\"You reposted\", or \"<name> reposted\"): never their own posts, "
             "replies, quotes or pinned post, never anyone else's profile, their feed or messages, and never click "
             "anything that changes anything (no unrepost, like, follow or reply).",
             f"- The person's {p.name} {p.label}: {where} — for each reposted row, its link (the ORIGINAL post's, not "

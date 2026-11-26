@@ -940,8 +940,8 @@ def reading_queue(ctx: ToolContext, limit=None, unattended=False) -> str:
 def _list_lines(ctx: ToolContext, memory_path: Path, *, unattended: bool = False) -> list[str]:
     """The browser lists due, in the queue's words. Stdio only: the record tools are never remote
     (`catalog.NEVER_REMOTE`). G71 (2026-10-16) the YouTube lists; G206 (2026-10-22) a saved list on X, Instagram or
-    LinkedIn the person turned on; G89 (2026-11-04) a Substack list, only when no other site's list is due (one at a
-    time). ``unattended`` is each source's rules for a read nobody watches."""
+    LinkedIn the person turned on; G89 (2026-11-04) a Substack list — one site's list at a time across both tables,
+    whichever ranks first (``saved_lists.candidate``, 2026-11-26). ``unattended`` is each source's rules for a read nobody watches."""
     if ctx.is_remote:
         return []
     from api.services import saved_lists, substack_lists, youtube_lists

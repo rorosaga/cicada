@@ -783,3 +783,22 @@ def test_the_night_report_has_ids_and_enums_and_never_a_title_or_a_word(tmp_path
     assert report["totals"]["on_the_owners_page"] == 0
     assert "A report title" not in out and "example.com" not in out and "Pile" not in out
     assert saves_night_report.main(["--bank", str(tmp_path / "nowhere")]) == 2
+
+
+def test_a_save_after_local_midnight_counts_on_the_persons_own_day(monkeypatch):
+    """A save stamped 12:00 UTC is 02:00 the next day at UTC+14: the pile orders it, and the night report counts it,
+    on that local day, never on the first ten characters of the UTC stamp."""
+    import time
+
+    from api.scripts import saves_night_report
+
+    monkeypatch.setenv("TZ", "Pacific/Kiritimati")
+    time.tzset()
+    try:
+        fm = {"received_at": "2026-11-26T12:00:00+00:00"}
+        assert history_index._saved_day(fm) == "2026-11-27"
+        assert history_index._saved_day({"saved_at": "2026-11-20", **fm}) == "2026-11-20"   # a bare day stays
+        assert saves_night_report._day(fm["received_at"]) == "2026-11-27"
+    finally:
+        monkeypatch.delenv("TZ")
+        time.tzset()

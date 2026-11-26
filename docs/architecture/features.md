@@ -39,13 +39,15 @@ posts, YouTube's playlists, Watch later and likes, a browser's bookmarks, stars,
 inside (newest first; `inside` of `groups`, so the graph, Clusters and Home fold by one rule: on the list and not earned),
 intersected with the graph's own nodes; a folder is a ring inside its whole list, never a bubble; a page on two lists sits
 in the first whose whole list is big enough; a list with fewer than six inside is no bubble; a filtered `/graph` filters
-them too. `outside` are its earned pages. The nodes never change: every page is still a node for find, names and
+them too. `outside` are its earned pages; `count` is both, what the list holds and its page says. The nodes never change: every page is still a node for find, names and
 Clusters; only graph.js folds. The cache key and the ETag fold `list_pages.change_token` (the earned set and the table
 of list kinds, never a build of the lists) beside the pages listing they already follow, read inside the request's one
 listing. On the canvas a bubble is one node sized like a page with as many neighbours as it holds (never below a
 well-linked page's size, so its mark reads), a graphite disc with a ring in the media hue and the source's real mark
 (the app draws each mark once into a small PNG, `GraphMarks`, sent with the bubbles); its members are not in the
-simulation, the pick or the draw, their links are drawn to it (one line a pair), and an earned page is joined to it by
+simulation, the pick or the draw, their links are drawn to it (one line a pair) — so are the list's own page and each
+folder's page (a folder's `key` is its page id, `list_pages`), which ARE the bubble on this canvas and reveal it opened
+— and an earned page is joined to it by
 an "on list" line. A click opens it: the members are packed inside a circle round it (`d3.pack`, folders as rings with
 their names on plates, the pages in no folder as one unnamed ring, the list's own order), at places computed once and
 never simulated, so opening or closing reheats nothing (G109); the camera fits the circle (400 ms, none under Reduce
