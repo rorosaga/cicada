@@ -547,11 +547,13 @@ def entry_stamp(fm: dict, *, has_words: bool, walled: bool, bulk: bool, late: bo
 def _saved_day(fm: dict) -> str:
     """The day the person saved it, for ordering the pile: the save's recorded day or instant, else the post's, else the
     day Cicada received it (``timestamp`` is that for a save written before the recorded day was kept)."""
-    for key in ("saved_at", "added_at", "posted"):
-        value = str(fm.get(key) or "")[:10]
-        if len(value) == 10:
-            return value
-    return str(fm.get("received_at") or fm.get("timestamp") or "")[:10]
+    from api.services import episode_ids
+
+    for raw in (fm.get("saved_at"), fm.get("added_at"), fm.get("posted"), fm.get("received_at") or fm.get("timestamp")):
+        # A bare day stays as it is; an instant is the person's local day, never the first ten characters of UTC.
+        if raw and (day := episode_ids.local_day(raw)):
+            return day.isoformat()
+    return ""
 
 
 def _local_today() -> str:

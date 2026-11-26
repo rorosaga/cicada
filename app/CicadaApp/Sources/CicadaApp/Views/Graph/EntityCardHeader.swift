@@ -53,13 +53,15 @@ struct EntityCardHeader: View {
             }
             HStack(spacing: CicadaTheme.spacingSM) {
                 Tag(text: entity.type.label, dot: CicadaTheme.entityColor(for: entity.type))
-                Text(EntityHeaderWords.statusLine(status: entity.status, confidence: entity.confidence,
-                                                  lastReferenced: entity.lastReferenced, today: today ?? .today()))
-                    .font(CicadaTheme.metaFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .lineLimit(1)
-                    .help(EntityHeaderWords.statusHelp(status: entity.status, confidence: entity.confidence,
-                                                       lastReferenced: entity.lastReferenced, today: today ?? .today()))
+                if EntityHeaderWords.saysStatus(of: entity) {
+                    Text(EntityHeaderWords.statusLine(status: entity.status, confidence: entity.confidence,
+                                                      lastReferenced: entity.lastReferenced, today: today ?? .today()))
+                        .font(CicadaTheme.metaFont)
+                        .foregroundStyle(CicadaTheme.textTertiary)
+                        .lineLimit(1)
+                        .help(EntityHeaderWords.statusHelp(status: entity.status, confidence: entity.confidence,
+                                                           lastReferenced: entity.lastReferenced, today: today ?? .today()))
+                }
                 Spacer(minLength: 0)
                 if let onShowOnGraph {
                     IconButton(systemName: "point.3.connected.trianglepath.dotted", help: Copy.People.showOnGraphHelp,
