@@ -68,5 +68,5 @@ struct RunProgress: Equatable {
 func batchFailureNote(drain: SleepDrainInfo?, activeStage: Int?, locale: Locale = .autoupdatingCurrent) -> String? {
     guard let drain, drain.active, let activeStage, activeStage <= 2,
           let batch = drain.batchState, batch.failed > 0 else { return nil }
-    return "\(Copy.SleepV5.couldNotBeRead(batch.failed, locale)), \(Copy.SleepV5.oneMoreTry)"
+    return "\(Copy.SleepV5.couldNotBeRead(batch.failed, locale)), \(Copy.SleepV5.oneMoreTry(batch.failed))"
 }

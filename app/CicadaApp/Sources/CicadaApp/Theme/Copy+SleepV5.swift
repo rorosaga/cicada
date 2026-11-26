@@ -192,6 +192,8 @@ extension Copy {
             "\(count(n, locale)) \(couldNotBeReadPhrase)"
         }
         static let oneMoreTry = "it gets one more try"
+        /// After a count of conversations: "2 could not be read, they get one more try".
+        static func oneMoreTry(_ n: Int) -> String { n == 1 ? oneMoreTry : "they get one more try" }
         static func filed(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String { "\(count(n, locale)) filed" }
         static func readWaitingToFile(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
             "\(count(n, locale)) read, waiting to file"

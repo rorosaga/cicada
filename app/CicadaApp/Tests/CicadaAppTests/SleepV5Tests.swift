@@ -629,6 +629,9 @@ final class SleepV5StagesTests: XCTestCase {
         XCTAssertEqual(batchFailureNote(drain: d, activeStage: 2, locale: V5Fixture.en),
                        "1 could not be read, it gets one more try")
         for stage in [3, 4, 5] { XCTAssertNil(batchFailureNote(drain: d, activeStage: stage, locale: V5Fixture.en)) }
+        d.batchState = .init(index: 3, of: 12, total: 25, read: 23, reading: 0, failed: 2)
+        XCTAssertEqual(batchFailureNote(drain: d, activeStage: 1, locale: V5Fixture.en),
+                       "2 could not be read, they get one more try", "the words agree with the count")
         d.batchState = .init(index: 3, of: 12, total: 25, read: 24, reading: 0, failed: 0)
         XCTAssertNil(batchFailureNote(drain: d, activeStage: 1, locale: V5Fixture.en), "nothing failed, nothing said")
         d.active = false

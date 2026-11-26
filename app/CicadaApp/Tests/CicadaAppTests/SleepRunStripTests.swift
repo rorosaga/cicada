@@ -58,7 +58,7 @@ final class SleepRunStripTests: XCTestCase {
         XCTAssertEqual(filing.note, RunLine.Note(text: Copy.SleepV5.filingWhisper))
         let failures = try XCTUnwrap(Self.line(Self.running(stage: 1, failed: 2)))
         XCTAssertEqual(failures.note?.style, .caution)
-        XCTAssertEqual(failures.note?.text, "2 could not be read, it gets one more try")
+        XCTAssertEqual(failures.note?.text, "2 could not be read, they get one more try")
         let first = try Self.running(stage: 3, firstRun: true)
         XCTAssertNil(Self.line(first)?.note, "the link needs the owner's page to open")
         XCTAssertEqual(Self.line(first, owner: true)?.note, RunLine.Note(text: Copy.SleepV5.seeYourPage, style: .ownerPage))

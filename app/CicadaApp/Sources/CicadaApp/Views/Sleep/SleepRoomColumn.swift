@@ -54,7 +54,8 @@ struct SleepRoomColumn: View {
                 // A run's object hangs from the title at one fixed offset, whatever it carries: the word and the bar
                 // sit at the same height in reading, filing, paused, stopped, failed and finished, and a note appears
                 // in the room under the bar instead of moving them. The block ends where the room does (`fillHeight`).
-                Spacer().frame(height: compact ? CicadaTheme.spacingSM : CicadaTheme.spacingMD)
+                // Beside the 192 pt room the offset leaves about as much air over the word as under a note.
+                Spacer().frame(height: compact ? CicadaTheme.spacingSM : CicadaTheme.spacingXL)
                 statusSlot(leading: true, compact: compact)
                 Spacer(minLength: compact ? CicadaTheme.spacingXS : CicadaTheme.spacingSM)
             } else {
