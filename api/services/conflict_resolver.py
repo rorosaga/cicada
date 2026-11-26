@@ -133,10 +133,18 @@ async def resolve_and_prune(
     update_changes = [c for c in resolved if c.get("action") == "update"]
     if fact_judge is not None:
         await _fold_facts(update_changes, existing_by_id, fact_judge, settings, names, cancel_check=cancel_check)
-    context = _article_context(existing, settings, cycle_day) if getattr(settings, "page_articles_enabled", False) else None
-    # A new page with enough to say gets its article as it is created (`_create_job`), not a mention later.
-    create_jobs = [job for job in (_create_job(c, context) for c in resolved if c.get("action") == "create")
-                   if job is not None] if context is not None else []
+    # None of the per-page decisions calls a model, and one of them can be seconds of work: building the article
+    # writer's inputs for a hub page parses its whole record (8.4 s for a page of ~9,000 claims, measured 2026-11-26).
+    # They run on a worker thread, one at a time and in order, so the event loop keeps answering (G238).
+    context = (await asyncio.to_thread(_article_context, existing, settings, cycle_day)
+               if getattr(settings, "page_articles_enabled", False) else None)
+
+    def _create_jobs() -> list[dict]:
+        # A new page with enough to say gets its article as it is created (`_create_job`), not a mention later.
+        return [job for job in (_create_job(c, context) for c in resolved if c.get("action") == "create")
+                if job is not None]
+
+    create_jobs = await asyncio.to_thread(_create_jobs) if context is not None else []
     progress = tqdm(
         total=len(update_changes) + len(create_jobs),
         desc="Stage 3: synth",
@@ -155,7 +163,7 @@ async def resolve_and_prune(
     # all and with what. Only the calls overlap (`_overlap_pages`); every result is applied below in this order.
     jobs: list[dict] = list(create_jobs)
     for change in update_changes:
-        job = _page_job(change, existing_by_id, settings, context)
+        job = await asyncio.to_thread(_page_job, change, existing_by_id, settings, context)
         if job == "reread":
             rereads += 1
         elif job is not None:
