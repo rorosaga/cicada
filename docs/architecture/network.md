@@ -1227,5 +1227,10 @@ Cicada's own agent (`harness_agent`) is the person's own harness session, run as
 names when it names any; the **private** session reads files (the person's document folders only, document kinds only, never a secrets, tooling or Cicada folder: `harness_files`) and holds nothing that can send. So what a page says can reach only a session that has nothing private to
 send, and what the private session read can reach no address. A private person's name may be searched in public (the owner lifted that limit; ruling 44's and 54's
 `name_guard` stays on ruling 54's step and the backend's lookups); a web page settles only a public thing (ruling 27's test). Every query and address the session used
-is kept with the settle. The signed-in browser is the next slice: its own compartment, started by the app, limited to hosts of sites the person already connected or
-allowed, with no other outbound tool.
+is kept with the settle. **The signed-in browser is a third compartment (slice 2, 2026-11-26)** with its own session: it holds one tool, `Bash`, limited by a permission
+rule to one launcher (no search, no fetch, no file tool), so a page it reads has nothing to send with and no way to send. The launcher's program (`api/harness_tools/read_browser.py`)
+reads the person's own browser through a browser-harness daemon that is **already running** (it never starts a browser, never signs in, never types a credential) and opens only
+(1) addresses on sites the person connected for reading, (2) that Cicada's code gave for this question (a source the page tracks, the site's own search for the name) or that a
+page this run opened carried, on that page's own host; never an action, a private area, a download or a redirect; a final address off the connected set is reported and its text
+never shown; at most six opens a question; only tabs it made, closed afterwards. The backend still opens no browser and fetches nothing behind a login: the person's own harness
+session, as if they had asked it, is what reads. Network surface added: none in the backend (the daemon probe and the helper are local child processes). `mcp.md`, "Cicada's own agent".

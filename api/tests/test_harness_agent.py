@@ -1,5 +1,5 @@
 """Cicada's own agent (ruling 84): the two compartments, the grant, the init check, the gates on its answer, the one write,
-the orphan reaper and the (unwired) read-only browser.
+the orphan reaper. (The signed-in compartment's tests are in test_harness_browse.py.)
 
 Synthetic banks of invented people; the session is a fake `claude` or an injected session, so nothing reaches the plan or a
 network. What needs the real permission engine (a refused secret, a refused host) is in `benchmarks/consolidation/harness_battery.py`."""
@@ -59,12 +59,14 @@ def test_a_web_session_holds_no_file_tool_and_fetches_only_the_hosts_the_questio
     assert ha.hosts_in("Which? A page at https://Site.Example:8443/x.html and http://b.example/y say") == ("site.example", "b.example")
 
 
-def test_no_compartment_is_offered_a_shell_or_the_browser_and_the_browser_is_not_wired():
+def test_only_the_signed_in_compartment_holds_a_shell_and_only_as_one_command_and_no_compartment_shares_a_tool():
     for compartment, tools in ha.COMPARTMENT_TOOLS.items():
-        assert "Bash" not in tools and not (ha.COMPARTMENT_TOOLS[ha.PRIVATE] & ha.COMPARTMENT_TOOLS[ha.WEB])
+        assert ("Bash" in tools) == (compartment == ha.SIGNED_IN)
+        for other, other_tools in ha.COMPARTMENT_TOOLS.items():
+            assert compartment == other or not (tools & other_tools)
+    for compartment in (ha.PRIVATE, ha.WEB):
         assert not any("Bash" in r for r in ha.settings_for(ha.Policy(compartment, roots=("/r",)))["permissions"]["allow"])
-    source = Path(ha.__file__).read_text() + Path(hq.__file__).read_text()
-    assert "BROWSE_SCRIPT" not in source and "read_browser" not in source.replace("api/harness_tools/read_browser.py", "")
+    assert all(r.startswith("Bash(/s/rb ") for r in ha.settings_for(ha.Policy(ha.SIGNED_IN, browse="/s/rb"))["permissions"]["allow"])
 
 
 def test_a_private_grant_is_read_rules_only_and_the_kinds_that_are_not_documents_are_denied_for_every_tool(tmp_path):
@@ -743,7 +745,7 @@ def test_the_run_is_off_with_its_switch_and_for_a_demo(bank, monkeypatch):
     assert hq.start_run(bank, Off(bank), user_triggered=True) is False
 
 
-# --------------------------------------------------------------------------- the read-only browser (not wired in this PR)
+# --------------------------------------------------------------------------- the read-only browser
 
 
 def test_the_browser_window_refuses_non_public_hosts_and_debug_ports(monkeypatch):
@@ -763,41 +765,7 @@ def test_the_browser_window_refuses_non_public_hosts_and_debug_ports(monkeypatch
     assert ok("https://example.com:9333/")                         # the harness's own debugging port
 
 
-def test_the_browser_window_honours_no_command_variable_and_reads_and_closes_only_its_own_tabs(tmp_path, monkeypatch, capsys):
-    monkeypatch.setenv("CICADA_BROWSE_HARNESS", "/bin/false")
-    monkeypatch.setenv("CICADA_BROWSE_STATE", str(tmp_path / "state.json"))
-    assert not hasattr(read_browser, "HARNESS_ENV") and read_browser.HARNESS == "browser-harness"
-    monkeypatch.setattr(read_browser.socket, "getaddrinfo", lambda host, port: [(2, 1, 6, "", ("93.184.216.34", 443))])
-    ran: list[str] = []
-
-    def fake_run(code):
-        ran.append(code)
-        if "new_tab" in code:
-            return {"target": "T1", "url": "https://example.com/", "title": "t", "password": False, "text": "hello"}, ""
-        if "switch_tab" in code:
-            return {"url": "https://example.com/", "title": "t", "text": "hello again"}, ""
-        return {"closed": True}, ""
-    monkeypatch.setattr(read_browser, "_run", fake_run)
-    assert read_browser.main(["rb", "text", "0"]) == 2 and not ran                       # no tab of this run yet
-    assert read_browser.main(["rb", "open", "http://localhost:9/"]) == 2 and not ran       # refused before the harness is touched
-    assert read_browser.main(["rb", "open", "https://example.com/"]) == 0
-    assert read_browser.main(["rb", "text", "0"]) == 0
-    assert "switch_tab" in ran[-1] and "T1" in ran[-1]                                      # it switches to the tab this run opened
-    (tmp_path / "state.json").write_text(json.dumps({"targets": ["T1"], "last": "FOREIGN"}))
-    assert read_browser.main(["rb", "text", "0"]) == 2                                      # `last` is not one of its tabs
-    (tmp_path / "state.json").write_text(json.dumps({"targets": ["T1", "T2"], "last": "T2"}))
-    assert read_browser.main(["rb", "close"]) == 0
-    assert "T1" in ran[-1] and "T2" in ran[-1]
-    capsys.readouterr()
-
-
-def test_the_browser_window_has_no_verb_that_acts(tmp_path):
-    script = str(read_browser.__file__)
-    run_ = lambda *a: subprocess.run([sys.executable, script, *a], capture_output=True, text=True)   # noqa: E731
-    assert run_("click", "1,2").returncode == 2 and run_("type", "x").returncode == 2
-    source = Path(script).read_text()
-    for acting in ("click_at_xy", "type_text", "press_key", "fill_input", "dispatch_key", "upload_file", "goto_url"):
-        assert acting not in source, acting
+# The browser window's own tests (grant, state, links, tabs, the launcher) are in test_harness_browse.py.
 
 
 # --------------------------------------------------------------------------- what is stored, what one question may scan, the listing

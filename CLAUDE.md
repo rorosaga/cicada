@@ -183,7 +183,7 @@ when a *rail* changes (an invariant, a ruling, a boundary), in one or two lines 
   words); Sleep reads a marked book in one bounded chunk for what its marks share; an unmarked entry is never read.
   **Ruling 61:** the person's own located words in a conversation change a status too, judged by Stage 1 in context, never
   by keywords: one clear title or held on the episode, dated as said, undoable, through the same writers (`book_said`).
-  **Ruling 71 (2026-11-06, amends 61/62/64):** a book the person added with no ISBN is found by exact title + author on one work (marked, undoable); its description is `external`, boxed, and Sleep may read it once — never the text, a question, or a co-mention link.
+  **Ruling 71 (amends 61/62/64):** a book the person added with no ISBN is found by exact title + author on one work (marked, undoable); its description is `external`, boxed, and Sleep may read it once — never the text, a question, or a co-mention link.
 - **Two ways in for what the person consumes (ruling 47, owner 2026-10-28):** by default their own browser and Mac,
   through the browser and macOS harnesses (G166, G206, G218 rails unchanged); an official API only for a specific source
   where it gives what the harness cannot (history, metadata, reliability) — the person connects each one (off by default,
@@ -219,7 +219,7 @@ when a *rail* changes (an invariant, a ruling, a boundary), in one or two lines 
 - **Every writer scrubs, every source-keyed writer stages through one module** (`episode_scrub`, `episode_staging`:
   hash over the scrubbed body, edits in place with `processed: false` and a `revised` record Sleep reads as a revision
   (2026-11-03), deletions tombstoned, never unlinked).
-- **Meetings are conversations (owner ruling 2026-11-03, G95):** a recorder's transcript (Hex's Markdown folder, any
+- **Meetings are conversations (G95):** a recorder's transcript (Hex's Markdown folder, any
   folder of transcripts) is an episode Sleep consolidates — one per meeting, its own date, through the folder stager;
   unlike a `media_files` recording. Only a line the recorder labels `You`/`Me` is the person's (52a); every other is
   its speaker's (`speaker:<label>`), the summary the recorder's model's.
@@ -334,15 +334,15 @@ when a *rail* changes (an invariant, a ruling, a boundary), in one or two lines 
   2026-10-14): `markdown_parser` folds it on read and splits on write; a write never drops a ledger line; git commits
   and restores a page with its ledger (`storage.md`).
 - **Entity types are a closed set of 10**; Stage 1 never produces `deadline` or `media`; a model's word is mapped into the
-  set at extraction and again where a page is born (`entity_types`, 2026-10-17). Status: active → decaying → archived → dropped.
+  set at extraction and again where a page is born (`entity_types`). Status: active → decaying → archived → dropped.
 - **Decay classes (G66):** one resolver; Stage 1 may propose `durable|active|volatile`, **never `evergreen`**, enforced at
   extraction and again in the create branch; the class is the thing's, so never `volatile` for a person, company or
-  project (2026-11-23, `storage.md`).
+  project (`storage.md`).
 - **Evidence spans, not copies (G118):** offsets into the source's evidence text with a hash; locate is exact →
   whitespace → case-insensitive, **never fuzzy**; an unlocatable quote becomes `reasoning` and **the claim is still
   written — provenance never blocks memory**. Judged on read, one shape (`source_spans`): held or stale never draws. Six evidence kinds; every claim on the wire is built by one function.
   A record's filing label (a folder, a list, a calendar) is never anyone's words nor a conversation for the 2+ rule
-  (2026-10-29, `storage.md`).
+  (`storage.md`).
 - **Events (G141):** only `progress.py` writes `happened`/`milestone`; a done happening is born closed; nothing relative is
   stored.
 - **Sources (G61) are a living set:** many per fact; an agent changes or removes only what it added; a removal is
@@ -369,7 +369,7 @@ when a *rail* changes (an invariant, a ruling, a boundary), in one or two lines 
   names that one page and the link's account is its name or alias — co-occurrence is never proof (`storage.md`).
   **An organisation's own site (ruling 40, 2026-10-26):** for a company, tool or public place — never a person (a
   public figure's context is ruling 44's, never a site), a project or a private name — Sleep trusts a site the record ties to the page or ONE unambiguous Wikidata match, only
-  when its homepage names it — a site Sleep itself first proposed included (2026-10-28, D) — anything less is a proposal in that review; a removal is never re-added (`org_sites`).
+  when its homepage names it — a site Sleep itself first proposed included (D) — anything less is a proposal in that review; a removal is never re-added (`org_sites`).
 - **Pictures:** one precedence (the person's choice → Contacts photo → the photo a ticked chat holds (Messages, WhatsApp, Telegram) → a
   person's public-profile photo → a brand's logo → a media thumbnail → a person's monogram; any other page with none draws
   nothing, never a type glyph — owner 2026-10-28). **A logo comes only from a trusted
@@ -451,14 +451,15 @@ when a *rail* changes (an invariant, a ruling, a boundary), in one or two lines 
   Apps sign in through the listener's own OAuth 2.1 server (ruling 32): consent only in the app, by typing the code the
   person's own page shows, never a click or the public page; a self-registered app is never named by its claim (`network.md`).
 - **Cicada's own agent (ruling 84, 2026-11-25; amends 54 and 44's name guard for it alone):** a harness session on the
-  Claude plan, after the cycle and outside Sleep's window, works a few open questions read-only in **two compartments that
-  never meet**: private (files and masked conversation copies; no web, no shell, never the bank) and web (search, fetch; no
-  file tool). It finds, **Cicada's code writes**: located evidence read by sentence, one `found_by_agent` settle, undoable,
-  no session words stored; only document kinds in folders granted by what they are (never secrets, tooling or Cicada's
-  own), nothing key-shaped stored (`harness_files`, `mcp.md`).
+  Claude plan, after the cycle and outside Sleep's window, works a few open questions read-only in **compartments that
+  never meet**: private (files, masked conversation copies; no web, no shell, never the bank), web (search, fetch; no file
+  tool) and signed-in (the person's own browser: only sites they connected, only given addresses, one launcher command, only
+  while their browser already runs). It finds, **Cicada's code writes**: located evidence read by sentence, one
+  `found_by_agent` settle, undoable, no session words stored; only document kinds in folders granted by what they are,
+  nothing key-shaped stored (`harness_files`, `mcp.md`).
 - **Reading with the person's own agent (G166):** Cicada's backend never spawns a browser and never signs in to a site; it only asks
   (only ruling 47's tier 2 — an official API the person connects — signs in, never as a browser session, `network.md`). Only a
-  link the person asked about, or a wall page of a site they allowed, can be recorded — and (2026-10-16, G71) the
+  link the person asked about, or a wall page of a site they allowed, can be recorded — and (G71) the
   person's YouTube Watch later or history page, a standing ask once they turn that list on, stdio only; their saved list on X, Instagram or LinkedIn the same way, one site at a time, each item a
   save (G206, 2026-10-22, `mcp.md`; X reposts too, from the person's own profile, ruling 79 (a)) — and on Reddit, Pinterest or TikTok the same way, off by default until the
   person turns it on (G232, 2026-11-04; Spotify and Goodreads too, ruling 72: a site's terms don't decide this, 2026-11-06); one person's
@@ -484,7 +485,7 @@ when a *rail* changes (an invariant, a ruling, a boundary), in one or two lines 
 ### The app
 
 - **The app is not the primary surface — the chat is.** The app makes the graph observable. **New features live behind
-  the backend API; the app is one client of it** (the CLI and a future browser front end are others, owner 2026-10-13):
+  the backend API; the app is one client of it** (the CLI and a future browser front end are others):
   the app keeps only Mac readers that post bytes, per-viewer chrome and presentation.
 - **Design direction D is binding** (`docs/design/DESIGN_RULES.md`; a UI PR cites the DR ids it applies; a departure needs
   a dated ruling). SF only; the accent in six uses; depth is a ring, not a shadow; painted art is retired, the pixel study room the one
@@ -503,7 +504,7 @@ when a *rail* changes (an invariant, a ruling, a boundary), in one or two lines 
   panel closes only on the person's act; the star on a saved page never prompts for Automation (2026-10-19).
 - **Copy is provider-neutral** (2026-09-30): never name a provider or model as the one doing a job — describe the
   step; a name appears only where it shows the person's own current choice.
-- **Prices and plan usage show only on the Sleep page's Past sleeps  run detail and engine menu** (ruling 12), each figure with its basis.
+- **Prices and plan usage show only on the Sleep page's Past sleeps run detail and engine menu** (ruling 12), each figure with its basis.
 - **Sync:** one Store, hydrated from disk, SSE deltas, **never blank**; writes are optimistic with rollback. **Ship an
   ETag and its client mapping together.** A read that is not a Store domain says so and caches in memory.
 - **d3-force stays (G109)**; every custom force multiplies by alpha; the release path never bumps alpha.
