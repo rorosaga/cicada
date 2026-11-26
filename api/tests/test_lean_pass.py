@@ -847,3 +847,21 @@ def test_recall_drops_a_saved_pages_generated_lead_and_keeps_its_words():
     assert mcp_tools._without_saved_lead("## Summary\nSaved url.") == ""
     assert mcp_tools._without_saved_lead("## Summary\nSaved it for later because it explains X.") == \
         "## Summary\nSaved it for later because it explains X.", "a sentence that starts with Saved is no lead"
+
+
+def test_ask_lists_a_save_under_saved_items_never_as_a_conversation(tmp_path):
+    from api.services import bank_index, markdown_parser, mcp_tools
+
+    (tmp_path / "episodes").mkdir()
+    (tmp_path / "entities").mkdir()
+    markdown_parser.write(tmp_path / "episodes" / "ep_2026-11-01_001.md",
+                          {"id": "ep_2026-11-01_001", "source": "url", "media_entity_id": "media-a"}, "A link.")
+    markdown_parser.write(tmp_path / "episodes" / "ep_2026-11-02_001.md",
+                          {"id": "ep_2026-11-02_001", "source": "mcp"}, "user: hello")
+    bank_index.invalidate()
+    ctx = mcp_tools.ToolContext(memory_path=lambda: tmp_path, session_id="s-test-ask", harness="test")
+    out = mcp_tools._render_ask({"answer": "x", "conversations": [
+        {"episode_id": "ep_2026-11-01_001", "title": "A link"}, {"episode_id": "ep_2026-11-02_001"}]}, ctx)
+    said, kept = out.index("From conversations no page cites"), out.index("From saved items no page cites")
+    assert out.index("ep_2026-11-02_001") > said and out.index("ep_2026-11-01_001") > kept
+    assert out.index("ep_2026-11-02_001") < kept
