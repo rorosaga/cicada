@@ -31,7 +31,8 @@ struct SleepRoomColumn: View {
     /// name, when Sleep last read, and the machines), the status slot in the middle (the run's one object while a run is
     /// on the page, 2026-11-26), the run bar last (2026-11-24: the engine, the schedule and the one primary as one
     /// object), the free height shared by two springs, so the block's top and bottom edges are the room's whatever the
-    /// state says (`fillHeight`). Nothing about a run hangs under the pair any more, so nothing below it moves when a
+    /// state says (`fillHeight`); while a run is on the page the object hangs from the title at one fixed offset and the
+    /// free height is one spring above the run bar, so the word and the bar never move between run states. Nothing about a run hangs under the pair any more, so nothing below it moves when a
     /// run starts or ends.
     var title: AnyView? = nil
     var fillHeight: CGFloat? = nil
@@ -45,11 +46,22 @@ struct SleepRoomColumn: View {
     }
 
     private func pinned(height: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        // At 2 pt a cell the block is 128 pt: the run object's gaps tighten so a note still fits inside it.
+        let compact = height < CicadaTheme.scaled(160)
+        return VStack(alignment: .leading, spacing: 0) {
             title
-            Spacer(minLength: CicadaTheme.spacingSM)
-            statusSlot(leading: true)
-            Spacer(minLength: CicadaTheme.spacingSM)
+            if run != nil {
+                // A run's object hangs from the title at one fixed offset, whatever it carries: the word and the bar
+                // sit at the same height in reading, filing, paused, stopped, failed and finished, and a note appears
+                // in the room under the bar instead of moving them. The block ends where the room does (`fillHeight`).
+                Spacer().frame(height: compact ? CicadaTheme.spacingSM : CicadaTheme.spacingMD)
+                statusSlot(leading: true, compact: compact)
+                Spacer(minLength: compact ? CicadaTheme.spacingXS : CicadaTheme.spacingSM)
+            } else {
+                Spacer(minLength: CicadaTheme.spacingSM)
+                statusSlot(leading: true)
+                Spacer(minLength: CicadaTheme.spacingSM)
+            }
             SleepControlRow(consolidateEnabled: page.consolidateEnabled, queuedCount: page.queuedCount, page: page,
                             leading: true, part: .buttons, room: room)
                 .accessibilitySortPriority(RoomA11yOrder.control)
@@ -80,9 +92,9 @@ struct SleepRoomColumn: View {
 
     /// The one slot the page's state speaks in (R-Z5): the status sentence, or the run's object while a run is on the
     /// page. An answer from the worm or a feed line still replaces either.
-    private func statusSlot(leading: Bool) -> some View {
+    private func statusSlot(leading: Bool, compact: Bool = false) -> some View {
         RoomSentenceView(line: status, answers: answers, room: room, feedAsleep: feedAsleep, perform: perform,
-                         leading: leading, run: run,
+                         leading: leading, run: run, compactRun: compact,
                          openOwnerPage: { ownerEntityId.map { onSelectEntity?($0) } })
     }
 

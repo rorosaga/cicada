@@ -519,6 +519,8 @@ struct RoomSentenceView: View {
     /// 2026-11-26 — a run on the page (reading, paused, stopped, failed, just finished): its one quiet object takes the
     /// status slot, in place of the chip, the lead and the tail. An answer or a feed line still replaces it (R-Z5, R-Z7).
     var run: RunLine? = nil
+    /// The run's object at the room's smallest size (`RunObjectView.compact`).
+    var compactRun = false
     /// The first run's link to the person's own page.
     var openOwnerPage: () -> Void = {}
 
@@ -555,7 +557,7 @@ struct RoomSentenceView: View {
         ZStack {
             if let run, slot == .status {
                 // The run object carries its own accessibility (a word, a bar with a value, one note).
-                RunObjectView(run: run, perform: perform, openOwnerPage: openOwnerPage)
+                RunObjectView(run: run, perform: perform, openOwnerPage: openOwnerPage, compact: compactRun)
                     .id(slot)
                     .transition(.opacity)
             } else {

@@ -149,12 +149,16 @@ struct RunLine: Equatable {
         // 5. A run that just finished: what it filed, the bar full, and the way to what changed. Nothing cheers.
         if let drain, drain.finished, drain.filed > 0, let progress,
            recentCycleCommit != nil || isDigesting(page.mood) {
-            // The way to what changed is the sentence's own T7 tail, said once.
+            // The sentence's own tail, said once: T7's way to what changed, or, outranking it, T6's warning (the index
+            // problem) and T5's cap, which point at Past sleeps — a finished run never swallows a warning.
             let sentence = roomSentence(page.roomContext(recentCycleCommit: recentCycleCommit, locale: locale))
-            let link = sentence.action == .whatChanged ? sentence.tail : nil
+            let note: Note? = switch (sentence.tail, sentence.action) {
+            case let (tail?, .whatChanged?): Note(text: tail, style: .link, action: .whatChanged)
+            case let (tail?, action?): Note(text: tail, style: .detail, action: action)
+            default: nil
+            }
             return RunLine(kind: .finished, word: trimmed(Copy.SleepV5.filedLead(drain.filed, locale)),
-                           elapsed: elapsed, progress: progress,
-                           note: link.map { Note(text: $0, style: .link, action: .whatChanged) })
+                           elapsed: elapsed, progress: progress, note: note)
         }
         return nil
     }
@@ -189,6 +193,9 @@ struct RunObjectView: View {
     let run: RunLine
     var perform: (SentenceAction) -> Void = { _ in }
     var openOwnerPage: () -> Void = {}
+    /// The block beside the room at its smallest (2 pt a cell, 128 pt): the gaps between the line, the bar and the note
+    /// tighten so the block still ends where the room does (`SleepRoomColumn`).
+    var compact = false
 
     /// The bar's height before `uiScale`: thin, a line and not a gauge.
     static let barHeight: CGFloat = 4
@@ -196,7 +203,7 @@ struct RunObjectView: View {
     static let markSize: CGFloat = 7
 
     var body: some View {
-        VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
+        VStack(alignment: .leading, spacing: compact ? CicadaTheme.spacingXS : CicadaTheme.spacingSM) {
             line
             bar
             if let note = run.note { noteView(note) }

@@ -116,6 +116,17 @@ final class SleepRunStripTests: XCTestCase {
         XCTAssertNil(Self.line(try Self.finished()), "the object goes once the window for its link has")
     }
 
+    /// The index warning (T6) and the cap (T5) outrank the way to what changed (T7) in the sentence's tail. A run that just
+    /// finished keeps the pointer to Past sleeps in its note: the object never swallows a warning.
+    func test_aJustFinishedRunKeepsTheWarningThatPointsAtPastSleeps() throws {
+        let warned = try XCTUnwrap(Self.line(Self.finished(indexWarning: "The search index is out of date."), finished: true))
+        XCTAssertEqual(warned.kind, .finished)
+        XCTAssertEqual(warned.note, RunLine.Note(text: "Finished with a warning — it's in Past sleeps.", style: .detail,
+                                                  action: .openDetails(.lastCycle)))
+        let clean = try XCTUnwrap(Self.line(Self.finished(), finished: true))
+        XCTAssertEqual(clean.note?.action, .whatChanged, "with no warning the way to what changed is the note")
+    }
+
     /// What the frozen stepper showed, said once: the step a stop reached, with the bar where it stopped.
     func test_aStoppedOrFailedRunSaysWhereItStopped() throws {
         let stopped = try XCTUnwrap(Self.line(Self.cancelled()))
@@ -225,9 +236,42 @@ final class SleepRunStripTests: XCTestCase {
         }
     }
 
+    /// One calm object, not one that jumps (the owner's words): the word and the bar hang at the same height in every run
+    /// state, with or without a note, and the block ends exactly where the room does — at 3 pt a cell (192 pt) and at 2
+    /// (128 pt), where a note has the least room.
+    func test_theObjectHoldsOneHeightAndTheBlockKeepsTheRoomsInEveryState() async throws {
+        for window in [1440, 1079] {
+            let cell: CGFloat = window == 1440 ? 3 : 2
+            let width = Self.wordsWidth(window: window)
+            var barTop: Int?, lineTop: Int?
+            for (name, status, finished) in try Self.runStates() {
+                let host = try await Self.host()
+                host.sleep.status = status
+                let view = Self.environment(Self.pinned(status, finished: finished, host: host, width: width, cell: cell),
+                                            host: host)
+                let (bands, height) = try Self.hostedBandsAndHeight(of: view, width: width)
+                XCTAssertEqual(height, CGFloat(RoomLattice.rows) * cell, accuracy: 0.5,
+                               "\(name) @\(window): the block is as tall as the room, a note or none")
+                let bar = try XCTUnwrap(bands.first { $0.bottom - $0.top + 1 <= 6 && $0.right - $0.left >= width - 4 },
+                                        "\(name) @\(window): the bar — \(bands)")
+                let line = try XCTUnwrap(bands.last { $0.bottom < bar.top }, "\(name) @\(window): the line over the bar")
+                if let barTop, let lineTop {
+                    XCTAssertEqual(bar.top, barTop, "\(name) @\(window): the bar does not move between run states")
+                    XCTAssertEqual(line.top, lineTop, "\(name) @\(window): nor does the line")
+                } else { barTop = bar.top; lineTop = line.top }
+                let card = try XCTUnwrap(bands.last, "\(name) @\(window): the run bar")
+                XCTAssertLessThanOrEqual(CGFloat(card.bottom + 1), height + 0.5, "\(name) @\(window): the card is inside the block")
+            }
+        }
+    }
+
     /// The rows of ink in a hosted render, at 1 pt per row: each run of pixel rows that differ from the page ground, with
     /// its horizontal extent.
     static func hostedBands(of view: some View, width: CGFloat) throws -> [Band] {
+        try hostedBandsAndHeight(of: view, width: width).0
+    }
+
+    static func hostedBandsAndHeight(of view: some View, width: CGFloat) throws -> ([Band], CGFloat) {
         let hosting = NSHostingView(rootView: view.background(CicadaTheme.bgBase))
         hosting.appearance = NSAppearance(named: CicadaTheme.mode == .dark ? .darkAqua : .aqua)
         hosting.frame = NSRect(x: 0, y: 0, width: width, height: 10)
@@ -262,7 +306,7 @@ final class SleepRunStripTests: XCTestCase {
                 start = nil
             }
         }
-        return bands
+        return (bands, height)
     }
 
     /// Nothing about a run hangs under the pair any more: while a run reads, is paused, stopped or failed, what the page
@@ -270,7 +314,7 @@ final class SleepRunStripTests: XCTestCase {
     /// jumps when a run starts or ends.
     func test_nothingAboutARunHangsUnderTheRoom() async throws {
         let rest = try await Self.underTheRoomHeight(Self.finished(), finished: false)
-        for (name, status, finished) in try Self.runStates() where name != "just-finished" {
+        for (name, status, finished) in try Self.runStates() where !name.hasPrefix("just-finished") {
             let height = try await Self.underTheRoomHeight(status, finished: finished)
             XCTAssertEqual(height, rest, accuracy: 0.5, "\(name): under the pair is as tall as at rest")
         }
@@ -329,6 +373,7 @@ final class SleepRunStripTests: XCTestCase {
             ("failed", failed(), false),
             ("cancelled", cancelled(), false),
             ("just-finished", finished(), true),
+            ("just-finished-warning", finished(indexWarning: "The search index is out of date."), true),
         ]
     }
 
@@ -494,8 +539,10 @@ final class SleepRunStripTests: XCTestCase {
         return try decode(status)
     }
 
-    static func finished() throws -> SleepStatusResponse {
-        try decode(scenario("sleep-status-drain.json", "finished"))
+    static func finished(indexWarning: String? = nil) throws -> SleepStatusResponse {
+        var status = try scenario("sleep-status-drain.json", "finished")
+        if let indexWarning { status["indexWarning"] = indexWarning }
+        return try decode(status)
     }
 
     /// 2026-11-26 — a scheduled run the write window refused before it read: idle, a queue waiting, no error, and the
