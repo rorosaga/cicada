@@ -81,3 +81,28 @@ def test_the_sse_sleep_event_carries_writing_and_fires_when_it_flips(client, mon
     # Bounded: before G177 the flip moved nothing in the change key, so no second event ever came.
     first, second = asyncio.run(asyncio.wait_for(_drive(), timeout=10))
     assert first["writing"] is False and second["writing"] is True
+
+
+def test_status_carries_the_refused_night_notice_until_a_run_reads(client, monkeypatch):
+    """A scheduled run the write window refused is said on `/status` too, not only on `/sleep/status`: the in-memory
+    error is gone after a restart, the machine-local record is not (`sleep_catch_up.refusal_notice`)."""
+    from api.services import sleep_catch_up
+
+    c, memory = client
+    seen = []
+    sentence = "The scheduled run for Nov 24 at 03:00 did not start: something was still writing to your memory."
+
+    def notice(memory_path):
+        seen.append(str(memory_path))
+        return sentence
+
+    monkeypatch.setattr(sleep_catch_up, "refusal_notice", notice)
+    state = _run(monkeypatch, drain=False, writing=False, status="idle")
+    monkeypatch.setattr(state, "error", None)
+    assert c.get("/status").json()["sleep"]["error"] == sentence
+    assert seen == [str(memory)], "asked of the active bank"
+    monkeypatch.setattr(state, "error", "its own error")
+    assert c.get("/status").json()["sleep"]["error"] == "its own error", "the run's own error comes first"
+    _run(monkeypatch, drain=False, writing=False, status="running")
+    monkeypatch.setattr(state, "error", None)
+    assert c.get("/status").json()["sleep"]["error"] is None, "never over a running cycle"
