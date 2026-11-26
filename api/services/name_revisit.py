@@ -581,7 +581,7 @@ def _unsaid_names(fm: dict, line, name: str) -> list[str]:
 def name_case(memory_path: Path, path: Path, fm: dict, *, today: str | None = None) -> tuple[NameCase | None, str]:
     """``(case, "")`` when every engine-free condition holds for this open question about a name with no page, else
     ``(None, why it is left)``. Reads only."""
-    from api.services import alias_policy, answered_questions, merge_rejections, pending_store, wrong_aliases
+    from api.services import alias_policy, answered_questions, merge_rejections, pending_store, which_one_file, wrong_aliases
     from api.services.id_utils import resolve_entity_file, sanitize_id
 
     memory_path = Path(memory_path)
@@ -613,7 +613,8 @@ def name_case(memory_path: Path, path: Path, fm: dict, *, today: str | None = No
         return None, "not_this_name"
     if line is not None and line.held_against:
         return None, "held_against_a_page"
-    if target_id in pending_store.apart_of(memory_path, name) or (line is not None and target_id in line.apart_pages()):
+    if (target_id in pending_store.apart_of(memory_path, name) or (line is not None and target_id in line.apart_pages())
+            or which_one_file.blocked(line, target_id)):   # ruling 83: a per-conversation "someone else" holds too
         return None, "said_apart"
     if (merge_rejections.is_rejected(memory_path, own_id, target_id) or merge_rejections.is_split(memory_path, own_id, target_id)
             or inbox_tend._split_apart(memory_path, own_id, target_id)):

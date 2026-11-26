@@ -181,6 +181,16 @@ def _releases(
     except Exception as e:  # noqa: BLE001 - a hold is never worth the cycle's claims
         logger.warning(f"pending-store release skipped: {type(e).__name__}: {e}")
         return [], [], {}
+    # Ruling 83: a line the person answered "someone else" about for one of its conversations (for the page the name now means), or
+    # one holding words of a conversation filed to another page, is not released onto it whole: the line stays as it is.
+    from api.services import which_one_file
+
+    try:
+        lines = {line.name.lower(): line for line in pending_store.load(memory_path)}
+        releases = [rel for rel in releases if not which_one_file.blocked(lines.get(rel.name.lower()), rel.target)]
+    except Exception as e:  # noqa: BLE001 - a store that cannot be read releases nothing this cycle
+        logger.warning(f"pending-store release skipped: {type(e).__name__}: {e}")
+        return [], [], {}
     offered: list[Claim] = []
     credit: dict[str, list[str]] = {}
     for rel in releases:

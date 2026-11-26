@@ -289,7 +289,9 @@ def _land_held_claims(memory_path: Path, line, page_id: str, settings, claim_pip
     """The line's held claims onto the page it became (`pending_store.answered` + `claim_pipeline.land_answered`: the same path the
     person's own "this held name IS that page" takes), each leaving the line once it has landed. Paths written; ``[]`` for a line
     that held none."""
-    release = pending_store.answered(memory_path, line.name, page_id)
+    from api.services import which_one_file
+
+    release = which_one_file.allowed(memory_path, pending_store.answered(memory_path, line.name, page_id))   # ruling 83: a "no" holds
     if release is None:
         return []
     try:

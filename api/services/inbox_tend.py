@@ -146,6 +146,8 @@ RULES: dict[str, str] = {
     "which_one_folded": "Asked once, as one question with every page the name could be on it",
     # Ruling 83 (`which_one_reader`): the conversation where the name was said says which one it was; the main model read it twice.
     "which_one_read": "Read where you said it: the words around the name say which one you meant",
+    # Ruling 83 (`which_one_file`): each conversation went to the one it meant; what is left on the line carries no conversation.
+    "which_one_answered": "Read where you said it: each conversation was filed under the one it meant",
     # 2026-11-24 (`question_revisit`, ruling 82): an open question read again, by the main model, against the whole record.
     "revisit_one": "Read again against everything on record: it says they are one person",
     # `name_revisit` (ruling 82): a name with no page, read again against the page it was asked about.

@@ -310,7 +310,7 @@ def guards(memory_path: Path, path: Path | None, fm: dict, *, today: str | None 
     """``(case, "")`` when every engine-free condition holds for this open question, else ``(None, why it stays)``.
     ``path`` is ``None`` for a held name no question was ever raised about (``fm`` is then the question's shape, never
     written unless the join happens). Reads only."""
-    from api.services import (inbox_tend, merge_rejections, pending_store, role_people, same_name_doubts)
+    from api.services import (inbox_tend, merge_rejections, pending_store, role_people, same_name_doubts, which_one_file)
     from api.services.id_utils import resolve_entity_file, sanitize_id
 
     memory_path = Path(memory_path)
@@ -355,7 +355,8 @@ def guards(memory_path: Path, path: Path | None, fm: dict, *, today: str | None 
         if (line is None or str(line.type or "").lower() != "person" or line.title or line.held_against
                 or line.correspondent):
             return None, "no_held_line"
-        if target_id in pending_store.apart_of(memory_path, asked_name) or target_id in line.apart_pages():
+        if (target_id in pending_store.apart_of(memory_path, asked_name) or target_id in line.apart_pages()
+                or which_one_file.blocked(line, target_id)):   # ruling 83: a per-conversation "someone else" holds too
             return None, "said_apart"
         a_id = sanitize_id(asked_name)
         if a_id in people:

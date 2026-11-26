@@ -8,7 +8,7 @@ from api.config import Settings, get_settings
 from api.models.schemas import (CatchupRecordRequest, CatchupTurnRequest, CheckCensus, InboxItem,
                                 InboxResolveRequest, SettledCheck)
 from api.services import (evidence_window, inbox_service, inbox_wording, question_order, question_origin, same_name,
-                          same_name_pick, source_check, sync_service, sync_ticker)
+                          same_name_pick, source_check, sync_service, sync_ticker, which_one_file)
 
 router = APIRouter()
 
@@ -52,7 +52,9 @@ async def list_inbox(
                                                        f"|{evidence_window.SHAPE}"
                                                        # 2026-11-24: who asked each question (`question_origin`), derived from the
                                                        # question's own file, which `inbox` already covers — the wire shape alone.
-                                                       f"|{question_origin.SHAPE}")
+                                                       f"|{question_origin.SHAPE}"
+                                                       # Ruling 83: `scopeEpisodes`, read from the question's own file.
+                                                       f"|{which_one_file.SHAPE}")
         if (early := sync_service.conditional(request, response, etag)) is not None:
             return early
         # Off the event loop (inbox lag, 2026-10-17): the read parses every inbox file and the pages they name, and a
@@ -134,7 +136,8 @@ async def undo_settled(item_id: str, settings: Settings = Depends(get_settings))
 async def _undo_landing(item_id: str, settings: Settings) -> dict:
     """G148 — a landing of facts said about a part of a page taken back (`described_landing.undo`): its claims leave the page
     and go back to their held lines, the page is remembered as one the mention is not. Committed as the person's."""
-    from api.services import described_landing, git_service, inbox_tend, page_lock, state_dictionary, web_settle, write_admission
+    from api.services import (described_landing, git_service, inbox_tend, page_lock, settle_guard, state_dictionary, web_settle,
+                              which_one_file, write_admission)
     from api.services.sleep_refusal import SleepWriting
 
     memory_path = settings.memory_path
@@ -143,6 +146,10 @@ async def _undo_landing(item_id: str, settings: Settings) -> dict:
 
     def work() -> None:
         with page_lock.page_lock(memory_path):
+            if which_one_file.is_record(memory_path, item_id):
+                # A mention filed conversation by conversation (ruling 83) is taken back by its own writer, as one guarded write.
+                out["rec"] = which_one_file.undo_committed(memory_path, item_id, before=before)
+                return
             paths, lines, rec = described_landing.undo(memory_path, item_id)
             web_settle.commit_sync(memory_path, web_settle.commit_message("Landing undone", lines, authors=["user"]),
                                    paths, before=before)
@@ -153,6 +160,8 @@ async def _undo_landing(item_id: str, settings: Settings) -> dict:
                                            refuse=lambda: SleepWriting(inbox_service.SLEEP_BUSY))
     except described_landing.NotLandable as exc:
         raise HTTPException(409 if "changed" in str(exc) else 404, str(exc)) from exc
+    except settle_guard.TreeUnreadable as exc:
+        raise HTTPException(409, "The bank's changes could not be read; nothing was changed.") from exc
     inbox_tend.record_undo(memory_path, item_id, out.get("rec") or {})
     await state_dictionary.refresh_admitted(memory_path, settings)
     return {"status": "kept_apart", "id": item_id}

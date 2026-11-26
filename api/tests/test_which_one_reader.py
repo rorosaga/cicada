@@ -191,7 +191,10 @@ def test_the_assistants_turn_is_never_where_the_mention_was_said(tmp_path, monke
     assert path.exists()
 
 
-def test_every_conversation_the_line_holds_must_name_the_same_candidate(tmp_path, monkeypatch):
+def test_conversations_that_name_different_candidates_are_each_filed_to_their_own(tmp_path, monkeypatch):
+    """Ruling 83 (per conversation, `which_one_file`): the held line is no longer all-or-nothing. The line here holds one fact, said
+    in the first conversation, so only that one goes, to the person that conversation meant; the second names the other person and
+    has nothing held to file."""
     bank, path = _world(tmp_path, monkeypatch, conversations={
         EP1: "user: My brother Nick is visiting.\nassistant: Nice.",
         EP2: "user: Nick Vale and I shipped it.\nassistant: Great."})
@@ -203,8 +206,9 @@ def test_every_conversation_the_line_holds_must_name_the_same_candidate(tmp_path
         return await scripted(name=mine, sentence=sentence)(system, prompt)
 
     report = _run(bank, path, ask)
-    assert report.settled == 0 and report.calls == 4
-    _untouched(bank, path, before)
+    assert report.settled == 1 and report.calls == 4
+    assert ("nick-brother", "visits", "a-weekend") in _claims(bank, "nick-brother") and _claims(bank, "nick-friend") == []
+    assert path.read_bytes() != before or not path.exists()
 
 
 def test_a_line_with_more_conversations_than_the_bound_is_left_unread(tmp_path, monkeypatch):
