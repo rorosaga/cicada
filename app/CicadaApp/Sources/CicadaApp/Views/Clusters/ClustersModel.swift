@@ -8,9 +8,35 @@ enum ClustersModel {
 
     struct Group: Identifiable {
         let type: EntityType
+        /// The pages drawn as ordinary rows. In Media a page inside a list (`lists`) is not here.
         let entities: [Entity]
+        /// Owner 2026-11-25 (G246, ruling 81a): Media's lists of saved things, each one line that opens to its members.
+        var lists: [ListFold] = []
         var id: EntityType { type }
+        /// What the tab counts: a list is one entry, like any page.
+        var count: Int { entities.count + lists.count }
     }
+
+    /// One list of saved things (a playlist, Watch later, a bookmarks folder) as Clusters draws it: its name, its
+    /// source's mark and its members as pages, in the order the view's filter left them. The same bubbles the graph
+    /// folds (`GraphViewModel.bubbles`), so the two views never disagree about what is a list.
+    struct ListFold: Identifiable {
+        let bubble: GraphBubble
+        let members: [Entity]
+        /// How many it says: the list's whole count, or only the members a filter left.
+        let count: Int
+        var id: String { bubble.id }
+        var name: String { bubble.name }
+        /// The list's own page, when it has one (list pages ship dark, so often nil).
+        var pageId: String? { bubble.pageId }
+        var newest: String { members.map(\.lastReferenced).max() ?? "" }
+    }
+
+    /// How many members an opened list draws before its "Show all N" (the rows are lazy; the cap keeps a 3,000-item list
+    /// from being asked for at once).
+    static let memberCap = 30
+    /// All's Media section shows this many list lines before "Show all".
+    static let listLines = 3
 
     /// One drawn line. Rows are direct children of the lazy stack (a group's header, its rows and its "Show all" are
     /// siblings), so a 600-entity type expanded by "Expand all" never builds more rows than fit on screen.
@@ -20,12 +46,18 @@ enum ClustersModel {
         case header(EntityType, count: Int, first: Bool, recency: Bool)
         case row(Entity, showsType: Bool)
         case more(EntityType, count: Int)
+        /// A list of saved things: one line, `open` says its members follow.
+        case list(ListFold, open: Bool)
+        /// An opened list's "Show all N": every member, not the first `memberCap`.
+        case moreMembers(listId: String, count: Int)
 
         var id: String {
             switch self {
             case .header(let t, _, _, _): "header:\(t.rawValue)"
             case .row(let e, _): e.id
             case .more(let t, _): "more:\(t.rawValue)"
+            case .list(let l, _): "list:\(l.id)"
+            case .moreMembers(let id, _): "listmore:\(id)"
             }
         }
 
@@ -77,14 +109,49 @@ enum ClustersModel {
     }
 
     /// In `typeOrder` (the grid's order, so the tabs, the cards and All's list agree), empty types dropped.
-    static func groups(_ filtered: [Entity]) -> [Group] {
-        let buckets = Dictionary(grouping: filtered, by: \.type)
-        return typeOrder.compactMap { type in buckets[type].map { Group(type: type, entities: $0) } }
+    /// `bubbles` (the graph's, owner 2026-11-25) folds Media's saved lists: a page that is a member of a list leaves the
+    /// ordinary rows and sits under the list's line; an `outside` (earned) page and a media page in no list stay rows.
+    /// A list's own page is its line, never a second row. A list the View menu leaves no member of is not drawn, and its
+    /// own page is then an ordinary row.
+    static func groups(_ filtered: [Entity], bubbles: [GraphBubble] = []) -> [Group] {
+        var buckets = Dictionary(grouping: filtered, by: \.type)
+        var folds: [ListFold] = []
+        if !bubbles.isEmpty, let media = buckets[.media] {
+            var listOf: [String: Int] = [:]
+            for (i, b) in bubbles.enumerated() {
+                for id in b.members where listOf[id] == nil { listOf[id] = i }
+            }
+            let ownPages = Set(bubbles.compactMap(\.pageId))
+            var members: [Int: [Entity]] = [:]
+            var rest: [Entity] = []
+            var listPages: [Entity] = []
+            for e in media {
+                if let i = listOf[e.id] { members[i, default: []].append(e) }
+                else if ownPages.contains(e.id) { listPages.append(e) }
+                else { rest.append(e) }
+            }
+            // A list's own page is its line only while the line is drawn; a list the View menu emptied keeps its page a row.
+            let drawn = Set(members.keys.compactMap { bubbles[$0].pageId })
+            rest += listPages.filter { !drawn.contains($0.id) }
+            folds = members.map { i, es in
+                let b = bubbles[i]
+                return ListFold(bubble: b, members: es, count: es.count == b.members.count ? max(b.count, es.count) : es.count)
+            }
+            .sorted { a, b in
+                a.newest != b.newest ? a.newest > b.newest : a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+            }
+            buckets[.media] = rest
+        }
+        return typeOrder.compactMap { type in
+            let es = buckets[type] ?? []
+            let lists = type == .media ? folds : []
+            return es.isEmpty && lists.isEmpty ? nil : Group(type: type, entities: es, lists: lists)
+        }
     }
 
     static func tabs(_ groups: [Group]) -> [TextTab<EntityType>] {
-        [TextTab(id: nil, label: Copy.Lists.all, count: groups.reduce(0) { $0 + $1.entities.count })]
-            + groups.map { TextTab(id: $0.type, label: $0.type.groupLabel, count: $0.entities.count) }
+        [TextTab(id: nil, label: Copy.Lists.all, count: groups.reduce(0) { $0 + $1.count })]
+            + groups.map { TextTab(id: $0.type, label: $0.type.groupLabel, count: $0.count) }
     }
 
     /// G136 S5 — ranked by `QuickMatch` (`rank`, the graph's cached index), never showing what the View menu hides.
@@ -100,18 +167,39 @@ enum ClustersModel {
 
     /// The lines in the order they are drawn: find's ranked matches (types mixed, so each row names its own); a tab's
     /// group under one header that names its order (R-PE13); or All's groups, each capped unless Expand all.
-    static func lines(groups: [Group], tab: EntityType?, matches: [Entity]?, expandAll: Bool, cap: Int) -> [ClusterLine] {
+    static func lines(groups: [Group], tab: EntityType?, matches: [Entity]?, expandAll: Bool, cap: Int,
+                      openLists: Set<String> = [], fullLists: Set<String> = []) -> [ClusterLine] {
         if let matches { return matches.map { .row($0, showsType: true) } }
+        /// A list's line, then (opened) its members: the first `memberCap`, or all after "Show all N".
+        func linesOf(_ list: ListFold) -> [ClusterLine] {
+            let isOpen = openLists.contains(list.id)
+            var out: [ClusterLine] = [.list(list, open: isOpen)]
+            guard isOpen else { return out }
+            let all = fullLists.contains(list.id)
+            let shown = all ? list.members : Array(list.members.prefix(memberCap))
+            out += shown.map { .row($0, showsType: false) }
+            if shown.count < list.members.count { out.append(.moreMembers(listId: list.id, count: list.members.count)) }
+            return out
+        }
         if let tab {
-            let rows = groups.first { $0.type == tab }?.entities ?? []
-            return [.header(tab, count: rows.count, first: true, recency: true)] + rows.map { .row($0, showsType: false) }
+            let group = groups.first { $0.type == tab }
+            let rows = group?.entities ?? []
+            return [.header(tab, count: group?.count ?? 0, first: true, recency: true)]
+                + (group?.lists ?? []).flatMap(linesOf) + rows.map { .row($0, showsType: false) }
         }
         return groups.enumerated().flatMap { index, group -> [ClusterLine] in
-            let shown = expandAll ? group.entities : Array(group.entities.prefix(cap))
-            var out: [ClusterLine] = [.header(group.type, count: group.entities.count,
-                                                         first: index == 0, recency: false)]
+            // Lists lead the section (a list is a standing group, the pages beside it are single saves); the cap counts
+            // entries, an opened list's members come on top of it.
+            let lists = expandAll ? group.lists : Array(group.lists.prefix(min(cap, listLines)))
+            let rowBudget = expandAll ? group.entities.count : max(cap - lists.count, 0)
+            let shown = Array(group.entities.prefix(rowBudget))
+            var out: [ClusterLine] = [.header(group.type, count: group.count,
+                                              first: index == 0, recency: false)]
+            out += lists.flatMap(linesOf)
             out += shown.map { .row($0, showsType: false) }
-            if shown.count < group.entities.count { out.append(.more(group.type, count: group.entities.count)) }
+            if lists.count < group.lists.count || shown.count < group.entities.count {
+                out.append(.more(group.type, count: group.count))
+            }
             return out
         }
     }

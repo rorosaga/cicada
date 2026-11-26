@@ -127,14 +127,33 @@ enum ClustersGrid {
 
     /// DR-68 — what ↑/↓ walk: every drawn tile in reading order, row by row, card by card.
     static func visible(_ groups: [ClustersModel.Group], tab: EntityType?, expandAll: Bool,
-                        pictured: (Entity) -> Bool = { _ in false }) -> [Entity] {
-        if let tab { return groups.first { $0.type == tab }?.entities ?? [] }
+                        pictured: (Entity) -> Bool = { _ in false }, lists: ClusterListActions = .none) -> [Entity] {
+        if let tab {
+            guard let group = groups.first(where: { $0.type == tab }) else { return [] }
+            return openMembers(group.lists, lists) + group.entities
+        }
         let byType = Dictionary(groups.map { ($0.type, $0.entities) }, uniquingKeysWith: { first, _ in first })
+        let listsOf = Dictionary(groups.map { ($0.type, $0.lists) }, uniquingKeysWith: { first, _ in first })
         return rows(groups, expandAll: expandAll).enumerated().flatMap { index, row in
             row.types.flatMap { type -> [Entity] in
-                shown(byType[type] ?? [], type: type, row: row,
-                      budget: budget(row, index: index, expandAll: expandAll), pictured: pictured)
+                openMembers(shownLists(listsOf[type] ?? [], row: row), lists)
+                    + shown(byType[type] ?? [], type: type, row: row,
+                            budget: budget(row, index: index, expandAll: expandAll), pictured: pictured)
             }
+        }
+    }
+
+    /// The list lines a section draws: all of them in a tab or under Expand all, the first few in All's gallery.
+    static func shownLists(_ all: [ClustersModel.ListFold], row: Row) -> [ClustersModel.ListFold] {
+        if case .gallery = row { return Array(all.prefix(ClustersModel.listLines)) }
+        return all
+    }
+
+    /// The members the open lists draw (the cap, or all after "Show all"), in the order the lines draw them: what the
+    /// keys walk after the lines.
+    static func openMembers(_ lists: [ClustersModel.ListFold], _ actions: ClusterListActions) -> [Entity] {
+        lists.filter { actions.open.contains($0.id) }.flatMap { list in
+            actions.full.contains(list.id) ? list.members : Array(list.members.prefix(ClustersModel.memberCap))
         }
     }
 
@@ -159,6 +178,7 @@ struct ClustersGridView: View {
     let showTab: (EntityType) -> Void
     let move: (Int) -> Void
     let escape: () -> Void
+    var lists: ClusterListActions = .none
 
     @Environment(Store.self) private var store
 
@@ -169,7 +189,7 @@ struct ClustersGridView: View {
                     let columns = ClustersGrid.tabColumns(width: geo.size.width - gutter * 2,
                                                           scale: CGFloat(CicadaTheme.uiScale))
                     if let tab, let group = groups.first(where: { $0.type == tab }) {
-                        ClusterCard(group: group, shown: group.entities, columns: columns, open: open, showAll: nil)
+                        ClusterCard(group: group, shown: group.entities, columns: columns, open: open, showAll: nil, lists: lists)
                     } else {
                         let rows = ClustersGrid.rows(groups, expandAll: expandAll)
                         ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
@@ -198,7 +218,8 @@ struct ClustersGridView: View {
         switch row {
         case .faces(let types), .lead(let types), .gallery(let types):
             if let type = types.first, let (group, items) = shown(type) {
-                let more: (() -> Void)? = items.count < group.entities.count ? { showTab(type) } : nil
+                let hiddenLists = group.lists.count > ClustersGrid.shownLists(group.lists, row: row).count
+                let more: (() -> Void)? = items.count < group.entities.count || hiddenLists ? { showTab(type) } : nil
                 switch row {
                 case .faces:
                     ClusterFaces(group: group, shown: items, columns: ClustersGrid.faceColumns(width: width, scale: scale),
@@ -208,7 +229,8 @@ struct ClustersGridView: View {
                                  open: open, showAll: more)
                 default:
                     ClusterNames(group: group, shown: items, columns: ClustersGrid.leadColumns(width: width, scale: scale),
-                                 lines: 2, open: open, showAll: more)
+                                 lines: 2, open: open, showAll: more,
+                                 lists: ClustersGrid.shownLists(group.lists, row: row), listActions: lists)
                 }
             }
         case .trio(let types):
@@ -229,7 +251,7 @@ struct ClustersGridView: View {
                     if let (group, items) = shown(type) {
                         if case .pair = row {
                             ClusterCard(group: group, shown: items, columns: wideColumns, open: open,
-                                        showAll: { showTab(type) })
+                                        showAll: { showTab(type) }, lists: lists)
                         } else {
                             ClusterShortCard(group: group, shown: items, open: open, showAll: { showTab(type) })
                         }
@@ -276,13 +298,19 @@ struct ClusterCard: View {
     var columns = 2
     let open: (Entity) -> Void
     let showAll: (() -> Void)?
+    var lists: ClusterListActions = .none
 
     @Environment(Store.self) private var store
 
     var body: some View {
         VStack(alignment: .leading, spacing: CicadaTheme.spacingSM) {
-            ClusterCardHeader(type: group.type, count: group.entities.count,
+            ClusterCardHeader(type: group.type, count: group.count,
                               showAll: shown.count < group.entities.count ? showAll : nil)
+            if !group.lists.isEmpty {
+                ClusterListBlocks(lists: group.lists, actions: lists, columns: columns) { entity in
+                    ClusterTile(entity: entity, reservesPicture: true) { open(entity) }
+                }
+            }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: CicadaTheme.spacingSM, alignment: .leading),
                                      count: max(columns, 1)),
                       alignment: .leading, spacing: CicadaTheme.scaled(4)) {
@@ -582,12 +610,22 @@ struct ClusterNames: View {
     var lines = 1
     let open: (Entity) -> Void
     let showAll: (() -> Void)?
+    /// Media's list lines this section draws (owner 2026-11-25), above its pages.
+    var lists: [ClustersModel.ListFold] = []
+    var listActions: ClusterListActions = .none
 
     var body: some View {
         ClusterSection(group: group, showAll: showAll) {
+            if !lists.isEmpty {
+                ClusterListBlocks(lists: lists, actions: listActions, columns: max(columns, 1)) { entity in
+                    ClusterNameRow(entity: entity, lines: lines) { open(entity) }
+                }
+            }
             // Round 4: Media fills down its columns, not across its rows, so the dimmed titles (ordered last) are
             // whole columns and the dimming reads as a block, never a flicker between neighbours.
-            if lines > 1, columns > 1 {
+            if shown.isEmpty {
+                EmptyView()   // lists alone: no empty columns, no hairlines between them
+            } else if lines > 1, columns > 1 {
                 // Round 5: a hairline between the columns makes each one a unit, so a dimmed column beside a bright one
                 // reads as a choice, not a fault; the same columns the keys walk (`ClustersGrid.columnMajor`).
                 let parts = ClustersGrid.columnMajor(shown, columns: columns)

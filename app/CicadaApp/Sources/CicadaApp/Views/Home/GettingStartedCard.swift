@@ -392,7 +392,10 @@ struct GettingStartedCard: View {
             episodesTotal: status?.episodesTotal ?? 0,
             episodesQueued: status?.episodesQueued ?? 0,
             hasRunBefore: hasRunBefore,
-            pages: store.graph.value.map { $0.nodes.filter { !$0.isHub && !$0.isFacet }.count }))
+            pages: store.graph.value.map { $0.nodes.filter { !$0.isHub && !$0.isFacet }.count },
+            inLists: store.graph.value.flatMap { g in
+                SavedInLists.of(counted: Set(g.nodes.filter { !$0.isHub && !$0.isFacet }.map(\.id)), bubbles: g.bubbles)
+            }))
     }
 
     @ViewBuilder

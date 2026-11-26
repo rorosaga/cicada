@@ -30,6 +30,9 @@ struct ClustersPage: View {
     @State private var openLook: DesignRefSummary?
     @State private var viewMenuOpen = false
     @State private var landingToken = 0
+    /// Owner 2026-11-25 (G246): the saved lists opened in Media, and those showing every member. Per viewer, not stored.
+    @State private var openLists: Set<String> = []
+    @State private var fullLists: Set<String> = []
     @FocusState private var focus: ListFocus?
 
     private var typeFilter: Binding<Set<EntityType>> {
@@ -88,7 +91,8 @@ struct ClustersPage: View {
         let filtered = ClustersModel.filtered(graphVM.entities, types: graphVM.filter.types, labels: labels,
                                               withLooks: onlyWithLooks ? LooksCache.shared.pagesWithLooks : nil,
                                               mediaKinds: mediaKinds, groupByChannel: groupByChannel)
-        let groups = ClustersModel.groups(filtered)
+        let groups = ClustersModel.groups(filtered, bubbles: graphVM.bubbles)
+        let lists = listActions
         let found = ClustersModel.matches(query: findOpen ? query : "", within: filtered) {
             graphVM.clusterSearchIndex().rank($0)
         }
@@ -148,14 +152,16 @@ struct ClustersPage: View {
                                  showTab: { type in Instant.run { tabSelection.wrappedValue = type } },
                                  move: { delta in
                                      move(delta, visible: ClustersGrid.visible(groups, tab: tab, expandAll: expandAll,
-                                                                               pictured: { ClustersGrid.isPictured($0, store: store) }))
+                                                                               pictured: { ClustersGrid.isPictured($0, store: store) },
+                                                                               lists: lists))
                                  },
-                                 escape: { escape() })
+                                 escape: { escape() }, lists: lists)
                     .focused($focus, equals: .list)
                     .tourAnchor(.clusters)
             } else {
                 let lines = ClustersModel.lines(groups: groups, tab: tab, matches: found, expandAll: expandAll,
-                                                cap: ClustersModel.cap(for: plan.listStyle))
+                                                cap: ClustersModel.cap(for: plan.listStyle),
+                                                openLists: openLists, fullLists: fullLists)
                 ClustersListColumn(
                     lines: lines, style: plan.listStyle, query: query, findOpen: $findOpen, findText: $query,
                     state: state,
@@ -168,7 +174,7 @@ struct ClustersPage: View {
                         labels = []
                         onlyWithLooks = false
                         graphVM.filter.types = Set(EntityType.selectableCases)
-                    })
+                    }, lists: lists)
                     .focused($focus, equals: .list)
                     // G152 — this list replaces the cards whenever a card or find is open; without its own anchor
                     // the person stop would lose its hole in a real bank.
@@ -216,6 +222,20 @@ struct ClustersPage: View {
         // Say it once — Clusters clicked again in the rail: All's cards, nothing open, find closed.
         .onRailReselect(.clusters, router: router) { popToRoot() }
         .onChange(of: graphVM.entities.map(\.id)) { _, ids in columns.reconcile(present: Set(ids)) }
+    }
+
+    /// The saved lists' state and what a list line asks for. A closed list forgets its "Show all"; a page of the list's own
+    /// opens as the card like any row (it may be absent: list pages ship dark).
+    private var listActions: ClusterListActions {
+        ClusterListActions(open: openLists, full: fullLists,
+                           toggle: { id in
+                               if openLists.remove(id) == nil { openLists.insert(id) } else { fullLists.remove(id) }
+                           },
+                           showAll: { fullLists.insert($0) },
+                           openPage: { id in
+                               guard let entity = graphVM.entities.first(where: { $0.id == id }) else { return }
+                               openEntity(entity)
+                           })
     }
 
     // MARK: - Paths (R-DL8: a pointer path may animate, a keyboard path never does — DR-60)

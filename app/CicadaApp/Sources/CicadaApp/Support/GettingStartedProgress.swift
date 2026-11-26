@@ -162,6 +162,27 @@ struct FirstReadInputs: Equatable {
     var episodesQueued = 0
     var hasRunBefore = false
     var pages: Int? = nil
+    /// Owner 2026-11-25 (G246): how many of those pages are saved items inside lists, from the graph's own bubbles.
+    var inLists: SavedInLists? = nil
+}
+
+/// Of a memory's pages, the saved items that sit inside a list (a playlist, Watch later, a bookmarks folder) and how many
+/// lists hold them — the same bubbles the graph folds and Clusters draws as lines, so Home never counts them differently.
+struct SavedInLists: Equatable {
+    let items: Int
+    let lists: Int
+
+    /// `counted` are the pages Home counts; a bubble's member that is not one of them is not counted. nil when no list
+    /// holds a counted page.
+    static func of(counted: Set<String>, bubbles: [GraphBubble]) -> SavedInLists? {
+        var seen = Set<String>()
+        var lists = 0
+        for b in bubbles {
+            let mine = b.members.filter { counted.contains($0) && seen.insert($0).inserted }
+            if !mine.isEmpty { lists += 1 }
+        }
+        return seen.isEmpty ? nil : SavedInLists(items: seen.count, lists: lists)
+    }
 }
 
 enum FirstReadAction: Equatable { case readNow, watchSleep, openGraph, keepReading, seeDetails }
@@ -173,7 +194,7 @@ enum FirstReadStep: Equatable {
     case nothingYet
     case waiting(Int)
     case running(read: Int, total: Int, stage: Int)
-    case finished(pages: Int?)
+    case finished(pages: Int?, inLists: SavedInLists? = nil)
     case capped(read: Int, left: Int)
     case failed
 
@@ -185,7 +206,7 @@ enum FirstReadStep: Equatable {
             if i.episodesQueued > i.episodesTotal, let left = i.unprocessed, left > 0 {
                 return .capped(read: i.episodesTotal, left: left)
             }
-            return .finished(pages: i.pages)
+            return .finished(pages: i.pages, inLists: i.inLists)
         }
         // Unknown is never a number: a missing count reads as "nothing yet".
         guard let n = i.unprocessed, n > 0 else { return .nothingYet }
@@ -220,7 +241,7 @@ enum FirstReadStep: Equatable {
         // Past Stage 1 there is no per-item count (the wire's by-origin maps
         // empty out): say "reading", never "Read 0 of 0".
         case .running(let read, let total, _): total > 0 ? Copy.gsRunning(read: read, total: total, locale: locale) : Copy.gsReading
-        case .finished(let pages): pages.map { Copy.gsFinished(pages: $0, locale: locale) } ?? Copy.gsFinishedNoCount
+        case .finished(let pages, let saved): pages.map { Copy.gsFinished(pages: $0, inLists: saved, locale: locale) } ?? Copy.gsFinishedNoCount
         case .capped(let read, let left): Copy.gsCapped(read: read, left: left, locale: locale)
         case .failed: "\(Copy.SleepV5.readingStoppedLead) \(Copy.SleepV5.readingStoppedTail)"
         }
