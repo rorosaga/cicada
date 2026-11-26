@@ -87,6 +87,16 @@ struct SleepRoomColumn: View {
            drain.ownerPage != nil, let owner = ownerEntityId {
             InlineLink(title: Copy.SleepV5.seeYourPage) { onSelectEntity?(owner) }
         }
+        // 2026-11-26 — a scheduled run the write window refused before it read: one quiet line, never the error
+        // state (nothing was read, used or broken). The backend's own words; its full sentence is the help.
+        if let notice = page.notice {
+            Text(notice.text)
+                .font(CicadaTheme.captionFont)
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .multilineTextAlignment(leading ? .leading : .center)
+                .help(notice.detail)
+                .accessibilityHint(notice.detail)
+        }
         if let when = page.autoContinueWhen, page.paused != nil {
             Text(Copy.SleepV5.willContinueBySelf(when))
                 .font(CicadaTheme.captionFont)

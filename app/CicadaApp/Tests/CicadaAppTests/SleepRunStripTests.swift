@@ -233,6 +233,21 @@ final class SleepRunStripTests: XCTestCase {
         try decode(scenario("sleep-status-drain.json", "finished"))
     }
 
+    /// 2026-11-26 — a scheduled run the write window refused before it read: idle, a queue waiting, no error, and the
+    /// backend's calm `notice` (synthetic times). `gaveUp` is the same night after every try was spent.
+    static func refusedNight(gaveUp: Bool = false) throws -> SleepStatusResponse {
+        var status = try scenario("sleep-status-drain.json", "finished")
+        status["drain"] = NSNull(); status["paused"] = NSNull(); status["error"] = NSNull()
+        status["notice"] = gaveUp
+            ? ["kind": "scheduled_run_refused", "text": "Last night's 03:00 run didn't start. It runs again at 03:00.",
+               "detail": "The scheduled run for Nov 24 at 03:00 did not start: something was still writing to your memory, so Sleep read nothing and used nothing. It tried 4 times and stopped; it will run at its next scheduled time, or you can start it yourself.",
+               "retryAt": NSNull(), "tries": 4, "maxTries": 4, "gaveUp": true] as [String: Any]
+            : ["kind": "scheduled_run_refused", "text": "Last night's 03:00 run hasn't started yet. Next try after 03:12.",
+               "detail": "The scheduled run for Nov 24 at 03:00 did not start: something was still writing to your memory, so Sleep read nothing and used nothing. It will try again after 03:12 (try 2 of 4).",
+               "retryAt": "2026-11-24T03:12:00+00:00", "tries": 1, "maxTries": 4, "gaveUp": false] as [String: Any]
+        return try decode(status)
+    }
+
     static func failed() throws -> SleepStatusResponse {
         var status = try scenario("sleep-status-drain.json", "cancelled")
         status["cancelled"] = false

@@ -46,6 +46,9 @@ struct SleepPageModel: Equatable {
     var consolidateEnabled: Bool
     /// `status.error`, `nil` when empty — the failure is news, an empty string is not.
     var cycleError: String?
+    /// 2026-11-26 — a calm notice (a scheduled run the write window refused before it read), `nil` while a run is
+    /// live, when there is an error (it wins) and when the page shows a pause. Never an error state: nothing was read.
+    var notice: SleepStatusNotice? = nil
     var cancelled: Bool
     var capped: Bool
     /// G163 — the person-started run's measured progress, `nil` when the last cycle was not one.
@@ -188,6 +191,7 @@ struct SleepPageModel: Equatable {
             cycleUpdated: status?.entitiesUpdated ?? 0
         )
         model.paused = shownPause
+        model.notice = (isRunning || error != nil || shownPause != nil) ? nil : status?.notice
         model.batchSize = batchSize ?? (status.map { $0.batchSize > 0 ? $0.batchSize : 25 } ?? 25)
         model.readable = readable
         model.parkedCount = parked
