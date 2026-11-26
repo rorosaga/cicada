@@ -112,12 +112,15 @@ def title_for(text: str, fallback: str) -> str:
 
 def _set_left(path: Path, at: str | None) -> bool:
     def edit(fm: dict) -> bool:
-        if (fm.get(LEFT_KEY) or None) == at:
-            return False
+        held = fm.get(LEFT_KEY) or None
         if at is None:
+            if held is None:
+                return False
             fm.pop(LEFT_KEY, None)
-        else:
-            fm[LEFT_KEY] = at
+            return True
+        if held is not None:
+            return False   # already off the list: the moment it left stands (a second click is not a later leaving)
+        fm[LEFT_KEY] = at
         return True
 
     return episode_staging.amend_frontmatter(path, edit)

@@ -598,7 +598,11 @@ def merge_entities(memory_path: Path, loser_id: str, winner_id: str,
 
     paths += [p for p in merge_closes.close(memory_path, loser_id, winner_id) if p not in paths]
 
+    from api.services import settle_guard
+
+    settle_guard.writing(lp)   # inside a Sleep settle: the loser's page as it is now is its picture (`settle_guard`)
     lp.unlink()
+    settle_guard.wrote(lp, None)
     paths.append(f"entities/{loser_id}.md")
     # Old links and ids that name the loser keep resolving: to the winner (`page_redirects`).
     from api.services import page_redirects

@@ -903,7 +903,12 @@ def rename(memory_path: Path, page_id: str, new_name: str, owner_fm: dict | None
     paths = [f"entities/{page_id}.md"]
     removed = None
     if new_id != page_id:
+        from api.services import settle_guard   # inside a Sleep settle (a nickname title) the move is reported to it
+
+        settle_guard.writing(old)
+        settle_guard.writing(entities / f"{new_id}.md")
         old.replace(entities / f"{new_id}.md")
+        settle_guard.renamed(old, entities / f"{new_id}.md")
         removed = f"entities/{page_id}.md"
         paths += rename_references(memory_path, page_id, old_name, new_id, new_name)
     elif old_name != new_name:

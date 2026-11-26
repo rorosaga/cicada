@@ -345,18 +345,29 @@ def with_ledgers(memory_path, rels, *, existing_only: bool = False) -> list[str]
 
 
 def remove(page) -> bool:
-    """Delete a page's ledger, after its claims went elsewhere (a merged-away page). ``True`` when one was there."""
+    """Delete a page's ledger, after its claims went elsewhere (a merged-away page). ``True`` when one was there. Inside
+    a Sleep settle the removal is reported (`settle_guard`): a settle that fails puts the ledger back with its page."""
+    from api.services import settle_guard
+
+    ledger = path_for(page)
+    settle_guard.writing(ledger)
     try:
-        os.unlink(path_for(page))
-        return True
+        os.unlink(ledger)
     except FileNotFoundError:
         return False
+    settle_guard.wrote(ledger, None)
+    return True
 
 
 def move(src, dst) -> bool:
-    """Rename a page's ledger with its page. ``True`` when one was moved."""
-    source = path_for(src)
+    """Rename a page's ledger with its page. ``True`` when one was moved. Reported to a Sleep settle both ways."""
+    from api.services import settle_guard
+
+    source, dest = path_for(src), path_for(dst)
     if not source.exists():
         return False
-    os.replace(source, path_for(dst))
+    settle_guard.writing(source)
+    settle_guard.writing(dest)
+    os.replace(source, dest)
+    settle_guard.renamed(source, dest)
     return True

@@ -1321,6 +1321,19 @@ post held as on the person's list is marked as `site-unsave` marks it, any other
 Answers `{direction: saved|unsaved, save, unsave}` with that route's own body in the matching field; 422 and 409 are
 theirs. A guess from what Cicada holds, never from the page; the app teaches itself nothing from it.
 
+**`POST /sources/site-words` (G221, ruling 77e, 2026-11-26)** — a save click on a post its page names by no link
+(LinkedIn's feed). Body `{site, words}`: `site` a key of `site_later.SITES`, `words` what the post's block showed, one
+run of text a line (never the person's words). A save Cicada holds whose own first words are among them is that post,
+and the call answers as `site-change` does for its link. Any other post is held **outside every bank**
+(`$CICADA_HOME/site_later.json`, 0600: the scrubbed words, capped, 30 days at most, 40 per memory) and the answer is
+`{direction: saved, save}` with `save.url` a placeholder on the site's own host (`?cicada-later=<key>`, never a
+post's address) and empty `episodeId`. `POST` and `PUT /sources/saved-why` take that address and keep the answer
+beside the held words, asking for the list to be read at the agent's next chance. When `cicada_record_saved_list`
+shows a post whose words the held block contains, the answer is attached to that save as said when it was said, in
+its own commit as the person, and the held entry is dropped. The same words sent again while held take the save
+back (`direction: unsaved`). 422 for another site or fewer than 40 letters; 409 in a demo bank. No model reads any
+of it, and nothing is fetched.
+
 **`POST /sources/site-save` and `POST /sources/site-unsave` (G221, ruling 77, 2026-11-23)** — a save the person made
 inside a site, noticed by the app from the control they clicked (`app.md`, "A save inside a site"). Body
 `{site, url, text?, folders?, removeFolders?}`: `site` is `x`, `instagram`, `tiktok`, `reddit` (and any other key of

@@ -221,7 +221,10 @@ tier (dpr 1 and 2), discs 5–10 % of the fitted view on the bank shape, no over
 Clark–Evans ≤ 1.3, the owner's page ≤ 0.25 giant radii off the middle, and the #285/#287 settle guarantees.
 
 **The graph rests when nobody can see it (audit 2026-10-02 A07–A09).** `GraphPage` stays mounted under
-every tab, so it tells the page whether it is on screen: `GraphView(isActive:)` is the Graph tab
+every tab, and nothing above its web view may switch view branches on a flag: `publishesPageFind` once did
+(an `if`/`else` on `enabled`), and every ⌘K, find, Settings or tab change built a new web view (a cold layout,
+the zoom lost, the palette's reveal landing on an unloaded page); it now publishes `nil` instead
+(`PageFindIdentityTests`). It tells the page whether it is on screen: `GraphView(isActive:)` is the Graph tab
 selected *and* its window visible (`WindowVisibilityReader`: occluded, minimized or hidden reads
 false), pushed once per change as `setGraphActive(bool)`. Inactive, `graph.js` cancels its queued
 frame and pulse timer, ends any drag, and stops the d3 timer — a data push lays out later rather than
@@ -1695,6 +1698,20 @@ page (a post saved elsewhere since the list was last read and taken off it now i
 taught from it and a refused call is let go, never held. On X the post's own words are cut from the block's label
 between the handle and time link and the row's label (`text(of:item:)`), again with no word known.
 
+*A post no link names (ruling 77e, 2026-11-26).* LinkedIn's Save is the first item of a post's own menu (measured on
+the feed and on a post's page: seven or eight items; `SiteSaveSite.linkedin`, `Menu.fromStart`), and the feed names the
+post by no link and no id (the block's DOM id, `expanded` and a token, is the page's). So for a click on that item the
+reader also returns what the post's block shows (`SiteMenuReading.words`: each run of text a line, the menu and every
+button left out, bounded by `maxWordNodes` and `maxWordLetters`), read only on such a site and only for the item in the
+save's place. `SiteMenuRule.item` then names the post by those words (`SiteSaveItem.byWords`, no link) when they hold
+enough letters to tell it from another (`names`), or by the address on a post's own page. The click goes to
+`POST /sources/site-words` (`SaveWhyCenter.siteWords`): a post Cicada holds is settled by its link; any other is held
+outside the memory and asked about at once, at a placeholder address the answer is posted to, and the saved list's
+next read names the post and attaches the answer (`api.md`). The direction is always the record's: the item's label
+is matched in no language and nothing is learned from it (`SiteMenuRule.outcome` answers `changed` for such a site,
+and `settle` keeps nothing of what it wore). The saved list's own page is an older layout (a dropdown of plain
+buttons): a post taken off the list there is not noticed.
+
 *Which sites are noticed (ruling 77c, 2026-11-24).* "Connected" is the Sources catalogue's own word for the site's source
 (`SiteSaveNoticing.setUp`: not Off — connected, waiting for an agent or a sign-in), the one word the connect offer also
 reads to leave a site alone. `SiteSavePrefs.noticing(site, status:)` is the per-Mac flag when the person or a Yes set it
@@ -1795,8 +1812,8 @@ its switch, No is kept and listed in Settings, Not now waits two hours and then 
 sources does not hold a site's offer) asks "Connect X to Cicada?" with the site's mark. **This is the one case where the
 page in the front tab triggers an offer** (owner 2026-11-23, amending the 2026-10-19 note in `ConnectSuggestApps`): only
 with Accessibility already granted and the offer switch on; the address is compared and kept nowhere. The offer covers
-the sites with a save control (`SiteSaveSite.all`, Pinterest among them since 2026-11-25 and Spotify since the 26th)
-and the sites that are only sources — LinkedIn, Substack, Goodreads (`SiteSaveSite.offerOnly`, matched by address
+the sites with a save control (`SiteSaveSite.all`, Pinterest among them since 2026-11-25, Spotify and LinkedIn since the 26th)
+and the sites that are only sources — Substack, Goodreads (`SiteSaveSite.offerOnly`, matched by address
 alone, never read for a save). **One truth:** a source
 is offered only while the catalogue's own word for it is Off (`ConnectSuggestApps.status`, which reads the lists the
 person turned on and the sites their agent may open like the page does) — never because a per-Mac flag is unset, and a
@@ -1820,8 +1837,9 @@ Accessibility." with one button, Open Settings (a link to the pane); a refused w
 Not now, held saves are dropped); a Yes that opens a page leaves at once. A site's ring and check (`ConnectedRing`) show
 only for a turned-on source.
 
-**Not built:** LinkedIn (its feed exposes no link or id for a post, so a save there cannot be tied to one; it stays on
-the saved-list read); Reddit's menus on old Reddit; a real save through the installed app on Reddit or YouTube (the reader was
+**Not built:** a post taken off the list on LinkedIn's own saved-posts page (its dropdown is no menu to macOS), and a
+real save click through the installed app on LinkedIn (ruling 77e was checked on the live page's structure and on real
+saved posts' words, with the Mac locked: the reader itself was not run there); Reddit's menus on old Reddit; a real save through the installed app on Reddit or YouTube (the reader was
 run on the live pages, the click itself was not);
 Safari and a keyboard save (unmeasured); the site's folders at the moment of saving and a screen to give a folder its
 reason (the backend holds both, `api.md`); the post's words on sites other than X. **The notch's mascot is the worm's

@@ -162,11 +162,15 @@ def update_runtime_map(memory_path: Path, mutate: Callable[[dict], bool]) -> boo
         if not mutate(data):
             return False
         text = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+        from api.services import settle_guard
+
+        settle_guard.writing(memory_path / RUNTIME_FILE)   # inside a Sleep settle: its picture (a no-op anywhere else)
         fd, tmp = tempfile.mkstemp(prefix=".predicates-", suffix=".tmp", dir=memory_path)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(text)
             os.replace(tmp, memory_path / RUNTIME_FILE)
+            settle_guard.wrote(memory_path / RUNTIME_FILE, text.encode("utf-8"))
         except BaseException:
             Path(tmp).unlink(missing_ok=True)
             raise

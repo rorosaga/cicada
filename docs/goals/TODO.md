@@ -3989,6 +3989,36 @@ A whole row moves to DONE only after its remaining implementation and required a
    reported by the owner, which would mean requiring the list to have been read to its end before the record is
    trusted.
 
+   **77e (2026-11-26; the owner's "make sure the saves work in all apps (linkedin, instagram, etcetc)" and
+   "everything else you say its not covered should be covered", decided on my recommendation under his standing
+   word of that day to go with it; amends "that control and its row, or the menu it is in, only" by one thing read).**
+   LinkedIn was the one named site with no save noticed. Measured on the live feed (eleven posts, 2026-11-26) and on
+   a post's own page: the save is the first item of the post's menu (seven or eight items), the menu sits inside the
+   post's block, and **the feed names the post by no link and no id** (the block's DOM id is a token of the page; the
+   post's address exists only on its own page and on the saved list). The item wears one of two labels and nothing
+   else changes at the click, so no page evidence says which way it went. Two decisions:
+
+   *The post is named by its words.* On a click on that first item the app also reads the text the post's own block
+   shows (its header and first lines; the menu and every button left out; bounded), only on a site whose pages name
+   posts no other way and only for the item in the save's place. The backend (`POST /sources/site-words`,
+   `site_later`) looks for a save it holds whose own first words are among them (40 letters at least, and the
+   author's name when the save keeps one): that post is settled by its link as 77d settles any click. Any other
+   post was just saved and has no link yet, so **nothing is written into the bank** (a row with no link would be a
+   second row the day the list read brings the post): the words are held outside every bank, scrubbed and capped,
+   for 30 days at most, with whatever the person answers the notch. The next read of the saved list names the post
+   and the answer joins that save as said when it was said, in a commit of the person's own. The same words clicked
+   again while held take the save back. Checked on nine real saved posts: the five whose stored words name them
+   found their own link, none found another's.
+
+   *The direction is the record's, and no label is learned.* A label learned from a guess would be worn by every
+   later click; one wrong lesson (two unsaves first) would silence every save after it. So on LinkedIn the menu's
+   label teaches nothing and settles nothing. Known cost: a post Cicada holds with no words of its own (a picture
+   post the list read gave no text for) or saved elsewhere since the last read, and taken off the list from the
+   feed's menu, is read as a save and asked about once; the held words then expire. On a post's own page the address
+   names it and 77d applies unchanged. Not noticed: a post taken off the list on the saved list's own page (an older
+   layout whose dropdown is plain buttons, not a menu). Trigger to revisit: wrong questions on unsaves reported by
+   the owner, or LinkedIn giving feed posts a link.
+
 78. **A source has streams, and the Sources page says what each one reads (owner, 2026-11-24; G245, amends DESIGN_RULES §9 of 2026-11-03/-04/-05/-06, ruling 30 point 1, ruling 62 point 3 and the Contacts/LinkedIn "enrich only" line; plan `docs/plans/2026-11-24-sources-redesign.md`).**
    The owner, redesigning the page: "cleaner and minimal with the cards we use for the consolidation queue"; importing
    from files "rarely will get used"; "better ability to check for connections with sources"; "remove the weird diagrams";

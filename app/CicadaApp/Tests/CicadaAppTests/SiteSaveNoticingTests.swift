@@ -94,7 +94,7 @@ final class SiteSaveNoticingTests: XCTestCase {
         // The sites that are sources only keep no save table and no "Saves you make" row: nothing to notice.
         for site in SiteSaveSite.offerOnly { XCTAssertFalse(site.hasSaveControl, site.key) }
         XCTAssertEqual(SiteSaveSite.all.map(\.key), ["x", "instagram", "github", "tiktok", "reddit", "youtube",
-                                                    "pinterest", "spotify"])
+                                                    "pinterest", "spotify", "linkedin"])
     }
 
     // MARK: - The watcher follows the source
@@ -401,7 +401,7 @@ final class SiteSaveNoticingTests: XCTestCase {
             }
         }
         XCTAssertEqual(rows, SiteSaveSite.all.count * 5 * 3 * 2 * 6 * 2 * 2)
-        XCTAssertEqual(SiteSaveSite.all.count, 8)
+        XCTAssertEqual(SiteSaveSite.all.count, 9)
     }
 
     /// The rule behind the table: the click and the row never disagree, and a click that does nothing is never left

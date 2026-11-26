@@ -223,9 +223,76 @@ final class SiteMenuSaveTests: XCTestCase {
         XCTAssertTrue(prefs.labels("youtube").unsaved.isEmpty)
     }
 
+    // MARK: - LinkedIn: the first item of a post's menu, the post named by its words (ruling 77e)
+
+    /// As measured on the feed 2026-11-26: seven or eight items, the save first; the block's id is a token of the page.
+    private let feedMenu = ["Guardar", "Copiar enlace", "Insertar", "Dejar de seguir", "No me interesa", "Parece IA",
+                            "Denunciar"]
+    private let shown = """
+        Carol Example likes this
+        Alice Example
+        Staff engineer at alpha-project
+        We rebuilt the sync engine around an append-only log, and three things surprised us.
+        """
+
+    private func linkedin(_ items: [String], clicked: Int, key: String = "bvJhbBM_CurSfX8-zOJ", words: String? = nil,
+                          page: String = "https://www.linkedin.com/feed/", fits: Bool = true) -> SiteMenuReading {
+        SiteMenuReading(site: "linkedin", items: items, clicked: clicked, page: page, fits: fits, blockKey: key,
+                        words: words ?? shown)
+    }
+
+    func testOnLinkedInTheSaveIsTheMenusFirstItemAndTheFeedsPostIsNamedByItsWords() throws {
+        let found = try SiteMenuRule.item(linkedin(feedMenu, clicked: 0)).get()
+        XCTAssertTrue(found.item.byWords, "the feed gives the post no link")
+        XCTAssertEqual(found.item, SiteSaveItem(site: "linkedin", origin: "linkedin-saved", url: "",
+                                                title: "LinkedIn post"))
+        XCTAssertEqual(found.text, shown)
+        XCTAssertNoThrow(try SiteMenuRule.item(linkedin(feedMenu + ["Ocultar"], clicked: 0)).get(), "eight items")
+        // Every other item, and a menu that is not a post's (a comment's three items, an ad's two).
+        for other in 1..<feedMenu.count {
+            XCTAssertEqual(SiteMenuRule.item(linkedin(feedMenu, clicked: other)).failure, .notTheSaveSlot)
+        }
+        XCTAssertEqual(SiteMenuRule.item(linkedin(["Copiar enlace", "Denunciar", "Eliminar"], clicked: 0)).failure,
+                       .notTheSaveSlot)
+        XCTAssertEqual(SiteMenuRule.item(linkedin(["Ocultar anuncio", "Por qué"], clicked: 0)).failure, .notTheSaveSlot)
+        // A block that shows too little to tell the post from another, or no block at all: nothing is said.
+        XCTAssertEqual(SiteMenuRule.item(linkedin(feedMenu, clicked: 0, words: "Alice Example\n3d")).failure, .noPostLink)
+        XCTAssertEqual(SiteMenuRule.item(linkedin(feedMenu, clicked: 0, key: "")).failure, .noPostLink)
+        XCTAssertEqual(SiteMenuRule.item(linkedin(feedMenu, clicked: 0, fits: false)).failure, .notTheSaveSlot)
+    }
+
+    func testOnALinkedInPostsOwnPageTheAddressIsThePost() throws {
+        let page = "https://www.linkedin.com/feed/update/urn:li:activity:7000000000000000001/?utm=x"
+        let found = try SiteMenuRule.item(linkedin(feedMenu, clicked: 0, words: "", page: page)).get()
+        XCTAssertEqual(found.item.url, "https://www.linkedin.com/feed/update/urn:li:activity:7000000000000000001/")
+        XCTAssertFalse(found.item.byWords)
+        XCTAssertEqual(SiteSaveSite.linkedin.item("https://www.linkedin.com/posts/alice-example_sync-activity-7000000000000000001-AbCd")?.url,
+                       "https://www.linkedin.com/posts/alice-example_sync-activity-7000000000000000001-AbCd/")
+        XCTAssertNil(SiteSaveSite.linkedin.item("https://www.linkedin.com/in/alice-example/"))
+        XCTAssertNil(SiteSaveSite.linkedin.item("https://www.linkedin.com/feed/"))
+        XCTAssertTrue(SiteSaveSite.linkedin.isListPage("https://www.linkedin.com/my-items/saved-posts/"))
+    }
+
+    /// The item wears one of two labels and nothing else on the page says which way a click went: the record decides,
+    /// and no label is learned from a click (a wrong lesson would silence every later save).
+    func testOnLinkedInTheRecordDecidesTheDirectionAndNothingIsLearned() throws {
+        let reading = linkedin(feedMenu, clicked: 0)
+        let item = try SiteMenuRule.item(reading).get().item
+        var seen = SiteMenuRule.Seen()
+        for _ in 0..<4 {
+            let settled = SiteSaveWatcher.settle(reading, item: item, site: .linkedin,
+                                                 learned: .init(saved: ["Guardar"], unsaved: ["Guardar"]), seen: seen)
+            XCTAssertEqual(settled.verdict, SiteMenuRule.Verdict(outcome: .changed, basis: "none"))
+            seen = settled.seen
+        }
+        XCTAssertEqual(seen, SiteMenuRule.Seen())
+        XCTAssertTrue(SiteMenuRule.names(shown))
+        XCTAssertFalse(SiteMenuRule.names("Alice Example · 3d · 42"))
+    }
+
     func testTheNewSitesAreOfferedAndStoredUnderTheirOwnSource() {
         XCTAssertEqual(SiteSaveSite.all.map(\.key), ["x", "instagram", "github", "tiktok", "reddit", "youtube",
-                                                    "pinterest", "spotify"])
+                                                    "pinterest", "spotify", "linkedin"])
         XCTAssertNotNil(SiteSaveSite.youtube.item("https://www.youtube.com/shorts/AbCdEfGhIjK"))
         XCTAssertNil(SiteSaveSite.youtube.item("https://www.youtube.com/@alpha"))
         XCTAssertNil(SiteSaveSite.reddit.item("https://www.reddit.com/r/alpha_sub/comments/1abc234/a_post/k9x8y7z/"),
