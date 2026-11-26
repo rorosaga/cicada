@@ -532,6 +532,13 @@ def resolve_location(home: Path, path: str) -> tuple[str, str]:
     refused). Not below the home, a hidden part, ``Library`` or a protected folder (any casing), a link anywhere in it, not a folder, or
     on another disk. The home itself is no folder. Nothing outside the home is listed or opened."""
     lexical, base = os.path.normpath(path), os.path.normpath(str(home))
+    for alt in _spelled(base)[1:]:
+        # The system folder panel answers with the path as the disk resolves it (``/var/...`` for a home that is ``/private/var/...``, a
+        # home reached through a link): the same folder, so it is read as below the home, never as outside it.
+        alt = os.path.normpath(alt)
+        if len(_parts(lexical)) > len(_parts(alt)) and _folded(lexical)[:len(_parts(alt))] == _folded(alt):
+            lexical = os.path.join(base, *_parts(lexical)[len(_parts(alt)):])
+            break
     mine, root = _parts(lexical), _parts(base)
     if len(mine) <= len(root) or any(a != b and fold(a) != fold(b) for a, b in zip(mine, root)) or not lexical.startswith(os.sep):
         return "outside", lexical

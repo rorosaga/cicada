@@ -659,3 +659,30 @@ def test_a_device_token_cannot_read_the_list_and_the_servers_own_token_can(clien
         assert r.status_code == 403, method
     assert client.get("/settings/agent-folders").status_code == 401
     assert client.get("/settings/agent-folders", headers={"Authorization": f"Bearer {auth.get_token()}"}).status_code == 200
+
+
+def test_a_path_spelled_as_the_disk_resolves_a_home_that_sits_behind_a_link_is_below_the_home(tmp_path, monkeypatch, bank):
+    """The system folder panel answers with the resolved path (``/var/...`` for a home spelled ``/private/var/...``): the same folder, so
+    a folder of it is added, a protected one is refused as protected (not as outside the home), and a path elsewhere stays outside."""
+    real = tmp_path / "real"
+    (real / "home" / "Notes" / "Project docs").mkdir(parents=True)
+    (real / "home" / "Documents").mkdir()
+    (real / "home" / "Notes" / "Project docs" / "p.md").write_text("x")
+    (tmp_path / "other").mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+    home = link / "home"                                    # the home as the backend knows it, behind a link
+    cicada = tmp_path / "cicada-home"
+    cicada.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("CICADA_HOME", str(cicada))
+    resolved = real / "home"                                # the spelling a panel answers with
+    assert hf.resolve_location(home, str(resolved / "Notes" / "Project docs"))[0] == ""
+    assert hf.resolve_location(home, str(resolved / "Documents"))[0] == "protected"
+    assert hf.resolve_location(home, str(tmp_path / "other"))[0] == "outside"
+    assert hf.resolve_location(home, str(resolved))[0] == "outside"          # the home itself is still no folder
+    rows, row = af.add(bank, str(resolved / "Notes" / "Project docs"), home=home)
+    assert row["id"] == "Notes/Project docs" and row["state"] == "on" and row["granted"]
+    with pytest.raises(af.FoldersError) as exc:
+        af.add(bank, str(resolved / "Documents"), home=home)
+    assert exc.value.status == 409 and exc.value.args[0] == af.ADD_REFUSALS["protected"]
