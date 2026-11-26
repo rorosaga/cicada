@@ -249,6 +249,37 @@ final class SiteSaveTests: XCTestCase {
         XCTAssertEqual(SiteSaveRule.item(onX), .failure(.notAButton))
     }
 
+    /// Measured 2026-11-25 on an album's page in Spotify's web player: a track's row is its play button, the track's
+    /// link, its artists' links, a plain button, and the row's own menu. The button is the save, as GitHub's star is.
+    func testOnSpotifyATracksSaveIsTheButtonBeforeTheRowsMenu() throws {
+        let track = "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC"
+        let artist = SiteSaveNode(role: "AXLink", label: "a", url: "https://open.spotify.com/artist/0000000000000000000001")
+        let album = SiteSaveNode(role: "AXLink", label: "b", url: "https://open.spotify.com/album/0000000000000000000002")
+        let row = SiteSaveReading(row: [button("play"), link("https://open.spotify.com/intl-es/track/4uLU6hMCjMI75M1A2tKUQC?si=x"),
+                                        artist, album, button("a"), menu("more")],
+                                  clicked: 4, page: "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M")
+        XCTAssertEqual(try SiteSaveRule.item(row).get(),
+                       SiteSaveItem(site: "spotify", origin: "spotify-saved", url: track, title: "Spotify track"),
+                       "the track, never its artist, its album or the playlist it is listed in")
+        var play = row
+        play.clicked = 0
+        XCTAssertEqual(SiteSaveRule.item(play), .failure(.notTheSaveSlot))
+        // The page's other tracks say which way: most still wear the label it left.
+        var saved = row
+        saved.row[4].label = "b"
+        XCTAssertEqual(SiteSaveRule.outcome(before: row, after: saved, site: .spotify, census: .init(was: 9, now: 0)), .saved)
+        // In the person's own library a click on it is leaving.
+        var library = row
+        library.page = "https://open.spotify.com/collection/tracks"
+        var gone = library
+        gone.row[4].label = "b"
+        XCTAssertEqual(SiteSaveRule.outcome(before: library, after: gone, site: .spotify), .unsaved)
+        // An album's header (its button is not directly before the menu) is not read.
+        let header = SiteSaveReading(row: [button("play"), button("shuffle"), button("save"), button("download"), menu("more")],
+                                     clicked: 2, page: "https://open.spotify.com/album/0000000000000000000002")
+        XCTAssertEqual(SiteSaveRule.item(header), .failure(.notTheSaveSlot))
+    }
+
     func testOnlyTheSitesHandedToTheRuleAreRead() {
         let feed = timeline(save: "b", counts: "")
         XCTAssertEqual(SiteSaveRule.item(feed, sites: [.instagram]), .failure(.unknownSite))

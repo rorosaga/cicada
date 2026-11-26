@@ -44,8 +44,12 @@ final class SourceConnectTests: XCTestCase {
 
     func testASiteWithNoSaveControlOffersTheSamePlan() throws {
         XCTAssertEqual(try plan("linkedin"), .start([.list(setting: "savedLists", key: "linkedin", on: true)], thenOpen: false))
+        XCTAssertEqual(try plan("goodreads", unacknowledged),
+                       .needsConsent(ReadingConsent(entryId: "goodreads", setting: "savedLists", key: "goodreads"), now: []))
+        // Spotify has a save control since 2026-11-26: noticing its saves is done at once, beside the sheet.
         XCTAssertEqual(try plan("spotify", unacknowledged),
-                       .needsConsent(ReadingConsent(entryId: "spotify", setting: "savedLists", key: "spotify"), now: []))
+                       .needsConsent(ReadingConsent(entryId: "spotify", setting: "savedLists", key: "spotify"),
+                                     now: [.noticeSaves(site: "spotify")]))
         // Pinterest has a save control since 2026-11-25: noticing its saves is done at once, beside the sheet.
         XCTAssertEqual(try plan("pinterest", unacknowledged),
                        .needsConsent(ReadingConsent(entryId: "pinterest", setting: "savedLists", key: "pinterest"),
