@@ -71,6 +71,10 @@ and its rule, and the settle's record (``inbox/settled/<id>.md``, ``settled.grou
 :func:`undo` takes back exactly that commit — the reverse of its diff, applied three-way onto each file as it is now,
 refused whole if anything since conflicts with it — and puts the question back, marked so Sleep never settles it
 again (user authority).
+
+**A settle that does not commit leaves nothing behind** (`settle_guard`): :func:`apply` and :func:`undo_committed` take a
+picture of the tree inside the admitted write before the first file is touched, and put every file back exactly if the
+commit does not land (the settle is then reported as not having happened).
 """
 from __future__ import annotations
 
@@ -88,7 +92,7 @@ from typing import Any
 
 from loguru import logger
 
-from api.services import authorship, bank_index, inbox_actor, inbox_questions, markdown_parser, text_fold
+from api.services import authorship, bank_index, inbox_actor, inbox_questions, markdown_parser, settle_guard, text_fold
 
 GROUP = "sleep"
 SETTLED_DIR = "settled"
@@ -2287,19 +2291,32 @@ async def apply(memory_path: Path, settings, d: Decision, *, engine: str | None 
                               fold_pages=bool(d.request and d.request.get("action") == "merge"))
     if d.request and d.request.get("action") == NICKNAME_ACTION:
         # Not a settle (ruling 41): no record, no Sleep actor, no answer quote set — its own commit (`_nickname`).
-        return await asyncio.to_thread(_nickname, memory_path, path, d, settings)
+        try:
+            return await asyncio.to_thread(_nickname, memory_path, path, d, settings)
+        except settle_guard.TreeUnreadable:
+            return False   # a failed commit could not be put back, so nothing is done
     token = inbox_actor.set_actor(actor)
     found_quote = ([{"episode": d.found["episode"], "quote": d.found["evidence"][0]["quote"]}]
                    if d.found and d.found.get("evidence") else None)
     quote_token = inbox_service._ANSWER_QUOTE.set([d.quote] if d.quote else found_quote)
     try:
+        # One picture of the tree, taken before the first file is touched and inside the same admitted write: a settle
+        # that does not commit puts every file back as it was (`settle_guard`), never the half of it.
         if d.request is None:
-            await asyncio.to_thread(_retire, memory_path, path, fm, d, actor)
+            await asyncio.to_thread(_guarded_thread, memory_path, actor, lambda: _retire(memory_path, path, fm, d, actor))
         elif d.kind == "normalization":
             # Its resolver holds the page lock itself, from re-reading the item through its own commit.
-            await inbox_service._resolve_admitted(d.item_id, InboxResolveRequest(**d.request), settings, None)
+            mark = await asyncio.to_thread(settle_guard.take, memory_path)
+            try:
+                await inbox_service._resolve_admitted(d.item_id, InboxResolveRequest(**d.request), settings, None)
+            except BaseException:
+                if not actor.committed:
+                    settle_guard.put_back(mark)   # blocking and short: a cancelled task still puts its files back
+                raise
+            if not actor.committed:
+                settle_guard.put_back(mark)
         else:
-            await asyncio.to_thread(_resolve_page_locked, memory_path, d, settings)
+            await asyncio.to_thread(_guarded_thread, memory_path, actor, lambda: _resolve_page_locked(memory_path, d, settings))
     except Exception as exc:  # noqa: BLE001 — one question that will not settle never stops the others
         logger.info(f"inbox tend: {d.item_id} left for the person ({type(exc).__name__})")
         if not actor.committed:
@@ -2316,6 +2333,25 @@ async def apply(memory_path: Path, settings, d: Decision, *, engine: str | None 
             bank_index.invalidate(memory_path)
         return False
     return True   # the resolver committed under Sleep's name (`git_service.commit_resolution_sync`)
+
+
+def _guarded_thread(memory_path: Path, actor: inbox_actor.Actor, work: Callable[[], Any]) -> None:
+    """Run one settle's writes and commit in a worker thread under the bank's page lock (so an agent's page write waits
+    for it), with the tree's picture taken inside that lock before the first write and put back if the settle does not
+    commit: it raised, it was told to stop, or its resolver skipped. Mark and restore are in the one thread, so a task
+    that is cancelled meanwhile cannot restore under a write still running. A commit that landed is never taken back."""
+    from api.services import page_lock
+
+    with page_lock.page_lock(memory_path):
+        mark = settle_guard.take(memory_path)
+        try:
+            work()
+        except BaseException:
+            if not actor.committed:
+                settle_guard.put_back(mark)
+            raise
+        if not actor.committed:
+            settle_guard.put_back(mark)
 
 
 def _resolve_page_locked(memory_path: Path, d: Decision, settings) -> None:
@@ -2342,28 +2378,29 @@ def _nickname(memory_path: Path, path: Path, d: Decision, settings) -> bool:
         page_id = str(qfm.get("entity_id") or "")
         if not (memory_path / "entities" / f"{page_id}.md").is_file() or _nickname_known(memory_path, qfm, d.answer):
             return False
-        before = git_service.snapshot_dirty_sync(memory_path)
-        owner_fm = role_people.owner_frontmatter(memory_path, settings)
-        outcome = role_people.title_by_nickname(memory_path, page_id, d.answer, owner_fm)
-        qfm["entity_id"], qfm["entity_name"] = outcome.page_id, d.answer
-        markdown_parser.write(path, qfm, parsed.body)
-        rel = path.relative_to(memory_path).as_posix()
-        paths = [*outcome.paths, rel]
-        others = role_people.same_name(memory_path, d.answer, exclude=outcome.page_id)
-        if len(others) == 1:
-            asked = role_people.ask_same(
-                memory_path, outcome.page_id, others[0],
-                f"You call this person {d.answer}, a name another person in this memory also goes by.")
-            if asked:
-                paths.append(asked)
-        bank_index.invalidate(memory_path)
-        lines = [f"{p}: updated (source: {d.item_id}, trigger: {TRIGGER}:{d.rule})" for p in dict.fromkeys(paths)]
-        message = git_service.build_commit_message(
-            f"Titled by a nickname by Sleep {date.today().isoformat()}", lines,
-            authors=[d.model] if d.model else ["cicada"])
-        git_service.commit_touched_sync(memory_path, message, list(dict.fromkeys(paths)), before=before,
-                                        kept_subject=f"Uncommitted edit kept apart {date.today().isoformat()}",
-                                        kept_trigger="inbox/kept-apart")
+        with settle_guard.guarded(memory_path):   # a commit that does not land puts every file back
+            before = git_service.snapshot_dirty_sync(memory_path)
+            owner_fm = role_people.owner_frontmatter(memory_path, settings)
+            outcome = role_people.title_by_nickname(memory_path, page_id, d.answer, owner_fm)
+            qfm["entity_id"], qfm["entity_name"] = outcome.page_id, d.answer
+            markdown_parser.write(path, qfm, parsed.body)
+            rel = path.relative_to(memory_path).as_posix()
+            paths = [*outcome.paths, rel]
+            others = role_people.same_name(memory_path, d.answer, exclude=outcome.page_id)
+            if len(others) == 1:
+                asked = role_people.ask_same(
+                    memory_path, outcome.page_id, others[0],
+                    f"You call this person {d.answer}, a name another person in this memory also goes by.")
+                if asked:
+                    paths.append(asked)
+            bank_index.invalidate(memory_path)
+            lines = [f"{p}: updated (source: {d.item_id}, trigger: {TRIGGER}:{d.rule})" for p in dict.fromkeys(paths)]
+            message = git_service.build_commit_message(
+                f"Titled by a nickname by Sleep {date.today().isoformat()}", lines,
+                authors=[d.model] if d.model else ["cicada"])
+            git_service.commit_touched_sync(memory_path, message, list(dict.fromkeys(paths)), before=before,
+                                            kept_subject=f"Uncommitted edit kept apart {date.today().isoformat()}",
+                                            kept_trigger="inbox/kept-apart")
     return True
 
 
@@ -3335,6 +3372,30 @@ def undo(memory_path: Path, item_id: str) -> tuple[str, list[str], list[str], di
     paths += [f"inbox/{restored}.md", record_rel]
     lines.append(f"inbox/{restored}.md: reopened (source: {item_id}, trigger: inbox/sleep-settle/undone)")
     return restored, paths, lines, rec
+
+
+def undo_committed(memory_path: Path, item_id: str, *, before: dict[str, bytes | None] | None = None) -> tuple[str, dict]:
+    """:func:`undo` and its commit as one write, under the bank's page lock: ``(restored id, the record)``. The caller holds
+    the bank's write admission. The picture of the tree is taken before the first file is touched; if anything fails before
+    the commit lands (the undo refused part-way, the index locked, a hook, a stop) every file is put back exactly as it was
+    (`settle_guard`) and the error propagates: the settle stays settled, nothing is half-undone. ``before`` is the person's
+    own uncommitted edits (``git_service.snapshot_dirty``), committed apart first."""
+    from api.services import page_lock, web_settle
+
+    memory_path = Path(memory_path)
+    with page_lock.page_lock(memory_path):
+        try:
+            mark = settle_guard.take(memory_path)
+        except settle_guard.TreeUnreadable:
+            raise NotUndoable("The memory's folder could not be read, so nothing was changed.") from None
+        try:
+            target, paths, lines, rec = undo(memory_path, item_id)
+            web_settle.commit_sync(memory_path, web_settle.commit_message("Sleep's settle undone", lines, authors=["user"]),
+                                   paths, before=before)
+        except BaseException:
+            settle_guard.put_back(mark)
+            raise
+        return target, rec
 
 
 def record_undo(memory_path: Path, item_id: str, rec: dict) -> None:
