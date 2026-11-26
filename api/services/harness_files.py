@@ -34,6 +34,7 @@ import math
 import os
 import re
 import tempfile
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -92,25 +93,47 @@ MAX_DENY_NAMES = 300
 # --------------------------------------------------------------------------- names
 
 
+def fold(text: str) -> str:
+    """A name as every comparison against a name set sees it: compatibility-normalised and case-folded, so ``LIBRARY``, ``library``, a
+    decomposed ``e`` plus accent and a full-width spelling are one name. A Mac's disk is case-insensitive and keeps either normal
+    form (``os.path.realpath`` fixes neither), so a spelling the person or a request supplies is never compared as typed."""
+    s = unicodedata.normalize("NFKC", str(text))
+    return unicodedata.normalize("NFKC", s.casefold())
+
+
+def fold_id(folder_id: str) -> str:
+    """A folder's id (its path below the home, ``/``-separated) folded part by part."""
+    return "/".join(fold(p) for p in str(folder_id).split("/"))
+
+
+SECRET_FOLDERS_F = frozenset(fold(n) for n in SECRET_FOLDERS)
+
+
 def _tokens(name: str) -> set[str]:
-    parts = re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+", str(name))
+    parts = re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+", unicodedata.normalize("NFKC", str(name)))
     return {p.lower() for p in parts}
 
 
 def secret_named(name: str) -> bool:
     """Does a folder or file name say secrets: a whole word of the name is a secret word, or a fragment sits in it."""
-    squashed = re.sub(r"[^a-z0-9]", "", str(name).lower())
+    squashed = re.sub(r"[^a-z0-9]", "", fold(name))
     return bool(_tokens(name) & SECRET_WORDS) or any(f in squashed for f in SECRET_FRAGMENTS)
 
 
 def cicada_named(name: str) -> bool:
-    low = str(name).lower()
+    low = fold(name)
     return "cicada" in low or low.startswith(("engine-scratch", "harness-"))
 
 
 def secret_file(name: str) -> bool:
-    low = str(name).lower()
-    return any(fnmatch.fnmatch(low, pat.lower()) for pat in SECRET_FILES)
+    low = fold(name)
+    return any(fnmatch.fnmatchcase(low, pat.lower()) for pat in SECRET_FILES)
+
+
+def secret_part(name: str) -> bool:
+    """Would the file rules refuse a file or folder of this name inside a granted folder (hidden, a secret-shaped file name, a name that
+    says secrets, a secret folder word)? Whatever its casing."""
+    return name.startswith(".") or secret_file(name) or secret_named(name) or fold(name) in SECRET_FOLDERS_F
 
 
 def _pattern(text: str) -> str:
@@ -146,8 +169,10 @@ class Census:
     files: int = 0                                      # visible files seen
     notes: int = 0                                      # of them, markdown or plain-text notes
     keylike: int = 0                                    # files or folders (hidden ones too) whose name or kind says keys, settings or secrets
-    exts: set[str] = field(default_factory=set)         # extensions present that are not document kinds
+    exts: set[str] = field(default_factory=set)         # extensions present that are not document kinds, as spelled (``KEY.PEM`` adds ``PEM``)
     names: set[str] = field(default_factory=set)        # extension-less files present
+    secret_names: set[tuple[str, bool]] = field(default_factory=set)   # (name, is a folder): spelled as found, whose name the file rules refuse
+    links_out: int = 0                                  # links (hidden ones too) that lead out of the folder
     flags: set[str] = field(default_factory=set)        # git | tool_dir | manifest | bank | secret_dir
     truncated: bool = False
 
@@ -157,6 +182,7 @@ def census(root: str, *, max_entries: int | None = None, max_depth: int | None =
     programs, collects every extension and extension-less name that is not a document kind, and notes what says tooling."""
     max_entries, max_depth = max_entries or MAX_ENTRIES, max_depth or MAX_DEPTH
     c = Census()
+    real_root = os.path.realpath(root)
     stack: list[tuple[str, int]] = [(root, 0)]
     while stack:
         here, depth = stack.pop()
@@ -165,16 +191,21 @@ def census(root: str, *, max_entries: int | None = None, max_depth: int | None =
         except OSError:
             c.flags.add("unreadable")
             continue
-        dirs = {e.name.lower() for e in entries if e.is_dir(follow_symlinks=False)}
-        if {"entities", "episodes"} <= dirs or any(e.name == "_bank.yaml" for e in entries):
+        dirs = {fold(e.name) for e in entries if e.is_dir(follow_symlinks=False)}
+        if {"entities", "episodes"} <= dirs or any(fold(e.name) == "_bank.yaml" for e in entries):
             c.flags.add("bank")
         for e in entries:
             c.entries += 1
             if c.entries > max_entries:
                 c.truncated = True
                 return c
-            name, low = e.name, e.name.lower()
+            name, low = e.name, fold(e.name)
             try:
+                if e.is_symlink() and not _within(os.path.realpath(e.path), real_root):
+                    # a link that leaves the folder: never a note, never followed; its own name is denied (a file or a folder)
+                    c.links_out += 1
+                    c.secret_names.add((name, os.path.isdir(e.path)))
+                    continue
                 is_dir = e.is_dir(follow_symlinks=False)
             except OSError:
                 is_dir = False
@@ -185,9 +216,10 @@ def census(root: str, *, max_entries: int | None = None, max_depth: int | None =
                 if name.startswith("."):
                     c.keylike += low in KEY_DOTDIRS or secret_named(name)
                     continue                         # denied wholesale; never walked
-                if secret_named(name):
+                if secret_named(name) or low in SECRET_FOLDERS_F:
                     c.flags.add("secret_dir")
-                    continue                         # denied by name; never walked
+                    c.secret_names.add((name, True))
+                    continue                         # denied by its own spelling; never walked
                 if depth + 1 > max_depth:
                     c.truncated = True
                     return c
@@ -199,6 +231,7 @@ def census(root: str, *, max_entries: int | None = None, max_depth: int | None =
             c.files += 1
             if secret_file(name) or secret_named(name):
                 c.keylike += 1
+                c.secret_names.add((name, False))
             if low in MANIFESTS and depth <= 1:
                 c.flags.add("manifest")
             ext = low.rsplit(".", 1)[1] if "." in low.strip(".") else ""
@@ -206,26 +239,35 @@ def census(root: str, *, max_entries: int | None = None, max_depth: int | None =
                 c.docs += 1
                 c.notes += ext in NOTE_KINDS
             elif ext:
-                c.exts.add(ext)
+                c.exts |= {ext, name.rsplit(".", 1)[-1]}     # a deny pattern is case-sensitive: the spelling found is denied too
                 c.programs += ext in CODE_AND_CONFIG
             else:
                 c.names.add(name)
     return c
 
 
+def _within(path: str, parent: str) -> bool:
+    return path == parent or path.startswith(parent.rstrip("/") + "/")
+
+
 def vault_named(name: str) -> bool:
     """Is a vault (or vaults) the only thing in the folder's name that says secrets? ``Notes Vault`` is; ``vault-keys`` and
     ``passwords`` are not. Such a name is the one a notes app gives its folder, so it is judged by what the folder holds."""
-    squashed = re.sub(r"[^a-z0-9]", "", str(name).lower())
+    squashed = re.sub(r"[^a-z0-9]", "", fold(name))
     return (secret_named(name) and not ((_tokens(name) & SECRET_WORDS) - {"vault", "vaults"})
             and not any(f in squashed for f in SECRET_FRAGMENTS))
 
 
-def notes_vault(name: str, cen: Census) -> bool:
-    """A folder named for a vault that holds notes: mostly Markdown or text, nothing key-shaped by the existing kinds (no secret-shaped
-    file or folder name, hidden ones included, no code or configuration file), and walked completely."""
+def _notes_only(name: str, cen: Census) -> bool:
     return (vault_named(name) and not cen.truncated and cen.notes >= 1 and cen.notes * 2 >= cen.files and cen.keylike == 0
             and cen.programs == 0 and "secret_dir" not in cen.flags)
+
+
+def notes_vault(name: str, cen: Census) -> bool:
+    """A folder named for a vault that holds notes: mostly Markdown or text, nothing key-shaped by the existing kinds (no secret-shaped
+    file or folder name, hidden ones included, no code or configuration file), no link that leads out of it (a link may point at a key
+    folder, and is not a note), and walked completely."""
+    return _notes_only(name, cen) and cen.links_out == 0
 
 
 def hard_refusal(name: str, cen: Census) -> str:
@@ -239,10 +281,10 @@ def refusal_for(name: str, cen: Census) -> str:
     """Why a folder is not granted by default, from its name and what the walk found: ``""`` when it is, ``"notes_vault"`` when it
     is a folder named for a vault that holds notes (granted, and said so)."""
     if secret_named(name) and not notes_vault(name, cen):
-        return "secrets"
+        return "vault_link" if cen.links_out and _notes_only(name, cen) else "secrets"
     if cicada_named(name) or "bank" in cen.flags:
         return "cicada"
-    if (name.lower() in TOOL_FOLDERS or cen.flags & {"git", "tool_dir", "manifest"} or cen.programs > cen.docs):
+    if (fold(name) in TOOL_FOLDERS or cen.flags & {"git", "tool_dir", "manifest"} or cen.programs > cen.docs):
         return "tooling"
     if cen.truncated:
         return "too_large"
@@ -259,6 +301,8 @@ STATES = ("default", "on", "off", "refused", "protected")
 REASONS = {
     "default": "Notes and documents. Keys, settings and code are never read.",
     "notes_vault": "Named for a vault, but it holds only notes, so it is on. Keys and settings are never read.",
+    "vault_link": "Named for a vault, but it holds a link that leads out of the folder, so it is off. Turned on, only its documents are read, "
+                  "never what a link leads to.",
     "on": "Turned on by you. Only documents are read, never keys, settings or code.",
     "off": "Turned off by you.",
     "secrets": "Its name says secrets, so it is off. Turned on, only its documents are read, never key or settings files.",
@@ -266,6 +310,7 @@ REASONS = {
     "cicada": "Cicada's own files. Never read.",
     "too_large": "Too large to check completely, so it stays closed.",
     "too_varied": "Holds too many kinds of files to check, so it stays closed.",
+    "shadowed": "Inside a folder that is on, under a name that says secrets, so it stays closed. Turn that folder off to read this one on its own.",
     "mount": "On another disk, so it stays closed.",
     "protected": "macOS keeps this folder closed to a read Cicada starts by itself.",
     "system": "The Mac's own folder, never read.",
@@ -303,7 +348,8 @@ class Folder:
 class Grant:
     roots: tuple[str, ...] = ()
     refused: tuple[str, ...] = ()          # paths inside or beside a root the session may not read (the bank, Cicada's home)
-    deny: tuple[str, ...] = ()             # root-independent deny rules: the complement of the document kinds over the walk
+    deny: tuple[str, ...] = ()             # deny rules over the walk: the complement of the document kinds (root independent) and the names found
+                                           # that the file rules refuse (per granted folder, spelled as found)
     skipped: tuple[tuple[str, str], ...] = ()   # (folder name, why) for every candidate left out
     walked: int = 0
     folders: tuple[Folder, ...] = ()       # the whole list with each folder's state (what Settings shows)
@@ -315,29 +361,51 @@ class Grant:
         return out
 
 
-def _inside(path: str, parent: str) -> bool:
-    p, q = os.path.realpath(path), os.path.realpath(parent)
-    return p == q or p.startswith(q.rstrip("/") + "/")
+def _choices_by_id(choices: dict, ids: list[str]) -> dict:
+    """The stored decisions keyed by the listed folder each names: the exact id, else the one listed id that folds the same (a decision
+    written in another casing or normal form). Where a disk keeps two folders that differ only in case, each keeps its own."""
+    by_fold: dict[str, list[str]] = {}
+    for i in ids:
+        by_fold.setdefault(fold_id(i), []).append(i)
+    out = {k: v for k, v in choices.items() if k in ids}
+    for k, v in choices.items():
+        if k not in ids:
+            same = by_fold.get(fold_id(k), [])
+            out.setdefault(same[0] if len(same) == 1 else k, v)
+    return out
+
+
+def _root_rules(root: str, names: set[tuple[str, bool]]) -> list[str]:
+    """Deny rules for the names the walk found that the file rules refuse, spelled as found, written for one granted folder (a deny
+    pattern is case-sensitive: ``secret*`` does not match ``Secrets.md`` nor ``my-passwords``, and ``secrets`` does not match ``Secrets``)."""
+    r = root.rstrip("/")
+    out: list[str] = []
+    for name, is_dir in sorted(names):
+        out.append(f"Read(/{r}/**/{_pattern(name)})")
+        if is_dir:
+            out.append(f"Read(/{r}/**/{_pattern(name)}/**)")
+    return out
 
 
 def _plan(cands: list[tuple[str, str, str, bool]], refused: tuple[str, ...], choices: dict | None = None) -> tuple[list[Folder], Grant]:
     """Judge each candidate ``(id, name, path, added)`` and build the grant. A folder is walked unless its name already says secrets (a
     verdict that needs no walk) and the person has not turned it on; a folder the person added or turned on is always walked, so
-    Cicada's own and a folder too large to walk stay closed whatever was chosen."""
-    choices = choices or {}
-    rows: list[Folder] = []
-    roots: list[str] = []
-    skipped: list[tuple[str, str]] = []
-    exts: set[str] = set()
-    names: set[str] = set()
+    Cicada's own and a folder too large to walk stay closed whatever was chosen. A folder the person turned on that sits inside another
+    granted folder under a name the file rules refuse stays closed and says so (the harness's deny always wins over an allow, so the
+    parent's rule for that name would refuse every file of it)."""
+    choices = _choices_by_id(choices or {}, [c[0] for c in cands])
+    verdicts: list[dict] = []
     walked = 0
+    seen_exts: set[str] = set()
+    seen_names: set[str] = set()
     for fid, name, path, added in cands:
         choice = choices.get(fid) if isinstance(choices.get(fid), dict) else {}
         pick, added = choice.get("state"), added or bool(choice.get("added"))
         base = Path(path).name          # the rules judge the folder's own name; the row shows its place below the home
-        if any(_inside(path, r) for r in refused):
-            rows.append(Folder(fid, name, path, "refused", "cicada", added, True))
-            skipped.append((name, "cicada"))
+        v = {"fid": fid, "name": name, "path": path, "added": added, "pick": pick, "cen": None, "hard": "", "why": "secrets", "on": False}
+        verdicts.append(v)
+        if any(under(path, r) for r in refused):
+            v["hard"] = "cicada"
             continue
         cen = None
         if added or pick == "on" or not (secret_named(base) and not vault_named(base)):
@@ -346,22 +414,51 @@ def _plan(cands: list[tuple[str, str, str, bool]], refused: tuple[str, ...], cho
         why = "secrets" if cen is None else refusal_for(base, cen)
         hard = hard_refusal(base, cen) if cen is not None else ""
         on = pick == "on" or (pick != "off" and (added or why in ("", "notes_vault")))
-        if not hard and on and cen is not None and (len(exts | cen.exts) > MAX_DENY_EXTS or len(names | cen.names) > MAX_DENY_NAMES):
+        if not hard and on and cen is not None and (len(seen_exts | cen.exts) > MAX_DENY_EXTS or len(seen_names | cen.names) > MAX_DENY_NAMES
+                                                    or len(cen.secret_names) > MAX_DENY_NAMES):
             hard = "too_varied"
-        if hard:
-            rows.append(Folder(fid, name, path, "refused", hard, added, True))
-            skipped.append((name, hard))
-        elif on:
+        if not hard and on and cen is not None:
+            seen_exts |= cen.exts
+            seen_names |= cen.names
+        v.update(cen=cen, why=why, hard=hard, on=on)
+    # Inside another granted folder under a refused name: closed, said so (shallowest first, so a closed one shadows nothing).
+    kept: list[str] = []
+    for v in sorted((v for v in verdicts if v["on"] and not v["hard"]), key=lambda v: len(v["path"])):
+        parent = next((r for r in kept if v["path"] != r and under(v["path"], r)
+                       and any(secret_part(part) for part in _below(v["path"], r))), None)
+        if parent is None:
+            kept.append(v["path"])
+        else:
+            v.update(hard="shadowed", on=False)
+    rows: list[Folder] = []
+    roots: list[str] = []
+    skipped: list[tuple[str, str]] = []
+    exts: set[str] = set()
+    names: set[str] = set()
+    rules: list[str] = []
+    for v in verdicts:
+        fid, name, path, added, pick, cen, why = v["fid"], v["name"], v["path"], v["added"], v["pick"], v["cen"], v["why"]
+        if v["hard"]:
+            rows.append(Folder(fid, name, path, "refused", v["hard"], added, True))
+            skipped.append((name, v["hard"]))
+        elif v["on"]:
             rows.append(Folder(fid, name, path, "on" if (pick == "on" or added) else "default", why, added))
             roots.append(path)
             exts |= cen.exts
             names |= cen.names
+            rules += _root_rules(path, cen.secret_names)
         else:
             rows.append(Folder(fid, name, path, "off" if pick == "off" else "refused", why, added))
             skipped.append((name, "off" if pick == "off" else why))
     deny = [*(f"Read(//**/*.{_pattern(e)})" for e in sorted(exts)),
-            *(f"Read(//**/{_pattern(n)})" for n in sorted(names))]
+            *(f"Read(//**/{_pattern(n)})" for n in sorted(names)), *rules]
     return rows, Grant(tuple(roots), tuple(refused), tuple(deny), tuple(skipped), walked, tuple(rows))
+
+
+def _below(path: str, parent: str) -> list[str]:
+    """The parts of ``path`` below ``parent`` (both spelled as the list spells them: from one listing of the home)."""
+    mine, theirs = _parts(os.path.realpath(path)), _parts(os.path.realpath(parent))
+    return mine[len(theirs):]
 
 
 def _vet(candidates: list[tuple[str, str]], refused: tuple[str, ...]) -> Grant:
@@ -373,6 +470,15 @@ def _vet(candidates: list[tuple[str, str]], refused: tuple[str, ...]) -> Grant:
 PROTECTED = frozenset({"Documents", "Desktop", "Downloads", "Pictures", "Movies", "Music", "Library", "Public", "Applications"})
 #: Of those, the Mac's own: never the person's folders, never read even from their own shell, and not named to them as protected.
 SYSTEM_FOLDERS = frozenset({"Library", "Applications"})
+#: The same names as every comparison sees them (:func:`fold`): ``library`` and ``LIBRARY`` are ``Library`` to a case-insensitive disk,
+#: and are treated so on a case-sensitive one too (a folder called ``library`` beside ``Library`` there is refused as protected: the
+#: safe side of a doubt, and a Linux home has none of these anyway).
+PROTECTED_F = frozenset(fold(n) for n in PROTECTED)
+SYSTEM_F = frozenset(fold(n) for n in SYSTEM_FOLDERS)
+
+
+def _parts(path: str) -> list[str]:
+    return [p for p in path.split("/") if p]
 
 
 def _same_device(a: str, b: str) -> bool:
@@ -382,23 +488,80 @@ def _same_device(a: str, b: str) -> bool:
         return False
 
 
-def location_problem(home: Path, path: str) -> str:
-    """Why ``path`` can never be a folder of the list, in a code (``""`` when the place is fine): not below the home, a hidden part,
-    ``Library`` or a protected folder, a link anywhere in it, not a folder, or on another disk. The home itself is no folder."""
-    lexical = os.path.normpath(path)
-    base = os.path.normpath(str(home))
-    if lexical == base or not lexical.startswith(base.rstrip(os.sep) + os.sep):
-        return "outside"
-    rel = lexical[len(base.rstrip(os.sep)) + 1:].split(os.sep)
+def true_name(parent: str, typed: str) -> str | None:
+    """The name ``typed`` has on disk inside ``parent`` (``None`` when there is none, or two could be it). An exact name wins (on a
+    case-sensitive disk ``library`` beside ``Library`` are two folders); else the one entry that folds the same (casing, normal form);
+    else the entry that is the same file (a disk may equate spellings :func:`fold` does not)."""
+    try:
+        names = [e.name for e in os.scandir(parent)]
+    except OSError:
+        return None
+    if typed in names:
+        return typed
+    key = fold(typed)
+    same = [n for n in names if fold(n) == key]
+    if not same:
+        try:
+            wanted = os.lstat(os.path.join(parent, typed))
+            same = [n for n in names if _is_file(os.path.join(parent, n), wanted)]
+        except OSError:
+            return None
+    return same[0] if len(same) == 1 else None
+
+
+def _is_file(path: str, st: os.stat_result) -> bool:
+    try:
+        other = os.lstat(path)
+    except OSError:
+        return False
+    return (other.st_dev, other.st_ino) == (st.st_dev, st.st_ino)
+
+
+def true_path(path: str) -> str:
+    """``realpath`` with every component that exists spelled as the disk spells it (``realpath`` fixes neither case nor normal form on a
+    Mac); the part that does not exist is kept as given."""
+    out = "/"
+    for comp in _parts(os.path.realpath(path)):
+        out = os.path.join(out, true_name(out, comp) or comp)
+    return out
+
+
+def resolve_location(home: Path, path: str) -> tuple[str, str]:
+    """``(problem, canonical path)``: why ``path`` can never be a folder of the list, in a code (``""`` when the place is fine), and the
+    path with every part below the home spelled as the disk spells it (the id a folder is kept under: ``library`` is ``Library`` and is then
+    refused). Not below the home, a hidden part, ``Library`` or a protected folder (any casing), a link anywhere in it, not a folder, or
+    on another disk. The home itself is no folder. Nothing outside the home is listed or opened."""
+    lexical, base = os.path.normpath(path), os.path.normpath(str(home))
+    mine, root = _parts(lexical), _parts(base)
+    if len(mine) <= len(root) or any(a != b and fold(a) != fold(b) for a, b in zip(mine, root)) or not lexical.startswith(os.sep):
+        return "outside", lexical
+    rel = mine[len(root):]
     if any(p.startswith(".") for p in rel):
-        return "hidden"
-    if rel[0] in PROTECTED:
-        return "protected"
-    if os.path.realpath(lexical) != os.path.join(os.path.realpath(base), *rel):
-        return "link"
-    if not os.path.isdir(lexical):
-        return "missing"
-    return "mount" if not _same_device(lexical, base) else ""
+        return "hidden", lexical
+    if fold(rel[0]) in PROTECTED_F:
+        return "protected", lexical
+    here = base
+    for i, typed in enumerate(rel):
+        name = true_name(here, typed)
+        if name is None:
+            return "missing", lexical
+        here = os.path.join(here, name)
+        if name.startswith(".") or (i == 0 and fold(name) in PROTECTED_F):
+            return ("hidden" if name.startswith(".") else "protected"), here
+        if os.path.islink(here):
+            return "link", here
+        if i < len(rel) - 1 and not os.path.isdir(here):
+            return "missing", here
+    if os.path.realpath(here) != os.path.join(os.path.realpath(base), *_parts(here)[len(root):]):
+        return "link", here
+    if not os.path.isdir(here):
+        return "missing", here
+    return ("mount" if not _same_device(here, base) else ""), here
+
+
+def location_problem(home: Path, path: str) -> str:
+    """:func:`resolve_location`'s code alone."""
+    return resolve_location(home, path)[0]
 
 
 def folder_list(home: Path, *, attended: bool = False, refused: tuple[str, ...] = (), choices: dict | None = None) -> Grant:
@@ -407,7 +570,8 @@ def folder_list(home: Path, *, attended: bool = False, refused: tuple[str, ...] 
     link (it may leave the home), a folder on another volume (a mount), ``Library`` or ``Applications``; unless the person started this
     from their own shell (``attended``) never a protected one (a prompt nobody answers). The person's choice (``choices``: id to
     ``{"state": "on"|"off", "added": bool}``) overrules the rule's soft refusals (a name that says secrets, a tooling folder) and never
-    the hard ones (Cicada's own, too large to walk, another disk, protected). The file rules never move."""
+    the hard ones (Cicada's own, too large to walk, another disk, protected). The file rules never move. Every name is compared
+    whatever its casing or normal form, and a stored id is read as the folder's true name on disk."""
     choices = choices or {}
     cands: list[tuple[str, str, str, bool]] = []
     pre: list[Folder] = []
@@ -418,19 +582,25 @@ def folder_list(home: Path, *, attended: bool = False, refused: tuple[str, ...] 
     for e in entries:
         if e.name.startswith(".") or not e.is_dir(follow_symlinks=False):
             continue
-        if e.name in PROTECTED and not (attended and e.name not in ("Library", "Applications")):
-            pre.append(Folder(e.name, e.name, e.path, "protected", "system" if e.name in SYSTEM_FOLDERS else "protected", False, True))
+        key = fold(e.name)
+        if key in PROTECTED_F and not (attended and key not in SYSTEM_F):
+            pre.append(Folder(e.name, e.name, e.path, "protected", "system" if key in SYSTEM_F else "protected", False, True))
         elif not _same_device(e.path, str(home)):
             pre.append(Folder(e.name, e.name, e.path, "refused", "mount", False, True))
         else:
             cands.append((e.name, e.name, e.path, False))
     tops = {c[0] for c in cands} | {f.id for f in pre}
     for fid, choice in sorted(choices.items()):
-        if fid in tops or not isinstance(choice, dict) or not choice.get("added"):
+        if not isinstance(choice, dict) or not choice.get("added"):
             continue
-        path = os.path.join(str(home), *fid.split("/"))
-        if not location_problem(home, path):
-            cands.append((fid, fid, path, True))
+        problem, canon = resolve_location(home, os.path.join(str(home), *fid.split("/")))
+        if problem:
+            continue
+        cid = os.path.relpath(canon, os.path.normpath(str(home))).replace(os.sep, "/")
+        if cid in tops:
+            continue
+        tops.add(cid)
+        cands.append((cid, cid, canon, True))
     rows, g = _plan(cands, tuple(refused), choices)
     allrows = sorted([*pre, *rows], key=lambda f: (f.added, f.id.lower()))
     return Grant(g.roots, g.refused, g.deny, (*((f.name, f.why) for f in pre), *g.skipped), g.walked, tuple(allrows))
@@ -458,30 +628,44 @@ def _spelled(path: str) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+def _folded(path: str) -> list[str]:
+    return [fold(p) for p in _parts(path)]
+
+
 def under(path: str, folder: str) -> bool:
-    """Is ``path`` inside ``folder``, spelled either way a Mac spells ``/var``?"""
-    real = os.path.realpath(path)
-    return any(real == f or real.startswith(f.rstrip("/") + "/") for f in _spelled(folder) + [os.path.realpath(folder)])
+    """Is ``path`` inside ``folder``, spelled either way a Mac spells ``/var``, and in whatever casing or normal form? (The answer is
+    meant for refusing: a path that may be inside is inside. What may be stored goes through :func:`allowed_path`, which asks the disk.)"""
+    real = _folded(os.path.realpath(path))
+    for f in _spelled(folder) + [os.path.realpath(folder)]:
+        want = _folded(f)
+        if real[:len(want)] == want:
+            return True
+    return False
 
 
 def allowed_path(path: str, roots: tuple[str, ...], *, copies_dir: str = "", refused: tuple[str, ...] = ()) -> bool:
     """May something read at ``path`` be stored: an absolute path of an allowed kind (a document kind) under a granted folder (or a
-    ``.md`` copy in the question's own copies folder), with no hidden or secret-shaped part below its folder, never under a refused path."""
+    ``.md`` copy in the question's own copies folder), with no hidden or secret-shaped part below its folder, never under a refused path
+    (whatever the casing). The folder it sits in is judged by the disk's own spelling of both, so a folder that differs only in case from
+    a granted one is not that folder where the disk keeps both."""
     if not path or not os.path.isabs(path):
         return False
     real = os.path.realpath(path)
     if any(under(real, r) for r in refused):
         return False
     base = os.path.basename(real)
-    ext = base.lower().rsplit(".", 1)[1] if "." in base.strip(".") else ""
+    ext = fold(base).rsplit(".", 1)[1] if "." in base.strip(".") else ""
     if copies_dir and under(real, copies_dir):
         return ext == "md" and not base.startswith(".")
-    root = next((os.path.realpath(r) for r in roots if under(real, r)), None)
-    if root is None or ext not in DOCUMENT_KINDS:
+    named = next((r for r in roots if under(real, r)), None)
+    if named is None or ext not in DOCUMENT_KINDS:
         return False
-    rel = [p for p in real[len(root):].split("/") if p]
+    true, root = _parts(true_path(real)), _parts(true_path(named))
+    if true[:len(root)] != root:
+        return False
+    rel = true[len(root):]
     return not (any(p.startswith(".") for p in rel) or secret_file(base) or secret_named(base)
-                or any(secret_named(p) or p.lower() in SECRET_FOLDERS for p in rel[:-1]))
+                or any(secret_named(p) or fold(p) in SECRET_FOLDERS_F for p in rel[:-1]))
 
 
 # --- key material ----------------------------------------------------------------------------------------------------

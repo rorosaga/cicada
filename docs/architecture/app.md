@@ -115,7 +115,7 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   memory*, **Folders its agent may read** (`AgentReadFoldersGroup`, ruling 84, owner 2026-11-26, `.agentReadFolders`):
   one row per folder of the home (name, the backend's reason as secondary text, the system switch), then *Add a folder…*
   through the system folder panel, which sends only the path (the app never reads the folder; the backend resolves it and
-  refuses what can never be read, in words: `GET`/`PUT`/`POST /settings/agent-folders`, `mcp.md`). A folder that stays closed
+  refuses what can never be read, in words: `GET`/`PUT`/`POST /settings/agent-folders` (the server's own token only; a refused add is a 409 with its sentence), `mcp.md`). A folder that stays closed
   (Cicada's own, too large to check) shows its switch off and unavailable with the reason (DR-41); the folders macOS
   protects are one sentence under the list, never rows; a folder the person added has *Remove from the list* in its
   menu. Per device, optimistic with rollback and the backend's own sentence on a refusal, not a Store domain. The

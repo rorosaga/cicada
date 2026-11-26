@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import threading
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -347,7 +350,8 @@ def test_the_routes_list_change_add_and_remove(client, home):
     body = client.post("/settings/agent-folders", json={"path": str(home / "code" / "app")}).json()
     assert {f["id"]: f for f in body["folders"]}["code/app"]["added"] is True
     refusal = client.post("/settings/agent-folders", json={"path": str(home / ".ssh")})
-    assert refusal.status_code == 400 and "hidden" in refusal.json()["detail"]
+    assert refusal.status_code == 409 and "hidden" in refusal.json()["detail"]        # "you cannot choose this": the neighbouring routes' 409
+    assert client.post("/settings/agent-folders", json={"path": ""}).status_code == 400    # no path at all is a malformed request
     body = client.post("/settings/agent-folders/remove", json={"folder": "code/app"}).json()
     assert "code/app" not in {f["id"] for f in body["folders"]}
     assert client.post("/settings/agent-folders/remove", json={"folder": "vault"}).status_code == 404
@@ -364,7 +368,7 @@ def test_only_the_masters_token_may_change_the_list_and_a_copy_never_does():
 
     for method in ("PUT", "POST"):
         assert auth._master_only("/settings/agent-folders", method) and auth._master_only("/settings/agent-folders/remove", method)
-    assert not auth._master_only("/settings/agent-folders", "GET")        # reading the list is open like the other settings
+    assert auth._master_only("/settings/agent-folders", "GET")            # and so is reading it: the names say what is on this disk
     for route in ("PUT /settings/agent-folders", "POST /settings/agent-folders", "POST /settings/agent-folders/remove"):
         assert replica_routes.ROUTES[route] == replica_routes.REFUSE
 
@@ -375,3 +379,283 @@ def test_the_list_is_in_the_cli_and_never_writable_from_it():
     rows = {r.command: r for r in cli_map.ROWS}
     row = rows[("agent", "folders")]
     assert row.exposed and not row.mutates and row.via == "backend"
+
+
+# --- the class: a path or a name is compared whatever its casing and normal form (review of #950, blocker) ----------------------
+
+
+def _case_sensitive_disk(tmp: Path) -> bool:
+    (tmp / "cs-probe").mkdir()
+    return not (tmp / "CS-PROBE").exists()
+
+
+@pytest.mark.parametrize("typed", ["library", "LIBRARY", "LiBrArY", "library/Mail", "Library/mail", "documents/d", "DOCUMENTS/d",
+                                   "downloads", "desktop", "Desktop", "PICTURES", "applications", "\uff4c\uff49\uff42\uff52\uff41\uff52\uff59"])
+def test_a_differently_cased_protected_path_is_refused_like_the_exact_one(home, bank, typed):
+    _put(home, {"Library/Mail/m.md": "x", "Library/Application Support/x.md": "x", "Documents/d/a.md": "x", "Downloads/a.md": "x",
+                "Desktop/a.md": "x", "Pictures/a.md": "x", "Applications/a.md": "x", "Notes/a.md": "x"})
+    with pytest.raises(af.FoldersError) as e:
+        af.add(bank, str(home / typed), home=home)
+    assert "macOS" in str(e.value) and e.value.status == 409
+    assert not (auth.cicada_home() / af.FILENAME).exists()
+    assert hf.location_problem(home, str(home / typed)) in ("protected", "missing")
+
+
+def test_a_stored_decision_for_a_differently_cased_protected_folder_never_grants_it(home, bank):
+    """A choice file from before the fix (or edited by hand) may name `library`: it is read as `Library`, and refused."""
+    _put(home, {"Library/Application Support/x.md": "x", "Library/Mail/m.md": "x", "Notes/a.md": "x"})
+    (auth.cicada_home()).mkdir(exist_ok=True)
+    (auth.cicada_home() / af.FILENAME).write_text(json.dumps({"folders": {
+        "library": {"state": "on", "added": True}, "LIBRARY/Mail": {"state": "on", "added": True}}}))
+    g = af.listing(bank, home=home)
+    assert not any(hf.fold(r).startswith(str(home).lower() + "/library") for r in g.roots)
+    assert _by_id(g)["Library"].state == "protected" and "library/mail" not in {hf.fold(f.id) for f in g.folders}
+    assert not hf.allowed_path(str(home / "Library" / "Application Support" / "x.md"), g.roots, refused=g.refused)
+    assert not hf.allowed_path(str(home / "library" / "application support" / "x.md"), g.roots, refused=g.refused)
+
+
+def test_the_stored_id_is_the_folders_true_name_and_one_folder_is_one_row(home, bank):
+    _put(home, {"Work/My Notes/a.md": "x"})
+    _rows, row = af.add(bank, str(home / "WORK" / "my notes"), home=home)
+    assert row["id"] == "Work/My Notes"
+    assert set(json.loads((auth.cicada_home() / af.FILENAME).read_text())["folders"]) == {"Work/My Notes"}
+    af.add(bank, str(home / "work" / "MY NOTES"), home=home)               # the same folder again: still one decision, one row
+    assert [r["id"] for r in af.rows(bank, home=home) if hf.fold_id(r["id"]) == hf.fold_id("work/my notes")] == ["Work/My Notes"]
+    assert set(json.loads((auth.cicada_home() / af.FILENAME).read_text())["folders"]) == {"Work/My Notes"}
+    # the app and the CLI may name it in any spelling
+    rows = af.set_state(bank, "WORK/my notes", False)
+    assert {r["id"]: r for r in rows}["Work/My Notes"]["state"] == "off"
+    assert "Work/My Notes" not in {r["id"] for r in af.remove(bank, "work/MY NOTES")}
+
+
+def test_a_decomposed_accent_is_the_same_name_as_the_composed_one(home, bank):
+    composed, decomposed = "Caf\u00e9 Notes", unicodedata.normalize("NFD", "Caf\u00e9 Notes")
+    assert composed != decomposed and hf.fold(composed) == hf.fold(decomposed)
+    _put(home, {f"Work/{composed}/a.md": "x"})
+    _rows, row = af.add(bank, str(home / "Work" / decomposed), home=home)
+    assert row["id"] == f"Work/{composed}" or unicodedata.normalize("NFD", row["id"]) == f"Work/{decomposed}"
+    # a decomposed accent inside a name that says secrets is the same word
+    assert hf.secret_named("\uff33\uff25\uff23\uff32\uff25\uff34\uff33") and hf.secret_file("ID_RSA") and hf.secret_file("Id_Rsa")
+    assert hf.fold("\u212a\u0045\u0059.PEM") == "key.pem"
+    assert hf.secret_file("\u212a\u0045\u0059.PEM")
+
+
+@pytest.mark.skipif(os.environ.get("CICADA_TEST_CASE_SENSITIVE") == "off", reason="needs a case-sensitive disk")
+def test_on_a_case_sensitive_disk_a_second_folder_differing_in_case_is_its_own_unless_it_is_a_protected_name(home, bank, tmp_path):
+    if not _case_sensitive_disk(tmp_path):
+        pytest.skip("this disk is case-insensitive: the case that needs two folders cannot be made (the other tests cover it)")
+    _put(home, {"Notes/a.md": "x", "notes/b.md": "x", "Library/a.md": "x", "library/b.md": "x"})
+    _rows, row = af.add(bank, str(home / "notes"), home=home)
+    assert row["id"] == "notes" and {r["id"] for r in af.rows(bank, home=home)} >= {"Notes", "notes"}
+    af.set_state(bank, "notes", False)                  # each keeps its own decision
+    by = _by_id(af.listing(bank, home=home))
+    assert by["notes"].state == "off" and by["Notes"].state == "default"
+    assert set(json.loads((auth.cicada_home() / af.FILENAME).read_text())["folders"]) == {"notes"}
+    af.set_state(bank, "Notes", False)
+    assert set(json.loads((auth.cicada_home() / af.FILENAME).read_text())["folders"]) == {"notes", "Notes"}
+    with pytest.raises(af.FoldersError):                 # a protected name is protected in every casing: the safe side of a doubt
+        af.add(bank, str(home / "library"), home=home)
+    assert by["library"].state == "protected" and by["Library"].state == "protected"
+
+
+def _glob(rule: str, path: str) -> bool:
+    """A permission rule's path pattern as a case-sensitive glob: ``//`` an absolute path, ``**/`` any folders, ``*`` and ``?`` within one name."""
+    inner = rule[len("Read("):-1]
+    inner = inner[1:] if inner.startswith("//") else inner
+    out, i = "", 0
+    while i < len(inner):
+        if inner.startswith("**/", i):
+            out, i = out + "(?:.*/)?", i + 3
+        elif inner.startswith("**", i):
+            out, i = out + ".*", i + 2
+        else:
+            c = inner[i]
+            out += "[^/]*" if c == "*" else "[^/]" if c == "?" else re.escape(c)
+            i += 1
+    return re.fullmatch(out, path.lstrip("/")) is not None or re.fullmatch(out, path) is not None
+
+
+def test_upper_case_variants_of_secret_names_are_denied_like_the_lower_case_ones(home, bank):
+    """The harness's deny patterns are case-sensitive: a folder holding `ID_RSA`, `.ENV`, `Secrets/`, `KEY.PEM` is only safe when a rule
+    names each spelling found in the complete walk (or a pattern that matches it)."""
+    from api.services import harness_agent as ha
+
+    _put(home, {"Docs/readme.md": "x", "Docs/ID_RSA": "k", "Docs/.ENV": "k", "Docs/Secrets/inner.md": "x", "Docs/KEY.PEM": "k",
+                "Docs/Secrets.md": "x", "Docs/my-passwords.md": "x", "Docs/X.JSON": "{}", "Docs/CREDENTIALS.TXT": "x",
+                "Docs/Wallet/a.md": "x", "Docs/PRIVATE/a.md": "x", "Docs/sub/Token List.txt": "x", "Docs/sub/ok.md": "x"})
+    g = af.listing(bank, home=home)
+    assert str(home / "Docs") in g.roots
+    rules = ha.settings_for(ha.Policy(ha.PRIVATE, roots=g.roots, refused=g.refused, deny=g.deny))["permissions"]["deny"]
+    denied = lambda rel: any(r.startswith("Read(") and _glob(r, str(home / "Docs" / rel)) for r in rules)   # noqa: E731
+    for rel in ("ID_RSA", ".ENV", "Secrets/inner.md", "Secrets/anything-later.md", "KEY.PEM", "Secrets.md", "my-passwords.md", "X.JSON",
+                "CREDENTIALS.TXT", "Wallet/a.md", "PRIVATE/a.md", "sub/Token List.txt"):
+        assert denied(rel), rel
+        assert not hf.allowed_path(str(home / "Docs" / rel), g.roots, refused=g.refused), rel
+    assert not denied("readme.md") and not denied("sub/ok.md")
+    assert hf.allowed_path(str(home / "Docs" / "readme.md"), g.roots, refused=g.refused)
+
+
+def test_a_folder_that_is_a_notes_vault_in_any_case_and_holds_ID_RSA_is_not_one(home, bank):
+    _put(home, {"Vault/a.md": "x", "Vault/b.md": "x", "Vault/ID_RSA": "k"})
+    assert _by_id(af.listing(bank, home=home))["Vault"].why == "secrets"
+    _put(home, {"vaults/a.md": "x", "vaults/b.md": "x", "vaults/KEY.PEM": "k"})
+    assert _by_id(af.listing(bank, home=home))["vaults"].why == "secrets"
+
+
+def test_a_refused_path_is_refused_in_any_casing(home, bank, tmp_path):
+    bank_in_home = home / "Work" / "bank"
+    bank_in_home.mkdir(parents=True)
+    (bank_in_home / "n.md").write_text("x")
+    refused = (str(bank_in_home),)
+    assert hf.under(str(bank_in_home / "n.md"), str(bank_in_home)) and hf.under(str(home / "work" / "BANK" / "n.md"), str(bank_in_home))
+    assert not hf.allowed_path(str(bank_in_home / "n.md"), (str(home / "Work"),), refused=refused)
+    assert not hf.allowed_path(str(home / "work" / "BANK" / "n.md"), (str(home / "Work"),), refused=refused)
+
+
+# --- L1: a folder inside a granted one under a name that one's rules refuse -----------------------------------------------------
+
+
+def test_a_folder_below_a_granted_one_under_a_secret_name_is_not_added_and_says_why(home, bank):
+    _put(home, {"Notes/a.md": "x", "Notes/secrets/inbox/b.md": "x", "Notes/ideas/c.md": "x"})
+    with pytest.raises(af.FoldersError) as e:
+        af.add(bank, str(home / "Notes" / "secrets"), home=home)
+    assert "Inside a folder that is on" in str(e.value) and e.value.status == 409
+    with pytest.raises(af.FoldersError):
+        af.add(bank, str(home / "Notes" / "secrets" / "inbox"), home=home)
+    assert not (auth.cicada_home() / af.FILENAME).exists()
+    _rows, row = af.add(bank, str(home / "Notes" / "ideas"), home=home)       # an ordinary folder below a granted one is only redundant
+    assert row["state"] == "on" and row["granted"]
+
+
+def test_a_folder_added_while_its_parent_was_off_closes_when_the_parent_is_turned_on_and_says_so(home, bank):
+    _put(home, {"Notes/a.md": "x", "Notes/secrets/inbox/b.md": "x"})
+    af.set_state(bank, "Notes", False)
+    _rows, row = af.add(bank, str(home / "Notes" / "secrets"), home=home)
+    assert row["state"] == "on" and row["granted"]
+    assert str(home / "Notes" / "secrets") in af.listing(bank, home=home).roots
+    af.set_state(bank, "Notes", True)
+    g = af.listing(bank, home=home)
+    row = _by_id(g)["Notes/secrets"]
+    assert row.state == "refused" and row.why == "shadowed" and row.locked and not row.granted and "Inside a folder that is on" in row.reason
+    assert str(home / "Notes" / "secrets") not in g.roots and str(home / "Notes") in g.roots
+    assert not hf.allowed_path(str(home / "Notes" / "secrets" / "inbox" / "b.md"), g.roots, refused=g.refused)
+    # the decision is kept: turn the parent off and the folder reads on its own again; removing it is always possible
+    af.set_state(bank, "Notes", False)
+    assert _by_id(af.listing(bank, home=home))["Notes/secrets"].granted
+    af.set_state(bank, "Notes", True)
+    assert "Notes/secrets" not in {r["id"] for r in af.remove(bank, "Notes/secrets")}
+
+
+# --- L2: a link that leaves a vault ---------------------------------------------------------------------------------------------
+
+
+def test_a_vault_holding_a_link_out_of_it_is_offered_off_with_the_reason(home, bank, tmp_path):
+    _put(home, {"vault/a.md": "x", "vault/b.md": "x", "keys-elsewhere/id_rsa": "k", "keys-elsewhere/c.md": "x"})
+    (home / "vault" / "link.md").symlink_to(home / "keys-elsewhere" / "c.md")
+    row = _by_id(af.listing(bank, home=home))["vault"]
+    assert row.state == "refused" and row.why == "vault_link" and not row.granted and not row.locked and "link" in row.reason
+    (home / "vault" / "link.md").unlink()
+    (home / "vault" / "folder-link").symlink_to(home / "keys-elsewhere")
+    assert _by_id(af.listing(bank, home=home))["vault"].why == "vault_link"
+    (home / "vault" / "folder-link").unlink()
+    (home / "vault" / ".hidden-link").symlink_to(tmp_path)
+    assert _by_id(af.listing(bank, home=home))["vault"].why == "vault_link"
+    (home / "vault" / ".hidden-link").unlink()
+    (home / "vault" / "inside.md").symlink_to(home / "vault" / "a.md")           # a link that stays inside is no leak
+    assert _by_id(af.listing(bank, home=home))["vault"].state == "default"
+
+
+def test_a_vault_with_a_link_out_turned_on_by_the_person_still_never_reads_through_the_link(home, bank):
+    from api.services import harness_agent as ha
+
+    _put(home, {"vault/a.md": "x", "keys-elsewhere/c.md": "x"})
+    (home / "vault" / "link.md").symlink_to(home / "keys-elsewhere" / "c.md")
+    (home / "vault" / "dirlink").symlink_to(home / "keys-elsewhere")
+    af.set_state(bank, "vault", True)
+    g = af.listing(bank, home=home)
+    assert str(home / "vault") in g.roots and _by_id(g)["vault"].state == "on"
+    rules = ha.settings_for(ha.Policy(ha.PRIVATE, roots=g.roots, refused=g.refused, deny=g.deny))["permissions"]["deny"]
+    assert any(_glob(r, str(home / "vault" / "link.md")) for r in rules if r.startswith("Read("))
+    assert any(_glob(r, str(home / "vault" / "dirlink" / "c.md")) for r in rules if r.startswith("Read("))
+    assert not hf.allowed_path(str(home / "vault" / "link.md"), g.roots, refused=g.refused)
+
+
+# --- L3: the file keeps what it does not know, and two changes at once both land -----------------------------------------------
+
+
+def test_a_save_keeps_every_key_it_does_not_know(home, bank):
+    _layout(home)
+    (auth.cicada_home()).mkdir(exist_ok=True)
+    (auth.cicada_home() / af.FILENAME).write_text(json.dumps({"version": 3, "note": {"x": 1}, "folders": {
+        "Notes": {"state": "off", "added": False, "day": "2026-11-01", "colour": "blue"},
+        "later": {"state": "maybe", "added": True}}}))
+    af.set_state(bank, "vault", False)
+    doc = json.loads((auth.cicada_home() / af.FILENAME).read_text())
+    assert doc["version"] == 3 and doc["note"] == {"x": 1}
+    assert doc["folders"]["Notes"]["colour"] == "blue" and doc["folders"]["later"] == {"state": "maybe", "added": True}
+    assert doc["folders"]["vault"]["state"] == "off"
+
+
+def test_two_changes_at_once_both_land(home, bank, monkeypatch):
+    """A reads the file (its last read before saving), B changes and saves, A saves: without a lock B's change is lost."""
+    _layout(home)
+    seen = []
+    last_read = threading.Event()
+    real_load = af.load
+
+    def slow_load():
+        got = real_load()
+        if threading.current_thread().name == "A":
+            seen.append(1)
+            if len(seen) == 2:                            # the read a save is made from (the first only judges the row)
+                last_read.set()
+                threading.Event().wait(0.5)               # B runs now, unless the lock A holds keeps it out
+        return got
+
+    monkeypatch.setattr(af, "load", slow_load)
+    errors: list[BaseException] = []
+
+    def run(folder):
+        try:
+            af.set_state(bank, folder, False)
+        except BaseException as exc:                   # noqa: BLE001
+            errors.append(exc)
+
+    a = threading.Thread(target=run, args=("vault",), name="A")
+    b = threading.Thread(target=run, args=("Notes",), name="B")
+    a.start()
+    assert last_read.wait(5)
+    b.start()
+    a.join(10)
+    b.join(10)
+    assert not errors
+    assert set(json.loads((auth.cicada_home() / af.FILENAME).read_text())["folders"]) == {"vault", "Notes"}
+
+
+def test_a_change_waits_for_the_one_holding_the_file(home, bank):
+    _layout(home)
+    done = threading.Event()
+    with af._edit() as folders:
+        folders["Notes"] = {"state": "off", "added": False, "day": "2026-11-01"}
+        t = threading.Thread(target=lambda: (af.set_state(bank, "vault", False), done.set()))
+        t.start()
+        assert not done.wait(0.4)                         # held out while the first change is open
+    assert done.wait(10)
+    t.join(10)
+    assert set(json.loads((auth.cicada_home() / af.FILENAME).read_text())["folders"]) == {"vault", "Notes"}
+
+
+# --- L5: reading the list is the server's own token's too -----------------------------------------------------------------------
+
+
+def test_a_device_token_cannot_read_the_list_and_the_servers_own_token_can(client, home, monkeypatch):
+    from api.services import device_tokens
+
+    monkeypatch.setenv("CICADA_API_AUTH", "on")
+    _layout(home)
+    _dev, token = device_tokens.store().create("laptop-example")
+    for method, body in (("get", None), ("put", {"folder": "vault", "on": False}), ("post", {"path": str(home / "Notes")})):
+        r = getattr(client, method)("/settings/agent-folders", headers={"Authorization": f"Bearer {token}"}, **({"json": body} if body else {}))
+        assert r.status_code == 403, method
+    assert client.get("/settings/agent-folders").status_code == 401
+    assert client.get("/settings/agent-folders", headers={"Authorization": f"Bearer {auth.get_token()}"}).status_code == 200

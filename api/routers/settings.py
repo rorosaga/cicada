@@ -92,14 +92,15 @@ async def put_editors(update: PageEditorsUpdate) -> PageEditorsResponse:
 @router.get("/agent-folders", response_model=AgentFoldersResponse)
 async def get_agent_folders(settings: Settings = Depends(get_settings)) -> AgentFoldersResponse:
     """Every folder of the home the agent's list shows, with its state and the reason in words (``agent_folders``). The walk that
-    judges each folder runs off the event loop. Reading touches no file's content and writes nothing."""
+    judges each folder runs off the event loop. Reading touches no file's content and writes nothing. The server's own token only (a
+    device's token is refused, ``auth.MASTER_ONLY_PREFIXES``): the names say what is on this computer's disk."""
     return AgentFoldersResponse(folders=await asyncio.to_thread(agent_folders.rows, settings.memory_path))
 
 
 @router.put("/agent-folders", response_model=AgentFoldersResponse)
 async def put_agent_folders(change: AgentFolderChange, settings: Settings = Depends(get_settings)) -> AgentFoldersResponse:
     """Turn one listed folder on or off. Writes ``$CICADA_HOME/agent_folders.json`` only, never the bank. Only the app's Settings
-    calls this (a device token is refused, ``auth.MASTER_ONLY_WRITE_PREFIXES``); no agent tool or agent's shell command can."""
+    calls this (a device token is refused, ``auth.MASTER_ONLY_PREFIXES``); no agent tool or agent's shell command can."""
     try:
         return AgentFoldersResponse(folders=await asyncio.to_thread(agent_folders.set_state, settings.memory_path, change.folder, change.on))
     except agent_folders.FoldersError as exc:
