@@ -142,7 +142,8 @@ final class SaveWhyPanelController: SaveWhyPresenting {
                                                             onFieldClick: { [weak self, weak center] in
             center?.input(.engage)
             self?.focusText()
-        }, onCardHeight: { [weak panel] height in panel?.cardHeight = height }))
+        }, clickedInside: { [weak panel] in panel?.clickedInside == true },
+           onCardHeight: { [weak panel] height in panel?.cardHeight = height }))
         panel.contentView = host
         // G191 v7: the window is as tall as the card can grow (the field at its cap, two rows of suggestions), clear
         // below the card, so it never resizes while the person writes; the card's own shape grows inside it.
@@ -239,6 +240,11 @@ struct SaveWhyPanelView: View {
     let notch: SaveWhyNotchModel
     /// A click in the field: make the panel key so the words go there.
     var onFieldClick: () -> Void = {}
+    /// Whether the person has clicked inside the panel. Found 2026-11-26 on the installed app: the field takes
+    /// SwiftUI's focus by itself as soon as the panel is on screen, with no click and without the panel being key,
+    /// and that was sent as the person clicking into it — so the untouched question's timer stopped at once, its bar
+    /// never drew, and the panel never left on its own. Focus counts as being in the field only after a real click.
+    var clickedInside: () -> Bool = { true }
     /// G191 v7 — the card's laid-out height, so the window knows where its clear band starts.
     var onCardHeight: (CGFloat) -> Void = { _ in }
     @FocusState private var textFocused: Bool
@@ -297,8 +303,10 @@ struct SaveWhyPanelView: View {
                 .animation(CicadaMotion.suggestGrow(reduceMotion: reduceMotion), value: center.suggestions)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onCardHeight($0) }
                 .onChange(of: focus.ticket) { _, _ in textFocused = true }
-                // In the field however it got there: the person is about to write or dictate — no timer closes it.
-                .onChange(of: textFocused) { _, focused in if focused { center.input(.engage) } }
+                // In the field however it got there once they clicked the panel (a tab from a chip, the field's own
+                // click): the person is about to write or dictate — no timer closes it. Focus the field took by itself
+                // when the panel showed is nobody's act.
+                .onChange(of: textFocused) { _, focused in if focused, clickedInside() { center.input(.engage) } }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(Copy.SaveWhy.question)
         }
@@ -370,8 +378,9 @@ struct SaveWhyPanelView: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .padding(.horizontal, CicadaTheme.scaled(SaveWhyField.horizontalInset))
                 .padding(.vertical, CicadaTheme.scaled(SaveWhyField.verticalInset))
-                .background(outline.strokeBorder(textFocused ? CicadaTheme.Notch.chipSelectedRing
-                                                              : CicadaTheme.Notch.chipRing, lineWidth: 1))
+                // The bright ring says the person is in the field: not the focus the field takes by itself.
+                .background(outline.strokeBorder(textFocused && state.inField ? CicadaTheme.Notch.chipSelectedRing
+                                                                               : CicadaTheme.Notch.chipRing, lineWidth: 1))
                 .contentShape(outline)
                 .simultaneousGesture(TapGesture().onEnded { onFieldClick() })
                 .onChange(of: draft) { _, text in center.send(.draftChanged(text)) }

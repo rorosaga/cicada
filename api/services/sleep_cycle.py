@@ -334,6 +334,28 @@ WINDOW_BUSY = ("A write was still in progress, so Sleep paused before reading yo
                "filed; continue when you like.")
 
 
+def _note_scheduled_refusal(memory_path, catch_up_for: str | None) -> str | None:
+    """A scheduled run the window refused before it read anything: record it where the probe retries it and the status
+    says it (`sleep_catch_up`, 2026-11-25), and return the sentence the page shows. ``None`` when the bank's schedule
+    has no due times to retry on (``after_import`` probes again by itself; ``manual`` has no scheduled run) — the
+    plain refusal stands. Never raises."""
+    try:
+        from api.services import sleep_catch_up, sleep_scheduler
+
+        if sleep_catch_up.fingerprint(sleep_scheduler.load_schedule(Path(memory_path))) is None:
+            return None
+        sleep_catch_up.note_refused(memory_path, catch_up_for or sleep_catch_up._iso(sleep_catch_up._now()))
+        return sleep_catch_up.refusal_notice(memory_path)
+    except Exception as e:  # noqa: BLE001 - never a reason for a run to fail
+        logger.debug(f"scheduled refusal not recorded: {type(e).__name__}")
+        return None
+
+
+#: Seconds beyond ``write_admission.WAIT_MAX_S`` that Sleep waits for the wait itself to START and report: it runs in
+#: the event loop's default thread pool, where a pool kept busy by other work queues it (2026-11-25).
+WINDOW_START_SLACK_S = 30.0
+
+
 async def _open_window(memory_path) -> bool:
     """Open the write window (G183): the flag first, then wait — off the event loop — until no writer still holds
     the bank's admission (``write_admission``). A writer that saw the window shut took its hold before the flag was
@@ -345,7 +367,17 @@ async def _open_window(memory_path) -> bool:
     from api.services import write_admission
 
     _state.writing = True
-    return bool(await asyncio.to_thread(write_admission.wait_for_writers, memory_path))
+    try:
+        # ``wait_for_writers`` bounds its own wait (``WAIT_MAX_S``) but only from the moment its thread runs; a default
+        # pool kept busy queues it for as long as the pool is busy, and this coroutine — a scheduled run's probe — with
+        # it. A wall-clock bound over the whole: a wait that has not answered by then is a refusal, exactly as a
+        # timed-out one (its thread, if it ever starts, finds the answer unused and lets go at once).
+        return bool(await asyncio.wait_for(
+            asyncio.to_thread(write_admission.wait_for_writers, memory_path),
+            timeout=write_admission.WAIT_MAX_S + WINDOW_START_SLACK_S))
+    except asyncio.TimeoutError:
+        logger.warning("Sleep's wait for writers did not answer in time (the thread pool was busy); the window stays shut")
+        return False
 
 
 def _cancel_requested() -> bool:
@@ -2425,11 +2457,6 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
     _state.read_by_origin = {}
 
     memory_path = settings.memory_path
-    if not tail_only:
-        # Any run that reads covers a scheduled time that came before it (`sleep_catch_up`'s "a run happened since").
-        from api.services import sleep_catch_up
-
-        sleep_catch_up.note_run_started(memory_path)
 
     # G74(a) — the models-used ledger is process-global still (L4, Task 4
     # review, handed to Task 5 — a disclosed, accepted same-alias limitation,
@@ -2455,10 +2482,21 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
         # status/writing are set above; no page is read, flushed or committed before writers are out.
         if not await _open_window(memory_path):
             window_refused = True
-            _state.error = WINDOW_BUSY
-            _state.progress = f"Paused: {WINDOW_BUSY}"
+            notice = None
+            if not user_triggered and not tail_only and continue_from is None:
+                notice = _note_scheduled_refusal(memory_path, catch_up_for)
+            _state.error = notice or WINDOW_BUSY
+            _state.progress = notice or f"Paused: {WINDOW_BUSY}"
             logger.warning("Sleep did not start: a write admitted before it still held the bank")
         else:
+            if not tail_only:
+                # A run that reads covers a scheduled time that came before it (`sleep_catch_up`'s "a run happened
+                # since") — stamped once the window is open, never for a run the window refused: that read nothing, and
+                # a scheduled one is tried again (`sleep_catch_up.note_refused`).
+                from api.services import sleep_catch_up
+
+                sleep_catch_up.note_run_started(memory_path)
+                sleep_catch_up.clear_refused(memory_path)
             await _flush_pending_commits_safely(memory_path)
             # Owner ruling 2026-10-18: before anything is frozen, what is only ever looked up is marked read.
             await _index_without_model_safely(memory_path, tail_only=tail_only)

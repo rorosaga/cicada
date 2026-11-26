@@ -246,6 +246,16 @@ def _remembered_embedding_problem(state, settings: Settings) -> str | None:
     return embedding_health.sentence(problem["kind"]) if problem else None
 
 
+def _remembered_refusal(state, settings: Settings) -> str | None:
+    """A scheduled run the write window refused before it read, said in words until a run reads. It lives in the
+    machine-local schedule stamps, so it survives a restart and an idle morning (`sleep_catch_up.refusal_notice`)."""
+    if state.status == "running":
+        return None
+    from api.services import sleep_catch_up
+
+    return sleep_catch_up.refusal_notice(settings.memory_path)
+
+
 def _tidy_running() -> bool:
     """The tidy (ruling 29) or the web-check sweep (2026-10-19) settling questions: an updater waits for either."""
     from api.services import inbox_tend, web_lookup
@@ -269,7 +279,7 @@ async def sleep_status(settings: Settings = Depends(get_settings)):
         cycle_id=state.cycle_id,
         started_at=state.started_at,
         progress=state.progress,
-        error=state.error,
+        error=state.error or _remembered_refusal(state, settings),
         index_warning=state.index_warning or _remembered_embedding_problem(state, settings),
         stage=state.stage,
         total_stages=state.total_stages,
