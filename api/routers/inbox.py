@@ -136,8 +136,8 @@ async def undo_settled(item_id: str, settings: Settings = Depends(get_settings))
 async def _undo_landing(item_id: str, settings: Settings) -> dict:
     """G148 — a landing of facts said about a part of a page taken back (`described_landing.undo`): its claims leave the page
     and go back to their held lines, the page is remembered as one the mention is not. Committed as the person's."""
-    from api.services import (described_landing, git_service, inbox_tend, page_lock, state_dictionary, web_settle, which_one_file,
-                              write_admission)
+    from api.services import (described_landing, git_service, inbox_tend, page_lock, settle_guard, state_dictionary, web_settle,
+                              which_one_file, write_admission)
     from api.services.sleep_refusal import SleepWriting
 
     memory_path = settings.memory_path
@@ -146,9 +146,11 @@ async def _undo_landing(item_id: str, settings: Settings) -> dict:
 
     def work() -> None:
         with page_lock.page_lock(memory_path):
-            # A mention filed conversation by conversation (ruling 83) is taken back by its own writer; every other landing as before.
-            undo = which_one_file.undo if which_one_file.is_record(memory_path, item_id) else described_landing.undo
-            paths, lines, rec = undo(memory_path, item_id)
+            if which_one_file.is_record(memory_path, item_id):
+                # A mention filed conversation by conversation (ruling 83) is taken back by its own writer, as one guarded write.
+                out["rec"] = which_one_file.undo_committed(memory_path, item_id, before=before)
+                return
+            paths, lines, rec = described_landing.undo(memory_path, item_id)
             web_settle.commit_sync(memory_path, web_settle.commit_message("Landing undone", lines, authors=["user"]),
                                    paths, before=before)
             out["rec"] = rec
@@ -158,6 +160,8 @@ async def _undo_landing(item_id: str, settings: Settings) -> dict:
                                            refuse=lambda: SleepWriting(inbox_service.SLEEP_BUSY))
     except described_landing.NotLandable as exc:
         raise HTTPException(409 if "changed" in str(exc) else 404, str(exc)) from exc
+    except settle_guard.TreeUnreadable as exc:
+        raise HTTPException(409, "The bank's changes could not be read; nothing was changed.") from exc
     inbox_tend.record_undo(memory_path, item_id, out.get("rec") or {})
     await state_dictionary.refresh_admitted(memory_path, settings)
     return {"status": "kept_apart", "id": item_id}
@@ -207,7 +211,7 @@ async def _undo_sleep_settle(item_id: str, settings: Settings) -> dict:
     """Ruling 29 — "Settled by Sleep" undo: Sleep's commit for this question is taken back (three-way, onto each page
     as it is now; refused whole, nothing written, when something since overlaps it) and the question returns, marked
     so Sleep never settles it again. Committed as the person's (``Sleep's settle undone <date>``)."""
-    from api.services import git_service, inbox_tend, page_lock, state_dictionary, web_settle, write_admission
+    from api.services import git_service, inbox_tend, state_dictionary, write_admission
     from api.services.sleep_refusal import SleepWriting
 
     memory_path = settings.memory_path
@@ -215,12 +219,10 @@ async def _undo_sleep_settle(item_id: str, settings: Settings) -> dict:
     out: dict = {}
 
     def work() -> str:
-        with page_lock.page_lock(memory_path):
-            target, paths, lines, rec = inbox_tend.undo(memory_path, item_id)
-            web_settle.commit_sync(memory_path, web_settle.commit_message("Sleep's settle undone", lines,
-                                                                          authors=["user"]), paths, before=before)
-            out["rec"] = rec
-            return target
+        # The undo and its commit are one write: every file is put back exactly if the commit does not land.
+        target, rec = inbox_tend.undo_committed(memory_path, item_id, before=before)
+        out["rec"] = rec
+        return target
 
     try:
         target = await write_admission.run_admitted(

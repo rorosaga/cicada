@@ -582,6 +582,11 @@ struct CicadaApp: App {
             for save in saves { prefs.keep(save.lesson, site: save.item.site) }
             Task {
                 for save in saves {
+                    if save.item.byWords {
+                        // A post its page names by no link (ruling 77e): named by its words; the record says which way.
+                        if save.outcome != .none { await saveWhy.siteWords(save.item, words: save.text) }
+                        continue
+                    }
                     // A held click whose direction the page did not say is settled by the record, as any other is.
                     switch save.outcome {
                     case .saved: await saveWhy.siteSaved(save.item, text: save.text, folder: save.folder)
@@ -688,6 +693,12 @@ struct CicadaApp: App {
         }
         siteSaves.onOutcome = { [saveWhy] item, outcome, text, folder in
             Task {
+                if item.byWords {
+                    // A post its page names by no link (LinkedIn's feed, ruling 77e): the backend names it by the
+                    // words its block showed, and says which way the click went.
+                    if outcome != .none { await saveWhy.siteWords(item, words: text) }
+                    return
+                }
                 // An unsave is never asked about: the save stays, marked as off the list. A change whose direction
                 // nothing on the page settled is settled by the record (owner 2026-11-25; it used to be dropped).
                 switch outcome {

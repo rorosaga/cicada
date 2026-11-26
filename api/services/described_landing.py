@@ -402,7 +402,12 @@ def gate_line(line: pending_store.PendingEntity, docs: Docs, names: Callable[[],
     for episode, items in by_episode.items():
         conv = docs.conv(episode)
         named = conv.named(names()) if conv is not None else {}
-        apart = line.apart_pages()
+        # Ruling 83: what the person said about THIS conversation (it is not that page: "someone else"), and the page it was filed to.
+        from api.services import which_one_file
+
+        apart = line.apart_pages() | which_one_file.said_not(line).get(episode, set())
+        if episode in which_one_file.filed(line):
+            apart |= {p for p in named if p != which_one_file.filed(line)[episode]}
         for chunk in _chunks(sorted(items, key=lambda i: (i.start, i.claim.id))):
             ranked = _candidates(named, chunk, apart)
             kept = []
@@ -751,7 +756,7 @@ def landed_claim(claim: Claim, page_id: str, page_name: str, pick: Pick, episode
         data["text"] = f"{claim.text} (about {page_name} itself)"
     ev = list(data.get("evidence") or [])
     copied = {"episode": episode, "start": pick.start, "end": pick.end, "kind": pick.turn, "hash": pick.hash}
-    if episode and not any(isinstance(e, dict) and (e.get("episode"), e.get("start"), e.get("end")) == (episode, pick.start, pick.end)
+    if episode and pick.start >= 0 and not any(isinstance(e, dict) and (e.get("episode"), e.get("start"), e.get("end")) == (episode, pick.start, pick.end)
                            for e in ev):
         ev.append(copied)
     data["evidence"] = ev
@@ -782,10 +787,15 @@ def land_page(memory_path: Path, page_id: str, items: list[tuple[Item, Pick]], *
     have = {c.id for c in claims}
     new: list[tuple[Item, Claim, Pick]] = []
     heal: dict[str, list[str]] = defaultdict(list)   # on the page already (an earlier write that did not finish): only taken off the line
+    from api.services import which_one_file
+
+    lines_now = {name.lower(): pending_store.held_line(memory_path, name) for name in {it.line for it, _p in items}}
     for it, pick in items:
         if it.claim.id in have:
             heal[it.line].append(it.claim.id)
             continue
+        if which_one_file.withheld(lines_now.get(it.line.lower()), it.claim.to_dict(), page_id):
+            continue   # ruling 83: a conversation it cites was ruled out for this page (or filed to another): it stays held
         # The page's own claims AND the ones accepted before this one in the same call: two held values of one
         # single-valued predicate never land together (this path does not go through the reconciler).
         same = [c for c in [*claims, *(n for _i, n, _p in new)] if c.valid_to is None and c.predicate == it.claim.predicate]

@@ -112,10 +112,20 @@ final class NotchConnectTests: XCTestCase {
 
     func testASiteWithNoSaveControlTurnsOnItsListAndPromisesNoQuestion() async {
         let world = World()
-        let result = await connector(world).connect("site-save:linkedin")
-        XCTAssertEqual(world.lists, ["savedLists.linkedin=true"])
+        let result = await connector(world).connect("site-save:goodreads")
+        XCTAssertEqual(world.lists, ["savedLists.goodreads=true"])
         XCTAssertTrue(world.noticed.isEmpty, "there is no save control to notice")
         XCTAssertEqual(result, .turnedOn(asksWhy: false, needsAccessibility: false))
+    }
+
+    /// LinkedIn's save is noticed since 2026-11-26 (the first item of a post's menu, ruling 77e): its Yes turns the
+    /// list on and promises the question like any site with a save control.
+    func testLinkedInTurnsOnItsListAndNoticesItsSaves() async {
+        let world = World()
+        let result = await connector(world).connect("site-save:linkedin")
+        XCTAssertEqual(world.lists, ["savedLists.linkedin=true"])
+        XCTAssertEqual(world.noticed, ["linkedin"])
+        XCTAssertEqual(result, .turnedOn(asksWhy: true, needsAccessibility: false))
     }
 
     func testGitHubNoticesSavesAndOpensItsPageForTheSignIn() async {
@@ -212,9 +222,10 @@ final class NotchConnectTests: XCTestCase {
 
     func testSitesWithNoSaveControlAreOfferedButNeverReadForASave() throws {
         let keys = SiteSaveSite.offerOnly.map(\.key)
-        // Pinterest left this list on 2026-11-25 (its Save is a toggle the reader reads) and Spotify the day after (a
-        // track's row ends in its button and the row's menu).
-        XCTAssertEqual(Set(keys), ["linkedin", SourceCatalog.substackId, "goodreads"])
+        // Pinterest left this list on 2026-11-25 (its Save is a toggle the reader reads), Spotify the day after (a
+        // track's row ends in its button and the row's menu) and LinkedIn the same day (the first item of a post's
+        // menu; the post named by its words, ruling 77e).
+        XCTAssertEqual(Set(keys), [SourceCatalog.substackId, "goodreads"])
         for key in keys {
             XCTAssertNil(SiteSaveSite.named(key), "\(key) has no save table: no save click is read")
             XCTAssertFalse(try XCTUnwrap(SiteSaveSite.offered(key)).hasSaveControl)

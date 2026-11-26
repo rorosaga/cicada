@@ -199,11 +199,19 @@ async def run_conv_story(spec: dict, story: dict, judge: str, real) -> dict:
                 "asked_right": len(asked) == sum(1 for p in per if not p["filed"])}
 
 
+def _new_claim(episode: str) -> dict:
+    """A claim a resumed conversation holds under the nickname after it was filed."""
+    from api.services.claims import Claim
+
+    return Claim(id="clm_new", text="nick likes tea", subject="nick", predicate="likes", object="tea", valid_from="2026-10-01",
+                 recorded_at="2026-10-01", source_episodes=[episode]).to_dict()
+
+
 def scenarios(spec: dict) -> list[dict]:
     """The undo of one of two filings and the tap on a per-conversation question, on the oracle reader / the reader that cannot tell
     (no model calls): the claim goes back to the line and is not refiled; a pick files that conversation's words only."""
     from api.models.schemas import InboxResolveRequest
-    from api.services import inbox_service, markdown_parser, pending_store, which_one_file as wf, which_one_reader as wr
+    from api.services import inbox_service, markdown_parser, pending_store, which_one, which_one_file as wf, which_one_reader as wr
     from api.services.claims import parse_claims
 
     out = []
@@ -237,9 +245,10 @@ def scenarios(spec: dict) -> list[dict]:
         asyncio.run(inbox_service.resolve(path.stem, InboxResolveRequest(action="merge", merge_target="nick-rowe"), _Settings(bank)))
         on_page = [c.id for c in parse_claims(markdown_parser.parse(bank / "entities" / "nick-rowe.md").body) if c.id.startswith("clm_held_")]
         left = [d["id"] for d in pending_store.held_line(bank, "Nick").held_claims]
+        next_q = which_one.open_question(bank, "Nick")   # the question goes on under a new inbox id (an older app hides the answered one)
         out.append({"scenario": "tap on a per-conversation question", "asked_one_conversation": len(scoped) == 1,
                     "tap_filed_that_conversation_only": on_page == ["clm_held_1"] and left == ["clm_held_2"],
-                    "next_conversation_asked": path.exists()})
+                    "next_conversation_asked": next_q is not None and next_q.stem != path.stem and not path.exists()})
     story = by_id["conv-nobody-can-tell-either"]
     with tempfile.TemporaryDirectory(prefix="which-one-") as tmp:
         bank, path = build_bank(Path(tmp), spec, story)
@@ -251,7 +260,26 @@ def scenarios(spec: dict) -> list[dict]:
         out.append({"scenario": "someone else on a per-conversation question",
                     "that_conversation_only": list(wf.said_not(line)) == [line.episodes()[0]]
                     and pending_store.apart_of(bank, story["mention"]) == frozenset(),
-                    "nothing_lost": len(line.held_claims) == 2, "next_conversation_asked": path.exists()})
+                    "nothing_lost": len(line.held_claims) == 2,
+                    "next_conversation_asked": (nq := which_one.open_question(bank, story["mention"])) is not None and nq.stem != path.stem})
+        # The general release (Stage 5.56) must not file the line onto a page the person ruled out for a conversation of it.
+        from api.services import claim_pipeline
+
+        out.append({"scenario": "a release after someone else", "line_kept": claim_pipeline._releases(
+            bank, {story["mention"].lower(): "nick-rowe"}, {}, [story["mention"]])[0] == [], "nothing_lost": len(line.held_claims) == 2})
+    story = by_id["conv-two-people-two-conversations"]
+    with tempfile.TemporaryDirectory(prefix="which-one-") as tmp:
+        bank, path = build_bank(Path(tmp), spec, story)
+        asyncio.run(wr.tend(bank, _Settings(bank), oracle(spec, story), today=TODAY, model="bench"))
+        from api.services.claims import Claim
+
+        pending_store.hold(bank, {"nick": [Claim.from_dict(_new_claim("ep_2026-11-18_001"))]})
+        subprocess.run(["git", "-C", str(bank), "add", "-A"], capture_output=True)
+        subprocess.run(["git", "-C", str(bank), "commit", "-qm", "x"], capture_output=True)
+        done = wf.refile(bank, today=TODAY.isoformat())
+        out.append({"scenario": "a new claim from a filed conversation", "filed_on_the_earlier_verdict": done.settled == 1 and any(
+            c.id == "clm_new" for c in parse_claims(markdown_parser.parse(bank / "entities" / "nick-rowe.md").body)),
+            "no_read": True})
     return out
 
 

@@ -883,8 +883,10 @@ async def _git_move(memory_path: Path, src: Path, dst: Path) -> None:
     untracked). The trailing ``commit_resolution`` runs ``git add -A`` either
     way, so the move is captured in the commit regardless of path taken.
     """
-    from api.services import git_service
+    from api.services import git_service, settle_guard
 
+    settle_guard.writing(src)   # inside a Sleep settle: both paths as they are now are their pictures (`settle_guard`)
+    settle_guard.writing(dst)
     try:
         await git_service._run_git(
             memory_path, "mv", "-f", str(src), str(dst)
@@ -892,6 +894,7 @@ async def _git_move(memory_path: Path, src: Path, dst: Path) -> None:
     except Exception:
         if src.exists():
             src.replace(dst)
+    settle_guard.renamed(src, dst)   # and what it left: ``src`` gone, ``dst`` holding the moved bytes
     from api.services import claims_ledger
 
     if claims_ledger.is_page(src) and claims_ledger.path_for(src).exists():
@@ -901,13 +904,15 @@ async def _git_move(memory_path: Path, src: Path, dst: Path) -> None:
 
 async def _git_remove(memory_path: Path, target: Path) -> None:
     """Remove ``target`` via ``git rm`` (filesystem fallback when untracked)."""
-    from api.services import git_service
+    from api.services import git_service, settle_guard
 
+    settle_guard.writing(target)
     try:
         await git_service._run_git(memory_path, "rm", "-f", str(target))
     except Exception:
         if target.exists():
             target.unlink()
+    settle_guard.wrote(target, None)   # what it left: the path gone
 
 
 def _merge_manifest(paths: list[str], *, removed: str) -> list[str]:
@@ -3234,9 +3239,14 @@ def _release_answered(memory_path: Path, mention: str, target_id: str, settings,
     release = pending_store.answered(memory_path, mention, target_id, subject_page=subject_page)
     if release is not None and scope:
         inside = set(scope)
+        bad = which_one_file.barred(pending_store.held_line(memory_path, mention), target_id, filings=False)
         release.claims = [c for c in release.claims
-                          if (eps := which_one_file.claim_episodes(c.to_dict())) and eps <= inside]
+                          if (eps := which_one_file.claim_episodes(c.to_dict())) and eps <= inside and not eps & bad]
         release = release if release.claims else None
+    else:
+        # Ruling 83: whatever the person said "someone else" about for this page, or filed to another, is not lifted by a whole-line
+        # answer to some other question: those claims stay held.
+        release = which_one_file.allowed(memory_path, release)
     if release is None:
         return [f"{rel}: updated (trigger: inbox/merge_suggestion/resolved:merge)" for rel in prose]
     written, landed = claim_pipeline.land_answered(memory_path, release, settings)
@@ -3254,7 +3264,7 @@ def _land_held_prose(memory_path: Path, mention: str, target_id: str, *, subject
     edited, never over a pinned passage, each item with the source rows the line kept (G118). ``untimed``: the page's last
     mention and silence clock stay (an older conversation is no mention today). The summary goes in as a Key Fact — a
     page that already has a Summary keeps it. Returns the paths written, ``[]`` when the line holds no prose."""
-    from api.services import conflict_resolver, pending_store, section_provenance
+    from api.services import conflict_resolver, pending_store, section_provenance, which_one_file
 
     line = pending_store.held_line(memory_path, mention)
     if line is None or (subject_page and line.held_against == subject_page):
@@ -3264,10 +3274,14 @@ def _land_held_prose(memory_path: Path, mention: str, target_id: str, *, subject
         # ones this answer files and the ones filed before) go to the page each conversation named, with that conversation's own
         # evidence; nothing that carries no conversation (a description, history, links, questions) moves, and the page is credited
         # with the conversations whose words landed and no other (`which_one_file.land_prose`).
-        from api.services import which_one_file
-
         verdict = {**which_one_file.filed(line), **{e: target_id for e in scope}}
         return which_one_file.land_prose(memory_path, mention, verdict)
+    if which_one_file.split(line, target_id):
+        # Not a which-one question, but the line is split (a conversation was filed to another page, or answered "someone else"): the
+        # words each known conversation said go where it was said and what carries no conversation stays held (`land_prose`).
+        no = which_one_file.barred(line, target_id)
+        return which_one_file.land_prose(memory_path, mention, {**which_one_file.filed(line),
+                                                                **{e: target_id for e in line.episodes() if e not in no}})
     facts = [str(f) for f in [line.summary or line.description, *line.key_facts] if str(f or "").strip()]
     history = [e for e in line.history_entries if isinstance(e, dict) and str(e.get("event") or "").strip()]
     links = [d for d in line.links if isinstance(d, dict)]
@@ -3562,7 +3576,10 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             from api.services import which_one as _which_one
 
             episodes = list(target.frontmatter.get("source_episodes", []) or [])
-            credited = scope or [source_episode, *_which_one.episodes_of(parsed.frontmatter)]   # a folded question's too
+            # A folded question's conversations too. A scoped answer credits nothing here: the page is credited with exactly the
+            # conversations whose words landed on it, by the landing itself (a claim's own, a prose row's), never one that only
+            # the question listed (`which_one_file`).
+            credited = [] if scope else [source_episode, *_which_one.episodes_of(parsed.frontmatter)]
             for ep in dict.fromkeys(credited):
                 if ep not in episodes:
                     episodes.append(ep)
@@ -3665,10 +3682,15 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 return target_path.stem, False, [*_merge_manifest(merged["paths"],
                                                                   removed=f"entities/{mention_path.stem}.md"),
                                                  *store_lines]
-            if scope and which_one_file.after_tap(settings.memory_path, path, mention, scope, target_path.stem):
-                # Other conversations are still open: the question stays, about the next one (its file rides this commit).
-                return target_path.stem, False, [*store_lines, *([store_line] if store_line not in store_lines else [])]
-            path.unlink()
+            if scope:
+                # What the line now holds is the answer's own to settle: a line left with nothing is released, and while other
+                # conversations are still open the question goes on, about the next one, under a NEW id (an older app keeps the
+                # answered id hidden): the new file and the old one's removal ride this commit (`which_one_file.after_tap`).
+                more = which_one_file.after_tap(settings.memory_path, path, mention, scope, target_path.stem)
+                store_lines = [*store_lines, *([store_line] if store_line not in store_lines else [])]
+                if more is not None:
+                    return target_path.stem, False, [*store_lines, *more]
+            path.unlink(missing_ok=True)
             return target_path.stem, False, store_lines
         else:
             # Survivor == the cleaner mention: keep the cleaner name/id.

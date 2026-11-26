@@ -45,7 +45,8 @@ from datetime import date
 from pathlib import Path
 from typing import Callable
 
-from api.services import bank_index, described_landing as dl, evidence, markdown_parser, pending_store, which_one
+from api.services import (bank_index, described_landing as dl, evidence, markdown_parser, pending_store, settle_guard,
+                          which_one)
 from api.services.claims import Claim, MalformedClaimsBlockError, parse_claims, strip_claims_block, write_claims
 from api.services.id_utils import sanitize_id
 
@@ -89,6 +90,47 @@ def said_not(line: pending_store.PendingEntity) -> dict[str, set[str]]:
     """``{conversation: pages}`` the person answered "someone else" about, for that conversation alone."""
     return {str(r["episode"]): {str(p) for p in r[APART] if str(p)} for r in line.heard_in
             if isinstance(r, dict) and r.get("episode") and r.get(APART)}
+
+
+def barred(line: pending_store.PendingEntity | None, page: str, *, filings: bool = True) -> set[str]:
+    """The conversations of the line whose words may not go to ``page``: the ones the person answered "someone else" about for that
+    page and, unless ``filings`` is False (the person's own pick of a claim two filed conversations cite crosses a filing on
+    purpose), the ones already filed to another page. The person's "no" holds on every path that takes a claim off a held line."""
+    if line is None:
+        return set()
+    out = {e for e, pages in said_not(line).items() if page in pages}
+    return out | {e for e, p in filed(line).items() if p != page} if filings else out
+
+
+def withheld(line: pending_store.PendingEntity | None, data: dict, page: str) -> bool:
+    """A held claim may not land on ``page``: a conversation it cites was ruled out for it, or filed to another page. It stays held."""
+    return bool(claim_episodes(data) & barred(line, page)) if line is not None else False
+
+
+def blocked(line: pending_store.PendingEntity | None, page: str) -> bool:
+    """The whole line may not be released onto ``page`` (`pending_store.ready` takes a line whole and the store then drops it): the
+    person said "someone else" about that page for one of its conversations, or something it holds is from a conversation ruled
+    out for it or filed elsewhere. What was said about a line-wide "apart" (`PendingEntity.apart_pages`) is read where it always was."""
+    if line is None:
+        return False
+    if any(page in pages for pages in said_not(line).values()):
+        return True
+    bad = barred(line, page)
+    cited = {e for d in line.held_claims for e in claim_episodes(d)} | {e for row in line.item_inputs for e in row_episodes(row)}
+    return bool(bad & cited)
+
+
+def allowed(memory_path: Path, release, *, filings: bool = True):
+    """``pending_store.answered``'s release without the claims that may not go to its target (:func:`barred`); ``None`` when none
+    may. The claims it takes out stay on the line: nothing drops them (`pending_store.drop_released` takes only what landed)."""
+    if release is None:
+        return None
+    line = pending_store.held_line(memory_path, release.name)
+    if line is None or not (said_not(line) or (filings and filed(line))):
+        return release
+    bad = barred(line, release.target, filings=filings)
+    release.claims = [c for c in release.claims if not (claim_episodes(c.to_dict()) & bad)]
+    return release if release.claims else None
 
 
 def split(line: pending_store.PendingEntity | None, target: str = "") -> bool:
@@ -237,6 +279,36 @@ def plan(line: pending_store.PendingEntity, verdict: dict[str, str], decided: se
     return {p: v for p, v in out.items() if v.claims}   # prose goes only with a landing of facts
 
 
+def refile_plan(line: pending_store.PendingEntity | None) -> dict[str, Plan]:
+    """``{page: what goes there}`` for held claims about the mention whose cited conversations were ALL filed to ONE page already: a
+    conversation read again (resumed, edited) held a new claim after its filing, and nothing asked about it. It lands on the earlier
+    verdict, with no new read, unless the person said "someone else" about that page for one of those conversations since. A claim
+    that cites conversations filed to two pages is the stranded case (asked, never refiled); one that cites a conversation nobody
+    filed waits for that conversation's question."""
+    if line is None:
+        return {}
+    slug, done, no = sanitize_id(line.name), filed(line), said_not(line)
+    out: dict[str, Plan] = {}
+    for data in line.held_claims:
+        eps = claim_episodes(data)
+        if str(data.get("subject") or "") != slug or not eps or not eps <= set(done):
+            continue
+        pages = {done[e] for e in eps}
+        if len(pages) != 1:
+            continue
+        page = next(iter(pages))
+        if any(page in no.get(e, ()) for e in eps):
+            continue
+        part = out.setdefault(page, Plan(page, [], filed=[]))
+        part.claims.append(data)
+        for e in sorted(eps):
+            if e not in part.episodes:
+                part.episodes.append(e)
+            if e not in part.filed:
+                part.filed.append(e)
+    return out
+
+
 # --------------------------------------------------------------------------- the line's own bookkeeping
 
 
@@ -272,6 +344,12 @@ def _mark(line: pending_store.PendingEntity, episodes: list[str], page: str | No
             rows[ep] = row
         if FILED not in row:
             row[FILED] = page
+            changed = True
+        if page in (row.get(APART) or []):   # the person's later pick of this page for this conversation lifts their own "no"
+            left = [p for p in row[APART] if p != page]
+            row[APART] = left
+            if not left:
+                row.pop(APART)
             changed = True
     return changed
 
@@ -443,22 +521,79 @@ def rewrite_question(path: Path, line: pending_store.PendingEntity | None, *, un
     return True
 
 
-def after_tap(memory_path: Path, path: Path, mention: str, scope: list[str], page: str) -> bool:
+def _unlink(path: Path) -> None:
+    """Remove a bank file the way a settle's writers do: said to the guard (`settle_guard`) before and after."""
+    settle_guard.writing(path)
+    path.unlink(missing_ok=True)
+    settle_guard.wrote(path, None)
+
+
+def follow(memory_path: Path, old_id: str, new_id: str) -> list[str]:
+    """Every settle record of a filing that names the question ``old_id`` names ``new_id`` now (the question went on under a new id,
+    :func:`continue_question`): the undo of that filing finds it. Records rewritten, as memory-relative paths."""
+    out: list[str] = []
+    folder = Path(memory_path) / "inbox" / dl.SETTLED_DIR
+    for rec_path in sorted(folder.glob(f"{dl.RECORD_PREFIX}*.md")) if folder.is_dir() else []:
+        try:
+            parsed = markdown_parser.parse(rec_path)
+        except Exception:  # noqa: BLE001 - an unreadable record names nothing
+            continue
+        rec = parsed.frontmatter.get("settled")
+        if isinstance(rec, dict) and rec.get("rule") == RULE and str(rec.get("item_id") or "") == old_id:
+            markdown_parser.write(rec_path, {**parsed.frontmatter, "settled": {**rec, "item_id": new_id}}, parsed.body)
+            out.append(rec_path.relative_to(memory_path).as_posix())
+    return out
+
+
+def continue_question(memory_path: Path, old: Path, line: pending_store.PendingEntity | None, *,
+                      undone: set[str] | None = None) -> tuple[Path, list[str]] | None:
+    """The person answered ``old`` about one conversation and others are still open: the question goes on under a NEW inbox id and the
+    old file is removed, in the answer's own commit. An older app hides an inbox id as soon as the person resolves it and keeps it
+    hidden while that id is still served, so the same file rewritten for the next conversation would not show until the app was
+    reopened. Everything the question held is carried (its frontmatter and body whole, so who asked and when it was first asked,
+    its options and its reasons stand: ruling 73); only the conversations it asks about change. The id comes from the one allocator,
+    taken while the old file still counts, so no id is ever used twice. Settle records that name the old id follow
+    (:func:`follow`). ``(the new file, memory-relative paths written)``, ``None`` when nothing on the line can still be asked."""
+    from api.services import inbox_service
+
+    eps, scope = asking(line)
+    if not eps:
+        return None
+    parsed = markdown_parser.parse(old)
+    fm = narrowed(dict(parsed.frontmatter), eps, scope, undone=undone)
+    inbox = old.parent
+    new = inbox / f"inbox-{inbox_service.next_inbox_num(inbox):03d}.md"
+    markdown_parser.write(new, fm, parsed.body)
+    _unlink(old)
+    bank_index.invalidate(memory_path)
+    return new, [new.relative_to(memory_path).as_posix(), *follow(memory_path, old.stem, new.stem)]
+
+
+def after_tap(memory_path: Path, path: Path, mention: str, scope: list[str], page: str) -> list[str] | None:
     """The person's pick of ``page`` for ``scope`` was just landed (`inbox_service._release_answered`, scoped): mark those
     conversations filed and, while something of the line can still be asked (other conversations, or a claim stranded between two
-    pages), keep the question about that. False when nothing can (the caller closes the question as every pick does)."""
+    pages), the question goes on about that under a new id (:func:`continue_question`); a line that holds nothing any more is
+    released in the same write. Manifest lines of what was written, or ``None`` when nothing can be asked (the caller closes the
+    question as every pick does)."""
     mark_filed(memory_path, mention, scope, page)
     line = pending_store.held_line(memory_path, mention)
+    if line is not None and empty(line):
+        pending_store.release(memory_path, [line.name])
+        line = None
     if not asking(line)[0]:
-        return False
-    rewrite_question(path, line)
-    return True
+        return None
+    done = continue_question(memory_path, path, line)
+    if done is None:
+        return None
+    return [f"{rel}: {'created' if rel == done[1][0] else 'updated'} (source: {path.stem}, trigger: inbox/merge_suggestion/resolved:merge)"
+            for rel in done[1]]
 
 
 def apart_scoped(memory_path: Path, path: Path, fm: dict, pages: list[str]) -> list[str] | None:
     """"Someone else" (or a dismissal) on a question about one conversation: it is the answer for that conversation only (its row
-    on the line says so), and the question moves on to what is still open, or goes when nothing is. ``None`` when the question is
-    not scoped (the caller keeps the mention apart on the whole line, as before)."""
+    on the line says so), and the question moves on to what is still open under a new id (:func:`continue_question`), or goes when
+    nothing is. ``None`` when the question is not scoped (the caller keeps the mention apart on the whole line, as before). Manifest
+    lines of what was written."""
     mention = str(fm.get("entity_name") or fm.get("entity_mention") or "").strip()
     if str(fm.get("detected") or "") != which_one.DETECTED:
         return None
@@ -468,11 +603,14 @@ def apart_scoped(memory_path: Path, path: Path, fm: dict, pages: list[str]) -> l
         return None
     keep_apart(memory_path, mention, pages, scope)
     line = pending_store.held_line(memory_path, mention)
-    if asking(line)[0]:
-        rewrite_question(path, line)
+    lines = [f"{pending_store.PENDING_STORE_FILE}: updated (trigger: inbox/merge_suggestion/rejected)"]
+    done = continue_question(memory_path, path, line) if asking(line)[0] else None
+    if done is None:
+        _unlink(path)
     else:
-        path.unlink(missing_ok=True)
-    return [f"{pending_store.PENDING_STORE_FILE}: updated (trigger: inbox/merge_suggestion/rejected)"]
+        lines += [f"{rel}: {'created' if rel == done[1][0] else 'updated'} (source: {path.stem}, trigger: inbox/merge_suggestion/rejected)"
+                  for rel in done[1]]
+    return lines
 
 
 def land_prose(memory_path: Path, mention: str, verdict: dict[str, str]) -> list[str]:
@@ -524,27 +662,39 @@ def _hash_of(memory_path: Path, episode: str, text: str, start: int, end: int) -
     return ev.hash if ev is not None and getattr(ev, "hash", None) else ""
 
 
-def land(memory_path: Path, item_path: Path, page_id: str, part: Plan, reads: dict, *, by: str, engine: str | None,
+def _item_of(memory_path: Path, line: pending_store.PendingEntity, page_id: str, data: dict, reads: dict) -> tuple[dl.Item, dl.Pick]:
+    """The landing's item for a held claim: the located sentence the reader copied for its conversation, else (a claim landed on an
+    earlier verdict, no new read: :func:`refile`) the claim's own first located words, else none."""
+    eps = sorted(claim_episodes(data))
+    claim = Claim.from_dict(data)
+    r = reads.get(next((e for e in eps if e in reads), "")) if reads else None
+    if r is not None:
+        pick = dl.Pick(page=page_id, scope="", start=r.start, end=r.end, turn=r.kind,
+                       hash=_hash_of(memory_path, r.episode, r.sentence, r.start, r.end))
+        return dl.Item(line.name, claim, r.episode, r.start, r.end, pick.hash, r.kind, -1, rule=RULE), pick
+    own = next((e for e in claim.evidence if e.is_span()), None)
+    ep = own.episode if own is not None else (eps[0] if eps else "")
+    start, end, kind, hash_ = (own.start, own.end, own.kind, own.hash) if own is not None else (-1, -1, "reasoning", "")
+    pick = dl.Pick(page=page_id, scope="", start=start, end=end, turn=kind, hash=hash_)
+    return dl.Item(line.name, claim, ep, start, end, hash_, kind, -1, rule=RULE), pick
+
+
+def land(memory_path: Path, item_path: Path | None, page_id: str, part: Plan, reads: dict | None, *, by: str, engine: str | None,
          mention: str, today: str | None = None) -> dl.Landed | None:
     """File ``part`` on ``page_id``: its claims by `described_landing.land_page`, its prose by the writer a pick uses, the page
     credited with the conversations whose words landed on it (``part.episodes``) and no other, the line edited, the question
     narrowed (or, when nothing on the line can be asked about any more, closed in this same landing), one record. ``reads``:
-    ``{conversation: ConvRead}`` (the located sentence, its kind). ``None`` when no claim lands (everything is already there or
-    would clash: nothing is written). The caller commits ``paths`` and puts every path back when anything raises."""
+    ``{conversation: ConvRead}`` (the located sentence, its kind), none for a claim landed on an earlier verdict. ``item_path``: the
+    question, if one is open. ``None`` when no claim lands (everything is already there or would clash: nothing is written). Every file
+    it writes goes through a writer that reports to the settle guard (`settle_guard`): the caller runs it inside ``guarded`` and
+    commits ``paths``; a commit that does not land puts every path back."""
     memory_path = Path(memory_path)
     line = pending_store.held_line(memory_path, mention)
     if line is None:
         return None
-    items: list[tuple[dl.Item, dl.Pick]] = []
-    for data in part.claims:
-        eps = sorted(claim_episodes(data))
-        r = reads[next(e for e in eps if e in reads)]
-        claim = Claim.from_dict(data)
-        pick = dl.Pick(page=page_id, scope="", start=r.start, end=r.end, turn=r.kind,
-                       hash=_hash_of(memory_path, r.episode, r.sentence, r.start, r.end))
-        items.append((dl.Item(line.name, claim, r.episode, r.start, r.end, pick.hash, r.kind, -1, rule=RULE), pick))
-    extra = {"item_id": item_path.stem, "mention": line.name, "which_page": page_id, "filed_episodes": list(part.filed),
-             "prose": [dict(r) for r in part.prose]}
+    items = [_item_of(memory_path, line, page_id, data, reads or {}) for data in part.claims]
+    extra = {"item_id": item_path.stem if item_path is not None else "", "mention": line.name, "which_page": page_id,
+             "filed_episodes": list(part.filed), "prose": [dict(r) for r in part.prose]}
     done = dl.land_page(memory_path, page_id, items, by=by, engine=engine, today=today, rule=RULE, reason=REASON, extra=extra,
                         close_empty=False)
     if done is None or not done.record_id:
@@ -571,7 +721,7 @@ def land(memory_path: Path, item_path: Path, page_id: str, part: Plan, reads: di
     settled = dict(parsed.frontmatter.get("settled") or {})
     settled["closed_lines"] = closed
     markdown_parser.write(rec_path, {**parsed.frontmatter, "settled": settled}, parsed.body)
-    if item_path.is_file():
+    if item_path is not None and item_path.is_file():
         after = pending_store.held_line(memory_path, line.name)
         if asking(after)[0]:
             if rewrite_question(item_path, after):
@@ -602,11 +752,74 @@ def _retire(memory_path: Path, item_path: Path, by: str) -> tuple[list[str], lis
                             answer="Each conversation was filed under the one it meant", model=by or None, reason=REASON)
     rec_path.parent.mkdir(parents=True, exist_ok=True)
     markdown_parser.write(rec_path, {**fm, "settled": inbox_tend._record(fm, d, by or "cicada", None)}, parsed.body)
-    item_path.unlink()
+    _unlink(item_path)
     rel = item_path.relative_to(memory_path).as_posix()
     trigger = f"{inbox_tend.TRIGGER}:{ANSWERED}"
     return [rel, rec_rel], [f"{rel}: settled (source: {item_path.stem}, trigger: {trigger})",
                             f"{rec_rel}: created (source: {item_path.stem}, trigger: {trigger})"]
+
+
+def file_one(memory_path: Path, item_path: Path | None, page_id: str, part: Plan, reads: dict | None, *, by: str, engine: str | None,
+             mention: str, today: str | None = None) -> dl.Landed | None:
+    """One filing as one settle: :func:`land`, then Sleep's commit of its own paths, all inside ``settle_guard.guarded`` so a commit
+    that does not land puts back exactly the files the landing reported writing (the pages and their ledgers, ``pending_entities.jsonl``,
+    the settle's record, the question). ``None`` when nothing was written. :class:`settle_guard.TreeUnreadable` when git cannot say
+    what the tree holds (nothing is written). Runs in one worker thread: the guard's mark is that thread's."""
+    from api.services import web_settle
+
+    memory_path = Path(memory_path)
+    with settle_guard.guarded(memory_path) as mark:
+        if item_path is not None:
+            settle_guard.declare(mark, item_path.relative_to(memory_path).as_posix())   # the settle's own question
+        done = land(memory_path, item_path, page_id, part, reads, by=by, engine=engine, mention=mention, today=today)
+        if done is None:
+            settle_guard.put_back(mark)   # the landing can write the line before it finds nothing to land
+            return None
+        message = web_settle.commit_message("Facts about a mention filed", done.lines, authors=[by] if by else ["cicada"], engine=engine)
+        web_settle.commit_sync(memory_path, message, done.paths)
+    return done
+
+
+@dataclass
+class Refiled:
+    settled: int = 0
+    paths: list[str] = field(default_factory=list)
+    pages: list[tuple[str, str, int]] = field(default_factory=list)   # (mention id, page, claims) of what was (or would be) filed
+
+
+def refile(memory_path: Path, *, today: str | None = None, by: str = "cicada", engine: str | None = None,
+           dry_run: bool = False) -> Refiled:
+    """Engine-free (Sleep's tail, before any read): every held line's claims whose conversations were all filed to one page land there
+    on that verdict (:func:`refile_plan`), one settle record per page, undoable like any filing (its undo opens those conversations
+    again and the reader never files them again). Each filing is its own guarded settle; one that does not land leaves the claim held
+    and never stops the others. Never raises."""
+    memory_path = Path(memory_path)
+    out = Refiled()
+    try:
+        names = [line.name for line in pending_store.load(memory_path) if refile_plan(line)]
+    except Exception:  # noqa: BLE001 - a store that cannot be read refiles nothing
+        return out
+    for name in names:
+        for page in list(refile_plan(pending_store.held_line(memory_path, name))):
+            line = pending_store.held_line(memory_path, name)
+            part = refile_plan(line).get(page)
+            if part is None or not (memory_path / "entities" / f"{page}.md").is_file():
+                continue
+            out.pages.append((sanitize_id(name), page, len(part.claims)))
+            if dry_run:
+                continue
+            try:
+                done = file_one(memory_path, which_one.open_question(memory_path, name), page, part, None, by=by, engine=engine,
+                                mention=name, today=today)
+            except Exception as exc:  # noqa: BLE001 - one page never stops the others; the claim stays held
+                from loguru import logger
+
+                logger.info(f"Which-one refile not applied: {type(exc).__name__}")
+                continue
+            if done is not None:
+                out.settled += 1
+                out.paths += done.paths
+    return out
 
 
 def is_record(memory_path: Path, record_id: str) -> bool:
@@ -677,9 +890,13 @@ def undo(memory_path: Path, record_id: str) -> tuple[list[str], list[str], dict]
     names = {str(d["name"]).lower() for d in closed}
     mine = [c for c in held if c.subject == sanitize_id(name)]
     skeleton = None
-    if mine and name.lower() not in names and pending_store.held_line(memory_path, name) is None:
-        # The line left when a later filing emptied it: this filing's claims come back to a line of their own.
+    here = pending_store.held_line(memory_path, name)
+    if mine and name.lower() not in names and here is None:
+        # The line is gone and this record did not close it. It is rebuilt only when ANOTHER filing of this same mention closed it (the
+        # last filing emptied it, `land`): then nothing else could have happened to it. A release or a promotion of the name by
+        # another Sleep took it too, and its claims would be written nowhere, or sent to the page that name has now.
         marks = {e: "" for e in episodes}
+        closer = False
         for other in sorted((memory_path / "inbox" / dl.SETTLED_DIR).glob(f"{dl.RECORD_PREFIX}*.md")):
             if other.stem == record_id:
                 continue
@@ -689,10 +906,16 @@ def undo(memory_path: Path, record_id: str) -> tuple[list[str], list[str], dict]
                 continue
             if isinstance(theirs, dict) and theirs.get("rule") == RULE and str(theirs.get("mention") or "").lower() == name.lower():
                 marks.update({str(e): str(theirs.get("entity_id") or "") for e in theirs.get("filed_episodes") or []})   # still filed
+                closer = closer or any(str(d.get("name") or "").lower() == name.lower()
+                                       for d in theirs.get("closed_lines") or [] if isinstance(d, dict))
+        if not closer:
+            raise dl._gone()
         skeleton = pending_store.PendingEntity(name=name, type="person", description="", source_episode=episodes[0] if episodes else "",
                                                confidence=0.7, tags=[], history_entries=[], held_claims=[],
                                                heard_in=[{"episode": e, **({FILED: page} if page else {})} for e, page in marks.items()])
     else:
+        if mine and here is not None and name.lower() not in names and not set(episodes) & set(here.episodes()):
+            raise dl._gone()   # a line of the same name that none of this filing's conversations are on: another line, another mention
         dl._places(memory_path, [name], held, names)
     item_id = str(rec.get("item_id") or "")
     question = next(iter(_open_question(memory_path, item_id, name)), None)
@@ -713,7 +936,7 @@ def undo(memory_path: Path, record_id: str) -> tuple[list[str], list[str], dict]
     try:
         if reopen is not None and question is not None:
             markdown_parser.write(question, reopen[0], reopen[1])
-            retired.unlink()
+            _unlink(retired)
             for rel in (question.relative_to(memory_path).as_posix(), retired.relative_to(memory_path).as_posix()):
                 paths.append(rel)
             lines.append(f"inbox/{item_id}.md: reopened (source: {record_id}, trigger: sleep/which-one-filed/undone)")
@@ -755,7 +978,7 @@ def undo(memory_path: Path, record_id: str) -> tuple[list[str], list[str], dict]
                 if rel not in paths:
                     paths.append(rel)
                 lines.append(f"{rel}: updated (source: {record_id}, trigger: sleep/which-one-filed/undone)")
-        (memory_path / record_rel).unlink()
+        _unlink(memory_path / record_rel)
     except BaseException:
         dl._restore(memory_path, snapshot)
         raise
@@ -766,6 +989,18 @@ def undo(memory_path: Path, record_id: str) -> tuple[list[str], list[str], dict]
     bank_index.invalidate(memory_path)
     markdown_parser.invalidate_pages(os.path.realpath(memory_path))
     return paths, lines, rec
+
+
+def undo_committed(memory_path: Path, record_id: str, *, before: dict[str, bytes | None] | None = None) -> dict:
+    """The person's undo of a filing, as one guarded write: :func:`undo` and its commit, so a commit that does not land puts every
+    file the undo wrote back (`settle_guard`). The record, or :class:`described_landing.NotLandable` with nothing written."""
+    from api.services import web_settle
+
+    memory_path = Path(memory_path)
+    with settle_guard.guarded(memory_path):
+        paths, lines, rec = undo(memory_path, record_id)
+        web_settle.commit_sync(memory_path, web_settle.commit_message("Landing undone", lines, authors=["user"]), paths, before=before)
+    return rec
 
 
 def _split_bytes(data: bytes | None) -> tuple[dict, str] | None:

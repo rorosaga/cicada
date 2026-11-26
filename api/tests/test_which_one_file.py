@@ -51,6 +51,11 @@ BOTH = {"brother Nick is visiting": ("Nick Rowe", "My brother Nick is visiting t
         "Nick Vale and I shipped": ("Nick Vale", "Nick Vale and I shipped the release together.")}
 
 
+def _q(bank):
+    """The open question about the mention (a person's answer moves it on under a new inbox id)."""
+    return wr.which_one.open_question(bank, "Nick")
+
+
 def _commit_all(bank) -> None:
     import subprocess
 
@@ -188,12 +193,13 @@ def test_two_conversations_nobody_could_tell_are_asked_one_at_a_time_and_a_pick_
     assert _claims(bank, "nick-friend") == []
     line = pending_store.held_line(bank, "Nick")
     assert [d["object"] for d in line.held_claims] == ["nobody"] and line.key_facts == ["Says hello twice."]
-    assert path.exists(), "the next conversation is asked next"
-    nfm = markdown_parser.parse(path).frontmatter
+    nxt = _q(bank)
+    assert nxt is not None and nxt.stem != path.stem and not path.exists(), "the next conversation is asked next, under a new id"
+    nfm = markdown_parser.parse(nxt).frontmatter
     assert wr.which_one.episodes_of(nfm) == [EP2] and not wf.scope_of(nfm)
     assert "Nick" not in (markdown_parser.parse(bank / "entities" / "nick-brother.md").frontmatter.get("aliases") or [])
-    asyncio.run(inbox_service.resolve(path.stem, InboxResolveRequest(action="merge", merge_target="nick-friend"), _Settings(bank)))
-    assert not path.exists() and [c[1:] for c in _claims(bank, "nick-friend")] == [("greets", "nobody")]
+    asyncio.run(inbox_service.resolve(nxt.stem, InboxResolveRequest(action="merge", merge_target="nick-friend"), _Settings(bank)))
+    assert _q(bank) is None and [c[1:] for c in _claims(bank, "nick-friend")] == [("greets", "nobody")]
 
 
 def test_one_conversation_is_the_whole_line_question_nothing_is_scoped(tmp_path, monkeypatch):
@@ -293,11 +299,12 @@ def _check(bank, before: dict, expected: dict[str, str], *, path=None, preexisti
         assert credited <= meant, f"{pid} credited with {credited - meant}, which is not its own"
     if line is not None:
         asked = set(wf.unfiled(line)) | set(wf.stranded(line))
+        open_q = wr.which_one.open_question(bank, "Nick")   # the question goes on under a new id after a person's answer (B4)
         if asked:
-            assert path is not None and path.exists(), "something can still be asked: a question is open"
-            assert asked <= set(wr.which_one.episodes_of(markdown_parser.parse(path).frontmatter)), "and it covers exactly that"
+            assert open_q is not None, "something can still be asked: a question is open"
+            assert asked <= set(wr.which_one.episodes_of(markdown_parser.parse(open_q).frontmatter)), "and it covers exactly that"
         else:
-            assert path is None or not path.exists(), "nothing can be asked: the question is closed"
+            assert open_q is None, "nothing can be asked: the question is closed"
 
 
 def _sets(bank, *, history=True, facts=None):
@@ -335,17 +342,18 @@ def test_someone_else_on_a_question_about_one_conversation_is_that_conversations
     line = pending_store.held_line(bank, "Nick")
     assert wf.said_not(line) == {EP1: {"nick-brother", "nick-friend"}}, "kept apart from the candidates for that conversation"
     assert pending_store.apart_of(bank, "Nick") == frozenset(), "never for the whole name: the other conversation still has its candidates"
-    assert path.exists() and wr.which_one.episodes_of(markdown_parser.parse(path).frontmatter) == [EP2], "the question moves on"
-    assert not wf.scope_of(markdown_parser.parse(path).frontmatter)
+    nxt = _q(bank)
+    assert nxt is not None and not path.exists() and wr.which_one.episodes_of(markdown_parser.parse(nxt).frontmatter) == [EP2], "the question moves on"
+    assert not wf.scope_of(markdown_parser.parse(nxt).frontmatter)
     assert [d["id"] for d in line.held_claims] == ["clm_held_1", "clm_held_2"], "nothing is lost"
     # The reader reads the second conversation only: the first was answered.
     _commit_all(bank)
-    case = wr.case_for(bank, path, dict(markdown_parser.parse(path).frontmatter), today=TODAY.isoformat())
+    case = wr.case_for(bank, nxt, dict(markdown_parser.parse(nxt).frontmatter), today=TODAY.isoformat())
     assert isinstance(case, wr.Case) and case.episodes == [EP2]
-    _pick(bank, path, "nick-friend")
-    _check(bank, before, {EP2: "nick-friend", EP1: "nick-brother"}, path=path)
+    _pick(bank, nxt, "nick-friend")
+    _check(bank, before, {EP2: "nick-friend", EP1: "nick-brother"}, path=nxt)
     assert [c[1:] for c in _claims(bank, "nick-friend")] == [("greets", "nobody")] and _claims(bank, "nick-brother") == []
-    assert not path.exists(), "the person answered every conversation: nothing is open"
+    assert _q(bank) is None, "the person answered every conversation: nothing is open"
 
 
 def test_a_dismissal_of_a_scoped_question_is_that_conversations_alone_too(tmp_path, monkeypatch):
@@ -356,7 +364,8 @@ def test_a_dismissal_of_a_scoped_question_is_that_conversations_alone_too(tmp_pa
     asyncio.run(inbox_service.resolve(path.stem, InboxResolveRequest(action="dismiss"), _Settings(bank)))
     line = pending_store.held_line(bank, "Nick")
     assert list(wf.said_not(line)) == [EP1] and pending_store.apart_of(bank, "Nick") == frozenset()
-    assert path.exists() and wr.which_one.episodes_of(markdown_parser.parse(path).frontmatter) == [EP2]
+    nxt = _q(bank)
+    assert nxt is not None and wr.which_one.episodes_of(markdown_parser.parse(nxt).frontmatter) == [EP2]
 
 
 def test_a_scoped_pick_credits_only_the_conversation_it_filed_and_the_last_tap_lifts_no_leftover(tmp_path, monkeypatch):
@@ -366,6 +375,7 @@ def test_a_scoped_pick_credits_only_the_conversation_it_filed_and_the_last_tap_l
     assert _page_of(bank, "nick-brother").frontmatter["source_episodes"] == [EP1], "exactly the conversation whose words landed"
     _check(bank, before, MEANT, path=path)
     _commit_all(bank)
+    path = _q(bank)
     _pick(bank, path, "nick-friend")
     assert _page_of(bank, "nick-friend").frontmatter["source_episodes"] == [EP2]
     friend = (bank / "entities" / "nick-friend.md").read_text()
@@ -374,7 +384,7 @@ def test_a_scoped_pick_credits_only_the_conversation_it_filed_and_the_last_tap_l
     line = pending_store.held_line(bank, "Nick")
     assert line.description == "Nick, said once." and line.history_entries, "they stay held: nobody can say whose they are"
     _check(bank, before, MEANT, path=path)
-    assert not path.exists()
+    assert _q(bank) is None
 
 
 def test_a_whole_line_answer_still_lifts_everything_when_nothing_was_filed_elsewhere(tmp_path, monkeypatch):
@@ -595,3 +605,341 @@ def test_the_invariant_holds_after_every_operation_of_a_long_story(tmp_path, mon
     assert path.exists() and EP1 in wf.unfiled(pending_store.held_line(bank, "Nick"))
     _pick(bank, path, "nick-brother")                             # and answered by the person, the other way round
     _check(bank, before, meant, path=path)
+
+
+# --------------------------------------------------------------------------- second review round
+
+
+EP4 = "ep_2026-11-23_001"
+BLANK2 = "user: Nick sent a note again, nothing else.\nassistant: Ok."
+
+
+def _someone_else(bank, path) -> None:
+    from api.models.schemas import InboxResolveRequest
+    from api.services import inbox_service
+
+    asyncio.run(inbox_service.resolve(path.stem, InboxResolveRequest(action="reject", option_key="another", merge_target="nick-brother"),
+                                      _Settings(bank)))
+
+
+def _on_pages(bank) -> set[str]:
+    return {c[1] + ":" + c[2] for pid in ("nick-brother", "nick-friend") for c in _claims(bank, pid)}
+
+
+def test_a_someone_else_for_one_conversation_holds_on_every_path_that_takes_a_claim_off_the_line(tmp_path, monkeypatch):
+    """B1. The person ruled both candidates out for conversation 1 of 2. The general release (Stage 5.56, when the name now means a
+    page), a whole-line answer to some other question, the described-fact landing and the joins of a held name must not put that
+    conversation's words on either page."""
+    from api.services import claim_pipeline, inbox_service
+
+    bank, path = _world(tmp_path, monkeypatch, conversations={EP1: BLANK, EP2: BLANK.replace("hello again", "hello twice")})
+    _hold(bank, claims=[("greets", "everyone", EP1), ("greets", "nobody", EP2)])
+    assert _run(bank, path, _by_name({})).settled == 0
+    _commit_all(bank)
+    _someone_else(bank, path)
+    line = pending_store.held_line(bank, "Nick")
+    assert wf.said_not(line) == {EP1: {"nick-brother", "nick-friend"}} and not line.apart_pages()
+    # The bare store would release both conversations' claims onto the page Stage 2 chose (the gap this closes) ...
+    assert [r.target for r in pending_store.ready(bank, lambda n, s: "nick-brother", decided=["Nick"])] == ["nick-brother"]
+    # ... the pipeline's release does not: the line is not released onto a page one of its conversations was ruled out for.
+    releases, offered, _credit = claim_pipeline._releases(bank, {"nick": "nick-brother"}, {}, ["Nick"])
+    assert releases == [] and offered == []
+    # A whole-line answer of some other question (the pair kind, not a which-one question): only what was not ruled out lands.
+    inbox_service._release_answered(bank, "Nick", "nick-brother", _Settings(bank))
+    assert _on_pages(bank) == {"greets:nobody"} and [d["object"] for d in pending_store.held_line(bank, "Nick").held_claims] == ["everyone"]
+    # The described-fact landing: a pick for the ruled-out conversation lands nothing.
+    line = pending_store.held_line(bank, "Nick")
+    item, pick = wf._item_of(bank, line, "nick-friend", line.held_claims[0], {})
+    assert dl.land_page(bank, "nick-friend", [(item, pick)], by="haiku") is None
+    assert ("nick-friend", "greets", "everyone") not in _claims(bank, "nick-friend")
+    # Joins of a held name are not offered a page the person ruled out for one of its conversations.
+    assert wf.blocked(line, "nick-brother") and wf.blocked(line, "nick-friend") and not wf.blocked(line, "some-other-page")
+
+
+def test_a_release_by_answer_withholds_what_the_person_ruled_out_for_that_page_only(tmp_path, monkeypatch):
+    """`pending_store.answered` is the one read behind a name landing and the arrival birth: filtered where they take it."""
+    bank, path = _world(tmp_path, monkeypatch, conversations={EP1: BLANK, EP2: BLANK.replace("hello again", "hello twice")})
+    _hold(bank, claims=[("greets", "everyone", EP1), ("greets", "nobody", EP2)])
+    _run(bank, path, _by_name({}))
+    _someone_else(bank, path)
+    rel = wf.allowed(bank, pending_store.answered(bank, "Nick", "nick-brother"))
+    assert [c.object for c in rel.claims] == ["nobody"], "the ruled-out conversation's claim is withheld from a page it was ruled out for"
+    assert [c.object for c in wf.allowed(bank, pending_store.answered(bank, "Nick", "a-new-page")).claims] == ["everyone", "nobody"], \
+        "a page nobody ruled out gets the claims"
+    assert wf.allowed(bank, None) is None
+
+
+def test_an_undo_is_refused_after_another_sleep_released_or_promoted_the_line(tmp_path, monkeypatch):
+    """B2. Two filings, a third conversation left open, then the name was released and given a page: the claims of an undone filing
+    would be written to a fresh line and the release would send them to the new page. Nothing is written, the record stays."""
+    import pytest
+
+    from api.tests.test_held_release import _page
+
+    bank, path = _world(tmp_path, monkeypatch, conversations={EP1: BROTHER, EP2: MATE, EP3: BLANK})
+    _hold(bank, claims=[("visits", "a-weekend", EP1), ("ships", "the-release", EP2), ("greets", "x", EP3)], history=True)
+    _run(bank, path, _by_name(BOTH))
+    _commit_all(bank)
+    recs = {markdown_parser.parse(p).frontmatter["settled"]["entity_id"]: p.stem for p in (bank / "inbox" / "settled").glob("land-*.md")}
+    pending_store.release(bank, ["Nick"])                         # another Sleep released the name ...
+    _page(bank, "nick", "Nick", "person")                         # ... and a page for it exists now
+    _commit_all(bank)
+    raw = {p.relative_to(bank).as_posix(): p.read_bytes() for p in bank.rglob("*") if p.is_file() and ".git" not in p.parts}
+    with pytest.raises(dl.NotLandable):
+        wf.undo(bank, recs["nick-brother"])
+    assert {p.relative_to(bank).as_posix(): p.read_bytes() for p in bank.rglob("*") if p.is_file() and ".git" not in p.parts} == raw
+    assert pending_store.held_line(bank, "Nick") is None, "no line was made for the claim to wait on"
+    # Another line of the same name that none of this filing's conversations are on is another mention, not this one.
+    pending_store.upsert(bank, pending_store.PendingEntity(name="Nick", type="person", description="", source_episode=EP4, confidence=0.7,
+                                                           tags=[], history_entries=[], heard_in=[{"episode": EP4}]))
+    with pytest.raises(dl.NotLandable):
+        wf.undo(bank, recs["nick-friend"])
+    assert pending_store.held_line(bank, "Nick").held_claims == []
+
+
+def test_a_new_claim_from_a_conversation_already_filed_lands_on_that_verdict_and_is_undoable(tmp_path, monkeypatch):
+    """B3. A resumed conversation holds a new claim under the nickname after it was filed: it lands on the page the conversation
+    went to, with no read, as its own record; the person's later "no" and an undo of that filing keep it held."""
+    from api.services.claims import Claim
+
+    bank, path = _world(tmp_path, monkeypatch, conversations={EP1: BROTHER, EP2: MATE})
+    _hold(bank, claims=[("visits", "a-weekend", EP1), ("ships", "the-release", EP2)], history=True)
+    _run(bank, path, _by_name(BOTH))
+    _commit_all(bank)
+    new = Claim.from_dict(_held("nick", "likes", "tea", 7, EP1))
+    pending_store.hold(bank, {"nick": [new]})
+    _commit_all(bank)
+    line = pending_store.held_line(bank, "Nick")
+    assert wf.asking(line) == ([], []) and "nick-brother" in wf.refile_plan(line)
+    assert wf.refile(bank, dry_run=True).pages == [("nick", "nick-brother", 1)] and ("nick-brother", "likes", "tea") not in _claims(bank, "nick-brother")
+    done = wf.refile(bank, today=TODAY.isoformat())
+    assert done.settled == 1
+    assert ("nick-brother", "likes", "tea") in _claims(bank, "nick-brother") and ("nick-friend", "likes", "tea") not in _claims(bank, "nick-friend")
+    assert [d["predicate"] for d in pending_store.held_line(bank, "Nick").held_claims] == []
+    assert "Facts about a mention filed" in _git(bank, "log", "-1", "--format=%B")
+    recs = [r for r in _settled(bank) if r["entity_id"] == "nick-brother" and r["claim_ids"] == [new.id]]
+    assert len(recs) == 1, "its own record"
+    assert wf.refile(bank, today=TODAY.isoformat()).settled == 0, "nothing twice"
+    # An undo of that filing puts the claim back, opens the conversation again and the reader never files it again.
+    rec = next(p for p in (bank / "inbox" / "settled").glob("land-*.md")
+               if markdown_parser.parse(p).frontmatter["settled"]["claim_ids"] == [new.id])
+    _commit_all(bank)
+    wf.undo(bank, rec.stem)
+    line = pending_store.held_line(bank, "Nick")
+    assert [d["predicate"] for d in line.held_claims] == ["likes"] and EP1 not in wf.filed(line)
+    assert wf.refile(bank, today=TODAY.isoformat()).settled == 0, "held, and asked"
+    q = _q(bank)
+    assert q is not None and EP1 in wr.which_one.episodes_of(markdown_parser.parse(q).frontmatter)
+    assert EP1 in wf.undone_of(markdown_parser.parse(q).frontmatter)
+
+
+def test_a_refile_never_crosses_a_no_a_split_claim_or_an_unfiled_conversation(tmp_path, monkeypatch):
+    from api.services.claims import Claim
+
+    bank, path = _world(tmp_path, monkeypatch, conversations={EP1: BROTHER, EP2: MATE, EP3: BLANK})
+    _hold(bank, claims=[("visits", "a-weekend", EP1), ("ships", "the-release", EP2)], history=True)
+    _run(bank, path, _by_name(BOTH))
+    both = Claim.from_dict(_held("nick", "likes", "tea", 8, EP1))
+    both.source_episodes = [EP1, EP2]
+    other = Claim.from_dict(_held("nick", "greets", "all", 9, EP3))
+    one = Claim.from_dict(_held("nick", "calls", "me", 10, EP1))
+    pending_store.hold(bank, {"nick": [both, other, one]})
+    line = pending_store.held_line(bank, "Nick")
+    plan = wf.refile_plan(line)
+    assert {d["predicate"] for p in plan.values() for d in p.claims} == {"calls"}, "two pages split one claim: asked; an unfiled conversation waits"
+    wf.keep_apart(bank, "Nick", ["nick-brother"], [EP1])
+    assert wf.refile_plan(pending_store.held_line(bank, "Nick")) == {}, "the person's later no for that page is never crossed"
+
+
+def test_a_refile_that_does_not_commit_leaves_the_claim_held_and_every_file_as_it_was(tmp_path, monkeypatch):
+    from api.services import git_service
+    from api.services.claims import Claim
+
+    bank, path = _world(tmp_path, monkeypatch, conversations={EP1: BROTHER, EP2: MATE})
+    _hold(bank, claims=[("visits", "a-weekend", EP1), ("ships", "the-release", EP2)], history=True)
+    _run(bank, path, _by_name(BOTH))
+    pending_store.hold(bank, {"nick": [Claim.from_dict(_held("nick", "likes", "tea", 7, EP1))]})
+    _commit_all(bank)
+    raw = {p.relative_to(bank).as_posix(): p.read_bytes() for p in bank.rglob("*") if p.is_file() and ".git" not in p.parts}
+
+    def boom(*a, **k):
+        raise git_service.GitError("no")
+
+    monkeypatch.setattr(git_service, "commit_touched_sync", boom)
+    assert wf.refile(bank, today=TODAY.isoformat()).settled == 0
+    assert {p.relative_to(bank).as_posix(): p.read_bytes() for p in bank.rglob("*") if p.is_file() and ".git" not in p.parts} == raw
+
+
+def test_the_tail_files_a_stranded_new_claim_with_no_engine_and_no_question(tmp_path, monkeypatch):
+    from api.services.claims import Claim
+
+    bank, path = _world(tmp_path, monkeypatch, conversations={EP1: BROTHER, EP2: MATE})
+    _hold(bank, claims=[("visits", "a-weekend", EP1), ("ships", "the-release", EP2)], history=True)
+    _run(bank, path, _by_name(BOTH))
+    pending_store.hold(bank, {"nick": [Claim.from_dict(_held("nick", "likes", "tea", 7, EP1))]})
+    _commit_all(bank)
+    assert _q(bank) is None
+
+    async def never(*a, **k):
+        raise AssertionError("no model is asked")
+
+    report = asyncio.run(wr.run_tail(bank, _Settings(bank), user_triggered=True, ask=never, today=TODAY))
+    assert report.settled == 1 and ("nick-brother", "likes", "tea") in _claims(bank, "nick-brother")
+
+
+def test_the_question_goes_on_under_a_new_id_with_everything_it_held_and_every_reference_follows(tmp_path, monkeypatch):
+    """B4. An older app hides an inbox id as soon as the person resolves it, while that id is still served: the continued question
+    is a new file, the answered one is gone, in the one commit."""
+    from api.services import inbox_service, question_origin
+
+    bank, path = _world(tmp_path, monkeypatch, conversations={EP1: BROTHER, EP3: BLANK, EP4: BLANK2})
+    _hold(bank, claims=[("visits", "a-weekend", EP1), ("greets", "x", EP3), ("sends", "a-note", EP4)],
+          facts={"Visits on weekends.": EP1}, history=True)
+    _run(bank, path, _by_name(BOTH))
+    old_fm, old_body = dict(markdown_parser.parse(path).frontmatter), markdown_parser.parse(path).body
+    assert wf.scope_of(old_fm) == [EP3] and wr.which_one.episodes_of(old_fm) == [EP3, EP4]
+    rec_before = _settled(bank)
+    assert {r["item_id"] for r in rec_before} == {path.stem}
+    _commit_all(bank)
+    _pick(bank, path, "nick-friend")
+    nxt = _q(bank)
+    assert nxt is not None and not path.exists() and nxt.stem != path.stem
+    assert int(nxt.stem.split("-")[1]) > int(path.stem.split("-")[1]), "ids are never reused"
+    fm = dict(markdown_parser.parse(nxt).frontmatter)
+    for key in ("kind", "entity_id", "entity_name", "created_date", "same_title", "detected", "options", "uncertainty_type", "required_input"):
+        assert fm.get(key) == old_fm.get(key), f"{key} is carried"
+    assert question_origin.wire(fm, "merge_suggestion") == question_origin.wire(old_fm, "merge_suggestion"), "who asked, and when"
+    assert markdown_parser.parse(nxt).body == old_body and wr.which_one.episodes_of(fm) == [EP4]
+    assert {r["item_id"] for r in _settled(bank)} == {nxt.stem}, "the settle records name the new id"
+    last = _git(bank, "log", "-1", "--grep=Inbox resolution", "--no-renames", "--name-status", "--format=%s")
+    assert f"D\tinbox/{path.name}" in last and f"A\tinbox/{nxt.name}" in last, "one commit: the new question and the old one's removal"
+    assert "M\tinbox/settled/land-" in last, "and the records that named the old id"
+    served = {i.id for i in inbox_service.load_inbox(bank)}
+    assert nxt.stem in served and path.stem not in served
+    # The undo of the earlier filing finds the question by its new id.
+    rec = next(p for p in (bank / "inbox" / "settled").glob("land-*.md")
+               if markdown_parser.parse(p).frontmatter["settled"]["entity_id"] == "nick-brother")
+    _commit_all(bank)
+    wf.undo(bank, rec.stem)
+    assert wf.undone_of(markdown_parser.parse(nxt).frontmatter) == {EP1} and nxt.exists()
+
+
+def test_someone_else_on_a_scoped_question_also_goes_on_under_a_new_id(tmp_path, monkeypatch):
+    bank, path = _undecided_world(tmp_path, monkeypatch)
+    _someone_else(bank, path)
+    nxt = _q(bank)
+    assert nxt is not None and nxt.stem != path.stem and not path.exists()
+    assert "created_date" in markdown_parser.parse(nxt).frontmatter
+
+
+def test_a_stranded_claim_picked_credits_what_it_cites_and_no_other_page_is_credited_by_it(tmp_path, monkeypatch):
+    bank, path = _world(tmp_path, monkeypatch, conversations={EP1: BROTHER, EP2: MATE})
+    _hold(bank, claims=[("visits", "a-weekend", EP1), ("ships", "the-release", EP2)], history=False)
+    both = _held("nick", "likes", "tea", 9, EP1)
+    both["source_episodes"] = [EP1, EP2]
+    wf.edit_line(bank, "Nick", lambda ln: bool(ln.held_claims.append(both)) or True)
+    _run(bank, path, _by_name(BOTH))
+    _commit_all(bank)
+    assert set(_page_of(bank, "nick-friend").frontmatter["source_episodes"]) == {EP2}
+    _pick(bank, _q(bank), "nick-friend")
+    assert set(_page_of(bank, "nick-friend").frontmatter["source_episodes"]) == {EP1, EP2}, "the claim cites both: that is its provenance"
+    assert set(_page_of(bank, "nick-brother").frontmatter["source_episodes"]) == {EP1}, "the other page is credited only by its own filing"
+
+
+def test_a_tap_that_leaves_the_line_holding_nothing_releases_it_in_the_same_commit(tmp_path, monkeypatch):
+    bank, path = _world(tmp_path, monkeypatch, conversations={EP1: BLANK, EP2: BLANK.replace("hello again", "hello twice")})
+    _hold(bank, claims=[("greets", "everyone", EP1), ("greets", "nobody", EP2)])
+    wf.edit_line(bank, "Nick", lambda ln: bool(setattr(ln, "description", "") or setattr(ln, "summary", "")) or True)
+    assert _run(bank, path, _by_name({})).settled == 0
+    _commit_all(bank)
+    _pick(bank, path, "nick-brother")
+    assert pending_store.held_line(bank, "Nick") is not None
+    _commit_all(bank)
+    _pick(bank, _q(bank), "nick-friend")
+    assert pending_store.held_line(bank, "Nick") is None, "an empty line is not left in the store"
+    answer = _git(bank, "log", "-1", "--grep=Inbox resolution", "--no-renames", "--name-only", "--format=")
+    assert "pending_entities.jsonl" in answer and "inbox/" in answer, "the line's release rides the answer's own commit"
+
+
+def test_the_leftover_of_a_partly_filed_line_counts_no_conversation_so_it_cannot_promote_the_name(tmp_path, monkeypatch):
+    """Only what carries no conversation is left (a description, history, links, questions): it asks nothing, belongs to no page, and
+    a later promotion of the name must not be reached by it: a leftover-only line counts no conversation."""
+    bank, path = _world(tmp_path, monkeypatch, conversations={EP1: BROTHER, EP2: MATE})
+    _hold(bank, claims=[("visits", "a-weekend", EP1), ("ships", "the-release", EP2)], history=True)
+    _run(bank, path, _by_name(BOTH))
+    line = pending_store.held_line(bank, "Nick")
+    assert line.history_entries and wf.asking(line) == ([], []) and wf.counted(line) == set()
+    from api.services import entity_resolver
+
+    unit = entity_resolver._Unborn("Nick", "nick", {}, [], line, set(), False, stored=True)
+    assert unit.episodes() == set()
+
+
+def _record_of(bank, page: str, nth: int = 0):
+    recs = [p for p in sorted((bank / "inbox" / "settled").glob("land-*.md"))
+            if markdown_parser.parse(p).frontmatter["settled"]["entity_id"] == page]
+    return recs[nth]
+
+
+def test_the_invariant_and_every_no_hold_after_each_step_of_a_long_story(tmp_path, monkeypatch):
+    """Read, file A, file B, "someone else" on C, a release attempt, a new claim from a filed conversation, undo in several orders, a
+    tap: after each, what landed plus what is held equals what was held (nothing twice, nothing lost), every askable piece has an
+    open question, a piece is credited only to conversations it came from, and a "no" is never crossed."""
+    from api.services import claim_pipeline
+    from api.services.claims import Claim
+
+    bank, path = _world(tmp_path, monkeypatch, conversations={EP1: BROTHER, EP2: MATE, EP3: BLANK})
+    _hold(bank, claims=[("visits", "a-weekend", EP1), ("ships", "the-release", EP2), ("greets", "x", EP3)],
+          facts={"Visits on weekends.": EP1, "Greets all.": EP3}, history=True)
+    before = _snapshot(bank)
+    meant = {EP1: "nick-brother", EP2: "nick-friend"}   # EP3 is "someone else": it is on no page, ever
+    holds: list[str] = []
+
+    def step(label: str) -> None:
+        _check(bank, before, meant, path=None)
+        for pid in ("nick-brother", "nick-friend"):
+            assert not any(EP3 in wf.claim_episodes(c.to_dict()) for c in parse_claims(_page_of(bank, pid).body)), f"{label}: a no was crossed"
+            assert "Greets all." not in _page_of(bank, pid).body, f"{label}: a no was crossed (prose)"
+        line = pending_store.held_line(bank, "Nick")
+        on_pages = {c.id for pid in meant.values() for c in parse_claims(_page_of(bank, pid).body)}
+        assert line is None or not on_pages & {d["id"] for d in line.held_claims}, f"{label}: a claim is held and on a page"
+        holds.append(label)
+        _commit_all(bank)
+
+    # read: EP1 and EP2 are filed, EP3 nobody could tell
+    assert _run(bank, path, _by_name(BOTH)).settled == 2
+    step("read")
+    # the person: "someone else" for the conversation nobody could tell
+    _someone_else(bank, _q(bank))
+    assert wf.said_not(pending_store.held_line(bank, "Nick")) == {EP3: {"nick-brother", "nick-friend"}} and _q(bank) is None
+    step("someone else")
+    # a release attempt: Stage 2 decides the name is a page; the line is not released whole
+    assert claim_pipeline._releases(bank, {"nick": "nick-brother"}, {}, ["Nick"])[0] == []
+    step("release attempt")
+    # a new claim from a conversation that was filed: it lands on that verdict
+    new = Claim.from_dict(_held("nick", "likes", "tea", 7, EP1))
+    pending_store.hold(bank, {"nick": [new]})
+    before["claims"][new.id] = {EP1}
+    assert wf.refile(bank, today=TODAY.isoformat()).settled == 1
+    step("refile")
+    assert _q(bank) is None
+    # undo of the first filing (the brother's), then of the refile: both conversations' words are open again, in either order
+    wf.undo(bank, _record_of(bank, "nick-brother", 0).stem)
+    step("undo first")
+    assert _q(bank) is not None and EP1 in wr.which_one.episodes_of(markdown_parser.parse(_q(bank)).frontmatter)
+    wf.undo(bank, _record_of(bank, "nick-brother", 0).stem)
+    step("undo refile")
+    # a release attempt again: still not whole
+    assert claim_pipeline._releases(bank, {"nick": "nick-brother"}, {}, ["Nick"])[0] == []
+    # the person's tap: conversation 1 meant the brother
+    _pick(bank, _q(bank), "nick-brother")
+    step("tap")
+    assert _q(bank) is None
+    assert {c[1] for c in _claims(bank, "nick-brother")} == {"visits", "likes"}
+    # the friend's filing is taken back and tapped the other way round: a person's choice, the same invariant
+    wf.undo(bank, _record_of(bank, "nick-friend").stem)
+    meant[EP2] = "nick-brother"
+    step("undo friend")
+    _pick(bank, _q(bank), "nick-brother")
+    step("second tap")
+    assert holds == ["read", "someone else", "release attempt", "refile", "undo first", "undo refile", "tap", "undo friend", "second tap"]

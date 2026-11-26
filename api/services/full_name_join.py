@@ -334,7 +334,7 @@ def short_name_is_alone(memory_path: Path, short_keys: set[str], own_ids: set[st
 def guards(memory_path: Path, path: Path, fm: dict, *, today: str | None = None) -> tuple[Case | None, str]:
     """``(case, "")`` when every engine-free condition (1 to 5 of the module's list) holds for this open question, else
     ``(None, why it stays)``. Reads only."""
-    from api.services import (inbox_tend, merge_rejections, pending_store, role_people, same_name_doubts)
+    from api.services import (inbox_tend, merge_rejections, pending_store, role_people, same_name_doubts, which_one_file)
     from api.services.id_utils import resolve_entity_file, sanitize_id
 
     memory_path = Path(memory_path)
@@ -353,7 +353,8 @@ def guards(memory_path: Path, path: Path, fm: dict, *, today: str | None = None)
     if (line is None or str(line.type or "").lower() != "person" or line.title or line.held_against
             or line.correspondent):
         return None, "no_held_line"
-    if target_id in pending_store.apart_of(memory_path, full) or target_id in line.apart_pages():
+    if (target_id in pending_store.apart_of(memory_path, full) or target_id in line.apart_pages()
+            or which_one_file.blocked(line, target_id)):   # ruling 83: a per-conversation "someone else" holds too
         return None, "said_apart"
     own_id = sanitize_id(full)
     if resolve_entity_file(memory_path, own_id) is not None:

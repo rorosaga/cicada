@@ -36,6 +36,9 @@ struct SiteMenuReading: Equatable, Sendable {
     var frame: CGRect = .zero
     /// The first item that carries the site's mark (`SiteSaveSite.Menu.markClass`), when the menu shows one.
     var firstMarked: Int? = nil
+    /// What the post's block shows, one run of text a line, on a site whose pages name the post by no link
+    /// (`SiteSaveSite.Menu.words`); read only when the item under the click is in the save's place.
+    var words: String = ""
 }
 
 enum SiteMenuRule {
@@ -96,6 +99,7 @@ enum SiteMenuRule {
         } else {
             placed = rule.sizes.contains(reading.items.count)
                 && rule.fromEnd.map { reading.clicked == reading.items.count - $0 } != false
+                && rule.fromStart.map { reading.clicked == $0 } != false
         }
         if !placed {
             // A layout the rule does not know: the item this Mac learned as the site's save, by its own label.
@@ -117,6 +121,14 @@ enum SiteMenuRule {
             let folder = reading.clicked > 0 ? listName(reading.items[reading.clicked]) : nil
             return .success((named, folder, ""))
         }
+        if rule.words {
+            // The page itself is the post (its own page), or the post is named by what its block shows: enough
+            // words to tell it from another, or nothing is said.
+            if let own = site.item(reading.page) { return .success((own, nil, "")) }
+            guard !reading.blockKey.isEmpty, Self.names(reading.words) else { return .failure(.noPostLink) }
+            return .success((SiteSaveItem(site: site.key, origin: site.origin, url: "", title: site.name + " post"),
+                             nil, reading.words))
+        }
         // The post is the one whose link carries the block's own id: the block's link in a feed, the page itself on
         // the post's page. Another post linked from inside the block never matches.
         guard !reading.blockKey.isEmpty else { return .failure(.noPostLink) }
@@ -133,6 +145,15 @@ enum SiteMenuRule {
 
     /// How long a menu of an unknown layout may be for a learned label to name its save.
     static let knownByLabelMax = 20
+
+    /// How many letters and digits a block's words must hold to name a post (the backend's own floor,
+    /// `site_later.MIN_HELD_FOLD`): a block that shows only a picture and a name is told from no other.
+    static let namingLetters = 40
+
+    static func names(_ words: String) -> Bool {
+        words.unicodeScalars.lazy.filter { CharacterSet.alphanumerics.contains($0) }.prefix(namingLetters).count
+            >= namingLetters
+    }
 
     /// What a site's save item wore at the person's clicks, by post: the label worn on most posts is the "not saved"
     /// one. Posts are kept as short hashes, a few per label.
@@ -184,6 +205,10 @@ enum SiteMenuRule {
         }
         let mine = state(reading.items[reading.clicked], lists: rule.lists)
         if site.isListPage(reading.page) { return Verdict(outcome: .unsaved, basis: "list", saved: mine) }
+        // A site whose menu is the only word for the direction (LinkedIn: the same item, two labels, and the feed
+        // names no post to compare it on): nothing here says which way, and nothing is learned from a guess. The
+        // record decides (`POST /sources/site-change`, `POST /sources/site-words`).
+        if rule.words { return Verdict(outcome: .changed, basis: "none") }
         if rule.lists {
             // The other lists in the same sheet: most are not holding the video.
             var others: [String: Int] = [:]
@@ -358,7 +383,9 @@ extension SiteSaveReader {
                 if rule.notBlock.contains(where: { id.hasPrefix($0) }) {
                     foreign = true
                 } else if let prefix = rule.block, id.hasPrefix(prefix), id.count > prefix.count,
-                          id.dropFirst(prefix.count).allSatisfy({ $0.isLetter || $0.isNumber }) {
+                          id.dropFirst(prefix.count).allSatisfy({
+                              $0.isLetter || $0.isNumber || rule.blockMarks.contains($0)
+                          }) {
                     block = node
                     blockKey = String(id.dropFirst(prefix.count))
                 }
@@ -368,9 +395,45 @@ extension SiteSaveReader {
             && (rule.block == nil || block != nil || foreign)
         let found = block.map { itemLinks(in: $0, site: site) } ?? ([], [])
         let firstMarked = rule.markClass.flatMap { mark in items.firstIndex { carries(mark, in: $0) } }
+        // The block's words are read only for the item in the save's place, on a site that names its posts no
+        // other way, and not on the post's own page (the address names it there).
+        let wanted = rule.words && fits && !foreign && rule.fromStart == clicked && site.item(address) == nil
+        let shown = wanted ? block.map { words(in: $0, besides: menu) } ?? "" : ""
         return SiteMenuReading(site: site.key, items: items.map(label), clicked: clicked, page: address, fits: fits,
                                foreign: foreign, blockKey: blockKey, links: found.0, linkLabels: found.1,
-                               frame: row, firstMarked: firstMarked)
+                               frame: row, firstMarked: firstMarked, words: shown)
+    }
+
+    static let maxWordNodes = 500
+    static let maxWordLetters = 1600
+
+    /// What a post's block shows, in reading order: each run of text that sits side by side is one line. The menu
+    /// itself and every button are left out (their labels are the site's words, not the post's). Bounded.
+    private static func words(in block: AXUIElement, besides menu: AXUIElement) -> String {
+        var lines: [String] = [], letters = 0, seen = 0
+        var stack = [block]
+        while let next = stack.popLast(), seen < maxWordNodes, letters < maxWordLetters {
+            seen += 1
+            var run: [String] = [], below: [AXUIElement] = []
+            for child in children(next) {
+                let kind = role(child)
+                if kind == "AXStaticText" {
+                    let text = (string(child, kAXValueAttribute as String) ?? "")
+                        .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+                    if !text.isEmpty { run.append(text) }
+                } else if kind != menuRole, kind != menuItemRole, kind != SiteSaveRule.plainButton,
+                          !CFEqual(child, menu) {
+                    below.append(child)
+                }
+            }
+            if !run.isEmpty {
+                let line = run.joined(separator: " ")
+                lines.append(line)
+                letters += line.count
+            }
+            stack.append(contentsOf: below.reversed())
+        }
+        return String(lines.joined(separator: "\n").prefix(maxWordLetters * 2))
     }
 
     /// Whether a menu item, or one of the few things drawn inside it (its icon), carries a class. Bounded.

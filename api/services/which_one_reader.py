@@ -54,7 +54,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import os
 import re
 from dataclasses import dataclass, field
 from datetime import date
@@ -63,9 +62,9 @@ from typing import Callable
 
 from loguru import logger
 
-from api.services import (bank_index, described_landing as dl, engine_errors, evidence, git_service, inbox_tend,
-                          markdown_parser, pending_store, question_revisit as qr, same_name, which_one, which_one_file as wf,
-                          which_one_tie as tie_of)
+from api.services import (bank_index, described_landing as dl, engine_errors, evidence, inbox_tend,
+                          markdown_parser, pending_store, question_revisit as qr, same_name, settle_guard, which_one,
+                          which_one_file as wf, which_one_tie as tie_of)
 from api.services.id_utils import resolve_entity_file, sanitize_id
 from api.services.which_one_tie import Tell
 
@@ -583,39 +582,6 @@ def _save_seen(memory_path: Path, data: dict[str, dict]) -> None:
         pass
 
 
-# --------------------------------------------------------------------------- a filing that did not commit leaves nothing behind
-
-
-def put_back(memory_path: Path, before: dict[str, bytes | None]) -> None:
-    """Undo a filing that did not commit: every path that is uncommitted now and was not before the filing goes back to what the last
-    commit holds (a new file is removed, its staging with it), and a path that was already uncommitted gets its own bytes back
-    (``before`` is `git_service.snapshot_dirty_sync`). The resolver writes the pages, the held line, the settled record and removes
-    the question before its commit; one that then fails must not leave the question gone and the pages changed. Never raises."""
-    memory_path = Path(memory_path)
-    try:
-        dirty = git_service.dirty_paths_sync(memory_path)
-    except git_service.GitError:
-        return
-    for rel in sorted(dirty):
-        target = memory_path / rel
-        try:
-            if rel in before:
-                if before[rel] is None:
-                    target.unlink(missing_ok=True)
-                else:
-                    target.write_bytes(before[rel])
-                continue
-            git_service.run_git_write_sync(memory_path, "reset", "-q", "HEAD", "--", rel)
-            try:
-                git_service.run_git_write_sync(memory_path, "checkout", "--", rel)
-            except git_service.GitError:
-                target.unlink(missing_ok=True)   # never committed: it was this filing's own file
-        except (OSError, git_service.GitError):
-            logger.debug("Which-one filing: a path could not be put back")
-    bank_index.invalidate(memory_path)
-    markdown_parser.invalidate_pages(os.path.realpath(memory_path))
-
-
 # --------------------------------------------------------------------------- the tail step
 
 
@@ -647,10 +613,8 @@ def eligible(memory_path: Path, today: str) -> list[tuple[Path, dict]]:
 async def _file_parts(memory_path: Path, path: Path, case: Case, result: Assessment, names: dict[str, str], report: Report, note,
                       remember, mark: str, *, today: date, settings, dry_run: bool, model: str, engine: str | None) -> None:
     """Each conversation's words to the page its own reading named (`which_one_file`): one landing, one record and one Sleep commit
-    per page; a conversation nobody could tell stays on the line and the question is about it alone. A landing that does not commit
-    puts every path back."""
-    from api.services import web_settle
-
+    per page, each one guarded settle (`settle_guard`: a landing that does not commit puts back every file it reported writing); a
+    conversation nobody could tell stays on the line and the question is about it alone."""
     item_id, ids = case.item_id, case.ids
     undecided = [r.episode for r in result.reads if r.page is None]
     if dry_run:
@@ -668,28 +632,24 @@ async def _file_parts(memory_path: Path, path: Path, case: Case, result: Assessm
         if line is None or not path.is_file() or path.read_bytes() != fingerprint or not inbox_tend.guard_holds(memory_path, probe):
             note(item_id, "left:changed", ids=ids)   # the question or a page changed while the model read: read again next time
             continue
-        before = await asyncio.to_thread(git_service.snapshot_dirty_sync, memory_path)
         # Every conversation decided in this run and every one filed before: a claim or a fact two conversations cite is split by them.
         verdict = {**wf.filed(line), **{r.episode: r.page for r in result.reads if r.page}}
         part = wf.plan(line, verdict, {r.episode for r in result.reads if r.page}).get(page)
-        if before is None or part is None:
-            note(item_id, "left:not_applied" if before is None else "left:nothing_to_file", ids=ids)
+        if part is None:
+            note(item_id, "left:nothing_to_file", ids=ids)
             continue
         try:
-            done = await asyncio.to_thread(wf.land, memory_path, path, page, part, {r.episode: r for r in reads}, by=model or "cicada",
-                                           engine=engine, mention=case.mention, today=today.isoformat())
-            if done is not None:
-                message = web_settle.commit_message("Facts about a mention filed", done.lines,
-                                                    authors=[model] if model else ["cicada"], engine=engine)
-                await asyncio.to_thread(web_settle.commit_sync, memory_path, message, done.paths)
-        except Exception as exc:  # noqa: BLE001 - one page never stops the others
+            done = await asyncio.to_thread(wf.file_one, memory_path, path, page, part, {r.episode: r for r in reads},
+                                           by=model or "cicada", engine=engine, mention=case.mention, today=today.isoformat())
+        except settle_guard.TreeUnreadable:
+            note(item_id, "left:not_applied", ids=ids)
+            continue
+        except Exception as exc:  # noqa: BLE001 - one page never stops the others; the guard put every file back
             logger.info(f"Which-one filing not applied: {type(exc).__name__}")
-            await asyncio.to_thread(put_back, memory_path, before)
             note(item_id, "left:not_applied", ids=ids)
             failed += 1
             continue
         if done is None:
-            await asyncio.to_thread(put_back, memory_path, before)
             note(item_id, "left:nothing_to_write", ids=ids)
             continue
         filed += 1
@@ -721,25 +681,31 @@ async def _file_parts(memory_path: Path, path: Path, case: Case, result: Assessm
 async def _narrow(memory_path: Path, path: Path, mention: str, report: Report) -> None:
     """What the line still holds to be asked is two or more conversations (nobody could tell them), or a claim two conversations cite
     that were filed to two pages: the question is about that, and the person's pick files only that (`which_one_file.asking`). One
-    Sleep commit of the question's own file; a failed commit puts it back."""
+    Sleep commit of the question's own file, one guarded settle: a commit that does not land puts the file back."""
     from api.services import web_settle
 
     line = pending_store.held_line(memory_path, mention) if path.is_file() else None
     if len(wf.asking(line)[0]) < 2 or not path.is_file():
         return
     rel = path.relative_to(memory_path).as_posix()
-    prior = path.read_bytes()
-    try:
-        if wf.rewrite_question(path, line):
+
+    def narrow() -> bool:
+        with settle_guard.guarded(memory_path) as mark:
+            settle_guard.declare(mark, rel)
+            if not wf.rewrite_question(path, line):
+                settle_guard.put_back(mark)
+                return False
             message = web_settle.commit_message("Which one: about one conversation",
                                                 [f"{rel}: updated (source: {path.stem}, trigger: sleep/which-one-scoped)"],
                                                 authors=["cicada"])
-            await asyncio.to_thread(web_settle.commit_sync, memory_path, message, [rel])
+            web_settle.commit_sync(memory_path, message, [rel])
+        return True
+
+    try:
+        if await asyncio.to_thread(narrow):
             report.paths.append(rel)
     except Exception as exc:  # noqa: BLE001 - a question left as it was is never wrong
         logger.info(f"Which-one question not narrowed: {type(exc).__name__}")
-        path.write_bytes(prior)
-        bank_index.invalidate(memory_path)
 
 
 async def _close_answered(memory_path: Path, path: Path, settings, model: str, engine: str | None) -> None:
@@ -776,6 +742,9 @@ async def tend(memory_path: Path, settings, ask: Callable | None, *, today: date
             seen[item_id] = {"d": mark, "m": model, "o": outcome, "at": today.isoformat(), "t": tries}
 
     try:
+        if dry_run:   # a claim of a conversation filed already, held since: it would land on that verdict, no read (`refile`)
+            for mention_id, page, n in (await asyncio.to_thread(wf.refile, memory_path, today=today.isoformat(), dry_run=True)).pages:
+                note(mention_id, f"would_refile:{page}", ids=[page], rule=wf.RULE, eyes={"claims": n})
         walk = rows if rows is not None else await asyncio.to_thread(eligible, memory_path, today.isoformat())
         for path, fm in walk:
             if report.read >= max_reads:
@@ -830,18 +799,11 @@ async def tend(memory_path: Path, settings, ask: Callable | None, *, today: date
                 report.settled += 1
                 note(item_id, f"would_file:{pick}", ids=case.ids, rule=RULE, eyes={"mention": case.mention, "page": names.get(pick, "")})
                 continue
-            before = await asyncio.to_thread(git_service.snapshot_dirty_sync, memory_path)
-            if before is None:
-                remember(item_id, mark, "not_applied", 1)   # the tree cannot be read: a failed filing could not be put back
-                note(item_id, "left:not_applied", ids=case.ids)
-                continue
-            try:
+            try:   # a filing that does not commit has put every file back itself (`settle_guard`, inside `apply`)
                 ok = await inbox_tend.apply(memory_path, settings, d)
             except Exception as exc:  # noqa: BLE001 - one filing that will not settle never stops the others
                 logger.info(f"Which-one read not applied: {type(exc).__name__}")
                 ok = False
-            if not ok:
-                await asyncio.to_thread(put_back, memory_path, before)
             if ok:
                 report.settled += 1
                 report.paths.append(f"inbox/settled/{d.item_id}.md")
@@ -870,6 +832,11 @@ async def run_tail(memory_path: Path, settings, *, user_triggered: bool, ask: Ca
             report.skip("demo")
             return report
         today = today or date.today()
+        # A conversation read again after its filing may hold a new claim nobody asks about: it lands on the earlier verdict, with no
+        # read and no engine (`which_one_file.refile`), before anything else.
+        again = await asyncio.to_thread(wf.refile, memory_path, today=today.isoformat(), by=model or "cicada")
+        report.settled += again.settled
+        report.paths += again.paths
         rows = await asyncio.to_thread(eligible, memory_path, today.isoformat())
         if not any(not isinstance(await asyncio.to_thread(case_for, memory_path, p, fm, today=today.isoformat()), str)
                    for p, fm in rows[:MAX_LOOKS]):

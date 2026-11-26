@@ -2044,6 +2044,7 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     seen: set[str] = set()
     known: list[bool] = []
     paths: list[str] = []
+    shown: list[tuple[str, str]] = []
     for row in rows:
         row = row if isinstance(row, dict) else {}
         found = saved_lists.canonical(key, row.get("url"))
@@ -2059,6 +2060,7 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
             continue
         seen.add(url)
         text = _one_line(row.get("text"), SAVED_TEXT_MAX)
+        shown.append((url, text))
         if p.site == "x.com" and author and not author.startswith("@") and " " not in author:
             author = "@" + author
         title = (_one_line(text, SAVED_TITLE_MAX) if text
@@ -2132,6 +2134,7 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
         agent_commits.commit_write(memory_path, subject=ctx.commit_subject, lines=lines, paths=paths,
                                    author=ctx.author, session=ctx.session_id)
         _list_pages_catch_up(memory_path)
+    _name_held_saves(memory_path, saved_lists.base_of(key), shown)
     extra = (f" {dropped} row(s) were not {p.name} posts and were left out." if dropped else "") + (
         f" {own} row(s) were the person's own posts and were left out: only a post they reposted is kept." if own else "")
     stop = ""
@@ -2157,6 +2160,39 @@ def record_saved_list(ctx: ToolContext, platform: str, outcome: str, items=None,
     return (f"Recorded the person's {p.name} {p.label}. {created} new post(s) saved; {duplicates} already in memory"
             + (f" ({listed} now on this list too)" if listed else "") + f". {saved_words.recorded_posts()}"
             f"{more}{stop}{folders_said()}{started}{extra}{unkept}")
+
+
+def _name_held_saves(memory_path: Path, site: str, shown: list[tuple[str, str]]) -> int:
+    """G221 (ruling 77e): a save the app noticed on a page that named no post (LinkedIn's feed) was held by its words,
+    outside the bank (``site_later``). This read shows the post with its link, so the save is named now: what the
+    person answered the notch then is attached to it, as said when it was said, in a commit of its own as the person
+    (the read's own commit is the harness's). Returns how many saves gained their answer. Never raises."""
+    from api.services import git_service, saved_why, site_later
+
+    if site not in site_later.SITES:
+        return 0
+    paths: list[str] = []
+    try:
+        named = site_later.settle(memory_path, site, shown)
+    except OSError:
+        return 0
+    for url, answers in named:
+        for record in answers:
+            answer = saved_why.Answer(reasons=tuple(str(k) for k in record.get("reasons") or ()), project=None,
+                                      project_name=None, text=record.get("text") or None)
+            try:
+                result = saved_why.attach(memory_path, url=url, answer=answer, at=record.get("at"),
+                                          added_at=record.get("added_at"), via=record.get("via"))
+            except (ValueError, OSError):
+                continue
+            path = f"episodes/{result['episode_id']}.md"
+            if result["changed"] and path not in paths:
+                paths.append(path)
+    if paths:
+        agent_commits.commit_write(memory_path, subject="Why it was saved",
+                                   lines=[f"{path}: updated (trigger: {saved_why.TRIGGER})" for path in paths],
+                                   paths=paths, author=git_service.USER_AUTHOR, session=None)
+    return len(paths)
 
 
 def _list_pages_catch_up(memory_path: Path) -> None:
