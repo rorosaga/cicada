@@ -175,6 +175,10 @@ above 16.7 ms on the live bank, or a graph well past ~10k nodes. **Two rules fol
 `app/CicadaApp/Tests/graph/graph-physics.test.js` (real d3, real `graph.js`) is the regression net;
 a KE/node plateau at tick 400 is the signature of a force that broke rule 1.
 
+**A list is one bubble (G247, 2026-11-25).** A payload's `bubbles` fold each list of saved things into one node until it
+is opened; an open bubble's pages sit at packed places never simulated, so neither opening nor closing touches alpha.
+The full description is in `features.md` ("One bubble per list").
+
 **The layout settles and stops (G109, 2026-10-14).** Collide is alpha-scaled too (below alpha 0.03), so every force
 cools together and the layout comes to rest instead of freezing mid-motion at the alpha cut-off; a settle check ends a
 cooled layout once it looks still. The simulation keeps one link per connected pair at d3's default strength, weakened on a

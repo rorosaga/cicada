@@ -7,6 +7,8 @@ private let graphLog = Logger(subsystem: "com.cicada.app", category: "graph-push
 
 enum ZoomAction {
     case zoomIn, out, reset, fit
+    /// The open list bubble's × (owner 2026-11-25): back to the view it was opened from; `Now` for Esc, never animated.
+    case closeBubble, closeBubbleNow
 }
 
 /// Thin projection over `Store.graph` (§5.5). Nodes/edges/rosters are synced
@@ -25,6 +27,12 @@ final class GraphViewModel {
     private(set) var entities: [Entity] = []
     private(set) var nodes: [GraphNode] = []
     private(set) var edges: [GraphEdge] = []
+    /// Owner 2026-11-25: the lists drawn as one bubble each, and the bubble each folded page sits in (for Clusters and
+    /// Home to group by the same answer). Written only by `syncFromStore`.
+    private(set) var bubbles: [GraphBubble] = []
+    private(set) var bubbleOf: [String: String] = [:]
+    /// The bubbles' source marks as data URLs (`GraphMarks`), sent to graph.js with the bubbles.
+    @ObservationIgnored private var markURLs: [String: String] = [:]
     /// Per-snapshot lookups the entity card reads on every render, rebuilt only when `syncFromStore` replaces
     /// `nodes`/`edges`: a person card scanned 2,000 nodes and 5,000 edges per render for its map, its projects and
     /// each fact's type (`OwnerScaleBenchTests`).
@@ -74,6 +82,9 @@ final class GraphViewModel {
     var backTargetName: String? { navHistory.backTarget?.name }
     var isGraphReady = false
     var zoomAction: ZoomAction?
+    /// Owner 2026-11-25: the list bubble open on the canvas (graph.js says so), for the chip that names it.
+    var openBubbleId: String?
+    var openBubble: GraphBubble? { openBubbleId.flatMap { id in bubbles.first { $0.id == id } } }
     /// Sticky pan mode from the toolbar toggle; `GraphView.updateNSView` mirrors
     /// it into graph.js (`setPanToggle`). Holding Shift is the momentary twin.
     var panModeOn = false
@@ -222,6 +233,9 @@ final class GraphViewModel {
             // that belongs to a different bank entirely.
             nodes = []
             edges = []
+            bubbles = []
+            bubbleOf = [:]
+            openBubbleId = nil
             resetGraphMemos()
             entities = []
             observerRoster = []
@@ -286,6 +300,10 @@ final class GraphViewModel {
             )
         }
         edges = response.links
+        bubbles = response.bubbles
+        bubbleOf = Dictionary(response.bubbles.flatMap { b in b.members.map { ($0, b.id) } },
+                              uniquingKeysWith: { first, _ in first })
+        markURLs = GraphMarks.dataURLs(for: response.bubbles.compactMap(\.mark))
         resetGraphMemos()
         schedulePush(response)
     }
@@ -353,9 +371,10 @@ final class GraphViewModel {
         // switch path (blank, then the new bank's first snapshot).
         if next.nodes.isEmpty { forceFullNextPush = true }
 
+        let marks = markURLs
         Task.detached(priority: .userInitiated) { [weak self] in
             let delta = GraphDiff.diff(old: old, new: next)
-            let json = GraphViewModel.encode(delta)
+            let json = GraphViewModel.encode(delta, marks: marks)
             let summary = delta.isFull
                 ? "FULL nodes=\(delta.added.count) links=\(delta.links?.count ?? 0)"
                 : "DELTA added=\(delta.added.count) updated=\(delta.updated.count) removed=\(delta.removed.count) links=\(delta.links.map { String($0.count) } ?? "unchanged")"
@@ -398,13 +417,14 @@ final class GraphViewModel {
 
     /// Serialise a delta (or a full snapshot) into the payload graph.js wants.
     /// `nonisolated static` so it can run off the main actor.
-    nonisolated static func encode(_ delta: GraphDelta) -> String {
+    nonisolated static func encode(_ delta: GraphDelta, marks: [String: String] = [:]) -> String {
         let fallback = "{\"nodes\":[],\"links\":[]}"
         var data: [String: Any]
         if delta.isFull {
             data = [
                 "nodes": delta.added.map(nodeDict),
                 "links": (delta.links ?? []).map(linkDict),
+                "bubbles": (delta.bubbles ?? []).map(bubbleDict),
             ]
         } else {
             data = [
@@ -414,6 +434,13 @@ final class GraphViewModel {
                 "isFull": false,
             ]
             if let links = delta.links { data["links"] = links.map(linkDict) }
+            if let bubbles = delta.bubbles { data["bubbles"] = bubbles.map(bubbleDict) }
+        }
+        // The bubbles' source marks travel with the bubbles (only a few dozen small PNGs, and only when they change).
+        if delta.bubbles?.isEmpty == false {
+            let wanted = Set(delta.bubbles?.compactMap(\.mark) ?? [])
+            let sent = marks.filter { wanted.contains($0.key) }
+            if !sent.isEmpty { data["marks"] = sent }
         }
         guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
               let jsonString = String(data: jsonData, encoding: .utf8)
@@ -450,6 +477,22 @@ final class GraphViewModel {
         if node.hasLogo { d["hasLogo"] = true }
         // Owner ruling 2026-10-20: an imported page not mentioned yet — graph.js dims it and rings it (`drawQuiet`).
         if node.quiet { d["quiet"] = true }
+        return d
+    }
+
+    /// A bubble for graph.js (owner 2026-11-25): what it draws closed (name, mark, count) and what it lays out open.
+    nonisolated static func bubbleDict(_ bubble: GraphBubble) -> [String: Any] {
+        var d: [String: Any] = [
+            "id": bubble.id,
+            "name": bubble.name,
+            "kindNoun": bubble.kindNoun,
+            "count": bubble.count,
+            "members": bubble.members,
+            "folders": bubble.folders.map { ["key": $0.key, "name": $0.name, "members": $0.members] as [String: Any] },
+            "outside": bubble.outside,
+        ]
+        if let mark = bubble.mark { d["mark"] = mark }
+        if let pageId = bubble.pageId { d["pageId"] = pageId }
         return d
     }
 
@@ -509,7 +552,8 @@ final class GraphViewModel {
     /// exists). Routed through the same encoders as the delta path.
     var graphDataJSON: String {
         GraphViewModel.encode(
-            GraphDelta(added: nodes, updated: [], removed: [], links: edges, isFull: true)
+            GraphDelta(added: nodes, updated: [], removed: [], links: edges, isFull: true, bubbles: bubbles),
+            marks: markURLs
         )
     }
 

@@ -24,6 +24,21 @@ extension Copy {
         static let panOffHelp = "Pan mode — drag anywhere to move the graph (or hold Shift)"
         static let panOnHelp = "Pan mode is on — click to return to normal (or just hold Shift)"
 
+        // A list's bubble, open (owner 2026-11-25)
+        static func bubbleHolds(_ count: Int, noun: String) -> String {
+            "\(count.formatted()) \(count == 1 ? Self.singular(noun) : noun)"
+        }
+        static let bubbleClose = "Back to the whole graph (Esc)"
+        static let bubbleOpenPage = "Open this list's page"
+        static func bubbleLabel(_ name: String) -> String { "Open list: \(name)" }
+        private static func singular(_ noun: String) -> String {
+            switch noun {
+            case "repositories": "repository"
+            case "pages", "posts", "videos", "books", "bookmarks", "items": String(noun.dropLast())
+            default: noun
+            }
+        }
+
         // The Legend panel (R-DG4)
         static let whoseBeliefs = "Whose beliefs"
         static let contextHeading = "Context · edge colour"

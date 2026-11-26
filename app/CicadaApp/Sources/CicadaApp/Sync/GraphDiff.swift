@@ -24,10 +24,13 @@ struct GraphDelta: Sendable {
     /// must go through `updateGraph` (full replace), not `updateGraphDelta`.
     /// In that case `added` holds every node and `links` every link.
     var isFull: Bool = false
+    /// The complete new bubble set (owner 2026-11-25), **only** when it changed — replaced wholesale like `links`;
+    /// `nil` means "leave the bubbles alone". Always set on a full push.
+    var bubbles: [GraphBubble]?
 
     /// Nothing to push (only meaningful for a non-full delta).
     var isEmpty: Bool {
-        !isFull && added.isEmpty && updated.isEmpty && removed.isEmpty && links == nil
+        !isFull && added.isEmpty && updated.isEmpty && removed.isEmpty && links == nil && bubbles == nil
     }
 }
 
@@ -43,7 +46,7 @@ enum GraphDiff {
     static func diff(old: GraphResponse?, new: GraphResponse) -> GraphDelta {
         guard let old else {
             return GraphDelta(added: new.nodes, updated: [], removed: [],
-                              links: new.links, isFull: true)
+                              links: new.links, isFull: true, bubbles: new.bubbles)
         }
 
         var oldById: [String: GraphNode] = [:]
@@ -74,7 +77,7 @@ enum GraphDiff {
             : nil
 
         return GraphDelta(added: added, updated: updated, removed: removed,
-                          links: links, isFull: false)
+                          links: links, isFull: false, bubbles: old.bubbles == new.bubbles ? nil : new.bubbles)
     }
 
     /// Link identity is `(source, target, label, context, claimId)`. Compared

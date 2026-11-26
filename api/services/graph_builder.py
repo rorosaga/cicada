@@ -9,8 +9,8 @@ import yaml
 from loguru import logger
 
 from api.models.schemas import GraphLink, GraphNode, GraphResponse
-from api.services import (bank_index, claim_contexts, decay_policy, entity_picture, fact_sources, list_pages, logo_service,
-                          media_kinds, predicates, quiet_pages, saved_posts, same_name)
+from api.services import (bank_index, claim_contexts, decay_policy, entity_picture, fact_sources, graph_bubbles, list_pages,
+                          logo_service, media_kinds, predicates, quiet_pages, saved_posts, same_name)
 from api.services.claims import is_current, parse_claims, strip_claims_block
 from api.services.id_utils import sanitize_id
 from api.services.markdown_parser import load_yaml, load_yaml_file, parse, write_yaml
@@ -177,6 +177,8 @@ def _cache_key(memory_path: Path, entities_dir: Path, edges_file: Path, hubs_dir
         saved_posts.stamp(memory_path),
         # G246: a list's page is drawn while it holds something and moves with its count (``list_pages``; "" until the flip).
         list_pages.stamp(memory_path),
+        # Owner 2026-11-25: which pages sit inside which list's bubble (``graph_bubbles``).
+        graph_bubbles.stamp(memory_path),
     )
 
 
@@ -558,7 +560,8 @@ def _build_full(memory_path: Path, include_posts: bool = False) -> GraphResponse
     nodes.extend(facet_nodes)
     links.extend(facet_links)
 
-    resp = GraphResponse(nodes=nodes, links=links, observers=sorted(all_observers), hidden_posts=len(hidden))
+    resp = GraphResponse(nodes=nodes, links=links, observers=sorted(all_observers), hidden_posts=len(hidden),
+                         bubbles=graph_bubbles.build(memory_path, entity_ids))
     slot.update(key=key, value=resp)
     return resp
 
@@ -596,7 +599,8 @@ def _apply_filters(
         kept_links = [
             l for l in full.links if l.source in kept_ids and l.target in kept_ids
         ]
-        return GraphResponse(nodes=kept_nodes, links=kept_links, observers=full.observers, hidden_posts=full.hidden_posts)
+        return GraphResponse(nodes=kept_nodes, links=kept_links, observers=full.observers, hidden_posts=full.hidden_posts,
+                             bubbles=graph_bubbles.filtered(full.bubbles, kept_ids))
 
     def keep(n: GraphNode) -> bool:
         if n.is_hub:
@@ -614,7 +618,8 @@ def _apply_filters(
     kept_nodes = [n for n in nodes if keep(n)]
     kept_ids = {n.id for n in kept_nodes}
     kept_links = [l for l in full.links if l.source in kept_ids and l.target in kept_ids]
-    return GraphResponse(nodes=kept_nodes, links=kept_links, observers=full.observers, hidden_posts=full.hidden_posts)
+    return GraphResponse(nodes=kept_nodes, links=kept_links, observers=full.observers, hidden_posts=full.hidden_posts,
+                         bubbles=graph_bubbles.filtered(full.bubbles, kept_ids))
 
 
 def _claim_edge_row(claim, page_stem: str) -> dict | None:
