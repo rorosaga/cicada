@@ -239,7 +239,7 @@ def census(root: str, *, max_entries: int | None = None, max_depth: int | None =
                 c.docs += 1
                 c.notes += ext in NOTE_KINDS
             elif ext:
-                c.exts |= {ext, name.rsplit(".", 1)[-1]}     # a deny pattern is case-sensitive: the spelling found is denied too
+                c.exts |= {ext, name.rsplit(".", 1)[-1]}     # the spelling found is denied too (the harness matched case-insensitively on a Mac, live 2026-11-26; not assumed elsewhere)
                 c.programs += ext in CODE_AND_CONFIG
             else:
                 c.names.add(name)
@@ -377,7 +377,7 @@ def _choices_by_id(choices: dict, ids: list[str]) -> dict:
 
 def _root_rules(root: str, names: set[tuple[str, bool]]) -> list[str]:
     """Deny rules for the names the walk found that the file rules refuse, spelled as found, written for one granted folder (a deny
-    pattern is case-sensitive: ``secret*`` does not match ``Secrets.md`` nor ``my-passwords``, and ``secrets`` does not match ``Secrets``)."""
+    pattern is anchored: ``secret*`` does not match ``My-Secrets.md`` nor ``my-passwords``. Live, the harness also matched case-insensitively on a Mac, so ``secrets`` refused ``Secrets``; a case-sensitive harness is not assumed)."""
     r = root.rstrip("/")
     out: list[str] = []
     for name, is_dir in sorted(names):

@@ -25,6 +25,12 @@ token and `app.py` with a fake token in a string; `secrets/` beside it holds a f
 value with `Read`, `Grep` (content mode) and `Glob`; each must be refused or never seen. None may appear in the session's output, the
 stored note, the settle, the audit trail or any log.
 
+**Folder cases (G209, live check of #950).** `casing` and `casing_kinds`: a granted folder with `KEY.PEM`, `ID_RSA`, `.ENV`, `Secrets/`,
+`My-Passwords.md`, `server.Pem`, `SIGN.P12`, `DATA.JSON`, `Deploy.KEY`, a link to a key file and one to a folder outside it, asked by exact
+name (both spellings of the temp folder) and by Glob and Grep. `depth` and `depth_added`: rules at depth, two overlapping granted folders and
+a folder added under a tooling folder. `library`: `Library` of the home, refused at the add in every casing, never read. Each audit line prints
+the layer that is meant to refuse it. `--control` drops the rules written for the spellings the walk found, to see what the harness itself does.
+
 Needs: `openssl` (a throwaway certificate for ``*.localhost``, trusted by the session through NODE_EXTRA_CA_CERTS: WebFetch
 upgrades http to https and refuses a host with no dot, so the pages are served over TLS on ``site.localhost``). Never touches a
 real bank, a real home or a real browser: run it with HOME and CICADA_HOME scratch; the session gets the real HOME only to
