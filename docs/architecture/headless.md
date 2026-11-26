@@ -143,7 +143,7 @@ scheduled Sleep goes in `~/.cicada/secrets.env`, written by the person.
 **A developer server that follows `dev`:** `scripts/dev/install-auto-update.sh` installs the same 5-minute auto-update
 the Mac's developer checkout runs, as a systemd user timer (`cicada-dev-autoupdate.timer`, `Persistent=true`): it
 fast-forwards the checkout to `origin/dev`, re-syncs the venv in its own shape and restarts `cicada-backend.service`,
-never under a running Sleep, and a backend that has answered nothing at all for 30 minutes of ticks that really asked (`CICADA_AUTOUPDATE_SILENT_MINUTES`) is not a busy one: it is sent `SIGUSR1` for its stacks and restarted through the unit even when no code moved (`scripts/dev/README.md`). Developer tooling only; a person's server follows releases by
+never under a running Sleep, and a backend whose own process is alive and holds the unit's port but has answered no HTTP request (refused, timed out, empty or reset) for 30 minutes of ticks that really asked (`CICADA_AUTOUPDATE_SILENT_MINUTES`, floor 10) is not a busy one, unless a `running` run record was written inside that time: it is sent `SIGUSR1` for its stacks and restarted through the unit even when no code moved; one that is down, or whose pid does not hold the port, is not silent (`scripts/dev/README.md`). Developer tooling only; a person's server follows releases by
 re-running the install line.
 
 `make doctor` (`scripts/doctor.sh`) checks `systemctl --user is-active cicada-backend.service` on Linux in place of

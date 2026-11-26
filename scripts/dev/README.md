@@ -57,28 +57,43 @@ Cicada Local, and from then on a rebuild keeps them. This is a local signature, 
 `auto-update.sh` asks the backend (`GET /sleep/status`, 10 s, the bearer token from `$CICADA_HOME/api_token`, port
 `$CICADA_PORT` or 8000) before it fetches. A running cycle, an open write window, an unfinished drain (paused
 included) or a running inbox tidy (`inboxTidy`, ruling 29) logs `deferred: Sleep is running` and changes nothing — no fast-forward, restart, app build or stamp move; the
-next tick retries. Only a refused connection (nothing listening) or a missing token proceeds: a timeout, any other failure, an HTTP
-error or an unreadable answer means a busy backend, so it defers too (a timeout that goes on for 30 minutes of ticks, below, is a frozen one).
+next tick retries. An HTTP error or an unreadable answer is a busy backend too. Only a backend that is **down** (a refusal, empty reply, reset or
+timeout while the service's own process does not hold the port, or there is none) or a missing token proceeds.
 `CICADA_AUTOUPDATE_FORCE=1` skips the check. The backend restarts only when runtime code moved (`api` outside
 `api/tests`, `mcp`, the dependency files) or when it is frozen (below); a test-only or benchmark-only merge never restarts it.
 
 **A backend that answers nothing is frozen, not busy (2026-11-26).** A Sleep run once spun on the event loop for about
-14 hours, every tick deferred, and the fix already on `dev` never landed. Only an ask that **timed out** counts as
-silence; an answer of any kind (even `running`, an HTTP error status, an unreadable body), a refused connection, a
-missing token or any other curl failure ends the stretch. The stretch is kept in `logs/.auto-update-silent` (the first
-and latest unanswered tick, epoch seconds) and counted only across ticks that really asked: a gap of more than 15
-minutes between two unanswered ticks (a closed lid, a timer that did not fire, a checkout that failed a guard and asked
-nothing, a clock that went backwards) starts it over, so one unanswered tick before an 8-hour sleep and one after is not
-8 hours of silence. At `CICADA_AUTOUPDATE_SILENT_MINUTES` (default 30) of it, and once the checkout guards have passed
-(on `dev`, no tracked changes, fast-forward only; a checkout that fails them restarts nothing), the script sends
-`SIGUSR1` to the backend's own pid (launchd's `pid =` for `com.cicada.backend`, the systemd unit's `MainPID`; never a
-process-name match) so it writes every thread's Python stack to its error log (`api/services/stack_dump.py`), waits 2 s,
-and restarts it through the usual door with or without moved code, logging `backend restarted: it had been silent for N
-minutes`. The normal steps (fetch, fast-forward, dependency sync, app build) run as for any update, and the restart
-clears the record, so a backend that comes back frozen is restarted again only after another full stretch. This bound is deliberately shorter than the release app's (ruling 66: three looks over two hours, and no `running` drain record touched in them), and the script reads no `run.json`; a batch it cuts comes back paused. A `running`
-answer is never interrupted however long the run is, and one timeout still defers (`deferred: Sleep is running (the
-backend has not answered for N of 30 minutes)`). A run the restart cut comes back paused (reason `restart`) by the
-backend's own recovery.
+13 hours with the process alive at 100% CPU. Its accept queue was full, so it **refused** connections at once, every tick
+read that as "nothing is listening", found nothing new on `dev` and said nothing, and the fix already on `dev` never
+landed. **Silence** is now: the service's own process (launchd's `pid =` for `com.cicada.backend`, the systemd unit's
+`MainPID`; never a process-name match) is alive **and holds the port that was asked**, and the ask got no HTTP response
+(curl exit 28 timeout, 7 refused, 52 empty reply, 56 reset). The holder is read with `lsof -nP -a -p PID -iTCP:PORT
+-sTCP:LISTEN -t` (macOS, and Linux when `ss` cannot say) or `ss -H -ltnp 'sport = :PORT'` (Linux). A pid that does not
+hold the port (down, still starting, or on another port than the one asked) is never silence, so a misread port never
+restarts a backend every 30 minutes; with no tool at all (`no ss or lsof` in the log, once) the older reading holds: a
+timeout is silence, a refusal is nothing listening. An HTTP answer of any kind ends the stretch.
+
+| the backend is | the tick |
+|---|---|
+| down (no pid, or a pid holding no listener on the port) | nothing to protect: fetch, fast-forward, install, restart only if backend code moved |
+| answering, idle | the same |
+| answering, busy (`running`, writing, a drain reading, an inbox tidy; an HTTP error) | defers, changes nothing |
+| alive and silent, under the bound | defers like a busy one: no fetch, no fast-forward, no restart (`deferred: Sleep is running (the backend has not answered for N of 30 minutes)`) |
+| alive and silent, past the bound | after the checkout guards: `SIGUSR1` to the pid (its stacks land in its error log), 2 s, restart through the usual door even with no code moved, the stretch cleared |
+| past the bound, but a run record moved | defers and keeps counting (`a run record was written N minutes ago: not restarted`) |
+
+The stretch is kept in `logs/.auto-update-silent` (`<first> <last> <pid>`, epoch seconds, read as decimal) and counted only
+across ticks that really asked: a gap of more than 15 minutes between two unanswered ticks (a closed lid, a timer that
+did not fire, a checkout that failed a guard and asked nothing), a clock that went backwards, or a different pid (someone
+restarted it) starts it over. The bound is `CICADA_AUTOUPDATE_SILENT_MINUTES`, default 30, **floor 10** (a smaller number
+is raised to 10; a non-number is 30). **The run record guard:** the backend writes `$CICADA_HOME/sleep/<bank>/run.json` at the
+start of a run, after every batch commit and at each stop; if any bank's says phase `running` and was written within the
+bound, a consolidation is making progress and the backend is not restarted (the release app's `BackendSilence` reads the
+same file for the same purpose, ruling 66; only the time bound differs). A record that is older, or not `running`, protects
+nothing. A checkout that fails a guard (not on `dev`, tracked changes, diverged) restarts nothing; the normal steps (fetch,
+fast-forward, dependency sync, app build) run as for any update, and a backend that comes back frozen is restarted again
+only after another full stretch. A `running` answer is never interrupted however long the run is. A run the restart cut
+comes back paused (reason `restart`) by the backend's own recovery.
 
 ## The auto-updater on a Linux server (G181)
 
