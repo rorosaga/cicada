@@ -1010,6 +1010,23 @@ def test_a_pid_that_does_not_hold_the_port_asked_is_never_silence(rig, backends,
     assert not _stretch(rig).exists(), "a stretch is never started for a process that is not holding our port"
 
 
+@pytest.mark.parametrize("why", ["no_pid", "pid_holds_nothing"])
+@pytest.mark.parametrize("code", ["28", "52", "56"])
+def test_a_non_refusal_failure_with_no_holder_of_ours_defers_and_never_updates(rig, backends, why, code):
+    """Something is listening and not answering, and it is not our service: only a refusal is "down"."""
+    new = rig.push_change("api/app.py")
+    if why == "pid_holds_nothing":
+        rig.backend_pid = backends("decoy").pid
+        rig.holders = []
+    _refused(rig, code)
+    for _ in range(3):
+        assert _tick(rig, 5).returncode == 0
+    assert f"an ask failed (curl {code}), but no backend process of ours holds port 49177" in rig.log()
+    assert "deferred: Sleep is running" in rig.log()
+    assert rig.head() == rig.base and rig.head() != new and rig.stamp() == rig.base
+    assert _restarts(rig) == 0 and not _stretch(rig).exists()
+
+
 def test_a_refusal_with_no_listener_is_nothing_listening_and_updates_as_before(rig):
     new = rig.push_change("api/app.py")
     _refused(rig)                              # no pid at all
@@ -1141,6 +1158,66 @@ def test_any_banks_running_record_counts_and_an_unreadable_one_does_not(rig, bac
     rig.home.joinpath("sleep/c-333333/run.json").unlink()
     _tick(rig, 5)
     assert _restarts(rig) == 1
+
+
+def _frozen_with_unreadable_records(rig: Rig, backends) -> Listener:
+    backend = backends("backend")
+    rig.backend_pid = backend.pid
+    _frozen_until_the_last_tick(rig)
+    return backend
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any folder")
+def test_a_run_record_that_cannot_be_opened_defers_and_never_restarts(rig, backends):
+    """A failed read is not "no record protects": a consolidation making progress must not be cut on a guess."""
+    backend = _frozen_with_unreadable_records(rig, backends)
+    f = _run_record(rig, "running", 1, at=rig.now + 5 * MIN)
+    f.parent.chmod(0o000)
+    try:
+        assert _tick(rig, 5).returncode == 0
+        assert _restarts(rig) == 0 and backend.never_signalled()
+        assert "the run records could not be read: not restarted" in rig.log()
+        assert rig.head() == rig.base and _stretch(rig).exists()
+    finally:
+        f.parent.chmod(0o755)
+    _tick(rig, 5)                                  # readable again: that record is only 6 minutes old, so it protects
+    assert _restarts(rig) == 0
+    os.utime(f, (rig.now - 40 * MIN, rig.now - 40 * MIN))
+    _tick(rig, 5)
+    assert _restarts(rig) == 1 and backend.signalled()
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any folder")
+def test_an_unreadable_sleep_folder_defers_too(rig, backends):
+    backend = _frozen_with_unreadable_records(rig, backends)
+    _run_record(rig, "running", 1, at=rig.now + 5 * MIN)
+    sleep_dir = rig.home / "sleep"
+    sleep_dir.chmod(0o000)
+    try:
+        assert _tick(rig, 5).returncode == 0
+        assert _restarts(rig) == 0 and backend.never_signalled()
+        assert "the run records could not be read" in rig.log()
+    finally:
+        sleep_dir.chmod(0o755)
+
+
+def test_a_missing_interpreter_for_the_record_reader_defers(rig, backends):
+    backend = _frozen_with_unreadable_records(rig, backends)
+    _run_record(rig, "running", 1, at=rig.now + 5 * MIN)
+    script = rig.repo / "scripts/dev/auto-update.sh"
+    script.write_text(script.read_text().replace("/usr/bin/python3 -c '\nimport json, os, sys", "/nonexistent/python3 -c '\nimport json, os, sys"))
+    assert "/nonexistent/python3" in script.read_text()
+    _git(rig.repo, "update-index", "--assume-unchanged", "scripts/dev/auto-update.sh")   # the guard reads tracked changes
+    assert _tick(rig, 5).returncode == 0
+    assert _restarts(rig) == 0 and backend.never_signalled()
+    assert "the run records could not be read: not restarted" in rig.log()
+
+
+def test_no_sleep_folder_at_all_is_no_record_and_does_not_protect(rig, backends):
+    backend = _frozen_with_unreadable_records(rig, backends)
+    assert not (rig.home / "sleep").exists()
+    _tick(rig, 5)
+    assert _restarts(rig) == 1 and backend.signalled()
 
 
 def test_the_record_is_read_from_the_linux_units_home(linux, backends, tmp_path):

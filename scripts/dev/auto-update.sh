@@ -42,7 +42,10 @@
 #   case                                         | the tick
 #   ---------------------------------------------+-----------------------------------------------------------
 #   down (no pid, or the pid holds no listener   | nothing to protect: fetch, fast-forward, install as for any
-#     on the port; a refusal)                    | update, restart only if backend code moved; the stretch ends
+#     on the port, AND the ask was refused)      | update, restart only if backend code moved; the stretch ends
+#   something else holds the port (a timeout,    | defers, changes nothing, the stretch ends and nothing counts
+#     empty reply or reset while the service's   | (`no backend process of ours holds port N`): something is
+#     own pid does not hold it)                  | listening and not answering, and it is not our service
 #   answering idle                               | the same; the stretch ends
 #   answering busy (running, writing, a drain    | defers, changes nothing, the stretch ends
 #     reading, an inbox tidy; an HTTP error)     |
@@ -53,6 +56,8 @@
 #                                                | stretch is cleared: another full bound before a second restart
 #   past the bound, but a run record moved       | defers, keeps counting: a `running` run.json written inside the
 #                                                | last bound means a consolidation is making progress
+#   past the bound, the run records unreadable   | defers, keeps counting (`the run records could not be read`):
+#                                                | never a restart on a guess
 #
 # The stretch is kept in logs/.auto-update-silent as "<first> <last> <pid>" (epoch seconds of the first and the
 # latest unanswered tick, and the backend's pid), because every tick is a fresh process; it is read as decimal, never
@@ -64,7 +69,7 @@
 # The run record: the backend writes $CICADA_HOME/sleep/<bank>/run.json at the start of a run, after every batch
 # commit and at each stop (api/services/sleep_paused.py). If any bank's says phase "running" and was written within
 # the bound, the backend is working, not frozen, and is not restarted (the release app's BackendSilence reads the
-# same file for the same purpose, ruling 66). If it is older, or says anything else, it does not protect.
+# same file for the same purpose, ruling 66). If it is older, or says anything else, it does not protect; if the records cannot be read at all, that is not "none": the tick defers.
 #
 # The checkout guards still come first (a checkout that fails them restarts nothing); fetch, fast-forward,
 # dependency sync and the app build then run as for any update. A "running" answer is never interrupted however long
@@ -209,25 +214,41 @@ except Exception:
     busy = True
 sys.exit(0 if busy else 1)' 2>/dev/null
 }
-# Age in seconds of the newest run record, in any bank, that says phase "running"; empty if none (or unreadable).
-# The same file and test as the release app's BackendSilence.newestRunningRecord (mtime, not a field inside).
+# Age in seconds of the newest run record, in any bank, that says phase "running". Prints one word or number:
+#   <seconds>   the age of the newest `running` record (the file's mtime, as the release app's
+#               BackendSilence.newestRunningRecord reads it, not a field inside)
+#   none        the records were read and none says running (no sleep folder, no run.json, another phase, a file
+#               that is not JSON: the backend writes them whole)
+#   unreadable  the reader could not run or a record could not be opened (a missing interpreter, a folder the job
+#               cannot read): that is NOT "no record protects". The caller defers, as sleep_busy does when it
+#               cannot parse the answer.
 newest_running_record_age() {
   local home="${CICADA_HOME:-$HOME/.cicada}" newest now
   newest="$(/usr/bin/python3 -c '
-import glob, json, os, sys
+import json, os, sys
+root = os.path.join(sys.argv[1], "sleep")
+try:
+    banks = os.listdir(root)
+except FileNotFoundError:
+    print("none"); sys.exit(0)
 best = None
-for f in glob.glob(os.path.join(sys.argv[1], "sleep", "*", "run.json")):
+for bank in banks:
+    f = os.path.join(root, bank, "run.json")
     try:
         with open(f) as fh:
-            rec = json.load(fh)
-        if isinstance(rec, dict) and rec.get("phase") == "running":
-            t = int(os.path.getmtime(f))
-            best = t if best is None or t > best else best
-    except Exception:
-        pass
-if best is not None:
-    print(best)' "$home" 2>/dev/null)" || return 0
-  [[ "$newest" =~ ^[0-9]{1,12}$ ]] || return 0
+            raw = fh.read()
+        t = int(os.path.getmtime(f))
+    except (FileNotFoundError, NotADirectoryError):
+        continue
+    try:
+        rec = json.loads(raw)
+    except ValueError:
+        continue
+    if isinstance(rec, dict) and rec.get("phase") == "running":
+        best = t if best is None or t > best else best
+print("none" if best is None else best)' "$home" 2>/dev/null)" || { printf 'unreadable'; return 0; }
+  if [ "$newest" = none ]; then printf 'none'; return 0; fi
+  [[ "$newest" =~ ^[0-9]{1,12}$ ]] || { printf 'unreadable'; return 0; }
   now="$(date +%s)"
   printf '%s' "$((now - 10#$newest))"
 }
@@ -299,10 +320,17 @@ if [ "${CICADA_AUTOUPDATE_FORCE:-}" != "1" ]; then
       exit 0
     fi
     run_age="$(newest_running_record_age)"
-    if [ -n "$run_age" ] && [ "$run_age" -lt "$SILENT_LIMIT" ]; then
-      log "deferred: Sleep is running (the backend has not answered for $((silent_secs / 60)) minutes, but a run record was written $((run_age / 60)) minutes ago: not restarted)"
-      exit 0
-    fi
+    case "$run_age" in
+      none) ;;
+      unreadable)   # cannot tell whether a consolidation is progressing: never restart on a guess
+        log "deferred: Sleep is running (the backend has not answered for $((silent_secs / 60)) minutes, but the run records could not be read: not restarted)"
+        exit 0 ;;
+      *)
+        if [ "$run_age" -lt "$SILENT_LIMIT" ]; then
+          log "deferred: Sleep is running (the backend has not answered for $((silent_secs / 60)) minutes, but a run record was written $((run_age / 60)) minutes ago: not restarted)"
+          exit 0
+        fi ;;
+    esac
     frozen=1   # the stacks are asked for, and the restart done, only once the checkout guards have passed
   fi
 fi

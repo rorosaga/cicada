@@ -57,8 +57,10 @@ Cicada Local, and from then on a rebuild keeps them. This is a local signature, 
 `auto-update.sh` asks the backend (`GET /sleep/status`, 10 s, the bearer token from `$CICADA_HOME/api_token`, port
 `$CICADA_PORT` or 8000) before it fetches. A running cycle, an open write window, an unfinished drain (paused
 included) or a running inbox tidy (`inboxTidy`, ruling 29) logs `deferred: Sleep is running` and changes nothing — no fast-forward, restart, app build or stamp move; the
-next tick retries. An HTTP error or an unreadable answer is a busy backend too. Only a backend that is **down** (a refusal, empty reply, reset or
-timeout while the service's own process does not hold the port, or there is none) or a missing token proceeds.
+next tick retries. An HTTP error or an unreadable answer is a busy backend too. Only a backend that is **down** (the connection is *refused* and the service's own process either does not exist or holds no
+listener on the port asked) or a missing token proceeds. An empty reply, a reset or a timeout while the service's own process
+does not hold the port defers too (`no backend process of ours holds port N`): something is listening and not answering,
+and it is not our service.
 `CICADA_AUTOUPDATE_FORCE=1` skips the check. The backend restarts only when runtime code moved (`api` outside
 `api/tests`, `mcp`, the dependency files) or when it is frozen (below); a test-only or benchmark-only merge never restarts it.
 
@@ -75,12 +77,14 @@ timeout is silence, a refusal is nothing listening. An HTTP answer of any kind e
 
 | the backend is | the tick |
 |---|---|
-| down (no pid, or a pid holding no listener on the port) | nothing to protect: fetch, fast-forward, install, restart only if backend code moved |
+| down (no pid, or a pid holding no listener on the port, and the ask was refused) | nothing to protect: fetch, fast-forward, install, restart only if backend code moved |
+| something else holds the port (a timeout, empty reply or reset while the service's own pid does not hold it) | defers, changes nothing, the stretch ends and nothing counts (`an ask failed (curl N), but no backend process of ours holds port P`) |
 | answering, idle | the same |
 | answering, busy (`running`, writing, a drain reading, an inbox tidy; an HTTP error) | defers, changes nothing |
 | alive and silent, under the bound | defers like a busy one: no fetch, no fast-forward, no restart (`deferred: Sleep is running (the backend has not answered for N of 30 minutes)`) |
 | alive and silent, past the bound | after the checkout guards: `SIGUSR1` to the pid (its stacks land in its error log), 2 s, restart through the usual door even with no code moved, the stretch cleared |
 | past the bound, but a run record moved | defers and keeps counting (`a run record was written N minutes ago: not restarted`) |
+| past the bound, the run records cannot be read | defers and keeps counting (`the run records could not be read`): a failed read is never "no record protects" |
 
 The stretch is kept in `logs/.auto-update-silent` (`<first> <last> <pid>`, epoch seconds, read as decimal) and counted only
 across ticks that really asked: a gap of more than 15 minutes between two unanswered ticks (a closed lid, a timer that
@@ -90,7 +94,7 @@ is raised to 10; a non-number is 30). **The run record guard:** the backend writ
 start of a run, after every batch commit and at each stop; if any bank's says phase `running` and was written within the
 bound, a consolidation is making progress and the backend is not restarted (the release app's `BackendSilence` reads the
 same file for the same purpose, ruling 66; only the time bound differs). A record that is older, or not `running`, protects
-nothing. A checkout that fails a guard (not on `dev`, tracked changes, diverged) restarts nothing; the normal steps (fetch,
+nothing; records that cannot be read at all (no interpreter, a folder the job cannot open) are not "none": the tick defers. A checkout that fails a guard (not on `dev`, tracked changes, diverged) restarts nothing; the normal steps (fetch,
 fast-forward, dependency sync, app build) run as for any update, and a backend that comes back frozen is restarted again
 only after another full stretch. A `running` answer is never interrupted however long the run is. A run the restart cut
 comes back paused (reason `restart`) by the backend's own recovery.
