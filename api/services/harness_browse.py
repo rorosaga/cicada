@@ -12,11 +12,20 @@ and in what the session holds, never in the prompt alone; this module is the cod
 * **Only addresses that are given, never built** (:func:`given_for`): a source the page already tracks (ruling 54a: a page's Where
   to check is where a private person is learned about) on a connected site, and the connected site's own search page for the
   question's own name, built here from a per-site template. The helper adds the links of a page this run opened, on that page's
-  own host. The session never makes an address.
+  own host, **only when the decoded path matches the site's allow pattern** (:data:`PROFILES`: a public profile or about page of an
+  account; a site with no entry, and a site where viewing tells the person viewed, follows none). The session never makes an address.
+* **No request leaves the site** (the helper's browser-side interception, `read_browser`): the grant carries each connected site's
+  domains and its own static hosts (:data:`PROFILES`); every request the tab makes, at every hop, to anything else is failed before it
+  is sent.
 * **A bounded number of opens** per question (:data:`MAX_OPENS`) and a few sessions per run (:data:`PER_RUN`).
 * **Only when the person's own browser is already reachable** (:func:`daemon_ready`): the helper never starts a browser, so with no
   daemon the compartment is skipped, in words, and the question is worked without it. What would make it dependable is the app
   starting the browser session; that is the next slice.
+
+**What remains** (`mcp.md`, "What remains, said plainly"): which page is opened still carries up to log2(:data:`harness_browse.MAX_LINKS`) bits a followed
+open (:data:`MAX_FOLLOWED` a question, :data:`PER_RUN` sessions a run: 10.3 bits a run at most), through per-account view data the site shows
+the account's owner; a `<link rel=prerender>` or a preconnect in raw HTML on the site's own page is made by the browser outside the tab's
+loader. Nothing the session read ever reaches an address.
 
 Nothing a private session read is ever put in this session's brief and nothing this session read is put in another's; what it
 returns goes only to Cicada's code as evidence items, checked like every other (`harness_agent.verify`, `harness_questions`).
@@ -25,6 +34,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -53,9 +63,54 @@ SEARCH = {
     "goodreads": "https://www.goodreads.com/search?q={q}",
     "youtube": "https://www.youtube.com/results?search_query={q}",
 }
-#: Sites whose profile pages tell the person viewed that someone looked: their links are never followed (a search page is read, a
-#: profile only when the page already tracks it as a source).
-NO_FOLLOW = ("linkedin",)
+@dataclass(frozen=True)
+class Profile:
+    """What this compartment is FOR on one site: answering "who or what is this account or organisation" from its public profile or about
+    page. ``patterns`` are regular expressions over the decoded path (no query, nothing encoded: `read_browser.follow_reason`); a link of
+    a page the run opened is followed only when its path fully matches one and its first segment is not in ``reserved`` (a feature of the
+    site that looks like an account name). ``viewer_visible`` marks a site where merely viewing a profile or a story tells the person
+    viewed (or counts toward a list they see): **nothing there is followed, and a profile opens only as an address the person's own page
+    already tracks as a source**. ``assets`` are the site's own static hosts, the only other hosts a script, style, font or XHR may
+    reach. The person's own private areas (messages, bookmarks, history, feeds, notifications, settings, stories) are refused by the
+    helper's second layer whatever the table says; this compartment never reads the person's lists (ruling 30; saves are another reader's)."""
+    patterns: tuple[str, ...]
+    reserved: tuple[str, ...] = ()
+    viewer_visible: bool = False
+    assets: tuple[str, ...] = ()
+
+
+_X_RESERVED = ("home", "explore", "search", "notifications", "messages", "i", "settings", "compose", "login", "logout", "signup", "tos",
+               "privacy", "bookmarks", "lists", "communities", "jobs", "premium", "hashtag", "intent", "share", "account", "following",
+               "followers", "verified", "about", "download", "oauth", "flow", "help", "rules", "business")
+#: Per-site allow patterns, beside the per-site search templates. A site with no entry follows no link at all. Marked **viewer_visible**
+#: and why: LinkedIn (a profile view is shown to the viewed person and counts toward their "who viewed"), Instagram and Facebook (a
+#: story view is listed to the person whose story it is, and a profile open can start one), TikTok (profile views are a list its
+#: owner may see). The static hosts are unmeasured against the live sites: one that is wrong only means a script from it is not loaded and
+#: the page is read as it renders, or left.
+PROFILES: dict[str, Profile] = {
+    "x": Profile((r"/[A-Za-z0-9_]{1,15}",), _X_RESERVED, assets=("abs.twimg.com",)),
+    "reddit": Profile((r"/(?:user|u)/[A-Za-z0-9_-]{3,20}", r"/r/[A-Za-z0-9_]{2,21}"), assets=("redditstatic.com",)),
+    "pinterest": Profile((r"/[a-z0-9_]{3,30}",), ("search", "pin", "ideas", "today", "settings", "business", "login", "logout", "news_hub",
+                                                  "explore", "shop", "videos", "watch", "about", "help", "_"), assets=("s.pinimg.com",)),
+    "substack": Profile((r"/@[A-Za-z0-9_.-]{2,40}", r"/about", r"/"), assets=("substackcdn.com",)),
+    "youtube": Profile((r"/@[A-Za-z0-9_.-]{3,30}(?:/about)?", r"/channel/UC[A-Za-z0-9_-]{22}(?:/about)?"),
+                       assets=("gstatic.com", "ytimg.com")),
+    "goodreads": Profile((r"/author/show/\d{1,12}(?:\.[A-Za-z0-9_-]{1,60})?",), assets=("gr-assets.com",)),
+    "spotify": Profile((r"/artist/[A-Za-z0-9]{22}",), assets=("scdn.co",)),
+    "linkedin": Profile((r"/in/[A-Za-z0-9-]{3,100}", r"/company/[A-Za-z0-9-]{2,100}(?:/about)?"), viewer_visible=True, assets=("licdn.com",)),
+    "instagram": Profile((r"/[A-Za-z0-9._]{1,30}",), ("explore", "accounts", "direct", "stories", "reels", "p", "tv", "about", "legal"),
+                         viewer_visible=True, assets=("cdninstagram.com",)),
+    "facebook": Profile((r"/[A-Za-z0-9.]{5,50}",), ("watch", "marketplace", "groups", "pages", "events", "gaming", "login", "help", "stories",
+                                                    "messages", "friends", "bookmarks", "settings", "policies"), viewer_visible=True,
+                        assets=("fbcdn.net",)),
+    "tiktok": Profile((r"/@[A-Za-z0-9_.]{2,24}",), viewer_visible=True, assets=("ttwstatic.com",)),
+}
+#: A site where viewing tells the person viewed: kept as the names of such sites (the same set, derived).
+NO_FOLLOW = tuple(sorted(k for k, v in PROFILES.items() if v.viewer_visible))
+#: The shapes a tracked source of a site with an entry may take besides its profile patterns: none. A source that is not a profile or about
+#: page of an account (a post, a feed, a list) is not given: the person's page tracks it for another reader.
+MAX_FOLLOWED = 2
+
 #: A site key's domains when it is not a walled family (those are `reading_hosts.WALLED_DOMAINS`).
 EXTRA_DOMAINS = {"youtube": ("youtube.com",), "substack": ("substack.com",), "spotify": ("spotify.com",),
                  "goodreads": ("goodreads.com",), "pinterest": ("pinterest.com",)}
@@ -76,11 +131,23 @@ def site_domains(site: str) -> tuple[str, ...]:
     return reading_hosts.WALLED_DOMAINS.get(site) or EXTRA_DOMAINS.get(site) or (site,)
 
 
+def signed_in_switch() -> bool:
+    """This device's switch for this compartment alone (``CICADA_HARNESS_SIGNED_IN``, beside the agent's own ``CICADA_HARNESS_AGENT``;
+    on by default, ruling 84), **read fresh** every time it is asked: a person who turns it off stops the next session, the agent's
+    other compartments untouched. A settings file that cannot be read counts as off."""
+    try:
+        from api import config
+
+        return bool(config.Settings().harness_signed_in)
+    except Exception:  # noqa: BLE001 - an unreadable setting is never "on"
+        return False
+
+
 def connected_sites() -> dict[str, tuple[str, ...]]:
     """``{site: its domains}`` for the sites the person connected for reading with their own browser: ``agent_sites``, the saved lists
     (``x-likes`` is X), the YouTube and Substack lists. Empty when the master switch is off, when they turned off the use of their
     signed-in session, and for a site they said never to explore, a private workspace or a vendor's own host (`reading_hosts.classify`)."""
-    if not reading_settings.agent_enabled() or not reading_settings.explore_signed_in():
+    if not signed_in_switch() or not reading_settings.agent_enabled() or not reading_settings.explore_signed_in():
         return {}
     keys = set(reading_settings.allowed_sites())
     keys |= {k.split("-")[0] for k in reading_settings.saved_lists()}
@@ -129,15 +196,43 @@ def tracked_urls(memory_path: Path, page_ids: tuple[str, ...]) -> list[str]:
     return out
 
 
+def site_key_of(host: str) -> str:
+    """The table's key for a host (``x`` for ``x.com``), or ``""``."""
+    for key in PROFILES:
+        if read_browser.on_domain(host, list(site_domains(key))):
+            return key
+    return ""
+
+
+def source_reason(url: str) -> str:
+    """Why a tracked source is not given to the session (``""`` when it is): not an address the person's own browser should open for
+    this compartment. Never an action or a private area (the helper's second layer, decoded), and on a site with an entry in
+    :data:`PROFILES` only a public profile or about page of an account (the same patterns a followed link must match): a post, a feed,
+    a list or an address of the person's own areas is another reader's, not this one's."""
+    if read_browser.action_reason(url):
+        return "an action or a private area"
+    key = site_key_of(read_browser._host(url))
+    if not key:
+        return ""
+    parts = urllib.parse.urlsplit(url)
+    path = read_browser.decoded(parts.path).rstrip("/") or "/"
+    profile = PROFILES[key]
+    if path.split("/")[1:2] and path.split("/")[1].lower() in {r.lower() for r in profile.reserved}:
+        return "a feature of the site, not an account"
+    if not any(re.fullmatch(p, path, re.I | re.A) for p in profile.patterns):
+        return "not a profile or about page"
+    return ""
+
+
 def given_for(memory_path: Path, page_ids: tuple[str, ...], names: list[str], sites: dict[str, tuple[str, ...]], *,
               limit: int = MAX_GIVEN) -> list[Given]:
-    """The addresses the session may open first: a tracked source on a connected site, then each connected site's own search page for
-    the question's own name (the first name given: the page's title). At most ``limit``; never an address built from anything a
-    session read."""
+    """The addresses the session may open first: a tracked source on a connected site (that is a public profile or about page, never a
+    private area), then each connected site's own search page for the question's own name (the first name given: the page's title).
+    At most ``limit``; never an address built from anything a session read."""
     domains = [d for ds in sites.values() for d in ds]
     out: list[Given] = []
     for url in tracked_urls(memory_path, page_ids):
-        if read_browser.on_domain(read_browser._host(url), domains) and not read_browser.action_reason(url):
+        if read_browser.on_domain(read_browser._host(url), domains) and not source_reason(url):
             out.append(Given(url, "source"))
     name = next((n for n in names if " ".join(str(n or "").split())), "")
     for site in sites:
@@ -163,12 +258,24 @@ def harness_path() -> str:
 
 
 def grant_dict(sites: dict[str, tuple[str, ...]], given: list[Given], *, harness: str = "", harness_env: dict | None = None,
-               max_opens: int = MAX_OPENS, loopback_for_test: bool = False) -> dict:
-    """What the helper is granted for one question: written by this code only, read by the helper only. ``loopback_for_test`` is for
-    Cicada's own tests and battery (pages on localhost); nothing a setting or a request says reaches it."""
-    return {"v": 1, "domains": sorted({d for ds in sites.values() for d in ds}), "given": [{"url": g.url, "origin": g.origin} for g in given],
-            "max_opens": max_opens, "no_follow": sorted({d for s in NO_FOLLOW for d in sites.get(s, ())}),
-            "harness": harness, "loopback_for_test": bool(loopback_for_test)}
+               max_opens: int = MAX_OPENS, loopback_for_test: bool = False, names: list[str] | None = None, timeout_s: float | None = None) -> dict:
+    """What the helper is granted for one question: written by this code only, read by the helper only. ``loopback_for_test`` (and the
+    shorter ``timeout_s`` it alone honours) is for Cicada's own tests and battery (pages on localhost); nothing a setting or a request
+    says reaches it. ``sites`` lists each connected site's domains and its own static hosts; ``follow`` carries, for each connected site
+    whose entry in :data:`PROFILES` allows following, the patterns a followed link's decoded path must match (a site with no entry, or
+    one where viewing tells the person viewed, has none: nothing is followed); ``names`` are what the question is about."""
+    per_site = []
+    follow = []
+    for site, domains in sites.items():
+        entry = PROFILES.get(site)
+        per_site.append({"site": site, "domains": sorted(domains), "assets": list(entry.assets) if entry else []})
+        if entry is not None and not entry.viewer_visible:
+            follow.append({"domains": sorted(domains), "patterns": list(entry.patterns), "reserved": list(entry.reserved)})
+    return {"v": 2, "domains": sorted({d for ds in sites.values() for d in ds}), "sites": per_site, "follow": follow,
+            "given": [{"url": g.url, "origin": g.origin} for g in given], "max_opens": max_opens, "max_followed": MAX_FOLLOWED,
+            "names": [" ".join(str(n).split())[:80] for n in (names or []) if str(n).strip()][:3],
+            "harness": harness, "loopback_for_test": bool(loopback_for_test),
+            **({"timeout_s": float(timeout_s)} if timeout_s else {})}
 
 
 def launcher_text(grant_path: str, state_path: str, harness_env: dict | None = None) -> str:
@@ -203,11 +310,13 @@ def write_setup(base: Path, grant: dict, harness_env: dict | None = None) -> Set
     return Setup(str(launcher), str(grant_path), str(state_path), dict(harness_env or {}))
 
 
-def daemon_ready(harness_env: dict | None = None, harness: str = "") -> tuple[bool, str]:
-    """``(ready, why not)``: is the person's own browser-harness daemon already running and answering? Never starts one."""
+def daemon_probe(harness_env: dict | None = None, harness: str = "") -> tuple[bool, str, str]:
+    """``(ready, why not, the daemon's name)``: is the person's own browser-harness daemon already running and answering, and under
+    which name (``BU_NAME``, ``default`` when unset)? Never starts one. The name goes in the audit: on a machine where other agents run
+    a daemon of the default name may be attached to a scratch or test browser, which this cannot tell apart; it only says which answered."""
     path = harness or harness_path()
     if not path:
-        return False, "the browser harness is not installed"
+        return False, "the browser harness is not installed", ""
     with tempfile.TemporaryDirectory(prefix="cicada-browse-probe-") as tmp:
         grant_file = Path(tmp) / "grant.json"
         grant_file.write_text(json.dumps({"harness": path}), encoding="utf-8")
@@ -218,9 +327,16 @@ def daemon_ready(harness_env: dict | None = None, harness: str = "") -> tuple[bo
             proc = subprocess.run([sys.executable, str(Path(read_browser.__file__).resolve()), "status"], capture_output=True, text=True,
                                   timeout=25.0, env=env)
         except (OSError, subprocess.TimeoutExpired):
-            return False, "the browser did not answer in time"
-    line = (proc.stdout or "").strip().splitlines()[-1:] or [""]
-    return (True, "") if line[0] == "ready" else (False, line[0].removeprefix("unavailable: ") or "no browser answered")
+            return False, "the browser did not answer in time", ""
+    lines = (proc.stdout or "").strip().splitlines() or [""]
+    name = next((ln.removeprefix("daemon: ").strip()[:40] for ln in lines if ln.startswith("daemon: ")), "")
+    return (True, "", name or "default") if lines[0] == "ready" else (False, lines[0].removeprefix("unavailable: ") or "no browser answered", "")
+
+
+def daemon_ready(harness_env: dict | None = None, harness: str = "") -> tuple[bool, str]:
+    """``(ready, why not)`` of :func:`daemon_probe`."""
+    ready, why, _name = daemon_probe(harness_env, harness)
+    return ready, why
 
 
 def close_tabs(setup: Setup) -> None:

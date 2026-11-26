@@ -245,6 +245,8 @@ class Session:
     scan: dict = field(default_factory=dict)
     #: A signed-in session: the helper's own record of the addresses it opened, in order (``{url, host, how}``).
     opened: list = field(default_factory=list)
+    #: A signed-in session: the name of the browser-harness daemon that answered (said in the stored audit).
+    daemon: str = ""
 
     @property
     def audit(self) -> list[dict]:

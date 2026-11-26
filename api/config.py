@@ -282,6 +282,9 @@ class Settings(BaseSettings):
     # Ruling 84 (owner 2026-11-25): Cicada's own agent works open questions with the person's files, the web and their browser
     # on plan runs. The one switch; `harness_agent`, `harness_questions`.
     harness_agent: bool = True                 # CICADA_HARNESS_AGENT
+    # The agent's third compartment alone (reading through the person's signed-in browser, `harness_browse`): this device's own switch,
+    # read fresh by `harness_browse.signed_in_switch`, so the person can turn it off without turning the agent off. On by default (ruling 84).
+    harness_signed_in: bool = True             # CICADA_HARNESS_SIGNED_IN
     # Owner ruling 44 (2026-10-27, G121): light web context for public pages on Sleep's tail — at most this many
     # lookups a run (one plan web-search call each, plus at most `web_context.WIKIDATA_BUDGET` public-test lookups);
     # 0 turns the step off. Plan only: a metered key is never spent here. `web_context`.

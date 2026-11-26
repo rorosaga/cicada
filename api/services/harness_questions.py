@@ -126,6 +126,10 @@ class Browse:
     why: str = ""
     sessions_left: int = 0
     harness: str = ""
+    #: The name of the browser-harness daemon that answered (``BU_NAME``, ``default`` when unset): said in the audit.
+    daemon: str = ""
+    #: A shorter harness-call limit, for the battery's forced timeout only (honoured with ``loopback_for_test`` alone).
+    timeout_s: float | None = None
 
     def __post_init__(self) -> None:
         self.sessions_left = self.sessions_left or hb.PER_RUN
@@ -146,7 +150,7 @@ class Browse:
                 self.ready, self.why = False, "no_connected_site"
             else:
                 self.harness = self.harness or harness_browse.harness_path()
-                self.ready, self.why = harness_browse.daemon_ready(self.harness_env, self.harness)
+                self.ready, self.why, self.daemon = harness_browse.daemon_probe(self.harness_env, self.harness)
         return bool(self.ready)
 
 
@@ -667,12 +671,33 @@ def stored_where(e: ha.Evidence, brief: Brief) -> str:
 def _template_reason(prefix: str, evidence: list[ha.Evidence], brief: Brief, limit: int = 160) -> str:
     """A reason built by code from the located quote: the session's own explanation is never written anywhere."""
     e = evidence[0]
+    if brief.compartment == ha.SIGNED_IN:
+        prefix = f"Read {SIGNED_IN_WORDS} at"
     text = f"{prefix} {label_of(e, brief)}: \"{e.quote}\""
     return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
 
 
+#: How a read in the person's signed-in browser is said wherever it is stored (the citation's reason, a note, the episode, the evidence
+#: record): a later reader must know what kind of evidence it is, the person's own signed-in session and not the public page.
+SIGNED_IN_WORDS = "in the person's signed-in browser"
+
+
+def _via(brief: Brief) -> dict:
+    return {"read_in": "signed_in_browser"} if brief.compartment == ha.SIGNED_IN else {}
+
+
+def _evidence_record(e: ha.Evidence, brief: Brief) -> dict:
+    return {"where": stored_where(e, brief), "quote": e.quote, **_via(brief)}
+
+
 def _note_text(evidence: list[ha.Evidence], brief: Brief) -> str:
-    return "Cicada's agent read: " + " | ".join(f"{label_of(e, brief)}: \"{e.quote}\"" for e in evidence)[:560]
+    return (f"Cicada's agent read {SIGNED_IN_WORDS}: " if brief.compartment == ha.SIGNED_IN else "Cicada's agent read: ") + " | ".join(f"{label_of(e, brief)}: \"{e.quote}\"" for e in evidence)[:560]
+
+
+def _scrub_changes(text: str) -> bool:
+    from api.services import episode_scrub
+
+    return episode_scrub.scrub(text)[1] > 0
 
 
 def _allowed(e: ha.Evidence, brief: Brief) -> bool:
@@ -681,6 +706,8 @@ def _allowed(e: ha.Evidence, brief: Brief) -> bool:
     question's conversation copies)."""
     if hf.looks_like_key(e.quote) or hf.looks_like_key(e.where):
         return False
+    if e.kind == "address" and _scrub_changes(e.quote):
+        return False       # a page's words are stored only when the episode scrubber would leave them as they are (a code, a credential)
     if brief.compartment == ha.SIGNED_IN:
         return e.kind == "address" and hb.on_connected(e.where, brief.domains)      # a page of a connected site, as the helper read it
     if brief.compartment == ha.WEB:
@@ -737,11 +764,12 @@ def decide(brief: Brief, answer: dict | None, session: ha.Session, fm: dict) -> 
 
 def _decide_signed_in(brief: Brief, answer: dict, session: ha.Session) -> Verdict:
     """What a page of a connected site may do. **A clarification** (who or what a named account or page is) settles, as a citation, only
-    when one sentence of the page's own text presents the answer as what the name is (the same gate as every other source) AND the page
-    is one the memory already tracks as where to check, or a page the session reached from another (a profile), never a search results
-    page alone, and for a person's page only the tracked source (a name alone, on a list of results, is not who). Anything less is a note.
-    **A pair is only ever a note**: a site's page can say who each name is, never that two are one (or not): the person's tap, or
-    conversations, decide that. Never anything about the person's own life: the owner's own page is never worked here."""
+    when one sentence of the page's own text presents the answer as what the name is (the same gate as every other source) AND the
+    address is **a source the memory already lists for that page** (origin ``source``: the person's own, one they took, one Cicada's read
+    confirmed). Everything else is a note attached to the question: the site's search page, and any link the session followed, show text
+    anyone can write (a bio, a post, a display name), so it is never what settles. **A pair is only ever a note**: a site's page can say
+    who each name is, never that two are one (or not): the person's tap, or conversations, decide that. Never anything about the person's
+    own life: the owner's own page is never worked here."""
     if answer.get("status") == "needs_login":
         return Verdict("left", why="needs_login")
     evidence, why = ha.verify(answer, session)
@@ -758,8 +786,7 @@ def _decide_signed_in(brief: Brief, answer: dict, session: ha.Session) -> Verdic
         span = ha.presents_as(e.quote, brief.names, text) if text else None
         if not span:
             continue
-        settles = e.origin == "source" or (brief.ptype != "person" and e.origin != "search")
-        if settles:
+        if e.origin == "source":
             return Verdict("settle", span[:120], [e], _template_reason("Read in", [e], brief), dropped=dropped)
         return Verdict("note", span, [e], note=_note_text([e], brief), dropped=dropped)
     return Verdict("left", evidence=evidence, why="quote_does_not_say_it", dropped=dropped)
@@ -811,6 +838,9 @@ def _trail(sessions: list[ha.Session], brief: Brief | None = None) -> list[dict]
             host = (urllib.parse.urlsplit(call.what).hostname or "") if call.kind == "page" else ""
             out.append({"tool": call.kind, "what": what[:300], "in": s.compartment, **({"host": host} if host else {}),
                         **({"how": call.how} if call.how else {}), **({"denied": True} if call.denied else {})})
+        if s.daemon and s.compartment == ha.SIGNED_IN:
+            out.insert(len(out) - len(s.calls), {"tool": "daemon", "what": f"read through the browser-harness daemon named '{s.daemon}'"[:120],
+                                                 "in": s.compartment})
         if s.stopped and not s.calls:
             out.append({"tool": "skip", "what": ha.STOPPED_WORDS.get(s.stopped, s.stopped), "in": s.compartment})
             continue
@@ -843,10 +873,11 @@ def _found_episode(memory_path: Path, brief: Brief, evidence: list[ha.Evidence],
 
     from api.services import episode_ids, episode_scrub, reading_hosts
 
-    lines = [f"assistant: Looked into {brief.name} with Cicada's agent.", ""]
+    lines = [f"assistant: Looked into {brief.name} with Cicada's agent" + (f", reading {SIGNED_IN_WORDS}." if brief.compartment == ha.SIGNED_IN else "."), ""]
     for e in evidence:
         host = (reading_hosts.display_host(reading_hosts.host_of(e.where)) if e.kind == "address" else "file") or "page"
-        lines += [f"attachment [{host}]: as Cicada's agent read it at {stored_where(e, brief)}", f"> {e.quote}"]
+        how = f"as Cicada's agent read it {SIGNED_IN_WORDS} at" if brief.compartment == ha.SIGNED_IN else "as Cicada's agent read it at"
+        lines += [f"attachment [{host}]: {how} {stored_where(e, brief)}", f"> {e.quote}"]
     # Every episode writer scrubs (R-LS6): what a page or a file said goes through the same scrubber as a capture,
     # after the key-shaped drop in `harness_files`, so a secret a quote still carries never reaches the bank.
     body, scrubbed = episode_scrub.scrub("\n".join(lines))
@@ -885,8 +916,7 @@ async def settle(memory_path: Path, settings, brief: Brief, fm: dict, verdict: V
         episode = await asyncio.to_thread(_found_episode, memory_path, brief, verdict.evidence, model)
         d = inbox_tend.Decision(brief.item_id, brief.kind, ha.RULE, request, answer=words, model=model,
                                 fingerprint=fingerprint, guard=guard, reason=verdict.why[:inbox_tend.MAX_REASON_CHARS],
-                                found={"episode": episode, "evidence": [{"where": stored_where(e, brief), "quote": e.quote}
-                                                                        for e in verdict.evidence],
+                                found={"episode": episode, "evidence": [_evidence_record(e, brief) for e in verdict.evidence],
                                        "trail": _trail(sessions, brief)})
         ok = False
         try:
@@ -912,7 +942,7 @@ def _write_note(memory_path: Path, brief: Brief, verdict: Verdict, sessions: lis
         parsed = markdown_parser.parse(path)
         fm = dict(parsed.frontmatter)
         fm["agent_found"] = {"at": date.today().isoformat(), "note": verdict.note[:600],
-                             "evidence": [{"where": stored_where(e, brief), "quote": e.quote} for e in verdict.evidence],
+                             "evidence": [_evidence_record(e, brief) for e in verdict.evidence],
                              "trail": _trail(sessions, brief), **({"mixed": verdict.mixed} if verdict.mixed else {})}
         before = git_service.snapshot_dirty_sync(memory_path)
         markdown_parser.write(path, fm, parsed.body)
@@ -1023,7 +1053,8 @@ async def _session(memory_path: Path, settings, path: Path, fm: dict, compartmen
             if not given:
                 return None, None, "nothing_to_open"      # no tracked source and no site with a search page of its own
             setup = hb.write_setup(base, hb.grant_dict(sites, list(given), harness=browse.harness, harness_env=browse.harness_env,
-                                                       loopback_for_test=browse.loopback_for_test), browse.harness_env)
+                                                       loopback_for_test=browse.loopback_for_test, names=names,
+                                                       timeout_s=browse.timeout_s if browse.loopback_for_test else None), browse.harness_env)
             browse_record = ha.register_browse(setup)
             launcher = os.path.realpath(setup.launcher)
         brief = await asyncio.to_thread(brief_for, memory_path, path, fm, compartment, public=public, roots=grant.roots,
@@ -1045,6 +1076,7 @@ async def _session(memory_path: Path, settings, path: Path, fm: dict, compartmen
                                           folders=grant.roots, copies_dir=files_dir)
         session.compartment = compartment
         if setup is not None:
+            session.daemon = browse.daemon if browse is not None else ""
             session.opened = hb.opened_addresses(setup.state)      # the helper's own record of what it opened, in order
         return brief, session, ""
     finally:
@@ -1113,6 +1145,9 @@ async def work_one(memory_path: Path, settings, path: Path, fm: dict, model: str
             break
         verdict = decide(b, session.answer, session, fm)
         out.audit += [{**line, "in": compartment} for line in session.audit]
+        if compartment == ha.SIGNED_IN and session.daemon:
+            out.audit.insert(len(out.audit) - len(session.audit), {"tool": "daemon", "in": compartment,
+                                                                   "what": f"read through the browser-harness daemon named '{session.daemon}'"})
         out.results += [{"what": c.what[-60:], "denied": c.denied, "error": c.error, "result": c.result[:120]} for c in session.calls]
         out.denied += len(session.denied)
         out.dropped += verdict.dropped

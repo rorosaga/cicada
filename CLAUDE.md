@@ -453,8 +453,8 @@ when a *rail* changes (an invariant, a ruling, a boundary), in one or two lines 
 - **Cicada's own agent (ruling 84, 2026-11-25; amends 54 and 44's name guard for it alone):** a harness session on the
   Claude plan, after the cycle and outside Sleep's window, works a few open questions read-only in **compartments that
   never meet**: private (files, masked conversation copies; no web, no shell, never the bank), web (search, fetch; no file
-  tool) and signed-in (the person's own browser: only sites they connected, only given addresses, one launcher command, only
-  while their browser already runs). It finds, **Cicada's code writes**: located evidence read by sentence, one
+  tool) and signed-in (the person's own browser: only connected sites, given addresses or allow-pattern profile links, no request leaves the site, one
+  launcher command, only while their browser runs; `CICADA_HARNESS_SIGNED_IN` turns it off alone). It finds, **Cicada's code writes**: located evidence read by sentence, one
   `found_by_agent` settle, undoable, no session words stored; only document kinds in folders granted by what they are,
   nothing key-shaped stored (`harness_files`, `mcp.md`).
 - **Reading with the person's own agent (G166):** Cicada's backend never spawns a browser and never signs in to a site; it only asks
@@ -588,8 +588,7 @@ is revisited only on the trigger its row names.
 **Testers install a release** with `scripts/install-release.sh` (curl | bash; G182) — releases, the signing key and
 the later Developer ID steps are in [`docs/RELEASING.md`](docs/RELEASING.md). From source:
 `install.sh` is the source of truth; `install.md` is the paste-into-your-agent path for a fresh Mac
-(clone → `./install.sh` → `make install-app` → open the app; G76), and it never loops `make doctor`.
-The rest of the paste-prompt install story is G76 in the backlog.
+(clone → `./install.sh` → `make install-app` → open the app; G76).
 `scripts/install-backend-agent.sh` is the one source of the `com.cicada.backend` plist (`install.sh` calls it; the app
 runs it from Settings → General, G143). The app's switch is the supported login item. **A release app (G182) carries its own backend** and every agent, hook and plist runs the
 `~/.cicada/bin` launchers it rewrites on launch — never a path inside the app; a developer build is unchanged
