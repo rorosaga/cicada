@@ -33,6 +33,12 @@ struct BeliefKey: Hashable, Identifiable {
 }
 
 enum EntityHeaderWords {
+    /// A list's own page (a list of saved things, `media.kind: list`) is a container, not a belief: "Active · fairly
+    /// confident" says nothing about it, so its header carries no status line (2026-11-26).
+    static func saysStatus(of entity: Entity) -> Bool {
+        !(entity.media?.isList ?? false)
+    }
+
     /// R-DG14 — the mock's four steps; 0.85 and up is "very confident".
     static func confidence(_ value: Double) -> String {
         switch value {
