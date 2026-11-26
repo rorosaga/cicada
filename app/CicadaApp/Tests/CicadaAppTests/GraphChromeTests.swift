@@ -135,6 +135,12 @@ final class GraphChromeTests: XCTestCase {
         XCTAssertEqual(GraphDismiss.escape(S(legendOpen: true, readerOpen: true, entityOpen: true)), .closeLegend)
         XCTAssertEqual(GraphDismiss.escape(S(readerOpen: true, entityOpen: true)), .closeReader)
         XCTAssertEqual(GraphDismiss.escape(S(entityOpen: true)), .closeEntity)
+        XCTAssertEqual(GraphDismiss.escape(S(entityOpen: true, bubbleOpen: true)), .closeEntity)
+        XCTAssertEqual(GraphDismiss.escape(S(bubbleOpen: true)), .closeBubble, "an open list bubble closes last")
+        XCTAssertEqual(GraphDismiss.backgroundClick(S(bubbleOpen: true)), .none, "a click inside an open bubble never closes it")
+        XCTAssertEqual(GraphDismiss.backgroundClick(S(bubbleOpen: true), outsideBubble: true), .closeBubble)
+        XCTAssertEqual(GraphDismiss.backgroundClick(S(entityOpen: true, bubbleOpen: true), outsideBubble: true), .closeEntity,
+                       "outside the bubble, the column closes before it")
         XCTAssertEqual(GraphDismiss.escape(S()), .none)
     }
 

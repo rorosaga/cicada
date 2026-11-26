@@ -479,7 +479,8 @@ def test_with_the_constant_off_nothing_is_stored_and_no_record_is_made(bank):
     saved_posts.stamp(bank.root)
     saved_posts.drawn_as_page(bank.root, "media-row", {"type": "media"})
     saved_posts.filter_related(bank.root, "## Related\n- [[media row]]\n")
-    graph_builder.build_graph(bank.root)
+    # The graph is no longer dark: its list bubbles (G247) fold by `list_pages.groups`, which reads the earned set
+    # whatever this constant says, so a graph build is not one of the dark readers any more.
     assert saved_posts._DIGESTS.get(str(bank.root)) is None
     saved_posts.verdict(bank.root)       # a caller that asks the rule whatever the constant says (the dry run, keep-as-page)
     settle(bank)
@@ -511,7 +512,11 @@ BASE = "None|None|0.0|None|True|False|"
 def expected_etag(bank, *, posts: str | None, include_posts: bool = False) -> str:
     from api.routers.graph import NODE_SHAPE
 
+    from api.services import graph_bubbles
+
     extra = f"{BASE}{NODE_SHAPE}"
+    if bubbles := graph_bubbles.stamp(bank.root):     # G247: the list bubbles' token rides every graph ETag
+        extra += f"|bubbles:{bubbles}"
     if posts is not None:
         extra += f"|posts:{include_posts}:{posts}"
     return sync_service.etag_for(bank.root, *KEYS, extra=extra)
@@ -520,8 +525,8 @@ def expected_etag(bank, *, posts: str | None, include_posts: bool = False) -> st
 def test_the_route_with_the_constant_off_is_byte_for_byte_what_it_was(bank, client):
     rich_bank(bank)
     assert saved_posts.HIDE_POSTS is False
+    # The posts stamp stays out of the ETag while dark; the bubbles' token (G247) is in it either way.
     assert client.get("/graph").headers["etag"] == expected_etag(bank, posts=None)
-    assert not derived_store.path_of(bank.root, "saved_posts").exists() and str(bank.root) not in saved_posts._DIGESTS
 
 
 def test_the_route_with_it_on_folds_the_earned_stamp_into_the_same_digest(bank, client, on):
@@ -547,8 +552,8 @@ def test_the_route_lists_each_folder_once_with_the_constant_on(bank, client, mon
     listed.clear()
     assert client.get("/graph", headers={"if-none-match": on_etag}).status_code == 304
     assert listed.count("entities") == off.count("entities")                  # not listed twice, as stamp + ETag did
-    assert listed.count("episodes") == 1 and off.count("episodes") == 0       # the one more folder the verdict reads
-    assert sorted(n for n in listed if n != "episodes") == sorted(off)
+    assert listed.count("episodes") == off.count("episodes") == 1             # the earned set reads it once (G247 too)
+    assert sorted(n for n in listed if n != "episodes") == sorted(n for n in off if n != "episodes")
 
 
 def rewrite_save(bank: Bank, pid: str, **more) -> None:

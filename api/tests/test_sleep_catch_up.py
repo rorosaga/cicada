@@ -337,3 +337,264 @@ def test_a_run_that_starts_while_the_queue_is_counted_is_not_stacked_on(rig, mon
     _seed(rig, since=_local(2026, 10, 1, 12), handled=_local(2026, 10, 18, 3))
     _settle_and_probe(rig)
     assert rig.calls == []
+
+
+# --- 2026-11-25: a scheduled run refused before it read is tried again the same night -----------------------------
+#
+# The night this was written for: the machine was slow, the 03:00 job fired 2 min 36 s late, the catch-up took it, and a
+# write still held the bank for the whole wait (`write_admission.WAIT_MAX_S`). Nothing was read, spent or recorded — and
+# both stamps said the night was taken, so nothing tried again.
+
+
+class _Night:
+    """A real git bank with unprocessed conversations, the LLM boundaries faked (`drain_harness`), a writer that can be
+    held on the bank, and the clock the probe reads. Probes are five minutes apart, as the scheduler runs them."""
+
+    def __init__(self, tmp_path, monkeypatch):
+        from drain_harness import episode_ids, install, seed_bank, settings
+
+        from api.services import write_admission
+        from api.services.connections import registry as registry_module
+
+        registry_module.reset_registry()
+        self.state = sleep_cycle.get_sleep_state()
+        self.state.status, self.state.drain, self.state.drain_run = "idle", None, False
+        self.state.cancel_requested, self.state.error = False, None
+        self.memory = seed_bank(tmp_path, episode_ids(3))
+        self.rig = install(monkeypatch)
+        monkeypatch.setattr(write_admission, "WAIT_MAX_S", 0.2)
+        sleep_catch_up.reset_for_tests()
+        self.clock = Clock(_local(2026, 11, 24, 3, 2))
+        monkeypatch.setattr(sleep_catch_up, "_now", self.clock)
+        self.cfg = settings(self.memory, sleep_max_episodes_per_cycle=3)
+        sleep_scheduler.save_schedule(self.memory, DAILY)
+        sleep_catch_up.note_schedule(self.memory, DAILY, now=_local(2026, 11, 1, 12))
+        sleep_catch_up.note_handled(self.memory, now=_local(2026, 11, 23, 3))   # last night ran
+        self.held = None
+
+    def hold_writer(self):
+        import threading
+
+        from api.services import write_admission
+
+        held, release = threading.Event(), threading.Event()
+
+        def writer():
+            with write_admission.shared(self.memory):
+                held.set()
+                release.wait(30)
+
+        thread = threading.Thread(target=writer)
+        thread.start()
+        assert held.wait(10)
+        self.held = (release, thread)
+
+    def release_writer(self):
+        if self.held:
+            self.held[0].set()
+            self.held[1].join(10)
+            self.held = None
+
+    def probe(self):
+        asyncio.run(sleep_catch_up.probe(self.cfg))
+
+    def close(self):
+        from api.services.connections import registry as registry_module
+
+        self.release_writer()
+        self.state.status, self.state.drain, self.state.drain_run, self.state.error = "idle", None, False, None
+        registry_module.reset_registry()
+        sleep_catch_up.reset_for_tests()
+
+
+@pytest.fixture
+def night(tmp_path, monkeypatch):
+    n = _Night(tmp_path, monkeypatch)
+    # Count every attempt the probe makes, read or refused: a `run` wrapper that watches the window's answer.
+    real_run = sleep_cycle.run
+    attempts: list[dict] = []
+
+    async def watched_run(settings, cycle_id, **kw):
+        attempts.append({"at": n.clock.at, **kw})
+        await real_run(settings, cycle_id, **kw)
+
+    monkeypatch.setattr(sleep_cycle, "run", watched_run)
+    n.attempts = attempts
+    yield n
+    n.close()
+
+
+def _first_missed_probe_runs(n):
+    """03:02 fire missed (the machine was busy): the probe notices at 03:05 and runs at 03:10 — into a held bank."""
+    n.clock.at = _local(2026, 11, 24, 3, 5)
+    n.probe()                                  # noticed: the settle
+    n.clock.advance(minutes=sleep_catch_up.PROBE_MINUTES)
+    n.probe()                                  # runs, refused at the write window
+
+
+def test_a_night_whose_run_a_writer_refused_is_tried_again_and_reads(night):
+    n = night
+    n.hold_writer()
+    _first_missed_probe_runs(n)
+    assert len(n.attempts) == 1 and n.rig.extract_batches == [], "refused: nothing was read"
+    assert n.state.status == "idle"
+    # Today the stamps (handled_at, last_run_at) would now say the night was taken, and nothing would try again.
+    n.release_writer()
+    n.clock.at = _local(2026, 11, 24, 3, 12)
+    n.probe()
+    assert len(n.attempts) == 1, "not before the first spacing (10 minutes after the refusal)"
+    for _ in range(4):
+        n.clock.advance(minutes=sleep_catch_up.PROBE_MINUTES)
+        n.probe()
+    assert len(n.attempts) == 2, "one more try, through the same settle: one run, not a stack"
+    retry = n.attempts[1]
+    assert retry["user_triggered"] is False, "a retry is a scheduled run (ruling 4)"
+    assert datetime.fromisoformat(retry["catch_up_for"]) == _local(2026, 11, 24, 3, 0), "naming the time it serves"
+    from drain_harness import episode_ids, waiting
+
+    assert n.rig.extract_batches == [episode_ids(3)] and waiting(n.memory) == [], "it read what waited"
+    assert sleep_catch_up.refusal_notice(n.memory) is None and sleep_catch_up._refusal(n.memory) is None, \
+        "a run that read ends the retries"
+    for _ in range(40):                        # the rest of the night: nothing more
+        n.clock.advance(minutes=sleep_catch_up.PROBE_MINUTES)
+        n.probe()
+    assert len(n.attempts) == 2
+
+
+def test_the_tries_are_four_spaced_and_end_in_a_plain_sentence(night):
+    n = night
+    n.hold_writer()                            # the writer never lets go
+    _first_missed_probe_runs(n)
+    first_refusal = n.clock.at
+    for _ in range(60):                        # five hours of probes
+        n.clock.advance(minutes=sleep_catch_up.PROBE_MINUTES)
+        n.probe()
+    times = [a["at"] for a in n.attempts]
+    assert len(times) == sleep_catch_up.MAX_TRIES == 4, "the run and three retries, then it stops"
+    gaps = [b - a for a, b in zip(times, times[1:])]
+    spacing = sleep_catch_up.RETRY_AFTER
+    assert all(g >= s for g, s in zip(gaps, spacing)), f"each try waits out its spacing: {gaps}"
+    assert times[-1] - first_refusal <= sleep_catch_up.RETRY_WINDOW, "one night"
+    assert n.rig.extract_batches == [], "never read past a holder"
+    notice = sleep_catch_up.refusal_notice(n.memory)
+    assert notice is not None and "did not start" in notice and "still writing" in notice
+    assert "tried 4 times" in notice and "next scheduled time" in notice and "start it yourself" in notice
+    assert notice == n.state.error, "the run's own error is the same sentence the status serves"
+    from api.routers import sleep as sleep_router
+
+    n.state.error = None                       # a restart forgets the in-memory error; the record does not
+    assert sleep_router._remembered_refusal(n.state, SimpleNamespace(memory_path=n.memory)) == notice
+
+
+def test_while_tries_remain_the_sentence_says_when_the_next_one_is(night):
+    n = night
+    n.hold_writer()
+    _first_missed_probe_runs(n)
+    notice = sleep_catch_up.refusal_notice(n.memory)
+    assert "something was still writing" in notice and "read nothing" in notice
+    assert f"It will try again after {(n.clock.at + sleep_catch_up.RETRY_AFTER[0]).strftime('%H:%M')} (try 2 of 4)" \
+        in notice
+    assert n.state.error == notice and n.state.progress == notice
+
+
+def test_a_retry_never_stacks_never_reads_over_a_pause_and_never_outlives_the_night(night, monkeypatch):
+    n = night
+    n.hold_writer()
+    _first_missed_probe_runs(n)
+    n.release_writer()
+    # A cycle is running when the retry falls due: it is never stacked on.
+    n.clock.at = _local(2026, 11, 24, 3, 40)
+    n.state.status = "running"
+    n.probe()
+    n.clock.advance(minutes=5)
+    n.probe()
+    assert len(n.attempts) == 1
+    n.state.status = "idle"
+    # A paused run waits for the person: upkeep only, and nothing stays owed afterwards.
+    monkeypatch.setattr(sleep_scheduler, "_paused_for_the_person", lambda mp: True)
+    n.clock.advance(minutes=5)
+    n.probe()
+    n.clock.advance(minutes=5)
+    n.probe()
+    assert [a.get("tail_only") for a in n.attempts[1:]] == [True], "one upkeep run, never a read"
+    assert sleep_catch_up._refusal(n.memory) is None
+    monkeypatch.setattr(sleep_scheduler, "_paused_for_the_person", lambda mp: False)
+    n.clock.advance(minutes=30)
+    n.probe()
+    n.clock.advance(minutes=5)
+    n.probe()
+    assert len(n.attempts) == 2 and n.rig.extract_batches == []
+
+
+def test_a_refusal_past_the_night_is_not_retried(night):
+    n = night
+    n.hold_writer()
+    _first_missed_probe_runs(n)
+    n.release_writer()
+    n.clock.at = n.clock.at + sleep_catch_up.RETRY_WINDOW + timedelta(minutes=1)
+    assert sleep_catch_up.retry_due(n.memory, n.clock.at) is None
+
+
+def test_a_persons_own_run_that_the_window_refused_is_unchanged(night):
+    n = night
+    n.hold_writer()
+    asyncio.run(sleep_cycle.run(n.cfg, "sleep_manual_refused", user_triggered=True, drain=True))
+    assert n.state.error == sleep_cycle.WINDOW_BUSY and n.state.progress == f"Paused: {sleep_cycle.WINDOW_BUSY}"
+    assert sleep_catch_up._refusal(n.memory) is None, "a click is the person's: it is never retried for them"
+    n.release_writer()
+    n.clock.at = _local(2026, 11, 24, 9, 0)
+    assert sleep_catch_up.retry_due(n.memory, n.clock.at) is None
+
+
+def test_a_run_that_started_reading_and_failed_keeps_the_tried_once_rule(night, monkeypatch):
+    n = night
+    from drain_harness import episode_ids
+
+    n.rig.fail_exc = {i: RuntimeError("engine away") for i in episode_ids(3)}
+    n.clock.at = _local(2026, 11, 24, 3, 5)
+    n.probe()
+    n.clock.advance(minutes=sleep_catch_up.PROBE_MINUTES)
+    n.probe()
+    assert len(n.attempts) == 1 and len(n.rig.extract_batches) == 1, "it read (and spent): that was its try"
+    assert sleep_catch_up._refusal(n.memory) is None
+    for _ in range(40):
+        n.clock.advance(minutes=sleep_catch_up.PROBE_MINUTES)
+        n.probe()
+    assert len(n.attempts) == 1, "not repeated on every wake"
+
+
+def test_the_on_time_cron_refused_by_a_writer_is_retried_by_the_probe(night):
+    n = night
+    n.hold_writer()
+    n.clock.at = _local(2026, 11, 24, 3, 0)
+    asyncio.run(sleep_scheduler._run_if_idle(n.cfg))      # the cron fires on time into a held bank
+    assert n.rig.extract_batches == [] and sleep_catch_up._refusal(n.memory) is not None
+    n.release_writer()
+    n.clock.at = _local(2026, 11, 24, 3, 11)
+    n.probe()                                             # noticed
+    n.clock.advance(minutes=sleep_catch_up.PROBE_MINUTES)
+    n.probe()
+    assert len(n.rig.extract_batches) == 1, "the cron's refused night is read by the probe"
+
+
+def test_a_wait_the_thread_pool_never_starts_is_a_refusal_not_a_hang(tmp_path, monkeypatch):
+    """Where the 22 minutes can go: the wait is bounded from the moment its thread runs, not from the call."""
+    import threading
+
+    from api.services import write_admission
+
+    monkeypatch.setattr(write_admission, "WAIT_MAX_S", 0.05)
+    monkeypatch.setattr(sleep_cycle, "WINDOW_START_SLACK_S", 0.05)
+    gate = threading.Event()
+    monkeypatch.setattr(write_admission, "wait_for_writers", lambda mp, **kw: gate.wait(10) or True)
+    async def timed() -> tuple[bool, float]:
+        t0 = datetime.now()
+        answer = await sleep_cycle._open_window(tmp_path)
+        return answer, (datetime.now() - t0).total_seconds()   # (asyncio.run itself then waits for the thread)
+
+    try:
+        answer, seconds = asyncio.run(timed())
+        assert answer is False and seconds < 2, "bounded in wall-clock terms, answered as a refusal"
+    finally:
+        gate.set()
+        sleep_cycle.get_sleep_state().writing = False

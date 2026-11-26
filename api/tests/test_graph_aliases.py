@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from api import config, main
 from api.models.schemas import GraphResponse
 from api.routers import graph as graph_router
-from api.services import bank_index, graph_builder, markdown_parser, sync_service
+from api.services import bank_index, graph_bubbles, graph_builder, markdown_parser, sync_service
 
 N_NODES = 2000
 _SYLLABLES = ["ka", "lo", "mi", "ra", "tu", "sen", "vel", "dor", "qui", "zan",
@@ -110,4 +110,4 @@ def test_graph_serves_aliases_and_its_etag_moves_once_for_the_new_shape(client):
     # G159 (review B1): `photos` joined the components — a person's stored photo moves the node's `picture`.
     assert r.headers["etag"] == sync_service.etag_for(
         mem, "entities", "edges", "hubs", "inbox", "logos", "photos",
-        extra=f"{default_extra}|{graph_router.NODE_SHAPE}")
+        extra=f"{default_extra}|{graph_router.NODE_SHAPE}|bubbles:{graph_bubbles.stamp(mem)}")

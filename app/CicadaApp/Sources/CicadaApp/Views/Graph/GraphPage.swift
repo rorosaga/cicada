@@ -28,7 +28,8 @@ struct GraphPage: View {
 
     private var dismissState: GraphDismiss.State {
         GraphDismiss.State(findOpen: findOpen, legendOpen: legendOpen,
-                           readerOpen: provenance.isPresented, entityOpen: graphVM.selectedEntity != nil)
+                           readerOpen: provenance.isPresented, entityOpen: graphVM.selectedEntity != nil,
+                           bubbleOpen: graphVM.openBubbleId != nil)
     }
 
     var body: some View {
@@ -123,6 +124,10 @@ struct GraphPage: View {
             if findOpen {
                 GraphFindOverlay(isActive: isVisible, close: { findOpen = false })
                     .padding(inset)
+            } else if let bubble = graphVM.openBubble {
+                GraphBubbleChip(bubble: bubble)
+                    .padding(inset)
+                    .frame(maxWidth: .infinity, alignment: .top)
             }
         }
         .frame(width: width, height: height)
@@ -165,6 +170,10 @@ struct GraphPage: View {
         case .escape: Instant.run { apply(GraphDismiss.escape(dismissState)) }
         case .backgroundClicked:
             withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) { apply(GraphDismiss.backgroundClick(dismissState)) }
+        case .outsideBubbleClicked:
+            let action = GraphDismiss.backgroundClick(dismissState, outsideBubble: true)
+            if action == .closeBubble { graphVM.zoomAction = .closeBubble }   // a pointer path: the camera moves back
+            else { withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) { apply(action) } }
         }
     }
 
@@ -176,6 +185,7 @@ struct GraphPage: View {
         case .closeReader: provenance.close()
         case .closeEntity: graphVM.clearSelection()
         case .closeEntityAndReader: provenance.close(); graphVM.clearSelection()
+        case .closeBubble: graphVM.zoomAction = .closeBubbleNow
         case .none: break
         }
     }

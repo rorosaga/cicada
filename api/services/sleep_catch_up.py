@@ -38,6 +38,20 @@ when something readable waits (a parked conversation or index-only history is no
 nothing readable runs the engine-free tail alone (G245, ``run(tail_only=True, engine_free=True)``): the polls, expiry
 and the state refresh happen, no engine starts, no plan is spent and no run is recorded. The run's summary carries
 ``catch_up_for`` — the missed time — so Past nights can say "Missed 03:00 — caught up at 08:12".
+
+**A run refused before it read is tried again the same night (2026-11-25).** "Runs once" is about *reading*: the stamps
+above are written before the read so a run that fails after it started (a plan engine the person switched off, a
+spend) is never repeated on every wake — that rule protects the person's plan and money and is unchanged. A run
+that never read anything is another case: ``sleep_cycle.run`` refused it at the write window (a writer admitted before
+it still held the bank for ``write_admission.WAIT_MAX_S``), nothing was spent, nothing recorded, and yet both stamps
+said the night was taken — one slow write cost a whole night, silently. ``sleep_cycle.run`` now records that refusal
+here (``note_refused``, for a scheduled run only: not a person's click, not a paused run's upkeep, not a Continue), and
+the probe tries it again — through the very same gates as a catch-up (settle, never on a running cycle, never over a
+pause, ``user_triggered=False``, ruling 4 untouched): at most ``MAX_TRIES`` attempts in all, the next one
+``RETRY_AFTER`` after the last refusal (10 min, 30 min, then 90 min — a stuck writer is not hammered), and none after
+``RETRY_WINDOW`` from the first, so it stays one night's run. A run that opens the window clears the record, which is
+also what ends the retries on success (``clear_refused``); a pause, or nothing readable, clears it too. While a record
+stands the status says so in the backend's words (``refusal_notice``), including when every try was refused.
 """
 from __future__ import annotations
 
@@ -55,6 +69,16 @@ PROBE_MINUTES = 5
 SETTLE = timedelta(minutes=PROBE_MINUTES - 1)
 #: How late the schedule's own timer may still fire as "on time" (a Mac that wakes at 03:00:40); later is ours.
 ON_TIME_GRACE_S = 60
+
+#: A scheduled run refused at the write window before it read anything (see the module docstring).
+REFUSED = "window_refused"
+#: Total attempts for one scheduled time: the run itself plus the retries. The wait for a writer is already bounded by
+#: ``write_admission.WAIT_MAX_S`` per attempt, so four attempts cost at most four minutes of waiting in a night.
+MAX_TRIES = 4
+#: The pause after the Nth refusal before the next attempt (N = 1, 2, 3): growing, so a stuck writer is not hammered.
+RETRY_AFTER = (timedelta(minutes=10), timedelta(minutes=30), timedelta(minutes=90))
+#: A refusal is only retried this long after the first one: the night's run, never the next day's.
+RETRY_WINDOW = timedelta(hours=6)
 
 # In-memory, per bank: the last probe's wall time (a long gap = the Mac slept) and the missed time noticed, with when.
 _last_probe: dict[str, datetime] = {}
@@ -150,6 +174,97 @@ def note_run_started(memory_path, *, now: datetime | None = None) -> None:
     _update(memory_path, last_run_at=_iso(now or _now()))
 
 
+def _refusal(memory_path) -> dict | None:
+    rec = load(memory_path).get(REFUSED)
+    if not isinstance(rec, dict) or _parse(rec.get("for")) is None or _parse(rec.get("last_at")) is None:
+        return None
+    try:
+        rec["tries"] = max(1, int(rec.get("tries") or 1))
+    except (TypeError, ValueError):
+        rec["tries"] = 1
+    return rec
+
+
+def note_refused(memory_path, due_iso: str, *, now: datetime | None = None) -> None:
+    """A scheduled run for ``due_iso`` was refused at the write window before it read: count the attempt. The same
+    scheduled time keeps its first refusal and its count; another time starts afresh. Never raises."""
+    try:
+        now = now or _now()
+        rec = _refusal(memory_path)
+        if rec is not None and rec.get("for") == due_iso:
+            tries, first = rec["tries"] + 1, rec.get("first_at") or _iso(now)
+        else:
+            tries, first = 1, _iso(now)
+        _update(memory_path, **{REFUSED: {"for": due_iso, "first_at": first, "last_at": _iso(now), "tries": tries}})
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"refused-run stamp not written: {type(e).__name__}")
+
+
+def clear_refused(memory_path) -> None:
+    """The run was covered (the window opened, so it reads), or the retry no longer applies. Writes only when a record
+    is there, so a normal run costs one small read."""
+    try:
+        if REFUSED in load(memory_path):
+            data = load(memory_path)
+            data.pop(REFUSED, None)
+            _save(memory_path, data)
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"refused-run stamp not cleared: {type(e).__name__}")
+
+
+def _touch_refused(memory_path, now: datetime) -> None:
+    """A retry is starting: space the next one from now, whatever this one turns out to be."""
+    rec = _refusal(memory_path)
+    if rec is not None:
+        _update(memory_path, **{REFUSED: {**rec, "last_at": _iso(now)}})
+
+
+def _may_retry(rec: dict, now: datetime) -> bool:
+    first = _parse(rec.get("first_at")) or _parse(rec.get("last_at"))
+    return rec["tries"] < MAX_TRIES and now - first <= RETRY_WINDOW
+
+
+def retry_due(memory_path, now: datetime) -> datetime | None:
+    """The scheduled time whose run was refused before it read and is due another try — or ``None``. Pure reads: the
+    record says how often it was refused and when; nothing here decides whether a run may start (``probe`` does)."""
+    rec = _refusal(memory_path)
+    if rec is None or not _may_retry(rec, now):
+        return None
+    last = _parse(rec["last_at"])
+    ran = _parse(load(memory_path).get("last_run_at"))
+    if ran is not None and ran > last:
+        return None                      # a run read since: it covered the night (the window opening clears it too)
+    if now < last + RETRY_AFTER[min(rec["tries"], len(RETRY_AFTER)) - 1]:
+        return None
+    return _parse(rec["for"])
+
+
+def refusal_notice(memory_path, *, now: datetime | None = None) -> str | None:
+    """What the Sleep page says while a scheduled run stands refused, in words: what happened, and what happens next.
+    ``None`` when nothing stands refused (or the bank no longer has a scheduled run to retry). The page presents it;
+    it is never stored as a sentence, only derived from the record."""
+    try:
+        from api.services import sleep_scheduler
+
+        rec = _refusal(memory_path)
+        if rec is None or fingerprint(sleep_scheduler.load_schedule(Path(memory_path))) is None:
+            return None
+        now = now or _now()
+        due = _parse(rec["for"])
+        when = f"{due.astimezone().strftime('%b')} {due.astimezone().day} at {_local_hhmm(due)}"
+        tries = rec["tries"]
+        base = (f"The scheduled run for {when} did not start: something was still writing to your memory, so Sleep "
+                "read nothing and used nothing.")
+        if _may_retry(rec, now):
+            nxt = _parse(rec["last_at"]) + RETRY_AFTER[min(tries, len(RETRY_AFTER)) - 1]
+            return f"{base} It will try again after {_local_hhmm(max(nxt, now))} (try {tries + 1} of {MAX_TRIES})."
+        return (f"{base} It tried {tries} time{'s' if tries != 1 else ''} and stopped; it will run at its next "
+                "scheduled time, or you can start it yourself.")
+    except Exception as e:  # noqa: BLE001 - a status read never fails on this
+        logger.debug(f"refusal notice not built: {type(e).__name__}")
+        return None
+
+
 async def _latest_run(memory_path) -> datetime | None:
     """The record that predates this file: the newest run summary and the newest real Sleep cycle commit."""
     best: datetime | None = None
@@ -241,13 +356,19 @@ async def probe(settings) -> None:
     woke = last is None or now - last > timedelta(minutes=2 * PROBE_MINUTES)
 
     due = await missed_due(memory_path, cfg, now=now)
+    retry = False
+    if due is None:
+        # A scheduled run that was refused before it read (a writer still held the bank) is owed another try.
+        due = retry_due(memory_path, now)
+        retry = due is not None
     if due is None:
         _noticed.pop(key, None)
         return
     seen = _noticed.get(key)
     if woke or seen is None or seen[0] != due:
         _noticed[key] = (due, now)       # the settle starts: run on a later probe if still missed
-        logger.info(f"Scheduled sleep: the {_local_hhmm(due)} run was missed — catching up after a short settle")
+        what = "was refused by a write still in progress — trying again" if retry else "was missed — catching up"
+        logger.info(f"Scheduled sleep: the {_local_hhmm(due)} run {what} after a short settle")
         return
     if now - seen[1] < SETTLE:
         return
@@ -255,7 +376,11 @@ async def probe(settings) -> None:
         return                           # never stack; whatever is reading may cover it, else the next probe
     _noticed.pop(key, None)
     cycle_id = f"sleep_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}"
+    if retry:
+        _touch_refused(memory_path, now)  # the next try is spaced from this one, whatever this one turns out to be
     if sleep_scheduler._paused_for_the_person(memory_path):
+        if retry:
+            clear_refused(memory_path)    # a pause is the person's: nothing is read over it, and nothing stays owed
         note_handled(memory_path, now=now)
         logger.info("Scheduled sleep catch-up: a paused run waits for the person — upkeep only")
         await sleep_cycle.run(settings, cycle_id, user_triggered=False, tail_only=True)
@@ -266,6 +391,8 @@ async def probe(settings) -> None:
         readable = getattr(debt, "unprocessed_count", 0)
     note_handled(memory_path, now=now)   # before reading: a run that fails is tried once, not on every wake
     if not readable and not history_index_turns_due(memory_path):
+        if retry:
+            clear_refused(memory_path)    # nothing waits to be read: the refused run owes nothing
         # G245 (track C1): nothing to read is no reason to skip the upkeep — the polls, expiry and the state refresh
         # run, with no engine and no run recorded, so a quiet night never leaves a source stale.
         logger.info(f"Scheduled sleep catch-up: nothing to read for the missed {_local_hhmm(due)} run — upkeep only")
@@ -273,7 +400,8 @@ async def probe(settings) -> None:
         return
     if sleep_cycle.get_sleep_state().status == "running":
         return                           # a run began while the queue was counted: it reads what waits
-    logger.info(f"Scheduled sleep: catching up on the missed {_local_hhmm(due)} run")
+    logger.info(f"Scheduled sleep: {'trying again' if retry else 'catching up on'} the "
+                f"{'refused' if retry else 'missed'} {_local_hhmm(due)} run")
     await sleep_cycle.run(settings, cycle_id, user_triggered=False,
                           drain=sleep_scheduler._scheduled_drain(settings), catch_up_for=_iso(due))
 
