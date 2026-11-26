@@ -1096,8 +1096,11 @@ struct GraphResponse: Codable, Sendable {
     /// an older backend and while the posts-as-rows switch is off, so nothing is said; Home says the number once
     /// (`HiddenPostsNote`).
     let hiddenPosts: Int
+    /// Owner 2026-11-25 — one bubble per list of saved things (`graph_bubbles` on the server). Only the graph's canvas
+    /// folds a bubble's members; every other reader of `nodes` sees every page. Empty from an older backend.
+    let bubbles: [GraphBubble]
 
-    enum CodingKeys: String, CodingKey { case nodes, links, observers, hiddenPosts }
+    enum CodingKeys: String, CodingKey { case nodes, links, observers, hiddenPosts, bubbles }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -1105,13 +1108,63 @@ struct GraphResponse: Codable, Sendable {
         links = try c.decodeIfPresent([GraphEdge].self, forKey: .links) ?? []
         observers = try c.decodeIfPresent([String].self, forKey: .observers) ?? []
         hiddenPosts = try c.decodeIfPresent(Int.self, forKey: .hiddenPosts) ?? 0
+        // One malformed bubble costs the bubbles, never the graph.
+        bubbles = (try? c.decodeIfPresent([GraphBubble].self, forKey: .bubbles)) ?? []
     }
 
-    init(nodes: [GraphNode] = [], links: [GraphEdge] = [], observers: [String] = [], hiddenPosts: Int = 0) {
+    init(nodes: [GraphNode] = [], links: [GraphEdge] = [], observers: [String] = [], hiddenPosts: Int = 0,
+         bubbles: [GraphBubble] = []) {
         self.nodes = nodes
         self.links = links
         self.observers = observers
         self.hiddenPosts = hiddenPosts
+        self.bubbles = bubbles
+    }
+}
+
+/// A list of saved things drawn as one bubble (owner 2026-11-25): its members fold inside it on the canvas until the
+/// person opens it; `outside` are its pages that earned a place in the record, drawn as before and joined to it.
+struct GraphBubble: Codable, Sendable, Equatable {
+    struct Folder: Codable, Sendable, Equatable {
+        let key: String
+        let name: String
+        let members: [String]
+    }
+
+    let id: String
+    let key: String
+    let name: String
+    let site: String?
+    let mark: String?
+    let kindNoun: String
+    let count: Int
+    let pageId: String?
+    let members: [String]
+    let folders: [Folder]
+    let outside: [String]
+
+    enum CodingKeys: String, CodingKey { case id, key, name, site, mark, kindNoun, count, pageId, members, folders, outside }
+
+    init(id: String, key: String, name: String, site: String? = nil, mark: String? = nil, kindNoun: String = "pages",
+         count: Int? = nil, pageId: String? = nil, members: [String], folders: [Folder] = [], outside: [String] = []) {
+        self.id = id; self.key = key; self.name = name; self.site = site; self.mark = mark; self.kindNoun = kindNoun
+        self.count = count ?? members.count; self.pageId = pageId; self.members = members; self.folders = folders
+        self.outside = outside
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        key = try c.decodeIfPresent(String.self, forKey: .key) ?? id
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? key
+        site = try c.decodeIfPresent(String.self, forKey: .site)
+        mark = try c.decodeIfPresent(String.self, forKey: .mark)
+        kindNoun = try c.decodeIfPresent(String.self, forKey: .kindNoun) ?? "pages"
+        members = try c.decodeIfPresent([String].self, forKey: .members) ?? []
+        count = try c.decodeIfPresent(Int.self, forKey: .count) ?? members.count
+        pageId = try c.decodeIfPresent(String.self, forKey: .pageId)
+        folders = try c.decodeIfPresent([Folder].self, forKey: .folders) ?? []
+        outside = try c.decodeIfPresent([String].self, forKey: .outside) ?? []
     }
 }
 

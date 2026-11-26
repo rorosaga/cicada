@@ -175,6 +175,10 @@ above 16.7 ms on the live bank, or a graph well past ~10k nodes. **Two rules fol
 `app/CicadaApp/Tests/graph/graph-physics.test.js` (real d3, real `graph.js`) is the regression net;
 a KE/node plateau at tick 400 is the signature of a force that broke rule 1.
 
+**A list is one bubble (G247, 2026-11-25).** A payload's `bubbles` fold each list of saved things into one node until it
+is opened; an open bubble's pages sit at packed places never simulated, so neither opening nor closing touches alpha.
+The full description is in `features.md` ("One bubble per list").
+
 **The layout settles and stops (G109, 2026-10-14).** Collide is alpha-scaled too (below alpha 0.03), so every force
 cools together and the layout comes to rest instead of freezing mid-motion at the alpha cut-off; a settle check ends a
 cooled layout once it looks still. The simulation keeps one link per connected pair at d3's default strength, weakened on a
@@ -1531,6 +1535,14 @@ still held until the file says Done or Remove, and a removal seen while the pane
 **The connect offer:** bringing another app forward no longer closes it (it used to, as Not now); only No, Not now,
 Yes, the ask-why question taking the notch, or the bar filling does. The pointer resting on the card holds it and the
 bar goes; leaving starts the bar again from empty (`ConnectSuggestPanelState.countdownFrom`).
+*The panel showing is not the person clicking into it (found 2026-11-26 on the installed app).* The field takes
+SwiftUI's focus by itself as soon as the panel is on screen, with no click and while the panel cannot be key. The view
+sent every focus as `engage`, so on a real window the question was "touched" the instant it showed: its timer stopped,
+its bar never drew, and it left only after a click elsewhere (which, before 2026-11-25, closed it at once — the "goes
+away on the first click" the owner reported). No offscreen render or fake presenter showed it; a test on the real
+`SaveWhyPanelController` does (`testThePanelShowingIsNotThePersonClickingIntoItsField`). Focus counts as being in the
+field only once the person has clicked inside the panel (`SaveWhyPanelView.clickedInside`, the panel's own
+`clickedInside`), and the field's bright ring follows `inField`, not the focus it took by itself.
 *Only the person closes a touched panel* ("I use Wispr Flow a lot for dictation … I selected the text box and was
 dictating and [the panel] went away"): dictation types nothing until it is done, so the field read empty and the
 question's own 12 s timer (`askTimeout`) dismissed it — and an unconfirmed one also met `pendingBound`. A tap, a word or
@@ -1644,6 +1656,13 @@ checkbox to macOS that carries its own state. So only on such a site the reader 
 **the state moving is the direction** (`stateStep`: on is saved, off is unsaved), ahead of every other evidence and
 with no label and no count; when the label moved too it is learned. The pin is the card's own link, else the page.
 Every other site's rows are read exactly as before: a toggle in them is no control of the row.
+**Spotify** (`SiteSaveSite.spotify`, 2026-11-26, the same owner's ask): in the web player a song's or an episode's
+row is its play button, the track's link, its artists' links, a plain button, and the row's own menu button, so the
+save sits where GitHub's star does (`beforeMenu`) and the track is the row's own link (only a track's or an
+episode's link is a post here, so an artist's, an album's or a playlist's link in the row never makes two). The
+person's library pages (`/collection`) are where a click on it is leaving; elsewhere the page's other rows say which
+way. Not read: the header of an album or a playlist (its button is not directly before the menu) and the bar of the
+song playing (it has no menu button).
 **A feed that plays one post at a time** (`SiteSaveSite.Playing`, owner 2026-11-25: "everything else you say its not
 covered should be covered"; measured on TikTok's For You): the address stays the feed's and no link names the video, so
 the row read as `noPostLink`. The controls sit in one bar beside whichever video is playing; the reader climbs from the
@@ -1774,9 +1793,9 @@ its switch, No is kept and listed in Settings, Not now waits two hours and then 
 sources does not hold a site's offer) asks "Connect X to Cicada?" with the site's mark. **This is the one case where the
 page in the front tab triggers an offer** (owner 2026-11-23, amending the 2026-10-19 note in `ConnectSuggestApps`): only
 with Accessibility already granted and the offer switch on; the address is compared and kept nowhere. The offer covers
-the sites with a save control (`SiteSaveSite.all`, Pinterest among them since 2026-11-25) and the sites that are only
-sources — LinkedIn, Substack, Spotify, Goodreads (`SiteSaveSite.offerOnly`, matched by address alone, never read for a
-save). **One truth:** a source
+the sites with a save control (`SiteSaveSite.all`, Pinterest among them since 2026-11-25 and Spotify since the 26th)
+and the sites that are only sources — LinkedIn, Substack, Goodreads (`SiteSaveSite.offerOnly`, matched by address
+alone, never read for a save). **One truth:** a source
 is offered only while the catalogue's own word for it is Off (`ConnectSuggestApps.status`, which reads the lists the
 person turned on and the sites their agent may open like the page does) — never because a per-Mac flag is unset, and a
 source the page shows as set up is neither offered nor listened to. **One path:** Yes is `NotchConnector`, which is

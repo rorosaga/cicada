@@ -322,3 +322,49 @@ def test_a_cancel_starts_no_new_page_and_waits_out_the_ones_in_flight(tmp_path, 
     # Each page in flight at the cancel may still make its second call; no new page starts.
     assert len(engine.prompts) <= seen_at_cancel[0] + 3 < len(full.prompts)
     assert engine.inflight == 0
+
+
+def test_the_event_loop_keeps_running_while_a_pages_decision_is_being_made(tmp_path, monkeypatch):
+    """A page's decision calls no model and can be seconds of work (the article writer's inputs for a hub page parse
+    its whole record): it runs on a worker thread, so the loop answers meanwhile (G238). Measured 2026-11-26: 8.4 s
+    for one page of ~9,000 claims, on the loop, with the backend answering nothing."""
+    import threading
+    import time
+
+    bank = tmp_path / "bank"
+    _build_bank(bank)
+    monkeypatch.setenv("CICADA_MEMORY_PATH", str(bank))
+    monkeypatch.setattr(cr.litellm, "acompletion", _Engine(1))
+    main = threading.get_ident()
+    real = cr._page_job
+    ran_on: list[int] = []
+
+    def slow(*args, **kwargs):
+        ran_on.append(threading.get_ident())
+        time.sleep(0.05)                  # work that holds its thread
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(cr, "_page_job", slow)
+
+    async def run():
+        ticks = 0
+        done = asyncio.Event()
+
+        async def heartbeat():
+            nonlocal ticks
+            while not done.is_set():
+                ticks += 1
+                await asyncio.sleep(0.005)
+
+        beat = asyncio.create_task(heartbeat())
+        try:
+            changes = await cr.resolve_and_prune(_batch(), _load_existing(bank), _settings(True, 2), now=NOW, tuning={})
+        finally:
+            done.set()
+            await beat
+        return changes, ticks
+
+    changes, ticks = asyncio.run(run())
+    assert ran_on and main not in ran_on, "every page's decision ran off the event loop's thread"
+    assert ticks >= 3 * len(ran_on), f"the loop ticked {ticks} times through {len(ran_on)} decisions of 50 ms each"
+    assert changes

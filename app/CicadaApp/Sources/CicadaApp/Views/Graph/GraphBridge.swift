@@ -17,6 +17,11 @@ enum GraphMessage: Equatable {
     case nodeHovered(String, x: Double, y: Double, r: Double)
     /// ROR-135 — the pointer left it, or the node moved from under the card (a pan, a zoom, a drag).
     case hoverEnded
+    /// Owner 2026-11-25 — a list's bubble opened on the canvas (its id), and closed again.
+    case bubbleOpened(String)
+    case bubbleClosed
+    /// An empty-canvas click outside an open list bubble: the page closes panels, then the column, then the bubble.
+    case bubbleOutsideClicked
     case jsError(String)
 
     static func parse(_ body: Any) -> GraphMessage? {
@@ -31,6 +36,9 @@ enum GraphMessage: Equatable {
         case "escape": return .escape
         case "focusCleared": return .focusCleared
         case "hoverEnded": return .hoverEnded
+        case "bubbleClosed": return .bubbleClosed
+        case "bubbleOutsideClicked": return .bubbleOutsideClicked
+        case "bubbleOpened": return id.map(GraphMessage.bubbleOpened)
         case "nodeHovered":
             guard let id, let x = (json["x"] as? NSNumber)?.doubleValue, let y = (json["y"] as? NSNumber)?.doubleValue,
                   let r = (json["r"] as? NSNumber)?.doubleValue, x.isFinite, y.isFinite, r.isFinite else { return nil }
@@ -52,6 +60,8 @@ enum GraphMessage: Equatable {
 /// that owns the panels and the Reader answers them.
 enum CanvasEvent: Equatable {
     case backgroundClicked
+    /// Owner 2026-11-25 — the same click, outside an open list bubble.
+    case outsideBubbleClicked
     case escape
 }
 

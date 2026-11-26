@@ -2696,6 +2696,31 @@ class GraphLink(CamelModel):
     kind: Optional[str] = None
 
 
+class GraphBubbleFolder(CamelModel):
+    """A folder of a list (a playlist, a bookmark folder): a ring inside its list's bubble, never a bubble of its own."""
+    key: str
+    name: str
+    members: list[str] = []
+
+
+class GraphBubble(CamelModel):
+    """One list of saved things drawn as one bubble (owner 2026-11-25, ``graph_bubbles``). ``members`` are the pages
+    folded inside it, newest first; they stay nodes of the graph (every other reader sees them), and only the graph's
+    canvas folds them. ``outside`` are its pages that earned a place in the person's record: drawn as before, joined to
+    the bubble. ``pageId`` is the list's own page when it has one."""
+    id: str
+    key: str
+    name: str
+    site: Optional[str] = None
+    mark: Optional[str] = None
+    kind_noun: str = "pages"
+    count: int = 0
+    page_id: Optional[str] = None
+    members: list[str] = []
+    folders: list[GraphBubbleFolder] = []
+    outside: list[str] = []
+
+
 class GraphResponse(CamelModel):
     nodes: list[GraphNode]
     links: list[GraphLink]
@@ -2705,6 +2730,8 @@ class GraphResponse(CamelModel):
     # G246 (ruling 81): how many saved posts are drawn as a row under their list instead of as a node. 0 until the
     # posts-as-rows switch is on (and with ``include_posts``), so the app shows nothing; Home says the number in one line.
     hidden_posts: int = 0
+    # Owner 2026-11-25: one bubble per list of saved things (``graph_bubbles``). Additive: an older client ignores it.
+    bubbles: list[GraphBubble] = []
 
 
 # --- Search ---

@@ -5,7 +5,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.config import Settings, get_settings
 from api.models.schemas import GraphResponse
-from api.services import meaning_neighbors, saved_posts, sync_service, sync_ticker
+from api.services import graph_bubbles, meaning_neighbors, saved_posts, sync_service, sync_ticker
 from api.services.graph_builder import build_graph
 
 router = APIRouter()
@@ -57,17 +57,28 @@ def _split(value: str | None) -> set[str] | None:
 # until `HIDE_POSTS` is on, and `include_posts` names the answer that draws every post. A folder's list (a node with a
 # member count) is made of the saves filed in it, which the pages folder does not hold either: `saved_posts.lists_stamp`
 # rides `extra` too, only for a bank that files saves in a folder.
-NODE_SHAPE = "aliases+f1-facets+pictures+previews+quiet+same-name+byline+source-links"
+#
+# Owner 2026-11-25: "+bubbles" (before the pinned tail) — the response gained `bubbles`, one per list of saved things
+# (`graph_bubbles`). Which page sits in which list moves with save records the pages folder does not hold, so the grouping's
+# own stamp rides `extra` too (`_etag_extra`), read off the event loop inside the request's one listing.
+NODE_SHAPE = "aliases+f1-facets+pictures+previews+quiet+same-name+byline+bubbles+source-links"
 
 
-def _etag_with_posts(memory_path, extra: str, include_posts: bool) -> str:
-    """The change check with the flip on: the earned-posts stamp and the ETag over ONE listing of each folder (the pages
-    folder was listed twice, once for each), the SSE tick's when its gate allows. Same components, same digest."""
+def _etag_extra(memory_path, extra: str, include_posts: bool) -> str:
+    """The change check over ONE listing of each folder (the SSE tick's when its gate allows): which page sits in which
+    list's bubble, the earned-posts stamp with the flip on, then the ETag. Same components, same digest."""
     with sync_ticker.request_scans(memory_path):
-        extra += f"|posts:{include_posts}:{saved_posts.stamp(memory_path)}"
-        if filed := saved_posts.lists_stamp(memory_path):
-            extra += f"|filed:{filed}"
+        if bubbles := graph_bubbles.stamp(memory_path):
+            extra += f"|bubbles:{bubbles}"
+        if saved_posts.HIDE_POSTS:
+            extra += f"|posts:{include_posts}:{saved_posts.stamp(memory_path)}"
+            if filed := saved_posts.lists_stamp(memory_path):
+                extra += f"|filed:{filed}"
         return sync_service.etag_for(memory_path, *_ETAG_KEYS, extra=extra)
+
+
+#: The name `api/scripts/saved_posts_dry_run.py` measures the change check by.
+_etag_with_posts = _etag_extra
 
 
 # "logos": `has_logo` rides every node's content_hash but lives in the machine-global logo cache, not in the bank — see
@@ -90,10 +101,8 @@ async def get_graph(
     settings: Settings = Depends(get_settings),
 ):
     extra = f"{types}|{statuses}|{min_confidence}|{tags}|{include_hubs}|{hubs_only}|{NODE_SHAPE}"
-    if saved_posts.HIDE_POSTS:
-        etag = await asyncio.to_thread(_etag_with_posts, settings.memory_path, extra, include_posts)
-    else:
-        etag = await sync_service.etag_for_async(settings.memory_path, *_ETAG_KEYS, extra=extra)
+    # Off the event loop (G238): the listings and the grouping's stamp are file reads.
+    etag = await asyncio.to_thread(_etag_extra, settings.memory_path, extra, include_posts)
     if (early := sync_service.conditional(request, response, etag)) is not None:
         return early
     return await run_in_threadpool(

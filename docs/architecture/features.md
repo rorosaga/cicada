@@ -31,6 +31,32 @@ relationships skips); a list with no earned post is a lone dot on purpose. The l
 same way: the name a step down the text ladder (`CicadaTheme.quietName` = `textTertiaryOnFill`, readable on every fill,
 DR-2/DR-3), the picture at `quietPictureOpacity`, "Saved, not talked about yet" to VoiceOver; a selected
 row is fully lit.
+
+**One bubble per list (G247, owner 2026-11-25).** `GET /graph` carries `bubbles` beside the nodes (`graph_bubbles`, node
+shape `+bubbles`): one per whole list of saved things that `list_pages.groups` names (a site's bookmarks, likes or saved
+posts, YouTube's playlists, Watch later and likes, a browser's bookmarks, stars, books, feeds, his repositories), each
+`{id: "list:<key>", key, name, mark, kindNoun, count, pageId, members, folders, outside}`. `members` are the pages that sit
+inside (newest first; `inside` of `groups`, so the graph, Clusters and Home fold by one rule: on the list and not earned),
+intersected with the graph's own nodes; a folder is a ring inside its whole list, never a bubble; a page on two lists sits
+in the first whose whole list is big enough; a list with fewer than six inside is no bubble; a filtered `/graph` filters
+them too. `outside` are its earned pages. The nodes never change: every page is still a node for find, names and
+Clusters; only graph.js folds. The cache key and the ETag fold `list_pages.change_token` (the earned set and the table
+of list kinds, never a build of the lists) beside the pages listing they already follow, read inside the request's one
+listing. On the canvas a bubble is one node sized like a page with as many neighbours as it holds (never below a
+well-linked page's size, so its mark reads), a graphite disc with a ring in the media hue and the source's real mark
+(the app draws each mark once into a small PNG, `GraphMarks`, sent with the bubbles); its members are not in the
+simulation, the pick or the draw, their links are drawn to it (one line a pair), and an earned page is joined to it by
+an "on list" line. A click opens it: the members are packed inside a circle round it (`d3.pack`, folders as rings with
+their names on plates, the pages in no folder as one unnamed ring, the list's own order), at places computed once and
+never simulated, so opening or closing reheats nothing (G109); the camera fits the circle (400 ms, none under Reduce
+Motion); everything else dims; a name sits inside its dot once the dot can hold it; a member opens its page like any
+node. A click outside the circle, zooming well out, the chip's × (`GraphBubbleChip`: mark, name, what it holds, ×; the
+name opens the list's page when it has one), or Esc closes it: Esc goes to the page, whose order closes find, the
+Legend, the Reader and the column first and the bubble last, never animated (`GraphDismiss`). A reveal (find, ⌘K, a
+link) of a folded page opens its bubble and lands on it; a search match inside a closed bubble rings the bubble. A
+delta that moves a page out of a bubble seeds it beside the bubble. graph.js posts `bubbleOpened`/`bubbleClosed`
+(`GraphMessage`). Measured on a synthetic bank of 8,687 pages with 5,105 saves on 8 lists, in the app: 7.3 s to a still
+layout today, 3.9 s with the lists folded (`benchmarks/scale/graph_bubbles.py`, `Tests/graph/graph-bubbles.test.js`).
 Open ideas live in the backlog.
 
 **The page (Direction D, DS-3a).** The canvas fills the content area under the command bar. Its chrome is one
@@ -1017,7 +1043,29 @@ engine and models, the plan usage or cost with its basis (ruling 12), how long i
 lists the conversations it read, the pages it made and changed and the questions it raised and settled, each opening
 where it lives (`GET /sleep/runs/{id}/items`, `GET /sleep/history/{commit}/items`; `api.md`, `app.md`).
 A plan-pinned scheduled run (`CICADA_LLM_MODE=agent|codex`, one batch, no run summary) catches up the same way but its
-row carries no catch-up words. **The menu bar counts what waits for Sleep:** `GET /status` `episodes.readable`
+row carries no catch-up words.
+**A scheduled run the write window refused is tried again the same night (2026-11-25; amends "runs once").** The stamps
+precede the read so a run that *failed after it started* is never repeated on every wake (the plan's and the person's
+money; unchanged). A run refused at the write window before it read anything (`write_admission`: a writer admitted
+before it still held the bank past `WAIT_MAX_S`) read nothing and spent nothing, yet both stamps said the night was
+taken, so one slow write cost a whole night with nothing to say so (the 2026-11-24 03:00 run: the cron fired 2 min 36 s
+late, the catch-up took it, a write held the bank, 63 conversations waited the next day). `sleep_cycle.run` now stamps
+`last_run_at` only once the window is open (it did before, so a refused run counted as a run) and, for a scheduled run
+that is neither upkeep nor a Continue and only on a `daily`/`interval` bank (`after_import` probes again by itself),
+records the refusal in `schedule.json` (`window_refused`: the time it serves, first and last refusal, count — timestamps
+only). The probe tries it again through the very gates of a catch-up (the settle, never on a running cycle, never over a
+pause, `user_triggered=False`, ruling 4 untouched): at most **4 attempts** for one time (the run and three retries), the
+next one **10 min, then 30 min, then 90 min** after the last refusal, and none past **6 h** from the first, so it is one
+night's run and a stuck writer is never hammered. A run that opens the window clears the record (the retries end on a
+run that read, which also keeps the tried-once rule for one that then failed), and so do a pause and a queue with
+nothing readable. While a record stands, `GET /sleep/status` and `GET /status` serve `error` in words —
+`sleep_catch_up.refusal_notice`: the run did not start because something was still writing, nothing was read or used,
+and either when it will try again (try N of 4) or that it tried 4 times, will run at its next scheduled time and can be
+started by hand; the run's own `error`/`progress` carry the same sentence. The record is machine-local and survives a
+restart, so a morning with an idle Sleep still says it. A person's own click is unchanged (`WINDOW_BUSY`, never retried
+for them). `_open_window` also carries a wall-clock bound over the whole wait (`WAIT_MAX_S + WINDOW_START_SLACK_S`):
+`wait_for_writers` bounds its wait only from the moment its thread runs, and a default thread pool kept busy queued it
+for as long as the pool stayed busy — with the probe (APScheduler runs one at a time) held behind it. **The menu bar counts what waits for Sleep:** `GET /status` `episodes.readable`
 (`sleep_debt.readable_count`) is the bookworm's badge (`app.md`).
 
 ### 5. Conversation upload
