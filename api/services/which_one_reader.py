@@ -31,11 +31,12 @@ another candidate. A conversation is decided only when both reads name the same 
 
 **After the read (code).** For each conversation, for each of the two reads: the copied sentence is located (`evidence.locate`:
 exact, whitespace, case; never fuzzy) in a turn of the person's own or of a named speaker's inside the shown window, and those
-words are the person's (`evidence.verify` kind ``user`` or ``speaker``); and the sentence, or the turn it is in, TIES the mention
-to the picked candidate by something the record holds for that candidate and for no other: its relation to the owner
-(``owner_roles``), its full name, the name of a thing the record links to it and to no other candidate (an employer, a project) —
-and to none of the others by any of theirs. A pick that rests on nothing the record tells them apart by stays a question, so does
-a sentence that names both. Every conversation must name the same candidate.
+words, that very span, are the person's (`evidence.verify` kind ``user`` or ``speaker``); and the copied sentence ITSELF ties the
+mention to the picked candidate (`which_one_tie`): every whole-word occurrence of the mention in it is attached, by form (a full
+name holding it, a relation word right beside it, a linked thing "from"/"at"/"of" it), to something the record holds for that
+candidate and for no other. A tell in another sentence or turn, or in words the reader was not shown, never counts; a question, a
+negation or contrast, or a sentence that names another candidate's tell is refused. A pick that rests on nothing the record tells
+them apart by stays a question. Every conversation must name the same candidate.
 
 **The filing is what a tap on that choice does** (`inbox_tend.apply`, the resolver's own ``merge``, Sleep's commit, undoable,
 listed under "Settled by Sleep" with the sentence): what is held under the mention lands on the picked page, the name is never
@@ -53,6 +54,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import date
@@ -61,9 +63,10 @@ from typing import Callable
 
 from loguru import logger
 
-from api.services import (bank_index, described_landing as dl, engine_errors, evidence, inbox_tend, markdown_parser,
-                          pending_store, question_revisit as qr, same_name, which_one)
+from api.services import (bank_index, described_landing as dl, engine_errors, evidence, git_service, inbox_tend,
+                          markdown_parser, pending_store, question_revisit as qr, same_name, which_one, which_one_tie as tie_of)
 from api.services.id_utils import resolve_entity_file, sanitize_id
+from api.services.which_one_tie import Tell
 
 RULE = "which_one_read"
 #: Questions read per run, and looked at (a look that fails a code guard makes no call).
@@ -96,7 +99,7 @@ Answer with ONE letter when the words around the name point to that candidate: a
 - the only clue is a word that fits more than one candidate;
 - the person says it is not that candidate;
 - you are not sure. A wrong guess is worse than "cannot_tell".
-Also copy, exactly as written and without changing a character, the one sentence or clause (at most {max_chars} characters) from a turn of the PERSON (or named speaker), not the assistant, that shows which candidate it is: the sentence that carries the clue. Never copy from an assistant turn, and never write words of your own in "sentence".
+Also copy, exactly as written and without changing a character, the ONE sentence (at most {max_chars} characters) from a turn of the PERSON (or named speaker), not the assistant, in which the name "{mention}" and the clue stand together, the clue right beside the name: "my brother {mention}", "{mention}, my brother", a full name, "{mention} from <its company>". If no single sentence has both the name and the clue (the clue is in another sentence or another turn), answer "cannot_tell". A sentence that is a question, denies something ("not", "no", "the other one") or names more than one of the candidates does not show it either. Never copy from an assistant turn, and never write words of your own in "sentence".
 
 Respond with JSON only: {{"answer": "A" | "B" | ... | "none" | "cannot_tell", "sentence": "copied words", "reason": "<one short sentence>"}}
 """
@@ -107,12 +110,6 @@ Be a skeptic. A first reading proposed an answer; do not assume it was right. Be
 
 
 # --------------------------------------------------------------------------- what the record tells the candidates apart by
-
-
-@dataclass(frozen=True)
-class Tell:
-    kind: str       # role | full_name | linked
-    words: str
 
 
 @dataclass
@@ -138,6 +135,20 @@ class Cand:
 def _words_of(fm: dict, pid: str) -> list[str]:
     return [str(n) for n in (fm.get("name") or pid.replace("-", " "), *(a for a in (fm.get("aliases") or []) if isinstance(a, str)))
             if str(n).strip()]
+
+
+def _linked_words(fm: dict, pid: str) -> list[str]:
+    """What a linked page may be said as: its title, and an alias only when it is a proper name (more than one word, or capitalised).
+    An alias that is one lowercase word ("home") is a common word the person says about anything, so it is never a tell."""
+    out = []
+    title = " ".join(str(fm.get("name") or "").split())
+    if title:
+        out.append(title)
+    for a in fm.get("aliases") or []:
+        alias = " ".join(a.split()) if isinstance(a, str) else ""
+        if alias and (len(alias.split()) >= 2 or alias[0].isupper()):
+            out.append(alias)
+    return out
 
 
 def _linked_things(memory_path: Path, body: str) -> dict[str, dict]:
@@ -185,7 +196,7 @@ def candidates_of(memory_path: Path, ids: list[str], mention: str) -> list[Cand]
         tells = [Tell("role", r) for r in which_one.roles_of(fm) if len(r) >= MIN_TELL]
         tells += [Tell("full_name", n) for n in _words_of(fm, pid) if len(same_name.fold(n).split()) >= 2]
         for tid, tfm in _linked_things(memory_path, parsed.body or "").items():
-            tells += [Tell("linked", n.strip()) for n in _words_of(tfm, tid) if len(n.strip()) >= MIN_TELL and same_name.fold(n) != key]
+            tells += [Tell("linked", n) for n in _linked_words(tfm, tid) if len(n) >= MIN_TELL and same_name.fold(n) != key]
         raw[pid] = list(dict.fromkeys(tells))
     holders: dict[tuple[str, str], set[str]] = {}
     for pid, tells in raw.items():
@@ -197,23 +208,12 @@ def candidates_of(memory_path: Path, ids: list[str], mention: str) -> list[Cand]
     return out
 
 
-def hits(cand: Cand, texts: list[str]) -> list[str]:
-    """The kinds of what the record tells ``cand`` apart by that ``texts`` say, each word located whole (`evidence.locate`)."""
-    found: list[str] = []
-    for t in cand.tells:
-        if any(evidence.locate(x, t.words, whole_word=True) for x in texts if x):
-            found.append(t.kind)
-    return found
-
-
-def ties(cands: list[Cand], pick: str, texts: list[str]) -> list[str]:
-    """The kinds that tie the mention to ``pick`` in ``texts`` (the copied sentence and the turn it is in), or ``[]``: nothing the
-    record holds for the pick is said, or something the record holds for another candidate is said too (a sentence that names
-    both is a question)."""
-    mine = next((hits(c, texts) for c in cands if c.id == pick), [])
-    if not mine or any(hits(c, texts) for c in cands if c.id != pick):
-        return []
-    return mine
+def ties(cands: list[Cand], pick: str, mention: str, quote: str, context: str) -> list[str]:
+    """The kinds that tie ``mention`` to ``pick`` inside the copied ``quote`` (``context``: the sentence it is in), or ``[]``
+    (`which_one_tie.tie`: nothing the record holds for the pick is attached to the mention there, or the sentence is a question, a
+    negation or a contrast, or names something the record holds for another candidate)."""
+    mine = next((c.tells for c in cands if c.id == pick), [])
+    return tie_of.tie(mention, quote, context, mine, [c.tells for c in cands if c.id != pick])
 
 
 # --------------------------------------------------------------------------- the case
@@ -339,6 +339,9 @@ class Reading:
     start: int = 0
     end: int = 0
     turn: int = -1
+    #: the part of that turn the reader was shown (a sentence is read only inside it)
+    lo: int = 0
+    hi: int = 0
 
 
 async def _one_read(mention: str, conv: dl.Conv, shown: list[dl.Shown], focus: list[_Focus], cands: list[Cand], ask: Callable, *,
@@ -358,7 +361,8 @@ async def _one_read(mention: str, conv: dl.Conv, shown: list[dl.Shown], focus: l
     hit = dl.locate_sentence(conv, shown, parsed.get("sentence"))
     if hit is None:
         return Reading(page, "sentence_not_located")
-    return Reading(page, "", hit[0], hit[1], hit[2])
+    seen = next((x for x in shown if x.index == hit[2]), None)
+    return Reading(page, "", hit[0], hit[1], hit[2], seen.a if seen else hit[0], seen.b if seen else hit[1])
 
 
 @dataclass
@@ -375,16 +379,19 @@ class ConvRead:
     sentence: str = ""
 
 
-def _scope(conv: dl.Conv, r: Reading) -> list[str]:
-    """The sentence and the whole turn it is in: what may tie the mention to a candidate."""
-    return [conv.text[r.start:r.end], conv.text[slice(*conv.content(r.turn))]]
+def _tied(conv: dl.Conv, cands: list[Cand], mention: str, r: Reading) -> list[str]:
+    """What ties the mention to the pick in the copied sentence alone, judged over the sentence it is in and no more than the reader
+    was shown. Never the turn, never another turn."""
+    context = tie_of.enclosing(conv.text, r.start, r.end, r.lo, r.hi)
+    return ties(cands, r.page or "", mention, conv.text[r.start:r.end], context)
 
 
 def _verified(memory_path: Path, conv: dl.Conv, r: Reading) -> str:
     """The kind (``user`` / ``speaker``) of the located words, or ``""`` when they are not the person's own or a named
     speaker's (an assistant's turn, an agent's note, text relayed from an app)."""
-    ev = evidence.verify(Path(memory_path), conv.episode, conv.text[r.start:r.end])
-    return ev.kind if ev is not None and ev.is_span() and ev.kind in ("user", "speaker") else ""
+    ev = evidence.verify(Path(memory_path), conv.episode, conv.text[r.start:r.end], window=(r.start, r.end))
+    # the words located here are the ones that count: a verdict about the same words said somewhere else is no verdict
+    return ev.kind if ev is not None and ev.is_span() and ev.start == r.start and ev.kind in ("user", "speaker") else ""
 
 
 async def read_conversation(memory_path: Path, case: Case, conv: dl.Conv, cands: list[Cand], ask: Callable) -> ConvRead:
@@ -418,7 +425,7 @@ async def read_conversation(memory_path: Path, case: Case, conv: dl.Conv, cands:
     if not kind1:
         out.why = "first_read_not_the_persons_words"
         return out
-    tied1 = ties(cands, first.page, _scope(conv, first))
+    tied1 = _tied(conv, cands, case.mention, first)
     if not tied1:
         out.why = "nothing_tells_them_apart"   # code: the record holds nothing for the pick that the words say (or says it of another)
         return out
@@ -432,7 +439,7 @@ async def read_conversation(memory_path: Path, case: Case, conv: dl.Conv, cands:
     if second.page != first.page:
         out.why = "reads_disagree"
         return out
-    if not _verified(memory_path, conv, second) or not ties(cands, second.page, _scope(conv, second)):
+    if not _verified(memory_path, conv, second) or not _tied(conv, cands, case.mention, second):
         out.why = "second_read_nothing_tells_them_apart"
         return out
     out.page, out.start, out.end, out.kind, out.tied = first.page, first.start, first.end, kind1, tied1
@@ -568,6 +575,39 @@ def _save_seen(memory_path: Path, data: dict[str, dict]) -> None:
         pass
 
 
+# --------------------------------------------------------------------------- a filing that did not commit leaves nothing behind
+
+
+def put_back(memory_path: Path, before: dict[str, bytes | None]) -> None:
+    """Undo a filing that did not commit: every path that is uncommitted now and was not before the filing goes back to what the last
+    commit holds (a new file is removed, its staging with it), and a path that was already uncommitted gets its own bytes back
+    (``before`` is `git_service.snapshot_dirty_sync`). The resolver writes the pages, the held line, the settled record and removes
+    the question before its commit; one that then fails must not leave the question gone and the pages changed. Never raises."""
+    memory_path = Path(memory_path)
+    try:
+        dirty = git_service.dirty_paths_sync(memory_path)
+    except git_service.GitError:
+        return
+    for rel in sorted(dirty):
+        target = memory_path / rel
+        try:
+            if rel in before:
+                if before[rel] is None:
+                    target.unlink(missing_ok=True)
+                else:
+                    target.write_bytes(before[rel])
+                continue
+            git_service.run_git_write_sync(memory_path, "reset", "-q", "HEAD", "--", rel)
+            try:
+                git_service.run_git_write_sync(memory_path, "checkout", "--", rel)
+            except git_service.GitError:
+                target.unlink(missing_ok=True)   # never committed: it was this filing's own file
+        except (OSError, git_service.GitError):
+            logger.debug("Which-one filing: a path could not be put back")
+    bank_index.invalidate(memory_path)
+    markdown_parser.invalidate_pages(os.path.realpath(memory_path))
+
+
 # --------------------------------------------------------------------------- the tail step
 
 
@@ -665,11 +705,18 @@ async def tend(memory_path: Path, settings, ask: Callable | None, *, today: date
                 report.settled += 1
                 note(item_id, f"would_file:{pick}", ids=case.ids, rule=RULE, eyes={"mention": case.mention, "page": names.get(pick, "")})
                 continue
+            before = await asyncio.to_thread(git_service.snapshot_dirty_sync, memory_path)
+            if before is None:
+                remember(item_id, mark, "not_applied", 1)   # the tree cannot be read: a failed filing could not be put back
+                note(item_id, "left:not_applied", ids=case.ids)
+                continue
             try:
                 ok = await inbox_tend.apply(memory_path, settings, d)
             except Exception as exc:  # noqa: BLE001 - one filing that will not settle never stops the others
                 logger.info(f"Which-one read not applied: {type(exc).__name__}")
                 ok = False
+            if not ok:
+                await asyncio.to_thread(put_back, memory_path, before)
             if ok:
                 report.settled += 1
                 report.paths.append(f"inbox/settled/{d.item_id}.md")

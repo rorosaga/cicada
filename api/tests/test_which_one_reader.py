@@ -259,6 +259,205 @@ def test_a_rigged_reader_that_always_picks_the_first_files_only_where_the_record
         "wrong filings: the code leaves the one that rests on the other candidate's tie, and the ones with no tie"
 
 
+# --------------------------------------------------------------------------- the review's lines: a tell must be attached to the mention
+
+#: ``(talk, the words the rigged reader copies, the candidate it always picks)``: each of these once filed the held line under the
+#: wrong page because a tell of the pick stood somewhere in the sentence or its turn with nothing tying it to the mention.
+MUST_NOT_FILE = {
+    "a brother told me": ("My brother told me Nick quit his job.", "Nick Rowe"),
+    "the brother's friend": ("My brother's friend Nick plays guitar.", "Nick Rowe"),
+    "brother-in-law": ("My brother-in-law Nick is coming.", "Nick Rowe"),
+    "not my brother, the other": ("Not my brother, the other Nick came by.", "Nick Rowe"),
+    "a question": ("Which Nick, my brother, did you mean?", "Nick Rowe"),
+    "a bare mention beside the full name": ("Nick and Nick Vale argued about it.", "Nick Vale"),
+    "told him about the company": ("I told Nick about Acme Labs yesterday.", "Nick Vale"),
+    "spanish: a brother told me": ("Mi hermano me dijo que Nick renunció.", "Nick Rowe"),
+    "spanish: not him": ("No es mi hermano Nick, es el otro.", "Nick Rowe"),
+    "spanish: a question": ("¿Es Nick mi hermano?", "Nick Rowe"),
+    "contrast after the tie": ("My brother Nick is visiting, but not for long.", "Nick Rowe"),
+    "a name too: my brother Dan": ("Nick is my brother Dan and I.", "Nick Rowe"),
+}
+
+
+@pytest.mark.parametrize("key", list(MUST_NOT_FILE))
+def test_a_tell_that_is_not_attached_to_the_mention_never_files_it(tmp_path, monkeypatch, key):
+    sentence, who = MUST_NOT_FILE[key]
+    bank, path = _world(tmp_path, monkeypatch, conversations={EP1: f"user: {sentence}\nassistant: Ok."})
+    _set(bank, "nick-brother", owner_roles=["brother", "hermano"])   # the record holds both words: the refusal is the sentence's
+    _commit(bank, "both words")
+    before = path.read_bytes()
+    assert _run(bank, path, scripted(name=who, sentence=sentence)).settled == 0
+    _untouched(bank, path, before)
+    assert _claims(bank, "nick-brother") == [] and _claims(bank, "nick-friend") == []
+
+
+@pytest.mark.parametrize("sentence, who", [
+    ("My brother Nick is visiting this weekend.", "Nick Rowe"),
+    ("Nick, my brother, is visiting this weekend.", "Nick Rowe"),
+    ("Nick is my brother and he is visiting.", "Nick Rowe"),
+    ("I think Nick (my brother) is visiting.", "Nick Rowe"),
+    ("Nick Vale is visiting this weekend.", "Nick Vale"),
+    ("Nick from Acme Labs is visiting this weekend.", "Nick Vale"),
+    ("Nick, at Acme Labs, is visiting this weekend.", "Nick Vale"),
+    ("Mi hermano Nick llega mañana.", "Nick Rowe"),
+    ("Nick, mi hermano, llega mañana.", "Nick Rowe"),
+    ("Nick es mi hermano y llega mañana.", "Nick Rowe"),
+    ("Nick de Acme Labs llega mañana.", "Nick Vale"),
+    ("Nick en Acme Labs llega mañana.", "Nick Vale"),
+])
+def test_the_forms_that_attach_a_tell_to_the_mention_file_it(tmp_path, monkeypatch, sentence, who):
+    bank, path = _world(tmp_path, monkeypatch, conversations={EP1: f"user: {sentence}\nassistant: Ok."})
+    _set(bank, "nick-brother", owner_roles=["brother", "hermano"])
+    _commit(bank, "both words")
+    assert _run(bank, path, scripted(name=who, sentence=sentence)).settled == 1, sentence
+    assert _claims(bank, "nick-brother" if who == "Nick Rowe" else "nick-friend")
+
+
+def test_the_tell_in_another_turn_never_counts_only_the_copied_sentence_does(tmp_path, monkeypatch):
+    talk = ("user: My brother is flying in on Friday.\nassistant: Nice.\nuser: Anyway, Nick from the gym called me.\n"
+            "assistant: Ok.")
+    for sentence in ("My brother is flying in on Friday.", "Anyway, Nick from the gym called me."):
+        sub = tmp_path / str(abs(hash(sentence)))
+        sub.mkdir()
+        bank, path = _world(sub, monkeypatch, conversations={EP1: talk})
+        before = path.read_bytes()
+        assert _run(bank, path, scripted(name="Nick Rowe", sentence=sentence)).settled == 0
+        _untouched(bank, path, before)
+
+
+def test_a_tell_far_from_the_mention_in_one_long_turn_is_outside_what_the_reader_saw(tmp_path, monkeypatch):
+    talk = ("user: " + "filler words here. " * 400 + "Nick quit his job on Monday. " + "more filler text. " * 300
+            + "my brother is great.\nassistant: Ok.")
+    for sentence in ("Nick quit his job on Monday.", "my brother is great."):
+        sub = tmp_path / str(abs(hash(sentence)))
+        sub.mkdir()
+        bank, path = _world(sub, monkeypatch, conversations={EP1: talk})
+        before = path.read_bytes()
+        assert _run(bank, path, scripted(name="Nick Rowe", sentence=sentence)).settled == 0
+        _untouched(bank, path, before)
+
+
+def test_an_alias_of_a_linked_page_that_is_a_common_word_is_no_tell(tmp_path, monkeypatch):
+    bank, path = _world(tmp_path, monkeypatch, conversations={EP1: "user: Nick from home called me.\nassistant: Ok."})
+    _page(bank, "harbor-house", "Harbor House", "place")
+    _set(bank, "harbor-house", aliases=["home", "Harbor", "the old house"])
+    page = bank / "entities" / "nick-friend.md"
+    parsed = markdown_parser.parse(page)
+    markdown_parser.write(page, parsed.frontmatter, parsed.body + "\nLives near [[harbor-house]].\n")
+    _commit(bank, "a place")
+    cands = wr.candidates_of(bank, ["nick-brother", "nick-friend"], "Nick")
+    words = {t.words for c in cands for t in c.tells if t.kind == "linked"}
+    assert "home" not in words and {"Harbor House", "Harbor", "the old house"} <= words
+    before = path.read_bytes()
+    assert _run(bank, path, scripted(name="Nick Vale", sentence="Nick from home called me.")).settled == 0
+    _untouched(bank, path, before)
+
+
+def test_a_relation_two_candidates_share_is_no_tell(tmp_path, monkeypatch):
+    bank, path = _world(tmp_path, monkeypatch, conversations={EP1: "user: My brother Nick is visiting.\nassistant: Ok."})
+    _set(bank, "nick-friend", owner_roles=["brother"])
+    _commit(bank, "two brothers")
+    before = path.read_bytes()
+    assert _run(bank, path, scripted(name="Nick Rowe", sentence="My brother Nick is visiting.")).settled == 0
+    _untouched(bank, path, before)
+
+
+def test_a_sentence_names_the_mention_only_once_per_tell_every_occurrence_must_be_attached(tmp_path, monkeypatch):
+    talk = "user: My brother Nick said Nick would come.\nassistant: Ok."
+    bank, path = _world(tmp_path, monkeypatch, conversations={EP1: talk})
+    before = path.read_bytes()
+    assert _run(bank, path, scripted(name="Nick Rowe", sentence="My brother Nick said Nick would come.")).settled == 0
+    _untouched(bank, path, before)
+
+
+def test_the_reader_is_told_the_name_and_the_clue_must_stand_in_one_sentence():
+    assert "stand together" in wr.PROMPT and "in another sentence or another turn" in wr.PROMPT
+
+
+_ROLE = [wr.Tell("role", "brother"), wr.Tell("role", "hermano")]
+_FULL = [wr.Tell("full_name", "Nick Rowe")]
+_LINKED = [wr.Tell("linked", "Acme Labs"), wr.Tell("linked", "Harbor")]
+
+
+@pytest.mark.parametrize("text, tells, kinds", [
+    ("My brother Nick came", _ROLE, ["role"]), ("Brother Nick came", _ROLE, ["role"]), ("MY  BROTHER  NICK", _ROLE, ["role"]),
+    ("Nick (my brother) came", _ROLE, ["role"]), ("Nick's my brother", _ROLE, ["role"]), ("Mi hermano Nick", _ROLE, ["role"]),
+    ("Nick Rowe called", _FULL, ["full_name"]), ("nick rowe called", _FULL, ["full_name"]),
+    ("Nick from Acme Labs", _LINKED, ["linked"]), ("Nick from the Acme Labs team", _LINKED, ["linked"]),
+    ("Acme Labs's Nick called", _LINKED, ["linked"]), ("Nick of Acme Labs", _LINKED, ["linked"]),
+    ("Nick from Harbor", _LINKED, ["linked"]),
+    # what breaks an attachment
+    ("your brother Nick came", _ROLE, []), ("step-brother Nick came", _ROLE, []), ("my brother's friend Nick", _ROLE, []),
+    ("Nick's brother came", _ROLE, []), ("Nick, my brother Dan, came", _ROLE, []), ("my older brother Nick", _ROLE, []),
+    ("Nick called Nick Rowe", _FULL, []), ("Nick Smith from Acme Labs", _LINKED, []), ("Nick from harbor", _LINKED, []),
+    ("Nick and Acme Labs", _LINKED, []), ("Nick works at Acme Labs", _LINKED, []),
+])
+def test_the_forms_that_attach_a_tell_to_the_mention(text, tells, kinds):
+    assert wr.tie_of.attach(text, "Nick", tells) == kinds
+
+
+@pytest.mark.parametrize("sentence, refused", [
+    ("My brother Nick is visiting.", False), ("My brother Nick isn't visiting.", True), ("Is my brother Nick visiting?", True),
+    ("Which one is my brother Nick", True), ("¿Mi hermano Nick llega hoy?", True), ("Mi hermano Nick no llega hoy.", True),
+    ("My brother Nick is visiting but not the other one.", True), ("Mi hermano Nick llega, pero tarde.", True),
+    ("My brother Nick is a different person.", True),
+])
+def test_a_question_a_negation_or_a_contrast_is_refused(sentence, refused):
+    assert (wr.tie_of.tie("Nick", sentence, sentence, _ROLE, []) == []) is refused
+
+
+def test_a_tell_of_another_candidate_in_the_sentence_is_refused():
+    sentence = "My brother Nick works at Acme Labs."
+    assert wr.tie_of.tie("Nick", sentence, sentence, _ROLE, [_LINKED]) == []
+    assert wr.tie_of.tie("Nick", sentence, sentence, _ROLE, []) == ["role"]
+
+
+def test_the_sentence_a_copy_is_cut_from_is_judged_whole_inside_what_was_shown():
+    text = "Not him. That is not my brother Nick, honestly. Anyway."
+    start = text.index("my brother Nick")
+    quote = "my brother Nick"
+    context = wr.tie_of.enclosing(text, start, start + len(quote), 0, len(text))
+    assert context.strip() == "That is not my brother Nick, honestly."
+    assert wr.tie_of.tie("Nick", quote, context, _ROLE, []) == [], "a reader cannot copy the 'not' away"
+    assert wr.tie_of.enclosing(text, start, start + len(quote), start, start + len(quote)) == quote, "clamped to what was shown"
+
+
+# --------------------------------------------------------------------------- a filing whose commit fails leaves nothing behind
+
+
+def _tree(bank) -> dict[str, bytes]:
+    return {p.relative_to(bank).as_posix(): p.read_bytes() for p in sorted(bank.rglob("*")) if p.is_file() and ".git" not in p.parts}
+
+
+def test_a_filing_whose_commit_fails_puts_every_file_back_and_the_question_stays(tmp_path, monkeypatch):
+    from api.services import git_service
+
+    bank, path = _world(tmp_path, monkeypatch, conversations={EP1: "user: My brother Nick is visiting.\nassistant: Nice."})
+    stray = bank / "entities" / "acme-labs.md"
+    stray.write_bytes(stray.read_bytes() + b"\nAn edit the person had not saved yet.\n")   # dirty before, and not the filing's
+    before, head = _tree(bank), _git(bank, "rev-parse", "HEAD").strip()
+
+    def boom(*args, **kwargs):
+        raise git_service.GitError("the commit failed")
+
+    monkeypatch.setattr(git_service, "commit_touched_sync", boom)
+    report = _run(bank, path, scripted(name="Nick Rowe", sentence="My brother Nick is visiting."))
+    assert report.settled == 0 and path.exists()
+    assert _tree(bank) == before, "every file the step touched is as it was: the pages, the held line, the question, no record"
+    assert _git(bank, "rev-parse", "HEAD").strip() == head
+    assert _git(bank, "status", "--porcelain").split() == ["M", "entities/acme-labs.md"], "only the earlier edit stays uncommitted"
+    assert _claims(bank, "nick-brother") == [] and pending_store.held_line(bank, "Nick").held_claims
+    assert wr._seen(bank)[path.stem]["o"] == "not_applied", "remembered as not filed, so it is read again, not forgotten"
+
+
+def test_a_filing_that_commits_still_files_with_an_earlier_edit_left_alone(tmp_path, monkeypatch):
+    bank, path = _world(tmp_path, monkeypatch, conversations={EP1: "user: My brother Nick is visiting.\nassistant: Nice."})
+    stray = bank / "entities" / "acme-labs.md"
+    stray.write_bytes(stray.read_bytes() + b"\nAn edit the person had not saved yet.\n")
+    assert _run(bank, path, scripted(name="Nick Rowe", sentence="My brother Nick is visiting.")).settled == 1
+    assert b"had not saved yet" in stray.read_bytes()
+
+
 # --------------------------------------------------------------------------- the dry run is silent, and a settle the person undoes is theirs
 
 
@@ -329,6 +528,51 @@ def test_one_candidate_stays_the_pairwise_question(tmp_path, monkeypatch):
     assert not item or fm.get("detected") != which_one.DETECTED
 
 
+def test_a_question_about_two_pages_is_written_exactly_as_before(tmp_path, monkeypatch):
+    """`role_people.ask_same`: a nickname-titled PAGE against a full-name page. The subject has a page of its own, so it is no held
+    mention: it stays the pairwise question the agent can work, never pulling in a third page that only shares the first name."""
+    from api.services import harness_agent as ha, harness_questions as hq, role_people
+
+    bank = _clarifier_world(tmp_path, monkeypatch)
+    _page(bank, "nick", "Nick", "person")
+    same_name.invalidate()
+    item = role_people.ask_same(bank, "nick", "nick-friend", "You call this person Nick.")
+    fm = dict(markdown_parser.parse(bank / item).frontmatter)
+    assert fm.get("detected") != which_one.DETECTED and not fm.get("same_title")
+    assert (fm["entity_id"], fm["merge_target_hint"], fm["fold_page"]) == ("nick", "nick-friend", True)
+    assert fm["uncertainty_type"] == "Possible duplicate of Nick Vale" and "Rowe" not in fm["title"]
+    assert hq.not_workable(bank, fm, ha.PRIVATE) != "not_a_pair", "the agent can still work a pair of pages"
+
+
+@pytest.mark.parametrize("how", ["not on disk yet", "faded"])
+def test_a_target_that_is_not_live_is_never_offered_and_such_a_question_is_not_even_asked(tmp_path, monkeypatch, how):
+    """The question's own page missing from the choices cannot happen through Stage 2: `candidates_for` drops a page that is not
+    live or not on disk, and `pair_evidence` has already refused to ask about one."""
+    bank = _clarifier_world(tmp_path, monkeypatch)
+    if how == "faded":
+        _page(bank, "nick-gone", "Nick Gone", "person")
+        _set(bank, "nick-gone", status="archived")
+        same_name.invalidate()
+    target = "nick-gone" if how == "faded" else "nick-newguy"
+    assert target not in which_one.candidates_for(bank, "Nick", [target])
+    item = clarification_manager.ClarificationManager(bank).create(
+        entity_name="Nick", source_episode=EP1, uncertainty_type=f"Possible duplicate of {target.replace('-', ' ').title()}",
+        suggested_classification="person", suggested_confidence=0.5, source_context="x", target_id=target)
+    assert item is None
+
+
+def test_a_question_whose_own_target_is_not_among_the_choices_keeps_the_form_it_had(tmp_path, monkeypatch):
+    """Defence in depth: whatever drops the target, the question is the pairwise one it was, never one that no longer offers it."""
+    bank = _clarifier_world(tmp_path, monkeypatch)
+    monkeypatch.setattr(which_one, "candidates_for", lambda *a, **k: ["nick-friend", "nick-other"])
+    item = clarification_manager.ClarificationManager(bank).create(
+        entity_name="Nick", source_episode=EP1, uncertainty_type="Possible duplicate of Nick Rowe",
+        suggested_classification="person", suggested_confidence=0.5, source_context="x", target_id="nick-brother")
+    assert item
+    fm = markdown_parser.parse(bank / "inbox" / f"{item}.md").frontmatter
+    assert fm.get("detected") != which_one.DETECTED and not fm.get("same_title") and fm["merge_target_hint"] == "nick-brother"
+
+
 def test_the_agent_never_works_a_which_one_question_as_a_pair(tmp_path, monkeypatch):
     from api.services import harness_agent as ha, harness_questions as hq
 
@@ -352,6 +596,24 @@ def _script():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_the_dry_run_refuses_a_demo_bank_before_anything_is_read(tmp_path, monkeypatch, capsys):
+    bank, _path = _world(tmp_path, monkeypatch, conversations={EP1: "user: My brother Nick is visiting.\nassistant: Nice."})
+    from api.services import demo_guard
+
+    demo_guard.manifest_path(bank).write_text(f"kind: {demo_guard.DEMO_KIND}\n", encoding="utf-8")
+
+    assert demo_guard.is_demo(bank), "the fixture is a demo bank"
+    script = _script()
+
+    def never(*args, **kwargs):
+        raise AssertionError("a demo bank was read")
+
+    monkeypatch.setattr(wr, "eligible", never)
+    monkeypatch.setattr(wr, "tend", never)
+    assert script.main(["--memory", str(bank), "--read"]) == 2
+    assert "demo" in capsys.readouterr().err
 
 
 def test_the_dry_run_prints_ids_only_writes_nothing_and_refuses_eyes_inside_the_repo(tmp_path, monkeypatch, capsys):

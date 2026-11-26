@@ -72,6 +72,7 @@ def build_bank(root: Path, spec: dict, story: dict) -> tuple[Path, Path]:
                                "created": "2026-09-01", "last_referenced": "2026-09-01", "version": 1}, body)
     episodes = []
     for k, text in enumerate(story["conversations"]):
+        text = re.sub(r"\{filler:(\d+)\}", lambda m: "filler words here. " * int(m.group(1)), text)
         ep = f"ep_2026-11-{18 + k:02d}_001"
         episodes.append(ep)
         markdown_parser.write(bank / "episodes" / f"{ep}.md", {"id": ep, "processed": True, "source": "import", "origin": "chatgpt",

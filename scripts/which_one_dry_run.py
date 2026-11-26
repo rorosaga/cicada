@@ -31,6 +31,8 @@ twice a conversation, exactly as Sleep would (this is the person's own command, 
 remembered. ``--eyes FILE`` (refused inside the repository) writes the same lines with the mention, the sentence the model copied
 (located in the person's own turn), the page's name and what tied them, for the owner's eyes only.
 
+A demo bank (`demo_guard`) is refused up front, with or without --read.
+
 Reads files and, with --read, calls the engine: no git write, no network but the engine's. Run it on the real bank and read every
 line before this reaches a real Sleep.
 
@@ -85,9 +87,10 @@ def _convertible(memory: Path, today: str) -> list[tuple[Path, dict]]:
         key = sanitize_id(mention)
         if not mention or key in seen:
             continue
-        ids = which_one.candidates_for(memory, mention, [str(fm.get("merge_target_hint") or "")])
-        if len(ids) < 2:
-            continue
+        hint = str(fm.get("merge_target_hint") or "")
+        ids = which_one.candidates_for(memory, mention, [hint])
+        if len(ids) < 2 or (hint and hint not in ids):
+            continue   # the page the question is about may not be offered: it stays the question it is
         seen.add(key)
         out.append((path, {**fm, **which_one.fields(memory, mention, ids), "held_mention": True}))
     return out
@@ -151,6 +154,11 @@ def main(argv=None) -> int:
     memory = Path(args.memory).expanduser().resolve()
     if not memory.is_dir():
         print(f"not a bank: {memory}", file=sys.stderr)
+        return 2
+    from api.services import demo_guard
+
+    if demo_guard.is_demo(memory):
+        print("a demo bank is never read, with or without --read: it is synthetic and no model reads it", file=sys.stderr)
         return 2
     eyes = None
     if args.eyes is not None:

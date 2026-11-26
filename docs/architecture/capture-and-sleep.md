@@ -3184,7 +3184,7 @@ the link backfill, the books' model read) is skipped like a run stopped at its l
 spent, and no run is recorded (it reads nothing, so there is no drain, no `runs.json` row and no "ran" on Past nights). After them, unguarded (no git),
 the episode vectors are synced when an index-only episode is newer than the vector index (owner ruling 2026-10-18).
 
-**Which one was meant (ruling 83, `sleep_cycle._which_one_read_safely`, 2026-11-26).** Right after the catch-up proposers, with a model, Sleep reads the open "were you talking about A or B?" questions about a held mention (`which_one_reader`, `features.md`): two reads by the main model over each conversation the held line holds, code checks on the copied sentence and on what the record ties it to, and a filing through the resolver's own merge as Sleep's undoable commit. No such question, no engine and no commit.
+**Which one was meant (ruling 83, `sleep_cycle._which_one_read_safely`, 2026-11-26).** Right after the catch-up proposers, with a model, Sleep reads the open "were you talking about A or B?" questions about a held mention (`which_one_reader`, `features.md`): two reads by the main model over each conversation the held line holds, code checks on the copied sentence and on what the record ties the mention to inside it alone (`which_one_tie`: the tell attached to the mention by form, no question, negation or contrast, no other candidate's tell), and a filing through the resolver's own merge as Sleep's undoable commit. No such question, no engine and no commit.
 
 **The catch-up questions (vision item 10, owner 2026-10-28; `sleep_cycle._catchup_questions_safely`).** Two
 engine-free proposers feed the person's catch-up chat (`mcp.md`, "Catching up"), under ONE budget of new questions per
