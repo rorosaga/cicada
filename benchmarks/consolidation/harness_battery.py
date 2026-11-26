@@ -38,6 +38,9 @@ find the plan's sign-in, and reads only the scratch folders it is given.
 
   export HOME="$(mktemp -d)"; export CICADA_HOME="$HOME/.cicada"
   api/.venv/bin/python benchmarks/consolidation/harness_battery.py --model haiku
+
+The signed-in compartment (a scratch headless browser and a daemon of its own, localhost sites, an attacker and the "person's" tab) is
+its own run: `harness_battery.py --browser --model haiku` (`harness_battery_browser.py`).
 """
 from __future__ import annotations
 
@@ -621,8 +624,14 @@ async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="haiku")
     ap.add_argument("--only", default="")
+    ap.add_argument("--browser", action="store_true", help="the signed-in compartment: a scratch browser, its own daemon, localhost sites")
     ap.add_argument("--control", action="store_true", help="drop the deny rules written for the spellings the walk found (diagnostic)")
     args = ap.parse_args()
+    if args.browser:
+        from benchmarks.consolidation import harness_battery_browser as browser_battery
+
+        await browser_battery.main_browser(args)
+        return
     home = Path(os.environ.get("HOME", ""))
     cicada_home = os.environ.get("CICADA_HOME", "")
     if not str(home.resolve()).startswith(str(Path(tempfile.gettempdir()).resolve())) or cicada_home != str(home / ".cicada"):

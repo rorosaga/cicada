@@ -48,6 +48,7 @@ import json
 import os
 import shutil
 import threading
+import urllib.parse
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -55,6 +56,7 @@ from pathlib import Path
 from loguru import logger
 
 from api.services import harness_agent as ha
+from api.services import harness_browse as hb
 from api.services import harness_files as hf
 
 PER_RUN = 3
@@ -107,6 +109,49 @@ class Brief:
     #: The granted folders and the refused paths: a quote from a file is stored only when the file is of an allowed kind under one.
     roots: tuple[str, ...] = ()
     refused: tuple[str, ...] = ()
+    #: The page's type, and (signed-in) the domains of the connected sites and the launcher: a page read there is evidence only on those.
+    ptype: str = ""
+    domains: tuple[str, ...] = ()
+
+
+@dataclass
+class Browse:
+    """What a run knows about the signed-in compartment (ruling 84, third compartment): the sites the person connected, whether their own
+    browser answers (asked once, `harness_browse.daemon_ready`: never starts one) and how many sessions of this kind are left this run.
+    ``sites`` and ``loopback_for_test`` are for tests and the battery (pages on localhost); a run reads the person's own settings."""
+    sites: dict | None = None
+    harness_env: dict = field(default_factory=dict)
+    loopback_for_test: bool = False
+    ready: bool | None = None
+    why: str = ""
+    sessions_left: int = 0
+    harness: str = ""
+    #: The name of the browser-harness daemon that answered (``BU_NAME``, ``default`` when unset): said in the audit.
+    daemon: str = ""
+    #: A shorter harness-call limit, for the battery's forced timeout only (honoured with ``loopback_for_test`` alone).
+    timeout_s: float | None = None
+
+    def __post_init__(self) -> None:
+        self.sessions_left = self.sessions_left or hb.PER_RUN
+
+    def connected(self) -> dict:
+        from api.services import harness_browse
+
+        if self.sites is None:
+            self.sites = harness_browse.connected_sites()
+        return self.sites
+
+    def check(self) -> bool:
+        """Is there a connected site and a browser that answers? Asked once; the reason is words, never an exception."""
+        from api.services import harness_browse
+
+        if self.ready is None:
+            if not self.connected():
+                self.ready, self.why = False, "no_connected_site"
+            else:
+                self.harness = self.harness or harness_browse.harness_path()
+                self.ready, self.why, self.daemon = harness_browse.daemon_probe(self.harness_env, self.harness)
+        return bool(self.ready)
 
 
 @dataclass
@@ -143,6 +188,8 @@ class Outcome:
     scan: list = field(default_factory=list)
     #: Each call's first words of result, in memory only (the battery and the dry run look at what was refused and why).
     results: list = field(default_factory=list)
+    #: Compartments that could not run and why, as the enum (``no_browser``): the stored audit says it in words.
+    skipped: list = field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- choosing
@@ -246,8 +293,12 @@ def candidates(memory_path: Path, *, today: date | None = None) -> list[tuple[Pa
     return rows
 
 
-def due(entry: dict | None, mark: str, today: date) -> bool:
+def due(entry: dict | None, mark: str, today: date, browser: bool = False) -> bool:
+    """Is this question worked now? Not while its memo holds it back (same question, not yet :data:`RETRY_DAYS` old), unless the memo says
+    the signed-in compartment could not run (``nb``) and the person's browser answers now."""
     if not entry or entry.get("d") != mark:
+        return True
+    if browser and entry.get("nb"):
         return True
     try:
         return (today - date.fromisoformat(str(entry.get("at") or ""))).days >= RETRY_DAYS
@@ -261,6 +312,13 @@ def not_workable(memory_path: Path, fm: dict, compartment: str) -> str:
     from api.services import inbox_questions
 
     kind = str(fm.get("kind") or "")
+    if compartment == ha.SIGNED_IN:
+        # The signed-in browser reads who or what a named account or page is. A conflict between values is a fact about a thing or a
+        # life, which a site's own page for a person does not settle (ruling 44); the owner's own page is the person's, never a site's.
+        if kind == "conflict":
+            return "conflict_not_read_in_browser"
+        if kind == "clarification" and inbox_tend_owner_page(memory_path, str(fm.get("entity_id") or "")):
+            return "owners_own_page"
     if kind == "conflict":
         if _persons_own(memory_path, fm):
             return "their_own_words"
@@ -276,6 +334,13 @@ def not_workable(memory_path: Path, fm: dict, compartment: str) -> str:
         if not _pair_workable(memory_path, str(fm.get("entity_id") or ""), str(fm.get("merge_target_hint") or "")):
             return "not_two_separate_people"
     return ""
+
+
+def inbox_tend_owner_page(memory_path: Path, entity_id: str) -> bool:
+    from api.services import inbox_tend
+
+    fm, _body = _page(memory_path, entity_id)
+    return bool(fm) and inbox_tend._is_owner_page(fm)
 
 
 def _pair_workable(memory_path: Path, a: str, b: str) -> bool:
@@ -310,14 +375,16 @@ def is_public(memory_path: Path, path: Path, facts=None) -> bool:
     return public_reason(memory_path, path, facts)[0]
 
 
-def plan_for(kind: str, public: bool) -> tuple[str, ...]:
+def plan_for(kind: str, public: bool, browser: bool = False) -> tuple[str, ...]:
     """The compartments a question is worked in, in order. Private first: the person's own record and files outrank the
-    web, and nothing it found is ever carried into the web session."""
+    web, and nothing it found is ever carried into the web session. The signed-in browser comes last (it reads the person's own
+    accounts, so it is the one tried only when nothing else answered) and only when ``browser`` (the run has a connected site and the
+    person's own browser answers): for a clarification, and for a pair only to leave a note (it never settles one)."""
     if kind == "merge_suggestion":
-        return (ha.PRIVATE,)
+        return (ha.PRIVATE, ha.SIGNED_IN) if browser else (ha.PRIVATE,)
     if kind == "conflict":
         return (ha.PRIVATE, ha.WEB) if public else (ha.PRIVATE,)
-    return (ha.PRIVATE, ha.WEB)
+    return (ha.PRIVATE, ha.WEB, ha.SIGNED_IN) if browser else (ha.PRIVATE, ha.WEB)
 
 
 @dataclass
@@ -331,7 +398,8 @@ class Planned:
 
 
 def plan_run(memory_path: Path, rows: list[tuple[Path, dict]], grant: hf.Grant, *, today: date | None = None,
-             memo: dict | None = None, limit: int | None = None) -> tuple[list[Planned], dict[str, int]]:
+             memo: dict | None = None, limit: int | None = None,
+             browse: "Browse | None" = None) -> tuple[list[Planned], dict[str, int]]:
     """``(the questions a run would really start a session for, with the compartments each would use, how many it leaves and why)``.
     A question counts only when its memo does not hold it back, at least one compartment of its plan can work it (`not_workable`:
     the person's own words, fewer than two values, a pair that is not two separate people...) and a private session has something to
@@ -350,18 +418,19 @@ def plan_run(memory_path: Path, rows: list[tuple[Path, dict]], grant: hf.Grant, 
     for path, fm in rows:
         if limit is not None and len(ready) >= limit:
             break
-        if not due(memo.get(path.stem), _mark(memory_path, fm), today):
+        browser = bool(browse and browse.ready)
+        if not due(memo.get(path.stem), _mark(memory_path, fm), today, browser):
             leave("worked_already")
             continue
         kind = str(fm.get("kind") or "")
         public, why_public = public_reason(memory_path, path, facts)
         compartments: list[str] = []
         why_not = ""
-        for comp in plan_for(kind, public):
+        for comp in plan_for(kind, public, browser):
             reason = not_workable(memory_path, fm, comp)
             if reason:
                 why_not = why_not or reason
-            elif comp == ha.WEB or grant.roots or copies_for(memory_path, kind, fm):
+            elif comp in (ha.WEB, ha.SIGNED_IN) or grant.roots or copies_for(memory_path, kind, fm):
                 compartments.append(comp)
             else:
                 why_not = why_not or "nothing_to_read"
@@ -457,11 +526,14 @@ def _question_words(fm: dict, name: str) -> str:
 
 def brief_for(memory_path: Path, path: Path, fm: dict, compartment: str, *, public: bool = False,
               roots: tuple[str, ...] = (), copies: dict[str, str] | None = None, copies_dir: str = "",
-              refused: tuple[str, ...] = ()) -> Brief | None:
+              refused: tuple[str, ...] = (), launcher: str = "", given: tuple[hb.Given, ...] = (),
+              site_domains: tuple[str, ...] = ()) -> Brief | None:
     """The question as the session is told it. A **private** brief holds the question, its options, the page's own words (held
     back by value like every engine's) and where the conversation copies and the person's folders are. A **web** brief holds the
     question's own words and the names in it, and nothing else: no excerpt of a page, no conversation, nothing a private session
-    read, no note an earlier run left. ``None`` when the question is not one this agent works."""
+    read, no note an earlier run left. A **signed-in** brief is as bare as the web one (the question's words and the names in it) plus
+    the one command it holds and the addresses code gives it: nothing from the memory's pages, nothing any other session read.
+    ``None`` when the question is not one this agent works."""
     from api.services import inbox_questions, sensitive_hold
 
     kind = str(fm.get("kind") or "")
@@ -470,11 +542,12 @@ def brief_for(memory_path: Path, path: Path, fm: dict, compartment: str, *, publ
     names = names_of(memory_path, entity_id, name)
     ptype, excerpt, aliases = _page_excerpt(memory_path, entity_id)
     web = compartment == ha.WEB
+    bare = compartment in (ha.WEB, ha.SIGNED_IN)       # neither holds a page's words nor its type: only the question and its names
     options: dict[str, str] = {}
     lines = [f"Question: {_question_words(fm, name)}",
-             f"It is about: {name}" + (f" ({ptype})" if ptype and not web else "")
+             f"It is about: {name}" + (f" ({ptype})" if ptype and not bare else "")
              + (f", also called {', '.join(aliases)}" if aliases else "")]
-    if not web:
+    if not bare:
         lines.append(f"What the memory holds on it: {excerpt or '(nothing yet)'}")
     other_id, other_names = "", []
     if not_workable(memory_path, fm, compartment):
@@ -492,6 +565,14 @@ def brief_for(memory_path: Path, path: Path, fm: dict, compartment: str, *, publ
     elif kind == "clarification":
         lines.append("Find out what this is. Put a short answer in `answer`, in the exact words of a sentence of your quote "
                      f"that says what {name} is (\"{name} is ...\", \"{name}: ...\").")
+    elif compartment == ha.SIGNED_IN:   # a pair, in the browser: only to leave a note of what each site's page says about each name
+        other_id = str(fm.get("merge_target_hint") or "")
+        _t, _e, o_aliases = _page_excerpt(memory_path, other_id)
+        other_names = names_of(memory_path, other_id)
+        lines += [f"The question is whether {name} is the same person as: {', '.join(other_names[:3])}",
+                  "You cannot tell that from a site and you do not decide it. Read what each site's own page says about each name and "
+                  "quote it: status answered, with one `evidence` item per page that says who or what a name is, `side` \"a\" for "
+                  f"{name} and \"b\" for the other. If no page says, status not_found."]
     else:   # merge_suggestion: a pair, private only
         other_id = str(fm.get("merge_target_hint") or "")
         o_type, o_excerpt, o_aliases = _page_excerpt(memory_path, other_id)
@@ -508,7 +589,18 @@ def brief_for(memory_path: Path, path: Path, fm: dict, compartment: str, *, publ
                   "(ep_...) that belong to each person under keys a and b; do not try to fix pages.\n"
                   "- If they are ONE person, or the record cannot tell: status cannot_tell, with evidence if you found any."]
     domains: tuple[str, ...] = ()
-    if web:
+    if compartment == ha.SIGNED_IN:
+        lines.append(
+            "Tools you have: one shell command, and it only reads the person's own signed-in browser. Run it exactly as "
+            f"`{launcher} open '<address>'` (always in single quotes, one command per call, nothing before or after it), then, to read "
+            f"more of the same page, `{launcher} text <offset>`. You may open only these addresses first:\n"
+            + "\n".join(f"- {g.url}  ({'a page the memory already tracks' if g.origin == 'source' else 'the site' + chr(39) + 's own search for the name'})"
+                        for g in given)
+            + f"\nAfter you open a page it lists its links: you may open one of those, on the same site. You may open at most "
+              f"{hb.MAX_OPENS} addresses. Never type an address of your own, never put anything you read into an address: any other "
+              "address is refused and counted. You never click, type, sign in or change anything; a page that asks for a login is "
+              "reported as needs_login and left.")
+    elif web:
         domains = ha.hosts_in(_question_words(fm, name))
         lines.append("Tools you have: web search and fetch only. Use them to find a public page that says it."
                      + (f" You may only fetch addresses on: {', '.join(domains)}." if domains else ""))
@@ -526,7 +618,7 @@ def brief_for(memory_path: Path, path: Path, fm: dict, compartment: str, *, publ
     text = str((held[0] if held else {}).get("content") or text)
     return Brief(path.stem, kind, text, options, entity_id, name, _mark(memory_path, fm), str(Path(memory_path).resolve()),
                  compartment, names, other_names, other_id, public, tuple(sorted(copies or {})), copies_dir, dict(copies or {}),
-                 tuple(roots), tuple(refused))
+                 tuple(roots), tuple(refused), ptype, tuple(site_domains))
 
 
 # --------------------------------------------------------------------------- what is done with the answer
@@ -579,12 +671,33 @@ def stored_where(e: ha.Evidence, brief: Brief) -> str:
 def _template_reason(prefix: str, evidence: list[ha.Evidence], brief: Brief, limit: int = 160) -> str:
     """A reason built by code from the located quote: the session's own explanation is never written anywhere."""
     e = evidence[0]
+    if brief.compartment == ha.SIGNED_IN:
+        prefix = f"Read {SIGNED_IN_WORDS} at"
     text = f"{prefix} {label_of(e, brief)}: \"{e.quote}\""
     return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
 
 
+#: How a read in the person's signed-in browser is said wherever it is stored (the citation's reason, a note, the episode, the evidence
+#: record): a later reader must know what kind of evidence it is, the person's own signed-in session and not the public page.
+SIGNED_IN_WORDS = "in the person's signed-in browser"
+
+
+def _via(brief: Brief) -> dict:
+    return {"read_in": "signed_in_browser"} if brief.compartment == ha.SIGNED_IN else {}
+
+
+def _evidence_record(e: ha.Evidence, brief: Brief) -> dict:
+    return {"where": stored_where(e, brief), "quote": e.quote, **_via(brief)}
+
+
 def _note_text(evidence: list[ha.Evidence], brief: Brief) -> str:
-    return "Cicada's agent read: " + " | ".join(f"{label_of(e, brief)}: \"{e.quote}\"" for e in evidence)[:560]
+    return (f"Cicada's agent read {SIGNED_IN_WORDS}: " if brief.compartment == ha.SIGNED_IN else "Cicada's agent read: ") + " | ".join(f"{label_of(e, brief)}: \"{e.quote}\"" for e in evidence)[:560]
+
+
+def _scrub_changes(text: str) -> bool:
+    from api.services import episode_scrub
+
+    return episode_scrub.scrub(text)[1] > 0
 
 
 def _allowed(e: ha.Evidence, brief: Brief) -> bool:
@@ -593,6 +706,10 @@ def _allowed(e: ha.Evidence, brief: Brief) -> bool:
     question's conversation copies)."""
     if hf.looks_like_key(e.quote) or hf.looks_like_key(e.where):
         return False
+    if e.kind == "address" and _scrub_changes(e.quote):
+        return False       # a page's words are stored only when the episode scrubber would leave them as they are (a code, a credential)
+    if brief.compartment == ha.SIGNED_IN:
+        return e.kind == "address" and hb.on_connected(e.where, brief.domains)      # a page of a connected site, as the helper read it
     if brief.compartment == ha.WEB:
         return e.kind == "address"
     if e.kind != "file":
@@ -615,6 +732,8 @@ def decide(brief: Brief, answer: dict | None, session: ha.Session, fm: dict) -> 
         return Verdict("left", why=session.stopped)
     if not isinstance(answer, dict):
         return Verdict("left", why="no_answer")
+    if brief.compartment == ha.SIGNED_IN:
+        return _decide_signed_in(brief, answer, session)
     if brief.kind == "merge_suggestion":
         return _decide_pair(brief, answer, session)
     if answer.get("status") == "needs_login":
@@ -640,6 +759,36 @@ def decide(brief: Brief, answer: dict | None, session: ha.Session, fm: dict) -> 
             if brief.compartment == ha.WEB and not brief.public:
                 return Verdict("note", span, [e], note=_note_text([e], brief), dropped=dropped)   # a page never settles a person's identity or life
             return Verdict("settle", span[:120], [e], _template_reason("Read in", [e], brief), dropped=dropped)
+    return Verdict("left", evidence=evidence, why="quote_does_not_say_it", dropped=dropped)
+
+
+def _decide_signed_in(brief: Brief, answer: dict, session: ha.Session) -> Verdict:
+    """What a page of a connected site may do. **A clarification** (who or what a named account or page is) settles, as a citation, only
+    when one sentence of the page's own text presents the answer as what the name is (the same gate as every other source) AND the
+    address is **a source the memory already lists for that page** (origin ``source``: the person's own, one they took, one Cicada's read
+    confirmed). Everything else is a note attached to the question: the site's search page, and any link the session followed, show text
+    anyone can write (a bio, a post, a display name), so it is never what settles. **A pair is only ever a note**: a site's page can say
+    who each name is, never that two are one (or not): the person's tap, or conversations, decide that. Never anything about the person's
+    own life: the owner's own page is never worked here."""
+    if answer.get("status") == "needs_login":
+        return Verdict("left", why="needs_login")
+    evidence, why = ha.verify(answer, session)
+    evidence, dropped = vet_evidence(evidence, brief)
+    if not evidence:
+        return Verdict("left", why=why or ("evidence_dropped" if dropped else "evidence_not_located"), dropped=dropped)
+    if brief.kind == "merge_suggestion":
+        named = [e for e in evidence if _hit_names([*brief.names, *brief.other_names], e.quote)]
+        if not named:
+            return Verdict("left", why="nothing_found", dropped=dropped)
+        return Verdict("note", evidence=named, why="pair", note=_note_text(named, brief), dropped=dropped)
+    text = _clean(answer.get("answer"))[:120]
+    for e in evidence:
+        span = ha.presents_as(e.quote, brief.names, text) if text else None
+        if not span:
+            continue
+        if e.origin == "source":
+            return Verdict("settle", span[:120], [e], _template_reason("Read in", [e], brief), dropped=dropped)
+        return Verdict("note", span, [e], note=_note_text([e], brief), dropped=dropped)
     return Verdict("left", evidence=evidence, why="quote_does_not_say_it", dropped=dropped)
 
 
@@ -686,7 +835,15 @@ def _trail(sessions: list[ha.Session], brief: Brief | None = None) -> list[dict]
         for call in s.calls:
             what, was_hidden = _safe_what(call, brief)
             hidden += was_hidden
-            out.append({"tool": call.kind, "what": what[:300], "in": s.compartment, **({"denied": True} if call.denied else {})})
+            host = (urllib.parse.urlsplit(call.what).hostname or "") if call.kind == "page" else ""
+            out.append({"tool": call.kind, "what": what[:300], "in": s.compartment, **({"host": host} if host else {}),
+                        **({"how": call.how} if call.how else {}), **({"denied": True} if call.denied else {})})
+        if s.daemon and s.compartment == ha.SIGNED_IN:
+            out.insert(len(out) - len(s.calls), {"tool": "daemon", "what": f"read through the browser-harness daemon named '{s.daemon}'"[:120],
+                                                 "in": s.compartment})
+        if s.stopped and not s.calls:
+            out.append({"tool": "skip", "what": ha.STOPPED_WORDS.get(s.stopped, s.stopped), "in": s.compartment})
+            continue
         out.append({"tool": "scan", "what": " ".join(f"{k}={v}" for k, v in {**s.scan, "redacted": hidden}.items()), "in": s.compartment})
     return out
 
@@ -716,10 +873,11 @@ def _found_episode(memory_path: Path, brief: Brief, evidence: list[ha.Evidence],
 
     from api.services import episode_ids, episode_scrub, reading_hosts
 
-    lines = [f"assistant: Looked into {brief.name} with Cicada's agent.", ""]
+    lines = [f"assistant: Looked into {brief.name} with Cicada's agent" + (f", reading {SIGNED_IN_WORDS}." if brief.compartment == ha.SIGNED_IN else "."), ""]
     for e in evidence:
         host = (reading_hosts.display_host(reading_hosts.host_of(e.where)) if e.kind == "address" else "file") or "page"
-        lines += [f"attachment [{host}]: as Cicada's agent read it at {stored_where(e, brief)}", f"> {e.quote}"]
+        how = f"as Cicada's agent read it {SIGNED_IN_WORDS} at" if brief.compartment == ha.SIGNED_IN else "as Cicada's agent read it at"
+        lines += [f"attachment [{host}]: {how} {stored_where(e, brief)}", f"> {e.quote}"]
     # Every episode writer scrubs (R-LS6): what a page or a file said goes through the same scrubber as a capture,
     # after the key-shaped drop in `harness_files`, so a secret a quote still carries never reaches the bank.
     body, scrubbed = episode_scrub.scrub("\n".join(lines))
@@ -758,8 +916,7 @@ async def settle(memory_path: Path, settings, brief: Brief, fm: dict, verdict: V
         episode = await asyncio.to_thread(_found_episode, memory_path, brief, verdict.evidence, model)
         d = inbox_tend.Decision(brief.item_id, brief.kind, ha.RULE, request, answer=words, model=model,
                                 fingerprint=fingerprint, guard=guard, reason=verdict.why[:inbox_tend.MAX_REASON_CHARS],
-                                found={"episode": episode, "evidence": [{"where": stored_where(e, brief), "quote": e.quote}
-                                                                        for e in verdict.evidence],
+                                found={"episode": episode, "evidence": [_evidence_record(e, brief) for e in verdict.evidence],
                                        "trail": _trail(sessions, brief)})
         ok = False
         try:
@@ -785,7 +942,7 @@ def _write_note(memory_path: Path, brief: Brief, verdict: Verdict, sessions: lis
         parsed = markdown_parser.parse(path)
         fm = dict(parsed.frontmatter)
         fm["agent_found"] = {"at": date.today().isoformat(), "note": verdict.note[:600],
-                             "evidence": [{"where": stored_where(e, brief), "quote": e.quote} for e in verdict.evidence],
+                             "evidence": [_evidence_record(e, brief) for e in verdict.evidence],
                              "trail": _trail(sessions, brief), **({"mixed": verdict.mixed} if verdict.mixed else {})}
         before = git_service.snapshot_dirty_sync(memory_path)
         markdown_parser.write(path, fm, parsed.body)
@@ -843,24 +1000,41 @@ def home_grant(memory_path: Path, *, attended: bool, home: Path | None = None) -
     return hf.grant_for_home(home or Path.home(), attended=attended, refused=refused_paths(memory_path), choices=agent_folders.load())
 
 
-def _policy(compartment: str, *, grant: hf.Grant, files_dir: str, domains: tuple[str, ...]) -> ha.Policy:
+def _policy(compartment: str, *, grant: hf.Grant, files_dir: str, domains: tuple[str, ...], browse: str = "") -> ha.Policy:
+    if compartment == ha.SIGNED_IN:
+        return ha.Policy(ha.SIGNED_IN, browse=browse)
     if compartment == ha.WEB:
         return ha.Policy(ha.WEB, domains=domains)
     return ha.Policy(ha.PRIVATE, roots=(*grant.roots, files_dir), refused=grant.refused, deny=grant.deny)
 
 
+def _browse_names(memory_path: Path, fm: dict) -> tuple[tuple[str, ...], list[str]]:
+    """``(the pages the question is about, the names to search)``: the question's page, and for a pair the other too."""
+    entity_id = str(fm.get("entity_id") or "")
+    ids = [entity_id] + ([str(fm.get("merge_target_hint") or "")] if str(fm.get("kind") or "") == "merge_suggestion" else [])
+    ids = [i for i in ids if i]
+    name = str(fm.get("entity_name") or fm.get("entity_mention") or entity_id)
+    names = [name]
+    if len(ids) > 1:
+        names.append(str(_page(memory_path, ids[1])[0].get("name") or ids[1]))
+    return tuple(ids), names
+
+
 async def _session(memory_path: Path, settings, path: Path, fm: dict, compartment: str, model: str, *, public: bool,
-                   grant: hf.Grant, env: dict | None, on_call, binary: str, runner
+                   grant: hf.Grant, env: dict | None, on_call, binary: str, runner, browse: Browse | None = None
                    ) -> tuple[Brief | None, ha.Session | None, str]:
     """One session in one compartment: its own private temp folder (conversation copies, the settings file; made owner-only outside
     Cicada's home and every granted folder, recorded so a dead backend's is reaped), the harness, the folder gone afterwards.
-    ``(None, None, why)`` when the question is not workable in this compartment."""
+    A signed-in session's folder holds its launcher, its grant and its state instead, and the tabs it opened are closed before the
+    folder goes, whatever way the session ended. ``(None, None, why)`` when the question is not workable in this compartment."""
     from api.services import agent_engine
 
     base = hf.make_scratch((*grant.refused, *grant.roots))
     if base is None:
         return None, None, "no_safe_scratch"
     record = ha.register_scratch(base)
+    setup: hb.Setup | None = None
+    browse_record: Path | None = None
     try:
         files = base / "files"
         files.mkdir(mode=0o700)
@@ -872,13 +1046,28 @@ async def _session(memory_path: Path, settings, path: Path, fm: dict, compartmen
         files_dir = str(files.resolve())
         if any(hf.under(files_dir, r) for r in (*grant.refused, *grant.roots)):
             return None, None, "no_safe_scratch"           # never a copy where the grant is or where it is refused
+        launcher, given, sites = "", (), {}
+        if compartment == ha.SIGNED_IN:
+            if browse is None or not browse.ready:
+                return None, None, "no_browser"
+            sites = browse.connected()
+            page_ids, names = _browse_names(memory_path, fm)
+            given = tuple(await asyncio.to_thread(hb.given_for, memory_path, page_ids, names, sites))
+            if not given:
+                return None, None, "nothing_to_open"      # no tracked source and no site with a search page of its own
+            setup = hb.write_setup(base, hb.grant_dict(sites, list(given), harness=browse.harness, harness_env=browse.harness_env,
+                                                       loopback_for_test=browse.loopback_for_test, names=names,
+                                                       timeout_s=browse.timeout_s if browse.loopback_for_test else None), browse.harness_env)
+            browse_record = ha.register_browse(setup)
+            launcher = os.path.realpath(setup.launcher)
         brief = await asyncio.to_thread(brief_for, memory_path, path, fm, compartment, public=public, roots=grant.roots,
-                                        copies=copies, copies_dir=files_dir, refused=grant.refused)
+                                        copies=copies, copies_dir=files_dir, refused=grant.refused, launcher=launcher, given=given,
+                                        site_domains=tuple(sorted({d for ds in sites.values() for d in ds})))
         if brief is None:
             return None, None, "not_workable"
         if compartment == ha.PRIVATE and not grant.roots and not copies:
             return brief, None, "nothing_to_read"            # nothing to read: no session is started
-        policy = _policy(compartment, grant=grant, files_dir=files_dir, domains=ha.hosts_in(_question_words(fm, brief.name)))
+        policy = _policy(compartment, grant=grant, files_dir=files_dir, domains=ha.hosts_in(_question_words(fm, brief.name)), browse=launcher)
         settings_file = base / "settings.json"
         settings_file.write_text(json.dumps(ha.settings_for(policy)), encoding="utf-8")
         argv = ha.build_argv(model=model, system_prompt=agent_engine.system_prompt_for(SYSTEM), policy=policy, binary=binary,
@@ -889,17 +1078,27 @@ async def _session(memory_path: Path, settings, path: Path, fm: dict, compartmen
                                           expected_tools=ha.COMPARTMENT_TOOLS[compartment], compartment=compartment,
                                           folders=grant.roots, copies_dir=files_dir)
         session.compartment = compartment
+        if setup is not None:
+            session.daemon = browse.daemon if browse is not None else ""
+            session.opened = hb.opened_addresses(setup.state)      # the helper's own record of what it opened, in order
         return brief, session, ""
     finally:
+        if setup is not None:
+            await asyncio.to_thread(hb.close_tabs, setup)         # every tab this run opened, before the folder that says which goes
+        if browse_record is not None:
+            browse_record.unlink(missing_ok=True)
         ha.remove_scratch(base, record)
 
 
 async def work_one(memory_path: Path, settings, path: Path, fm: dict, model: str, *, apply: bool, roots: tuple[str, ...] | None = None,
                    refused: tuple[str, ...] | None = None, grant: hf.Grant | None = None, attended: bool = False, env: dict | None = None, on_call=None,
                    today: date | None = None, engine: str | None = None, binary: str = "claude", runner=None,
-                   memo: dict | None = None, public: bool | None = None) -> Outcome:
+                   memo: dict | None = None, public: bool | None = None, browse: Browse | None = None,
+                   only: tuple[str, ...] | None = None) -> Outcome:
     """Work one question: its compartments in order (stop at the first that answers), then the gate, then (when ``apply``) the
-    one write. ``runner`` replaces the session in a test; ``roots`` the person's folders (default: the home's own)."""
+    one write. ``runner`` replaces the session in a test; ``roots`` the person's folders (default: the home's own). ``browse`` is the
+    run's view of the signed-in compartment (`Browse`): without it the question is worked in the first two compartments only.
+    ``only`` restricts the compartments tried (the battery works the signed-in one alone)."""
     from api.services import engine_identity, inbox_tend
 
     today = today or date.today()
@@ -913,10 +1112,20 @@ async def work_one(memory_path: Path, settings, path: Path, fm: dict, model: str
     guard = inbox_tend._guard(Path(memory_path), str(fm.get("entity_id") or ""))   # the pages as they were before any session read
     out = Outcome(path.stem, kind, "left:not_workable")
     sessions: list[ha.Session] = []
+    skipped: list[ha.Session] = []       # a compartment that could not run, kept in the audit in words
     verdict, brief = Verdict("left", why="not_workable"), None
-    for compartment in plan_for(kind, public):
+    want_browser = browse is not None and bool(await asyncio.to_thread(browse.connected))
+    for compartment in plan_for(kind, public, want_browser):
+        if only is not None and compartment not in only:
+            continue
+        if compartment == ha.SIGNED_IN:
+            if browse is None or browse.sessions_left <= 0:
+                continue
+            if not await asyncio.to_thread(browse.check):          # asked once a run; never starts a browser
+                skipped.append(ha.Session(compartment=compartment, stopped="no_browser"))
+                continue
         b, session, why = await _session(memory_path, settings, path, fm, compartment, model, public=public, grant=grant,
-                                         env=env, on_call=on_call, binary=binary, runner=runner)
+                                         env=env, on_call=on_call, binary=binary, runner=runner, browse=browse)
         if b is None:
             if why == "no_safe_scratch":
                 verdict = Verdict("left", why=why)
@@ -925,6 +1134,8 @@ async def work_one(memory_path: Path, settings, path: Path, fm: dict, model: str
         if session is None:
             verdict = Verdict("left", why=why)
             continue
+        if compartment == ha.SIGNED_IN and browse is not None:
+            browse.sessions_left -= 1
         sessions.append(session)
         out.compartments.append({"in": compartment, "stopped": session.stopped, "calls": len(session.calls)})
         out.transcript.append("\n".join(session.transcript))
@@ -937,6 +1148,9 @@ async def work_one(memory_path: Path, settings, path: Path, fm: dict, model: str
             break
         verdict = decide(b, session.answer, session, fm)
         out.audit += [{**line, "in": compartment} for line in session.audit]
+        if compartment == ha.SIGNED_IN and session.daemon:
+            out.audit.insert(len(out.audit) - len(session.audit), {"tool": "daemon", "in": compartment,
+                                                                   "what": f"read through the browser-harness daemon named '{session.daemon}'"})
         out.results += [{"what": c.what[-60:], "denied": c.denied, "error": c.error, "result": c.result[:120]} for c in session.calls]
         out.denied += len(session.denied)
         out.dropped += verdict.dropped
@@ -946,6 +1160,8 @@ async def work_one(memory_path: Path, settings, path: Path, fm: dict, model: str
         out.cost = (out.cost or 0.0) + session.cost if session.cost is not None else out.cost
         if verdict.what != "left":
             break
+    out.skipped = [s.stopped for s in skipped]
+    out.audit += [{"tool": "skip", "what": ha.STOPPED_WORDS.get(s.stopped, s.stopped), "in": s.compartment} for s in skipped]
     if brief is None:
         out.what = f"left:{verdict.why}"
         return out
@@ -956,22 +1172,25 @@ async def work_one(memory_path: Path, settings, path: Path, fm: dict, model: str
             out.what = f"left:{verdict.why}"
         elif verdict.what == "note":
             out.what = "would_note" if not apply else (
-                "noted" if await note_on_question(memory_path, brief, verdict, sessions) else "left:gone")
+                "noted" if await note_on_question(memory_path, brief, verdict, [*sessions, *skipped]) else "left:gone")
         else:
             out.what = "would_settle" if not apply else (
-                "settled" if await settle(memory_path, settings, brief, fm, verdict, sessions, fingerprint=fingerprint,
+                "settled" if await settle(memory_path, settings, brief, fm, verdict, [*sessions, *skipped], fingerprint=fingerprint,
                                           guard=guard, engine=engine) else "left:changed")
     except _SleepHolds:
         out.what = "left:sleep_running"      # Sleep took the pages while the session read: the question is worked again later
         return out
     if apply and memo is not None and not out.what.startswith(("settled", "noted")) and not any(s.stopped for s in sessions):
-        memo[brief.item_id] = {"d": brief.mark, "at": today.isoformat(), "o": out.what}
+        memo[brief.item_id] = {"d": brief.mark, "at": today.isoformat(), "o": out.what, **({"nb": 1} if skipped else {})}
     return out
 
 
 async def run_tail(memory_path: Path, settings, *, user_triggered: bool, today: date | None = None, per_run: int = PER_RUN,
-                   runner=None, env: dict | None = None, roots: tuple[str, ...] | None = None) -> Report:
-    """Work a few open questions, one or two sessions each. Never raises; a plan limit or a missing tool is a skip, in words."""
+                   runner=None, env: dict | None = None, roots: tuple[str, ...] | None = None,
+                   browse: Browse | None = None) -> Report:
+    """Work a few open questions, one or two sessions each. Never raises; a plan limit or a missing tool is a skip, in words.
+    The signed-in compartment (``browse``, the person's own settings by default) runs only when the person connected a site and their own
+    browser already answers; otherwise the questions are worked without it and the audit says so."""
     from api.services import agent_engine, demo_guard, same_name_tend, web_lookup, write_admission
 
     memory_path = Path(memory_path)
@@ -993,7 +1212,10 @@ async def run_tail(memory_path: Path, settings, *, user_triggered: bool, today: 
         grant = (await asyncio.to_thread(hf.grant_for_roots, roots, refused_paths(memory_path)) if roots is not None
                  else await asyncio.to_thread(home_grant, memory_path, attended=False))
         memo = _seen(memory_path)
-        ready, left = await asyncio.to_thread(plan_run, memory_path, rows, grant, today=today, memo=memo, limit=per_run)
+        browse = browse if browse is not None else Browse()
+        if await asyncio.to_thread(browse.connected):
+            await asyncio.to_thread(browse.check)             # one probe a run, and only when a site is connected
+        ready, left = await asyncio.to_thread(plan_run, memory_path, rows, grant, today=today, memo=memo, limit=per_run, browse=browse)
         report.skipped.update(left)      # why the questions before the ones it started were left, counted
         for planned in ready:
             path, fm = planned.path, planned.fm
@@ -1008,12 +1230,14 @@ async def run_tail(memory_path: Path, settings, *, user_triggered: bool, today: 
                 report.skip("plan_limit")
                 break
             out = await work_one(memory_path, settings, path, fm, model, apply=True, env=env, runner=runner, memo=memo,
-                                 engine=label, grant=grant)
+                                 engine=label, grant=grant, browse=browse)
             out.transcript = []      # what a private session read is dropped as soon as the question is done
             report.worked += 1
             report.outcomes.append(out)
             report.settled += out.what == "settled"
             report.noted += out.what == "noted"
+            for why_skipped in out.skipped:
+                report.skip(f"skipped:{why_skipped}")       # the person's own browser was not running: said, not hidden
             for c in out.compartments:
                 if c.get("stopped"):
                     report.skip(f"session:{c['stopped']}")   # a tool that hung or held more than it was given: skipped, in words
