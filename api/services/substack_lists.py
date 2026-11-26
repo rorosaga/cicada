@@ -9,12 +9,13 @@ Vision Pro only). Its terms forbid crawling or scraping by manual or automated m
 behind sign-in — so the backend never fetches one (the ToS rail). What is left inside the rails is G166's: the person's
 own agent, in their own signed-in browser, on their standing ask, reading three pages of their own reader:
 
-* **Saved** (``https://substack.com/inbox`` → Saved) — each post an indexed save (ruling 30), origin ``substack-saved``,
-  folder ``Saved``, never read by a model; dedup by URL, so a post a followed feed already brought in is one row.
+* **Saved** (``https://substack.com/inbox/saved``, the inbox's Saved tab) — each post a save, read by Sleep like any
+  save (ruling 80; ruling 30 had it index-only), origin ``substack-saved``, folder ``Saved``; dedup by URL, so a post
+  a followed feed already brought in is one row.
 * **Liked** (the Likes section of the reader's own profile) — the same, folder ``Liked``: a post both saved and liked
   is one page on two lists (ROR-138, owner 2026-11-06: "from substack i'd only like to save the articles that i've
   liked or my saved posts").
-* **History** (``https://substack.com/home`` → History) — what the person read, as reading days
+* **History** (``https://substack.com/inbox/history``, the inbox's History tab) — what the person read, as reading days
   (``substack_reads``): one index-only episode per day, never a save, never a mention.
 * **Subscriptions** (the account menu → Subscriptions) — each publication followed through its own public feed
   (``feed_registry``, tag ``substack``), which the feed gate polls; a publication the person unsubscribed from in
@@ -25,8 +26,8 @@ own agent, in their own signed-in browser, on their standing ask, reading three 
 it applies (owner 2026-10-26's on-by-default is for accounts the memory shows). Each switch is a standing ask for
 exactly that page, never a site grant.
 
-**Bounds** (G206's, shared): a list is offered only when no X, Instagram or LinkedIn list is due (one site's list at a
-time), at most one Substack list at a time, and every recorded read spends the same :data:`saved_lists.DAILY_READS` a
+**Bounds** (G206's, shared): one site's list at a time across these lists and ``saved_lists``' (whichever ranks first
+by the shared order, :func:`due`), at most one Substack list at a time, and every recorded read spends the same :data:`saved_lists.DAILY_READS` a
 day per bank. ``needs_login``/``blocked`` pause all three for a week (one sign-in covers them); turning a list on
 again lifts it.
 
@@ -76,7 +77,7 @@ class SubstackList:
 
 LISTS: dict[str, SubstackList] = {
     "saved": SubstackList(
-        "saved", "Saved", "https://substack.com/inbox", " — open Saved",
+        "saved", "Saved", "https://substack.com/inbox/saved", " (the Saved tab of the inbox)",
         "each post's link, its title, its author and its publication as the list shows them",
         "{url, title, author, publication}", timedelta(hours=20)),
     # Substack shows a reader the posts they liked in the Likes section of their own profile (not in the inbox).
@@ -86,8 +87,7 @@ LISTS: dict[str, SubstackList] = {
         "each liked post's link, its title, its author and its publication as the list shows them",
         "{url, title, author, publication}", timedelta(hours=20)),
     "history": SubstackList(
-        "history", "History", "https://substack.com/home",
-        " — open History (the clock icon at the top of the page)",
+        "history", "History", "https://substack.com/inbox/history", " (the History tab of the inbox)",
         "each post's link, its title, its author and its publication, and the day it was read when the page shows one",
         "{url, title, author, publication, read_on}", timedelta(hours=20)),
     # A list that changes rarely: read once a week.
@@ -190,14 +190,30 @@ def last(memory_path: Path, name: str) -> dict:
 
 
 def due(memory_path: Path, now: datetime | None = None, *, unattended: bool = False) -> list[str]:
-    """The Substack list to offer the person's agent now — at most one, and only when no other site's saved list is
-    due and the day's shared reads are not spent (G206's bounds). ``unattended`` (a read nobody watches): "due" is
-    what an unattended read of the saved lists would be offered, and a list never read before is the person's to
+    """The Substack list to offer the person's agent now — at most one, and only while the day's shared reads are not
+    spent (G206's bounds). One site's list at a time: when another site's saved list is due too, the one that ranks
+    first by the shared order goes (asked first, then the one read longest ago, ``saved_lists.candidate``); until
+    2026-11-26 Substack waited for every other site, and with six sites on a 20-hour cadence one nearly always was, so
+    Saved went unread for weeks. ``unattended`` (a read nobody watches): a list never read before is the person's to
     start."""
-    if saved_lists.reads_today(memory_path, now) >= saved_lists.DAILY_READS or paused_until(now) is not None:
+    if saved_lists.reads_today(memory_path, now) >= saved_lists.DAILY_READS:
         return []
-    if saved_lists.due(memory_path, now, unattended=unattended):
+    mine = candidate(memory_path, now, unattended=unattended)
+    if mine is None:
         return []
+    theirs = saved_lists.candidate(memory_path, now, unattended=unattended)
+    return [] if theirs is not None and theirs < mine else [mine[-1]]
+
+
+#: Where this table stands in a tie with ``saved_lists``' (its lists go first).
+TABLE_ORDER = 1
+
+
+def candidate(memory_path: Path, now: datetime | None = None, *, unattended: bool = False) -> tuple | None:
+    """The Substack list :func:`due` would offer from this table alone, as its rank — the shape of
+    ``saved_lists.candidate`` (every Substack list ranks as posts in an unattended read) — or ``None``."""
+    if paused_until(now) is not None:
+        return None
     moment = _now(now)
     floor = datetime.min.replace(tzinfo=timezone.utc)
     ranked = []
@@ -213,8 +229,8 @@ def due(memory_path: Path, now: datetime | None = None, *, unattended: bool = Fa
             continue
         # G245: a list the person asked to check first (never past the day's bound or a pause), then the one read
         # longest ago — the first key in table order no longer always wins.
-        ranked.append((0 if asked is not None else 1, asked or at or floor, order, name))
-    return [min(ranked)[3]] if ranked else []
+        ranked.append((0 if asked is not None else 1, 0, asked or at or floor, TABLE_ORDER, order, name))
+    return min(ranked) if ranked else None
 
 
 def request_check(memory_path: Path, name: str, now: datetime | None = None) -> bool:
