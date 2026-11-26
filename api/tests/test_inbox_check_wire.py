@@ -105,7 +105,9 @@ def test_the_inbox_etag_recipe_is_unchanged():
     # 2026-11-24: the cause's turns and cuts (`evidence_window.SHAPE`) are a wire shape too.
     assert 'f"|{evidence_window.SHAPE}"' in src
     # 2026-11-24: who asked each question (`question_origin.SHAPE`), derived from files the `inbox` component covers.
-    assert 'f"|{question_origin.SHAPE}")' in src
+    assert 'f"|{question_origin.SHAPE}"' in src
+    # Ruling 83 (2026-11-26): a which-one question about one conversation serves `scopeEpisodes`, read from its own file.
+    assert 'f"|{which_one_file.SHAPE}")' in src
 
 
 def test_reading_checkability_writes_nothing_fetches_nothing_and_calls_no_model(memory, monkeypatch):

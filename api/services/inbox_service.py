@@ -40,6 +40,7 @@ from api.services import (
     search_index,
     source_check,
     telemetry,
+    which_one_file,
 )
 from api.services.id_utils import resolve_entity_file, sanitize_id
 from api.services.inbox_generator import fold_claims
@@ -319,6 +320,7 @@ def _item_from_file(
         source_episode_timestamp=_opt_str(fm.get("source_episode_timestamp")),
         claim_id=_opt_str(fm.get("claim_id")),
         asked_by=question_origin.wire(fm, kind),
+        scope_episodes=(which_one_file.scope_of(fm) or None) if kind == "merge_suggestion" else None,
         **extra,
     )
 
@@ -3258,22 +3260,19 @@ def _land_held_prose(memory_path: Path, mention: str, target_id: str, *, subject
     if line is None or (subject_page and line.held_against == subject_page):
         return []
     if scope:
-        # One conversation's answer: its summary, description and key facts (each by the G118 row that names it), nothing that
-        # carries no conversation (history, links, questions stay on the line).
+        # One conversation's answer (ruling 83): the summary, description and key facts every conversation of which is known (the
+        # ones this answer files and the ones filed before) go to the page each conversation named, with that conversation's own
+        # evidence; nothing that carries no conversation (a description, history, links, questions) moves, and the page is credited
+        # with the conversations whose words landed and no other (`which_one_file.land_prose`).
         from api.services import which_one_file
 
-        inside = set(scope)
-        rows = [r for r in which_one_file.prose_rows(line) if which_one_file.row_episodes(r) <= inside]
-        facts = [str(r["text"]).strip() for r in rows]
-        history, links, questions = [], [], []
-        line_inputs = rows
-        line_episodes = [e for e in line.episodes() if e in inside]
-    else:
-        facts = [str(f) for f in [line.summary or line.description, *line.key_facts] if str(f or "").strip()]
-        history = [e for e in line.history_entries if isinstance(e, dict) and str(e.get("event") or "").strip()]
-        links = [d for d in line.links if isinstance(d, dict)]
-        questions = [str(q) for q in line.open_questions if str(q).strip()]
-        line_inputs, line_episodes = list(line.item_inputs), line.episodes()
+        verdict = {**which_one_file.filed(line), **{e: target_id for e in scope}}
+        return which_one_file.land_prose(memory_path, mention, verdict)
+    facts = [str(f) for f in [line.summary or line.description, *line.key_facts] if str(f or "").strip()]
+    history = [e for e in line.history_entries if isinstance(e, dict) and str(e.get("event") or "").strip()]
+    links = [d for d in line.links if isinstance(d, dict)]
+    questions = [str(q) for q in line.open_questions if str(q).strip()]
+    line_inputs, line_episodes = list(line.item_inputs), line.episodes()
     if not (facts or history or links or questions):
         return []
     path = Path(memory_path) / "entities" / f"{target_id}.md"
@@ -3285,8 +3284,6 @@ def _land_held_prose(memory_path: Path, mention: str, target_id: str, *, subject
               "untimed": True, "trigger": "inbox/held-prose"}
     before = path.read_bytes()
     conflict_resolver.apply_changes([change], Path(memory_path))
-    if scope:
-        which_one_file.remove_prose(memory_path, mention, rows)   # what landed leaves the line: it is the page's now
     return [f"entities/{target_id}.md"] if path.read_bytes() != before else []
 
 
@@ -3364,6 +3361,12 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
 
         none = same_name_pick.is_another(request.option_key) and same_name_pick.applies(parsed.frontmatter)
         pages = same_name_pick.rejected_ids(parsed.frontmatter) if none else [other]
+        from api.services import which_one_file
+
+        # Ruling 83: "Someone else" on a question about ONE conversation is the answer for that conversation alone; the question
+        # moves on to the next one open (or goes when none is), and the candidates stay candidates for every other conversation.
+        if (moved := which_one_file.apart_scoped(settings.memory_path, path, parsed.frontmatter, pages)) is not None:
+            return entity_id, False, moved
         lines = reject_effects(settings, parsed.frontmatter, entity_id, other, pages, source=path.stem)
         path.unlink()
         return entity_id, False, lines
@@ -3492,8 +3495,10 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
         if str(parsed.frontmatter.get("kind") or "") == "merge_suggestion" and other:
             # Dismissing "Is A the same as B?" is "stop asking": the pair is remembered like a reject, or the next
             # Sleep raises the same question again (G209 W1, a held name re-read from the pending store).
-            from api.services import merge_rejections
+            from api.services import merge_rejections, which_one_file
 
+            if (moved := which_one_file.apart_scoped(settings.memory_path, path, parsed.frontmatter, [other])) is not None:
+                return entity_id, False, moved   # about one conversation: its answer alone (ruling 83), the question moves on
             if (kept := _keep_apart(settings, parsed.frontmatter, [other])) is not None:
                 path.unlink()
                 return entity_id, False, kept
@@ -3539,11 +3544,26 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
         survivor_file = resolve_entity_file(settings.memory_path, survivor)
         rename = survivor_file is None or survivor_file != target_path
 
+        # Ruling 83: a pick on a question about ONE conversation files that conversation's words only (the reader narrowed the
+        # question, `which_one_file`), and so does any answer once part of the line was filed to another page; Sleep's own settle
+        # files only what its evidence covers, else it is left for the person. The page is credited with exactly those
+        # conversations: never one the question merely listed.
+        from api.services import pending_store as _line_store, which_one as _w1, which_one_file
+
+        scope: list[str] = []
+        if str(parsed.frontmatter.get("detected") or "") == _w1.DETECTED:
+            asked = which_one_file.scope_for(
+                parsed.frontmatter, _line_store.held_line(settings.memory_path, mention), target_path.stem,
+                which_one_file.covered_by(inbox_actor.current()) if inbox_actor.is_sleep() else None)
+            if asked is None:
+                raise HTTPException(409, "Sleep does not settle this: it is about one conversation its reading does not cover.")
+            scope = asked
         if source_episode:
             from api.services import which_one as _which_one
 
             episodes = list(target.frontmatter.get("source_episodes", []) or [])
-            for ep in dict.fromkeys([source_episode, *_which_one.episodes_of(parsed.frontmatter)]):   # a folded question's too
+            credited = scope or [source_episode, *_which_one.episodes_of(parsed.frontmatter)]   # a folded question's too
+            for ep in dict.fromkeys(credited):
                 if ep not in episodes:
                     episodes.append(ep)
             target.frontmatter["source_episodes"] = episodes
@@ -3621,11 +3641,6 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                     target.frontmatter["aliases"] = [*names, mention]
             markdown_parser.write(target_path, target.frontmatter, new_body)
             # G209: what Sleep held on the name's pending line lands on the page the person named, in this same write.
-            # Ruling 83: a pick on a question about ONE conversation files that conversation's words only (the reader narrowed the
-            # question, `which_one_file`); Sleep's own settle and every other question take the whole line, as before.
-            from api.services import which_one_file
-
-            scope = which_one_file.scope_of(parsed.frontmatter) if a_pick and not inbox_actor.is_sleep() else []
             released = _release_answered(settings.memory_path, mention, target_path.stem, settings,
                                          subject_page=subject_page, scope=scope)
             # Its pending line leaves the store; a line still holding claims (one whose page is gone) stays until

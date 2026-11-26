@@ -3308,6 +3308,9 @@ class InboxItem(CamelModel):
     # derived at read from what the question itself stamped (`question_origin`), never stored. `{step, how, by, agent}`;
     # the day is `created_date`. Null when the record says nothing: the card then says only when. Additive.
     asked_by: Optional[dict] = None
+    # Ruling 83 (2026-11-26): a which-one question about one conversation of a held name names it — the conversations a pick files
+    # (`which_one_file.scope_episodes`); the card shows that conversation's turn. Additive: null on every other question.
+    scope_episodes: Optional[list[str]] = None
 
 
 class CatchupTurnRequest(CamelModel):

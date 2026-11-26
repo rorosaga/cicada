@@ -7289,9 +7289,22 @@ def _asked_line(fm: dict, today: str, kind: str = "") -> str:
         from api.services import question_origin
 
         said = question_origin.line(fm, today, kind)
-        return f"\n  {said}" if said else ""
+        return (f"\n  {said}" if said else "") + _scope_clause(fm)
     except Exception:  # noqa: BLE001 — the question still reads without it
         return ""
+
+
+def _scope_clause(fm: dict) -> str:
+    """Ruling 83: a which-one question about ONE conversation of a held name says which one, so an agent asks it of that
+    conversation and an answer is read as that conversation's alone (``scope_episodes``, `which_one_file`): one short clause, ids
+    only (a conversation's id carries its day)."""
+    from api.services import which_one_file
+
+    scope = which_one_file.scope_of(fm)
+    if not scope:
+        return ""
+    day = re.match(r"ep_(\d{4}-\d{2}-\d{2})", scope[0])
+    return f"\n  About one conversation only ({scope[0]}{', ' + day.group(1) if day else ''}): an answer files what it said."
 
 
 def _readable_body(kind: str, body: str, cause: dict | None, today: str, *, raw_excerpts: bool = True) -> str:

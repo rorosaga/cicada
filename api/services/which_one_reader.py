@@ -233,8 +233,8 @@ class Case:
 
 
 def _held_episodes(line: pending_store.PendingEntity) -> list[str]:
-    """The conversations the line still holds something of that nobody filed (`which_one_file.open_episodes`)."""
-    return wf.open_episodes(line)
+    """The conversations the line still holds something of that nobody filed or answered "someone else" about (`which_one_file.unfiled`)."""
+    return wf.unfiled(line)
 
 
 def is_eligible(fm: dict, today: str) -> bool:
@@ -276,6 +276,8 @@ def case_for(memory_path: Path, path: Path, fm: dict, *, today: str | None = Non
             return f"guard:{guarded}"
     episodes = _held_episodes(line)
     if not episodes:
+        if wf.stranded(line):
+            return "stranded"   # nothing left to read: the person is asked about the claim two conversations cite (`which_one_file.asking`)
         return "all_filed" if wf.filed(line) else "conversation_unreadable"
     if len(episodes) > MAX_CONVERSATIONS:
         return "too_many_conversations"
@@ -667,7 +669,9 @@ async def _file_parts(memory_path: Path, path: Path, case: Case, result: Assessm
             note(item_id, "left:changed", ids=ids)   # the question or a page changed while the model read: read again next time
             continue
         before = await asyncio.to_thread(git_service.snapshot_dirty_sync, memory_path)
-        part = wf.plan(line, {r.episode: page for r in reads}).get(page)
+        # Every conversation decided in this run and every one filed before: a claim or a fact two conversations cite is split by them.
+        verdict = {**wf.filed(line), **{r.episode: r.page for r in result.reads if r.page}}
+        part = wf.plan(line, verdict, {r.episode for r in result.reads if r.page}).get(page)
         if before is None or part is None:
             note(item_id, "left:not_applied" if before is None else "left:nothing_to_file", ids=ids)
             continue
@@ -703,26 +707,30 @@ async def _file_parts(memory_path: Path, path: Path, case: Case, result: Assessm
     if isinstance(after, str):
         if filed and after == "all_filed" and path.is_file():
             await _close_answered(memory_path, path, settings, model, engine)
+        elif after == "stranded" and path.is_file():
+            await _narrow(memory_path, path, case.mention, report)   # a claim two conversations cite: asked about those
         remember(item_id, mark, "filed" if filed else "left")
         return
     if not filed and not failed:
-        await _narrow(memory_path, path, after, report)
+        await _narrow(memory_path, path, after.mention, report)
     remember(item_id, await asyncio.to_thread(digest, memory_path, after, dl.Docs(memory_path)), "left")
     for ep in after.episodes:
         note(item_id, "asks", episode=ep, ids=ids)
 
 
-async def _narrow(memory_path: Path, path: Path, case: Case, report: Report) -> None:
-    """Conversations the reader could not decide remain, two or more: the question is about the first alone, and the person's pick
-    files that conversation's words only (`which_one_file`). One Sleep commit of the question's own file; a failed commit puts it back."""
+async def _narrow(memory_path: Path, path: Path, mention: str, report: Report) -> None:
+    """What the line still holds to be asked is two or more conversations (nobody could tell them), or a claim two conversations cite
+    that were filed to two pages: the question is about that, and the person's pick files only that (`which_one_file.asking`). One
+    Sleep commit of the question's own file; a failed commit puts it back."""
     from api.services import web_settle
 
-    if len(case.episodes) < 2 or not path.is_file():
+    line = pending_store.held_line(memory_path, mention) if path.is_file() else None
+    if len(wf.asking(line)[0]) < 2 or not path.is_file():
         return
     rel = path.relative_to(memory_path).as_posix()
     prior = path.read_bytes()
     try:
-        if wf.rewrite_question(path, case.episodes):
+        if wf.rewrite_question(path, line):
             message = web_settle.commit_message("Which one: about one conversation",
                                                 [f"{rel}: updated (source: {path.stem}, trigger: sleep/which-one-scoped)"],
                                                 authors=["cicada"])
@@ -782,6 +790,8 @@ async def tend(memory_path: Path, settings, ask: Callable | None, *, today: date
             if isinstance(found, str):
                 report.skip(found)
                 note(item_id, f"left:{found}", ids=[str(p) for p in fm.get("same_title") or []])
+                if found == "stranded" and not dry_run:   # every conversation was filed; a claim they split is what the person is asked
+                    await _narrow(memory_path, path, " ".join(str(fm.get("entity_name") or "").split()), report)
                 continue
             case = found
             mark = await asyncio.to_thread(digest, memory_path, case, docs)
@@ -807,7 +817,7 @@ async def tend(memory_path: Path, settings, ask: Callable | None, *, today: date
                                   settings=settings, dry_run=dry_run, model=model, engine=engine)
                 continue
             if result.outcome == "left" and result.reads and not dry_run:
-                await _narrow(memory_path, path, case, report)   # nobody could tell: asked about one conversation at a time
+                await _narrow(memory_path, path, case.mention, report)   # nobody could tell: asked about one conversation at a time
             if result.outcome != "file" or result.decision is None:
                 same = bool(entry and entry.get("d") == mark and entry.get("m") == model)
                 tries = int(entry.get("t") or 0) + 1 if same else 1

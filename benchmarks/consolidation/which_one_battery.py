@@ -240,6 +240,18 @@ def scenarios(spec: dict) -> list[dict]:
         out.append({"scenario": "tap on a per-conversation question", "asked_one_conversation": len(scoped) == 1,
                     "tap_filed_that_conversation_only": on_page == ["clm_held_1"] and left == ["clm_held_2"],
                     "next_conversation_asked": path.exists()})
+    story = by_id["conv-nobody-can-tell-either"]
+    with tempfile.TemporaryDirectory(prefix="which-one-") as tmp:
+        bank, path = build_bank(Path(tmp), spec, story)
+        asyncio.run(wr.tend(bank, _Settings(bank), rigged("none"), today=TODAY, model="bench"))
+        subprocess.run(["git", "-C", str(bank), "add", "-A"], capture_output=True)
+        subprocess.run(["git", "-C", str(bank), "commit", "-qm", "x"], capture_output=True)
+        asyncio.run(inbox_service.resolve(path.stem, InboxResolveRequest(action="reject", option_key="another"), _Settings(bank)))
+        line = pending_store.held_line(bank, story["mention"])
+        out.append({"scenario": "someone else on a per-conversation question",
+                    "that_conversation_only": list(wf.said_not(line)) == [line.episodes()[0]]
+                    and pending_store.apart_of(bank, story["mention"]) == frozenset(),
+                    "nothing_lost": len(line.held_claims) == 2, "next_conversation_asked": path.exists()})
     return out
 
 
