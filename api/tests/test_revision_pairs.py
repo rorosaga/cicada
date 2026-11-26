@@ -351,7 +351,7 @@ def test_a_held_claim_reworded_with_the_corrected_day_gives_way_in_its_line(tmp_
     _commit(memory, "Sleep cycle")
     moves = _page_moves(memory)
     assert [(p, start, is_open) for p, start, is_open, *_ in moves] == [("moves-to", "2026-12-09", True)]
-    assert _line(memory) is None or not _held_moves(memory)
+    assert _line(memory) is None, "the line was released with its page"
     assert len(ledger.revised()) == 1
     page = (memory / "entities" / f"{ZED_PAGE}.md").read_text()
     _run(memory, monkeypatch, zed())
@@ -383,7 +383,7 @@ def test_a_held_claim_released_in_the_same_pass_gives_way_on_its_new_page(tmp_pa
     new_start, new_open, new_by, new_id, new_sup, _to = rows["moves-to"]
     assert (old_start, old_open, old_to, old_by) == ("2026-12-05", False, "2026-12-09", new_id)
     assert (new_start, new_open, new_by, new_sup) == ("2026-12-09", True, None, old_id)
-    assert _line(memory) is None or not _held_moves(memory)
+    assert _line(memory) is None, "the line was released with its page"
     assert len(readers.main_calls) == 1
     assert [r["why"] for r in ledger.revised()] == [revision_pairs.WHY] and "held" not in ledger.revised()[0]
     page = (memory / "entities" / f"{ZED_PAGE}.md").read_text()
@@ -391,12 +391,19 @@ def test_a_held_claim_released_in_the_same_pass_gives_way_on_its_new_page(tmp_pa
     assert (memory / "entities" / f"{ZED_PAGE}.md").read_text() == page and len(readers.small_calls) == 1
 
 
-def test_a_released_claim_stays_open_on_anything_but_same_twice(tmp_path, monkeypatch):
+@pytest.mark.parametrize("small,main,main_calls", [
+    (always("different"), always("same"), 0),
+    (always("same"), always("different"), 1),
+    (lambda p, ids: {"pairs": "same"}, always("same"), 0),
+    (raising, always("same"), 0),
+    (always("same"), raising, 1),
+], ids=["first-different", "second-different", "unreadable", "first-raises", "second-raises"])
+def test_a_released_claim_stays_open_on_anything_but_same_twice(tmp_path, monkeypatch, small, main, main_calls):
     memory, readers, ledger = zed_story(tmp_path, monkeypatch, [(Z1, zed()), (Z2, zed())], others={1: Z_MET},
-                                        small=always("same"), main=always("different"))
+                                        small=small, main=main)
     assert [(p, start, is_open) for p, start, is_open, *_ in _page_moves(memory)] == [
         ("is-moving-to", "2026-12-05", True), ("moves-to", "2026-12-09", True)]
-    assert not ledger.revised() and len(readers.main_calls) == 1
+    assert not ledger.revised() and len(readers.small_calls) == 1 and len(readers.main_calls) == main_calls
 
 
 def test_a_conversation_read_the_same_night_that_says_the_old_held_claim_keeps_it(tmp_path, monkeypatch):
