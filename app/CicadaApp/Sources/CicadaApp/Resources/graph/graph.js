@@ -1223,6 +1223,8 @@ function bubbleNodeFor(row) {
         name: row.name || row.id, type: "media", status: "active", confidence: 1, tags: [], degree: 0,
         isBubble: true, count: Number(row.count || 0), kindNoun: row.kindNoun || "pages", mark: row.mark || null,
         pageId: row.pageId || null, row,
+        // The list's own page and each folder's (a folder's key is its page id): they ARE the bubble on this canvas.
+        listPages: new Set([row.pageId, ...(row.folders || []).map(f => f.key)].filter(Boolean)),
     });
     return n;
 }
@@ -1241,9 +1243,9 @@ function foldGraph() {
         const b = bubbleNodeFor(row);
         live.push(b);
         for (const id of members) { memberBubble.set(id, b.id); foldedById.set(id, present.get(id)); }
-        // The list's own page IS the bubble on this canvas: its links are the bubble's.
-        if (row.pageId && present.has(row.pageId) && !memberBubble.has(row.pageId)) {
-            memberBubble.set(row.pageId, b.id); foldedById.set(row.pageId, present.get(row.pageId));
+        // The list's own page and its folders' pages ARE the bubble on this canvas: their links are the bubble's.
+        for (const id of b.listPages) {
+            if (present.has(id) && !memberBubble.has(id)) { memberBubble.set(id, b.id); foldedById.set(id, present.get(id)); }
         }
         for (const id of row.outside || []) if (present.has(id)) joins.push({ source: id, target: b.id, label: "on list", kind: "bubble" });
     }
@@ -1328,7 +1330,7 @@ function bubbleWorld(id) {
 function layoutOpenBubble(b) {
     const row = b.row || {};
     const leafR = Math.max(0.6, BUBBLE_LEAF_PT * sizeScale);
-    const mine = id => foldedById.has(id) && memberBubble.get(id) === b.id && id !== b.pageId;
+    const mine = id => foldedById.has(id) && memberBubble.get(id) === b.id && !b.listPages.has(id);
     const placed = new Set();
     const kids = [];
     for (const f of row.folders || []) {
@@ -2331,11 +2333,11 @@ function highlightSearch(idsStr) {
 // so the caller can say so instead of silently doing nothing.
 function revealNode(id) {
     // Owner 2026-11-25: a page folded in a bubble — its bubble opens (no motion of its own) and the reveal lands on the
-    // page inside it; the list's own page reveals its bubble, opened.
+    // page inside it; the list's own page, or one of its folders', reveals its bubble, opened.
     const home = memberBubble.get(id);
     if (home && !visibleNodes.some(x => x.id === id)) {
         const b = bubbleNodeById.get(home);
-        if (b && b.pageId === id) return openBubble(home, { animate: true });
+        if (b && b.listPages.has(id)) return openBubble(home, { animate: true });
         if (!openBubble(home, { animate: false, camera: false })) return false;
         return revealPacked(id);
     }

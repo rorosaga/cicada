@@ -182,27 +182,54 @@ def test_off_by_default_and_needs_the_sheet(tmp_path, monkeypatch):
     assert reading_settings.snapshot()["substackListsOff"]["history"] is True
 
 
-def test_offered_one_list_at_a_time_after_every_other_sites_list(reading):
+def test_offered_one_list_at_a_time_in_turn_with_every_other_sites_list(reading):
     server, memory = reading
     assert substack_lists.due(memory) == []
     _on("saved", "history")
     reading_settings.update(saved_lists_={"x": True})
-    assert substack_lists.due(memory) == []                   # X's list is due: one site's list at a time
+    assert substack_lists.due(memory) == []                   # both never read: X's table goes first in a tie
     assert "x.com/i/bookmarks" in server.handle_tool("cicada_reading_queue", {})
     saved_lists.note(memory, "x", "read", items=1)
     assert substack_lists.due(memory) == ["saved"]
     out = server.handle_tool("cicada_reading_queue", {})
-    assert "https://substack.com/inbox" in out and "open Saved" in out and "History" not in out
+    assert "https://substack.com/inbox/saved" in out and "Saved tab" in out and "History" not in out
+    assert "x.com/i/bookmarks" not in out                     # one site's list at a time
     assert "`cicada_record_substack_list(" in out and "do not sign in" in out and "never click" in out
     assert reading_queue.counts(memory)[0] == 1
     _record(server, "saved", items=[{"url": POST_A, "title": "Notes on indexes"}])
     assert substack_lists.due(memory) == ["history"]
-    later = datetime.now(timezone.utc) + timedelta(hours=21)
-    assert substack_lists.due(memory, now=later) == []        # X's list is due again first
-    reading_settings.update(saved_lists_={"x": False})
-    # G245: History was never read, Saved a day ago: the one read longest ago (never) is offered first.
-    assert substack_lists.due(memory, now=later) == ["history"]
     assert saved_lists.reads_today(memory) == 2               # the Substack read spent the shared day bound
+    later = datetime.now(timezone.utc) + timedelta(hours=21)
+    # X is due again, but History was never read: the one read longest ago goes first, X waits.
+    assert substack_lists.due(memory, now=later) == ["history"]
+    assert saved_lists.due(memory, now=later) == []
+    substack_lists.note(memory, "history", "read", items=1, now=later)
+    assert saved_lists.due(memory, now=later) == ["x"] and substack_lists.due(memory, now=later) == []
+
+
+def test_substack_is_not_starved_while_other_sites_take_turns(reading):
+    """2026-11-26: Substack waited for every other site's list, and with six sites on a 20-hour cadence one was nearly
+    always due, so Saved went unread for weeks. Now it takes its turn by the same order."""
+    _server, memory = reading
+    _on("saved")
+    sites = ("x", "instagram", "linkedin", "reddit", "pinterest", "tiktok")
+    reading_settings.update(saved_lists_={k: True for k in sites})
+    start = datetime(2026, 11, 20, 8, tzinfo=timezone.utc)
+    substack_lists.note(memory, "saved", "read", items=3, now=start - timedelta(days=20))
+    for n, key in enumerate(sites):                          # every site read lately, as on the person's Mac
+        saved_lists.note(memory, key, "read", items=1, now=start - timedelta(hours=21 + n))
+    offered = []
+    for hour in range(0, 24 * 4, 4):                       # an agent reads whatever is due every four hours
+        now = start + timedelta(hours=hour)
+        site, stack = saved_lists.due(memory, now), substack_lists.due(memory, now)
+        assert len(site) + len(stack) <= 1                  # never two sites' lists at once
+        if stack:
+            offered.append(now)
+            substack_lists.note(memory, stack[0], "read", items=1, now=now)
+        elif site:
+            saved_lists.note(memory, site[0], "read", items=1, now=now)
+    assert offered and offered[0] == start                  # read 20 days ago: first in line
+    assert len(offered) >= 3                                # and again roughly once a day
 
 
 def test_the_shared_day_bound_stops_the_offer_and_the_record(reading):

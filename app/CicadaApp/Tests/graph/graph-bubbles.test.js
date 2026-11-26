@@ -76,6 +76,24 @@ const linkPairs = (h) => h.get("links.map(l => [typeof l.source === 'object' ? l
     check("its label says what it holds", h.get("labelText(bubbleNodeById.get('list:youtube-playlists'))") === "YouTube: Playlists · " + (40).toLocaleString() + " videos");
 }
 
+// ---- the list's own page and its folders' pages are the bubble, never loose dots round it (G246: every list has a page)
+{
+    const data = payload({ extra: { pageId: "list-youtube-playlists" } });
+    data.nodes.push({ id: "list-youtube-playlists", name: "YouTube: Playlists", type: "media", status: "active", confidence: 1 });
+    data.nodes.push({ id: "youtube-playlists-a", name: "YouTube: Playlists: Alpha", type: "media", status: "active", confidence: 1 });
+    data.links.push({ source: "youtube-playlists-a", target: "list-youtube-playlists", label: "source" });
+    data.links.push({ source: "youtube-playlists-a", target: "page-3", label: "about" });
+    const { h, posts } = load(data);
+    const shown = new Set(ids(h, "visibleNodes"));
+    check("the list's page and a folder's page fold into the bubble", !shown.has("list-youtube-playlists") && !shown.has("youtube-playlists-a"), [...shown].filter(i => i.startsWith("list") || i.startsWith("youtube")).join(","));
+    const pairs = linkPairs(h);
+    check("... a folder page's link is the bubble's, its link to the list page gone", pairs.includes("list:youtube-playlists>page-3") && !pairs.some(p => p.includes("youtube-playlists-a")), pairs.filter(p => p.includes("list")).join(","));
+    h.call("openBubble", "list:youtube-playlists", { animate: false });
+    check("... and neither is packed as a member", h.get("openLayout.members.length") === 40 && !h.get("openLayout.members.some(n => n.id.startsWith('list') || n.id === 'youtube-playlists-a')"));
+    h.call("closeOpenBubble", false);
+    check("revealing a folder's page opens its bubble", h.get("revealNode('youtube-playlists-a')") === true && h.get("openBubbleId") === "list:youtube-playlists");
+}
+
 // ---- open, close
 {
     const { h, posts } = load(payload());

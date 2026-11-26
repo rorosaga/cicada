@@ -4109,6 +4109,11 @@ A whole row moves to DONE only after its remaining implementation and required a
    over the media element itself, never a screenshot of the page. Amends 78 (e)'s "frames stay the agent's own work" and withdraws
    78's idea of the picture's public address for one fetch. Ruling 68 stands. **Revisit** on a pixel found in a bank, or a picture
    of a plain save or of a wall.
+   *Hands-on look, 2026-11-26 (the person at the Mac, his own signed-in browser, read only, sizes and types only):* on X's
+   saved posts most carry a picture or a video; a picture's own bytes are readable in the page from X's own image host
+   (an agent can hand over the image itself, never a screenshot); a video plays from a stream with no file, so only its
+   still is handed over the same way, and frames would mean drawing the playing video, not tried. So (d) is feasible for
+   pictures and video stills; frames stay unproven. Still not built.
    **(e) One full-name mention is enough for a connection's page (5, "yes it should be enough") — built (#855).** The person's
    own words in a conversation naming one waiting LinkedIn connection in full make the page that night; the connection attaches
    in the same write with its link **only proposed** (no photo request; not an acquaintance for ruling 44). A connection nobody
