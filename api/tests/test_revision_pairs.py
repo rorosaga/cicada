@@ -806,8 +806,10 @@ def _restore_rev():
 
 
 def _chain(**tail_kw):
-    """A (12-05) closed by this conversation's correction B (12-08, the same slot), B open; ``tail_kw`` on B."""
-    a = _claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08", superseded_by="clm_b")
+    """A (12-05) closed by this conversation's correction B (12-08, the same slot), B open; ``tail_kw`` on B. A's close
+    carries the mark the revision rules write (``closed_by_revision``)."""
+    a = _claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08", superseded_by="clm_b",
+               closed_by_revision=EP)
     b = _claim("clm_b", tail_kw.pop("predicate", "is-moving-to"), "2026-12-08", supersedes="clm_a", **tail_kw)
     return a, b
 
@@ -870,29 +872,31 @@ def test_edited_back_under_another_predicate_leaves_the_correction_to_the_pair_r
     ("the claim that took its place is an agent's", lambda: dict(slot=_chain(recorded_ts="2026-11-20T10:00:00Z"))),
     ("the closed claim also rests on another conversation",
      lambda: dict(slot=(_claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08", superseded_by="clm_b",
-                               episodes=(EP, OTHER)), _chain()[1]))),
+                               episodes=(EP, OTHER), closed_by_revision=EP), _chain()[1]))),
     ("closed by decay (no successor)",
-     lambda: dict(slot=(_claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08"),), redated=())),
+     lambda: dict(slot=(_claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08",
+                               closed_by_revision=EP),), redated=())),
     # The rows below name the closed claim in ``redated`` too (the pipeline never does): each check is tested alone.
     ("the claim that took its place was closed by decay",
-     lambda: dict(slot=_chain(valid_to="2026-11-20"))),
+     lambda: dict(slot=_chain(valid_to="2026-11-20", closed_by_revision=EP))),
     ("closed by an ending this conversation said",
-     lambda: dict(slot=(_claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08", superseded_by="clm_e"),
-                        _ending()), redated=("clm_e",))),
+     lambda: dict(slot=(_claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08", superseded_by="clm_e",
+                               closed_by_revision=EP), _ending()), redated=("clm_e",))),
     ("the correction was then withdrawn by an agent",
-     lambda: dict(slot=(*_chain(valid_to="2026-11-20", superseded_by="clm_retract_x"),
+     lambda: dict(slot=(*_chain(valid_to="2026-11-20", superseded_by="clm_retract_x", closed_by_revision=EP),
                         _claim("clm_retract_x", "retracts", "2026-11-20", valid_to="2026-11-20", supersedes="clm_b",
                                recorded_ts="2026-11-20T10:00:00Z")), redated=("clm_b", "clm_retract_x"))),
     ("the correction was then replaced by another conversation's claim",
-     lambda: dict(slot=(*_chain(valid_to="2026-12-09", superseded_by="clm_c"),
+     lambda: dict(slot=(*_chain(valid_to="2026-12-09", superseded_by="clm_c", closed_by_revision=EP),
                         _claim("clm_c", "is-moving-to", "2026-12-09", supersedes="clm_b", episodes=(OTHER,))),
                   redated=("clm_c",))),
     ("the correction gives way by no rule that exists (no third)", lambda: dict(slot=_chain(), redated=())),
     # review 4, M23: a record in the chain (planted: a writer's record is born closed and never superseded).
     ("a withdrawal record in the chain",
-     lambda: dict(slot=(_claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08", superseded_by="clm_b"),
+     lambda: dict(slot=(_claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08", superseded_by="clm_b",
+                               closed_by_revision=EP),
                         _claim("clm_b", "is-moving-to", "2026-12-08", valid_to="2026-12-08", supersedes="clm_a",
-                               superseded_by="clm_r"),
+                               superseded_by="clm_r", closed_by_revision=EP),
                         _claim("clm_r", "retracts", "2026-12-08", valid_to="2026-12-08", supersedes="clm_b",
                                superseded_by="clm_c"),
                         _claim("clm_c", "is-moving-to", "2026-12-09", supersedes="clm_r")),
@@ -921,8 +925,10 @@ def test_a_link_the_chain_does_not_hold_both_ways_is_not_this_conversations_hist
     # review 4, M16 (planted): the closed claim names an earlier one it superseded, but that one says another claim
     # superseded it. It is not this conversation's own correction, so it reads as what it is: here a belief that held
     # and ended (a departure on 20 December), and the restatement is history, born closed; the correction stays.
-    a = _claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08", superseded_by="clm_b", supersedes="clm_x")
-    x = _claim("clm_x", "is-moving-to", "2026-12-01", valid_to="2026-12-20", superseded_by="clm_z")
+    a = _claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08", superseded_by="clm_b", supersedes="clm_x",
+               closed_by_revision=EP)
+    x = _claim("clm_x", "is-moving-to", "2026-12-01", valid_to="2026-12-20", superseded_by="clm_z",
+               closed_by_revision=EP)
     b = _claim("clm_b", "is-moving-to", "2026-12-08", supersedes="clm_a")
     page, _n, audit = _reconcile([a, x, b])
     assert b.valid_to is None and not _undone(page)
@@ -1388,7 +1394,6 @@ def _two_plans(chunk):
     return out
 
 
-@pytest.mark.xfail(strict=True, reason="review 4 F3: the edited-back rule undoes the person's pick (reported)")
 def test_a_pick_the_person_made_in_the_inbox_is_never_undone_by_an_edit_back(tmp_path, monkeypatch):
     # Driven through the resolver the route calls (`inbox_service.resolve`), on a scratch bank: the person picks
     # 8 December over 5 December, both read from one conversation; the conversation is then edited to say only
@@ -1429,3 +1434,196 @@ def test_a_pick_the_person_made_in_the_inbox_is_never_undone_by_an_edit_back(tmp
     _run(memory, monkeypatch, _two_plans)
     _commit(memory, "Sleep cycle")
     assert _open_days(memory) == ["2026-12-08"]
+
+
+# ---- review 4, F3 closed (2026-11-26): the revision rules mark their own closes, and the edited-back rule requires the
+# mark on every closed link (`Claim.closed_by_revision`, `claim_reconciler._corrected_by`) ----
+
+
+def _restated_b():
+    return _claim("clm_b", "is-moving-to", "2026-12-08")
+
+
+@pytest.mark.parametrize("label,slot,new,redated", [
+    # A bank written before the mark existed: the same chain, no mark anywhere.
+    ("no mark at all (a close written before the mark existed)",
+     lambda: (_claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08", superseded_by="clm_b"),
+              _chain()[1]), _restated, ("clm_b",)),
+    ("a mark naming another conversation",
+     lambda: (_claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08", superseded_by="clm_b",
+                     closed_by_revision=OTHER), _chain()[1]), _restated, ("clm_b",)),
+    # A marked, B closed by a close with no mark (the person's pick of C), C open.
+    ("the first close marked, the second not",
+     lambda: (_claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08", superseded_by="clm_b",
+                     closed_by_revision=EP),
+              _claim("clm_b", "is-moving-to", "2026-12-08", valid_to="2026-12-10", supersedes="clm_a",
+                     superseded_by="clm_c"),
+              _claim("clm_c", "is-moving-to", "2026-12-10", supersedes="clm_b")), _restated, ("clm_c",)),
+    # The reverse: A closed by a pick (no mark), B closed by this revision (marked), C open; A restated.
+    ("the first close not marked, the second marked",
+     lambda: (_claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08", superseded_by="clm_b"),
+              _claim("clm_b", "is-moving-to", "2026-12-08", valid_to="2026-12-10", supersedes="clm_a",
+                     superseded_by="clm_c", closed_by_revision=EP),
+              _claim("clm_c", "is-moving-to", "2026-12-10", supersedes="clm_b")), _restated, ("clm_c",)),
+])
+def test_a_close_the_revision_did_not_mark_is_never_undone(label, slot, new, redated):
+    slot = list(slot())
+    before = [(c.id, c.valid_to, c.superseded_by, c.supersedes) for c in slot]
+    page, nudges, audit = _reconcile(slot, new=new(), redated=redated)
+    assert [(c.id, c.valid_to, c.superseded_by, c.supersedes) for c in slot] == before, label
+    assert {c.id for c in page} == {c.id for c in slot}, label            # the restatement folded in
+    assert not any(a.get("action") == "revision_edited_back" for a in audit), label
+    assert not nudges, label
+
+
+def test_a_close_with_no_mark_before_the_restated_claim_leaves_the_chain_as_it_is():
+    # A closed by the person's pick of B (no mark), B closed by this revision's C (marked), C open; the restore says B's
+    # day again. The walk back meets the pick: nothing is undone, the restatement folds into B (origin/dev's end).
+    from api.services import episode_revision
+
+    tenth = LIA.replace("5 December", "10 December")
+    rev = episode_revision.build({"id": EP, "content": MOVED, "source": "note"}, tenth)
+    a = _claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08", superseded_by="clm_b")
+    b = _claim("clm_b", "is-moving-to", "2026-12-08", valid_to="2026-12-10", supersedes="clm_a",
+               superseded_by="clm_c", closed_by_revision=EP)
+    c = _claim("clm_c", "is-moving-to", "2026-12-10", supersedes="clm_b")
+    before = [(x.id, x.valid_to, x.superseded_by, x.supersedes) for x in (a, b, c)]
+    page, _n, audit = _reconcile([a, b, c], new=_restated_b(), redated=("clm_c",), rev=rev)
+    assert {x.id for x in page} == {"clm_a", "clm_b", "clm_c"}
+    assert [(x.id, x.valid_to, x.superseded_by, x.supersedes) for x in (a, b, c)] == before
+    assert not any(e.get("action") == "revision_edited_back" for e in audit)
+    # The same page with the pick's close marked as this revision's (a chain this conversation made) is edited back:
+    # the check above is the mark alone.
+    a2 = _claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08", superseded_by="clm_b",
+                closed_by_revision=EP)
+    b2 = _claim("clm_b", "is-moving-to", "2026-12-08", valid_to="2026-12-10", supersedes="clm_a",
+                superseded_by="clm_c", closed_by_revision=EP)
+    c2 = _claim("clm_c", "is-moving-to", "2026-12-10", supersedes="clm_b")
+    page, _n, audit = _reconcile([a2, b2, c2], new=_restated_b(), redated=("clm_c",), rev=rev)
+    (fresh,) = [x for x in page if x.id not in ("clm_a", "clm_b", "clm_c")]
+    assert (fresh.valid_from, fresh.valid_to, fresh.supersedes) == ("2026-12-08", None, "clm_c")
+    assert c2.superseded_by == fresh.id and c2.closed_by_revision == EP       # the edit back's own close, marked
+
+
+def test_every_close_the_revision_rules_make_is_marked_with_the_conversation():
+    from api.services.claim_reconciler import _close_by_revision
+
+    a, b = _chain()
+    page, _n, _a = _reconcile([a, b])
+    (fresh,) = [c for c in page if c.id not in ("clm_a", "clm_b")]
+    assert b.closed_by_revision == EP and fresh.closed_by_revision is None   # same slot (`redated`)
+    old, new = _claim("clm_o", "is-moving-to", "2026-12-05"), _claim("clm_n", "moves-to", "2026-12-08")
+    _close_by_revision(old, by=new, episode=EP)
+    assert (old.superseded_by, old.closed_by_revision) == ("clm_n", EP)
+
+
+def test_the_pair_rules_close_is_marked():
+    rev = _rev()
+    old, new = _claim("old", "is-moving-to", "2026-12-05"), _claim("new", "moves-to", "2026-12-08")
+    revision_pairs.apply({"lia-prueba": [old, new]}, [_verdict()], {EP: rev}, [])
+    assert (old.superseded_by, old.closed_by_revision) == ("new", EP)
+
+
+def test_the_removed_texts_withdrawal_is_marked():
+    from api.services import episode_revision
+
+    old = _claim("clm_a", "is-moving-to", "2026-12-05")
+    plan = episode_revision.Plan(revised_out={"clm_a": EP})
+    rev = _rev()
+    assert episode_revision.settle({"lia-prueba": [old]}, plan, {EP: rev}, "2026-11-26", []) == 1
+    assert old.superseded_by and old.closed_by_revision == EP
+
+
+@pytest.mark.parametrize("label,write", [
+    ("the person's pick (inbox_service's close)",
+     lambda c, other: __import__("api.services.inbox_service", fromlist=["x"])._close_on(c, by=other, day="2026-12-09")),
+    ("an ordinary update (the reconciler's close)",
+     lambda c, other: __import__("api.services.claim_reconciler", fromlist=["x"])._close(c, by=other)),
+    ("a reopen", lambda c, other: (setattr(c, "valid_to", None), setattr(c, "superseded_by", None))),
+    ("a merge re-linking the successor", lambda c, other: setattr(c, "superseded_by", "clm_b-from-other")),
+    ("an agent's withdrawal record", lambda c, other: setattr(c, "superseded_by", "clm_retract_x")),
+    ("the same day written again", lambda c, other: setattr(c, "valid_to", c.valid_to)),
+])
+def test_any_other_write_to_the_close_drops_the_mark(label, write):
+    a, b = _chain()
+    assert a.closed_by_revision == EP
+    write(a, b)
+    assert a.closed_by_revision is None, label
+
+
+def test_an_open_claim_never_carries_the_mark_and_an_unmarked_page_serializes_as_before():
+    from api.services.claims import Claim, parse_claims, write_claims
+
+    a, b = _chain()
+    data = a.to_dict()
+    assert data["closed_by_revision"] == EP and Claim.from_dict(data).closed_by_revision == EP
+    reopened = {**data, "valid_to": None, "superseded_by": None}
+    assert Claim.from_dict(reopened).closed_by_revision is None            # a hand edit reopened it
+    assert "closed_by_revision" not in b.to_dict()
+    unmarked = _claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08", superseded_by="clm_b")
+    body = write_claims("# Lia\n", [unmarked, b])
+    assert "closed_by_revision" not in body
+    assert write_claims("# Lia\n", parse_claims(body, strict=True)) == body
+    marked = write_claims("# Lia\n", [a, b])
+    assert [c.closed_by_revision for c in parse_claims(marked, strict=True)] == [EP, None]
+    # The fence is the unmarked one plus the one key on the marked claim's line, nothing else.
+    assert marked.replace(f', "closed_by_revision": "{EP}"', "") == body
+
+
+def test_the_mark_travels_with_its_claim_through_the_ledger_past_the_fence_cap(tmp_path):
+    from api.services import claims_ledger
+    from api.services.claims import parse_claims, write_claims
+
+    a, b = _chain()
+    filler = [_claim(f"clm_f{i:04d}", "likes", "2026-01-01") for i in range(600)]
+    for i, c in enumerate(filler):
+        c.object, c.text = f"thing-{i}", f"Lia likes thing number {i} " + "x" * 80
+    page = tmp_path / "entities" / "lia-prueba.md"
+    page.parent.mkdir(parents=True)
+    markdown_parser.write(page, {"id": "lia-prueba", "name": "Lia Prueba"}, write_claims("# Lia\n", [a, b, *filler]))
+    ledger = claims_ledger.path_for(page)
+    assert ledger.exists()                                                  # past 64k characters: split
+    lines = ledger.read_text().splitlines() + page.read_text().splitlines()
+    assert sum('"closed_by_revision"' in ln for ln in lines) == 1
+    back = {c.id: c for c in parse_claims(markdown_parser.parse(page).body, strict=True)}
+    assert len(back) == 602 and back["clm_a"].closed_by_revision == EP
+    assert all(c.closed_by_revision is None for cid, c in back.items() if cid != "clm_a")
+
+
+def test_a_bank_written_before_the_mark_edited_back_ends_as_before(tmp_path, monkeypatch):
+    # Nights 1 and 2 as before (the same-slot correction), then every mark stripped, as a bank written before the field
+    # existed holds them: the edit back folds into the closed claim and the corrected day stays current alone, which is
+    # how origin/dev ends the same three nights.
+    from api.services.claims import parse_claims, write_claims
+
+    same = lia(reread="is moving to")
+    memory, _r = story(tmp_path, monkeypatch, [(LIA, same), (MOVED, same)])
+    path = memory / "entities" / "lia-prueba.md"
+    parsed = markdown_parser.parse(path)
+    claims = parse_claims(parsed.body, strict=True)
+    assert sum(c.closed_by_revision == EP for c in claims) == 1             # the real pipeline wrote the mark
+    for c in claims:
+        object.__setattr__(c, "closed_by_revision", None)
+    markdown_parser.write(path, parsed.frontmatter, write_claims(parsed.body, claims))
+    _commit(memory, "a bank from before the mark")
+    ids = {c.id for c in _claims_of(memory, "lia-prueba")}
+    _revise(memory, EP, MOVED, LIA)
+    _run(memory, monkeypatch, same)
+    _commit(memory, "Sleep cycle")
+    assert _open_days(memory) == ["2026-12-08"]
+    assert {c.id for c in _claims_of(memory, "lia-prueba")} == ids          # nothing born: folded into the closed claim
+
+
+def test_the_mark_is_bookkeeping_and_never_reaches_a_page_writers_prompt():
+    from api.services import entity_orientation, page_change
+    from api.services.claims import write_claims
+
+    a, b = _chain()
+    before = {**a.to_dict(), "valid_to": None, "superseded_by": None}
+    before.pop("closed_by_revision")
+    meaningful, _fade = page_change.claim_diff(before, a.to_dict())
+    assert set(meaningful) == {"valid_to", "superseded_by"}             # the close is shown; the mark is not a change
+    data = entity_orientation.context(write_claims("# Lia\n", [a, b]), name="Lia Prueba", entity_type="person",
+                                      fields={}, today="2026-12-20", source_dates=[])
+    assert [c["id"] for c in data["current_claims"]] == ["clm_b"]
+    assert "closed_by_revision" not in data["current_claims"][0]

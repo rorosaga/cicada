@@ -59,7 +59,7 @@ FM_FADE = frozenset({"confidence", "faded_by_age"})
 #: date was decided. None of them is the belief.
 CLAIM_BOOKKEEPING = frozenset({
     "decayed_through", "read_late", "recorded_ts", "recorded_at", "session_id", "session_ids", "recovered_from",
-    "recovered_by", "authored_by", "origin", "premises", "date_basis", "participants", "id",
+    "recovered_by", "closed_by_revision", "authored_by", "origin", "premises", "date_basis", "participants", "id",
 })
 CLAIM_FADE = frozenset({"confidence", "faded_by_age"})
 #: Every other claim key is a meaningful field with its own word; ``sources`` is the set of conversations behind it.

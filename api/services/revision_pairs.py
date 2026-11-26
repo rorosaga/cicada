@@ -474,7 +474,7 @@ def apply(reconciled: dict[str, list[Claim]], verdicts: list[Verdict], revisions
     in ``reconciled``."""
     if not verdicts:
         return {}
-    from api.services.claim_reconciler import EDITED_BACK, _close, _date_key, same_object
+    from api.services.claim_reconciler import EDITED_BACK, _close_by_revision, same_object
 
     out: dict[str, str] = {}
     for v in verdicts:
@@ -501,9 +501,8 @@ def apply(reconciled: dict[str, list[Claim]], verdicts: list[Verdict], revisions
                    None)
         if new is None:
             continue
-        _close(old, by=new)
-        if old.valid_from and _date_key(old.valid_to) < _date_key(old.valid_from):
-            old.valid_to = old.valid_from   # a date moved earlier closes the old claim on its own first day
+        # A date moved earlier closes the old claim on its own first day; the close is marked as this revision's.
+        _close_by_revision(old, by=new, episode=v.episode, floor=True)
         # A conversation edited back (`claim_reconciler._edited_back`) says so; any other pair says it was edited.
         audit.append({"action": "revised", "closed": old.id, "by": new.id,
                       "why": EDITED_BACK if getattr(new, "_edited_back", None) else WHY})

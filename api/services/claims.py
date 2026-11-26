@@ -121,6 +121,10 @@ class Evidence:
         )
 
 
+#: What a close is made of: a write to either voids ``Claim.closed_by_revision`` (G104, review 4 F3).
+_CLOSE_FIELDS = frozenset({"valid_to", "superseded_by"})
+
+
 @dataclass
 class Claim:
     """A single perspectival, bi-temporal belief.
@@ -209,6 +213,12 @@ class Claim:
     # removed it and the writer that restored it. Such a claim is always closed. Omitted when unset (R7's reason).
     recovered_from: str | None = None
     recovered_by: str | None = None
+    # G104 (review 4 F3, 2026-11-26): the conversation whose edit closed this claim — written only by the revision rules'
+    # closes (`claim_reconciler._close_by_revision`, `episode_revision.settle`), after the close. It names THIS close:
+    # any later write to ``valid_to`` or ``superseded_by`` (a reopen, a person's pick, an agent's, a merge's re-link)
+    # drops it (:meth:`__setattr__`), and an open claim never carries it (:meth:`from_dict`). Read by
+    # `claim_reconciler._edited_back` alone. Omitted when unset (R7's reason).
+    closed_by_revision: str | None = None
     # Owner 2026-10-09: the day its own age (proven silence, heard late) took it below the decay-question line — it
     # then fades quietly, never asked about, until restated (`decay_policy.FADED_BY_AGE_KEY`). Omitted when unset.
     faded_by_age: str | None = None
@@ -221,6 +231,12 @@ class Claim:
     # ``turn_extras``, so the reaction is the claim's evidence by turn id. It moved the confidence, never the observer.
     # Omitted when empty.
     reactions: list[dict] = field(default_factory=list)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        # The mark describes the close it was written with: a write to the close voids it, whoever writes.
+        if name in _CLOSE_FIELDS and self.__dict__.get("closed_by_revision") is not None:
+            object.__setattr__(self, "closed_by_revision", None)
+        object.__setattr__(self, name, value)
 
     def all_session_ids(self) -> list[str]:
         """Every session that has written or reinforced this claim, deduped,
@@ -254,7 +270,7 @@ class Claim:
         data["participants"] = clean_participants(data.get("participants"))
         if not data["participants"]:
             data.pop("participants", None)
-        for key in ("recorded_ts", "recovered_from", "recovered_by", "faded_by_age"):
+        for key in ("recorded_ts", "recovered_from", "recovered_by", "closed_by_revision", "faded_by_age"):
             if data.get(key) is None:
                 data.pop(key, None)
         if not data.get("read_late"):
@@ -302,6 +318,9 @@ class Claim:
             recorded_ts=_opt_str(data.get("recorded_ts")),
             recovered_from=_opt_str(data.get("recovered_from")),
             recovered_by=_opt_str(data.get("recovered_by")),
+            # Only ever on a closed claim: one read open (a hand edit reopened it) carries no close to describe.
+            closed_by_revision=(_opt_str(data.get("closed_by_revision"))
+                                if _opt_str(data.get("valid_to")) or _opt_str(data.get("superseded_by")) else None),
             faded_by_age=_opt_str(data.get("faded_by_age")),
             read_late=_read_late(data.get("read_late")),
             reactions=clean_reactions(data.get("reactions")),
