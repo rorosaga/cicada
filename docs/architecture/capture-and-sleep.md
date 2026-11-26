@@ -2448,7 +2448,8 @@ page now existing); the page prose kept the old fact beside the new. `episode_re
   is a revision read in this run that may close, the restatement is born under an id of its own (the closed claim's id
   is taken; `_fresh_id`, the same on every run) and meets the open claim in the ordinary table. **The conditions as they
   stand after the fourth review (2026-11-26)** — the restatement is born only when all hold, otherwise it folds into its
-  closed twin as before: (1) the chain above, this conversation's alone, ending in an open claim; (2) the text says it
+  closed twin as before: (1) the chain above, this conversation's alone, ending in an open claim, **every closed link of
+  it, both ways, marked as closed by this conversation's own revision** (`closed_by_revision`, 2026-11-26, below); (2) the text says it
   was edited back: the restatement is not a copy of that open claim (the same slot, object, start and end — a claim is
   never superseded by a restatement of itself, on any route), and where the two carry other days, the restored day is
   said by the changed lines and none of the open claim's days is still said by the conversation as it now stands
@@ -2459,12 +2460,22 @@ page now existing); the page prose kept the old fact beside the new. `episode_re
   two the same the open claim gives way; a "different", a failed call or a split reading leaves both days open, which
   is exactly the end `origin/dev` reaches on the same text (a failed reading settles nothing). Accepted limits: a day
   the date reader cannot find counts as not said, so a day still stated in words it does not read leaves the rule as it
-  was; a day still said for another reason (another fact on the same day) keeps the correction, as `origin/dev` does;
-  and nothing in the bank records which closes the revision rules made — a close by the person's pick in the inbox, by
-  Sleep's settle or an agent's resolution through the same resolvers, between two claims that rest on this one
-  conversation, reads as the conversation's own correction and can be undone by a later edit that restores the other
-  day (review 4, F3: reported, not fixed; `test_a_pick_the_person_made_in_the_inbox_is_never_undone_by_an_edit_back`
-  is the strict `xfail` that drives the real resolver). Nothing is reopened in place: history reads A, then B, then A again, a chain with no loop
+  was; and a day still said for another reason (another fact on the same day) keeps the correction, as `origin/dev`
+  does. **F3 closed (2026-11-26): only a close the revision rules made is ever undone.** The fourth review found that
+  the person's pick in the inbox (`inbox_service`'s conflict answer closes the loser as `superseded_by` the winner),
+  Sleep's own settle through the same resolvers, or an agent's, between two claims resting on this one conversation,
+  read exactly like the conversation's own correction (the fields coincide), so a later edit restoring the other day
+  undid it. Now the revision rules mark their own closes (`closed_by_revision: <the conversation>`, written last by
+  `_close_by_revision` for the same-slot, removed-text and pair rules, and by `settle`'s withdrawal; dropped by any
+  later write to the close, `storage.md`), and `_edited_back` requires that mark naming this conversation on the closed
+  twin, on every closed link up to the open claim, and on every earlier link that names it back; one unmarked close
+  anywhere and the restatement folds into its twin, as before the rule. A bank written before the mark has none, so it
+  is never edited back (`origin/dev`'s end). `inbox_service` is unchanged; its close goes through `_close`, which
+  drops a mark. `test_a_pick_the_person_made_in_the_inbox_is_never_undone_by_an_edit_back` drives the real resolver.
+  Recorded, not changed: on `origin/dev` the same-slot rule already replaces a claim the person picked as the
+  *winner* when the same conversation is edited to a third day under the same wording; on this branch the pair rule
+  does the same under another wording, after two "same" readings (`origin/dev` leaves both open there); the edited-back
+  rule never brings back a picked winner, since the pick's close carries no mark. Nothing is reopened in place: history reads A, then B, then A again, a chain with no loop
   (`supersedes` points back at each step), the closed claims untouched. The departure rule (`_departed_on`) does not
   read this conversation's own chain as a departure. The close is recorded where the correction's was (audit
   `revised`, `why: edited_back`, in the ledger and the Corrections record). A close by another conversation, the

@@ -787,6 +787,26 @@ also asks the backend's `/sleep/status` and **refuses on any answer but a clear 
 or server error, a malformed body). A dirty or unreadable page is skipped; one `Recover dropped claims <date>` commit
 of only the pages written, `Cicada-Author: cicada`, put back from HEAD on failure. A re-run finds nothing.
 
+**A close an edited conversation made marks itself (G104, review 4 F3, 2026-11-26).** `closed_by_revision: <episode
+id>` (a `Claim` field, omitted when unset, beside `recovered_by`) names the conversation whose revision closed the
+claim. Its writers are the revision rules' closes and nothing else: the same-slot replacement (`redated`) and the
+removed text's new value (`revised`) in `claim_reconciler._place_claim`, the pair rule's `revision_pairs.apply` (all
+three through `claim_reconciler._close_by_revision`, which writes the mark last), and the removed text's withdrawal in
+`episode_revision.settle`. **It names that close and no other:** any later write to `valid_to` or `superseded_by`, by
+any writer (a reopen, the person's pick in the inbox, Sleep's settle, an agent's withdrawal, a merge re-linking a
+renamed successor, an ordinary update through `_close`), drops it (`Claim.__setattr__`), and an entry read open
+carries none (`Claim.from_dict`, so a hand edit that reopened it leaves none behind). `claim_recovery` writes raw
+entries, but each is recovered history, which the one reader excludes. Its one reader is the edited-back rule
+(`claim_reconciler._edited_back`, `capture-and-sleep.md`, "A stale date beside the corrected one"), which undoes a
+close only when every closed link of the chain carries the mark naming this conversation; a bank written before the
+field has no marks and is never edited back. Where it travels: the page fence and the ledger past 64k characters (as
+a key of the claim's own line, only on a marked claim), a held line (`pending_store` writes `to_dict`; a held claim is
+open, so none carries it), a page split (the claim moves whole) and a merge (kept unless the successor's id is renamed,
+which drops it); the vector index's claim metadata copies `to_dict` (derived, disposable, read key by key). It is bookkeeping (`page_change.CLAIM_BOOKKEEPING`), never on the wire
+(`transclusion_resolver.claim_to_model` lists its fields; no wire shape or ETag moves), and left out of the page
+writer's prompt (`entity_orientation.context`, whose current claims never carry it). A page with no such close
+serializes byte for byte as before.
+
 **A merge keeps both claim sets (audit 2026-10-05 P1-1).** `entity_merge.merge_entities` — the dedup sweep's and
 the inbox's one merge primitive — carries every claim the loser held into the winner's fence: re-subjected to the
 winner, a node object that named the loser repointed, and its observer, trust, sessions, evidence, validity and
