@@ -35,6 +35,18 @@ left to be asked about. It never touches a held claim except through `pending_st
 the person's pick files that conversation's words only, :func:`after_tap`, and the next one is asked next). One conversation, or
 every verdict agreeing, is the whole-line question as before.
 
+**The person's "someone else" holds on every path** (second review round). It is a per-conversation row (``apart_from``) and the
+store's own line-wide ``apart`` never sees it, so every path that takes a claim off a held line asks this module: :func:`blocked`
+(the pipeline's release keeps such a line whole: `pending_store.ready` takes a line whole and the store then drops it),
+:func:`allowed` (a release by answer withholds the claims citing a conversation ruled out for the page or filed to another), and the
+described-fact landing, which never lands one (`described_landing.land_page`). A withheld claim stays held.
+
+**A claim of a conversation filed already** (a resumed or edited conversation read again) lands on that verdict with no read
+(:func:`refile`); one cited by conversations filed to two pages is asked (*stranded*). **A question the person answered goes on as a
+new inbox id** (:func:`continue_question`: an older app hides a resolved id while it is still served), with everything it held, and the
+records that named the old id follow (:func:`follow`). Every file it writes goes through a writer that reports to the settle guard
+(`settle_guard`): :func:`file_one` and :func:`undo_committed` are the guarded units, the tail's narrowing is one too.
+
 Engine-free. The caller holds the bank (Sleep's window, or the person's answer under write admission).
 """
 from __future__ import annotations
