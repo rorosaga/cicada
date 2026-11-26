@@ -135,6 +135,7 @@
     "indexWarning": null,
     "lastEngine": "claude-cli",
     "lastFinishedCycle": null,
+    "notice": null,
     "organicResolutions": 0,
     "paused": {
       "autoContinue": {
@@ -298,6 +299,7 @@
     "indexWarning": null,
     "lastEngine": "claude-cli",
     "lastFinishedCycle": null,
+    "notice": null,
     "organicResolutions": 0,
     "paused": {
       "autoContinue": {
@@ -475,6 +477,7 @@
     "indexWarning": null,
     "lastEngine": "claude-cli",
     "lastFinishedCycle": null,
+    "notice": null,
     "organicResolutions": 0,
     "paused": {
       "autoContinue": {
@@ -547,6 +550,7 @@
     "indexWarning": null,
     "lastEngine": "claude-cli",
     "lastFinishedCycle": null,
+    "notice": null,
     "organicResolutions": 0,
     "paused": {
       "autoContinue": null,
@@ -705,6 +709,7 @@
     "indexWarning": null,
     "lastEngine": "litellm",
     "lastFinishedCycle": null,
+    "notice": null,
     "organicResolutions": 0,
     "paused": {
       "autoContinue": null,
