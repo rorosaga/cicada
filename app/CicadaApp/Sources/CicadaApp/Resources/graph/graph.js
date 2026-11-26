@@ -1247,6 +1247,10 @@ function foldGraph() {
         }
         for (const id of row.outside || []) if (present.has(id)) joins.push({ source: id, target: b.id, label: "on list", kind: "bubble" });
     }
+    // A page that just folded is no longer under the pointer, focused or held.
+    if (hoveredNode && memberBubble.has(hoveredNode.id) && !hoveredNode._packed) hoveredNode = null;
+    if (focusNodeId && memberBubble.has(focusNodeId)) { focusNodeId = null; focusSet = null; }
+    if (draggingNode && memberBubble.has(draggingNode.id)) cancelInteraction();
     const liveIds = new Set(live.map(b => b.id));
     for (const id of [...bubbleNodeById.keys()]) if (!liveIds.has(id)) bubbleNodeById.delete(id);
     const shown = rawNodes.filter(n => !memberBubble.has(n.id));
@@ -2994,6 +2998,7 @@ function onWindowBlur() {
 // the graph going inactive. Unpins the node and drops its throw velocity, and lowers the hold's alpha
 // target to 0 without a restart: no release reheat, the simulation settles on its own.
 function cancelInteraction() {
+    pressMember = null;
     if (draggingNode) {
         // Focus mode freezes context nodes; a cancelled drag keeps that pin, as onMouseUp does.
         const keepPinned = focusNodeId && focusSet && !focusSet.has(draggingNode.id);
@@ -3069,14 +3074,10 @@ function onZoomGestureEnd(e) {
     if (!s || s.type !== "mouseup" || !pressStart || pressStart.onNode || pressStart.pan) return;
     const [sx, sy] = eventScreenXY(s);
     if (Math.hypot(sx - pressStart.x, sy - pressStart.y) <= DRAG_CLICK_THRESHOLD) {
-        if (openLayout) {
-            // Owner 2026-11-25: a click outside the open bubble goes back out; one inside it, between members, does
-            // nothing.
-            const [wx, wy] = screenToWorld(sx, sy);
-            if (!pickInOpenBubble(wx, wy).inside) closeBubble({ animate: true });
-        } else {
-            postToSwift({ type: "backgroundClicked" });
-        }
+        // Owner 2026-11-25: a click outside an open bubble asks the page, which closes its panels and the column first and
+        // the bubble last (GraphDismiss); one inside it, between its pages, is an empty-canvas click that never closes it.
+        const outside = openLayout && !pickInOpenBubble(...screenToWorld(sx, sy)).inside;
+        postToSwift({ type: outside ? "bubbleOutsideClicked" : "backgroundClicked" });
     }
     pressStart = null;
 }

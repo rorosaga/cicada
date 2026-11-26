@@ -170,3 +170,16 @@ def test_the_cache_and_the_etag_move_with_the_grouping(bank):
         assert second.status_code == 200 and second.headers["etag"] != etag
         assert {b["key"] for b in second.json()["bubbles"]} == {"youtube-playlists"}
     assert "+bubbles" in graph_router.NODE_SHAPE and graph_router.NODE_SHAPE.endswith("+source-links")
+
+
+def test_a_save_filed_in_another_folder_moves_the_stamp(bank, monkeypatch):
+    """A folder's rings are made of the saves filed in it, which only the saves' own records say (review of #930)."""
+    from types import SimpleNamespace
+
+    from api.services import saved_posts
+
+    memory, _ = bank
+    monkeypatch.setattr(saved_posts, "state", lambda memory_path: SimpleNamespace(filed="f1"))
+    first = graph_bubbles.stamp(memory)
+    monkeypatch.setattr(saved_posts, "state", lambda memory_path: SimpleNamespace(filed="f2"))
+    assert graph_bubbles.stamp(memory) != first

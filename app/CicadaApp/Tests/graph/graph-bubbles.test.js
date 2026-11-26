@@ -105,6 +105,35 @@ const linkPairs = (h) => h.get("links.map(l => [typeof l.source === 'object' ? l
     check("... and its members hold no stale place", h.get("rawNodes.filter(n => n.id.startsWith('video-') && (n.x != null || n._packed)).length") === 0);
 }
 
+// ---- clicks outside, a lost release, folding under the pointer
+{
+    const { h, posts } = load(payload());
+    h.get("openBubble('list:youtube-playlists', { animate: false })");
+    h.get("pressStart = { x: 2, y: 2, moved: false, onNode: false, pan: false }");
+    h.get("onZoomGestureEnd({ sourceEvent: { type: 'mouseup', clientX: 2, clientY: 2 } })");
+    check("a click outside an open bubble asks the page, which closes panels and the column first",
+          posts.some(p => p.type === "bubbleOutsideClicked") && h.get("openBubbleId") !== null);
+    const m = h.get("openLayout.members[3]");
+    const sx = m.x * h.get("transform.k") + h.get("transform.x"), sy = m.y * h.get("transform.k") + h.get("transform.y");
+    posts.length = 0;
+    h.get(`pressStart = { x: ${sx}, y: ${sy}, moved: false, onNode: false, pan: false }`);
+    h.get(`onZoomGestureEnd({ sourceEvent: { type: 'mouseup', clientX: ${sx + 1}, clientY: ${sy} } })`);
+    check("... one inside it, between its pages, is an ordinary empty-canvas click", posts.some(p => p.type === "backgroundClicked"));
+    h.get("pressMember = openLayout.members[0]");
+    h.get("cancelInteraction()");
+    check("a lost release forgets the pressed page", h.get("pressMember") === null);
+    h.get("closeBubble({})");
+}
+{
+    const { h } = load(payload({ earned: true }));
+    h.get("hoveredNode = visibleNodes.find(n => n.id === 'talked-video')");
+    const next = payload();
+    next.bubbles[0].members = [...next.bubbles[0].members, "talked-video"];
+    next.bubbles[0].outside = [];
+    h.call("updateGraphDelta", { added: [], updated: [], removed: [], bubbles: next.bubbles, isFull: false });
+    check("a page that folds while under the pointer is no longer hovered", h.get("hoveredNode") === null);
+}
+
 // ---- reveal and search
 {
     const { h } = load(payload());

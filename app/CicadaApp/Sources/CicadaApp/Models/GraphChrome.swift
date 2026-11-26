@@ -160,9 +160,11 @@ enum GraphDismiss {
 
     /// R-DG8 — an outside click dismisses a floating panel first, like a popover's; only then does it close
     /// the column, with its Reader (R-DG7). A Reader open with no column was opened elsewhere and stays (R-DI8).
-    static func backgroundClick(_ s: State) -> Action {
+    /// Owner 2026-11-25: outside an open list bubble, the bubble closes last, after the panels and the column.
+    static func backgroundClick(_ s: State, outsideBubble: Bool = false) -> Action {
         if s.findOpen || s.legendOpen { return .closePanels }
         if s.entityOpen { return s.readerOpen ? .closeEntityAndReader : .closeEntity }
+        if outsideBubble && s.bubbleOpen { return .closeBubble }
         return .none
     }
 

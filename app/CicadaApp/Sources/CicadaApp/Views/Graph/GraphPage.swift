@@ -170,6 +170,10 @@ struct GraphPage: View {
         case .escape: Instant.run { apply(GraphDismiss.escape(dismissState)) }
         case .backgroundClicked:
             withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) { apply(GraphDismiss.backgroundClick(dismissState)) }
+        case .outsideBubbleClicked:
+            let action = GraphDismiss.backgroundClick(dismissState, outsideBubble: true)
+            if action == .closeBubble { graphVM.zoomAction = .closeBubble }   // a pointer path: the camera moves back
+            else { withAnimation(CicadaMotion.columns(reduceMotion: reduceMotion)) { apply(action) } }
         }
     }
 

@@ -257,6 +257,8 @@ struct GraphView: NSViewRepresentable {
                     viewModel.openBubbleId = id
                 case .bubbleClosed:
                     viewModel.openBubbleId = nil
+                case .bubbleOutsideClicked:
+                    viewModel.receive(.outsideBubbleClicked)
                 case .nodeFocused, .focusCleared:
                     break   // informational — focus state lives in JS
                 case .jsError(let detail):

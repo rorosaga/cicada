@@ -66,6 +66,7 @@ final class GraphBubblesTests: XCTestCase {
         XCTAssertEqual(GraphMessage.parse(#"{"type":"bubbleOpened","id":"list:x-bookmarks"}"#), .bubbleOpened("list:x-bookmarks"))
         XCTAssertEqual(GraphMessage.parse(#"{"type":"bubbleClosed"}"#), .bubbleClosed)
         XCTAssertNil(GraphMessage.parse(#"{"type":"bubbleOpened"}"#))
+        XCTAssertEqual(GraphMessage.parse(#"{"type":"bubbleOutsideClicked"}"#), .bubbleOutsideClicked)
     }
 
     func test_whatAListHoldsIsSaidInWords() {

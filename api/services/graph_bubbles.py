@@ -51,9 +51,15 @@ def stamp(memory_path: Path) -> str:
     """What a change check folds in for the bubbles, without building them (``list_pages.change_token``): the earned set
     and the table of list kinds. Membership is made of the pages' own headers, which the graph's cache key and ETag
     already follow (the ``entities`` listing). A save's record alone never moves it: every save also writes its page, and
-    following the conversations folder would rebuild and resend the whole graph after every captured turn."""
+    following the conversations folder would rebuild and resend the whole graph after every captured turn. A save filed in
+    or out of a folder (a playlist, a bookmark folder) moves only its record, so the saves' own filing token rides too
+    (``saved_posts.state(...).filed``, read from the same records, whatever the posts-as-rows switch says)."""
+    from api.services import saved_posts
+
     try:
-        return str(list_pages.change_token(Path(memory_path)) or "")
+        token = str(list_pages.change_token(Path(memory_path)) or "")
+        filed = str(getattr(saved_posts.state(Path(memory_path)), "filed", "") or "")
+        return f"{token}.{filed}" if filed else token
     except Exception:  # noqa: BLE001 - a change check never fails a request
         return ""
 
