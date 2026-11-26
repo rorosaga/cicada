@@ -2293,8 +2293,9 @@ async def apply(memory_path: Path, settings, d: Decision, *, engine: str | None 
         # Not a settle (ruling 41): no record, no Sleep actor, no answer quote set — its own commit (`_nickname`).
         try:
             return await asyncio.to_thread(_nickname, memory_path, path, d, settings)
-        except settle_guard.TreeUnreadable:
-            return False   # a failed commit could not be put back, so nothing is done
+        except Exception as exc:  # noqa: BLE001 — one question that will not settle never stops the others
+            logger.info(f"inbox tend: {d.item_id} left for the person ({type(exc).__name__})")
+            return False   # the guard put back what the title wrote (or could not read the tree: nothing was done)
     token = inbox_actor.set_actor(actor)
     found_quote = ([{"episode": d.found["episode"], "quote": d.found["evidence"][0]["quote"]}]
                    if d.found and d.found.get("evidence") else None)
@@ -2314,11 +2315,16 @@ async def apply(memory_path: Path, settings, d: Decision, *, engine: str | None 
             with settle_guard.activate(mark):
                 try:
                     await inbox_service._resolve_admitted(d.item_id, InboxResolveRequest(**d.request), settings, None)
-                except BaseException:
-                    await asyncio.to_thread(_put_back_locked, memory_path, mark, actor)
-                    raise
-            if not actor.committed:
+                except BaseException as exc:
+                    if mark.landed or actor.committed:
+                        actor.committed = True   # the commit is a fact: a step after it that failed does not undo it
+                        settle_guard.after_landing(exc)
+                    else:
+                        await asyncio.to_thread(_put_back_locked, memory_path, mark, actor)
+                        raise
+            if not (actor.committed or mark.landed):
                 await asyncio.to_thread(_put_back_locked, memory_path, mark, actor)
+            actor.committed = actor.committed or mark.landed
         else:
             await asyncio.to_thread(_guarded_thread, memory_path, actor, mine, lambda: _resolve_page_locked(memory_path, d, settings))
     except Exception as exc:  # noqa: BLE001 — one question that will not settle never stops the others
@@ -2348,7 +2354,7 @@ def _put_back_locked(memory_path: Path, mark: settle_guard.Mark, actor: inbox_ac
     from api.services import page_lock
 
     with page_lock.page_lock(memory_path):
-        if not actor.committed:
+        if not (actor.committed or mark.landed):
             settle_guard.put_back(mark)
 
 
@@ -2365,12 +2371,16 @@ def _guarded_thread(memory_path: Path, actor: inbox_actor.Actor, mine: list[str]
         with settle_guard.activate(mark):
             try:
                 work()
-            except BaseException:
-                if not actor.committed:
-                    settle_guard.put_back(mark)
-                raise
-            if not actor.committed:
+            except BaseException as exc:
+                if mark.landed or actor.committed:
+                    actor.committed = True   # the commit is a fact: a step after it that failed does not undo it
+                    settle_guard.after_landing(exc)
+                    return
                 settle_guard.put_back(mark)
+                raise
+            if not (actor.committed or mark.landed):
+                settle_guard.put_back(mark)
+            actor.committed = actor.committed or mark.landed
 
 
 def _resolve_page_locked(memory_path: Path, d: Decision, settings) -> None:
@@ -3423,11 +3433,17 @@ def undo_committed(memory_path: Path, item_id: str, *, before: dict[str, bytes |
         with settle_guard.activate(mark):
             try:
                 target, paths, lines, rec = undo(memory_path, item_id)
-                web_settle.commit_sync(memory_path, web_settle.commit_message("Sleep's settle undone", lines, authors=["user"]),
-                                       paths, before=before)
             except BaseException:
                 settle_guard.put_back(mark)
                 raise
+            try:
+                web_settle.commit_sync(memory_path, web_settle.commit_message("Sleep's settle undone", lines, authors=["user"]),
+                                       paths, before=before)
+            except BaseException as exc:
+                if not mark.landed:
+                    settle_guard.put_back(mark)
+                    raise
+                settle_guard.after_landing(exc)   # the undo is committed: a step after it that failed does not undo it
         return target, rec
 
 

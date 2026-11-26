@@ -892,6 +892,7 @@ async def _git_move(memory_path: Path, src: Path, dst: Path) -> None:
     except Exception:
         if src.exists():
             src.replace(dst)
+    settle_guard.renamed(src, dst)   # and what it left: ``src`` gone, ``dst`` holding the moved bytes
     from api.services import claims_ledger
 
     if claims_ledger.is_page(src) and claims_ledger.path_for(src).exists():
@@ -909,6 +910,7 @@ async def _git_remove(memory_path: Path, target: Path) -> None:
     except Exception:
         if target.exists():
             target.unlink()
+    settle_guard.wrote(target, None)   # what it left: the path gone
 
 
 def _merge_manifest(paths: list[str], *, removed: str) -> list[str]:

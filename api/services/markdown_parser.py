@@ -524,6 +524,7 @@ def write_new(filepath: Path, frontmatter: dict, body: str) -> None:
         fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)
+        settle_guard.wrote(target, data)
     finally:
         _unlink_quietly(tmp)
         _wrote()

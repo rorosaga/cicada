@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 
 from api.services import git_service, settle_guard
+from api.tests import settle_families
 from api.tests.test_settle_guard import (FAMILIES, _Refused, _bank_of, _state, _tree, join_memory, memory)  # noqa: F401
 
 
@@ -75,3 +76,28 @@ def test_every_file_a_settle_writes_is_reported(family, request, monkeypatch):
     bank = _bank_of(family, request)
     settle, _written, _paths = FAMILIES[family](bank)
     gate(bank, settle, monkeypatch)
+
+
+@pytest.mark.parametrize("family", sorted(settle_families.FAMILIES))
+def test_every_file_of_every_other_branch_of_apply_is_reported(family, memory, monkeypatch):
+    settle, _written = settle_families.FAMILIES[family](memory)
+    gate(memory, settle, monkeypatch)
+
+
+@pytest.mark.parametrize("family", sorted(settle_families.UNDO_FAMILIES))
+def test_every_file_an_undo_writes_is_reported(family, memory, monkeypatch):
+    """Each branch of ``inbox_tend.undo``, after a real settle: its writes are reported, and a refused commit puts them all back."""
+    undo, _written = settle_families.UNDO_FAMILIES[family](memory)
+    gate(memory, undo, monkeypatch)
+
+
+def test_the_widest_merge_changes_every_kind_of_file_the_guard_must_cover(memory, monkeypatch):
+    """The family that stands for the merge's whole footprint really does reach each writer the gate is about."""
+    settle, _written = settle_families.FAMILIES["rich_merge"](memory)
+    seen = gate(memory, settle, monkeypatch)
+    expected = {"entities/tool-b.claims.jsonl", "entities/tool-bee.claims.jsonl", "entities/tool-bee.md", "entities/linker.md",
+                "graph_edges.yaml", "_redirects.yaml", "assets/pictures/tool-bee.png", "assets/pictures/tool-b.png",
+                "inbox/inbox-001.md", "inbox/inbox-002.md"}
+    assert expected <= seen.changed, sorted(expected - seen.changed)
+    assert any(p.startswith("design/") for p in seen.changed)
+    assert expected <= seen.reported

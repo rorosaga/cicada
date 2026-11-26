@@ -62,7 +62,11 @@ from api.services import git_service
 #: The bank's root files a resolver writes (a merge's redirects and edges, a "different" answer's rejection, the label map,
 #: a release from the pending store). Every other root file belongs to another writer.
 OWNED_ROOT_FILES = frozenset({"_redirects.yaml", "_merge_rejected.yaml", "_predicates.yaml", "graph_edges.yaml",
-                              "pending_entities.jsonl"})
+                              "pending_entities.jsonl", "_same_name_doubts.yaml"})
+#: The folders a merge writes besides the pages: a person's uploaded picture it moves or removes, and the look records it
+#: repoints (``design/<id>.md``; never a screenshot, which a merge does not write).
+_PICTURE_DIR = "assets/pictures/"
+_LOOK_DIR = "design/"
 
 _UNSET = object()
 _ZERO_SHA = "0" * 40
@@ -77,7 +81,21 @@ class TreeUnreadable(Exception):
 def in_scope(rel: str) -> bool:
     """The paths a settle can own: a path under one of the touchable folders or a root file a resolver writes. Never a
     conversation (``episodes/``) and never a root file another writer owns."""
-    return rel.startswith(git_service._TOUCHABLE_DIRS) or rel in OWNED_ROOT_FILES
+    return (rel.startswith(git_service._TOUCHABLE_DIRS) or rel in OWNED_ROOT_FILES or rel.startswith(_PICTURE_DIR)
+            or (rel.startswith(_LOOK_DIR) and rel.endswith(".md") and rel.count("/") == 1))
+
+
+def partner_of(rel: str) -> str | None:
+    """The other half of a page and its claims ledger: ``entities/<id>.claims.jsonl`` for ``entities/<id>.md`` and the
+    reverse, else ``None``. The two are one unit (``claims_ledger``): a page write moves claims between them."""
+    from api.services import claims_ledger
+
+    ledger = claims_ledger.rel_for(rel)
+    if ledger is not None:
+        return ledger
+    if rel.startswith("entities/") and rel.endswith(claims_ledger.SUFFIX) and rel.count("/") == 1:
+        return rel[:-len(claims_ledger.SUFFIX)] + ".md"
+    return None
 
 
 def blob_sha(data: bytes | None) -> str | None:
@@ -118,6 +136,9 @@ class Mark:
     #: Index entries that already differed from HEAD: ``(mode, blob)``, or ``None`` for a staged removal.
     staged: dict[str, tuple[str, str] | None] = field(default_factory=dict)
     recs: dict[str, _Rec] = field(default_factory=dict)
+    #: A commit of this settle's own paths ran to its end (set by ``git_service``'s commit functions the moment git's
+    #: ``commit`` returned). From then on the settle is a fact: nothing of it is put back, whatever fails after.
+    landed: bool = False
     lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
     def rel(self, path) -> str | None:
@@ -245,6 +266,35 @@ def wrote(path, data: bytes | None) -> None:
         logger.debug(f"settle guard: a write was not noted ({type(exc).__name__})")
 
 
+def wrote_now(path) -> None:
+    """:func:`wrote` for a writer that moved or replaced a file with bytes it never held: what the path holds now is what
+    the settle left (read only inside a settle; a no-op anywhere else)."""
+    mark = _ACTIVE.get()
+    if mark is None:
+        return
+    try:
+        rel = mark.rel(path)
+        if rel is not None:
+            with mark.lock:
+                mark.recs.setdefault(rel, _Rec()).left = blob_sha(_read(mark.memory_path / rel)[0])
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"settle guard: a write was not noted ({type(exc).__name__})")
+
+
+def renamed(src, dst) -> None:
+    """A writer renamed ``src`` to ``dst`` (after it called :func:`writing` on both): ``src`` is left absent, ``dst`` holds
+    the moved bytes."""
+    wrote(src, None)
+    wrote_now(dst)
+
+
+def landed() -> None:
+    """``git_service``'s commit functions call this the moment git's ``commit`` returned: the settle's commit is a fact."""
+    mark = _ACTIVE.get()
+    if mark is not None:
+        mark.landed = True
+
+
 def reported(memory_path, paths) -> None:
     """The commit's own list of what the settle wrote, called by ``git_service``'s commit functions before they stage
     anything. A path a writer reported gets its hash now if it has none (a removal, a ``git mv``). A path no writer
@@ -347,25 +397,44 @@ def _restore_index(mark: Mark, rels: list[str]) -> None:
 def put_back(mark: Mark) -> int:
     """Put every path this settle wrote back to what it held, if it still holds what the settle left, and set the index entry
     of each back to what it was. A path the settle did not write is never touched; one another writer changed since is left
-    and counted. Returns how many paths could not be put back (logged as a count, never a name). Never raises."""
+    and counted. Returns how many paths could not be put back (logged as a count, never a name). Never raises.
+
+    **A page and its claims ledger are one unit** (:func:`partner_of`): when one of the two is put back, the other is put
+    back with it if it differs from what it held before the settle (what the settle left it, written by a writer that did
+    not report; logged as an unreported write, ids only); and when one of them was changed by another writer since, both
+    are left. A path the settle's own commit (or one commit made apart) already holds is left as it is: only a path that
+    differs from what HEAD now holds is put back."""
     from api.services import bank_index, markdown_parser
 
     memory_path = mark.memory_path
     failed = diverged = 0
+    unreported: list[str] = []
     with mark.lock:
         recs = {rel: rec for rel, rec in mark.recs.items() if rec.left is not _UNSET or rec.declared}
     try:
         with git_service.write_lock(memory_path):
             moved = _moved(mark)
+            left_alone: set[str] = set()   # another writer's since, or already in a commit: not ours to put back
+            for rel in sorted(recs):
+                rec = recs[rel]
+                if rec.left is not _UNSET and blob_sha(_read(memory_path / rel)[0]) != rec.left:
+                    left_alone.add(rel)
+                    diverged += 1
+            for rel in sorted(recs):
+                other = partner_of(rel)
+                if rel not in left_alone and other in left_alone:
+                    left_alone.add(rel)   # one unit: not put back when the other half is another writer's now
+                    diverged += 1
             staged_by_settle: list[str] = []
             for rel in sorted(recs):
+                if rel in left_alone:
+                    continue
                 rec = recs[rel]
                 try:
                     target = memory_path / rel
                     cur = _read(target)[0]
-                    if rec.left is not _UNSET and blob_sha(cur) != rec.left:
-                        diverged += 1   # another writer got there since: not ours to put back
-                        continue
+                    if rel in moved and cur == git_service.head_blob_sync(memory_path, rel):
+                        continue   # a commit holds exactly these bytes: it is not the settle's to take back
                     if rec.first is not None:
                         want, mode = rec.first
                     elif rel in mark.pictured and rel not in moved:
@@ -379,6 +448,11 @@ def put_back(mark: Mark) -> int:
                             _write_back(target, want, mode)
                     if rec.left is not _UNSET:
                         staged_by_settle.append(rel)
+                    # The other half of a page and its ledger, written by a writer that did not say so.
+                    other = partner_of(rel)
+                    if other is not None and other not in recs and _put_back_partner(mark, other, moved):
+                        unreported.append(other)
+                        staged_by_settle.append(other)
                 except (OSError, git_service.GitError):
                     failed += 1
             if staged_by_settle:
@@ -390,6 +464,9 @@ def put_back(mark: Mark) -> int:
         failed += 1
     bank_index.invalidate(memory_path)
     markdown_parser.invalidate_pages(os.path.realpath(memory_path))
+    if unreported:
+        logger.warning("A settle wrote a claims ledger or a page without reporting it; it was put back with its unit "
+                       f"({', '.join(sorted(Path(rel).name.split('.')[0] for rel in unreported))})")
     if failed:
         logger.warning(f"A settle that did not commit could not be fully put back ({failed} path(s)); the tree needs a look")
     if diverged:
@@ -397,14 +474,47 @@ def put_back(mark: Mark) -> int:
     return failed
 
 
+def _put_back_partner(mark: Mark, rel: str, moved: frozenset[str]) -> bool:
+    """The unit's other half, which no writer reported: if it differs from what it held before the settle (the person's own
+    uncommitted bytes when it was dirty, else what HEAD holds) it goes back to that. ``True`` when it was changed. Write lock held."""
+    memory_path = mark.memory_path
+    target = memory_path / rel
+    cur = _read(target)[0]
+    head = git_service.head_blob_sync(memory_path, rel)
+    if rel in moved and cur == head:
+        return False
+    want, mode = mark.pictured.get(rel, (head, None))
+    if cur == want:
+        return False
+    if want is None:
+        target.unlink(missing_ok=True)
+    else:
+        _write_back(target, want, mode)
+    with mark.lock:
+        mark.recs[rel] = _Rec(first=(want, mode), left=blob_sha(cur))   # its index entry goes back with the rest
+    return True
+
+
 @contextmanager
 def guarded(memory_path: Path) -> Iterator[Mark]:
-    """``with guarded(bank):`` — whatever the body writes is put back if it raises (a failed commit, a stop). The body
-    that returns normally is the caller's to judge (``put_back(mark)`` when its commit did not land)."""
+    """``with guarded(bank):`` — whatever the body writes is put back if it raises before its commit landed (a failed
+    commit, a stop). A step that raises after the commit landed leaves the settle as the commit holds it: the error is
+    logged (its class, never its message) and the body ends as if it had returned. The body that returns normally is the
+    caller's to judge (``put_back(mark)`` when its commit did not land)."""
     mark = take(memory_path)
     with activate(mark):
         try:
             yield mark
-        except BaseException:
-            put_back(mark)
-            raise
+        except BaseException as exc:
+            if not mark.landed:
+                put_back(mark)
+                raise
+            after_landing(exc)
+
+
+def after_landing(exc: BaseException) -> None:
+    """A step failed after the settle's commit landed: the settle stands, so nothing is put back. A stop (a ``BaseException``
+    that is not an ``Exception``) still propagates; any other error is logged by class and swallowed."""
+    if not isinstance(exc, Exception):
+        raise exc
+    logger.warning(f"A step after a settle's commit failed ({type(exc).__name__}); the settle landed and stays")

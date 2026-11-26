@@ -867,6 +867,14 @@ def _report_to_settle(memory_path: Path, paths: list[str]) -> None:
         settle_guard.reported(memory_path, paths)
 
 
+def _landed_to_settle() -> None:
+    """The commit inside a Sleep settle ran to its end (`settle_guard.landed`): the settle is a fact from here on."""
+    from api.services import settle_guard
+
+    if settle_guard.active() is not None:
+        settle_guard.landed()
+
+
 def commit_paths_sync(memory_path, message: str, paths) -> None:
     """Stage and commit ONLY ``paths`` (memory-relative), never ``git add -A``,
     under the bank's write lock (R-B1, R-B4).
@@ -886,6 +894,7 @@ def commit_paths_sync(memory_path, message: str, paths) -> None:
         if not _git_sync(memory_path, "status", "--porcelain", "--", *paths).strip():
             return  # Nothing to commit
         _git_sync(memory_path, "commit", "-m", message, "--", *paths)
+        _landed_to_settle()
 
 
 def commit_changes_sync(memory_path, message: str) -> str | None:
@@ -1265,6 +1274,7 @@ def commit_touched_sync(memory_path, message: str, paths, *, before: dict[str, b
         if not _git_sync(memory_path, "status", "--porcelain", "--", *stage).strip():
             return
         _git_sync(memory_path, "commit", "-m", message, "--", *stage)
+        _landed_to_settle()
 
 
 #: What a resolution can rewrite: pages, its own item, and the bank's root files (`_merge_rejected.yaml`, the
