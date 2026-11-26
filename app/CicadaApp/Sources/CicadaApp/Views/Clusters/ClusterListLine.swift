@@ -36,9 +36,7 @@ struct ClusterListLine: View {
         HStack(spacing: CicadaTheme.spacingSM) {
             Button(action: toggle) {
                 HStack(spacing: CicadaTheme.spacingSM) {
-                    Image(systemName: isOpen ? "chevron.down" : "chevron.right")
-                        .font(CicadaTheme.font(size: 11, weight: .semibold))
-                        .foregroundStyle(CicadaTheme.textTertiary)
+                    DisclosureChevron(isOpen: isOpen)
                         .frame(width: CicadaTheme.scaled(12))
                     if let mark { OriginMark(origin: mark, size: CicadaTheme.scaled(18)) }
                     Text(list.name)
