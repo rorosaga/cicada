@@ -348,7 +348,13 @@
     "conversation": "n04",
     "current": [
      [
-      "{date:18}"
+      [
+       "12 12",
+       "12 december",
+       "december 12",
+       "dec 12",
+       "12 dec"
+      ]
      ]
     ],
     "stale": [],
@@ -368,7 +374,13 @@
     "conversation": "n05",
     "current": [
      [
-      "{date:18}"
+      [
+       "12 12",
+       "12 december",
+       "december 12",
+       "dec 12",
+       "12 dec"
+      ]
      ]
     ],
     "stale": [],

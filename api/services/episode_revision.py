@@ -746,6 +746,7 @@ def settle(reconciled: dict[str, list[Claim]], plan: Plan, revisions: dict[str, 
                                         spans=[evidence.reasoning(ep, hash=rev.hash)], day=today)
             c.valid_to = today
             c.superseded_by = record.id
+            c.closed_by_revision = ep   # this revision's own close, written last (`claims.Claim.closed_by_revision`)
             records.append(record)
             audit.append({"action": "revision_withdrew", "closed": c.id, "by": record.id})
             withdrawn += 1

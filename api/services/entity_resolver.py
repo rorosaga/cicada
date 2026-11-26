@@ -18,7 +18,7 @@ from api.config import Settings
 from api.services import (agent_engine, alias_collisions, alias_policy, application_page, authorship, coined_names, contact_identity, contacts_local, linkedin_people, phone_numbers, correspondents, engine_errors,
                           entity_body, entity_relations, entity_types, fact_policy, json_parse, link_names, owner_identity, pair_evidence, people_directory, person_leads,
                           project_birth, promotion, quiet_pages, role_people, same_name_people, saves_bounded, section_provenance,
-                          text_fold, wrong_aliases)
+                          text_fold, which_one_file, wrong_aliases)
 from api.services.clarification_manager import (
     ClarificationManager,
 )
@@ -746,7 +746,7 @@ async def resolve(
                 except Exception:
                     pending_entry = None
             # A line parked from this same conversation (a resumed one read again, G104) is not a second one.
-            heard_before = set(pending_entry.episodes()) - heard_now if pending_entry is not None else set()
+            heard_before = which_one_file.counted(pending_entry) - heard_now if pending_entry is not None else set()   # ruling 83: a conversation filed to a page is not counted again
             if pending_entry is not None and not pending_entry.episodes():
                 heard_before = {"(unrecorded)"}  # a line from before episodes were kept: an earlier conversation
 
@@ -1165,7 +1165,7 @@ def _resolve_correspondents(
             page_id = line.name if line is not None else correspondents.free_id(ident, taken, entities_dir)
             taken.add(page_id)
             heard_now = {str(e.get("source_episode") or "") for e in group} - {""}
-            heard_before = set(line.episodes()) - heard_now if line is not None else set()
+            heard_before = which_one_file.counted(line) - heard_now if line is not None else set()
             promote = (len(promotion.conversation_keys(heard_now | heard_before, memory_path,
                                                 promotion.labels(ident, *group))) >= threshold
                        or any(promotion.substantive(e) for e in group)
@@ -1647,7 +1647,7 @@ def _resolve_same_name_people(
                 new_people.setdefault(name_lower, set()).add(page_id)
                 if doubt_of.get((name_lower, kind, ref)):
                     doubted.setdefault(name_lower, set()).add(page_id)
-            heard_before = set(line.episodes()) - episodes if line is not None else set()
+            heard_before = which_one_file.counted(line) - episodes if line is not None else set()
             promote = (len(promotion.conversation_keys(episodes | heard_before, memory_path,
                                                 promotion.labels({"name": title}, *entities))) >= threshold
                        or any(promotion.substantive(e) for e in entities) or linked(episodes, title))
@@ -2344,7 +2344,7 @@ def _fold_pending(change: dict, line: PendingEntity) -> None:
     it heard the name in (its timestamp and day, when the line kept them)."""
     change["entity"] = _merge_entity_payload(change.get("entity", {}) or {}, _pending_payload(line))
     records = {str(r.get("episode")): r for r in line.heard_in if isinstance(r, dict) and r.get("episode")}
-    for episode in line.episodes():
+    for episode in sorted(which_one_file.counted(line), key=line.episodes().index):   # a conversation filed elsewhere credits that page, not this one
         record = records.get(episode, {})
         _append_change_source(change, {"source_episode": episode,
                                        "source_episode_timestamp": record.get("timestamp"),
@@ -2489,7 +2489,7 @@ class _Unborn:
 
     def episodes(self) -> set[str]:
         out = {str(e.get("source_episode")) for e in self.mentions() if e.get("source_episode")}
-        return out | set(self.pending.episodes() if self.pending is not None else ())
+        return out | which_one_file.counted(self.pending)
 
 
 #: How many candidates one name with no birth is weighed against after the loop (`_settle_unborn`): two judge calls.

@@ -119,6 +119,7 @@
     "indexWarning": null,
     "lastEngine": "claude-cli",
     "lastFinishedCycle": null,
+    "notice": null,
     "organicResolutions": 0,
     "paused": {
       "autoContinue": null,
@@ -279,6 +280,7 @@
       "state": "finished",
       "usageSummary": null
     },
+    "notice": null,
     "organicResolutions": 0,
     "paused": null,
     "progress": "Completed \u2014 7 episode(s) filed in 3 batch(es)",
@@ -418,6 +420,7 @@
     "indexWarning": null,
     "lastEngine": "claude-cli",
     "lastFinishedCycle": null,
+    "notice": null,
     "organicResolutions": 0,
     "paused": {
       "autoContinue": null,
@@ -569,6 +572,7 @@
     "indexWarning": null,
     "lastEngine": "claude-cli",
     "lastFinishedCycle": null,
+    "notice": null,
     "organicResolutions": 0,
     "paused": null,
     "progress": "Batch 2 of 3 \u00b7 Stage 1/5: Extracting entities from 3 episodes...",

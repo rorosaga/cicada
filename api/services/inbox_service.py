@@ -40,6 +40,7 @@ from api.services import (
     search_index,
     source_check,
     telemetry,
+    which_one_file,
 )
 from api.services.id_utils import resolve_entity_file, sanitize_id
 from api.services.inbox_generator import fold_claims
@@ -319,6 +320,7 @@ def _item_from_file(
         source_episode_timestamp=_opt_str(fm.get("source_episode_timestamp")),
         claim_id=_opt_str(fm.get("claim_id")),
         asked_by=question_origin.wire(fm, kind),
+        scope_episodes=(which_one_file.scope_of(fm) or None) if kind == "merge_suggestion" else None,
         **extra,
     )
 
@@ -3215,23 +3217,36 @@ def _answer_page_edit(path: Path, fm: dict, memory_path: Path, label: str, befor
 
 
 def _release_answered(memory_path: Path, mention: str, target_id: str, settings, *,
-                      subject_page: str = "") -> list[str]:
+                      subject_page: str = "", scope: list[str] | None = None) -> list[str]:
     """G209 (2026-10-27): the person answered that a held name IS ``target_id``. The claims Sleep held on that name's
     pending line — as its subject, or as another page's claim with it as the object — land now, on the page they named
     (`pending_store.answered`, `claim_pipeline.land_answered`), instead of waiting for the name to be mentioned again.
     The landed claims leave the line in the same write, so they are released once. Returns the manifest lines for
     every page written and for the store: they ride in the answer's own commit, so the answer's undo takes the claims
     back off and puts them back on the line. ``subject_page``: see `pending_store.answered` — an answer about a page
-    never releases a line Sleep held against that page."""
-    from api.services import claim_pipeline, pending_store
+    never releases a line Sleep held against that page.
+
+    ``scope`` (ruling 83, a which-one question about ONE conversation): only what that conversation said goes — the claims whose
+    conversations are all inside it and the summary and key facts its rows say (`which_one_file`); the line keeps the rest."""
+    from api.services import claim_pipeline, pending_store, which_one_file
 
     if not mention or not target_id:
         return []
     pending_store.clear_apart(memory_path, mention, target_id)   # G227: the person's join lifts their own "apart"
     # 2026-11-24 (ruling 74b follow-up): the line's own words ("Teodor Brandt, my old teammate from university") reach the
     # page too, not only its claims.
-    prose = _land_held_prose(memory_path, mention, target_id, subject_page=subject_page)
+    prose = _land_held_prose(memory_path, mention, target_id, subject_page=subject_page, scope=scope)
     release = pending_store.answered(memory_path, mention, target_id, subject_page=subject_page)
+    if release is not None and scope:
+        inside = set(scope)
+        bad = which_one_file.barred(pending_store.held_line(memory_path, mention), target_id, filings=False)
+        release.claims = [c for c in release.claims
+                          if (eps := which_one_file.claim_episodes(c.to_dict())) and eps <= inside and not eps & bad]
+        release = release if release.claims else None
+    else:
+        # Ruling 83: whatever the person said "someone else" about for this page, or filed to another, is not lifted by a whole-line
+        # answer to some other question: those claims stay held.
+        release = which_one_file.allowed(memory_path, release)
     if release is None:
         return [f"{rel}: updated (trigger: inbox/merge_suggestion/resolved:merge)" for rel in prose]
     written, landed = claim_pipeline.land_answered(memory_path, release, settings)
@@ -3241,30 +3256,45 @@ def _release_answered(memory_path: Path, mention: str, target_id: str, settings,
     return [f"{rel}: updated (trigger: inbox/merge_suggestion/resolved:merge)" for rel in written]
 
 
-def _land_held_prose(memory_path: Path, mention: str, target_id: str, *, subject_page: str = "") -> list[str]:
+def _land_held_prose(memory_path: Path, mention: str, target_id: str, *, subject_page: str = "",
+                     scope: list[str] | None = None) -> list[str]:
     """The person's answer (or Sleep's settle, `inbox_tend`) said the held name IS ``target_id``: the line's summary, key
     facts, history, links and open questions go onto that page through the one page writer a promotion and every update
     use (`conflict_resolver.apply_changes`, the deterministic section merge — no model): additive on a page a person
     edited, never over a pinned passage, each item with the source rows the line kept (G118). ``untimed``: the page's last
     mention and silence clock stay (an older conversation is no mention today). The summary goes in as a Key Fact — a
     page that already has a Summary keeps it. Returns the paths written, ``[]`` when the line holds no prose."""
-    from api.services import conflict_resolver, pending_store, section_provenance
+    from api.services import conflict_resolver, pending_store, section_provenance, which_one_file
 
     line = pending_store.held_line(memory_path, mention)
     if line is None or (subject_page and line.held_against == subject_page):
         return []
+    if scope:
+        # One conversation's answer (ruling 83): the summary, description and key facts every conversation of which is known (the
+        # ones this answer files and the ones filed before) go to the page each conversation named, with that conversation's own
+        # evidence; nothing that carries no conversation (a description, history, links, questions) moves, and the page is credited
+        # with the conversations whose words landed and no other (`which_one_file.land_prose`).
+        verdict = {**which_one_file.filed(line), **{e: target_id for e in scope}}
+        return which_one_file.land_prose(memory_path, mention, verdict)
+    if which_one_file.split(line, target_id):
+        # Not a which-one question, but the line is split (a conversation was filed to another page, or answered "someone else"): the
+        # words each known conversation said go where it was said and what carries no conversation stays held (`land_prose`).
+        no = which_one_file.barred(line, target_id)
+        return which_one_file.land_prose(memory_path, mention, {**which_one_file.filed(line),
+                                                                **{e: target_id for e in line.episodes() if e not in no}})
     facts = [str(f) for f in [line.summary or line.description, *line.key_facts] if str(f or "").strip()]
     history = [e for e in line.history_entries if isinstance(e, dict) and str(e.get("event") or "").strip()]
     links = [d for d in line.links if isinstance(d, dict)]
     questions = [str(q) for q in line.open_questions if str(q).strip()]
+    line_inputs, line_episodes = list(line.item_inputs), line.episodes()
     if not (facts or history or links or questions):
         return []
     path = Path(memory_path) / "entities" / f"{target_id}.md"
     if not path.is_file():
         return []
     entity = {"summary": "", "description": "", "key_facts": facts, "history_entries": history, "links": links,
-              "open_questions": questions, "aliases": [], "tags": [], section_provenance.INPUTS: list(line.item_inputs)}
-    change = {"id": target_id, "action": "update", "entity": entity, "source_episodes": line.episodes(),
+              "open_questions": questions, "aliases": [], "tags": [], section_provenance.INPUTS: line_inputs}
+    change = {"id": target_id, "action": "update", "entity": entity, "source_episodes": line_episodes,
               "untimed": True, "trigger": "inbox/held-prose"}
     before = path.read_bytes()
     conflict_resolver.apply_changes([change], Path(memory_path))
@@ -3345,6 +3375,12 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
 
         none = same_name_pick.is_another(request.option_key) and same_name_pick.applies(parsed.frontmatter)
         pages = same_name_pick.rejected_ids(parsed.frontmatter) if none else [other]
+        from api.services import which_one_file
+
+        # Ruling 83: "Someone else" on a question about ONE conversation is the answer for that conversation alone; the question
+        # moves on to the next one open (or goes when none is), and the candidates stay candidates for every other conversation.
+        if (moved := which_one_file.apart_scoped(settings.memory_path, path, parsed.frontmatter, pages)) is not None:
+            return entity_id, False, moved
         lines = reject_effects(settings, parsed.frontmatter, entity_id, other, pages, source=path.stem)
         path.unlink()
         return entity_id, False, lines
@@ -3473,8 +3509,10 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
         if str(parsed.frontmatter.get("kind") or "") == "merge_suggestion" and other:
             # Dismissing "Is A the same as B?" is "stop asking": the pair is remembered like a reject, or the next
             # Sleep raises the same question again (G209 W1, a held name re-read from the pending store).
-            from api.services import merge_rejections
+            from api.services import merge_rejections, which_one_file
 
+            if (moved := which_one_file.apart_scoped(settings.memory_path, path, parsed.frontmatter, [other])) is not None:
+                return entity_id, False, moved   # about one conversation: its answer alone (ruling 83), the question moves on
             if (kept := _keep_apart(settings, parsed.frontmatter, [other])) is not None:
                 path.unlink()
                 return entity_id, False, kept
@@ -3520,11 +3558,29 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
         survivor_file = resolve_entity_file(settings.memory_path, survivor)
         rename = survivor_file is None or survivor_file != target_path
 
+        # Ruling 83: a pick on a question about ONE conversation files that conversation's words only (the reader narrowed the
+        # question, `which_one_file`), and so does any answer once part of the line was filed to another page; Sleep's own settle
+        # files only what its evidence covers, else it is left for the person. The page is credited with exactly those
+        # conversations: never one the question merely listed.
+        from api.services import pending_store as _line_store, which_one as _w1, which_one_file
+
+        scope: list[str] = []
+        if str(parsed.frontmatter.get("detected") or "") == _w1.DETECTED:
+            asked = which_one_file.scope_for(
+                parsed.frontmatter, _line_store.held_line(settings.memory_path, mention), target_path.stem,
+                which_one_file.covered_by(inbox_actor.current()) if inbox_actor.is_sleep() else None)
+            if asked is None:
+                raise HTTPException(409, "Sleep does not settle this: it is about one conversation its reading does not cover.")
+            scope = asked
         if source_episode:
             from api.services import which_one as _which_one
 
             episodes = list(target.frontmatter.get("source_episodes", []) or [])
-            for ep in dict.fromkeys([source_episode, *_which_one.episodes_of(parsed.frontmatter)]):   # a folded question's too
+            # A folded question's conversations too. A scoped answer credits nothing here: the page is credited with exactly the
+            # conversations whose words landed on it, by the landing itself (a claim's own, a prose row's), never one that only
+            # the question listed (`which_one_file`).
+            credited = [] if scope else [source_episode, *_which_one.episodes_of(parsed.frontmatter)]
+            for ep in dict.fromkeys(credited):
                 if ep not in episodes:
                     episodes.append(ep)
             target.frontmatter["source_episodes"] = episodes
@@ -3603,10 +3659,10 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
             markdown_parser.write(target_path, target.frontmatter, new_body)
             # G209: what Sleep held on the name's pending line lands on the page the person named, in this same write.
             released = _release_answered(settings.memory_path, mention, target_path.stem, settings,
-                                         subject_page=subject_page)
+                                         subject_page=subject_page, scope=scope)
             # Its pending line leaves the store; a line still holding claims (one whose page is gone) stays until
             # Stage 2 resolves the name and Stage 5.56 writes them (`pending_store.take`).
-            taken = pageless and pending_store.take(settings.memory_path, mention)[1]
+            taken = pageless and not scope and pending_store.take(settings.memory_path, mention)[1]
             store_line = f"{pending_store.PENDING_STORE_FILE}: updated (trigger: inbox/merge_suggestion/resolved:merge)"
             store_lines = [*released, *([store_line] if taken and store_line not in released else [])]
             # A question asked about a PAGE (a placeholder person named in the inbox, `role_people.answer_name`,
@@ -3626,7 +3682,15 @@ async def _resolve_clarification(path, parsed, request, settings) -> tuple[str, 
                 return target_path.stem, False, [*_merge_manifest(merged["paths"],
                                                                   removed=f"entities/{mention_path.stem}.md"),
                                                  *store_lines]
-            path.unlink()
+            if scope:
+                # What the line now holds is the answer's own to settle: a line left with nothing is released, and while other
+                # conversations are still open the question goes on, about the next one, under a NEW id (an older app keeps the
+                # answered id hidden): the new file and the old one's removal ride this commit (`which_one_file.after_tap`).
+                more = which_one_file.after_tap(settings.memory_path, path, mention, scope, target_path.stem)
+                store_lines = [*store_lines, *([store_line] if store_line not in store_lines else [])]
+                if more is not None:
+                    return target_path.stem, False, [*store_lines, *more]
+            path.unlink(missing_ok=True)
             return target_path.stem, False, store_lines
         else:
             # Survivor == the cleaner mention: keep the cleaner name/id.

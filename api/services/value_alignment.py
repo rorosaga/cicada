@@ -414,22 +414,23 @@ def align(incoming: list, existing_by_subject: dict, judge: Callable[[str], dict
     return audit
 
 
-def judge_for(settings, *, main: bool = False) -> Callable[[str], dict] | None:
+def judge_for(settings, *, main: bool = False, stage: str = STAGE) -> Callable[[str], dict] | None:
     """Sleep's small judge as a ``prompt -> dict`` call, or ``None`` when no engine can answer. The engine the cycle
     resolved, on its small tier (`in_short.small_tier`): the same bill as Stage 2's judge, never a different one.
-    ``main=True`` is the same engine on the model the cycle itself reads with (the second reading's)."""
+    ``main=True`` is the same engine on the model the cycle itself reads with (the second reading's). ``stage`` labels the
+    calls in the ledger (`sleep_spend.LINE_STAGES` knows the ones that count against the person's line)."""
     try:
         from api.services import in_short, providers
         from api.services.engine_select import CLI_MODES
 
         small = settings if main else in_short.small_tier(settings)
         if str(getattr(small, "llm_mode", "")).lower() in CLI_MODES:
-            llm_fn = providers.resolve_llm_fn(small, stage=STAGE, is_async=False)
+            llm_fn = providers.resolve_llm_fn(small, stage=stage, is_async=False)
         else:
             import litellm
 
             llm_fn = providers.resolve_llm_fn(small, model=small.litellm_model, completion=litellm.completion,
-                                              stage=STAGE)
+                                              stage=stage)
     except Exception as exc:  # noqa: BLE001 - no engine: values keep the words Stage 1 gave them
         logger.info(f"value alignment: no engine ({type(exc).__name__})")
         return None

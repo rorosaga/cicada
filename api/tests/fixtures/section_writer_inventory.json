@@ -2092,5 +2092,55 @@
       "frontmatter": "rewritten",
       "disposition": "fresh_frontmatter_untracked"
     }
+  ],
+  "services/which_one_file.py": [
+    {
+      "function": "rewrite_question",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "follow",
+      "method": "write",
+      "frontmatter": "{**parsed.frontmatter, 'settled': {**rec, 'item_id': new_id}}",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "continue_question",
+      "method": "write",
+      "frontmatter": "fm",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "land",
+      "method": "write",
+      "frontmatter": "parsed.frontmatter",
+      "disposition": "preserve_frontmatter_guarded"
+    },
+    {
+      "function": "land",
+      "method": "write",
+      "frontmatter": "{**parsed.frontmatter, 'settled': settled}",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "_retire",
+      "method": "write",
+      "frontmatter": "{**fm, 'settled': inbox_tend._record(fm, d, by or 'cicada', None)}",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "undo",
+      "method": "write",
+      "frontmatter": "reopen[0]",
+      "disposition": "fresh_frontmatter_untracked"
+    },
+    {
+      "function": "undo",
+      "method": "write",
+      "frontmatter": "fm_after",
+      "disposition": "uninstrumented_guarded"
+    }
   ]
 }

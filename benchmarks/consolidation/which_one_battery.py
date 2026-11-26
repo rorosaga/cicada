@@ -15,6 +15,12 @@ must refuse it, ``by: reader`` when only a careful reader can). Each story is ru
   sentences). One call to decide "none"/"cannot tell", two for each conversation that names a candidate the code accepts.
 
     api/.venv/bin/python -m benchmarks.consolidation.which_one_battery --judges yes,yes-last,no,real --engine plan --model haiku
+    api/.venv/bin/python -m benchmarks.consolidation.which_one_battery --set conv --judges yes,yes-last,no,oracle,real --engine plan --model haiku
+
+``--set conv`` (ruling 83, per conversation, `which_one_file`): stories with one held fact per conversation and a label per conversation
+(``file:<page>`` or ``left``). Each conversation's fact must land on the page ITS words meant or stay held, and the question must ask
+about exactly the conversations left; reports per conversation filed right / filed wrong (zero is the bar, every judge) / left right /
+missed, the model calls, and two scenarios without a model (an undo of one of two filings; a tap on a per-conversation question).
 
 Prints per story and judge ``filed:<page>`` / ``left`` against the expectation, then ``right`` (filed under the expected page),
 ``wrong`` (filed under any other page, or filed where it must be left), ``missed`` (left and should have filed) and the number of
@@ -78,11 +84,14 @@ def build_bank(root: Path, spec: dict, story: dict) -> tuple[Path, Path]:
         markdown_parser.write(bank / "episodes" / f"{ep}.md", {"id": ep, "processed": True, "source": "import", "origin": "chatgpt",
                                                                  "timestamp": f"2026-11-{18 + k:02d}T10:00:00+00:00"}, text)
     mention = story["mention"]
-    claim = Claim(id="clm_held_1", text=f"{mention} was mentioned", subject=sanitize_id(mention), predicate="mentioned-in",
-                  object="a-conversation", valid_from="2026-11-18", recorded_at="2026-11-18", source_episodes=episodes[:1])
+    # One held fact per conversation for a per-conversation story (ruling 83), else the one the single-line stories hold.
+    held = episodes if story.get("expect_conv") else episodes[:1]
+    claims = [Claim(id=f"clm_held_{k + 1}", text=f"{mention} was mentioned", subject=sanitize_id(mention), predicate="mentioned-in",
+                    object=f"conversation-{k + 1}", valid_from="2026-11-18", recorded_at="2026-11-18", source_episodes=[ep]).to_dict()
+              for k, ep in enumerate(held)]
     pending_store.upsert(bank, pending_store.PendingEntity(
         name=mention, type="person", description=f"{mention}, said once.", source_episode=episodes[0], confidence=0.7, tags=[],
-        history_entries=[], held_claims=[claim.to_dict()], heard_in=[{"episode": e} for e in episodes]))
+        history_entries=[], held_claims=claims, heard_in=[{"episode": e} for e in episodes]))
     for args in (("init", "-q"), ("config", "user.email", "bench@example.com"), ("config", "user.name", "bench")):
         _git(bank, *args)
     same_name.invalidate()
@@ -97,6 +106,23 @@ def build_bank(root: Path, spec: dict, story: dict) -> tuple[Path, Path]:
 
 _CAND = re.compile(r"^([A-F])\. (.+?)(?: \(|\s—)", re.M)
 _MARKED = re.compile(r"^\[\d+\] [^:\n]+: (.*?)" + re.escape(FLAG) + r"$", re.M)
+
+
+def oracle(spec: dict, story: dict):
+    """A reader that answers each conversation as the labels say (by finding the conversation in the prompt) and copies its marked
+    turn: the right reader, to exercise the filing, the undo and the tap without a model."""
+    names = {p["id"]: p["name"] for p in spec["pages"]}
+
+    async def ask(system: str, prompt: str) -> object:
+        cands = {name: letter for letter, name in _CAND.findall(prompt)}
+        said = _MARKED.search(prompt)
+        for text, label in zip(story["conversations"], story["expect_conv"]):
+            if " ".join(text.split("\n")[0].split()[1:6]) in prompt and label.startswith("file:"):
+                return {"answer": cands.get(names[label.split(":", 1)[1]], "none"),
+                        "sentence": " ".join((said.group(1) if said else "").split())[:200], "reason": "oracle"}
+        return {"answer": "cannot_tell", "sentence": "", "reason": "oracle"}
+
+    return ask
 
 
 def rigged(mode: str):
@@ -138,6 +164,136 @@ async def run_story(spec: dict, story: dict, judge: str, real) -> dict:
                 "question_open": path.exists()}
 
 
+async def run_conv_story(spec: dict, story: dict, judge: str, real) -> dict:
+    """A per-conversation story: each conversation's held fact must land on the page ITS words meant (or stay held), through the real
+    tending step. Per conversation: right / wrong (a fact under any other page) / left; the question must then ask about exactly the
+    conversations left."""
+    from api.services import markdown_parser, pending_store, which_one_file as wf, which_one_reader as wr
+    from api.services.claims import parse_claims
+
+    with tempfile.TemporaryDirectory(prefix="which-one-") as tmp:
+        bank, path = build_bank(Path(tmp), spec, story)
+        calls = {"n": 0}
+        inner = (real[0] if judge == "real" else oracle(spec, story) if judge == "oracle"
+                 else rigged({"yes": "first", "yes-last": "last", "no": "none"}[judge]))
+
+        async def ask(system: str, prompt: str) -> object:
+            calls["n"] += 1
+            return await inner(system, prompt)
+
+        await wr.tend(bank, _Settings(bank), ask, today=TODAY, model="bench")
+        where: dict[str, str] = {}
+        for page in (bank / "entities").glob("*.md"):
+            for c in parse_claims(markdown_parser.parse(page).body):
+                if c.id.startswith("clm_held_"):
+                    where[c.id] = page.stem
+        per = []
+        for k, label in enumerate(story["expect_conv"]):
+            got = where.get(f"clm_held_{k + 1}", "")
+            right = label.startswith("file:") and got == label.split(":", 1)[1]
+            per.append({"conversation": k + 1, "expect": label, "filed": got, "right": right,
+                        "wrong": bool(got) and not right, "left_right": not got and label == "left", "missed": label.startswith("file:") and not got})
+        line = pending_store.held_line(bank, story["mention"])
+        asked = wf.open_episodes(line) if line is not None else []
+        return {"id": story["id"], "judge": judge, "per": per, "calls": calls["n"], "asked": len(asked),
+                "asked_right": len(asked) == sum(1 for p in per if not p["filed"])}
+
+
+def _new_claim(episode: str) -> dict:
+    """A claim a resumed conversation holds under the nickname after it was filed."""
+    from api.services.claims import Claim
+
+    return Claim(id="clm_new", text="nick likes tea", subject="nick", predicate="likes", object="tea", valid_from="2026-10-01",
+                 recorded_at="2026-10-01", source_episodes=[episode]).to_dict()
+
+
+def scenarios(spec: dict) -> list[dict]:
+    """The undo of one of two filings and the tap on a per-conversation question, on the oracle reader / the reader that cannot tell
+    (no model calls): the claim goes back to the line and is not refiled; a pick files that conversation's words only."""
+    from api.models.schemas import InboxResolveRequest
+    from api.services import inbox_service, markdown_parser, pending_store, which_one, which_one_file as wf, which_one_reader as wr
+    from api.services.claims import parse_claims
+
+    out = []
+    by_id = {s["id"]: s for s in spec["conversation_stories"]}
+    story = by_id["conv-two-people-two-conversations"]
+    with tempfile.TemporaryDirectory(prefix="which-one-") as tmp:
+        bank, path = build_bank(Path(tmp), spec, story)
+        asyncio.run(wr.tend(bank, _Settings(bank), oracle(spec, story), today=TODAY, model="bench"))
+        _git(bank, "add", "-A")
+        subprocess.run(["git", "-C", str(bank), "commit", "-qm", "x"], capture_output=True)
+        rec = next(p for p in sorted((bank / "inbox" / "settled").glob("land-*.md"))
+                   if markdown_parser.parse(p).frontmatter["settled"]["entity_id"] == "nick-rowe")
+        wf.undo(bank, rec.stem)
+        subprocess.run(["git", "-C", str(bank), "add", "-A"], capture_output=True)
+        subprocess.run(["git", "-C", str(bank), "commit", "-qm", "undo"], capture_output=True)
+        back = [d["id"] for d in pending_store.held_line(bank, "Nick").held_claims]
+        question = next((p for p in (bank / "inbox").glob("inbox-*.md")), None)
+        asyncio.run(wr.tend(bank, _Settings(bank), oracle(spec, story), today=TODAY, model="bench"))
+        again = any(c.id == "clm_held_1" for c in parse_claims(markdown_parser.parse(bank / "entities" / "nick-rowe.md").body))
+        out.append({"scenario": "undo one of two filings", "claim_back_on_line": back == ["clm_held_1"], "refiled": again,
+                    "other_filing_stands": any(c.id == "clm_held_2" for c in parse_claims(
+                        markdown_parser.parse(bank / "entities" / "nick-vale.md").body)),
+                    "question_open": question is not None})
+    story = by_id["conv-nobody-can-tell-either"]
+    with tempfile.TemporaryDirectory(prefix="which-one-") as tmp:
+        bank, path = build_bank(Path(tmp), spec, story)
+        asyncio.run(wr.tend(bank, _Settings(bank), rigged("none"), today=TODAY, model="bench"))
+        scoped = wf.scope_of(markdown_parser.parse(path).frontmatter)
+        subprocess.run(["git", "-C", str(bank), "add", "-A"], capture_output=True)
+        subprocess.run(["git", "-C", str(bank), "commit", "-qm", "x"], capture_output=True)
+        asyncio.run(inbox_service.resolve(path.stem, InboxResolveRequest(action="merge", merge_target="nick-rowe"), _Settings(bank)))
+        on_page = [c.id for c in parse_claims(markdown_parser.parse(bank / "entities" / "nick-rowe.md").body) if c.id.startswith("clm_held_")]
+        left = [d["id"] for d in pending_store.held_line(bank, "Nick").held_claims]
+        next_q = which_one.open_question(bank, "Nick")   # the question goes on under a new inbox id (an older app hides the answered one)
+        out.append({"scenario": "tap on a per-conversation question", "asked_one_conversation": len(scoped) == 1,
+                    "tap_filed_that_conversation_only": on_page == ["clm_held_1"] and left == ["clm_held_2"],
+                    "next_conversation_asked": next_q is not None and next_q.stem != path.stem and not path.exists()})
+    story = by_id["conv-nobody-can-tell-either"]
+    with tempfile.TemporaryDirectory(prefix="which-one-") as tmp:
+        bank, path = build_bank(Path(tmp), spec, story)
+        asyncio.run(wr.tend(bank, _Settings(bank), rigged("none"), today=TODAY, model="bench"))
+        subprocess.run(["git", "-C", str(bank), "add", "-A"], capture_output=True)
+        subprocess.run(["git", "-C", str(bank), "commit", "-qm", "x"], capture_output=True)
+        asyncio.run(inbox_service.resolve(path.stem, InboxResolveRequest(action="reject", option_key="another"), _Settings(bank)))
+        line = pending_store.held_line(bank, story["mention"])
+        out.append({"scenario": "someone else on a per-conversation question",
+                    "that_conversation_only": list(wf.said_not(line)) == [line.episodes()[0]]
+                    and pending_store.apart_of(bank, story["mention"]) == frozenset(),
+                    "nothing_lost": len(line.held_claims) == 2,
+                    "next_conversation_asked": (nq := which_one.open_question(bank, story["mention"])) is not None and nq.stem != path.stem})
+        # The general release (Stage 5.56) must not file the line onto a page the person ruled out for a conversation of it.
+        from api.services import claim_pipeline
+
+        out.append({"scenario": "a release after someone else", "line_kept": claim_pipeline._releases(
+            bank, {story["mention"].lower(): "nick-rowe"}, {}, [story["mention"]])[0] == [], "nothing_lost": len(line.held_claims) == 2})
+    story = by_id["conv-two-people-two-conversations"]
+    with tempfile.TemporaryDirectory(prefix="which-one-") as tmp:
+        bank, path = build_bank(Path(tmp), spec, story)
+        asyncio.run(wr.tend(bank, _Settings(bank), oracle(spec, story), today=TODAY, model="bench"))
+        from api.services.claims import Claim
+
+        pending_store.hold(bank, {"nick": [Claim.from_dict(_new_claim("ep_2026-11-18_001"))]})
+        subprocess.run(["git", "-C", str(bank), "add", "-A"], capture_output=True)
+        subprocess.run(["git", "-C", str(bank), "commit", "-qm", "x"], capture_output=True)
+        done = wf.refile(bank, today=TODAY.isoformat())
+        out.append({"scenario": "a new claim from a filed conversation", "filed_on_the_earlier_verdict": done.settled == 1 and any(
+            c.id == "clm_new" for c in parse_claims(markdown_parser.parse(bank / "entities" / "nick-rowe.md").body)),
+            "no_read": True})
+    return out
+
+
+def summarise_conv(rows: list[dict]) -> dict:
+    out = {}
+    for judge in dict.fromkeys(r["judge"] for r in rows):
+        per = [p for r in rows if r["judge"] == judge for p in r["per"]]
+        out[judge] = {"conversations": len(per), "filed_right": sum(p["right"] for p in per), "filed_wrong": sum(p["wrong"] for p in per),
+                      "left_right": sum(p["left_right"] for p in per), "missed": sum(p["missed"] for p in per),
+                      "question_asks_exactly_the_left_ones": sum(r["asked_right"] for r in rows if r["judge"] == judge),
+                      "model_calls": sum(r["calls"] for r in rows if r["judge"] == judge)}
+    return out
+
+
 def summarise(rows: list[dict]) -> dict:
     out = {}
     for judge in dict.fromkeys(r["judge"] for r in rows):
@@ -157,6 +313,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--engine", choices=("plan",), default="plan")
     p.add_argument("--model", default="haiku")
     p.add_argument("--only", default="", help="run the stories whose id contains this text")
+    p.add_argument("--set", choices=("single", "conv"), default="single",
+                   help="single: one held fact per story (the labelled set); conv: one held fact per conversation, each to its own page")
     p.add_argument("--json", type=Path)
     a = p.parse_args(argv)
     os.environ.pop("ANTHROPIC_API_KEY", None)   # `claude -p` must bill the plan, never a key found in the environment
@@ -169,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
                            "CICADA_CLAUDE_CLI": str(repo / ".claude" / "skills" / "verify-cicada" / "bin" / "plan-claude"),
                            "CICADA_VERIFY_REAL_CLAUDE": os.environ.get("CICADA_VERIFY_REAL_CLAUDE") or shutil.which("claude") or ""})
     spec = json.loads(CASES.read_text(encoding="utf-8"))
-    stories = [s for s in spec["stories"] if a.only in s["id"]]
+    stories = [s for s in spec["conversation_stories" if a.set == "conv" else "stories"] if a.only in s["id"]]
     judges = [j for j in a.judges.split(",") if j]
     home = Path(tempfile.mkdtemp(prefix="which-one-home-"))
     from benchmarks.engine_parity import _leg_environment, settings_for
@@ -188,6 +346,23 @@ def main(argv: list[str] | None = None) -> int:
                 return await full_name_join.ask_main(strong, system, prompt)
 
             real = (ask,)
+        if a.set == "conv":
+            conv_rows: list[dict] = []
+            for judge in judges:
+                for story in stories:
+                    row = asyncio.run(run_conv_story(spec, story, judge, real))
+                    conv_rows.append(row)
+                    cells = " ".join(f"{p['filed'] or 'left'}{'' if p['right'] or p['left_right'] else '(WRONG)' if p['wrong'] else '(missed)'}"
+                                     for p in row["per"])
+                    print(f"{judge:8} {row['id']:36} {cells:64} asked={row['asked']} calls={row['calls']}", flush=True)
+            result = {"conversations": summarise_conv(conv_rows), "scenarios": scenarios(spec)}
+            print(json.dumps(result, indent=1))
+            if a.json:
+                a.json.write_text(json.dumps({"rows": conv_rows, **result}, indent=1))
+            wrong = any(p["wrong"] for r in conv_rows for p in r["per"])
+            ok = all(v for sc in result["scenarios"] for k, v in sc.items() if k not in ("scenario", "refiled")) and not any(
+                sc.get("refiled") for sc in result["scenarios"])
+            return 1 if wrong or not ok else 0
         for judge in judges:
             for story in stories:
                 row = asyncio.run(run_story(spec, story, judge, real))

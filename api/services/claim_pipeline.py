@@ -51,8 +51,8 @@ from typing import Callable
 
 from loguru import logger
 
-from api.services import (episode_revision, markdown_parser, owner_identity, pending_store, phone_numbers, saves_bounded,
-                          telemetry, value_alignment, value_ended)
+from api.services import (episode_revision, markdown_parser, owner_identity, pending_store, phone_numbers, revision_pairs,
+                          saves_bounded, telemetry, value_alignment, value_ended)
 from api.services.claim_reconciler import reconcile_stage3
 from api.services.claims import Claim, is_event, parse_claims, route_values_to_their_thing, write_claims
 from api.services.entity_extractor import entities_to_claims
@@ -179,6 +179,16 @@ def _releases(
     try:
         releases = pending_store.ready(memory_path, _release_target(name_to_id), decided or ())
     except Exception as e:  # noqa: BLE001 - a hold is never worth the cycle's claims
+        logger.warning(f"pending-store release skipped: {type(e).__name__}: {e}")
+        return [], [], {}
+    # Ruling 83: a line the person answered "someone else" about for one of its conversations (for the page the name now means), or
+    # one holding words of a conversation filed to another page, is not released onto it whole: the line stays as it is.
+    from api.services import which_one_file
+
+    try:
+        lines = {line.name.lower(): line for line in pending_store.load(memory_path)}
+        releases = [rel for rel in releases if not which_one_file.blocked(lines.get(rel.name.lower()), rel.target)]
+    except Exception as e:  # noqa: BLE001 - a store that cannot be read releases nothing this cycle
         logger.warning(f"pending-store release skipped: {type(e).__name__}: {e}")
         return [], [], {}
     offered: list[Claim] = []
@@ -472,6 +482,7 @@ def run_claim_pipeline(
     revisions: dict | None = None,
     value_judge: Callable[[str], dict] | None = None,
     value_reread: Callable[[str], dict] | None = None,
+    revision_verdicts: list | None = None,
 ) -> dict:
     """Emit → release → reconcile → write → hold claims over the live entity pages (additive).
 
@@ -501,6 +512,9 @@ def run_claim_pipeline(
             said again in other words (another language included) replaces the old one (G148, 2026-11-23).
         value_reread: the cycle's main model as ``prompt -> dict`` (`value_alignment.judge_for(main=True)`): a page whose
             new value the small judge left alone is read once more by it (2026-11-24); ``None`` makes no second call.
+        revision_verdicts: ``revision_pairs.Verdict`` list — pairs of an edited conversation's old claim and its re-read's
+            claim of the same two things under another predicate that both readings called the same relationship (read
+            before the write window, `revision_pairs.read`); applied after Stage 3 (`revision_pairs.apply`, G104).
 
     Returns a dict: ``{"nudges": [...], "audit": [...], "claims_written": int,
     "subjects_written": int, "subjects_skipped": int, "claims_page_less": int,
@@ -574,6 +588,11 @@ def run_claim_pipeline(
     # compares against this to render only the pages that changed (F6, benchmarks/scale).
     as_read = {subject: [c.to_dict() for c in claims] for subject, claims in existing_by_subject.items()}
     releases, released, credit = _releases(memory_path, name_to_id, existing_by_subject, decided_names)
+    # G104 (2026-11-25): which line each claim released now left and the page it went to, by the claim object Stage 3 is
+    # handed — a verdict made on a held claim is applied to that claim alone (`revision_pairs.apply`).
+    offered_now = {id(c) for c in released}
+    moved = {c.id: revision_pairs.Moved(c, rel.name, sanitize_id(rel.name), rel.target)
+             for rel in releases for c in rel.claims if id(c) in offered_now}
     incoming = released + incoming
     # G61 S1 reads this as "newly written by this pass" — true of a released claim too (R-HP8).
     emitted_ids = stage1_ids | {c.id for c in released}
@@ -604,6 +623,8 @@ def run_claim_pipeline(
         [c for claims in existing_by_subject.values() for c in claims] + released,
         [c for c in incoming if c.id in stage1_ids], revisions or {})
 
+    revising = {ep: rev for ep, rev in (revisions or {}).items() if rev.closes and rev.changed and not rev.book}
+
     # ---- Stage 3: reconcile against existing in-page claims (trust-gated) ----
     reconciled, nudges, audit = reconcile_stage3(
         incoming,
@@ -614,7 +635,12 @@ def run_claim_pipeline(
         **({"ended_values": ended_values} if ended_values else {}),
         **({"revised": revision_plan.revised_out} if revision_plan.revised_out else {}),
         **({"redated": redated} if redated else {}),
+        # G104 (2026-11-25): the revisions read now that may close — a claim closed only by this conversation's own
+        # correction, which its re-read states again, is current again (`claim_reconciler._edited_back`).
+        **({"revising": revising} if revising else {}),
     )
+    # A restatement born under an id of its own is as new to this pass as the id Stage 1 gave it.
+    emitted_ids |= {c.id for c in incoming if getattr(c, "_edited_back", None)}
     audit.extend(number_audit)
     audit.extend(routed)
     # G245 (ruling 80, Track 2c): what a save's words were kept to, counted so it is never silent (`saves_bounded`).
@@ -624,6 +650,9 @@ def run_claim_pipeline(
         logger.info(f"Claim pipeline: {saves_folded} save-derived claim(s) folded into one another author already said, "
                     f"{saves_closed} older one(s) closed past the {saves_bounded.MAX_OPEN_CLAIMS} a page keeps")
     withdrawn = episode_revision.settle(reconciled, revision_plan, revisions or {}, today, audit)
+    # G104 (2026-11-25): the revision's re-read claim of the same relationship, worded under another predicate, takes the
+    # old claim's place — only on two readings' "the same", checked again here, after Stage 3 merged the batch.
+    paired = revision_pairs.apply(reconciled, list(revision_verdicts or []), revisions or {}, audit, released=moved)
     if revisions:
         superseded = sum(1 for a in audit if a.get("action") == "revised")
         logger.info(f"Claim pipeline: {len(revisions)} revised conversation(s) — {revision_plan.reanchored} span(s) "
@@ -644,7 +673,7 @@ def run_claim_pipeline(
     for entry in audit:
         if entry.get("action") in ("revised", "revision_withdrew"):
             closed_id = entry.get("closed")
-            ep = revision_plan.revised_out.get(closed_id) or redated.get(closed_id)
+            ep = revision_plan.revised_out.get(closed_id) or redated.get(closed_id) or paired.get(closed_id)
             subject = subject_by_id.get(closed_id)
             if ep and subject and ep not in revision_closed.setdefault(subject, []):
                 revision_closed[subject].append(ep)
@@ -724,6 +753,21 @@ def run_claim_pipeline(
     # ---- G141 PJ-0b: settle the pending store — release, then hold (R-HP4, R-HP10) ----
     hold = _settle_store(memory_path, releases, set(written_subjects), page_less_offers, stage1_ids,
                          refs.reserved_slugs())
+    # G104 (2026-11-25): a claim judged while held, whose line still holds it, gives way to the re-read's claim of the
+    # same relationship only once that claim is held in the same line (`revision_pairs.apply_held`, after the hold).
+    if revision_verdicts and revisions:
+        try:
+            held_audit: list[dict] = []
+            held_paired = revision_pairs.apply_held(memory_path, list(revision_verdicts), revisions, held_audit,
+                                                    done=paired)
+            for entry in held_audit:
+                telemetry.record_audit([entry], subject_hint=next(
+                    (v.old_subject for v in revision_verdicts if v.old_id == (entry.get("closed") or entry.get("kept"))),
+                    None), bank=memory_path.name, stage="reconcile")
+            audit.extend(held_audit)
+            paired = {**paired, **held_paired}
+        except Exception as e:  # noqa: BLE001 - a store failure costs the replacement, never the cycle (R-HP10)
+            logger.warning(f"Held revision pairs not applied: {type(e).__name__}")
     claims_page_less = sum(len(claims) for claims in page_less_offers.values()) - hold["claims_held"]
 
     # ---- G61 phase 2 S1 (spec §5.2, plan R-AC33): a link the cited words contain ----
@@ -775,5 +819,7 @@ def run_claim_pipeline(
         # G104 slice 3 (T3): which claim each revision closed (`revision_cascade`) and the held claims withdrawn.
         "revised_out": dict(revision_plan.revised_out),
         "held_withdrawn": held_withdrawn,
+        # G104 (2026-11-25): which claim each revision's re-read replaced under another wording (`revision_pairs`).
+        "revision_paired": paired,
         **hold,
     }

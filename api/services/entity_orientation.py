@@ -40,7 +40,10 @@ def context(body: str, *, name: str, entity_type: str, fields: dict,
     # Never expose closed/withdrawal claims as present beliefs. Prose itself may
     # contain obsolete statements: the prompt explicitly labels it unverified. Ruling 64: nor what the person marked in
     # a book: no model that writes a page reads those words.
-    current = [asdict(c) for c in claims.parse_claims(body, strict=True)
+    # A current claim never carries a close's mark (`Claim.closed_by_revision`): the key is left out, so the prompt is
+    # what it was before the field existed.
+    current = [{k: v for k, v in asdict(c).items() if k != "closed_by_revision"}
+               for c in claims.parse_claims(body, strict=True)
                if claims.is_current(c, now=date.fromisoformat(today)) and not claims.is_record(c)
                and not claims.is_mark(c)]
     data = dict(name=name, type=entity_type, today=today, source_dates=source_dates,

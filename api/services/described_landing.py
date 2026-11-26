@@ -402,7 +402,12 @@ def gate_line(line: pending_store.PendingEntity, docs: Docs, names: Callable[[],
     for episode, items in by_episode.items():
         conv = docs.conv(episode)
         named = conv.named(names()) if conv is not None else {}
-        apart = line.apart_pages()
+        # Ruling 83: what the person said about THIS conversation (it is not that page: "someone else"), and the page it was filed to.
+        from api.services import which_one_file
+
+        apart = line.apart_pages() | which_one_file.said_not(line).get(episode, set())
+        if episode in which_one_file.filed(line):
+            apart |= {p for p in named if p != which_one_file.filed(line)[episode]}
         for chunk in _chunks(sorted(items, key=lambda i: (i.start, i.claim.id))):
             ranked = _candidates(named, chunk, apart)
             kept = []
@@ -751,7 +756,7 @@ def landed_claim(claim: Claim, page_id: str, page_name: str, pick: Pick, episode
         data["text"] = f"{claim.text} (about {page_name} itself)"
     ev = list(data.get("evidence") or [])
     copied = {"episode": episode, "start": pick.start, "end": pick.end, "kind": pick.turn, "hash": pick.hash}
-    if episode and not any(isinstance(e, dict) and (e.get("episode"), e.get("start"), e.get("end")) == (episode, pick.start, pick.end)
+    if episode and pick.start >= 0 and not any(isinstance(e, dict) and (e.get("episode"), e.get("start"), e.get("end")) == (episode, pick.start, pick.end)
                            for e in ev):
         ev.append(copied)
     data["evidence"] = ev
@@ -759,9 +764,13 @@ def landed_claim(claim: Claim, page_id: str, page_name: str, pick: Pick, episode
 
 
 def land_page(memory_path: Path, page_id: str, items: list[tuple[Item, Pick]], *, by: str, engine: str | None = None,
-              cardinal: Callable[[str], bool] | None = None, today: str | None = None) -> Landed | None:
+              cardinal: Callable[[str], bool] | None = None, today: str | None = None, rule: str = RULE,
+              reason: str = REASON, extra: dict | None = None, close_empty: bool = True) -> Landed | None:
     """Write one page's claims, take them off their lines, write the settle's record. The caller holds the bank and commits
-    ``paths``; ``None`` when nothing changes (everything is already there, or would clash with a single-valued belief)."""
+    ``paths``; ``None`` when nothing changes (everything is already there, or would clash with a single-valued belief).
+    ``rule``, ``reason`` and ``extra`` (more keys for the record) are for a sibling that lands held facts by the same writer
+    (`which_one_file`, ruling 83: a mention that could be two people, filed conversation by conversation); ``close_empty`` False
+    leaves a line that holds nothing it knows how to keep for that caller to close (it keeps history entries too)."""
     from api.services import bank_index, episode_ids, predicates
 
     memory_path = Path(memory_path)
@@ -778,10 +787,15 @@ def land_page(memory_path: Path, page_id: str, items: list[tuple[Item, Pick]], *
     have = {c.id for c in claims}
     new: list[tuple[Item, Claim, Pick]] = []
     heal: dict[str, list[str]] = defaultdict(list)   # on the page already (an earlier write that did not finish): only taken off the line
+    from api.services import which_one_file
+
+    lines_now = {name.lower(): pending_store.held_line(memory_path, name) for name in {it.line for it, _p in items}}
     for it, pick in items:
         if it.claim.id in have:
             heal[it.line].append(it.claim.id)
             continue
+        if which_one_file.withheld(lines_now.get(it.line.lower()), it.claim.to_dict(), page_id):
+            continue   # ruling 83: a conversation it cites was ruled out for this page (or filed to another): it stays held
         # The page's own claims AND the ones accepted before this one in the same call: two held values of one
         # single-valued predicate never land together (this path does not go through the reconciler).
         same = [c for c in [*claims, *(n for _i, n, _p in new)] if c.valid_to is None and c.predicate == it.claim.predicate]
@@ -811,7 +825,7 @@ def land_page(memory_path: Path, page_id: str, items: list[tuple[Item, Pick]], *
     for line, cids in taken.items():
         pending_store.drop_released(memory_path, line, cids)
         left = pending_store.held_line(memory_path, line)
-        if left is not None and nothing_left(left):
+        if close_empty and left is not None and nothing_left(left):
             closed.append(left.to_dict())
             pending_store.release(memory_path, [line])
     paths.append(pending_store.PENDING_STORE_FILE)
@@ -823,14 +837,15 @@ def land_page(memory_path: Path, page_id: str, items: list[tuple[Item, Pick]], *
         settled_dir = memory_path / "inbox" / SETTLED_DIR
         settled_dir.mkdir(parents=True, exist_ok=True)
         record = {
-            "group": "sleep", "rule": RULE, "at": episode_ids.utc_now_iso(), "by": by, "by_kind": "sleep",
-            "reason": REASON, "answer": f"{len(new)} fact(s) said about {page_name}",
+            "group": "sleep", "rule": rule, "at": episode_ids.utc_now_iso(), "by": by, "by_kind": "sleep",
+            "reason": reason, "answer": f"{len(new)} fact(s) said about {page_name}",
             "entity_id": page_id, "entity_name": page_name, "predicate": new[0][0].claim.predicate,
             "claim_id": new[0][1].id, "claim_ids": ids, "evidence": spans[0], "evidence_spans": spans,
             "lines": sorted({it.line for it, _n, _p in new}),
             "held": [it.claim.to_dict() for it, _n, _p in new], "closed_lines": closed, "landed": [n.to_dict() for _i, n, _p in new],
             "episodes": sorted({it.episode for it, _n, _p in new}),
             **({"engine": engine} if engine else {}),
+            **(extra or {}),
         }
         markdown_parser.write(settled_dir / f"{record_id}.md",
                               {"kind": "landing", "question": f"What was said about {page_name}?",

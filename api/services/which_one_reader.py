@@ -63,7 +63,8 @@ from typing import Callable
 from loguru import logger
 
 from api.services import (bank_index, described_landing as dl, engine_errors, evidence, inbox_tend,
-                          markdown_parser, pending_store, question_revisit as qr, same_name, which_one, which_one_tie as tie_of)
+                          markdown_parser, pending_store, question_revisit as qr, same_name, settle_guard, which_one,
+                          which_one_file as wf, which_one_tie as tie_of)
 from api.services.id_utils import resolve_entity_file, sanitize_id
 from api.services.which_one_tie import Tell
 
@@ -226,19 +227,13 @@ class Case:
     ids: list[str]
     fm: dict
     line_name: str = ""
+    #: conversations whose filing the person undid: the reader never files them again
+    undone: frozenset = frozenset()
 
 
 def _held_episodes(line: pending_store.PendingEntity) -> list[str]:
-    out = list(line.episodes())
-    for data in line.held_claims:
-        for ev in data.get("evidence") or []:
-            ep = str((ev or {}).get("episode") or "") if isinstance(ev, dict) else ""
-            if ep and ep not in out:
-                out.append(ep)
-        for ep in data.get("source_episodes") or []:
-            if str(ep) and str(ep) not in out:
-                out.append(str(ep))
-    return out
+    """The conversations the line still holds something of that nobody filed or answered "someone else" about (`which_one_file.unfiled`)."""
+    return wf.unfiled(line)
 
 
 def is_eligible(fm: dict, today: str) -> bool:
@@ -279,11 +274,13 @@ def case_for(memory_path: Path, path: Path, fm: dict, *, today: str | None = Non
         if isinstance(guarded, str) and guarded != "short_name_not_alone":
             return f"guard:{guarded}"
     episodes = _held_episodes(line)
-    if not episodes or any(not e.startswith("ep_") for e in episodes):
-        return "conversation_unreadable"
+    if not episodes:
+        if wf.stranded(line):
+            return "stranded"   # nothing left to read: the person is asked about the claim two conversations cite (`which_one_file.asking`)
+        return "all_filed" if wf.filed(line) else "conversation_unreadable"
     if len(episodes) > MAX_CONVERSATIONS:
         return "too_many_conversations"
-    return Case(path.stem, mention, episodes, ids, dict(fm), line.name)
+    return Case(path.stem, mention, episodes, ids, dict(fm), line.name, frozenset(wf.undone_of(fm)))
 
 
 # --------------------------------------------------------------------------- the reads
@@ -448,7 +445,9 @@ async def read_conversation(memory_path: Path, case: Case, conv: dl.Conv, cands:
 
 @dataclass
 class Assessment:
-    """``outcome``: ``file`` | ``left`` | ``unread``. ``why``: the enum. ``reads``: the conversations' reads, in order."""
+    """``outcome``: ``file`` (every conversation named the one page: the whole line, as a tap does) | ``file_parts`` (conversations
+    named pages, not all the same one, or not all of them: each goes to its own) | ``left`` | ``unread``. ``why``: the enum.
+    ``reads``: the conversations' reads, in order. ``parts``: ``{page: its conversations' reads}``."""
     outcome: str
     why: str = ""
     decision: object = None
@@ -457,6 +456,9 @@ class Assessment:
     case: Case | None = None
     digest: str = ""
     cands: list[Cand] = field(default_factory=list)
+    parts: dict[str, list[ConvRead]] = field(default_factory=dict)
+    fingerprint: bytes = b""
+    guard: dict = field(default_factory=dict)
 
 
 def digest(memory_path: Path, case: Case, docs: dl.Docs) -> str:
@@ -497,38 +499,44 @@ async def assess(memory_path: Path, path: Path, fm: dict, ask: Callable, *, case
     if len(result.cands) < 2:
         result.why = "one_candidate"
         return result
-    convs: list[dl.Conv] = []
+    result.fingerprint, result.guard = fingerprint, guard
     for ep in case.episodes:
+        if ep in case.undone:
+            result.reads.append(ConvRead(ep, why="undone"))   # the person took its filing back: asked, never filed by the reader
+            continue
         conv = await asyncio.to_thread(docs.conv, ep)
         if conv is None:
-            result.why = "conversation_unreadable"
-            return result
-        convs.append(conv)
-    picks: set[str] = set()
-    for conv in convs:
+            result.reads.append(ConvRead(ep, why="conversation_unreadable"))
+            continue
         read = await read_conversation(memory_path, case, conv, result.cands, ask)
         result.reads.append(read)
         result.calls += read.calls
-        if read.page is None:
-            result.why = read.why
-            if read.why in UNSETTLED or read.why.endswith(UNSETTLED):
-                result.outcome = "unread"
-            return result
-        picks.add(read.page)
-    if len(picks) != 1:
-        result.why = "conversations_differ"   # one held line, one tap: the conversations disagree, so the person is asked
+    decided = [r for r in result.reads if r.page is not None]
+    if not decided:
+        # Nothing was decided: the question is exactly as it was (a reply that said nothing is read again, `unread`).
+        first = result.reads[0]
+        result.why = first.why
+        if any(r.why in UNSETTLED or r.why.endswith(UNSETTLED) for r in result.reads):
+            result.outcome = "unread"
         return result
-    pick = next(iter(picks))
-    cand = next(c for c in result.cands if c.id == pick)
-    first = result.reads[0]
-    spans = [{"episode": r.episode, "start": r.start, "end": r.end, "kind": r.kind} for r in result.reads]
-    quote = ({"episode": first.episode, "quote": first.sentence} if first.kind == "user" else None)
-    label = which_one.label(pick, cand.fm)
-    result.outcome = "file"
-    result.decision = inbox_tend.Decision(
-        case.item_id, "merge_suggestion", RULE, {"action": "merge", "merge_target": pick},
-        answer=label, quote=quote, model=model or None, fingerprint=fingerprint, guard=guard,
-        reason=_reason(cand.name, first.sentence), spans=spans)
+    picks = {r.page for r in decided}
+    if len(decided) == len(result.reads) and len(picks) == 1:
+        pick = next(iter(picks))
+        cand = next(c for c in result.cands if c.id == pick)
+        first = result.reads[0]
+        spans = [{"episode": r.episode, "start": r.start, "end": r.end, "kind": r.kind} for r in result.reads]
+        quote = ({"episode": first.episode, "quote": first.sentence} if first.kind == "user" else None)
+        label = which_one.label(pick, cand.fm)
+        result.outcome = "file"
+        result.decision = inbox_tend.Decision(
+            case.item_id, "merge_suggestion", RULE, {"action": "merge", "merge_target": pick},
+            answer=label, quote=quote, model=model or None, fingerprint=fingerprint, guard=guard,
+            reason=_reason(cand.name, first.sentence), spans=spans)
+        return result
+    # Conversations that named different pages, or only some of them did: each goes to the page its own reading named.
+    for r in decided:
+        result.parts.setdefault(r.page, []).append(r)
+    result.outcome = "file_parts"
     return result
 
 
@@ -602,9 +610,118 @@ def eligible(memory_path: Path, today: str) -> list[tuple[Path, dict]]:
     return rows
 
 
+async def _file_parts(memory_path: Path, path: Path, case: Case, result: Assessment, names: dict[str, str], report: Report, note,
+                      remember, mark: str, *, today: date, settings, dry_run: bool, model: str, engine: str | None) -> None:
+    """Each conversation's words to the page its own reading named (`which_one_file`): one landing, one record and one Sleep commit
+    per page, each one guarded settle (`settle_guard`: a landing that does not commit puts back every file it reported writing); a
+    conversation nobody could tell stays on the line and the question is about it alone."""
+    item_id, ids = case.item_id, case.ids
+    undecided = [r.episode for r in result.reads if r.page is None]
+    if dry_run:
+        for page, reads in result.parts.items():
+            note(item_id, f"would_file:{page}", ids=ids, rule=wf.RULE,
+                 eyes={"mention": case.mention, "page": names.get(page, ""), "conversations": [r.episode for r in reads]})
+        for ep in undecided:
+            note(item_id, "would_ask", episode=ep, ids=ids)
+        return
+    guard, fingerprint = result.guard, result.fingerprint
+    filed = failed = 0
+    for page, reads in result.parts.items():
+        line = pending_store.held_line(memory_path, case.mention)
+        probe = inbox_tend.Decision(item_id, "merge_suggestion", wf.RULE, None, guard=guard)
+        if line is None or not path.is_file() or path.read_bytes() != fingerprint or not inbox_tend.guard_holds(memory_path, probe):
+            note(item_id, "left:changed", ids=ids)   # the question or a page changed while the model read: read again next time
+            continue
+        # Every conversation decided in this run and every one filed before: a claim or a fact two conversations cite is split by them.
+        verdict = {**wf.filed(line), **{r.episode: r.page for r in result.reads if r.page}}
+        part = wf.plan(line, verdict, {r.episode for r in result.reads if r.page}).get(page)
+        if part is None:
+            note(item_id, "left:nothing_to_file", ids=ids)
+            continue
+        try:
+            done = await asyncio.to_thread(wf.file_one, memory_path, path, page, part, {r.episode: r for r in reads},
+                                           by=model or "cicada", engine=engine, mention=case.mention, today=today.isoformat())
+        except settle_guard.TreeUnreadable:
+            note(item_id, "left:not_applied", ids=ids)
+            continue
+        except Exception as exc:  # noqa: BLE001 - one page never stops the others; the guard put every file back
+            logger.info(f"Which-one filing not applied: {type(exc).__name__}")
+            note(item_id, "left:not_applied", ids=ids)
+            failed += 1
+            continue
+        if done is None:
+            note(item_id, "left:nothing_to_write", ids=ids)
+            continue
+        filed += 1
+        report.settled += 1
+        report.paths += done.paths
+        fingerprint = path.read_bytes() if path.is_file() else b""
+        guard = inbox_tend._guard(memory_path, *case.ids)
+        for r in reads:
+            note(item_id, f"filed:{page}", episode=r.episode, ids=ids, rule=wf.RULE)
+    # What the question is about now: the conversations nobody has filed. A pick is then about one of them.
+    after = "gone"
+    if path.is_file():
+        after = await asyncio.to_thread(case_for, memory_path, path, dict(markdown_parser.parse(path).frontmatter),
+                                        today=today.isoformat())
+    if isinstance(after, str):
+        if filed and after == "all_filed" and path.is_file():
+            await _close_answered(memory_path, path, settings, model, engine)
+        elif after == "stranded" and path.is_file():
+            await _narrow(memory_path, path, case.mention, report)   # a claim two conversations cite: asked about those
+        remember(item_id, mark, "filed" if filed else "left")
+        return
+    if not filed and not failed:
+        await _narrow(memory_path, path, after.mention, report)
+    remember(item_id, await asyncio.to_thread(digest, memory_path, after, dl.Docs(memory_path)), "left")
+    for ep in after.episodes:
+        note(item_id, "asks", episode=ep, ids=ids)
+
+
+async def _narrow(memory_path: Path, path: Path, mention: str, report: Report) -> None:
+    """What the line still holds to be asked is two or more conversations (nobody could tell them), or a claim two conversations cite
+    that were filed to two pages: the question is about that, and the person's pick files only that (`which_one_file.asking`). One
+    Sleep commit of the question's own file, one guarded settle: a commit that does not land puts the file back."""
+    from api.services import web_settle
+
+    line = pending_store.held_line(memory_path, mention) if path.is_file() else None
+    if len(wf.asking(line)[0]) < 2 or not path.is_file():
+        return
+    rel = path.relative_to(memory_path).as_posix()
+
+    def narrow() -> bool:
+        with settle_guard.guarded(memory_path) as mark:
+            settle_guard.declare(mark, rel)
+            if not wf.rewrite_question(path, line):
+                settle_guard.put_back(mark)
+                return False
+            message = web_settle.commit_message("Which one: about one conversation",
+                                                [f"{rel}: updated (source: {path.stem}, trigger: sleep/which-one-scoped)"],
+                                                authors=["cicada"])
+            web_settle.commit_sync(memory_path, message, [rel])
+        return True
+
+    try:
+        if await asyncio.to_thread(narrow):
+            report.paths.append(rel)
+    except Exception as exc:  # noqa: BLE001 - a question left as it was is never wrong
+        logger.info(f"Which-one question not narrowed: {type(exc).__name__}")
+
+
+async def _close_answered(memory_path: Path, path: Path, settings, model: str, engine: str | None) -> None:
+    """Every conversation of the question was filed and only what carries no conversation is left on the line (history, links,
+    questions): nothing is asked any more. The question closes as Sleep closes any it settled (undoable, `inbox_tend._retire`)."""
+    d = inbox_tend.Decision(path.stem, "merge_suggestion", wf.ANSWERED, None, answer="Each conversation was filed under the one it meant",
+                            model=model or None, fingerprint=path.read_bytes(), reason=wf.REASON)
+    try:
+        await inbox_tend.apply(memory_path, settings, d, engine=engine)
+    except Exception as exc:  # noqa: BLE001 - a question left open is never wrong
+        logger.info(f"Which-one question not closed: {type(exc).__name__}")
+
+
 async def tend(memory_path: Path, settings, ask: Callable | None, *, today: date | None = None, max_reads: int = MAX_READS,
                max_looks: int = MAX_LOOKS, dry_run: bool = False, trace: Callable | None = None, model: str = "",
-               rows: list[tuple[Path, dict]] | None = None) -> Report:
+               rows: list[tuple[Path, dict]] | None = None, engine: str | None = None) -> Report:
     """Look at the open which-one questions in order and file the ones the conversation decides. The model runs outside any write;
     each filing is one `inbox_tend.apply` (Sleep's window is held by the caller). ``ask`` None: the code's guards only (a dry run
     that makes no call). ``dry_run``: reads, writes nothing and remembers nothing. ``trace(row)`` is handed one row per
@@ -625,6 +742,9 @@ async def tend(memory_path: Path, settings, ask: Callable | None, *, today: date
             seen[item_id] = {"d": mark, "m": model, "o": outcome, "at": today.isoformat(), "t": tries}
 
     try:
+        if dry_run:   # a claim of a conversation filed already, held since: it would land on that verdict, no read (`refile`)
+            for mention_id, page, n in (await asyncio.to_thread(wf.refile, memory_path, today=today.isoformat(), dry_run=True)).pages:
+                note(mention_id, f"would_refile:{page}", ids=[page], rule=wf.RULE, eyes={"claims": n})
         walk = rows if rows is not None else await asyncio.to_thread(eligible, memory_path, today.isoformat())
         for path, fm in walk:
             if report.read >= max_reads:
@@ -639,6 +759,8 @@ async def tend(memory_path: Path, settings, ask: Callable | None, *, today: date
             if isinstance(found, str):
                 report.skip(found)
                 note(item_id, f"left:{found}", ids=[str(p) for p in fm.get("same_title") or []])
+                if found == "stranded" and not dry_run:   # every conversation was filed; a claim they split is what the person is asked
+                    await _narrow(memory_path, path, " ".join(str(fm.get("entity_name") or "").split()), report)
                 continue
             case = found
             mark = await asyncio.to_thread(digest, memory_path, case, docs)
@@ -659,6 +781,12 @@ async def tend(memory_path: Path, settings, ask: Callable | None, *, today: date
             for r in result.reads:
                 eyes = {"mention": case.mention, "sentence": r.sentence, "page": names.get(r.page or "", ""), "tied_by": r.tied}
                 note(item_id, f"named:{r.page}" if r.page else f"left:{r.why}", episode=r.episode, ids=case.ids, eyes=eyes)
+            if result.outcome == "file_parts":
+                await _file_parts(memory_path, path, case, result, names, report, note, remember, mark, today=today,
+                                  settings=settings, dry_run=dry_run, model=model, engine=engine)
+                continue
+            if result.outcome == "left" and result.reads and not dry_run:
+                await _narrow(memory_path, path, case.mention, report)   # nobody could tell: asked about one conversation at a time
             if result.outcome != "file" or result.decision is None:
                 same = bool(entry and entry.get("d") == mark and entry.get("m") == model)
                 tries = int(entry.get("t") or 0) + 1 if same else 1
@@ -704,6 +832,11 @@ async def run_tail(memory_path: Path, settings, *, user_triggered: bool, ask: Ca
             report.skip("demo")
             return report
         today = today or date.today()
+        # A conversation read again after its filing may hold a new claim nobody asks about: it lands on the earlier verdict, with no
+        # read and no engine (`which_one_file.refile`), before anything else.
+        again = await asyncio.to_thread(wf.refile, memory_path, today=today.isoformat(), by=model or "cicada")
+        report.settled += again.settled
+        report.paths += again.paths
         rows = await asyncio.to_thread(eligible, memory_path, today.isoformat())
         if not any(not isinstance(await asyncio.to_thread(case_for, memory_path, p, fm, today=today.isoformat()), str)
                    for p, fm in rows[:MAX_LOOKS]):
@@ -714,11 +847,12 @@ async def run_tail(memory_path: Path, settings, *, user_triggered: bool, ask: Ca
                 report.skip(why)
                 return report
             model = model or engine_select.shown_model(strong)
+            engine = str(getattr(strong, "llm_mode", "") or "") or None
 
             async def ask(system: str, prompt: str) -> object:
                 return await full_name_join.ask_main(strong, system, prompt)
 
-        return await tend(memory_path, settings, ask, today=today, model=model)
+        return await tend(memory_path, settings, ask, today=today, model=model, engine=engine)
     except (engine_errors.EngineThrottled, engine_errors.EngineExhausted, engine_errors.EngineOverage):
         report.skip("plan_limit")
     except Exception as exc:  # noqa: BLE001 - the reader never fails a Sleep

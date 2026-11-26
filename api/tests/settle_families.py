@@ -202,7 +202,109 @@ def two_signals_join(memory):
     return _settle_one(memory, d), ["entities/tomas.md"]
 
 
+def _which_one_world(memory, conversations: dict[str, str], claims: list[tuple[str, str, str]]):
+    """Ruling 83: two people who answer to "Nick" (a brother, a teammate), one held line and its which-one question, on the gate's bank."""
+    from api.services import pending_store, same_name, which_one
+    from api.tests import test_held_release as hr
+    from api.tests import test_which_one_reader as wo
+
+    wo._page(memory, "nick-brother", "Nick Rowe", "person")
+    wo._set(memory, "nick-brother", owner_roles=["brother"])
+    wo._page(memory, "nick-friend", "Nick Vale", "person")
+    friend = memory / "entities" / "nick-friend.md"
+    parsed = markdown_parser.parse(friend)
+    markdown_parser.write(friend, parsed.frontmatter, parsed.body + "\nWorks at [[acme-labs]].\n")
+    wo._page(memory, "acme-labs", "Acme Labs", "company")
+    for ep, text in conversations.items():
+        wo._episode(memory, ep, text)
+    eps = list(conversations)
+    pending_store.upsert(memory, pending_store.PendingEntity(
+        name="Nick", type="person", description="Nick, said once.", source_episode=eps[0], confidence=0.7, tags=[],
+        history_entries=[{"date": "2026-11-20", "event": "Nick came up"}],
+        held_claims=[hr._held("nick", p, o, i, ep) for i, (p, o, ep) in enumerate(claims, 1)], heard_in=[{"episode": e} for e in eps]))
+    same_name.invalidate()
+    path = which_one.raise_question(memory, "Nick", eps[0], ["nick-brother", "nick-friend"], today=wo.TODAY)
+    assert path
+    ti._commit(memory)
+    return memory / path
+
+
+def which_one_filing(memory):
+    """Ruling 83: each conversation of a held nickname filed to the page its own reading named: two pages, their ledgers, the line
+    (`pending_entities.jsonl`), one record per page and the question, in one guarded settle per page."""
+    from api.tests import test_which_one_file as tw
+    from api.tests import test_which_one_reader as wo
+
+    path = _which_one_world(memory, {wo.EP1: tw.BROTHER, wo.EP2: tw.MATE, tw.EP3: tw.BLANK},
+                            [("visits", "a-weekend", wo.EP1), ("ships", "the-release", wo.EP2), ("greets", "x", tw.EP3)])
+    fn = tw._by_name(tw.BOTH)
+
+    def settle() -> bool:
+        return asyncio.run(wo.wr.tend(memory, ti._Settings(memory), fn, today=wo.TODAY, model="haiku")).settled == 2
+
+    return settle, ["entities/nick-brother.md", "entities/nick-friend.md"]
+
+
+def which_one_closing(memory):
+    """The last filing empties the line and closes the question in the same settle: the question is moved to its shelf."""
+    from api.services import pending_store
+    from api.tests import test_which_one_file as tw
+    from api.tests import test_which_one_reader as wo
+
+    path = _which_one_world(memory, {wo.EP1: tw.BROTHER, wo.EP2: tw.MATE}, [("visits", "a-weekend", wo.EP1), ("ships", "the-release", wo.EP2)])
+    pending_store.release(memory, ["Nick"])
+    pending_store.upsert(memory, pending_store.PendingEntity(
+        name="Nick", type="person", description="", source_episode=wo.EP1, confidence=0.7, tags=[], history_entries=[],
+        held_claims=[wo._held("nick", "visits", "a-weekend", 1, wo.EP1), wo._held("nick", "ships", "the-release", 2, wo.EP2)],
+        heard_in=[{"episode": wo.EP1}, {"episode": wo.EP2}]))
+    ti._commit(memory)
+    fn = tw._by_name(tw.BOTH)
+
+    def settle() -> bool:
+        return asyncio.run(wo.wr.tend(memory, ti._Settings(memory), fn, today=wo.TODAY, model="haiku")).settled == 2
+
+    return settle, ["entities/nick-brother.md", "entities/nick-friend.md"]
+
+
+def which_one_narrowing(memory):
+    """Two conversations nobody could tell: the reader only narrows the question to one conversation (its own file, one settle)."""
+    from api.tests import test_which_one_file as tw
+    from api.tests import test_which_one_reader as wo
+
+    _which_one_world(memory, {wo.EP1: tw.BLANK, wo.EP2: tw.BLANK.replace("hello again", "hello twice")},
+                     [("greets", "everyone", wo.EP1), ("greets", "nobody", wo.EP2)])
+    fn = tw._by_name({})
+
+    def settle() -> bool:
+        asyncio.run(wo.wr.tend(memory, ti._Settings(memory), fn, today=wo.TODAY, model="haiku"))
+        return bool(markdown_parser.parse(next((memory / "inbox").glob("inbox-*.md"))).frontmatter.get("scope_episodes"))
+
+    return settle, []
+
+
+def which_one_refile(memory):
+    """A claim of a conversation filed before, held since: it lands on that verdict with no read (`which_one_file.refile`)."""
+    from api.services import pending_store, which_one_file
+    from api.services.claims import Claim
+    from api.tests import test_which_one_file as tw
+    from api.tests import test_which_one_reader as wo
+
+    _which_one_world(memory, {wo.EP1: tw.BROTHER, wo.EP2: tw.MATE}, [("visits", "a-weekend", wo.EP1), ("ships", "the-release", wo.EP2)])
+    asyncio.run(wo.wr.tend(memory, ti._Settings(memory), tw._by_name(tw.BOTH), today=wo.TODAY, model="haiku"))
+    pending_store.hold(memory, {"nick": [Claim.from_dict(wo._held("nick", "likes", "tea", 7, wo.EP1))]})
+    ti._commit(memory)
+
+    def settle() -> bool:
+        return which_one_file.refile(memory, today=wo.TODAY.isoformat()).settled == 1
+
+    return settle, ["entities/nick-brother.md"]
+
+
 FAMILIES = {
+    "which_one_filing": which_one_filing,
+    "which_one_closing": which_one_closing,
+    "which_one_narrowing": which_one_narrowing,
+    "which_one_refile": which_one_refile,
     "decay_archive": decay_archive,
     "decay_keep": decay_keep,
     "conflict_newest": conflict_newest,
@@ -275,7 +377,31 @@ def undo_alias(memory):
     return _undoing(memory, rec.stem), ["entities/lumen-search.md"]
 
 
+def undo_which_one(memory):
+    """Taking one filing of a held nickname back (`which_one_file.undo_committed`): the claims go back to the line, the page loses them,
+    the question is told, the record goes."""
+    from api.services import which_one_file
+    from api.tests import test_which_one_file as tw
+    from api.tests import test_which_one_reader as wo
+
+    _which_one_world(memory, {wo.EP1: tw.BROTHER, wo.EP2: tw.MATE, tw.EP3: tw.BLANK},
+                     [("visits", "a-weekend", wo.EP1), ("ships", "the-release", wo.EP2), ("greets", "x", tw.EP3)])
+    assert asyncio.run(wo.wr.tend(memory, ti._Settings(memory), tw._by_name(tw.BOTH), today=wo.TODAY, model="haiku")).settled == 2
+    rec = next(p for p in sorted((memory / "inbox" / "settled").glob("land-*.md"))
+               if markdown_parser.parse(p).frontmatter["settled"]["entity_id"] == "nick-brother")
+
+    def undo() -> bool:
+        try:
+            which_one_file.undo_committed(memory, rec.stem)
+        except Exception:  # noqa: BLE001 - a refused undo: the gate asserts it did not happen
+            return False
+        return True
+
+    return undo, ["entities/nick-brother.md"]
+
+
 UNDO_FAMILIES = {
+    "undo_which_one": undo_which_one,
     "undo_retirement": undo_retirement,
     "undo_merge": undo_merge,
     "undo_normalization": undo_normalization,
