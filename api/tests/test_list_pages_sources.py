@@ -73,7 +73,8 @@ def a_list(bank, n: int = 3, **kw):
 # ---------------------------------------------------------------------------------- a stream row names its page
 
 
-def test_dark_a_stream_row_has_no_page_and_its_body_is_what_it_was(bank):
+def test_dark_a_stream_row_has_no_page_and_its_body_is_what_it_was(bank, monkeypatch):
+    monkeypatch.setattr(list_pages, "ON", False)   # the writer's own switch off (on since ruling 81a): still dark
     for i in range(1, 4):
         save(bank, i, folders=["Trips"])
     assert saved_posts.HIDE_POSTS is False
@@ -417,6 +418,7 @@ def test_a_list_read_that_lands_makes_the_list_its_page_in_the_writers_own_commi
 
 
 def test_dark_a_list_read_makes_no_page(reading, monkeypatch):
+    monkeypatch.setattr(list_pages, "ON", False)   # the writer's own switch off (on since ruling 81a): still dark
     server, memory = reading
     monkeypatch.setattr(list_pages, "SETTLE_S", 0.05)
     reading_settings.update(saved_lists_={"x": True})

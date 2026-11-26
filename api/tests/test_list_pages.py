@@ -97,7 +97,8 @@ def page_of(bank, pid):
 # ---------------------------------------------------------------------------------------------- ships dark
 
 
-def test_dark_nothing_is_written_and_nothing_is_drawn(bank):
+def test_dark_nothing_is_written_and_nothing_is_drawn(bank, monkeypatch):
+    monkeypatch.setattr(list_pages, "ON", False)      # the switch off still writes and draws nothing
     save(bank, 1)
     settle(bank)
     before = commits(bank)
@@ -458,6 +459,7 @@ def test_each_non_empty_list_is_one_node_with_its_count_and_its_sources_mark(ban
 
 
 def test_a_list_page_is_no_node_before_it_holds_anything_or_while_dark(bank, monkeypatch):
+    monkeypatch.setattr(list_pages, "ON", False)   # the writer's own switch off (on since ruling 81a): still dark
     save(bank, 1)
     monkeypatch.setattr(saved_posts, "HIDE_POSTS", True)
     list_pages.sync(bank)
@@ -560,6 +562,7 @@ def test_the_card_moves_with_a_new_save_and_no_file_changes(bank, on, client):
 
 
 def test_the_graph_route_draws_the_list_once_the_flip_is_on_and_not_before(bank, monkeypatch, client):
+    monkeypatch.setattr(list_pages, "ON", False)   # the writer's own switch off (on since ruling 81a): still dark
     save(bank, 1)
     monkeypatch.setattr(saved_posts, "HIDE_POSTS", True)
     list_pages.sync(bank)

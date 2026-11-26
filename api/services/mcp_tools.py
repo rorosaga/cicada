@@ -509,12 +509,27 @@ def _render_ask(result: dict, ctx: ToolContext | None = None) -> str:
                 if memory_path is not None else None)
 
     conversations = result.get("conversations", []) or []
-    if conversations:
-        lines.append("\n**From conversations no page cites:**")
-        for c in conversations:
+
+    def saved(episode_id: str) -> bool:
+        # A save or a watch is no conversation (``quiet_pages.episode_kind``): it is listed under its own heading.
+        if memory_path is None or not episode_id:
+            return False
+        from api.services import bank_index, quiet_pages
+
+        entry = bank_index.file(memory_path, "episodes", f"{episode_id}.md")
+        return quiet_pages.episode_kind(entry.frontmatter if entry is not None else None) == quiet_pages.IMPORT
+
+    said = [c for c in conversations if not saved(str(c.get("episode_id") or ""))]
+    kept = [c for c in conversations if c not in said]
+    for heading, group, with_actor in (("From conversations no page cites", said, True),
+                                       ("From saved items no page cites", kept, False)):
+        if not group:
+            continue
+        lines.append(f"\n**{heading}:**")
+        for c in group:
             title = str(c.get("title") or "").strip()
             day = str(c.get("day") or "").strip()
-            actor = who(str(c.get("episode_id") or ""))
+            actor = who(str(c.get("episode_id") or "")) if with_actor else None
             lines.append(f"- {c.get('episode_id', '?')}" + (f" · {day}" if day else "")
                          + (f" · {title}" if title else "") + (f" · with {actor}" if actor else ""))
 
