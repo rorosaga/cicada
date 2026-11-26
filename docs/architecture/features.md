@@ -39,7 +39,7 @@ posts, YouTube's playlists, Watch later and likes, a browser's bookmarks, stars,
 inside (newest first; `inside` of `groups`, so the graph, Clusters and Home fold by one rule: on the list and not earned),
 intersected with the graph's own nodes; a folder is a ring inside its whole list, never a bubble; a page on two lists sits
 in the first whose whole list is big enough; a list with fewer than six inside is no bubble; a filtered `/graph` filters
-them too. `outside` are its earned pages. The nodes never change: every page is still a node for find, names and
+them too. `outside` are its earned pages; `count` is both, what the list holds and its page says. The nodes never change: every page is still a node for find, names and
 Clusters; only graph.js folds. The cache key and the ETag fold `list_pages.change_token` (the earned set and the table
 of list kinds, never a build of the lists) beside the pages listing they already follow, read inside the request's one
 listing. On the canvas a bubble is one node sized like a page with as many neighbours as it holds (never below a
