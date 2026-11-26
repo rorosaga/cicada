@@ -1,19 +1,15 @@
 import SwiftUI
 
-/// Everything under the room, as one centred group in the 760 pt text column (DR-36; 2026-10-16, the owner's live
-/// capture during a run: "those stages of reading and stuff are kind of ugly … center it").
+/// Everything beside (or, in a narrow column, under) the room: the sentence slot, the control group, the notes.
 ///
-/// Top to bottom, every row centred on the column's axis and nothing left-aligned:
-/// 1. **the sentence** — the lead and its one secondary line (`RoomSentenceView`);
-/// 2. **the control group** — Consolidate, Pause, Cancel or Continue with the engine menu, the stop's whisper on its
-///    own line under them (`SleepControlRow`);
-/// 3. **the notes** — the first save's link, the automatic continue's promise, a finished run's parked line;
-/// 4. **the schedule** — the lamp's twin in words;
-/// 5. **the instrument** — the stage stepper and the progress bar at the column's full width, one over the other,
-///    the counts centred under the bar (`RunInstrument`).
+/// Top to bottom:
+/// 1. **the status slot** — the status chip and its one secondary line, or, while a run is on the page, the run's one
+///    quiet object (`RunObjectView`, 2026-11-26): the step in a word, the run's own count, one bar, at most one note;
+/// 2. **the control group** — Consolidate, Pause, Cancel or Continue with the engine, the schedule (`SleepControlRow`);
+/// 3. **the notes** — a refused night's quiet line, the automatic continue's promise, a finished run's parked line.
 ///
-/// Each thing is said once: the running stage's name is the lead ("Filing…") and the stepper's current step, its
-/// purpose is the secondary line, and what a stop does while it files is the whisper under the controls.
+/// The stage stepper, the legend under the bar, the elapsed caption and the stop's whisper under the controls retired
+/// with that redesign: each is the object's `.help` or its one note, said once (DR-38).
 ///
 /// A view of its own (it was a stretch of `SleepView.roomBlock`) so `SleepRunStripTests` can lay it out offscreen in
 /// every run state, at both window widths and in both themes, without a running page around it.
@@ -32,13 +28,14 @@ struct SleepRoomColumn: View {
     /// offscreen layouts keep the centred column.
     var leading = false
     /// ROR-118 round 6 - beside the room the block is laid out to the room's own height: the page's title on top (the
-    /// name, when Sleep last read, and the machines), the headline in the middle, the run bar last (2026-11-24: the
-    /// engine, the schedule and the one primary as one object), the free height shared by two springs, so the block's
-    /// top and bottom edges are the room's whatever the state says (`fillHeight`). The run's instrument is then drawn
-    /// by the page under both, at full width, never inside a block whose height the room sets.
+    /// name, when Sleep last read, and the machines), the status slot in the middle (the run's one object while a run is
+    /// on the page, 2026-11-26), the run bar last (2026-11-24: the engine, the schedule and the one primary as one
+    /// object), the free height shared by two springs, so the block's top and bottom edges are the room's whatever the
+    /// state says (`fillHeight`). Nothing about a run hangs under the pair any more, so nothing below it moves when a
+    /// run starts or ends.
     var title: AnyView? = nil
     var fillHeight: CGFloat? = nil
-    /// ROR-118 round 6 - only the notes (the first save's link, the automatic continue's promise, parked conversations),
+    /// ROR-118 round 6 - only the notes (a refused night's line, the automatic continue's promise, parked conversations),
     /// drawn by the page under the room's row so the block beside the room never grows past the room.
     var notesOnly = false
 
@@ -50,10 +47,9 @@ struct SleepRoomColumn: View {
     private func pinned(height: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             title
-            Spacer(minLength: CicadaTheme.spacingMD)
-            RoomSentenceView(line: status, answers: answers, room: room, feedAsleep: feedAsleep, perform: perform,
-                             leading: true)
-            Spacer(minLength: CicadaTheme.spacingMD)
+            Spacer(minLength: CicadaTheme.spacingSM)
+            statusSlot(leading: true)
+            Spacer(minLength: CicadaTheme.spacingSM)
             SleepControlRow(consolidateEnabled: page.consolidateEnabled, queuedCount: page.queuedCount, page: page,
                             leading: true, part: .buttons, room: room)
                 .accessibilitySortPriority(RoomA11yOrder.control)
@@ -65,8 +61,7 @@ struct SleepRoomColumn: View {
     private var stacked: some View {
         VStack(alignment: leading ? .leading : .center, spacing: CicadaTheme.spacingMD) {
             // R-Z5 — the one slot the worm speaks in; an answer replaces the status here (R-Z7).
-            RoomSentenceView(line: status, answers: answers, room: room, feedAsleep: feedAsleep, perform: perform,
-                             leading: leading)
+            statusSlot(leading: leading)
             // Leading (the page's own layout, below 720 pt of column): the run bar, which holds the schedule.
             SleepControlRow(consolidateEnabled: page.consolidateEnabled, queuedCount: page.queuedCount, page: page,
                             leading: leading, room: room)
@@ -74,19 +69,28 @@ struct SleepRoomColumn: View {
                 .tourAnchor(.consolidate)
             notes
             if !leading { centredWhisper.accessibilitySortPriority(RoomA11yOrder.whisper) }
-            RunInstrument(page: page, justFinished: room.recentCycleCommit != nil)
         }
         .frame(maxWidth: SleepLayout.contentWidth)
     }
 
-    /// Sleep page v5 — the lines under the controls: the first save's link to the person's own page, the automatic
-    /// continue's promise (ruling 15, in words), and a finished run's parked conversations (a link to Waiting).
+    /// The run on the page, if there is one (`RunLine.from`): the first run's link to the person's own page rides it.
+    private var run: RunLine? {
+        RunLine.from(page, recentCycleCommit: room.recentCycleCommit, canOpenOwnerPage: ownerEntityId != nil)
+    }
+
+    /// The one slot the page's state speaks in (R-Z5): the status sentence, or the run's object while a run is on the
+    /// page. An answer from the worm or a feed line still replaces either.
+    private func statusSlot(leading: Bool) -> some View {
+        RoomSentenceView(line: status, answers: answers, room: room, feedAsleep: feedAsleep, perform: perform,
+                         leading: leading, run: run,
+                         openOwnerPage: { ownerEntityId.map { onSelectEntity?($0) } })
+    }
+
+    /// The lines under the controls: a refused night's quiet line and a finished run's parked conversations (a link to
+    /// Waiting). The first save's link and the automatic continue's promise (ruling 15, in the pause's own words) ride
+    /// the run's object since 2026-11-26.
     @ViewBuilder
     private var notes: some View {
-        if page.isRunning, let drain = page.drain, drain.firstRun == true, drain.committedBatches == 1,
-           drain.ownerPage != nil, let owner = ownerEntityId {
-            InlineLink(title: Copy.SleepV5.seeYourPage) { onSelectEntity?(owner) }
-        }
         // 2026-11-26 — a scheduled run the write window refused before it read: one quiet line, never the error
         // state (nothing was read, used or broken). The backend's own words; its full sentence is the help.
         if let notice = page.notice {
@@ -96,12 +100,6 @@ struct SleepRoomColumn: View {
                 .multilineTextAlignment(leading ? .leading : .center)
                 .help(notice.detail)
                 .accessibilityHint(notice.detail)
-        }
-        if let when = page.autoContinueWhen, page.paused != nil {
-            Text(Copy.SleepV5.willContinueBySelf(when))
-                .font(CicadaTheme.captionFont)
-                .foregroundStyle(CicadaTheme.textTertiary)
-                .multilineTextAlignment(leading ? .leading : .center)
         }
         if !page.isRunning, page.paused == nil, page.parkedCount > 0 {
             Button { openDetails(.waiting) } label: {
@@ -152,45 +150,5 @@ struct SleepRoomColumn: View {
         .popover(isPresented: Binding(get: { room.lampPopover == .whisper },
                                       set: { if !$0 { room.lampPopover = nil } }),
                  arrowEdge: .bottom) { LampPopover(page: page) }
-    }
-}
-
-/// The run's instrument at the foot of the room's column: the stage stepper and the progress bar, the same width (the
-/// column's), one over the other, so they read as one gauge rather than three widths stacked (2026-10-16).
-///
-/// The stepper shows while a cycle runs and as the frozen record after a cancel or failure (R-Z6, P15); the bar while
-/// a run reads in batches, while it waits paused, and in the moment it finished (the "See what changed" window) —
-/// never a remaining time (G107). Nothing here when neither has news.
-struct RunInstrument: View {
-    let page: SleepPageModel
-    /// A completion is on show (`RoomModel.recentCycleCommit`): the bar keeps the run's final counts.
-    var justFinished = false
-
-    var showsStepper: Bool {
-        stageStripIsVisible(isRunning: page.isRunning, cancelled: page.stoppedEarly, failed: page.cycleError != nil)
-    }
-
-    var progress: RunProgress? {
-        guard let progress = RunProgress.from(page.drain),
-              page.isRunning || page.paused != nil || justFinished else { return nil }
-        return progress
-    }
-
-    var body: some View {
-        let progress = progress
-        if showsStepper || progress != nil {
-            VStack(alignment: .center, spacing: CicadaTheme.spacingMD) {
-                if showsStepper {
-                    SleepStageStrip(pips: page.pips)
-                    if let note = batchFailureNote(drain: page.drain, activeStage: page.runningStage) {
-                        RunFailureNote(text: note)
-                    }
-                }
-                if let progress { RunProgressBar(progress: progress) }
-            }
-            .frame(maxWidth: .infinity)
-            // A little more air above the gauge than between the lines of words: it is a second group.
-            .padding(.top, CicadaTheme.spacingSM)
-        }
     }
 }

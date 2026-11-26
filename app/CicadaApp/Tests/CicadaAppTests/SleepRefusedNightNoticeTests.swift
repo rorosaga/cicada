@@ -44,10 +44,8 @@ final class SleepRefusedNightNoticeTests: XCTestCase {
         XCTAssertNil(model.cycleError, "no error: nothing was read")
         XCTAssertNotEqual(model.mood, .error)
         XCTAssertEqual(model.notice?.text, "Last night's 03:00 run hasn't started yet. Next try after 03:12.")
-        XCTAssertFalse(model.pips.contains(.failed), "no failed step")
-        XCTAssertFalse(model.pips.contains(.skipped), "no frozen stepper")
-        XCTAssertFalse(stageStripIsVisible(isRunning: model.isRunning, cancelled: model.stoppedEarly,
-                                           failed: model.cycleError != nil), "no stepper at all")
+        XCTAssertNil(model.stoppedStage, "no stopped step")
+        XCTAssertNil(RunLine.from(model), "no run object: nothing ran")
         let line = roomSentence(model.roomContext())
         XCTAssertFalse(line.lead.contains("stopped"), "never \"Reading stopped.\": \(line.lead)")
         XCTAssertNotEqual(line.tone, .warning); XCTAssertNotEqual(line.tailTone, .warning)

@@ -115,7 +115,7 @@ func bracketTail(_ state: BookwormState, debt: SleepDebtView?) -> String {
 ///
 /// A running cycle past Stage 1 has no per-episode unit at all
 /// (`sleep_cycle.progress_pct` returns `None`), so `total == 0` draws no bar
-/// rather than `Read 0 of 0` — the stage strip is the running instrument.
+/// rather than `Read 0 of 0` — the run object is the running instrument.
 enum HeroMeter: Equatable {
     case rested(pct: Int)
     case reading(read: Int, total: Int)
@@ -194,16 +194,6 @@ func heroMeterHelp(_ meter: HeroMeter, debt: SleepDebtView?) -> String? {
 
 // MARK: - The one control (R-A7, Track Z §4.2)
 
-/// While a cycle runs, what Cancel does; otherwise nothing — the engine menu beside the control
-/// names what a click would run (R-HS9), the fact the retired "Runs on …" caption stated, so
-/// printing both would say it twice (DR-38). While the last stage files, what any stop does now
-/// (`Copy.SleepV5.filingWhisper`) — said here once, not again under the stepper (2026-10-16).
-func controlCaption(isRunning: Bool, draining: Bool = false, filing: Bool = false) -> String? {
-    guard isRunning else { return nil }
-    if filing { return Copy.SleepV5.filingWhisper }
-    return draining ? Copy.cancelDrainCaption : Copy.cancelCaption
-}
-
 /// The page's ONE Consolidate/Cancel control (R-A7, G125 R10). While a cycle
 /// runs the one control IS Cancel — the disabled "Consolidating…" twin pill is
 /// gone (design §4.2). `FixWaveTests` pins `sleepVM.triggerManually()` to this
@@ -213,9 +203,10 @@ func controlCaption(isRunning: Bool, draining: Bool = false, filing: Bool = fals
 /// reading the sentence above it also drew from, so the button can never be
 /// live while the sentence says there is nothing to read.
 ///
-/// Beside it sits the engine menu (`EngineQuickMenuButton`), which names what a cycle you start
-/// would run (R-HS8); the caption under the pair, on its own centred line (2026-10-16), is the stop's
-/// while a cycle runs and nothing otherwise (R-HS9).
+/// Beside it sits the engine label, which names what a cycle you start would run (R-HS8). While a run reads nothing
+/// is captioned under the pair (2026-11-26): what a stop does while it files is the run object's note, what Cancel
+/// does is its tooltip, and the engine a run keeps is the engine label's tooltip. Idle, one line says what arrived
+/// since the last run started.
 struct SleepControlRow: View {
     @Environment(SleepViewModel.self) private var sleepVM
     @Environment(SleepEngineViewModel.self) private var engineVM
@@ -240,7 +231,7 @@ struct SleepControlRow: View {
 
     @State private var optionsOpen = false
 
-    /// The page's own reading when there is one (H1: the control never disagrees with the sentence and the stepper
+    /// The page's own reading when there is one (H1: the control never disagrees with the sentence and the run object
     /// above and below it — the live capture showed Cancel under a stage that only a drain reaches).
     private var draining: Bool { (page?.drain ?? sleepVM.status?.drain)?.active == true }
     private var paused: SleepPausedRun? { page?.paused }
@@ -338,41 +329,23 @@ struct SleepControlRow: View {
             }
     }
 
-    private var hasCaptions: Bool {
-        caption != nil || (sleepVM.isRunning && engineVM.response?.runKeepsEngine == true)
-    }
+    private var hasCaptions: Bool { caption != nil }
 
     @ViewBuilder
     private var captions: some View {
-            // The whisper sits on its own line under the group (2026-10-16): beside the buttons it pushed the pair
-            // off the column's centre by its own width.
-            if let caption = caption {
-                Text(caption)
-                    .font(CicadaTheme.captionFont)
-                    .monospacedDigit()
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .multilineTextAlignment(leading ? .leading : .center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            // A choice made while a run reads (here, in Settings, or by an agent) waits for the next start or
-            // Continue; the button already names the new choice, so the row says the run is not using it yet.
-            if sleepVM.isRunning, engineVM.response?.runKeepsEngine == true {
-                Text(Copy.EngineMenu.runKeepsEngine)
-                    .font(CicadaTheme.captionFont)
-                    .foregroundStyle(CicadaTheme.textTertiary)
-                    .multilineTextAlignment(leading ? .leading : .center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        if let caption {
+            Text(caption)
+                .font(CicadaTheme.captionFont)
+                .monospacedDigit()
+                .foregroundStyle(CicadaTheme.textTertiary)
+                .multilineTextAlignment(leading ? .leading : .center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
-    /// Running: the elapsed time of a run that reads in batches (measured, never a remaining time — G107), else
-    /// Cancel's caption. Idle after a run that left arrivals: the reason Consolidate is live again.
+    /// Idle after a run that left arrivals: the reason Consolidate is live again. Nothing while a run reads — the run's
+    /// object (`RunLine`) says what is true of it, and the stop's words are tooltips.
     private var caption: String? {
-        if filing { return Copy.SleepV5.filingWhisper }
-        if sleepVM.isRunning, draining, let ms = (page?.drain ?? sleepVM.status?.drain)?.elapsedMs, ms > 0 {
-            return Copy.SleepV5.runningFor(SleepHistoryPresentation.durationText(ms: ms))
-        }
-        if let running = controlCaption(isRunning: sleepVM.isRunning, draining: draining), !draining { return running }
         if !sleepVM.isRunning, paused == nil, consolidateEnabled,
            let arrived = page?.drain?.arrivedSince, arrived > 0, page?.drain?.finished == true {
             return Copy.SleepV5.newSinceYouStarted(arrived)
@@ -457,8 +430,7 @@ struct SleepControlRow: View {
     /// Only shown while a cycle is running, and then INSTEAD of Consolidate
     /// (design §4.2): the one control is Cancel for as long as there is a
     /// cycle to stop. Cooperative, not instant — the long
-    /// `Copy.cancelSleepExplainer` is its tooltip, and the one-line
-    /// `Copy.cancelCaption` beside it says the short form.
+    /// `Copy.cancelSleepExplainer` is its tooltip (the one-line caption beside it retired 2026-11-26).
     private var cancelButton: some View {
         Button {
             Task { await sleepVM.cancel() }

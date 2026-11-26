@@ -516,6 +516,11 @@ struct RoomSentenceView: View {
     /// ROR-118 — the page sets the sentence on the leading edge beside the room's rectangle; the offscreen layouts keep
     /// the centred column.
     var leading = false
+    /// 2026-11-26 — a run on the page (reading, paused, stopped, failed, just finished): its one quiet object takes the
+    /// status slot, in place of the chip, the lead and the tail. An answer or a feed line still replaces it (R-Z5, R-Z7).
+    var run: RunLine? = nil
+    /// The first run's link to the person's own page.
+    var openOwnerPage: () -> Void = {}
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(IntakeRouter.self) private var intake
@@ -548,41 +553,21 @@ struct RoomSentenceView: View {
         let slot = slot
         let shown = line(for: slot)
         ZStack {
-            VStack(alignment: leading ? .leading : .center, spacing: CicadaTheme.spacingXS) {
-                if leading {
-                    // ROR-118 (2026-11-06) - beside the room the lead is a small status chip, not a headline.
-                    SleepStatusChip(line: shown)
-                } else {
-                    leadText(shown)
-                        .font(CicadaTheme.displayFont(size: Self.leadSize))
-                        .tracking(CicadaTheme.displayTracking(size: Self.leadSize))
-                        .lineLimit(1)
-                        .minimumScaleFactor(CicadaTheme.displayMinimumSize / Self.leadSize)
-                }
-                // A line with no tail is the lead alone: no empty line is held under the headline (owner QA
-                // 2026-10-17, amending R-Z5's one reserved tail line). A tail the worm adds on a poke takes its line
-                // as the answer comes up, and gives it back once the answer's cross-fade has finished (the outgoing
-                // line holds its place while it fades); the control row steps, never slides (DR-60: a key can poke).
-                if SentenceSlot.drawsTail(shown) { tailView(shown) }
+            if let run, slot == .status {
+                // The run object carries its own accessibility (a word, a bar with a value, one note).
+                RunObjectView(run: run, perform: perform, openOwnerPage: openOwnerPage)
+                    .id(slot)
+                    .transition(.opacity)
+            } else {
+                sentence(shown, slot: slot)
+                    .id(slot)
+                    .transition(.opacity)
             }
-            // Keyed on the kind of line so a status ⇄ answer ⇄ feed change
-            // cross-fades (opacity only — nothing slides).
-            .id(slot)
-            .transition(.opacity)
         }
         .animation(SleepMotion.sentence(reduceMotion: reduceMotion), value: slot)
         .multilineTextAlignment(leading ? .leading : .center)
         .frame(maxWidth: .infinity, alignment: leading ? .leading : .center)
         .onHover { room?.pointerInSentence = $0 }
-        // Every read below is `shown`, never `line`: VoiceOver reads what is
-        // on screen, and the action follows the link that is on screen.
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(shown.spoken)
-        .accessibilityActions {
-            if let action = shown.action, let tail = shown.tail {
-                Button(tailLink(tail)) { perform(action) }
-            }
-        }
         .accessibilitySortPriority(RoomA11yOrder.sentence)
         .task(id: DwellKey(slot: slot,
                            inside: (room?.pointerInRoom ?? false) || (room?.pointerInSentence ?? false))) {
@@ -601,6 +586,36 @@ struct RoomSentenceView: View {
             guard let ended = room?.intakeChanged(from: old, to: new,
                                                   overlayPresented: intake.isOverlayPresented) else { return }
             AccessibilityNotification.Announcement(feedLine(ended, asleep: feedAsleep).spoken).post()
+        }
+    }
+
+    /// The status sentence: a chip beside the room, else the display lead, and its one secondary line.
+    private func sentence(_ shown: SentenceLine, slot: RoomSlot) -> some View {
+        VStack(alignment: leading ? .leading : .center, spacing: CicadaTheme.spacingXS) {
+            if leading {
+                // ROR-118 (2026-11-06) - beside the room the lead is a small status chip, not a headline.
+                SleepStatusChip(line: shown)
+            } else {
+                leadText(shown)
+                    .font(CicadaTheme.displayFont(size: Self.leadSize))
+                    .tracking(CicadaTheme.displayTracking(size: Self.leadSize))
+                    .lineLimit(1)
+                    .minimumScaleFactor(CicadaTheme.displayMinimumSize / Self.leadSize)
+            }
+            // A line with no tail is the lead alone: no empty line is held under the headline (owner QA
+            // 2026-10-17, amending R-Z5's one reserved tail line). A tail the worm adds on a poke takes its line
+            // as the answer comes up, and gives it back once the answer's cross-fade has finished (the outgoing
+            // line holds its place while it fades); the control row steps, never slides (DR-60: a key can poke).
+            if SentenceSlot.drawsTail(shown) { tailView(shown) }
+        }
+        // Every read below is `shown`, never `line`: VoiceOver reads what is
+        // on screen, and the action follows the link that is on screen.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(shown.spoken)
+        .accessibilityActions {
+            if let action = shown.action, let tail = shown.tail {
+                Button(tailLink(tail)) { perform(action) }
+            }
         }
     }
 

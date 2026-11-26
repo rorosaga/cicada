@@ -20,12 +20,14 @@ struct SleepPageModel: Equatable {
     var isRunning: Bool
     /// The ACTIVE stage (R-Z14) while running; `nil` idle.
     var runningStage: Int?
-    /// Sums of `resolveOriginCounts` — `Read a of b`, the strip's Read fill.
+    /// Sums of `resolveOriginCounts` — `Read a of b`.
     var read: Int
     var total: Int
     var rows: [StudyRow]
     var books: [BookSpec]
-    var pips: [StagePip]
+    /// The stage a run that stopped (a cancel, a limit or a failure) was in, 1…5; `nil` while one reads, when nothing
+    /// stopped, or when the run had got past the last stage. The run object says it once ("Stopped while sorting").
+    var stoppedStage: Int?
     var schedule: ScheduleConfig
     /// R-A3 — the lamp and the schedule sentence read the same field.
     var lampLit: Bool
@@ -53,7 +55,7 @@ struct SleepPageModel: Equatable {
     var capped: Bool
     /// G163 — the person-started run's measured progress, `nil` when the last cycle was not one.
     var drain: SleepDrainInfo?
-    /// `cancelled`, or a finished run that stopped at a plan limit: the strip freezes and nothing cheers.
+    /// `cancelled`, or a finished run that stopped at a plan limit: the run object says where it stopped and nothing cheers.
     var stoppedEarly: Bool
     /// The plan pause's reset time has passed (`SleepDrainInfo.Stop.planPauseLapsed`): its tail and row retire.
     var planPauseLapsed: Bool
@@ -132,9 +134,9 @@ struct SleepPageModel: Equatable {
         let error = status?.error.flatMap { $0.isEmpty ? nil : $0 }
         let cancelled = status?.cancelled == true
         let drain = resolveDrain(sse: sse, status: status)
-        // A run that ended early on purpose or by a limit: the strip freezes where it stopped and nothing
+        // A run that ended early on purpose or by a limit: the run object says where it stopped and nothing
         // cheers. A cancel already says so; a plan limit is the same in every way but the flag (G163).
-        // The backend keeps `drain.stop` until the next run, so a stop cannot hold the strip forever: a cancel
+        // The backend keeps `drain.stop` until the next run, so a stop cannot hold the object forever: a cancel
         // follows `cancelled` (the backend's own five-minute window), and a plan pause ends at its reset time.
         let planPauseLapsed = drain?.stop?.planPauseLapsed(now: now) ?? false
         let stoppedEarly = cancelled || (!isRunning && drain?.stop.map {
@@ -156,11 +158,8 @@ struct SleepPageModel: Equatable {
             rows: rows,
             books: bookPileLayout(originVolumes(queued: queued, queueByOrigin: origins.queueByOrigin,
                                                 readByOrigin: origins.readByOrigin, running: isRunning)),
-            pips: stageStripState(stage: status?.stage ?? 0, isRunning: isRunning, cancelled: stoppedEarly,
-                                  error: error != nil,
-                                  read: drain.flatMap { $0.active ? $0.batchState?.read : nil } ?? read,
-                                  total: drain.flatMap { $0.active ? $0.batchState?.total : nil } ?? total,
-                                  stages: drain?.stages),
+            stoppedStage: !isRunning && (stoppedEarly || error != nil) && (status?.stage ?? 0) < SleepStages.all.count
+                ? activeStage(completed: status?.stage ?? 0) : nil,
             schedule: schedule,
             lampLit: schedule.enabled,
             scheduleText: scheduleSentence(schedule, locale: locale),
