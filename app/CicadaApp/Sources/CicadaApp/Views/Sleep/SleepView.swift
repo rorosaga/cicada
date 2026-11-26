@@ -335,11 +335,15 @@ struct SleepView: View {
                 await sleepVM.load()
                 await sleepVM.loadQueue()
                 if let id = detailRunId { await sleepVM.loadRunDetail(id, freshness: detailRunFreshness) }
-            } else if SleepPageRefresh.shouldRefetch(running: store.status.value?.sleep.status == "running",
-                                                     last: lastRefetch, now: Date()) {
-                lastRefetch = Date()
-                await sleepVM.refreshStatus()
-                await sleepVM.loadHistory()
+            } else {
+                // A run that started while the page was open (its schedule, an agent, the CLI): follow it at once.
+                sleepVM.followRunIfRunning()
+                if SleepPageRefresh.shouldRefetch(running: store.status.value?.sleep.status == "running",
+                                                  last: lastRefetch, now: Date()) {
+                    lastRefetch = Date()
+                    await sleepVM.refreshStatus()
+                    await sleepVM.loadHistory()
+                }
             }
             // R-HS12 — every visit, unconditionally: the chooser's response may have been loaded
             // long before (Home's Getting started loads it at launch), and the page reads it FIRST,
