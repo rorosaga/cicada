@@ -5,7 +5,13 @@ plus one for each pairwise "same as?" question about a mention tonight's rewrite
 
   inbox-123  ep_2026-10-03_001  page-a,page-b  named:page-a        -
   inbox-123  ep_2026-10-04_001  page-a,page-b  named:page-a        -
-  inbox-123  -                  page-a,page-b  would_file:page-a   which_one_read
+  inbox-123  -                  page-a,page-b  would_file:page-a   which_one_read      (every conversation named page-a: one tap's worth)
+  inbox-128  ep_2026-10-03_001  page-a,page-b  named:page-a        -
+  inbox-128  ep_2026-10-04_001  page-a,page-b  named:page-b        -
+  inbox-128  ep_2026-10-05_001  page-a,page-b  left:first_read_cannot_tell -
+  inbox-128  -                  page-a,page-b  would_file:page-a   which_one_filed     (each conversation's words to its own page)
+  inbox-128  -                  page-a,page-b  would_file:page-b   which_one_filed
+  inbox-128  ep_2026-10-05_001  page-a,page-b  would_ask           -                   (the question stays, about that conversation)
   inbox-124  ep_2026-10-03_001  page-a,page-b  left:nothing_tells_them_apart  -
   inbox-124  -                  page-a,page-b  read:left:nothing_tells_them_apart -
   inbox-125  -                  page-a,page-b  left:subject_has_page -
@@ -14,17 +20,19 @@ plus one for each pairwise "same as?" question about a mention tonight's rewrite
 
   the question id, the conversation id (``-`` for the question as a whole), the candidates' page ids, the outcome and the rule.
   Never a name or a word of text. ``named:<page>`` is what one conversation's two reads agreed on and the code accepted;
-  ``would_file`` is the question as a whole, which needs every conversation the held line holds to name the same page.
+  ``would_file`` is the question as a whole when every conversation it holds named the same page (one tap's worth), else one line
+  per page that would receive its own conversations' words (rule ``which_one_filed``; the conversations are the ``named:`` lines above
+  it), and ``would_ask`` one per conversation nobody could tell, which stays on the held line and is what the question asks about.
 
 The reasons a question is ``left:<why>`` without a read: ``subject_has_page`` (the mention shares its id with a page: filing is the
 person's call), ``nothing_held`` (no line holds it: nothing to file), ``one_candidate`` (after what the person already said),
 ``guard:<why>`` (a person guard of the second look: owner or archived, a relation's page, kept apart, in a doubt, an alias
-removed, a page that carries another full name, two full names), ``conversation_unreadable``, ``too_many_conversations`` (a filing
-lifts the whole held line, so every conversation it holds must be read: at most 3). A dry run reads again what Sleep remembers.
+removed, a page that carries another full name, two full names), ``conversation_unreadable``, ``all_filed`` (every conversation of the line was filed to its own page already), ``too_many_conversations``
+(at most 3 conversations a line are read at a time). A dry run reads again what Sleep remembers.
 With a read: ``first_read_none`` / ``first_read_cannot_tell`` / ``first_read_sentence_not_located`` /
 ``first_read_not_the_persons_words`` / ``nothing_tells_them_apart`` (the record holds nothing for the pick that the words say, or
 says something for another candidate too) / ``second_read_*`` / ``reads_disagree`` / ``mention_not_in_the_persons_turns`` /
-``conversations_differ``.
+``undone`` (the person took that conversation's filing back: the reader never files it again).
 
 Without ``--read`` nothing is sent to a model. With ``--read`` the engine's main model reads at most ``--max-reads`` questions,
 twice a conversation, exactly as Sleep would (this is the person's own command, so a plan is theirs to spend); a read here is never

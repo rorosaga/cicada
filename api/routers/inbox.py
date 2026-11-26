@@ -134,7 +134,8 @@ async def undo_settled(item_id: str, settings: Settings = Depends(get_settings))
 async def _undo_landing(item_id: str, settings: Settings) -> dict:
     """G148 — a landing of facts said about a part of a page taken back (`described_landing.undo`): its claims leave the page
     and go back to their held lines, the page is remembered as one the mention is not. Committed as the person's."""
-    from api.services import described_landing, git_service, inbox_tend, page_lock, state_dictionary, web_settle, write_admission
+    from api.services import (described_landing, git_service, inbox_tend, page_lock, state_dictionary, web_settle, which_one_file,
+                              write_admission)
     from api.services.sleep_refusal import SleepWriting
 
     memory_path = settings.memory_path
@@ -143,7 +144,9 @@ async def _undo_landing(item_id: str, settings: Settings) -> dict:
 
     def work() -> None:
         with page_lock.page_lock(memory_path):
-            paths, lines, rec = described_landing.undo(memory_path, item_id)
+            # A mention filed conversation by conversation (ruling 83) is taken back by its own writer; every other landing as before.
+            undo = which_one_file.undo if which_one_file.is_record(memory_path, item_id) else described_landing.undo
+            paths, lines, rec = undo(memory_path, item_id)
             web_settle.commit_sync(memory_path, web_settle.commit_message("Landing undone", lines, authors=["user"]),
                                    paths, before=before)
             out["rec"] = rec
