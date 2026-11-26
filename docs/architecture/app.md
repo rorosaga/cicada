@@ -1656,6 +1656,13 @@ checkbox to macOS that carries its own state. So only on such a site the reader 
 **the state moving is the direction** (`stateStep`: on is saved, off is unsaved), ahead of every other evidence and
 with no label and no count; when the label moved too it is learned. The pin is the card's own link, else the page.
 Every other site's rows are read exactly as before: a toggle in them is no control of the row.
+**Spotify** (`SiteSaveSite.spotify`, 2026-11-26, the same owner's ask): in the web player a song's or an episode's
+row is its play button, the track's link, its artists' links, a plain button, and the row's own menu button, so the
+save sits where GitHub's star does (`beforeMenu`) and the track is the row's own link (only a track's or an
+episode's link is a post here, so an artist's, an album's or a playlist's link in the row never makes two). The
+person's library pages (`/collection`) are where a click on it is leaving; elsewhere the page's other rows say which
+way. Not read: the header of an album or a playlist (its button is not directly before the menu) and the bar of the
+song playing (it has no menu button).
 **A feed that plays one post at a time** (`SiteSaveSite.Playing`, owner 2026-11-25: "everything else you say its not
 covered should be covered"; measured on TikTok's For You): the address stays the feed's and no link names the video, so
 the row read as `noPostLink`. The controls sit in one bar beside whichever video is playing; the reader climbs from the
@@ -1786,9 +1793,9 @@ its switch, No is kept and listed in Settings, Not now waits two hours and then 
 sources does not hold a site's offer) asks "Connect X to Cicada?" with the site's mark. **This is the one case where the
 page in the front tab triggers an offer** (owner 2026-11-23, amending the 2026-10-19 note in `ConnectSuggestApps`): only
 with Accessibility already granted and the offer switch on; the address is compared and kept nowhere. The offer covers
-the sites with a save control (`SiteSaveSite.all`, Pinterest among them since 2026-11-25) and the sites that are only
-sources — LinkedIn, Substack, Spotify, Goodreads (`SiteSaveSite.offerOnly`, matched by address alone, never read for a
-save). **One truth:** a source
+the sites with a save control (`SiteSaveSite.all`, Pinterest among them since 2026-11-25 and Spotify since the 26th)
+and the sites that are only sources — LinkedIn, Substack, Goodreads (`SiteSaveSite.offerOnly`, matched by address
+alone, never read for a save). **One truth:** a source
 is offered only while the catalogue's own word for it is Off (`ConnectSuggestApps.status`, which reads the lists the
 person turned on and the sites their agent may open like the page does) — never because a per-Mac flag is unset, and a
 source the page shows as set up is neither offered nor listened to. **One path:** Yes is `NotchConnector`, which is

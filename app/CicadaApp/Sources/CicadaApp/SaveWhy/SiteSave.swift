@@ -282,7 +282,20 @@ struct SiteSaveSite: Sendable {
                  "https://www.pinterest.com/pin/$1/", "Pin")],
         rowAnchor: nil, slot: .toggleAfterMenu, listPages: [])
 
-    static let all: [SiteSaveSite] = [x, instagram, github, tiktok, reddit, youtube, pinterest]
+    /// Spotify's web player: a song's or an episode's row ends in a plain button and then the row's own menu button
+    /// (measured 2026-11-25 on an album's page: play, the track's link, its artists' links, the button, the menu). That
+    /// button puts the track in the person's library, so it sits where GitHub's star does (`beforeMenu`), and the
+    /// track is the row's own link (an artist's, an album's or a playlist's link in the row is not a post here). The
+    /// person's own library pages are where a click on it is leaving. The header of an album or a playlist (its
+    /// button is two before the menu, with a download button between on some plans) is not read.
+    static let spotify = SiteSaveSite(
+        key: "spotify", name: "Spotify", origin: "spotify-saved", hosts: ["open.spotify.com"],
+        items: [(re(#"^https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?(track|episode)/([A-Za-z0-9]{22})/?(?:[?#].*)?$"#),
+                 "https://open.spotify.com/$1/$2", "Spotify $1")],
+        rowAnchor: nil, slot: .beforeMenu,
+        listPages: [re(#"^https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?collection(?:[/?#].*)?$"#)])
+
+    static let all: [SiteSaveSite] = [x, instagram, github, tiktok, reddit, youtube, pinterest, spotify]
     static func named(_ key: String) -> SiteSaveSite? { all.first { $0.key == key } }
 
     /// Whether a click on this site's own save control can be noticed. False for a site that is only a source.
@@ -301,7 +314,6 @@ struct SiteSaveSite: Sendable {
     static let offerOnly: [SiteSaveSite] = [
         offerOnly("linkedin", "LinkedIn", "linkedin-saved", ["linkedin.com"]),
         offerOnly(SourceCatalog.substackId, "Substack", "substack-saved", ["substack.com"]),
-        offerOnly("spotify", "Spotify", "spotify-saved", ["spotify.com"]),
         offerOnly("goodreads", "Goodreads", "goodreads", ["goodreads.com"]),
     ]
 

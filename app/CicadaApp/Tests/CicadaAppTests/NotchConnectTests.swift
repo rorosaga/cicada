@@ -212,8 +212,9 @@ final class NotchConnectTests: XCTestCase {
 
     func testSitesWithNoSaveControlAreOfferedButNeverReadForASave() throws {
         let keys = SiteSaveSite.offerOnly.map(\.key)
-        // Pinterest left this list on 2026-11-25: its Save is a toggle the reader reads (`SiteSaveSite.pinterest`).
-        XCTAssertEqual(Set(keys), ["linkedin", SourceCatalog.substackId, "spotify", "goodreads"])
+        // Pinterest left this list on 2026-11-25 (its Save is a toggle the reader reads) and Spotify the day after (a
+        // track's row ends in its button and the row's menu).
+        XCTAssertEqual(Set(keys), ["linkedin", SourceCatalog.substackId, "goodreads"])
         for key in keys {
             XCTAssertNil(SiteSaveSite.named(key), "\(key) has no save table: no save click is read")
             XCTAssertFalse(try XCTUnwrap(SiteSaveSite.offered(key)).hasSaveControl)
