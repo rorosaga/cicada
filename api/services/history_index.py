@@ -51,6 +51,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from api.services import episode_time
 from api.services import evidence as _evidence
 
 #: ``processed_by`` of an episode read by the index, never by a model.
@@ -182,6 +183,8 @@ def save_shaped(fm: dict | None) -> str | None:
     else: a conversation, a book's record, an agent's report, a watched day, a feed item that is no page."""
     if not isinstance(fm, dict) or fm.get(_evidence.LOCKED_NOTE_KEY):
         return None
+    if episode_time.is_feed_item(fm):
+        return None   # what a feed published, never something the person saved: its link and page make it no save
     source = str(fm.get("source") or "")
     sid = str(fm.get("source_id") or "")
     for src, prefix in ((HISTORY_SOURCE, HISTORY_PREFIX), (MONTH_SOURCE, MONTH_PREFIX), (TRACES_SOURCE, TRACES_PREFIX),
@@ -604,6 +607,7 @@ def take_turns(memory_path: Path, *, skip: frozenset[str] = frozenset(), today: 
     spent = sum(1 for f in files if (f.frontmatter or {}).get(TURN_KEY) == day)
     out.budget = max(0, limit - spent)
     pile = [f for f in files if kind(f.frontmatter) in ("saved", "list") and not is_record(f.frontmatter)
+            and save_shaped(f.frontmatter) is not None   # a feed item kept index-only before ruling 80 is no save
             and not (f.frontmatter or {}).get("source_deleted_at")]
     out.pile = len(pile)
     # A save that had today's turn and was put back (a night that ended at its line) waits for tomorrow's.
