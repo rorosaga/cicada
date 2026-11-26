@@ -1627,3 +1627,18 @@ def test_the_mark_is_bookkeeping_and_never_reaches_a_page_writers_prompt():
                                       fields={}, today="2026-12-20", source_dates=[])
     assert [c["id"] for c in data["current_claims"]] == ["clm_b"]
     assert "closed_by_revision" not in data["current_claims"][0]
+
+
+def test_a_restatement_another_conversation_also_says_is_not_an_edit_back():
+    # review 4, M15: condition 1 — the restatement is heard in the revised conversation alone. One the same night's other
+    # conversation also says (one incoming claim citing both) finds no twin (`_reread_twin` wants every conversation it
+    # was heard in cited by the closed claim, and a marked twin rests on this one alone, so the check in `_edited_back`
+    # is implied there: M15 is equivalent at its one call site). It is placed as origin/dev places it (born closed
+    # after the departure the chain reads as), no id of its own minted, the chain left as it is.
+    a, b = _chain()
+    new = _claim("clm_a", "is-moving-to", "2026-12-05", episodes=(EP, OTHER))
+    before = [(c.id, c.valid_to, c.superseded_by, c.supersedes) for c in (a, b)]
+    page, _n, audit = _reconcile([a, b], new=new)
+    assert {c.id for c in page} == {"clm_a", "clm_b"}
+    assert [(c.id, c.valid_to, c.superseded_by, c.supersedes) for c in (a, b)] == before
+    assert not any(e.get("action") == "revision_edited_back" for e in audit)
