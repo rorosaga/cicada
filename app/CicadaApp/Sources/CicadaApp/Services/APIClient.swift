@@ -692,6 +692,9 @@ protocol SavedWhyAPI: Sendable {
     /// G221 (owner 2026-11-25) — the person's click changed a site's save control and nothing on the page said which
     /// way: the record decides (`POST /sources/site-change`), and the answer says which it was.
     func changeSiteItem(site: String, url: String, text: String, folder: String?) async throws -> SiteChangeReply
+    /// G221 (ruling 77e) — a save click on a post its page names by no link, named by the words its block showed
+    /// (`POST /sources/site-words`); the record says which way the click went.
+    func wordsSiteItem(site: String, words: String) async throws -> SiteChangeReply
 }
 
 /// `POST /sources/site-change` — which way the record says an unreadable click went, and the save as stored when it
@@ -723,6 +726,9 @@ extension SavedWhyAPI {
     }
     func unsaveSiteItem(site: String, url: String) async throws {}
     func changeSiteItem(site: String, url: String, text: String, folder: String?) async throws -> SiteChangeReply {
+        throw APIError.httpError(404, "site saves are not supported here")
+    }
+    func wordsSiteItem(site: String, words: String) async throws -> SiteChangeReply {
         throw APIError.httpError(404, "site saves are not supported here")
     }
 
@@ -2854,6 +2860,10 @@ actor APIClient {
         if !text.isEmpty { body["text"] = text }
         if let folder, !folder.isEmpty { body["folders"] = [folder] }
         return try await post("/sources/site-change", body: body)
+    }
+
+    func wordsSiteItem(site: String, words: String) async throws -> SiteChangeReply {
+        try await post("/sources/site-words", body: ["site": site, "words": words])
     }
 
     /// G191 — the person's answer, attached by the backend to that bookmark's episode (`POST /sources/saved-why`).

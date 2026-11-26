@@ -743,6 +743,27 @@ final class SaveWhyCenter {
         }
     }
 
+    /// G221 (ruling 77e, owner 2026-11-25: "make sure the saves work in all apps (linkedin, instagram, etcetc)") —
+    /// the person clicked the save item of a post's menu on a page that names the post by no link (LinkedIn's feed).
+    /// The backend names it by the words its block showed: a post Cicada holds is settled by its link, any other is
+    /// held outside the memory until the site's saved list names it, and is asked about now like any save (the answer
+    /// goes to the address the reply carries, and joins the save when the list is next read). Which way the click
+    /// went is the record's word (the menu has closed, and its label is matched in no language). A click made while
+    /// the backend is away is let go: the saved list will bring the post, only this moment's question is lost.
+    func siteWords(_ item: SiteSaveItem, words: String) async {
+        let reply: SiteChangeReply
+        do {
+            reply = try await api.wordsSiteItem(site: item.site, words: words)
+        } catch {
+            SaveWhyTimings.logger.info("a save named by its words could not be settled; it is let go")
+            return
+        }
+        SaveWhyTimings.logger.info("""
+            save control on \(item.site, privacy: .public): \(reply.direction, privacy: .public) by record,             named by its words
+            """)
+        if reply.direction == "saved", let save = reply.save { await askAboutSite(save) }
+    }
+
     /// A stored site save, asked about like a bookmark the browser's file confirmed.
     private func askAboutSite(_ reply: SiteSaveReply) async {
         let fresh = FreshBookmark(url: reply.url, title: reply.title, origin: reply.origin, channel: reply.origin,

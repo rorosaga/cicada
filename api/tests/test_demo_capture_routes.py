@@ -39,6 +39,7 @@ GATED = {
     ("POST", "/sources/site-save"): "/sources/site-save",         # G221: a save noticed inside a site
     ("POST", "/sources/site-unsave"): "/sources/site-unsave",     # G221: taken off the list on the site
     ("POST", "/sources/site-change"): "/sources/site-change",     # G221: a click the record decides the direction of
+    ("POST", "/sources/site-words"): "/sources/site-words",       # G221: a save on a page that names no post
     ("PUT", "/sources/saved-why"): "/sources/saved-why",          # G191 v3: the person's edit of one answer
     ("POST", "/sources/save-folder-reason"): "/sources/save-folder-reason",   # G221: a folder's reason
     ("PUT", "/sources/save-folder-reason"): "/sources/save-folder-reason",
