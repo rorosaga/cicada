@@ -461,6 +461,8 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /sources/site-unsave": (ADMITTED, None),     # G221: the off-the-list mark, committed alone
     # G221: one of the two routes above, by what the record holds; the admission is theirs.
     "POST /sources/site-change": (ADMITTED, "api.routers.sources.save_site_item"),
+    # G221 (77e): the same two routes when Cicada holds the post; else held outside every bank (`site_later`).
+    "POST /sources/site-words": (ADMITTED, "api.routers.sources.save_site_item"),
     "PUT /sources/saved-why": (ADMITTED, None),        # G191 v3: the person's edit of one answer, committed alone
     "POST /sources/save-folder-reason": (ADMITTED, None),   # G221: a folder's reason and its saves' readiness, committed alone
     "PUT /sources/save-folder-reason": (ADMITTED, None),

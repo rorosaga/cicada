@@ -479,12 +479,19 @@ def carry_on_merge(memory_path, loser_id: str, loser_fm: dict, winner_id: str, w
     caller writes it) and move or remove the loser's file. Returns the bank-relative paths it moved or removed."""
     mark, move, removed = _merge_plan(memory_path, loser_id, loser_fm, winner_id, winner_fm)
     base = Path(memory_path)
+    from api.services import settle_guard   # inside a Sleep settle each file moved or removed is reported to it
+
     if mark is not None:
         winner_fm["picture"] = mark
     if move is not None:
+        settle_guard.writing(base / move[0])
+        settle_guard.writing(base / move[1])
         os.replace(base / move[0], base / move[1])
+        settle_guard.renamed(base / move[0], base / move[1])
     if removed is not None:
+        settle_guard.writing(base / removed)
         (base / removed).unlink(missing_ok=True)
+        settle_guard.wrote(base / removed, None)
     return [*(move or ()), *([removed] if removed else [])]
 
 
@@ -501,7 +508,12 @@ def carry_on_rename(memory_path, old_id: str, new_id: str, fm: dict) -> list[str
     frontmatter). Returns the bank-relative paths it moved."""
     move = rename_footprint(memory_path, old_id, new_id, fm)
     if move:
+        from api.services import settle_guard
+
+        settle_guard.writing(Path(memory_path) / move[0])
+        settle_guard.writing(Path(memory_path) / move[1])
         os.replace(Path(memory_path) / move[0], Path(memory_path) / move[1])
+        settle_guard.renamed(Path(memory_path) / move[0], Path(memory_path) / move[1])
     return move
 
 

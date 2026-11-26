@@ -49,13 +49,13 @@ private struct PageFindPublisher: ViewModifier {
     /// Only the visible page publishes (R-SU10): two publishers in one scene
     /// leave SwiftUI to pick either, and a hidden one could shadow the page
     /// you are looking at.
-    @ViewBuilder
+    ///
+    /// One branch, the value nil when it stays quiet: an `if`/`else` here gave `content` a new identity each time
+    /// `enabled` flipped, so the page under it was built again. On the Graph that was a new web view (a cold layout,
+    /// the zoom lost) on every ⌘K, find, Settings and tab change, and a reveal from the palette landed on a page that
+    /// had not loaded yet.
     func body(content: Content) -> some View {
-        if enabled && !suppressed {
-            content.focusedSceneValue(\.pageFind, PageFindAction(focus: focus))
-        } else {
-            content
-        }
+        content.focusedSceneValue(\.pageFind, enabled && !suppressed ? PageFindAction(focus: focus) : nil)
     }
 }
 
