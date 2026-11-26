@@ -45,7 +45,9 @@
 # back frozen is restarted again only after another full stretch. A "running" answer is never
 # interrupted however long the run is, and a single timeout still defers. A run the restart
 # cut comes back paused (reason restart) by the backend's own recovery; this script does
-# nothing about it.
+# nothing about it. This bound (30 minutes, no read of a drain's run.json) is deliberately
+# shorter than the release app's (ruling 66: three looks over two hours, no running record
+# touched in them); see docs/goals/TODO.md, ruling 66 amended 2026-11-26.
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO" || exit 1

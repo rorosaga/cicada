@@ -75,7 +75,7 @@ nothing, a clock that went backwards) starts it over, so one unanswered tick bef
 process-name match) so it writes every thread's Python stack to its error log (`api/services/stack_dump.py`), waits 2 s,
 and restarts it through the usual door with or without moved code, logging `backend restarted: it had been silent for N
 minutes`. The normal steps (fetch, fast-forward, dependency sync, app build) run as for any update, and the restart
-clears the record, so a backend that comes back frozen is restarted again only after another full stretch. A `running`
+clears the record, so a backend that comes back frozen is restarted again only after another full stretch. This bound is deliberately shorter than the release app's (ruling 66: three looks over two hours, and no `running` drain record touched in them), and the script reads no `run.json`; a batch it cuts comes back paused. A `running`
 answer is never interrupted however long the run is, and one timeout still defers (`deferred: Sleep is running (the
 backend has not answered for N of 30 minutes)`). A run the restart cut comes back paused (reason `restart`) by the
 backend's own recovery.
