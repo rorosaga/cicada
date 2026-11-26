@@ -45,7 +45,9 @@ of list kinds, never a build of the lists) beside the pages listing they already
 listing. On the canvas a bubble is one node sized like a page with as many neighbours as it holds (never below a
 well-linked page's size, so its mark reads), a graphite disc with a ring in the media hue and the source's real mark
 (the app draws each mark once into a small PNG, `GraphMarks`, sent with the bubbles); its members are not in the
-simulation, the pick or the draw, their links are drawn to it (one line a pair), and an earned page is joined to it by
+simulation, the pick or the draw, their links are drawn to it (one line a pair) — so are the list's own page and each
+folder's page (a folder's `key` is its page id, `list_pages`), which ARE the bubble on this canvas and reveal it opened
+— and an earned page is joined to it by
 an "on list" line. A click opens it: the members are packed inside a circle round it (`d3.pack`, folders as rings with
 their names on plates, the pages in no folder as one unnamed ring, the list's own order), at places computed once and
 never simulated, so opening or closing reheats nothing (G109); the camera fits the circle (400 ms, none under Reduce
