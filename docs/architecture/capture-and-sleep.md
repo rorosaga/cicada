@@ -2567,6 +2567,17 @@ page now existing); the page prose kept the old fact beside the new. `episode_re
   restored day only as a value under a new name and no relationship at all, so there was nothing to bring back. Every
   close in the other three chains carries the mark, and the rule fired 5 times (2 relationships, 3 dated values; 6
   before, the difference being one chain the pair rule settled instead because the re-read reworded it).
+  **After the fifth review's fixes (2026-11-26, plan, 1 run each; the sixth review's change touches only the
+  edited-back rule's text test, covered by its engine-free tests and the three reviews' scripts).** The 17 stories: a
+  corrected date wrong in 2 of 7 (the new day written only as a value; the object named another way), 3 pairs read,
+  3 replaced; the four edited-back stories: 4 of 4. Over every run since the rule reached held claims: a corrected
+  date wrong in 10 of 56, against 29 of 70 without either rule. **On the key (the same day, 3 runs of the whole
+  benchmark, Sonnet main, Haiku judge, $2.34):** nothing worse — updates 13 / 14 / 13 of 14 (one value restated in
+  another language left both current, as in 31 of 175 stored runs before this change; one old value stale, also seen
+  before), the edited conversation `U4` right in 3 of 3, every other measure at its ceiling or inside the stored
+  spread, 0 integrity breaks, $0.78 a run. The pair reading ran 0 times in those three runs (the re-read kept the
+  first wording, where the same-slot rule acts), so **the benchmark shows no gain from this change, only no loss**:
+  the gain is what the two-night stories measure.
   The stories and their runner are in the repo: `revision_e2e_stories.json` (17 shapes) and
   `revision_e2e_review_stories.json` (the ten shapes the reviews attacked). Also found and left: a held claim dropped
   because its span went leaves no record of why (`pending_store.drop_held`), and a held name whose spelling is corrected
