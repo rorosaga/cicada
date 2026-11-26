@@ -149,7 +149,8 @@ def test_the_sources_the_plan_names_are_there_with_their_streams(bank, more_list
     assert [s["id"] for s in out["instagram"]["streams"]] == ["instagram.saved", "instagram.likes",
                                                               "instagram.saves-you-make"]
     assert [s["id"] for s in out["reddit"]["streams"]] == ["reddit.saved", "reddit.upvoted", "reddit.saves-you-make"]
-    assert [s["id"] for s in out["linkedin"]["streams"]] == ["linkedin.saved", "linkedin.connections"]
+    assert [s["id"] for s in out["linkedin"]["streams"]] == ["linkedin.saved", "linkedin.connections",
+                                                             "linkedin.saves-you-make"]
     assert [s["id"] for s in out["youtube"]["streams"]] == [
         "youtube.watch_later", "youtube.history", "youtube.playlists", "youtube.liked", "youtube.saves-you-make"]
     assert [s["id"] for s in out["substack"]["streams"]] == [
