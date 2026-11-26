@@ -42,6 +42,15 @@ final class ClustersListGroupsTests: XCTestCase {
         XCTAssertEqual(media?.lists.first?.pageId, "listpage")
     }
 
+    /// Review of #935: a list the View menu leaves no member of draws no line, so its own page is a row again, never lost.
+    func testAnEmptiedListsOwnPageIsARowAgain() {
+        let all = (1...6).map { media("v\($0)", kind: "video") } + [media("listpage", kind: "list")]
+        let media = groups(all, [bubble("pl", members: (1...6).map { "v\($0)" }, pageId: "listpage")],
+                           kinds: ["list"]).first { $0.type == .media }
+        XCTAssertTrue(media?.lists.isEmpty ?? false)
+        XCTAssertEqual(media?.entities.map(\.id), ["listpage"])
+    }
+
     func testNoBubblesLeavesTheGroupsAsTheyWere() {
         let all = (1...4).map { media("m\($0)") }
         let g = groups(all, [])

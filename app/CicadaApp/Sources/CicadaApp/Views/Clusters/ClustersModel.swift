@@ -111,7 +111,8 @@ enum ClustersModel {
     /// In `typeOrder` (the grid's order, so the tabs, the cards and All's list agree), empty types dropped.
     /// `bubbles` (the graph's, owner 2026-11-25) folds Media's saved lists: a page that is a member of a list leaves the
     /// ordinary rows and sits under the list's line; an `outside` (earned) page and a media page in no list stay rows.
-    /// A list's own page is its line, never a second row. A list the View menu leaves no member of is not drawn.
+    /// A list's own page is its line, never a second row. A list the View menu leaves no member of is not drawn, and its
+    /// own page is then an ordinary row.
     static func groups(_ filtered: [Entity], bubbles: [GraphBubble] = []) -> [Group] {
         var buckets = Dictionary(grouping: filtered, by: \.type)
         var folds: [ListFold] = []
@@ -123,10 +124,15 @@ enum ClustersModel {
             let ownPages = Set(bubbles.compactMap(\.pageId))
             var members: [Int: [Entity]] = [:]
             var rest: [Entity] = []
+            var listPages: [Entity] = []
             for e in media {
                 if let i = listOf[e.id] { members[i, default: []].append(e) }
-                else if !ownPages.contains(e.id) { rest.append(e) }
+                else if ownPages.contains(e.id) { listPages.append(e) }
+                else { rest.append(e) }
             }
+            // A list's own page is its line only while the line is drawn; a list the View menu emptied keeps its page a row.
+            let drawn = Set(members.keys.compactMap { bubbles[$0].pageId })
+            rest += listPages.filter { !drawn.contains($0.id) }
             folds = members.map { i, es in
                 let b = bubbles[i]
                 return ListFold(bubble: b, members: es, count: es.count == b.members.count ? max(b.count, es.count) : es.count)
