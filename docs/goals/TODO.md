@@ -4299,7 +4299,7 @@ A whole row moves to DONE only after its remaining implementation and required a
     door's books); a list page stays no hub, no tag and no `member of` edge. **One answer for every view** (`list_pages.groups`): which
     lists a saved page is on, which page stands for each, and which members sit inside it — a member that earned a place by ruling
     81 (b)(ii)'s signs, now asked of every kind of saved item (`saved_posts.earned_saves`), is drawn outside its list, joined to it.
-    The graph, Clusters and Home read only that. The page writer ships behind `list_pages.ON = False` until the graph draws bubbles.
+    The graph, Clusters and Home read only that. The page writer is on (`list_pages.ON`, 2026-11-26) since the graph draws a list as one bubble (#930).
     YouTube's watch history makes no pages (one record a day), so it has no list.
     *Why:* his words; and the graph's clutter (about 5,000 of 9,500 pages are saved items) is solved in the drawing, not by removing pages.
     **Revisit on:** him saying he meant rows after all (`HIDE_POSTS = True` and the fixes kept in #917).

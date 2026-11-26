@@ -67,9 +67,9 @@ from api.services import (bank_index, decay_policy, demo_guard, git_service, id_
 from api.services.id_utils import sanitize_id
 
 #: **The switch** (owner 2026-11-25: "build the whole thing, and then we also do the page per thing"): list pages are written
-#: for every kind of list while every saved thing keeps its own page. ``False`` until the graph draws a list as one bubble;
+#: for every kind of list while every saved thing keeps its own page. On since the graph draws a list as one bubble (#930);
 #: :func:`groups` answers either way. ``saved_posts.HIDE_POSTS`` turns the writer on too, as it did before.
-ON = False
+ON = True
 
 
 def enabled() -> bool:
@@ -666,7 +666,7 @@ def line_for(memory_path: Path, entity_id: str, *, rows: bool = False) -> dict |
         head = (f"This page is a list of saved {kind.noun if kind else 'posts'} ({fm.get('name') or entity_id}): {count} saved"
                 + (f", newest {newest}" if newest else "")
                 + f". It holds no {kind.noun if kind else 'posts'} or facts of its own: the count and the rows are read from the person's saves each "
-                  "time, so find a post by its words in a search, never by this page's text.")
+                  "time, so find one by its words in a search, never by this page's text.")
         out = [head]
         if rows and got.get("recent"):
             out.append("Newest first: " + "; ".join(
@@ -722,11 +722,15 @@ def state(memory_path: Path) -> State:
     if not enabled():
         return _EMPTY
     slot = str(Path(memory_path))
-    g = groups(memory_path)
-    hit = _STATE.get(slot)
-    if hit is not None and hit[0] is g:
-        return hit[1]
-    out = _state_of(g)
+    try:
+        g = groups(memory_path)
+        hit = _STATE.get(slot)
+        if hit is not None and hit[0] is g:
+            return hit[1]
+        out = _state_of(g)
+    except Exception as exc:  # noqa: BLE001 - no list page drawn is the safe answer: a graph read never fails on it
+        logger.debug(f"list pages: state skipped ({type(exc).__name__})")
+        return _EMPTY
     _STATE[slot] = (g, out)
     return out
 
@@ -832,7 +836,7 @@ def _pages(memory_path: Path) -> dict[str, dict]:
 def _commit(memory_path: Path, rows: list[tuple[str, str]], *, trigger: str, author: str) -> None:
     paths = [p for p, _ in rows]
     message = git_service.build_commit_message(
-        f"Lists of saved posts {datetime.now(timezone.utc).date().isoformat()}",
+        f"Lists of saved things {datetime.now(timezone.utc).date().isoformat()}",
         [f"{p}: {action} (source: n/a, trigger: {trigger})" for p, action in rows], authors=[author])
     git_service.commit_paths_sync(memory_path, message, paths)
 

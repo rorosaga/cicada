@@ -174,6 +174,7 @@ def test_a_post_saved_through_any_door_is_a_row_on_one_list_that_counts_and_show
 
 @pytest.mark.parametrize("door", list(DOORS))
 def test_dark_no_door_changes_what_a_person_sees(door, reading, monkeypatch):
+    monkeypatch.setattr(list_pages, "ON", False)   # the writer's own switch off (on since ruling 81a): still dark
     server, memory = reading
     assert saved_posts.HIDE_POSTS is False
     url = STATUS.format(n=1000000000000000002)

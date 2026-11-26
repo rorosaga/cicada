@@ -101,7 +101,7 @@ sits inside it is one derived answer** (`list_pages.groups`, never stored): `lis
 a list exists before its page; `parent`, `count`, `newest`, `mark`, `kind_noun`, `has_page`, `members` newest first by the item's
 own saved date with an unknown date last, `inside`), `of_page` (most specific first) and `earned_of`; a member is outside its list
 when `saved_posts.earned_saves` says it earned a place (ruling 81 (b)(ii)'s signs, asked of every saved item, not only posts). The
-graph, Clusters and Home read only that. The writer ships behind `list_pages.ON = False` (or `HIDE_POSTS`).
+graph, Clusters and Home read only that. The writer is on (`list_pages.ON`, 2026-11-26, after the graph's bubbles, #930); `False` turns it off.
 `list_pages` is the **one writer**: `type: media`, `media: {kind: list, media_type: list}` (no link), `origin: list` (never a
 list's own origin, or the page would be a member of its own stream), an id `list-<stream>[--<folder slug>-<hash>]` (a pure function
 of the list, so two computers agree; never `media-`, which `inject_media_edges` and `link_enrichment` glob), `tags: []`, the list's
