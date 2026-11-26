@@ -81,14 +81,20 @@ def _normal(data: dict) -> dict:
 def _write(memory_path, data: dict) -> Path:
     p = Path(memory_path) / FILE
     out = _normal(data)
+    from api.services import settle_guard
+
+    settle_guard.writing(p)   # inside a Sleep settle: what the file holds now is its picture (a no-op anywhere else)
     if not out:
         p.unlink(missing_ok=True)
+        settle_guard.wrote(p, None)
         return p
     fd, tmp = tempfile.mkstemp(dir=str(p.parent), prefix=".same-name-doubts-")
     try:
+        text = yaml.safe_dump(out, allow_unicode=True, sort_keys=False)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(yaml.safe_dump(out, allow_unicode=True, sort_keys=False))
+            fh.write(text)
         os.replace(tmp, p)
+        settle_guard.wrote(p, text.encode("utf-8"))
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise

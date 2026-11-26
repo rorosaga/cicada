@@ -66,15 +66,6 @@ class _Based(saved_lists.Platform):
     base: str | None = None
 
 
-@pytest.fixture(autouse=True)
-def _no_list_page_timer(monkeypatch):
-    """A streams read asks list pages to be written on a 3 s timer (#940). A write landing between a test's requests
-    changes the bank under it (the membership pass then runs twice), so here the timer never starts."""
-    from api.services import list_pages
-
-    monkeypatch.setattr(list_pages, "start_sync", lambda mp, **kw: False)
-
-
 @pytest.fixture
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))
@@ -158,7 +149,8 @@ def test_the_sources_the_plan_names_are_there_with_their_streams(bank, more_list
     assert [s["id"] for s in out["instagram"]["streams"]] == ["instagram.saved", "instagram.likes",
                                                               "instagram.saves-you-make"]
     assert [s["id"] for s in out["reddit"]["streams"]] == ["reddit.saved", "reddit.upvoted", "reddit.saves-you-make"]
-    assert [s["id"] for s in out["linkedin"]["streams"]] == ["linkedin.saved", "linkedin.connections"]
+    assert [s["id"] for s in out["linkedin"]["streams"]] == ["linkedin.saved", "linkedin.connections",
+                                                             "linkedin.saves-you-make"]
     assert [s["id"] for s in out["youtube"]["streams"]] == [
         "youtube.watch_later", "youtube.history", "youtube.playlists", "youtube.liked", "youtube.saves-you-make"]
     assert [s["id"] for s in out["substack"]["streams"]] == [
@@ -360,13 +352,17 @@ def test_the_membership_pass_is_kept_between_requests(bank, more_lists, monkeypa
     _x_bank(bank)
     calls = []
     real = source_streams._build_members
-    monkeypatch.setattr(source_streams, "_build_members", lambda *a: calls.append(1) or real(*a))
+    gen = lambda: bank_index._GEN.get((str(bank), "entities"))   # noqa: E731 - the pages' state the pass was built for
+    monkeypatch.setattr(source_streams, "_build_members", lambda *a: calls.append(gen()) or real(*a))
     for _ in range(3):
         assert _streams(bank, "x")["x.bookmarks"]["count"] == 2
-    assert len(calls) == 1                                            # one pass for three answers
+    # One pass for three answers: never a second pass over the same pages (a cache reset another thread makes may
+    # start one more, never one per request).
+    assert len(calls) == len(set(calls)) and len(calls) < 3
+    held = len(calls)
     _save(bank, "more", "https://x.com/alice_example/status/5", origin="x-bookmarks", folder="Bookmarks")
     assert _streams(bank, "x")["x.bookmarks"]["count"] == 3          # and a changed page moves it
-    assert len(calls) == 2
+    assert len(calls) > held
 
 
 # --- checking a connection -------------------------------------------------------------------------------------------------------

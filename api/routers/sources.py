@@ -822,6 +822,77 @@ async def change_site_item(request: SiteSaveRequest, settings: Settings = Depend
     return SiteChangeResponse(direction="saved", save=await save_site_item(request, settings))
 
 
+class SiteWordsRequest(BaseModel):
+    """A save click on a post its page names by no link (LinkedIn's feed), noticed by the app (G221, ruling 77e)."""
+    #: The site's key (``site_later.SITES``).
+    site: str = Field(..., min_length=1, max_length=20)
+    #: What the post's own block showed the person, one run of text a line: a preview of the post and its header,
+    #: never the person's words.
+    words: str = Field(..., min_length=1, max_length=8000)
+
+
+@router.post("/sources/site-words", response_model=SiteChangeResponse, dependencies=_DEMO_GATE)
+async def words_site_item(request: SiteWordsRequest, settings: Settings = Depends(get_settings)) -> SiteChangeResponse:
+    """G221 (ruling 77e, owner 2026-11-25: "make sure the saves work in all apps (linkedin, instagram, etcetc)") — the
+    person clicked the save item of a post's menu on a page that names the post by no link (LinkedIn's feed), and the
+    app read the words the post's block showed. The post is named by those words (``site_later``).
+
+    A post Cicada holds whose own first words are among them is that post: the click is settled as
+    ``POST /sources/site-change`` settles it, by its link (held as on the list: taken off; else saved again). Any
+    other post was just saved and has no link yet: nothing is written into the bank, the moment is held outside it,
+    and the answer's ``save`` carries a placeholder address the notch's answer is posted against
+    (``POST /sources/saved-why``); the next read of the site's saved list names the post and attaches that answer.
+    The same words clicked again while held take the save back (``direction: unsaved``). The direction is the
+    record's word, never the page's: a post saved somewhere else since the list was last read, or held with no words
+    of its own, and taken off the list now is read as a save. 422 for a site whose pages name their posts, or for too
+    few words to name one; 409 in a demo bank."""
+    from api.services import episode_ids, saved_lists, site_later
+
+    if request.site not in site_later.SITES:
+        raise HTTPException(status_code=422, detail="That site's pages name their posts by a link.")
+    words = await run_in_threadpool(site_later.clean, request.words)
+    if len(site_later.fold(words)) < site_later.MIN_HELD_FOLD:
+        raise HTTPException(status_code=422, detail="Too few words to name a post.")
+    memory_path = Path(settings.memory_path)
+    held = await run_in_threadpool(site_later.held_url, memory_path, request.site, words)
+    if held is not None:
+        return await change_site_item(SiteSaveRequest(site=request.site, url=held), settings)
+    entry, taken_back = await run_in_threadpool(site_later.hold, memory_path, request.site, words)
+    address = site_later.later_url(request.site, entry["key"])
+    if taken_back:
+        return SiteChangeResponse(direction="unsaved", unsave=SiteUnsaveResponse(status="unknown", url=address))
+    platform = saved_lists.PLATFORMS[request.site]
+    return SiteChangeResponse(direction="saved", save=SiteSaveResponse(
+        status="created", url=address, title=site_later.title_of(words, request.site), origin=platform.origin,
+        episodeId="", mediaEntityId="", addedAt=entry.get("at") or episode_ids.utc_now_seconds()))
+
+
+def _later_answer(memory_path, request, *, editing: bool) -> SavedWhyResponse | None:
+    """The answer to a save held by its words (``site_later``): kept beside it, outside the bank, until the site's
+    list names the post. ``None`` when the address is an ordinary saved link's."""
+    from api.services import episode_ids, saved_lists, site_later
+
+    named = site_later.key_of(request.url)
+    if named is None:
+        return None
+    site, key = named
+    answer = saved_why.validate(memory_path, reasons=request.reasons, project=request.project, text=request.text,
+                                editing=editing)
+    at = request.at if editing else (saved_why.client_at(request.at) or episode_ids.utc_now_seconds())
+    record = saved_why._record(answer, at=at, added_at=None if editing else request.added_at,
+                               via=saved_why.via_of(request.via))
+    if editing:
+        record["edited_at"] = episode_ids.utc_now_seconds()
+    answers = site_later.answer(Path(memory_path), key, record, replacing=request.at if editing else None)
+    if answers is None:
+        raise saved_why.SavedWhyError(404, "That link isn't saved yet")
+    # The list is what names the post: ask for it to be read at the agent's next chance.
+    saved_lists.request_check(Path(memory_path), site)
+    return SavedWhyResponse(episode_id="", media_entity_id="", saved_why=SavedWhyRecord.model_validate(
+        saved_why.wire(record, added_at=None)), history=[SavedWhyRecord.model_validate(h) for h in
+                                                         saved_why.history_wire(answers, added_at=None)])
+
+
 @router.get("/sources/saved-why/options", response_model=SavedWhyOptions)
 async def saved_why_options(settings: Settings = Depends(get_settings)) -> SavedWhyOptions:
     """G191 — the one-tap answers to "What made you save this?": the four fixed reasons (v4), the bank the panel
@@ -851,6 +922,9 @@ async def save_why(request: SavedWhyRequest, settings: Settings = Depends(get_se
     naive, in the future or more than a day old."""
     memory_path = settings.memory_path
     try:
+        later = await run_in_threadpool(_later_answer, memory_path, request, editing=False)
+        if later is not None:
+            return later   # a save held by its words (G221, ruling 77e): outside the bank until its list names it
         answer = saved_why.validate(memory_path, reasons=request.reasons, project=request.project, text=request.text)
         said_at = saved_why.client_at(request.at)
         via = saved_why.via_of(request.via)
@@ -893,6 +967,9 @@ async def edit_saved_why(request: SavedWhyEditRequest, settings: Settings = Depe
     holds the pages."""
     memory_path = settings.memory_path
     try:
+        later = await run_in_threadpool(_later_answer, memory_path, request, editing=True)
+        if later is not None:
+            return later
         answer = saved_why.validate(memory_path, reasons=request.reasons, project=request.project, text=request.text,
                                     editing=True)
         via = saved_why.via_of(request.via)

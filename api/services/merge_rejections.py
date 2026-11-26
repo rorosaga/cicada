@@ -62,7 +62,12 @@ def _write(memory_path: Path, data: dict) -> Path:
     for key, value in data.items():   # anything another writer keeps here stays
         if key not in out and key not in ("rejected", SPLIT_KEY):
             out[key] = value
-    p.write_text(yaml.safe_dump(out, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    text = yaml.safe_dump(out, allow_unicode=True, sort_keys=False)
+    from api.services import settle_guard
+
+    settle_guard.writing(p)   # inside a Sleep settle: what the file holds now is its picture (a no-op anywhere else)
+    p.write_text(text, encoding="utf-8")
+    settle_guard.wrote(p, text.encode("utf-8"))
     return p
 
 
