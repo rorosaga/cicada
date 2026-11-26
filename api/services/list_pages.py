@@ -673,7 +673,7 @@ def line_for(memory_path: Path, entity_id: str, *, rows: bool = False) -> dict |
                 f"{r.get('title') or '(untitled)'}" + (f" ({r['posted'] if r.get('posted') else r.get('saved')})"
                                                        if r.get("posted") or r.get("saved") else "")
                 for r in got["recent"]) + ".")
-        return {"words": " ".join(out), "count": count, "newest": newest}
+        return {"words": " ".join(out), "count": count, "newest": newest, "noun": kind.noun if kind else "posts"}
     except Exception as exc:  # noqa: BLE001 - a derived line never fails a read
         logger.debug(f"list pages: line skipped ({type(exc).__name__})")
         return None
