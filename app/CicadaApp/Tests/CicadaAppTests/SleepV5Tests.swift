@@ -616,35 +616,11 @@ final class SleepV5ProgressBarTests: XCTestCase {
     }
 }
 
-// MARK: - The strip
+// MARK: - The batch's failure note
 
 final class SleepV5StagesTests: XCTestCase {
-    private func stages(sort: (Int, Int?), decide: (Int, Int?)) -> [SleepDrainInfo.Stage] {
-        [.init(id: "read", done: 25, total: 25, state: "done"),
-         .init(id: "sort", done: sort.0, total: sort.1, state: "active"),
-         .init(id: "decide", done: decide.0, total: decide.1),
-         .init(id: "notice"), .init(id: "file")]
-    }
-
-    func test_sortAndDecideFillOnlyFromAFixedTotal() {
-        let pips = stageStripState(stage: 1, isRunning: true, cancelled: false, error: false, read: 25, total: 25,
-                                   stages: stages(sort: (31, 86), decide: (0, nil)))
-        XCTAssertEqual(pips[1], .active(fill: 31.0 / 86.0))
-        let unknown = stageStripState(stage: 1, isRunning: true, cancelled: false, error: false, read: 25, total: 25,
-                                      stages: stages(sort: (3, nil), decide: (0, nil)))
-        XCTAssertEqual(unknown[1], .active(fill: nil), "no total, no fraction")
-    }
-
-    func test_noticeAndFileNeverCarryAFraction() {
-        for stage in [3, 4] {
-            let pips = stageStripState(stage: stage, isRunning: true, cancelled: false, error: false, read: 25,
-                                       total: 25, stages: stages(sort: (86, 86), decide: (12, 12)))
-            XCTAssertEqual(pips[stage], .active(fill: nil))
-        }
-    }
-
     /// The stage caption retired (2026-10-16): its words repeated the lead ("Filing…" / "Filing. It cannot be stopped
-    /// now."). What only it said — conversations in the batch that could not be read — stays, under the stepper.
+    /// now."). What only it said — conversations in the batch that could not be read — stays, as the run object's caution note.
     func test_onlyTheBatchFailureOutlivesTheStageCaption() throws {
         var d = try JSONDecoder().decode(SleepDrainInfo.self, from: Data(#"{"frozen":287,"active":true}"#.utf8))
         d.batchState = .init(index: 3, of: 12, total: 25, read: 24, reading: 0, failed: 1)
@@ -653,6 +629,9 @@ final class SleepV5StagesTests: XCTestCase {
         XCTAssertEqual(batchFailureNote(drain: d, activeStage: 2, locale: V5Fixture.en),
                        "1 could not be read, it gets one more try")
         for stage in [3, 4, 5] { XCTAssertNil(batchFailureNote(drain: d, activeStage: stage, locale: V5Fixture.en)) }
+        d.batchState = .init(index: 3, of: 12, total: 25, read: 23, reading: 0, failed: 2)
+        XCTAssertEqual(batchFailureNote(drain: d, activeStage: 1, locale: V5Fixture.en),
+                       "2 could not be read, they get one more try", "the words agree with the count")
         d.batchState = .init(index: 3, of: 12, total: 25, read: 24, reading: 0, failed: 0)
         XCTAssertNil(batchFailureNote(drain: d, activeStage: 1, locale: V5Fixture.en), "nothing failed, nothing said")
         d.active = false

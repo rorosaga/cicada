@@ -273,13 +273,6 @@ final class RoomSentenceTests: XCTestCase {
                        "The lamp is off — I read when you ask.")
     }
 
-    /// R-HS9 — the caption is what Cancel does while a cycle runs, and nothing otherwise: the
-    /// engine menu beside the control names what a click would run.
-    func test_controlCaption() {
-        XCTAssertNil(controlCaption(isRunning: false), "R-HS9 — the engine menu names the engine")
-        XCTAssertEqual(controlCaption(isRunning: true), Copy.cancelCaption)
-    }
-
     /// R-Z5 — the bubble is retired from the page.
     func test_theSpeechBubbleIsGone() throws {
         for file in try SleepNumbersLintTests.sleepSources() {

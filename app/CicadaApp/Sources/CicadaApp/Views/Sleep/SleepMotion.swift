@@ -8,7 +8,7 @@ enum SleepMotion {
     static let maxDuration: TimeInterval = CicadaMotion.maxDuration
 
     /// A value-driven bar easing between two readings — the hero meter's
-    /// blocks and the stage strip's Read fill. Short enough that a live cycle
+    /// blocks and the run object's bar. Short enough that a live cycle
     /// reads as *moving*, never as *drifting*.
     static let settleDuration: TimeInterval = CicadaMotion.settleDuration
 
@@ -46,7 +46,7 @@ enum SleepMotion {
     /// besides the cheer) — at the ceiling, never above it.
     static let weatherDuration: TimeInterval = 0.4
 
-    // 2026-10-16 — the stepper's live dot.
+    // 2026-10-16 — the live dot (the run object's, since the stepper retired on 2026-11-26).
 
     /// Half of the current stage's breath (`SleepStages.pulsePeriod`): the layer fades down over this long and back up
     /// over this long (`LiveDot.breath`), so one whole breath is the named period.

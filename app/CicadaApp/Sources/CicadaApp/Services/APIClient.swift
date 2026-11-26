@@ -1056,6 +1056,10 @@ struct SleepStatusResponse: Codable {
     let startedAt: String?
     let progress: String?
     let error: String?
+    /// 2026-11-26 — a calm notice that is not an error: a scheduled run the write window refused before it read
+    /// anything. The backend owns its words; `nil` while a run is live, whenever `error` is set (a real error wins)
+    /// and on an older backend. Never read as a failure.
+    let notice: SleepStatusNotice?
     let indexWarning: String?
     let stage: Int
     let totalStages: Int
@@ -1118,7 +1122,7 @@ struct SleepStatusResponse: Codable {
 
     enum CodingKeys: String, CodingKey {
         case drain, writing, paused, lastFinishedCycle
-        case status, cycleId, startedAt, progress, error, indexWarning, stage, totalStages
+        case status, cycleId, startedAt, progress, error, notice, indexWarning, stage, totalStages
         case episodesTotal, entitiesCreated, entitiesUpdated
         case relationshipsCreated, skillsDetected
         case lastEngine, engineDetail
@@ -1133,6 +1137,7 @@ struct SleepStatusResponse: Codable {
         startedAt = try c.decodeIfPresent(String.self, forKey: .startedAt)
         progress = try c.decodeIfPresent(String.self, forKey: .progress)
         error = try c.decodeIfPresent(String.self, forKey: .error)
+        notice = (try? c.decodeIfPresent(SleepStatusNotice.self, forKey: .notice)) ?? nil
         indexWarning = try c.decodeIfPresent(String.self, forKey: .indexWarning)
         stage = try c.decodeIfPresent(Int.self, forKey: .stage) ?? 0
         totalStages = try c.decodeIfPresent(Int.self, forKey: .totalStages) ?? 5
@@ -1158,6 +1163,38 @@ struct SleepStatusResponse: Codable {
         reportsLastFinishedCycle = c.contains(.lastFinishedCycle)
         lastFinishedCycle = (try? c.decodeIfPresent(LastFinishedCycle.self, forKey: .lastFinishedCycle)) ?? nil
     }
+}
+
+/// `SleepStatusResponse.notice` (2026-11-26): something the page says calmly that is not a failure — today a scheduled
+/// run the write window refused before it read, so nothing was read, used or broken. `text` is the one line the page
+/// shows; `detail` is the full sentence (its help and VoiceOver hint). Every field but `text` decodes leniently.
+struct SleepStatusNotice: Codable, Equatable {
+    var kind: String
+    var text: String
+    var detail: String
+    /// The next try, an aware local ISO time; `nil` once every try was spent.
+    var retryAt: String?
+    var tries: Int
+    var maxTries: Int
+    var gaveUp: Bool
+
+    init(kind: String = "scheduled_run_refused", text: String, detail: String? = nil, retryAt: String? = nil,
+         tries: Int = 0, maxTries: Int = 0, gaveUp: Bool = false) {
+        self.kind = kind; self.text = text; self.detail = detail ?? text; self.retryAt = retryAt
+        self.tries = tries; self.maxTries = maxTries; self.gaveUp = gaveUp
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        text = try c.decode(String.self, forKey: .text)
+        kind = (try? c.decodeIfPresent(String.self, forKey: .kind)) ?? ""
+        detail = ((try? c.decodeIfPresent(String.self, forKey: .detail)) ?? nil) ?? text
+        retryAt = (try? c.decodeIfPresent(String.self, forKey: .retryAt)) ?? nil
+        tries = (try? c.decodeIfPresent(Int.self, forKey: .tries)) ?? 0
+        maxTries = (try? c.decodeIfPresent(Int.self, forKey: .maxTries)) ?? 0
+        gaveUp = (try? c.decodeIfPresent(Bool.self, forKey: .gaveUp)) ?? false
+    }
+    enum CodingKeys: String, CodingKey { case kind, text, detail, retryAt, tries, maxTries, gaveUp }
 }
 
 /// `SleepStatusResponse.lastFinishedCycle` — ids, numbers and enums. `drainId` names the run when the cycle was one;

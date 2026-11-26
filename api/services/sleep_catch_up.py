@@ -51,7 +51,8 @@ pause, ``user_triggered=False``, ruling 4 untouched): at most ``MAX_TRIES`` atte
 ``RETRY_AFTER`` after the last refusal (10 min, 30 min, then 90 min — a stuck writer is not hammered), and none after
 ``RETRY_WINDOW`` from the first, so it stays one night's run. A run that opens the window clears the record, which is
 also what ends the retries on success (``clear_refused``); a pause, or nothing readable, clears it too. While a record
-stands the status says so in the backend's words (``refusal_notice``), including when every try was refused.
+stands the status carries it as a calm ``notice`` — never as the run's ``error`` (``refusal``: a one-line text, the full
+``detail``, when the next try is) — including when every try was refused.
 """
 from __future__ import annotations
 
@@ -239,30 +240,86 @@ def retry_due(memory_path, now: datetime) -> datetime | None:
     return _parse(rec["for"])
 
 
-def refusal_notice(memory_path, *, now: datetime | None = None) -> str | None:
-    """What the Sleep page says while a scheduled run stands refused, in words: what happened, and what happens next.
-    ``None`` when nothing stands refused (or the bank no longer has a scheduled run to retry). The page presents it;
-    it is never stored as a sentence, only derived from the record."""
+#: The ``kind`` of the one notice the status carries today; a client that does not know a kind shows its ``text`` as is.
+NOTICE_KIND = "scheduled_run_refused"
+
+
+def _run_label(due: datetime, now: datetime) -> str:
+    """Which run it was, in the words a person uses, and only when that is true: a run from the small hours or the
+    evening within the last day is "last night's"; otherwise today's, yesterday's, or the day by name."""
+    due, now = due.astimezone(), now.astimezone()
+    hhmm = due.strftime("%H:%M")
+    if now - due < timedelta(hours=18) and (due.hour < 6 or due.hour >= 20):
+        return f"Last night's {hhmm} run"
+    days = (now.date() - due.date()).days
+    if days == 0:
+        return f"Today's {hhmm} run"
+    if days == 1:
+        return f"Yesterday's {hhmm} run"
+    return f"The {due.strftime('%b')} {due.day} {hhmm} run"
+
+
+def _next_scheduled_words(memory_path, now: datetime) -> str:
+    """When the schedule runs next, in words: its time when that is within a day, else only that it will."""
+    try:
+        from api.services import sleep_scheduler
+
+        raw = sleep_scheduler.next_run_at(Path(memory_path), now.astimezone().replace(tzinfo=None))
+        nxt = datetime.fromisoformat(raw) if raw else None
+        if nxt is not None:
+            local = nxt if nxt.tzinfo else nxt.astimezone()
+            if timedelta(0) < local - now <= timedelta(hours=24):
+                return f"at {_local_hhmm(local)}"
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"next scheduled time not read: {type(e).__name__}")
+    return "at its next scheduled time"
+
+
+def refusal(memory_path, *, now: datetime | None = None) -> dict | None:
+    """What the Sleep page says while a scheduled run stands refused, as data: ``kind``, a one-line ``text`` for the
+    page, the full ``detail`` (what happened, that nothing was read or used), when the next try is (``retry_at``, local
+    ISO, ``None`` once it gave up), how many tries it had (``tries`` of ``max_tries``) and ``gave_up``. ``None`` when
+    nothing stands refused (or the bank no longer has a scheduled run to retry). A refusal read nothing and spent
+    nothing: it is a notice, never an error, and it is never stored as a sentence, only derived from the record."""
     try:
         from api.services import sleep_scheduler
 
         rec = _refusal(memory_path)
         if rec is None or fingerprint(sleep_scheduler.load_schedule(Path(memory_path))) is None:
             return None
-        now = now or _now()
-        due = _parse(rec["for"])
-        when = f"{due.astimezone().strftime('%b')} {due.astimezone().day} at {_local_hhmm(due)}"
+        now = (now or _now()).astimezone()
+        due = _parse(rec["for"]).astimezone()
+        when = f"{due.strftime('%b')} {due.day} at {_local_hhmm(due)}"
         tries = rec["tries"]
         base = (f"The scheduled run for {when} did not start: something was still writing to your memory, so Sleep "
                 "read nothing and used nothing.")
+        label = _run_label(due, now)
         if _may_retry(rec, now):
-            nxt = _parse(rec["last_at"]) + RETRY_AFTER[min(tries, len(RETRY_AFTER)) - 1]
-            return f"{base} It will try again after {_local_hhmm(max(nxt, now))} (try {tries + 1} of {MAX_TRIES})."
-        return (f"{base} It tried {tries} time{'s' if tries != 1 else ''} and stopped; it will run at its next "
-                "scheduled time, or you can start it yourself.")
+            nxt = max(_parse(rec["last_at"]) + RETRY_AFTER[min(tries, len(RETRY_AFTER)) - 1], now)
+            return {
+                "kind": NOTICE_KIND,
+                "text": f"{label} hasn't started yet. Next try after {_local_hhmm(nxt)}.",
+                "detail": f"{base} It will try again after {_local_hhmm(nxt)} (try {tries + 1} of {MAX_TRIES}).",
+                "retry_at": nxt.astimezone().isoformat(timespec="seconds"),
+                "tries": tries, "max_tries": MAX_TRIES, "gave_up": False,
+            }
+        return {
+            "kind": NOTICE_KIND,
+            "text": f"{label} didn't start. It runs again {_next_scheduled_words(memory_path, now)}.",
+            "detail": (f"{base} It tried {tries} time{'s' if tries != 1 else ''} and stopped; it will run at its next "
+                       "scheduled time, or you can start it yourself."),
+            "retry_at": None,
+            "tries": tries, "max_tries": MAX_TRIES, "gave_up": True,
+        }
     except Exception as e:  # noqa: BLE001 - a status read never fails on this
         logger.debug(f"refusal notice not built: {type(e).__name__}")
         return None
+
+
+def refusal_notice(memory_path, *, now: datetime | None = None) -> str | None:
+    """The full sentence of ``refusal`` (its ``detail``): the notice's ``.help`` and VoiceOver hint, never its line."""
+    notice = refusal(memory_path, now=now)
+    return notice["detail"] if notice else None
 
 
 async def _latest_run(memory_path) -> datetime | None:

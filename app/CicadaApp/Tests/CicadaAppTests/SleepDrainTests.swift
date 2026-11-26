@@ -128,10 +128,7 @@ final class SleepDrainTests: XCTestCase {
     // MARK: Cancel and the bank switch
 
     func test_cancelDoesNotPromiseToStopAfterTheBatchOrThatNothingIsLost() {
-        XCTAssertNil(controlCaption(isRunning: false, draining: true))
-        XCTAssertEqual(controlCaption(isRunning: true, draining: true), Copy.cancelDrainCaption)
-        XCTAssertEqual(controlCaption(isRunning: true), Copy.cancelCaption)
-        for text in [Copy.cancelDrainCaption, Copy.cancelDrainExplainer] {
+        for text in [Copy.cancelDrainExplainer] {
             XCTAssertFalse(text.localizedCaseInsensitiveContains("after this batch"), text)
             XCTAssertFalse(text.localizedCaseInsensitiveContains("nothing is lost"), text)
         }

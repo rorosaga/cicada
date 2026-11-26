@@ -246,14 +246,15 @@ def _remembered_embedding_problem(state, settings: Settings) -> str | None:
     return embedding_health.sentence(problem["kind"]) if problem else None
 
 
-def _remembered_refusal(state, settings: Settings) -> str | None:
-    """A scheduled run the write window refused before it read, said in words until a run reads. It lives in the
-    machine-local schedule stamps, so it survives a restart and an idle morning (`sleep_catch_up.refusal_notice`)."""
-    if state.status == "running":
+def _remembered_refusal(state, settings: Settings) -> dict | None:
+    """A scheduled run the write window refused before it read, said as a calm `notice` until a run reads — never as
+    `error`: nothing was read or used. It lives in the machine-local schedule stamps, so it survives a restart and an
+    idle morning (`sleep_catch_up.refusal`). A live run and a real error both come first."""
+    if state.status == "running" or state.error:
         return None
     from api.services import sleep_catch_up
 
-    return sleep_catch_up.refusal_notice(settings.memory_path)
+    return sleep_catch_up.refusal(settings.memory_path)
 
 
 def _tidy_running() -> bool:
@@ -279,7 +280,8 @@ async def sleep_status(settings: Settings = Depends(get_settings)):
         cycle_id=state.cycle_id,
         started_at=state.started_at,
         progress=state.progress,
-        error=state.error or _remembered_refusal(state, settings),
+        error=state.error,
+        notice=_remembered_refusal(state, settings),
         index_warning=state.index_warning or _remembered_embedding_problem(state, settings),
         stage=state.stage,
         total_stages=state.total_stages,
