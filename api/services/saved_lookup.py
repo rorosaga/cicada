@@ -107,11 +107,19 @@ def page_hit(memory_path: Path, ref: str) -> Hit | None:
     return Hit(
         id=ref, title=str(fm.get("name") or ref), url=str(media.get("url") or "") or None,
         site=str(media.get("site") or "") or None,
-        day=str(fm.get("saved_at") or media.get("saved_at") or fm.get("created") or "")[:10] or None,
+        day=_local_day(fm.get("saved_at") or media.get("saved_at") or fm.get("created")),
         about=_about(entry.body()), page=ref, episode=episodes[0] if episodes else None,
         # Ruling 80: a save is read once Sleep or an agent read it; waiting for tonight, waiting its turn or holding
         # nothing to read, it is not, whatever its stored kind. A page several saves made is read when all are.
         read=not unread, state=unread[0] if unread else "read")
+
+
+def _local_day(raw) -> str | None:
+    """The person's own day of a stored stamp (a UTC instant read in this machine's zone; a bare day kept)."""
+    from api.services import episode_ids
+
+    d = episode_ids.local_day(raw) if raw else None
+    return d.isoformat() if d else None
 
 
 def _unread_state(fm: dict | None) -> str:
@@ -129,7 +137,7 @@ def _episode_hit(memory_path: Path, ref: str) -> Hit | None:
     if not history_index.is_pageless_save(fm) or fm.get("source_deleted_at"):
         return None
     return Hit(id=ref, title=str(fm.get("title") or ref), url=str(fm.get("url") or "") or None, site=None,
-               day=str(fm.get("timestamp") or "")[:10] or None, about="", page=None, episode=ref,
+               day=_local_day(fm.get("timestamp")), about="", page=None, episode=ref,
                read=history_index.save_state(fm) == "read", state=history_index.save_state(fm) or "")
 
 
