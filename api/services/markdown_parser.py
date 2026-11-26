@@ -444,7 +444,11 @@ def write(filepath: Path, frontmatter: dict, body: str) -> None:
             _replace(claims_ledger.path_for(filepath), before)
     _replace(filepath, _render(frontmatter, body))
     if after == b"":   # the writer kept no line in the ledger: the page holds them all now
+        from api.services import settle_guard
+
+        settle_guard.writing(claims_ledger.path_for(filepath))
         _unlink_quietly(str(claims_ledger.path_for(filepath)))
+        settle_guard.wrote(claims_ledger.path_for(filepath), None)
         _wrote()
     elif after:
         _replace(claims_ledger.path_for(filepath), after)
@@ -464,6 +468,9 @@ def _replace(filepath: Path, data: bytes) -> tuple[int, int, int]:
     _forget(filepath)
     if target != Path(filepath):
         _forget(target)
+    from api.services import settle_guard
+
+    settle_guard.writing(target)   # inside a Sleep settle: the page as it is now is its picture (a no-op anywhere else)
     tmp = _stage(target, data)
     _wrote()
     try:
@@ -473,6 +480,7 @@ def _replace(filepath: Path, data: bytes) -> tuple[int, int, int]:
             pass
         st = os.stat(tmp)
         os.replace(tmp, target)
+        settle_guard.wrote(target, data)
     except BaseException:
         _unlink_quietly(tmp)
         raise
@@ -500,10 +508,14 @@ def write_new(filepath: Path, frontmatter: dict, body: str) -> None:
     target = Path(filepath)
     data = _render(frontmatter, _person_page_body(target, frontmatter, body))
     _forget(target)
+    from api.services import settle_guard
+
+    settle_guard.writing(target)
     tmp = _stage(target, data)
     _wrote()
     try:
         os.link(tmp, target)
+        settle_guard.wrote(target, data)
     except FileExistsError:
         raise
     except OSError as exc:

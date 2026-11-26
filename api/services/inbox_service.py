@@ -881,8 +881,10 @@ async def _git_move(memory_path: Path, src: Path, dst: Path) -> None:
     untracked). The trailing ``commit_resolution`` runs ``git add -A`` either
     way, so the move is captured in the commit regardless of path taken.
     """
-    from api.services import git_service
+    from api.services import git_service, settle_guard
 
+    settle_guard.writing(src)   # inside a Sleep settle: both paths as they are now are their pictures (`settle_guard`)
+    settle_guard.writing(dst)
     try:
         await git_service._run_git(
             memory_path, "mv", "-f", str(src), str(dst)
@@ -899,8 +901,9 @@ async def _git_move(memory_path: Path, src: Path, dst: Path) -> None:
 
 async def _git_remove(memory_path: Path, target: Path) -> None:
     """Remove ``target`` via ``git rm`` (filesystem fallback when untracked)."""
-    from api.services import git_service
+    from api.services import git_service, settle_guard
 
+    settle_guard.writing(target)
     try:
         await git_service._run_git(memory_path, "rm", "-f", str(target))
     except Exception:

@@ -61,12 +61,16 @@ class _Refused(git_service.GitError):
     pass
 
 
+_REAL_GIT = git_service._git_sync
 _REAL_COMMIT = git_service.commit_touched_sync
 
 
 def _refuse(how: str, bank: Path, monkeypatch) -> None:
     if how == "stub":
-        def boom(*args, **kwargs):
+        # The commit is refused as it starts: it has said which paths it takes (as the real one does first) and git has
+        # staged and committed nothing.
+        def boom(memory_path, message, paths, **kwargs):
+            git_service._report_to_settle(memory_path, git_service._with_ledgers(memory_path, list(paths)))
             raise _Refused("the commit failed")
 
         monkeypatch.setattr(git_service, "commit_touched_sync", boom)
@@ -252,7 +256,7 @@ def test_an_unsaved_edit_committed_apart_before_the_refusal_keeps_its_own_bytes(
 def test_a_failed_filing_is_not_swept_into_the_next_writers_commit(memory, monkeypatch):
     """The defect: the next writer's commit carried the half-settle in under its own name."""
     settle, _written, _paths = _retirement(memory)
-    monkeypatch.setattr(git_service, "commit_touched_sync", lambda *a, **k: (_ for _ in ()).throw(_Refused("no")))
+    _refuse("stub", memory, monkeypatch)
     assert not settle()
     _allow(memory, monkeypatch)
     assert git_service.commit_changes_sync(memory, "A later writer") is None, "there is nothing of the failed settle to sweep in"
@@ -311,23 +315,249 @@ def test_a_settle_that_commits_is_the_commit_it_always_was(family, request):
 # --------------------------------------------------------------------------- the mechanism itself
 
 
-def test_the_picture_puts_back_exactly_and_touches_nothing_outside_its_scope(memory):
+def _wrote(mark, path: Path, data: bytes | None) -> None:
+    """What a writer of a settle does around its write: say it is about to, write, say what it left."""
+    settle_guard.writing(path)
+    if data is None:
+        path.unlink()
+    else:
+        path.write_bytes(data)
+    settle_guard.wrote(path, data)
+
+
+def test_the_picture_puts_back_what_the_settle_wrote_and_touches_nothing_outside_its_scope(memory):
     page = memory / "entities" / "owner-example.md"
     page.write_bytes(page.read_bytes() + b"\nmine\n")
+    mine = page.read_bytes()
     mark = settle_guard.take(memory)
-    page.write_bytes(b"the settle's version\n")
-    new = memory / "entities" / "new-page.md"
-    new.write_bytes(b"a file the settle made\n")
-    git_gone = memory / "entities" / "owner-example.claims.jsonl"
-    git_gone.write_bytes(b"{}\n")
+    with settle_guard.activate(mark):
+        _wrote(mark, page, b"the settle's version\n")
+        new = memory / "entities" / "new-page.md"
+        _wrote(mark, new, b"a file the settle made\n")
+        ledger = memory / "entities" / "owner-example.claims.jsonl"
+        _wrote(mark, ledger, b"{}\n")
+        _git(memory, "add", "entities/new-page.md")
     capture = memory / "episodes" / "ep_2026-11-26_001.md"
     capture.write_bytes(b"a conversation captured while the settle ran\n")
-    _git(memory, "add", "entities/new-page.md")
     assert settle_guard.put_back(mark) == 0
-    assert page.read_bytes().endswith(b"\nmine\n") and b"settle's version" not in page.read_bytes()
-    assert not new.exists() and not git_gone.exists()
+    assert page.read_bytes() == mine
+    assert not new.exists() and not ledger.exists()
     assert capture.read_bytes() == b"a conversation captured while the settle ran\n", "outside the scope: never touched"
     assert _git(memory, "diff", "--cached", "--name-only") == ""
+
+
+# --------------------------------------------------------------------------- 1. another writer's files are never touched
+
+
+def test_a_failed_settle_never_touches_what_another_writer_wrote_meanwhile(memory, monkeypatch):
+    """The reviewer's case 1: a source sync writes ``sync_state.json`` (no admission, no page lock), the person's answer to
+    another question writes a new inbox file and edits a page, while a settle runs and then fails. Only the settle's own
+    files go back."""
+    (memory / "sync_state.json").write_text('{"cursor": 1}\n')
+    (memory / "_state.md").write_text("cursor one\n")
+    settle, _written, _paths = _retirement(memory)
+    before = _state(memory)
+    theirs = {
+        "sync_state.json": b'{"cursor": 2}\n',
+        "_state.md": b"cursor two\n",
+        "inbox/inbox-099.md": b"---\nstatus: pending\n---\nAn answer another writer just wrote.\n",
+        "entities/owner-example.md": (memory / "entities" / "owner-example.md").read_bytes() + b"\nAnother writer's edit.\n",
+        "episodes/ep_2026-11-26_001.md": b"a capture landing meanwhile\n",
+    }
+
+    def boom(memory_path, message, paths, **kwargs):
+        git_service._report_to_settle(memory_path, git_service._with_ledgers(memory_path, list(paths)))
+        for rel, data in theirs.items():
+            (memory / rel).write_bytes(data)
+        raise _Refused("the commit failed")
+
+    monkeypatch.setattr(git_service, "commit_touched_sync", boom)
+    assert not settle()
+    for rel, data in theirs.items():
+        assert (memory / rel).read_bytes() == data, f"{rel} is another writer's: untouched"
+    assert (memory / "inbox" / "inbox-001.md").exists(), "the question is back"
+    assert not (memory / "inbox" / "settled" / "inbox-001.md").exists(), "and the settle's record is gone"
+    mine = {k: v for k, v in _tree(memory).items() if k not in theirs}
+    assert mine == {k: v for k, v in before[0].items() if k not in theirs}
+
+
+def test_a_path_another_writer_changed_after_the_settle_wrote_it_is_left_alone(memory, monkeypatch):
+    settle, _written, _paths = _retirement(memory)
+    record = memory / "inbox" / "settled" / "inbox-001.md"
+    rewritten = b"---\nstatus: pending\n---\nAnother writer replaced the settle's record.\n"
+
+    def boom(memory_path, message, paths, **kwargs):
+        git_service._report_to_settle(memory_path, git_service._with_ledgers(memory_path, list(paths)))
+        record.write_bytes(rewritten)
+        raise _Refused("the commit failed")
+
+    monkeypatch.setattr(git_service, "commit_touched_sync", boom)
+    assert not settle()
+    assert record.read_bytes() == rewritten, "its bytes are no longer what the settle left: not the settle's to put back"
+    assert (memory / "inbox" / "inbox-001.md").exists()
+
+
+def test_a_settle_that_fails_before_its_commit_puts_back_what_it_reported(memory, monkeypatch):
+    """The resolver raises before the commit says anything: the question's own removal and the record it wrote (through the
+    page writers' funnel) are the settle's, and nothing else is."""
+    settle, _written, _paths = _retirement(memory)
+    (memory / "sync_state.json").write_text("one\n")
+    before = _state(memory)
+
+    def boom(memory_path, message, paths, **kwargs):
+        (memory / "sync_state.json").write_text("two\n")
+        raise _Refused("the commit failed before it started")
+
+    monkeypatch.setattr(git_service, "commit_touched_sync", boom)
+    assert not settle()
+    after = _tree(memory)
+    assert after.pop("sync_state.json") == b"two\n"
+    expected = dict(before[0])
+    expected.pop("sync_state.json")
+    assert after == expected
+
+
+def test_a_path_the_commit_names_that_the_settle_did_not_write_is_never_put_back(memory):
+    page = memory / "entities" / "owner-example.md"
+    page.write_bytes(page.read_bytes() + b"\nthe person's unsaved edit\n")
+    mark = settle_guard.take(memory)
+    with settle_guard.activate(mark):
+        settle_guard.reported(memory, ["entities/owner-example.md", "sync_state.json", "episodes/ep_2026-11-26_001.md"])
+    other = page.read_bytes() + b"and one more\n"
+    page.write_bytes(other)
+    assert settle_guard.put_back(mark) == 0
+    assert page.read_bytes() == other, "equal to its picture when the commit named it: the settle never wrote it"
+    assert not mark.recs
+
+
+# --------------------------------------------------------------------------- 3. the index
+
+
+def test_a_path_staged_by_another_writer_has_its_staging_back_after_a_failed_settle(memory):
+    """The reviewer's case 2: another writer staged a page, the settle restaged different bytes and failed: the worktree and
+    the index hold the earlier writer's bytes, and nothing else in the index is touched."""
+    page = memory / "entities" / "owner-example.md"
+    page.write_bytes(b"---\nname: Staged by another writer\n---\nBody.\n")
+    _git(memory, "add", "entities/owner-example.md")
+    elsewhere = memory / "entities" / "elsewhere.md"
+    mark = settle_guard.take(memory)
+    with settle_guard.activate(mark):
+        _wrote(mark, page, b"the settle's bytes\n")
+        new = memory / "entities" / "settle-new.md"
+        _wrote(mark, new, b"a new page of the settle\n")
+        _git(memory, "add", "entities/owner-example.md", "entities/settle-new.md")
+        elsewhere.write_bytes(b"another writer's new page\n")
+        _git(memory, "add", "entities/elsewhere.md")   # staged by someone else after the picture
+    assert settle_guard.put_back(mark) == 0
+    assert page.read_bytes() == b"---\nname: Staged by another writer\n---\nBody.\n"
+    assert _git(memory, "show", ":entities/owner-example.md").startswith("---\nname: Staged by another writer")
+    assert not new.exists()
+    assert sorted(_git(memory, "diff", "--cached", "--name-only").split()) == ["entities/elsewhere.md", "entities/owner-example.md"]
+
+
+def test_a_staged_removal_before_the_settle_is_still_a_staged_removal_after_it(memory):
+    ti._entity(memory, "tool-b", type="tool", name="Tool B")
+    ti._commit(memory)
+    _git(memory, "rm", "-q", "entities/tool-b.md")
+    gone = memory / "entities" / "tool-b.md"
+    mark = settle_guard.take(memory)
+    with settle_guard.activate(mark):
+        _wrote(mark, gone, b"the settle brought it back\n")
+        _git(memory, "add", "entities/tool-b.md")
+    assert settle_guard.put_back(mark) == 0
+    assert not gone.exists()
+    assert _git(memory, "diff", "--cached", "--name-status").split() == ["D", "entities/tool-b.md"]
+
+
+# --------------------------------------------------------------------------- 4. modes
+
+
+def test_a_restored_file_has_the_mode_it_had(memory):
+    page = memory / "entities" / "owner-example.md"
+    page.write_bytes(page.read_bytes() + b"\nmine\n")
+    page.chmod(0o600)
+    mine = page.read_bytes()
+    removed = memory / "entities" / "removed-by-the-settle.md"
+    removed.write_bytes(b"a page\n")
+    removed.chmod(0o640)
+    ti._commit(memory)
+    removed.write_bytes(b"an unsaved edit\n")
+    mark = settle_guard.take(memory)
+    with settle_guard.activate(mark):
+        settle_guard.writing(page)
+        tmp = page.with_name(".replacement")
+        tmp.write_bytes(b"the settle's version\n")   # a new inode, the default mode: the writer lost the mode
+        tmp.replace(page)
+        settle_guard.wrote(page, b"the settle's version\n")
+        _wrote(mark, removed, None)
+    assert settle_guard.put_back(mark) == 0
+    assert page.read_bytes() == mine and page.stat().st_mode & 0o777 == 0o600
+    assert removed.read_bytes() == b"an unsaved edit\n" and removed.stat().st_mode & 0o777 == 0o640
+
+
+# --------------------------------------------------------------------------- 2. the normalization branch
+
+
+def _normalization(memory):
+    ti._entity(memory, "tool-a", type="tool")
+    ti._item(memory, "inbox-001", kind="normalization", entity_id="tool-a", raw_predicate="Built With",
+             canonical_predicate="built-with", claim_id="clm_x")
+    ti._commit(memory)
+    d, _ = ti._decide(memory, "inbox-001")
+    assert d.rule == "spelling_fold"
+    d.fingerprint = (memory / "inbox" / "inbox-001.md").read_bytes()
+    return d
+
+
+@pytest.mark.parametrize("how_it_ends", ["fails", "cancelled"])
+def test_a_normalization_settle_puts_back_on_a_worker_thread_and_after_the_resolver_is_done(memory, monkeypatch, how_it_ends):
+    """The restore is never on the event loop, and a task cancelled while the resolver's thread is still writing waits that
+    thread out (the page lock) before it puts anything back: the tree is whole once the task has ended."""
+    import threading
+
+    d = _normalization(memory)
+    before = _state(memory)
+    loop_thread = threading.current_thread()
+    seen: list[tuple[str, bool]] = []
+    for name in ("take", "put_back"):
+        real = getattr(settle_guard, name)
+
+        def spy(*args, _real=real, _name=name, **kwargs):
+            seen.append((_name, threading.current_thread() is loop_thread))
+            return _real(*args, **kwargs)
+
+        monkeypatch.setattr(settle_guard, name, spy)
+    entered, release = threading.Event(), threading.Event()
+
+    def slow_refusal(memory_path, message, paths, **kwargs):
+        git_service._report_to_settle(memory_path, git_service._with_ledgers(memory_path, list(paths)))
+        entered.set()
+        assert release.wait(10)
+        raise _Refused("the commit failed")
+
+    monkeypatch.setattr(git_service, "commit_touched_sync", slow_refusal)
+
+    async def scenario():
+        task = asyncio.ensure_future(inbox_tend.apply(memory, ti._Settings(memory), d))
+        for _ in range(500):
+            if entered.is_set():
+                break
+            await asyncio.sleep(0.01)
+        assert entered.is_set()
+        if how_it_ends == "cancelled":
+            task.cancel()
+            await asyncio.sleep(0.05)   # the resolver's thread is still inside its commit, holding the lock
+            assert not (memory / "inbox" / "inbox-001.md").exists(), "nothing was put back under a write still running"
+        release.set()
+        if how_it_ends == "cancelled":
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 20)
+        else:
+            assert await asyncio.wait_for(task, 20) is False
+
+    asyncio.run(scenario())
+    assert _state(memory) == before
+    assert ("take", False) in seen and ("put_back", False) in seen and not any(on_loop for _, on_loop in seen)
 
 
 def test_a_tree_git_cannot_list_settles_nothing(memory, monkeypatch):
@@ -337,7 +567,7 @@ def test_a_tree_git_cannot_list_settles_nothing(memory, monkeypatch):
     def unreadable(*args, **kwargs):
         raise git_service.GitError("status failed")
 
-    monkeypatch.setattr(git_service, "dirty_paths_sync", unreadable)
+    monkeypatch.setattr(git_service, "_git_sync", lambda memory_path, *args: unreadable() if args[0] == "status" else _REAL_GIT(memory_path, *args))
     assert not settle()
     assert _state(memory) == before
 

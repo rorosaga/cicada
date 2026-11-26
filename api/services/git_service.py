@@ -858,6 +858,15 @@ def _with_ledgers(memory_path: Path, paths: list[str]) -> list[str]:
     return list(dict.fromkeys([*paths, *present, *(w for w in absent if w in known)]))
 
 
+def _report_to_settle(memory_path: Path, paths: list[str]) -> None:
+    """A commit inside a Sleep settle says which paths it is about to stage (`settle_guard.reported`): they are what the
+    settle wrote, and what a failed commit puts back. Nothing else happens outside a settle."""
+    from api.services import settle_guard
+
+    if settle_guard.active() is not None:
+        settle_guard.reported(memory_path, paths)
+
+
 def commit_paths_sync(memory_path, message: str, paths) -> None:
     """Stage and commit ONLY ``paths`` (memory-relative), never ``git add -A``,
     under the bank's write lock (R-B1, R-B4).
@@ -872,6 +881,7 @@ def commit_paths_sync(memory_path, message: str, paths) -> None:
     memory_path = Path(memory_path)
     with write_lock(memory_path):
         paths = _with_ledgers(memory_path, paths)
+        _report_to_settle(memory_path, paths)
         _git_sync(memory_path, "add", "--", *paths)
         if not _git_sync(memory_path, "status", "--porcelain", "--", *paths).strip():
             return  # Nothing to commit
@@ -1007,8 +1017,9 @@ def _blobs_at(memory_path: Path, rev: str, paths: list[str]) -> dict[str, bytes]
     return got
 
 
-def _write_atomically(path: Path, data: bytes) -> None:
-    """The page rule: a temp file beside it, then ``os.replace`` — a reader sees the old file or the new one."""
+def _write_atomically(path: Path, data: bytes, *, mode: int | None = None) -> None:
+    """The page rule: a temp file beside it, then ``os.replace`` — a reader sees the old file or the new one. ``mode``
+    (permission bits) is the file's own when the caller is putting a file back as it was; ``None`` leaves the default."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.cicada-apply")
     try:
@@ -1016,6 +1027,8 @@ def _write_atomically(path: Path, data: bytes) -> None:
             fh.write(data)
             fh.flush()
             os.fsync(fh.fileno())
+        if mode is not None:
+            os.chmod(tmp, mode)
         os.replace(tmp, path)
     finally:
         tmp.unlink(missing_ok=True)
@@ -1210,6 +1223,7 @@ def commit_touched_sync(memory_path, message: str, paths, *, before: dict[str, b
         return
     with write_lock(memory_path):
         paths = _with_ledgers(memory_path, paths)
+        _report_to_settle(memory_path, paths)
         missing = [p for p in paths if not (memory_path / p).exists()]
         known = set()
         if missing:
