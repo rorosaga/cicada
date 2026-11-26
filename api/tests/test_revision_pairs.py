@@ -897,8 +897,9 @@ def test_edited_back_under_another_predicate_leaves_the_correction_to_the_pair_r
                                closed_by_revision=EP),
                         _claim("clm_b", "is-moving-to", "2026-12-08", valid_to="2026-12-08", supersedes="clm_a",
                                superseded_by="clm_r", closed_by_revision=EP),
+                        # Planted with the mark too (no writer marks a record), so this row tests `is_record` alone.
                         _claim("clm_r", "retracts", "2026-12-08", valid_to="2026-12-08", supersedes="clm_b",
-                               superseded_by="clm_c"),
+                               superseded_by="clm_c", closed_by_revision=EP),
                         _claim("clm_c", "is-moving-to", "2026-12-09", supersedes="clm_r")),
                   redated=("clm_c",))),
     ("a pair the rule cannot meet (no day the changed lines say)",

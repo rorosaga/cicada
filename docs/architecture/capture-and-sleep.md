@@ -2529,6 +2529,18 @@ page now existing); the page prose kept the old fact beside the new. `episode_re
   leg's re-read wrote no claim of the new day at all, so nothing could take the old one's place); no pair reading in
   any leg (the re-read kept the first wording twice, the same-slot rule replaced it); every other measure within the
   spread (span rate 0.99 to 1.0, others' words 7 of 7, pages right 9 of 9 after).
+  **Measured with the mark (2026-11-26, F3 closed; plan, Sonnet main, Haiku judge, `--clock 2026-11-26`).** The mark
+  only narrows the edited-back rule, which no two-night story reaches, so the stories should not move, and did not past
+  the spread. The 17 stories, 3 runs: a corrected date wrong in 3 of 21 (5 of 28 before this step, 29 of 70 on the code
+  without either rule), all three held claims out of the rule's reach as written above: the object named another way (a
+  factory's name translated), the new day written only on another name (the move as a page of its own), and the new day
+  written only as a value; a corrected name 4 of 6 (7 of 8); a removed sentence 2 of 6 (the same value story); the
+  other three shapes 0 of 18. The pair reading fired in 3 of 3 runs, 8 pairs, 14 calls, "same" at both readings each
+  time, 8 replaced (1 on a page, 7 held), no story made wrong. The ten review stories, 1 run: 10 of 10 right, `undone`
+  included. The four edited-back stories, 1 run: 3 of 4 right (4 of 4 before); the fourth's last re-read wrote the
+  restored day only as a value under a new name and no relationship at all, so there was nothing to bring back. Every
+  close in the other three chains carries the mark, and the rule fired 5 times (2 relationships, 3 dated values; 6
+  before, the difference being one chain the pair rule settled instead because the re-read reworded it).
   The stories and their runner are in the repo: `revision_e2e_stories.json` (17 shapes) and
   `revision_e2e_review_stories.json` (the ten shapes the reviews attacked). Also found and left: a held claim dropped
   because its span went leaves no record of why (`pending_store.drop_held`), and a held name whose spelling is corrected
