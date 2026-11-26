@@ -151,6 +151,23 @@ def test_a_feed_item_is_read_as_the_code_reads_it_today(tmp_path):
     assert fm["processed"] is False and history_index.save_state(fm) is None and history_index.waits_for_model(fm)
 
 
+def test_a_feed_item_kept_index_only_before_ruling_80_never_takes_a_saves_turn(tmp_path):
+    # 2026-11-26: a subscribed feed's posts, polled and indexed before ruling 80, carry a link and a media page like a
+    # bookmark does, so the pile's release took them into the night's queue as if the owner had saved them.
+    memory = _bank(tmp_path)
+    fm = {"id": "ep_2025-07-01_001", "timestamp": "2025-07-01T14:44:41+00:00",
+          "received_at": "2026-11-06T04:26:52+00:00", "source": "url", "title": "An old feed post",
+          "processed": True, "processed_by": history_index.INDEXED_BY, "content_hash": "abc123",
+          "url": "https://alpha.example.com/p/an-old-feed-post", "media_entity_id": "media-an-old-feed-post",
+          "folder": None, "origin": "rss"}
+    markdown_parser.write(memory / "episodes" / f"{fm['id']}.md", fm, "# An old feed post\n\n" + WORDS)
+    bank_index.invalidate()
+    assert history_index.save_shaped(fm) is None and history_index.save_state(fm) is None
+    assert not history_index.not_read(fm)
+    assert history_index.take_turns(memory).paths == []
+    assert not history_index.waits_for_model(_fm(memory, fm["id"]))
+
+
 def _items(n: int, tag: str = "a") -> list[RawItem]:
     return [RawItem(url=f"https://example.com/{tag}/{i}", title=f"Item {i}", origin="chrome-bookmark",
                     defer_enrich=True, preview=WORDS) for i in range(n)]

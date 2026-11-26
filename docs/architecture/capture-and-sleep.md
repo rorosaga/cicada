@@ -1347,7 +1347,9 @@ writes every save index-only, `take_turns` releases nothing, `retire` retires a 
   run): `SAVES_PER_DAY = 100` less what was released today (`turn_released_on`), newest saved day first, ties by id, flipped to
   `processed: false` in the same `cicada` commit as the rest of the index step (manifest line `queued`; a failed commit puts them
   back). A pile save with nothing to read is stamped `no-words` instead and costs no turn. A save released today and put back is
-  not released again today. The scheduled catch-up counts a pile with turns left as something to read (`turns_due`).
+  not released again today. The scheduled catch-up counts a pile with turns left as something to read (`turns_due`). A feed item
+  is never a save (`save_shaped` asks `episode_time.is_feed_item` first): one kept index-only before ruling 80, which carries a
+  link and a media page like a bookmark, is never released or counted as not read (2026-11-26).
   `return_to_pile` is the revert (and what a night that ended at its line does); `released_unread(day)` lists a day's.
 - **The order** (`saved_order`, one call at the freeze): every non-save first, oldest first; then saves he talked about
   (`read_asked`) or wrote words on, newest first; then the other saves grouped by origin, the origin with the newest save first.
