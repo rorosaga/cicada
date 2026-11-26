@@ -1095,7 +1095,8 @@ def _count(monkeypatch):
 
     seen = {"days": [], "old": []}
     real_says, real_old = episode_revision.says_day, revision_pairs._pairable_old
-    monkeypatch.setattr(episode_revision, "says_day", lambda text, day: seen["days"].append(day) or real_says(text, day))
+    monkeypatch.setattr(episode_revision, "says_day",
+                        lambda text, day: seen["days"].append((hash(text), day)) or real_says(text, day))
     monkeypatch.setattr(revision_pairs, "_pairable_old", lambda c, ep: seen["old"].append(c.id) or real_old(c, ep))
     return seen
 
@@ -1103,13 +1104,13 @@ def _count(monkeypatch):
 def test_each_day_is_read_once_per_revision_and_nothing_past_the_cap(tmp_path, monkeypatch):
     # Review 4, F4: `meets` read the whole changed text twice for every old and new claim compared (7.6 s at 500
     # claims on the page, 39.8 s at 3,000). Counted, never timed.
-    memory, revs, extracted = _large_page(tmp_path)
+    memory, revs, extracted = _large_page(tmp_path, n_rels=40)       # 40 re-read claims, each day twice
     seen = _count(monkeypatch)
     pairs = revision_pairs.candidates(memory, revs, extracted)
     assert len(pairs) == revision_pairs.MAX_PAIRS
-    days = seen["days"]
-    assert len(days) <= 2 * len(set(days)), "a day read more than once for one text (the changed lines, the body)"
-    assert len(days) <= 21                          # 20 days the re-read writes and the page's one, never per pair
+    reads = seen["days"]
+    assert len(reads) == len(set(reads)), "a day read more than once in one text (the changed lines, the body)"
+    assert len(reads) <= 21                         # 20 days the re-read writes and the page's one, never per pair
     assert len(seen["old"]) == revision_pairs.MAX_PAIRS, "only pairs pass the cheap tests; nothing past the cap"
 
 
@@ -1370,3 +1371,61 @@ def test_a_held_claim_its_page_already_holds_is_offered_once_as_the_pages_own(tm
     memory, _ = _store(tmp_path, {"Zed Unknown": [_old(), _new()]})
     pool = revision_pairs._held_pool(memory, {ZED_PAGE: [_old()]})   # noqa: SLF001 - the one rule
     assert [(c.id, line) for c, line in pool[ZED_PAGE]] == [("new", "Zed Unknown")]
+
+
+# ---- review 4, F3: a person's pick in the inbox (reported, not fixed: nothing in the bank records which closes the
+# revision rules made, so the edited-back rule cannot tell this close from its own) ----
+
+PICK = LIA.replace("She leaves on 5 December,", "She leaves on 5 December, or maybe 8 December,")
+
+
+def _two_plans(chunk):
+    """The first read writes both plans (two wordings, so two slots); a re-read of the edit writes what it says."""
+    out = lia(reread="is moving to")(chunk)
+    if "or maybe 8 December" in chunk:
+        out["relationships"].append({"source": "Lia Prueba", "target": "Valencia", "label": "moves to",
+                                     "starts": "2026-12-08", "evidence_quote": "Lia Prueba moves to Valencia"})
+    return out
+
+
+@pytest.mark.xfail(strict=True, reason="review 4 F3: the edited-back rule undoes the person's pick (reported)")
+def test_a_pick_the_person_made_in_the_inbox_is_never_undone_by_an_edit_back(tmp_path, monkeypatch):
+    # Driven through the resolver the route calls (`inbox_service.resolve`), on a scratch bank: the person picks
+    # 8 December over 5 December, both read from one conversation; the conversation is then edited to say only
+    # 5 December. `origin/dev` keeps the pick (the restatement folds into the claim the pick closed).
+    import asyncio
+
+    from api.models.schemas import InboxResolveRequest
+    from api.services import inbox_service
+
+    memory, readers = story(tmp_path, monkeypatch, [(PICK, _two_plans)])
+    _git(memory, "config", "user.email", "test@cicada.local")
+    _git(memory, "config", "user.name", "Cicada Test")
+    first, other = sorted((c for c in _claims_of(memory, "lia-prueba") if c.object == "valencia"),
+                          key=lambda c: str(c.valid_from))
+    (memory / "inbox").mkdir(exist_ok=True)
+    markdown_parser.write(memory / "inbox" / "inbox-901.md", {
+        "kind": "conflict", "required_input": "choice", "status": "pending", "priority": 0.8,
+        "entity_id": "lia-prueba", "entity_name": "Lia Prueba", "title": "When does Lia Prueba move?",
+        "question": "When does Lia Prueba move?", "created_date": "2026-11-08", "predicate": first.predicate,
+        "allow_other": True, "allow_defer": True,
+        "options": [{"key": "a", "label": "valencia", "claim_id": first.id, "observed_at": "2026-11-07"},
+                    {"key": "b", "label": "valencia", "claim_id": other.id, "observed_at": "2026-11-07"}]},
+        "Two days for one move.")
+    _commit(memory, "question")
+
+    async def _no_synthesis(**kw):
+        return kw["new_description"]
+
+    monkeypatch.setattr("api.services.conflict_resolver._synthesize_entity_update", _no_synthesis)
+    settings = type("S", (), {"memory_path": memory, "inbox_defer_days": 30, "litellm_model": "test-model",
+                              "litellm_disambiguation_model": "", "consolidation_model": "", "llm_mode": "byok",
+                              "effective_consolidation_model": "test-model"})()
+    asyncio.run(inbox_service.resolve("inbox-901", InboxResolveRequest(action="resolve", optionKey="b"), settings))
+    picked = {c.id: c for c in _claims_of(memory, "lia-prueba")}
+    assert picked[first.id].superseded_by == other.id and picked[other.id].valid_to is None   # the person's pick
+
+    _revise(memory, EP, PICK, LIA)
+    _run(memory, monkeypatch, _two_plans)
+    _commit(memory, "Sleep cycle")
+    assert _open_days(memory) == ["2026-12-08"]

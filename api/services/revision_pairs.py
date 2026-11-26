@@ -14,8 +14,10 @@ claim meets the old one, and only on a reading:
   page yet (`pending_store`, wherever it waits), that this one edited conversation alone says (`episode_revision._closable`; not a value, a number, an event, a record, the person's own or
   an agent's), and a claim of the same revision's re-read with the same subject, the same object, the same context and
   speaker, ANOTHER predicate, and a start or end the old one does not carry that the changed lines say
-  (`episode_revision.says_day`, the test `redated` already uses for the new claim). Predicates are never compared by
-  spelling or similarity.
+  (`episode_revision.says_day`, the test `redated` already uses for the new claim), while no start or end of the old
+  one that the new one lacks is still said by the conversation as it now stands (:func:`moved`, 2026-11-26: a text
+  that says both days moved neither). Predicates are never compared by spelling or similarity. Cheapest tests first;
+  each day is read once per revision (:class:`Said`) and nothing is computed past either cap.
 * **Two readings** (:func:`read`): Sleep's small judge, then the cycle's main model on what the first called the same,
   are asked whether the two word the SAME relationship (the same move, the same job) or two different ones (a visit
   beside a move). Only "same" from both counts; a "different", an unreadable answer or a failed call leaves the pair as

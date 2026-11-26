@@ -2415,8 +2415,14 @@ page now existing); the page prose kept the old fact beside the new. `episode_re
   on two readings.** A *pair* is an open page claim this one edited conversation alone says (`episode_revision._closable`;
   never a value, a number, an event, a record, the person's own or an agent's, nor a capped transcript) and a claim of the
   same revision's re-read with the same subject, object, context and speaker, ANOTHER predicate, and a start or end the
-  old one does not carry that the changed lines say (`says_day`, the test `redated` already makes of the new claim).
-  Before Stage 2 opens the write window (pages read only), Sleep's small judge is shown each revision's pairs (at most 8
+  old one does not carry that the changed lines say (`says_day`, the test `redated` already makes of the new claim),
+  while no start or end of the old one that the new one lacks is still said by the conversation as it now stands
+  (2026-11-26, `revision_pairs.moved`: "8 December (she first planned 5 December)" says both days, so neither moved and
+  no pair is read; a text that keeps the old day as a former plan therefore leaves both claims open, as before this
+  rule, even where the readers would have been right). The cheap tests run first and each day is read once per
+  revision (`revision_pairs.Said`; nothing is computed past either cap, and a stop is asked for before each re-read
+  claim is compared): on a page of 3,000 claims and a revision of 20 dated re-read claims the step took 39 s, now
+  0.1 s. Before Stage 2 opens the write window (pages read only), Sleep's small judge is shown each revision's pairs (at most 8
   a revision, 12 revisions a batch) with the words each fact was recorded from, the edit and the conversation as it now
   stands, and asked whether the two word the SAME relationship or two that can both hold; the cycle's main model is asked
   the same of the pairs the first called the same. One call per reader per revision with pairs, none without; metered as
@@ -2440,10 +2446,25 @@ page now existing); the page prose kept the old fact beside the new. `episode_re
   rest on this one conversation alone (never the person's, an agent's, a record, an ending, an event, recovered
   history), the chain ends in an open claim, the restatement is heard in that conversation only, and that conversation
   is a revision read in this run that may close, the restatement is born under an id of its own (the closed claim's id
-  is taken; `_fresh_id`, the same on every run) and meets the open claim in the ordinary table. Only if that open claim
-  gives way by a rule that already exists — the same-slot replacement (`redated`), the removed text's (`revised`), or
-  the pair rule read twice (`revision_pairs.meets`, applied after Stage 3) — is the restatement born at all; otherwise it
-  folds in as before. Nothing is reopened in place: history reads A, then B, then A again, a chain with no loop
+  is taken; `_fresh_id`, the same on every run) and meets the open claim in the ordinary table. **The conditions as they
+  stand after the fourth review (2026-11-26)** — the restatement is born only when all hold, otherwise it folds into its
+  closed twin as before: (1) the chain above, this conversation's alone, ending in an open claim; (2) the text says it
+  was edited back: the restatement is not a copy of that open claim (the same slot, object, start and end — a claim is
+  never superseded by a restatement of itself, on any route), and where the two carry other days, the restored day is
+  said by the changed lines and none of the open claim's days is still said by the conversation as it now stands
+  (`revision_pairs.moved`, the pair rule's own condition); where the days are the same (a value), the open claim's own
+  words are gone (`revised`); (3) the re-read states it; (4) the open claim may give way by a rule that already exists —
+  the same-slot replacement (`redated`), the removed text's (`revised`) or the pair rule (`revision_pairs.meets`). On
+  the pair rule's path the reading comes after Stage 3, so the restatement is born before it: if both readers call the
+  two the same the open claim gives way; a "different", a failed call or a split reading leaves both days open, which
+  is exactly the end `origin/dev` reaches on the same text (a failed reading settles nothing). Accepted limits: a day
+  the date reader cannot find counts as not said, so a day still stated in words it does not read leaves the rule as it
+  was; a day still said for another reason (another fact on the same day) keeps the correction, as `origin/dev` does;
+  and nothing in the bank records which closes the revision rules made — a close by the person's pick in the inbox, by
+  Sleep's settle or an agent's resolution through the same resolvers, between two claims that rest on this one
+  conversation, reads as the conversation's own correction and can be undone by a later edit that restores the other
+  day (review 4, F3: reported, not fixed; `test_a_pick_the_person_made_in_the_inbox_is_never_undone_by_an_edit_back`
+  is the strict `xfail` that drives the real resolver). Nothing is reopened in place: history reads A, then B, then A again, a chain with no loop
   (`supersedes` points back at each step), the closed claims untouched. The departure rule (`_departed_on`) does not
   read this conversation's own chain as a departure. The close is recorded where the correction's was (audit
   `revised`, `why: edited_back`, in the ledger and the Corrections record). A close by another conversation, the
