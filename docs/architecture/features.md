@@ -1064,7 +1064,7 @@ nothing readable. While a record stands, `GET /sleep/status` and `GET /status` s
 tries remain, "Last night's 03:00 run didn't start. It runs again at 03:00." after the last) and the full sentence
 (`detail`: something was still writing, nothing was read or used, try N of 4, or that it tried 4 times, will run at its
 next scheduled time and can be started by hand). The app shows only the line, where the page puts its quiet notes, with
-`detail` as its help and VoiceOver hint; the status chip, the worm, the stepper and Getting started never read it as a
+`detail` as its help and VoiceOver hint; the status chip, the worm, the run object and Getting started never read it as a
 failure, and a real `error` wins. The run's own `progress` carries the full sentence; its `error` stays empty. The
 record is machine-local and survives a restart, so a morning with an idle Sleep still says it. A person's own click is unchanged (`WINDOW_BUSY`, never retried
 for them). `_open_window` also carries a wall-clock bound over the whole wait (`WAIT_MAX_S + WINDOW_START_SLACK_S`):
