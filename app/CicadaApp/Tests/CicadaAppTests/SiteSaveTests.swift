@@ -527,6 +527,37 @@ final class SiteSaveTests: XCTestCase {
         XCTAssertTrue(dropped.siteOutbox.entries.isEmpty, "a guess is never held to be sent later")
     }
 
+    /// Ruling 77e — a save click on a post its page names by no link (LinkedIn's feed) is named by the words its
+    /// block showed. The record says which way it went: a save is asked about at the address the backend gave (where
+    /// the answer is held until the saved list names the post), an unsave is never asked about, a refusal lets it go.
+    @MainActor
+    func testASaveNamedByItsWordsIsAskedAboutAtTheAddressTheBackendGave() async {
+        let item = SiteSaveItem(site: "linkedin", origin: "linkedin-saved", url: "", title: "LinkedIn post")
+        func center(_ api: SiteSaveFakeAPI) -> SaveWhyCenter {
+            SaveWhyCenter(prefs: SaveWhyPrefs(defaults: TestDefaults.suite("SiteSaveTests.\(UUID().uuidString)")!),
+                          api: api)
+        }
+        let api = SiteSaveFakeAPI()
+        let asked = center(api)
+        await asked.siteWords(item, words: "Alice Example\nWe rebuilt the sync engine around an append-only log.")
+        XCTAssertEqual(asked.state?.item?.url, "https://www.linkedin.com/?cicada-later=k1")
+        XCTAssertEqual(asked.state?.item?.title, "We rebuilt the sync engine around an append-only log.")
+        let sent = await api.worded
+        XCTAssertEqual(sent.count, 1)
+
+        // The same words again: the save is taken back. Nothing is asked.
+        let quiet = center(api)
+        await quiet.siteWords(item, words: "Alice Example\nWe rebuilt the sync engine around an append-only log.")
+        XCTAssertNil(quiet.state)
+
+        let refusing = SiteSaveFakeAPI()
+        await refusing.refuse()
+        let dropped = center(refusing)
+        await dropped.siteWords(item, words: "Alice Example\nWe rebuilt the sync engine around an append-only log.")
+        XCTAssertNil(dropped.state)
+        XCTAssertTrue(dropped.siteOutbox.entries.isEmpty)
+    }
+
     /// A save made while Sleep held the pages used to vanish (the refusal was swallowed). It is held, stored when the
     /// backend can take it, and asked about only while the moment is still near; a stale one is stored and not asked.
     @MainActor
@@ -592,6 +623,8 @@ private actor SiteSaveFakeAPI: SavedWhyAPI {
     var saved: [String] = []
     /// Clicks sent for the record to decide; a post is on the list after an odd number of them.
     var changed: [String] = []
+    /// Clicks on a post named by its words; held after an odd number of them.
+    var worded: [String] = []
     var refusing = false
     func refuse(_ on: Bool = true) { refusing = on }
 
@@ -605,6 +638,16 @@ private actor SiteSaveFakeAPI: SavedWhyAPI {
         saved.append("\(site) \(url)")
         return SiteSaveReply(status: "created", url: url, title: "Post by @alpha_user", origin: "x-bookmarks",
                              episodeId: "ep_2027-01-15_001", addedAt: ISO8601DateFormatter().string(from: Date()))
+    }
+    func wordsSiteItem(site: String, words: String) async throws -> SiteChangeReply {
+        if refusing { throw APIError.httpError(409, "Sleep is updating your memory") }
+        let held = worded.filter { $0 == words }.count % 2 == 1
+        worded.append(words)
+        guard !held else { return SiteChangeReply(direction: "unsaved", save: nil) }
+        return SiteChangeReply(direction: "saved", save: SiteSaveReply(
+            status: "created", url: "https://www.linkedin.com/?cicada-later=k1",
+            title: "We rebuilt the sync engine around an append-only log.", origin: "linkedin-saved",
+            episodeId: "", addedAt: ISO8601DateFormatter().string(from: Date())))
     }
     func changeSiteItem(site: String, url: String, text: String, folder: String?) async throws -> SiteChangeReply {
         if refusing { throw APIError.httpError(409, "Sleep is updating your memory") }

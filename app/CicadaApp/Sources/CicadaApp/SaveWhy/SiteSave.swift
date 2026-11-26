@@ -48,9 +48,12 @@ struct SiteSaveItem: Equatable, Sendable {
     /// stored under.
     var site: String
     var origin: String
-    /// The post's canonical link, the spelling the backend stores.
+    /// The post's canonical link, the spelling the backend stores. Empty for a post its page names by no link
+    /// (LinkedIn's feed): that one is named by the words its block showed (`byWords`).
     var url: String
     var title: String
+
+    var byWords: Bool { url.isEmpty }
 }
 
 /// One site Cicada can notice a save on. Everything here is structure and addresses: no word of the site's
@@ -114,10 +117,17 @@ struct SiteSaveSite: Sendable {
         var notBlock: [String] = []
         /// A class an ancestor carries when the menu belongs to something else (a comment's own menu).
         var notClasses: [String] = []
+        /// Characters a block's id may hold after its prefix besides letters and digits (LinkedIn's token).
+        var blockMarks: String = ""
         /// The item that saves, counted from the menu's end, in a menu of one of `sizes` items. Nil when every item
         /// is one of the person's lists (`lists`).
         var fromEnd: Int? = nil
+        /// The same, counted from the menu's start (LinkedIn: the first item).
+        var fromStart: Int? = nil
         var sizes: ClosedRange<Int> = 1...200
+        /// The page names the post by no link: it is named by the words its block shows (`SiteMenuReading.words`),
+        /// unless the page itself is the post's own.
+        var words = false
         /// A class some items' own icons carry, and how many places before the first such item the save sits. When
         /// the menu shows the mark it decides, whatever the menu's length (a site adds items around the save: Reddit's
         /// "show fewer" and "why this" on a recommended post); `fromEnd` is the rule only for a menu with no mark.
@@ -295,7 +305,25 @@ struct SiteSaveSite: Sendable {
         rowAnchor: nil, slot: .beforeMenu,
         listPages: [re(#"^https?://open\.spotify\.com/(?:intl-[a-z]{2}/)?collection(?:[/?#].*)?$"#)])
 
-    static let all: [SiteSaveSite] = [x, instagram, github, tiktok, reddit, youtube, pinterest, spotify]
+    /// LinkedIn's Save is the first item of a post's own menu (measured 2026-11-25 and 2026-11-26 on the feed, on
+    /// eleven posts, and on a post's own page: seven or eight items, the save first, then the items that copy the
+    /// link, embed, follow, hide and report). The menu sits inside the post's block, whose DOM id is a token of the
+    /// page (`expanded` and 32 characters), not the post's: **the feed names the post by no link and no id**. So on
+    /// the feed the post is named by the words its block shows (`Menu.words`), and the backend finds it among the
+    /// saves it holds or keeps the moment until the saved list names it (`POST /sources/site-words`, ruling 77e). On
+    /// a post's own page the address is the post. The saved list's own page is an older layout whose menu is no
+    /// menu to macOS (plain buttons in a dropdown): a post taken off the list there is not noticed.
+    static let linkedin = SiteSaveSite(
+        key: "linkedin", name: "LinkedIn", origin: "linkedin-saved", hosts: ["linkedin.com"],
+        items: [(re(web + #"linkedin\.com/feed/update/(urn:li:(?:activity|share|ugcPost|article):[0-9]{5,25})/?(?:[?#].*)?$"#),
+                 "https://www.linkedin.com/feed/update/$1/", "LinkedIn post"),
+                (re(web + #"linkedin\.com/posts/([^/?#\s]{3,300})/?(?:[?#].*)?$"#),
+                 "https://www.linkedin.com/posts/$1/", "LinkedIn post")],
+        rowAnchor: nil, slot: .none,
+        listPages: [re(web + #"linkedin\.com/my-items/saved-posts(?:[/?#].*)?$"#)],
+        menu: Menu(block: "expanded", blockMarks: "_-", fromStart: 0, sizes: 6...9, words: true))
+
+    static let all: [SiteSaveSite] = [x, instagram, github, tiktok, reddit, youtube, pinterest, spotify, linkedin]
     static func named(_ key: String) -> SiteSaveSite? { all.first { $0.key == key } }
 
     /// Whether a click on this site's own save control can be noticed. False for a site that is only a source.
@@ -303,7 +331,7 @@ struct SiteSaveSite: Sendable {
 
     /// Sites that are sources but keep no save control Cicada can read (ruling 78, plan section 7; owner 2026-11-24:
     /// "make sure the notch message appears correctly and works to connect the source correctly when I'm inside the
-    /// app or website"): LinkedIn's feed names no post (ruling 77a), the others have no control of their own. The page
+    /// app or website"): they have no control of their own that names a post. The page
     /// in front may bring the connect offer for them, under ruling 77's limits (Accessibility already granted, the
     /// offer switch on); nothing about them is read but the address. Never in `all`: no save table, no save click.
     private static func offerOnly(_ key: String, _ name: String, _ origin: String, _ hosts: [String]) -> SiteSaveSite {
@@ -312,7 +340,6 @@ struct SiteSaveSite: Sendable {
     }
 
     static let offerOnly: [SiteSaveSite] = [
-        offerOnly("linkedin", "LinkedIn", "linkedin-saved", ["linkedin.com"]),
         offerOnly(SourceCatalog.substackId, "Substack", "substack-saved", ["substack.com"]),
         offerOnly("goodreads", "Goodreads", "goodreads", ["goodreads.com"]),
     ]
@@ -1344,7 +1371,8 @@ final class SiteSaveWatcher {
         let post = SiteMenuRule.postKey(item.url)
         let verdict = SiteMenuRule.outcome(reading, site: site, post: post, learned: learned, seen: seen)
         var after = seen
-        if let rule = site.menu, reading.items.indices.contains(reading.clicked) {
+        // Nothing is kept of what a words site's item wore: no label of its is ever learned (`SiteMenuRule.outcome`).
+        if let rule = site.menu, !rule.words, reading.items.indices.contains(reading.clicked) {
             after.note(label: SiteMenuRule.state(reading.items[reading.clicked], lists: rule.lists), post: post)
         }
         return (verdict, after)
