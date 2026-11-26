@@ -66,6 +66,15 @@ class _Based(saved_lists.Platform):
     base: str | None = None
 
 
+@pytest.fixture(autouse=True)
+def _no_list_page_timer(monkeypatch):
+    """A streams read asks list pages to be written on a 3 s timer (#940). A write landing between a test's requests
+    changes the bank under it (the membership pass then runs twice), so here the timer never starts."""
+    from api.services import list_pages
+
+    monkeypatch.setattr(list_pages, "start_sync", lambda mp, **kw: False)
+
+
 @pytest.fixture
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("CICADA_HOME", str(tmp_path / "home"))

@@ -24,6 +24,11 @@ final class MediaBlockDecodeTests: XCTestCase {
         XCTAssertEqual(entity.media?.kind, "list")
         XCTAssertEqual(entity.media?.isList, true)
         XCTAssertEqual(entity.media?.isFile, false)
+        // A list is a container, not a belief: its header says no "Active · fairly confident" (2026-11-26).
+        XCTAssertFalse(EntityHeaderWords.saysStatus(of: entity))
+        let saved = try JSONDecoder().decode(Entity.self, from: Data(
+            ("{" + base + #","media":{"url":"https://example.com/a","mediaType":"bookmark"}}"#).utf8))
+        XCTAssertTrue(EntityHeaderWords.saysStatus(of: saved), "a saved thing's own page still says it")
     }
 
     func testMediaBlockDecodesWithoutTheNewKeys() throws {
