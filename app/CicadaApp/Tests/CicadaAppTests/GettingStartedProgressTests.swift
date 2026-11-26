@@ -136,6 +136,17 @@ final class GettingStartedProgressTests: XCTestCase {
         XCTAssertEqual(FirstReadStep.waiting(61).line(locale: en), "61 waiting to be read.")
         XCTAssertEqual(FirstReadStep.finished(pages: 146).line(locale: en), "Your memory has 146 pages now.")
         XCTAssertEqual(FirstReadStep.finished(pages: nil).line(locale: en), Copy.gsFinishedNoCount)
+        // G246: the saved items kept in lists are said once, from the graph's bubbles.
+        XCTAssertEqual(FirstReadStep.finished(pages: 9_500, inLists: SavedInLists(items: 4_700, lists: 77)).line(locale: en),
+                       "Your memory has 9,500 pages now, 4,700 saved in 77 lists.")
+        XCTAssertEqual(Copy.gsFinished(pages: 20, inLists: SavedInLists(items: 6, lists: 1), locale: en),
+                       "Your memory has 20 pages now, 6 saved in 1 list.")
+        let bubbles = [GraphBubble(id: "a", key: "a", name: "A", members: ["x", "y", "gone"]),
+                       GraphBubble(id: "b", key: "b", name: "B", members: ["y", "z"]),
+                       GraphBubble(id: "c", key: "c", name: "C", members: ["gone"])]
+        XCTAssertEqual(SavedInLists.of(counted: ["x", "y", "z", "p"], bubbles: bubbles), SavedInLists(items: 3, lists: 2),
+                       "a page in two lists counts once; a list with no counted page is no list")
+        XCTAssertNil(SavedInLists.of(counted: ["p"], bubbles: bubbles))
         XCTAssertEqual(FirstReadStep.capped(read: 50, left: 329).line(locale: en), "Read 50 this round. 329 still waiting.")
     }
 
