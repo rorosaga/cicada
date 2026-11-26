@@ -43,6 +43,8 @@ class Rig:
         self.status_file = tmp / "status.json"
         self.curl_exit = ""
         self.http_500 = False
+        self.now = 1_800_000_000          # the rig's clock (epoch seconds): the script reads `date +%s` through a stub
+        self.backend_pid = ""             # what launchd / systemd report as the backend's own pid
         self.bin.mkdir()
         self.home.mkdir()
         self.calls.write_text("")
@@ -64,7 +66,14 @@ class Rig:
         _git(self.repo, "push", "-q", "origin", "dev")
         self.base = _git(self.repo, "rev-parse", "HEAD")
         (self.repo / "logs/.auto-update-installed").write_text(self.base + "\n")
-        _stub(self.bin / "launchctl", 'echo "launchctl $*" >> "$CALLS"\nexit 0\n')
+        # `launchctl print` reports the service's pid the way launchd does (a tab-indented `pid = N` line).
+        _stub(self.bin / "launchctl", 'echo "launchctl $*" >> "$CALLS"\n'
+                                      'case "$1" in print) printf \'gui/501/com.cicada.backend = {\\n\\tstate = running\\n\'\n'
+                                      '  [ -z "$BACKEND_PID" ] || printf \'\\tpid = %s\\n\' "$BACKEND_PID"; echo "}" ;; esac\n'
+                                      'exit 0\n')
+        # The clock is the rig's, and a wait is only recorded: no test sleeps for real.
+        _stub(self.bin / "date", '[ "$1" = "+%s" ] && [ -n "$FAKE_NOW" ] && { echo "$FAKE_NOW"; exit 0; }\nexec /bin/date "$@"\n')
+        _stub(self.bin / "sleep", 'echo "sleep $*" >> "$CALLS"\nexit 0\n')
         _stub(self.bin / "uv", 'echo "uv $*" >> "$CALLS"\nexit 0\n')
         _stub(self.bin / "pgrep", "exit 1\n")
         # The OS is the rig's choice, not the runner's: CI runs these on Linux.
@@ -78,7 +87,8 @@ class Rig:
                                       '  printf \'# unit\\nExecStart="/v/python" -m uvicorn api.main:app'
                                       ' --host 127.0.0.1 --port %s\\nEnvironment="CICADA_HOME=%s"\\n\' '
                                       '"$UNIT_PORT" "$UNIT_HOME" ;;\n'
-                                      '*" restart "*) [ -z "$RESTART_FAILS" ] || exit 1 ;; esac\n'
+                                      '*" restart "*) [ -z "$RESTART_FAILS" ] || exit 1 ;;\n'
+                                      '*" show "*) echo "MainPID=${BACKEND_PID:-0}" ;; esac\n'
                                       'exit 0\n')
         _stub(self.bin / "curl", '''
             echo "curl $*" >> "$CALLS"
@@ -119,7 +129,8 @@ class Rig:
                "CICADA_PORT": "49177", "CURL_EXIT": self.curl_exit,
                "HTTP_500": "1" if self.http_500 else "", "UNAME_S": self.os_name,
                "UNIT_LOADED": "1" if self.unit_loaded else "", "UNIT_PORT": "49177",
-               "UNIT_HOME": str(self.home), **extra_env}
+               "UNIT_HOME": str(self.home), "FAKE_NOW": str(self.now), "BACKEND_PID": self.backend_pid,
+               **extra_env}
         env.pop("CICADA_AUTOUPDATE_FORCE", None) if "CICADA_AUTOUPDATE_FORCE" not in extra_env else None
         for k in [k for k, v in env.items() if v is None]:   # run(CICADA_PORT=None) unsets it
             del env[k]
@@ -519,3 +530,369 @@ def test_installer_on_a_mac_keeps_the_launchd_job(tmp_path):
     out, _, _ = _installer(tmp_path, "Darwin", "--uninstall")
     assert out.returncode == 0
     assert not (tmp_path / "home/Library/LaunchAgents/com.cicada.dev-autoupdate.plist").exists()
+
+
+# --- a backend that answers NOTHING is frozen, not busy (2026-11-26) ---------------------------------------------
+#
+# A Sleep run spun on the event loop for ~14 hours; every tick read the timeout as "busy" and deferred, so the fix on
+# dev never landed. Silence is counted across ticks that really asked and got no answer at all (a timeout); the
+# rig's clock (`rig.now`) and a recording `sleep` stand in for real time, and the signal goes to a real process.
+
+MIN = 60
+CLOCK_GAP_TICK = 5     # the timer's own interval, in minutes
+
+
+def _silent(rig: Rig) -> Rig:
+    """A backend that never answers: a token exists and every ask times out (curl exit 28)."""
+    (rig.home / "api_token").write_text("tok\n")
+    rig.curl_exit = "28"
+    return rig
+
+
+def _tick(rig: Rig, minutes: float = CLOCK_GAP_TICK, **env: str) -> subprocess.CompletedProcess:
+    rig.now += int(minutes * MIN)
+    return rig.run(**env)
+
+
+def _tick_until(rig: Rig, minutes: int, step: int = CLOCK_GAP_TICK) -> None:
+    for _ in range(minutes // step):
+        assert _tick(rig, step).returncode == 0
+
+
+def _log_lines(rig: Rig, needle: str) -> list[str]:
+    path = rig.repo / "logs/auto-update.log"
+    return [ln for ln in path.read_text().splitlines() if needle in ln] if path.exists() else []
+
+
+def _restarts(rig: Rig) -> int:
+    return rig.called().count("kickstart -k") + rig.called().count("systemctl --user restart")
+
+
+class Listener:
+    """A real process that records SIGUSR1, standing in for a backend (or a decoy scratch backend)."""
+
+    def __init__(self, tmp: Path, name: str):
+        self.got = tmp / f"{name}.sigusr1"
+        code = ("import signal, sys, time\n"
+                f"signal.signal(signal.SIGUSR1, lambda *a: open({str(self.got)!r}, 'a').write('x'))\n"
+                "print('ready', flush=True)\n"
+                "time.sleep(60)\n")
+        self.proc = subprocess.Popen([os.sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)
+        assert self.proc.stdout.readline().strip() == "ready"
+
+    @property
+    def pid(self) -> str:
+        return str(self.proc.pid)
+
+    def signalled(self, wait: float = 2.0) -> bool:
+        import time
+        end = time.time() + wait
+        while time.time() < end:
+            if self.got.exists():
+                return True
+            time.sleep(0.05)
+        return False
+
+    def never_signalled(self) -> bool:
+        import time
+        time.sleep(0.3)
+        return not self.got.exists()
+
+
+@pytest.fixture
+def backends(tmp_path):
+    made: list[Listener] = []
+
+    def make(name: str) -> Listener:
+        made.append(Listener(tmp_path, name))
+        return made[-1]
+
+    yield make
+    for b in made:
+        b.proc.kill()
+        b.proc.wait()
+
+
+def test_silence_shorter_than_the_limit_defers_and_restarts_nothing(rig, backends):
+    rig.push_change("api/app.py")
+    backend = backends("backend")
+    rig.backend_pid = backend.pid
+    _silent(rig)
+    _tick(rig, 0)
+    _tick_until(rig, 25)          # ticks at 0, 5, ... 25 minutes of silence: still under the 30
+    assert "deferred: Sleep is running" in rig.log()
+    assert rig.head() == rig.base and rig.stamp() == rig.base
+    assert _restarts(rig) == 0 and "install_app" not in rig.called()
+    assert backend.never_signalled()
+    assert (rig.repo / "logs/.auto-update-silent").exists()
+
+
+@pytest.mark.parametrize("os_name", ["Darwin", "Linux"])
+def test_silence_past_the_limit_signals_the_backends_own_pid_and_restarts_with_no_code_moved(rig, backends, os_name):
+    rig.os_name = os_name
+    backend, decoy = backends("backend"), backends("decoy")   # the decoy is a scratch backend: never signalled
+    rig.backend_pid = backend.pid
+    _silent(rig)
+    _tick(rig, 0)                                  # first unanswered tick: minute 0
+    _tick_until(rig, 25)                           # minute 25: still waiting
+    assert _restarts(rig) == 0
+    assert _tick(rig, 5).returncode == 0           # minute 30
+    called = rig.called()
+    assert backend.signalled(), "the backend's own pid gets SIGUSR1"
+    assert decoy.never_signalled()
+    restart = "systemctl --user restart cicada-backend.service" if os_name == "Linux" else "kickstart -k"
+    assert called.count(restart) == 1
+    assert called.index("sleep 2") < called.index(restart), "a couple of seconds for the dump, then the restart"
+    assert rig.head() == rig.base, "no code moved"
+    assert "launchctl" not in called if os_name == "Linux" else "systemctl" not in called
+    assert not (rig.repo / "logs/.auto-update-silent").exists(), "the restart clears the silence record"
+    assert len(_log_lines(rig, "backend restarted")) == 1
+    assert "backend restarted: it had been silent for 30 minutes" in rig.log()
+
+
+def test_the_pid_comes_from_the_service_manager_never_a_name(rig, backends):
+    """With no pid reported the tick still restarts the backend and signals nobody (a decoy named alike stays quiet)."""
+    decoy = backends("decoy")
+    rig.backend_pid = ""
+    _silent(rig)
+    _tick(rig, 0)
+    _tick_until(rig, 30)
+    assert _restarts(rig) == 1
+    assert "no stack dump: the silent backend's pid was not found" in rig.log()
+    assert decoy.never_signalled()
+
+
+def test_silence_past_the_limit_also_updates_when_code_moved(rig, backends):
+    new = rig.push_change("api/app.py")
+    backend = backends("backend")
+    rig.backend_pid = backend.pid
+    _silent(rig)
+    _tick(rig, 0)
+    _tick_until(rig, 30)
+    assert rig.head() == new and rig.stamp() == new
+    assert rig.called().count("kickstart -k") == 1, "one restart, not one for the freeze and one for the code"
+    assert backend.signalled()
+    assert "backend restarted: it had been silent for 30 minutes" in rig.log()
+
+
+def test_an_app_change_still_builds_after_a_frozen_restart(rig, backends):
+    rig.push_change("app/CicadaApp/x.swift")
+    rig.backend_pid = backends("backend").pid
+    _silent(rig)
+    _tick(rig, 0)
+    _tick_until(rig, 30)
+    assert "install_app" in rig.called()
+    assert rig.called().count("kickstart -k") == 1, "the app change alone moves no backend code"
+
+
+def test_linux_frozen_restart_follows_a_dependency_sync(linux, backends):
+    new = linux.push_change("api/uv.lock")
+    linux.backend_pid = backends("backend").pid
+    _silent(linux)
+    _tick(linux, 0)
+    _tick_until(linux, 30)
+    called = linux.called()
+    assert called.index("sync-server-env -q") < called.index("systemctl --user restart"), "deps first, then the restart"
+    assert called.count("systemctl --user restart") == 1
+    assert linux.stamp() == new
+
+
+@pytest.mark.parametrize("answer", ["running", "http_500", "nothing_listening", "unreadable", "other_curl_failure"])
+def test_an_answered_tick_in_between_resets_the_stretch(rig, backends, answer):
+    rig.push_change("api/app.py")
+    rig.backend_pid = backends("backend").pid
+    _silent(rig)
+    _tick(rig, 0)
+    _tick_until(rig, 20)                           # 20 minutes of silence
+    # one tick on which the backend answered (or nothing was listening): the stretch ends
+    rig.curl_exit = ""
+    rig.http_500 = answer == "http_500"
+    if answer == "running":
+        rig.sleep_status(status="running")
+    elif answer == "unreadable":
+        rig.status_file.write_text("<html>not json")
+    elif answer == "nothing_listening":
+        rig.curl_exit = "7"
+    elif answer == "other_curl_failure":
+        rig.curl_exit = "56"
+    _tick(rig)
+    assert not (rig.repo / "logs/.auto-update-silent").exists(), "the record is gone once the backend answers"
+    rig.curl_exit = "28"
+    rig.http_500 = False
+    rig.status_file.unlink(missing_ok=True)
+    before = _restarts(rig)
+    _tick_until(rig, 30)                           # first unanswered tick +5: 25 minutes of silence at +30
+    assert _restarts(rig) == before
+    _tick(rig, 5)                                  # 30 minutes of silence
+    assert _restarts(rig) == before + 1
+
+
+def test_a_long_gap_between_two_unanswered_ticks_is_not_silence(rig, backends):
+    """One tick before an 8-hour lid-close and one after is not 8 hours (or any minutes) of silence."""
+    rig.backend_pid = backends("backend").pid
+    _silent(rig)
+    _tick(rig, 0)
+    _tick_until(rig, 25)                           # 25 minutes of silence seen
+    assert _tick(rig, 8 * 60).returncode == 0      # the Mac wakes: the backend still times out
+    assert _restarts(rig) == 0
+    assert "has not answered for 0 of 30 minutes" in rig.log().splitlines()[-1]
+    _tick_until(rig, 25)
+    assert _restarts(rig) == 0, "the stretch counts from the first tick after the gap"
+    _tick(rig, 5)
+    assert _restarts(rig) == 1
+
+
+def test_a_gap_of_two_missed_ticks_still_counts_but_not_a_third(rig, backends):
+    rig.backend_pid = backends("backend").pid
+    _silent(rig)
+    _tick(rig, 0)
+    _tick(rig, 15)                                 # two ticks missed (15 minutes): still one stretch
+    assert "has not answered for 15 of 30 minutes" in rig.log().splitlines()[-1]
+    _tick(rig, 16)                                 # over the bound: a new stretch
+    assert "has not answered for 0 of 30 minutes" in rig.log().splitlines()[-1]
+
+
+def test_a_clock_that_went_backwards_starts_over(rig):
+    _silent(rig)
+    _tick(rig, 0)
+    _tick_until(rig, 20)
+    rig.now -= 3600
+    _tick(rig, 0)
+    assert "has not answered for 0 of 30 minutes" in rig.log().splitlines()[-1]
+
+
+def test_after_the_restart_a_backend_that_comes_back_frozen_waits_a_full_stretch(rig, backends):
+    rig.backend_pid = backends("backend").pid
+    _silent(rig)
+    _tick(rig, 0)
+    _tick_until(rig, 30)
+    assert _restarts(rig) == 1
+    assert not (rig.repo / "logs/.auto-update-silent").exists()
+    _tick_until(rig, 30)                           # no restart loop every 5 minutes: 25 minutes of fresh silence
+    assert _restarts(rig) == 1
+    _tick(rig, 5)                                  # 30 minutes since the first tick that followed the restart
+    assert _restarts(rig) == 2
+
+
+def test_a_running_answer_is_never_interrupted_however_long_the_run(rig, backends):
+    new = rig.push_change("api/app.py")
+    backend = backends("backend")
+    rig.backend_pid = backend.pid
+    rig.sleep_status(status="running")
+    for _ in range(36):                            # six hours of ticks, every ten minutes
+        assert _tick(rig, 10).returncode == 0
+    assert _restarts(rig) == 0 and rig.head() == rig.base and rig.stamp() == rig.base
+    assert backend.never_signalled()
+    assert not (rig.repo / "logs/.auto-update-silent").exists()
+    assert "silent for" not in rig.log()
+    rig.sleep_status(status="idle")                # the run ends: the update goes through as before
+    assert _tick(rig, 10).returncode == 0
+    assert rig.head() == new
+
+
+def test_a_single_timeout_still_defers(rig, backends):
+    new = rig.push_change("api/app.py")
+    rig.backend_pid = backends("backend").pid
+    _silent(rig)
+    _assert_deferred(rig)
+    assert rig.head() != new and _restarts(rig) == 0
+
+
+def test_force_is_unchanged_and_never_asks(rig, backends):
+    backend = backends("backend")
+    rig.backend_pid = backend.pid
+    _silent(rig)
+    # nothing moved: a forced run restarts nothing (force skips the wait, it is not a restart switch)
+    assert rig.run(CICADA_AUTOUPDATE_FORCE="1").returncode == 0
+    assert _restarts(rig) == 0 and "curl" not in rig.called()
+    new = rig.push_change("api/app.py")
+    assert rig.run(CICADA_AUTOUPDATE_FORCE="1").returncode == 0
+    assert rig.head() == new
+    assert rig.called().count("kickstart -k") == 1
+    assert "silent for" not in rig.log() and backend.never_signalled(), "force never calls a backend frozen"
+    assert not (rig.repo / "logs/.auto-update-silent").exists()
+
+
+def test_a_checkout_that_fails_a_guard_restarts_nothing(rig, backends):
+    """Diverged from origin/dev: the update is skipped and a silent backend is left as it is (no restart, no signal)."""
+    backend = backends("backend")
+    rig.backend_pid = backend.pid
+    rig.write("docs/local.md", "local")
+    _git(rig.repo, "add", "-A")
+    _git(rig.repo, "commit", "-q", "-m", "local only")
+    rig.push_change("api/app.py")
+    _silent(rig)
+    _tick(rig, 0)
+    _tick_until(rig, 30)
+    assert "dev has diverged from origin/dev" in rig.log()
+    assert _restarts(rig) == 0
+    assert backend.never_signalled()
+
+
+def test_tracked_changes_restart_nothing_and_never_ask(rig, backends):
+    backend = backends("backend")
+    rig.backend_pid = backend.pid
+    rig.write("api/app.py", "edited by the person")
+    _silent(rig)
+    _tick(rig, 0)
+    _tick_until(rig, 30)
+    assert "skip: tracked changes on dev" in rig.log()
+    assert _restarts(rig) == 0 and "curl" not in rig.called()
+    assert backend.never_signalled()
+
+
+def test_ticks_that_skipped_the_ask_do_not_bridge_the_silence(rig, backends):
+    """A checkout with tracked changes asks nothing, so the silence on either side of it is not one stretch."""
+    rig.backend_pid = backends("backend").pid
+    _silent(rig)
+    _tick(rig, 0)
+    _tick_until(rig, 20)
+    rig.write("api/app.py", "edited")
+    _tick_until(rig, 20)                           # four ticks that never asked
+    _git(rig.repo, "checkout", "-q", "--", "api/app.py")
+    _tick(rig, 5)
+    assert _restarts(rig) == 0
+    assert "has not answered for 0 of 30 minutes" in rig.log().splitlines()[-1]
+
+
+def test_linux_failed_frozen_restart_keeps_the_record_and_the_next_tick_retries(linux, backends):
+    linux.backend_pid = backends("backend").pid
+    _silent(linux)
+    _tick(linux, 0)
+    for _ in range(5):
+        _tick(linux, 5)
+    assert _tick(linux, 5, RESTART_FAILS="1").returncode == 1
+    assert "fail: restart cicada-backend.service" in linux.log()
+    assert (linux.repo / "logs/.auto-update-silent").exists(), "a restart that failed is not a restart done"
+    _tick(linux, 5)
+    assert "backend restarted: it had been silent for 35 minutes" in linux.log()
+    assert not (linux.repo / "logs/.auto-update-silent").exists()
+
+
+def test_linux_frozen_backend_with_no_unit_is_said_and_nothing_restarts(linux, backends):
+    linux.unit_loaded = False
+    _silent(linux)
+    _tick(linux, 0)
+    _tick_until(linux, 30)
+    assert "restart" not in linux.called()
+    assert "is not loaded; nothing restarted" in linux.log()
+
+
+def test_the_limit_is_one_environment_variable(rig, backends):
+    rig.backend_pid = backends("backend").pid
+    _silent(rig)
+    _tick(rig, 0, CICADA_AUTOUPDATE_SILENT_MINUTES="10")
+    _tick(rig, 5, CICADA_AUTOUPDATE_SILENT_MINUTES="10")
+    assert _restarts(rig) == 0
+    _tick(rig, 5, CICADA_AUTOUPDATE_SILENT_MINUTES="10")
+    assert _restarts(rig) == 1
+    assert "silent for 10 minutes" in rig.log()
+
+
+@pytest.mark.parametrize("junk", ["", "0", "-5", "abc", "1.5"])
+def test_an_unusable_limit_falls_back_to_thirty_minutes(rig, junk):
+    _silent(rig)
+    _tick(rig, 0, CICADA_AUTOUPDATE_SILENT_MINUTES=junk)
+    _tick_until(rig, 25)
+    assert _restarts(rig) == 0
+    assert "of 30 minutes" in rig.log().splitlines()[-1]
