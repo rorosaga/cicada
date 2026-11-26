@@ -823,3 +823,27 @@ def pair_conversations(monkeypatch):
 
     monkeypatch.setattr(pair_evidence, "pair_episode",
                         lambda memory_path, a_names, b_names, *, first="", also=(), fresh=True: first or None)
+
+
+@pytest.fixture(autouse=True)
+def _background_pages_stay_in_their_test():
+    """A save through a route asks list and media pages to be written on a short timer (#940 turned list pages on). A
+    timer still pending when its test ends fired inside a later test, parsing and writing another bank while that test
+    counted parses or cache passes (dev CI 2026-11-26: ``test_origin_stats`` and ``test_source_streams`` failed once
+    each). Each test's timers are cancelled and its runs waited out when it ends."""
+    yield
+    import threading
+
+    from api.services import list_pages, media_pages
+
+    for module in (list_pages, media_pages):
+        with module._GUARD:
+            runners = list(module._RUNNERS.values())
+            module._RUNNERS.clear()
+        for runner in runners:
+            runner.again = False
+            # A test may install its own stand-in timer or thread: only a real one is cancelled or waited for.
+            if isinstance(runner.timer, threading.Timer):
+                runner.timer.cancel()
+            if isinstance(runner.thread, threading.Thread) and runner.thread.is_alive():
+                runner.thread.join(timeout=10)
