@@ -485,10 +485,11 @@ def fit(inputs: Inputs, *, max_chars: int, people=()) -> Inputs:
     drop_order = sorted((s for s in sources if s.kind == "claim"), key=claim_order)
     drop_order += sorted((s for s in sources if s.kind == "history"),
                          key=lambda s: (max(s.said_on) if s.said_on else "", s.id))
-    base = dict(inputs.data, INPUT=[])
     links = list(inputs.data.get("LINKABLE") or [])
-    overhead = len(PROMPT.replace("OWNER", inputs.data["OWNER"])) + len("\nDATA:\n") \
-        + len(json.dumps(dict(base, LINKABLE=[]), ensure_ascii=False, indent=0))
+    # Measured by the function that builds the prompt (`_text`), rules included: a second way of adding it up once
+    # left out the rules a page with CORRECTIONS or SAME_PAGE gets, so a page over the budget by less than those
+    # rules was never trimmed further and this loop never ended (2026-11-26: a night's run spun on the owner's page).
+    overhead = len(_text(Inputs([], dict(inputs.data, INPUT=[], LINKABLE=[]))))
     sizes = {s.id: _size(_item(s)) for s in sources}
     kept = {s.id for s in sources}
 
@@ -505,22 +506,29 @@ def fit(inputs: Inputs, *, max_chars: int, people=()) -> Inputs:
             nxt += 1
         chosen = [s for s in sources if s.id in kept]
         trimmed = Inputs(chosen, dict(inputs.data, LINKABLE=linkable(kept), INPUT=[_item(s) for s in chosen]))
-        text = prompt(trimmed, max_chars=max_chars)
-        if text is not None or nxt >= len(drop_order):
+        length = len(_text(trimmed))
+        if length <= max_chars or nxt >= len(drop_order):
             return trimmed
-        over = len(PROMPT.replace("OWNER", inputs.data["OWNER"]) + "\nDATA:\n"
-                   + json.dumps(trimmed.data, ensure_ascii=False, indent=0)) - max_chars
+        # Still over: by exactly this much, and by one input at the very least — every pass leaves an input out, so the
+        # loop ends whatever the estimate missed.
+        over = max(length - max_chars, 1)
 
 
-def prompt(inputs: Inputs, *, max_chars: int) -> str | None:
-    """The writer's prompt, or ``None`` when it is over ``max_chars`` (never clipped: the latest dated input could be
-    the part cut). The page then keeps the deterministic merge."""
+def _text(inputs: Inputs) -> str:
+    """The writer's whole prompt for these inputs, whatever its length: the one place its words are put together, so
+    :func:`prompt` and :func:`fit` can never measure two different texts."""
     rules = PROMPT.replace("OWNER", inputs.data["OWNER"])
     if inputs.data.get("CORRECTIONS"):
         rules = rules.rstrip("\n") + _CORRECTIONS_RULE + "\n"
     if inputs.data.get("SAME_PAGE"):
         rules = rules.rstrip("\n") + _SAME_PAGE_RULE + "\n"
-    text = rules + "\nDATA:\n" + json.dumps(inputs.data, ensure_ascii=False, indent=0)
+    return rules + "\nDATA:\n" + json.dumps(inputs.data, ensure_ascii=False, indent=0)
+
+
+def prompt(inputs: Inputs, *, max_chars: int) -> str | None:
+    """The writer's prompt, or ``None`` when it is over ``max_chars`` (never clipped: the latest dated input could be
+    the part cut). The page then keeps the deterministic merge."""
+    text = _text(inputs)
     return text if len(text) <= max_chars else None
 
 
