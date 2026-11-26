@@ -414,9 +414,29 @@ def due(memory_path: Path, now: datetime | None = None, *, unattended: bool = Fa
     list that has not been read to its end (:func:`whole`: a first read takes many screens and minutes), never an
     ``accounts`` list, and orders posts, then people, then books, a timeline last (reposts share their site's pause, so a
     block met reading them must never come before bookmarks). The person's own read keeps the fair order above: with more
-    lists on than a day's reads, a timeline last of all would never be read."""
+    lists on than a day's reads, a timeline last of all would never be read.
+
+    One site's list at a time holds across Substack's lists too (``substack_lists``): whichever of the two tables ranks
+    first by the same order is offered, the other waits — so a Substack list is no longer starved while any one of these
+    sites is due (2026-11-26)."""
     if reads_today(memory_path, now) >= DAILY_READS:
         return []
+    mine = candidate(memory_path, now, unattended=unattended)
+    if mine is None:
+        return []
+    from api.services import substack_lists   # late: substack_lists imports this module
+
+    theirs = substack_lists.candidate(memory_path, now, unattended=unattended)
+    return [] if theirs is not None and theirs < mine else [mine[-1]]
+
+
+#: Where each table stands in a tie, in :func:`candidate`'s rank: these sites' lists before Substack's.
+TABLE_ORDER = 0
+
+
+def candidate(memory_path: Path, now: datetime | None = None, *, unattended: bool = False) -> tuple | None:
+    """The list :func:`due` would offer from this table alone, as its rank — ``(asked first, unattended rank, when,
+    table, order, key)``, comparable with ``substack_lists.candidate`` — or ``None``. The day's bound is :func:`due`'s."""
     moment = _now(now)
     floor = datetime.min.replace(tzinfo=timezone.utc)
     ranked = []
@@ -432,8 +452,8 @@ def due(memory_path: Path, now: datetime | None = None, *, unattended: bool = Fa
         if asked is None and at is not None and moment - at < cadence_of(memory_path, key):
             continue
         rank = (_UNATTENDED_ORDER.get(p.kind, 9) + (10 if p.bounded else 0)) if unattended else 0
-        ranked.append((0 if asked is not None else 1, rank, asked or at or floor, order, key))
-    return [min(ranked)[4]] if ranked else []
+        ranked.append((0 if asked is not None else 1, rank, asked or at or floor, TABLE_ORDER, order, key))
+    return min(ranked) if ranked else None
 
 
 def request_check(memory_path: Path, key: str, now: datetime | None = None) -> bool:
