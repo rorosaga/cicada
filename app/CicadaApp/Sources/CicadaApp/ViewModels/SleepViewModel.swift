@@ -332,9 +332,7 @@ final class SleepViewModel {
         // and the running→idle edge live only inside that loop's own task, and
         // starting a second one here would race it (and could re-fire
         // `onCycleCompleted` off a fresh, reset `hasSeenRunning`).
-        if pollTask == nil, store.status.value?.sleep.status == "running" {
-            startPolling()
-        }
+        followRunIfRunning()
 
         async let statusTask = fetchSleepStatus()
         async let episodesTask = fetchEpisodes(episodesETag)
@@ -565,6 +563,14 @@ final class SleepViewModel {
         } catch {
             errorMessage = Copy.SleepV5.retryFailed
         }
+    }
+
+    /// A run this app did not start (the schedule, an agent, the CLI) is followed like one it did: when the Store says
+    /// a cycle is running and no poll loop is alive, start one. The page calls it whenever the Store's Sleep status
+    /// changes, so a page that was already open shows the run's progress as it moves, not only at each batch's
+    /// commit. Never a second loop (the guard `load()` always had).
+    func followRunIfRunning() {
+        if pollTask == nil, store.status.value?.sleep.status == "running" { startPolling() }
     }
 
     /// One `GET /sleep/status`, off the poll loop — a pause appeared, was armed or was cleared with no status change.

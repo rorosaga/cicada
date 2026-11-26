@@ -133,7 +133,7 @@ final class SleepPageModelTests: XCTestCase {
         let loud = resolve(status: try status(#"{"status":"idle","error":"boom","indexWarning":"w","cancelled":true,"episodesQueued":9,"episodesTotal":4}"#))
         XCTAssertEqual(loud.cycleError, "boom"); XCTAssertEqual(loud.indexWarning, "w")
         XCTAssertTrue(loud.cancelled); XCTAssertTrue(loud.capped)
-        XCTAssertEqual(loud.pips.first, .failed, "the strip freezes where the failure happened (P15)")
+        XCTAssertNotNil(loud.stoppedStage, "the run object says where the failure happened")
     }
 
     /// Z-P3 — an inbox resolution commit is not a cycle, and neither is a

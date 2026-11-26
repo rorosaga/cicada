@@ -156,16 +156,34 @@ extension Copy {
         static let engineTryAgain = "Try again"
         static let endRunFailed = "Couldn't end the run — nothing changed."
         static let retryFailed = "Couldn't retry — nothing changed."
-        static func runningFor(_ elapsed: String) -> String { "Running \(elapsed)" }
         static let pausedAnnouncement = "Sleep paused."
         static let continuedAnnouncement = "Sleep continued."
 
-        // MARK: The strip and the bar
+        // MARK: The run object and its bar (2026-11-26: one quiet object, no stepper, no legend)
 
-        /// The stepper's VoiceOver name; each stage reads "Stage 2 · Sort — done" inside it.
-        static let stagesLabel = "Sleep's five stages"
-        /// While the last stage files: what a Pause or Cancel does now, under the controls and as their tooltip — the
-        /// one place it is said (2026-10-16; it was the stage caption, a third saying of "Filing"). A stop asked for
+        /// The run's own count on the object's trailing edge: conversations filed of the ones frozen at its start.
+        static func runCount(_ filed: Int, _ frozen: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
+            "\(count(filed, locale)) of \(count(frozen, locale))"
+        }
+        /// How long a run has read, measured and never a remaining time (G107): "45 s", "27 min", "1 h 4 min".
+        static func elapsed(ms: Int) -> String {
+            let seconds = max(0, ms) / 1000
+            if seconds < 60 { return "\(seconds) s" }
+            let minutes = seconds / 60
+            if minutes < 60 { return "\(minutes) min" }
+            return minutes % 60 == 0 ? "\(minutes / 60) h" : "\(minutes / 60) h \(minutes % 60) min"
+        }
+        /// What the frozen stepper used to show, said once: the step a stop reached ("Stopped while sorting").
+        static func stoppedWhile(_ progressive: String?) -> String {
+            progressive.map { "Stopped while \($0.lowercased())" } ?? "Stopped"
+        }
+        /// After a cancel: what the person should expect. No digits: the object's own count says how many.
+        static let stoppedKeepsFiled = "What is filed stays filed — the rest wait."
+        /// After a run ended at a limit; the reset time is in Past sleeps.
+        static let stoppedAtLimit = "Your plan's limit was reached — the rest wait."
+        /// While the last stage files: what a Pause or Cancel does now — the run object's one note and the controls'
+        /// tooltip (2026-11-26; it sat under the controls, and before 2026-10-16 it was the stage caption, a third
+        /// saying of "Filing"). A stop asked for
         /// now is honoured once this batch is committed (`sleep_cycle`: a cancel after writes began finishes its
         /// commit), so nothing is refused and nothing is lost.
         static let filingWhisper = "Filing can't be interrupted — a stop waits until it's saved."
@@ -174,6 +192,8 @@ extension Copy {
             "\(count(n, locale)) \(couldNotBeReadPhrase)"
         }
         static let oneMoreTry = "it gets one more try"
+        /// After a count of conversations: "2 could not be read, they get one more try".
+        static func oneMoreTry(_ n: Int) -> String { n == 1 ? oneMoreTry : "they get one more try" }
         static func filed(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String { "\(count(n, locale)) filed" }
         static func readWaitingToFile(_ n: Int, _ locale: Locale = .autoupdatingCurrent) -> String {
             "\(count(n, locale)) read, waiting to file"
@@ -489,7 +509,7 @@ extension Copy {
         SleepV5.keepPlanFree, SleepV5.off, SleepV5.runLiveTitle, SleepV5.runDoneTitle, SleepV5.runStoppedTitle,
         SleepV5.ownerReadyTitle, SleepV5.parkedTitle, SleepV5.readingAll, SleepV5.batchesTitle,
         SleepV5.pagesItTouched, SleepV5.whatHappened, SleepV5.took, SleepV5.calls, SleepV5.window,
-        SleepV5.continueOnSleepPage, SleepV5.stagesLabel, SleepV5.filingLead, SleepV5.pausingLead,
+        SleepV5.continueOnSleepPage, SleepV5.filingLead, SleepV5.pausingLead,
         SleepV5.pausedLead, SleepV5.pausedTitle("reserve"), SleepV5.pausedTitle("user"), SleepV5.spendLimit,
         SleepV5.pausedTitle("key_limit"), SleepV5.pausedTitle("spend"),
         SleepV5.pausedTitle("plan_window"), SleepV5.pausedTitle("plan_back"), SleepV5.pausedTitle("engine"), SleepV5.pausedTitle("restart"),
@@ -527,6 +547,7 @@ extension Copy {
         SleepV5.groupTimes(readFor: "2 h 14 m", pausedFor: "4 h 37 m", parked: 1) ?? "",
         SleepV5.ownerBeliefsText(atStart: 0, afterFirstBatch: 31, firstBatch: 25) ?? "",
         SleepV5.filingWhisper, SleepV5.batchOf(4, 12),
+        SleepV5.stoppedWhile("Sorting"), SleepV5.stoppedWhile(nil), SleepV5.stoppedKeepsFiled, SleepV5.stoppedAtLimit,
     ]
 }
 

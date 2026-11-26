@@ -23,10 +23,10 @@ final class SleepHonestyTests: XCTestCase {
         XCTAssertEqual(activeStage(completed: 9), 5)
     }
 
-    /// The page mood, the menu bar, onboarding and the strip must name the
+    /// The page mood, the menu bar, onboarding and the run object must name the
     /// SAME stage for one reading — the defect was that three of them said
     /// "stage 1" while the strip lit Sort.
-    func test_theMoodTheMenuBarAndTheStripAgreeWhileSortRuns() throws {
+    func test_theMoodTheMenuBarAndTheRunObjectAgreeWhileSortRuns() throws {
         let running = try status(#"{"status":"running","stage":1}"#)
         XCTAssertEqual(deriveSleepPageMood(status: running, debt: nil, justFinishedAt: nil), .sleeping(stage: 2))
         let snapshot = StatusSnapshot(
@@ -35,9 +35,8 @@ final class SleepHonestyTests: XCTestCase {
             episodes: .init(unprocessed: 0, lastIngestedAt: nil),
             lastSleepAt: nil, nextSleepAt: nil)
         XCTAssertEqual(deriveBookwormState(snapshot, justFinishedAt: nil), .sleeping(stage: 2))
-        let pips = stageStripState(stage: 1, isRunning: true, cancelled: false, error: false, read: 0, total: 0)
-        XCTAssertEqual(pips, [.done, .active(fill: nil), .pending, .pending, .pending])
-        XCTAssertEqual(pips.firstIndex(of: .active(fill: nil)), activeStage(completed: 1) - 1)
+        // The run object's word is the same array's: stage 2, "Sorting".
+        XCTAssertEqual(SleepStages.all[activeStage(completed: 1) - 1].progressive, "Sorting")
     }
 
     // MARK: §13.3 — honest stage lines

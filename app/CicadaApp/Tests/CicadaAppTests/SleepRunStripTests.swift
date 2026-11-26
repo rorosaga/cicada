@@ -3,14 +3,15 @@ import SwiftUI
 import XCTest
 @testable import CicadaApp
 
-/// The Sleep page's running block as one calm, centred group (2026-10-16). The owner's live capture during a run had
-/// four widths and alignments stacked under the room: a centred sentence, the stage tiles starting at the column's
-/// left, a left-aligned caption, and a bar a third width again, with the controls pushed off-centre by their whisper.
+/// The Sleep page's running state as one quiet object (2026-11-26; it was a stack of seven or eight things under the
+/// room: the chip, an explaining sentence, a five-step stepper, a bar, a legend of five counts, an elapsed caption and
+/// the engine's note).
 ///
-/// Two kinds of test: the stepper's state for every stage (pure), and the column's geometry, read from the pixels of
-/// the real `SleepRoomColumn` laid out offscreen — every row's ink centred on the column's axis, and the stepper and the
-/// bar spanning the same width, the column's. `CICADA_RUN_STRIP_SNAPSHOTS=<dir>` also writes every run state, dark and
-/// light, at the 1440 and 1079 pt windows, for a person to compare against the live capture.
+/// Four kinds of test: what the object says in every run state (pure, `RunLine`), that nothing is said twice, the
+/// geometry of the real block laid out offscreen (the bar spans the block, the count sits on its trailing edge, the
+/// block is the room's height and nothing hangs under the pair), and the snapshots of the page's real layout beside the
+/// room — `CICADA_RUN_STRIP_SNAPSHOTS=<dir>` writes every run state, dark and light, at the 1440 and 1079 pt windows and
+/// in the narrow layout, for a person to look at.
 @MainActor
 final class SleepRunStripTests: XCTestCase {
     override func setUp() {
@@ -23,146 +24,445 @@ final class SleepRunStripTests: XCTestCase {
         super.tearDown()
     }
 
-    // MARK: - The stepper's state, stage by stage
+    private static func line(_ status: SleepStatusResponse, finished: Bool = false, owner: Bool = false) -> RunLine? {
+        RunLine.from(page(status, justFinished: finished), recentCycleCommit: finished ? "abc1234" : nil,
+                     canOpenOwnerPage: owner, locale: en)
+    }
 
-    /// While stage k runs: the ones before it are done, k is the one current step, the ones after are to come — so the
-    /// three read differently at a glance (the live capture drew all five with the same underline).
-    func test_eachRunningStageIsTheOneCurrentStep() {
-        for running in 1...5 {
-            let pips = stageStripState(stage: running - 1, isRunning: true, cancelled: false, error: false,
-                                       read: 14, total: 25)
-            let looks = pips.map(StepLook.init)
-            XCTAssertEqual(looks.filter { $0 == .current }.count, 1, "stage \(running)")
-            XCTAssertEqual(looks.firstIndex(of: .current), running - 1, "stage \(running)")
-            XCTAssertEqual(Array(looks.prefix(running - 1)), Array(repeating: .done, count: running - 1))
-            XCTAssertEqual(Array(looks.suffix(5 - running)), Array(repeating: .toCome, count: 5 - running))
+    // MARK: - What the object says, state by state
+
+    /// While stage k runs the word is that step's own, in one word, with the live mark; the run's one count is
+    /// conversations filed of the ones frozen at its start and the time it has read, both from the drain — never the
+    /// batch's own "14 of 25".
+    func test_eachRunningStageIsOneWordTheRunsCountAndItsTime() throws {
+        for stage in 1...5 {
+            let run = try XCTUnwrap(Self.line(Self.running(stage: stage)), "stage \(stage)")
+            XCTAssertEqual(run.kind, .running)
+            XCTAssertEqual(run.word, SleepStages.all[stage - 1].progressive, "the step, in one word")
+            XCTAssertTrue(run.live, "a quiet mark while a step runs")
+            XCTAssertEqual(run.count, "74 of 287", "conversations filed of the ones frozen — not the batch's own count")
+            XCTAssertEqual(run.elapsed, "27 min")
+            XCTAssertEqual(run.trailing, ["74 of 287", "27 min"])
+            XCTAssertEqual(run.progress?.frozen, 287)
+            XCTAssertFalse(run.indeterminate)
+            XCTAssertFalse((run.help ?? "").isEmpty, "the stage's purpose is the word's tooltip, not a line")
         }
     }
 
-    /// A cancel freezes the stepper where it stopped; a failure marks the stage it died in. Neither shows a current
-    /// step, because nothing is running.
-    func test_aStoppedRunHasNoCurrentStep() {
-        let cancelled = stageStripState(stage: 2, isRunning: false, cancelled: true, error: false, read: 0, total: 0)
-        XCTAssertEqual(cancelled.map(StepLook.init), [.done, .done, .toCome, .toCome, .toCome])
-        let failed = stageStripState(stage: 1, isRunning: false, cancelled: false, error: true, read: 0, total: 0)
-        XCTAssertEqual(failed.map(StepLook.init), [.done, .failed, .toCome, .toCome, .toCome])
-        XCTAssertEqual(StepLook.failed.pip.accessibilityWord, "failed", "a failure is said in words (DR-7)")
+    /// Only a note that changes what the person should do or expect may sit under the bar, one at a time: the batch's
+    /// unreadable conversations (a glyph beside words, DR-7), what a stop does while it files, the first run's link.
+    func test_onlyANoteThatChangesWhatToExpectSitsUnderTheBar() throws {
+        XCTAssertNil(try XCTUnwrap(Self.line(Self.running(stage: 3))).note, "no explaining sentence while it runs")
+        XCTAssertNil(try XCTUnwrap(Self.line(Self.running(stage: 1))).note)
+        let filing = try XCTUnwrap(Self.line(Self.running(stage: 5)))
+        XCTAssertEqual(filing.note, RunLine.Note(text: Copy.SleepV5.filingWhisper))
+        let failures = try XCTUnwrap(Self.line(Self.running(stage: 1, failed: 2)))
+        XCTAssertEqual(failures.note?.style, .caution)
+        XCTAssertEqual(failures.note?.text, "2 could not be read, they get one more try")
+        let first = try Self.running(stage: 3, firstRun: true)
+        XCTAssertNil(Self.line(first)?.note, "the link needs the owner's page to open")
+        XCTAssertEqual(Self.line(first, owner: true)?.note, RunLine.Note(text: Copy.SleepV5.seeYourPage, style: .ownerPage))
     }
 
-    /// VoiceOver reads each stage's own pip word, not its look's: after a cancel the stages the stop never reached say
-    /// "not reached", which shares the to-come ring with "not started" but is a different fact.
-    func test_voiceOverReadsThePipNotTheLook() {
-        let cancelled = stageStripState(stage: 2, isRunning: false, cancelled: true, error: false, read: 0, total: 0)
-        let labels = zip(SleepStages.all, cancelled).map { SleepStageStrip.accessibilityLabel($0, pip: $1) }
-        XCTAssertEqual(labels[0], "\(SleepStages.all[0].title) — done")
-        XCTAssertEqual(labels[2], "\(SleepStages.all[2].title) — \(cancelled[2].accessibilityWord)")
-        XCTAssertEqual(SleepStageStrip.accessibilityLabel(SleepStages.all[3], pip: .skipped),
-                       "\(SleepStages.all[3].title) — not reached")
+    /// The old single-pass shape has no countable total: the word and an indeterminate bar, never a made-up fraction
+    /// (P15).
+    func test_aRunWithNothingCountableIsIndeterminateNeverAFraction() throws {
+        let run = try XCTUnwrap(Self.line(Self.singlePass()))
+        XCTAssertEqual(run.kind, .running)
+        XCTAssertNil(run.progress, "no fill without a counted quantity")
+        XCTAssertTrue(run.indeterminate)
+        XCTAssertNil(run.count)
     }
 
-    /// The way to the next stage fills only from a counted fraction (P15): whole after a done stage, the fraction after
-    /// a counted stage in flight, nothing after an uncounted one or one that never ran.
-    func test_theConnectorFillsOnlyFromACountedFraction() {
-        XCTAssertEqual(StepLook.connectorFill(after: .done), 1)
-        XCTAssertEqual(StepLook.connectorFill(after: .active(fill: 0.56)), 0.56, accuracy: 1e-9)
-        XCTAssertEqual(StepLook.connectorFill(after: .active(fill: nil)), 0, "Notice and File carry no fraction")
-        XCTAssertEqual(StepLook.connectorFill(after: .active(fill: 1.7)), 1)
-        for pip in [StagePip.pending, .skipped, .failed] { XCTAssertEqual(StepLook.connectorFill(after: pip), 0) }
+    func test_pausingAndWaitingForTheNetworkAreTheSameObject() throws {
+        var model = Self.page(try Self.running(stage: 2))
+        model.pausing = true
+        let pausing = try XCTUnwrap(RunLine.from(model, locale: Self.en))
+        XCTAssertEqual(pausing.kind, .pausing)
+        XCTAssertEqual(pausing.word, "Pausing…")
+        XCTAssertEqual(pausing.count, "74 of 287")
+        let network = try XCTUnwrap(Self.line(Self.running(stage: 1, waiting: "connection")))
+        XCTAssertEqual(network.kind, .waiting)
+        XCTAssertEqual(network.word, "Waiting for the network")
+        XCTAssertFalse(network.live, "nothing is reading while it waits")
+        XCTAssertEqual(network.help, Copy.SleepV5.waitingForNetworkTail("connection"))
     }
 
-    /// "Filing" is said once in the words: the lead names it, the secondary line says what it does, and what a stop
-    /// does now is the whisper under the controls — the stage caption that said it a third time is gone.
-    func test_filingIsSaidOnceAndTheStopWhisperSaysWhatAStopDoes() throws {
-        let page = try Self.page(Self.running(stage: 5))
-        let line = roomSentence(page.roomContext(locale: Self.en))
-        XCTAssertEqual(line.lead, Copy.SleepV5.filingLead)
-        XCTAssertNotNil(line.tail)
-        XCTAssertFalse(line.tail?.localizedCaseInsensitiveContains("filing") ?? true)
-        XCTAssertEqual(controlCaption(isRunning: true, draining: true, filing: true), Copy.SleepV5.filingWhisper)
-        XCTAssertNil(batchFailureNote(drain: page.drain, activeStage: page.runningStage))
-        XCTAssertFalse(Copy.SleepV5.filingWhisper.contains("nothing is lost"), "G163: never promise what is not kept")
+    /// Paused keeps the pause's own words (why, and what to do), with the bar held; the count is in those words, so it
+    /// is not said again on the trailing edge.
+    func test_pausedKeepsThePausesOwnWordsAndHoldsTheBar() throws {
+        for reason in ["user", "plan_window", "engine", "restart"] {
+            let status = try Self.paused(reason)
+            let run = try XCTUnwrap(Self.line(status), reason)
+            let sentence = roomSentence(Self.page(status).roomContext(locale: Self.en))
+            XCTAssertEqual(run.kind, .paused)
+            XCTAssertTrue(sentence.lead.hasPrefix(run.word), "\(reason): the lead, ending on its last word")
+            XCTAssertFalse(run.live)
+            XCTAssertNil(run.count, "the pause's tail already says how many are filed")
+            XCTAssertEqual(run.note?.text, sentence.tail, "\(reason): what to do, in the pause's own words")
+            XCTAssertNotNil(run.progress, "the bar is held where the run stopped")
+        }
     }
 
-    // MARK: - One centred column
+    /// A finished run: what it filed, the bar full, the way to what changed. Nothing cheers; no count of its own.
+    func test_justFinishedIsFiledNWithTheBarFullAndTheWayToWhatChanged() throws {
+        let run = try XCTUnwrap(Self.line(Self.finished(), finished: true))
+        XCTAssertEqual(run.kind, .finished)
+        XCTAssertEqual(run.word, "Filed 7 conversations")
+        XCTAssertFalse(run.live)
+        XCTAssertNil(run.count, "the word is the count")
+        XCTAssertEqual(try XCTUnwrap(run.progress).filedFraction, 1, accuracy: 1e-9)
+        XCTAssertEqual(run.note, RunLine.Note(text: "See what changed ›", style: .link, action: .whatChanged))
+        XCTAssertNil(Self.line(try Self.finished()), "the object goes once the window for its link has")
+    }
 
-    /// Laid out in a page wider than the column, every row of the running block is centred on the column's axis, and
-    /// the stepper and the bar span exactly the column — one width, one alignment (DR-36).
-    func test_everyRowSharesOneCentredColumn() async throws {
-        for width in [CGFloat(900), SleepLayout.contentWidth] {
-            for stage in [1, 3, 5] {
-                let host = try await Self.host()
-                let status = try Self.running(stage: stage)
-                host.sleep.status = status
-                let view = try Self.column(Self.page(status), host: host)
-                let bands = try Self.bands(of: view, width: width)
-                let column = (left: (width - SleepLayout.contentWidth) / 2, right: (width + SleepLayout.contentWidth) / 2)
-                XCTAssertGreaterThanOrEqual(bands.count, 6, "\(stage) at \(width): sentence, controls, schedule, stepper, bar, counts")
-                for band in bands {
-                    XCTAssertEqual(band.center, width / 2, accuracy: 3,
-                                   "stage \(stage) at \(width) pt: the row at y \(band.top)–\(band.bottom) is off-centre "
-                                   + "(\(band.left)–\(band.right))")
-                    XCTAssertGreaterThanOrEqual(band.left, column.left - 1, "nothing leaves the column")
-                    XCTAssertLessThanOrEqual(band.right, column.right + 1, "nothing leaves the column")
+    /// The index warning (T6) and the cap (T5) outrank the way to what changed (T7) in the sentence's tail. A run that just
+    /// finished keeps the pointer to Past sleeps in its note: the object never swallows a warning.
+    func test_aJustFinishedRunKeepsTheWarningThatPointsAtPastSleeps() throws {
+        let warned = try XCTUnwrap(Self.line(Self.finished(indexWarning: "The search index is out of date."), finished: true))
+        XCTAssertEqual(warned.kind, .finished)
+        XCTAssertEqual(warned.note, RunLine.Note(text: "Finished with a warning — it's in Past sleeps.", style: .detail,
+                                                  action: .openDetails(.lastCycle)))
+        let clean = try XCTUnwrap(Self.line(Self.finished(), finished: true))
+        XCTAssertEqual(clean.note?.action, .whatChanged, "with no warning the way to what changed is the note")
+    }
+
+    /// What the frozen stepper showed, said once: the step a stop reached, with the bar where it stopped.
+    func test_aStoppedOrFailedRunSaysWhereItStopped() throws {
+        let stopped = try XCTUnwrap(Self.line(Self.cancelled()))
+        XCTAssertEqual(stopped.kind, .stopped)
+        XCTAssertTrue(stopped.word.hasPrefix("Stopped while "), stopped.word)
+        XCTAssertNotNil(stopped.count)
+        XCTAssertNotNil(stopped.progress, "the bar stays where it stopped")
+        XCTAssertEqual(stopped.note?.text, Copy.SleepV5.stoppedKeepsFiled)
+        XCTAssertEqual(stopped.note?.style, .detail, "a whole sentence is never accent-blue")
+        let failed = try XCTUnwrap(Self.line(Self.failed()))
+        XCTAssertEqual(failed.kind, .failed)
+        XCTAssertTrue(failed.word.hasPrefix("Stopped while "), failed.word)
+        XCTAssertTrue(failed.warns, "a failed run wears a glyph beside its words, never colour alone (DR-7)")
+        XCTAssertEqual(failed.note?.text, Copy.SleepV5.readingStoppedTail)
+        XCTAssertEqual(failed.note?.action, .openDetails(.lastCycle))
+    }
+
+    /// A page at rest, a night the write window refused and an empty page have no run: the chip stays.
+    func test_noRunNoObject() throws {
+        XCTAssertNil(Self.line(try Self.empty()))
+        XCTAssertNil(Self.line(try Self.refusedNight()))
+        XCTAssertNil(Self.line(try Self.refusedNight(gaveUp: true)))
+    }
+
+    /// Say it once (DR-38): no fact is on screen twice in the object, and none of the old stack's words survive on it
+    /// (the batch's position, "waiting", "calls made", "Running 27 m", a stage's explaining sentence).
+    func test_noFactIsOnScreenTwiceAndTheOldStacksWordsAreGone() throws {
+        let states: [(String, RunLine?)] = try [
+            ("running-1", Self.line(Self.running(stage: 1))), ("running-2", Self.line(Self.running(stage: 2))),
+            ("running-5", Self.line(Self.running(stage: 5))), ("paused", Self.line(Self.paused("user"))),
+            ("paused-window", Self.line(Self.paused("plan_window"))), ("stopped", Self.line(Self.cancelled())),
+            ("failed", Self.line(Self.failed())), ("finished", Self.line(Self.finished(), finished: true)),
+        ]
+        for (name, run) in states {
+            let run = try XCTUnwrap(run, name)
+            let said = [run.word, run.count, run.elapsed, run.note?.text].compactMap { $0 }
+            XCTAssertEqual(Set(said).count, said.count, "\(name): nothing repeated — \(said)")
+            let all = said.joined(separator: " ")
+            for stale in ["Batch ", "calls made", "Running ", "read, waiting to file"] {
+                XCTAssertFalse(all.contains(stale), "\(name): \"\(stale)\" left the screen — \(all)")
+            }
+            if let count = run.count, let note = run.note?.text {
+                for number in count.split(separator: " ").filter({ Int($0) != nil }) {
+                    XCTAssertFalse(note.contains(number), "\(name): the count \(count) is not said again in \"\(note)\"")
                 }
-                let full = bands.filter { $0.left <= column.left + 4 && $0.right >= column.right - 4 }
-                XCTAssertEqual(full.count, 2, "stage \(stage) at \(width): the stepper and the bar, and only they, span the column")
+            }
+        }
+        for stage in 1...5 {
+            let run = try XCTUnwrap(Self.line(Self.running(stage: stage)))
+            XCTAssertNotEqual(run.help, run.word)
+        }
+    }
+
+    /// What the old legend and the stage caption printed is the bar's tooltip and VoiceOver's value, not a line: the batch's
+    /// position, what waits, the calls made.
+    func test_theLegendIsTheBarsTooltipAndItsVoiceOverValue() throws {
+        let progress = try XCTUnwrap(try XCTUnwrap(Self.line(Self.running(stage: 2))).progress)
+        let value = progress.accessibilityValue(locale: Self.en)
+        for part in ["Batch 4 of 12", "74 filed", "222 calls made", "waiting"] {
+            XCTAssertTrue(value.contains(part), "\(part) is in \"\(value)\"")
+        }
+    }
+
+    /// "This run keeps the engine it started on" is the engine label's tooltip while a run reads, and the label's
+    /// ordinary tooltip otherwise — said nowhere else on the page.
+    func test_theEnginesRunNoteMovedIntoItsTooltip() {
+        XCTAssertEqual(EngineLabelHelp.text(runKeepsEngine: true), Copy.EngineMenu.runKeepsEngine)
+        XCTAssertEqual(EngineLabelHelp.text(runKeepsEngine: false), Copy.EngineMenu.moreInSettings)
+    }
+
+    /// The pause's armed automatic continue (ruling 15) is said once, in the note's own words; why it will is the note's
+    /// tooltip, not a second line under the pair.
+    func test_anArmedContinueIsOneNoteWhoseWhyIsItsTooltip() throws {
+        var model = Self.page(try Self.paused("plan_window"))
+        model.autoContinueWhen = "3:14 PM"
+        let run = try XCTUnwrap(RunLine.from(model, locale: Self.en))
+        XCTAssertEqual(run.note?.help, Copy.SleepV5.willContinueBySelf("3:14 PM"))
+        XCTAssertTrue(run.note?.text.contains("Continues after") == true, run.note?.text ?? "")
+    }
+
+    // MARK: - Geometry, from the real block
+
+    /// The pixels of the real pinned block (drawn through a hosting view, as the page is): the bar is the block's full
+    /// width, on its left edge, a thin line; the run's count sits flush on the trailing edge; the run bar's card (the
+    /// controls) is the same width — one column, one alignment.
+    func test_theBarSpansTheBlockAndTheCountSitsOnItsTrailingEdge() async throws {
+        let width = Self.wordsWidth(window: 1440)
+        for (name, status, finished) in try Self.runStates() {
+            let host = try await Self.host()
+            host.sleep.status = status
+            let view = Self.environment(Self.pinned(status, finished: finished, host: host, width: width, cell: 3),
+                                        host: host)
+            let bands = try Self.hostedBands(of: view, width: width)
+            let bar = try XCTUnwrap(bands.first { $0.bottom - $0.top + 1 <= 6 && $0.right - $0.left >= width - 4 },
+                                    "\(name): a thin bar across the block — \(bands)")
+            XCTAssertLessThanOrEqual(bar.left, 1.5, "\(name): the bar starts on the block's edge")
+            XCTAssertGreaterThanOrEqual(bar.right, width - 1.5, "\(name): and ends on the other")
+            let card = try XCTUnwrap(bands.last, "\(name): the run bar")
+            XCTAssertEqual(card.left, bar.left, accuracy: 1.5, "\(name): the run bar's card shares the bar's left edge")
+            XCTAssertEqual(card.right, bar.right, accuracy: 1.5, "\(name): and its right edge")
+            let above = try XCTUnwrap(bands.last { $0.bottom < bar.top }, "\(name): the line over the bar")
+            XCTAssertLessThanOrEqual(above.left, 1.5, "\(name): the word keeps the block's left edge")
+            if let run = RunLine.from(Self.page(status, justFinished: finished),
+                                      recentCycleCommit: finished ? "abc1234" : nil, locale: Self.en), run.count != nil {
+                XCTAssertGreaterThanOrEqual(above.right, width - 3, "\(name): the count is flush right — \(bands)")
             }
         }
     }
 
-    /// The controls stay centred when their whisper shows: it is a line of its own under them, not a third item
-    /// beside them (the live capture's off-centre pair).
-    func test_theControlGroupIsCentredWithItsWhisperUnderIt() async throws {
-        let host = try await Self.host()
-        let page = try Self.page(Self.running(stage: 5))
-        host.sleep.status = try Self.running(stage: 5)
-        let row = SleepControlRow(consolidateEnabled: page.consolidateEnabled, queuedCount: page.queuedCount, page: page)
-        let bands = try Self.bands(of: Self.environment(row, host: host), width: SleepLayout.contentWidth)
-        XCTAssertEqual(bands.count, 2, "the buttons, then the whisper on its own line")
-        for band in bands { XCTAssertEqual(band.center, SleepLayout.contentWidth / 2, accuracy: 3) }
+    /// One calm object, not one that jumps (the owner's words): the word and the bar hang at the same height in every run
+    /// state, with or without a note, and the block ends exactly where the room does — at 3 pt a cell (192 pt) and at 2
+    /// (128 pt), where a note has the least room.
+    func test_theObjectHoldsOneHeightAndTheBlockKeepsTheRoomsInEveryState() async throws {
+        for window in [1440, 1079] {
+            let cell: CGFloat = window == 1440 ? 3 : 2
+            let width = Self.wordsWidth(window: window)
+            var barTop: Int?, lineTop: Int?
+            for (name, status, finished) in try Self.runStates() {
+                let host = try await Self.host()
+                host.sleep.status = status
+                let view = Self.environment(Self.pinned(status, finished: finished, host: host, width: width, cell: cell),
+                                            host: host)
+                let (bands, height) = try Self.hostedBandsAndHeight(of: view, width: width)
+                XCTAssertEqual(height, CGFloat(RoomLattice.rows) * cell, accuracy: 0.5,
+                               "\(name) @\(window): the block is as tall as the room, a note or none")
+                let bar = try XCTUnwrap(bands.first { $0.bottom - $0.top + 1 <= 6 && $0.right - $0.left >= width - 4 },
+                                        "\(name) @\(window): the bar — \(bands)")
+                let line = try XCTUnwrap(bands.last { $0.bottom < bar.top }, "\(name) @\(window): the line over the bar")
+                if let barTop, let lineTop {
+                    XCTAssertEqual(bar.top, barTop, "\(name) @\(window): the bar does not move between run states")
+                    XCTAssertEqual(line.top, lineTop, "\(name) @\(window): nor does the line")
+                } else { barTop = bar.top; lineTop = line.top }
+                let card = try XCTUnwrap(bands.last, "\(name) @\(window): the run bar")
+                XCTAssertLessThanOrEqual(CGFloat(card.bottom + 1), height + 0.5, "\(name) @\(window): the card is inside the block")
+            }
+        }
     }
 
-    // MARK: - The snapshots (for the person comparing against the live capture)
+    /// The rows of ink in a hosted render, at 1 pt per row: each run of pixel rows that differ from the page ground, with
+    /// its horizontal extent.
+    static func hostedBands(of view: some View, width: CGFloat) throws -> [Band] {
+        try hostedBandsAndHeight(of: view, width: width).0
+    }
+
+    static func hostedBandsAndHeight(of view: some View, width: CGFloat) throws -> ([Band], CGFloat) {
+        let hosting = NSHostingView(rootView: view.background(CicadaTheme.bgBase))
+        hosting.appearance = NSAppearance(named: CicadaTheme.mode == .dark ? .darkAqua : .aqua)
+        hosting.frame = NSRect(x: 0, y: 0, width: width, height: 10)
+        let height = hosting.fittingSize.height
+        hosting.frame = NSRect(x: 0, y: 0, width: width, height: height)
+        let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.appearance = hosting.appearance
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded(); hosting.display()
+        let rep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(width), pixelsHigh: Int(height),
+                                                 bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                                 colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        rep.size = NSSize(width: width, height: height)
+        hosting.cacheDisplay(in: hosting.bounds, to: rep)
+        let ground = NSColor(CicadaTheme.bgBase).usingColorSpace(.deviceRGB)!
+        func ink(_ x: Int, _ y: Int) -> Bool {
+            guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { return false }
+            return abs(c.redComponent - ground.redComponent) + abs(c.greenComponent - ground.greenComponent)
+                + abs(c.blueComponent - ground.blueComponent) > 0.06
+        }
+        var bands: [Band] = []
+        var start: Int?
+        var left = rep.pixelsWide, right = -1
+        for y in 0...rep.pixelsHigh {
+            var rowLeft = rep.pixelsWide, rowRight = -1
+            if y < rep.pixelsHigh { for x in 0..<rep.pixelsWide where ink(x, y) { rowLeft = min(rowLeft, x); rowRight = max(rowRight, x) } }
+            if rowRight >= 0 {
+                if start == nil { start = y; left = rep.pixelsWide; right = -1 }
+                left = min(left, rowLeft); right = max(right, rowRight)
+            } else if let top = start {
+                bands.append(Band(top: top, bottom: y - 1, left: CGFloat(left), right: CGFloat(right + 1)))
+                start = nil
+            }
+        }
+        return (bands, height)
+    }
+
+    /// Nothing about a run hangs under the pair any more: while a run reads, is paused, stopped or failed, what the page
+    /// draws under the room's row (the control captions and the notes) is no taller than at rest, so nothing below
+    /// jumps when a run starts or ends.
+    func test_nothingAboutARunHangsUnderTheRoom() async throws {
+        let rest = try await Self.underTheRoomHeight(Self.finished(), finished: false)
+        for (name, status, finished) in try Self.runStates() where !name.hasPrefix("just-finished") {
+            let height = try await Self.underTheRoomHeight(status, finished: finished)
+            XCTAssertEqual(height, rest, accuracy: 0.5, "\(name): under the pair is as tall as at rest")
+        }
+    }
+
+    private static func underTheRoomHeight(_ status: SleepStatusResponse, finished: Bool) async throws -> CGFloat {
+        let host = try await Self.host()
+        host.sleep.status = status
+        let model = page(status, justFinished: finished)
+        let context = model.roomContext(recentCycleCommit: host.room.recentCycleCommit, locale: en)
+        let under = VStack(alignment: .leading, spacing: 0) {
+            SleepControlRow(consolidateEnabled: model.consolidateEnabled, queuedCount: model.queuedCount, page: model,
+                            leading: true, part: .captions)
+            SleepRoomColumn(page: model, status: roomSentence(context), answers: [], room: host.room, leading: true,
+                            notesOnly: true)
+        }
+        let hosting = NSHostingView(rootView: environment(under.frame(width: 440), host: host))
+        hosting.frame = NSRect(x: 0, y: 0, width: 440, height: 10)
+        return hosting.fittingSize.height
+    }
+
+    // MARK: - Rails
+
+    /// DR-5: the run object has no accent but its links (`accentText`); the bar is ink. No `TimelineView` (the layer rule in `app.md`). The
+    /// page's one primary stays the control row's alone.
+    func test_theObjectKeepsTheRails() throws {
+        let file = try XCTUnwrap(SleepNumbersLintTests.sleepSources().first { $0.lastPathComponent == "SleepRunObject.swift" })
+        let code = try String(contentsOf: file, encoding: .utf8).components(separatedBy: .newlines)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        XCTAssertFalse(code.contains { $0.contains("CicadaTheme.accent)") || $0.contains("CicadaTheme.accent.") },
+                       "the accent is DR-5's six uses; links read accentText")
+        XCTAssertFalse(code.contains { $0.contains("TimelineView(") })
+        XCTAssertFalse(code.contains { $0.contains("PrimaryActionButton") })
+        XCTAssertFalse(code.contains { $0.contains(".shadow(") }, "depth is a ring")
+    }
+
+    // MARK: - Layouts
+
+    /// The words' width beside the room at a window: the 1440 pt window's page is 1040 wide with the room at 3 pt a cell
+    /// (480 × 192); at 1079 pt the room is 2 pt a cell (320 × 128).
+    static func wordsWidth(window: Int) -> CGFloat { window == 1440 ? 448 : 440 }
+
+    static func runStates() throws -> [(String, SleepStatusResponse, Bool)] {
+        try [
+            ("reading-1-read", running(stage: 1), false),
+            ("reading-1-read-failures", running(stage: 1, failed: 2), false),
+            ("reading-2-sort", running(stage: 2), false),
+            ("reading-3-decide", running(stage: 3), false),
+            ("reading-4-notice", running(stage: 4), false),
+            ("reading-5-file", running(stage: 5), false),
+            ("reading-single-pass", singlePass(), false),
+            ("paused-user", paused("user"), false),
+            ("paused-plan-window", paused("plan_window"), false),
+            ("paused-engine", paused("engine"), false),
+            ("paused-restart", paused("restart"), false),
+            ("failed", failed(), false),
+            ("cancelled", cancelled(), false),
+            ("just-finished", finished(), true),
+            ("just-finished-warning", finished(indexWarning: "The search index is out of date."), true),
+        ]
+    }
+
+    /// The page's pinned block: the title, the status slot, the run bar, as tall as the room (`SleepView.roomBlock`).
+    static func pinned(_ status: SleepStatusResponse, finished: Bool, host: Host, width: CGFloat,
+                       cell: CGFloat) -> some View {
+        let model = page(status, justFinished: finished)
+        if finished { host.room.recentCycleCommit = "abc1234" }
+        let context = model.roomContext(recentCycleCommit: host.room.recentCycleCommit, locale: en)
+        return SleepRoomColumn(page: model, status: roomSentence(context), answers: [], room: host.room, leading: true,
+                               title: AnyView(EyebrowRow(eyebrow: "Sleep", bare: true) { EmptyView() }),
+                               fillHeight: CGFloat(RoomLattice.rows) * cell)
+            .frame(width: width, alignment: .leading)
+    }
+
+    /// The page's real layout beside the room, as `SleepView.roomBlock` draws it: the pinned block and the room's
+    /// rectangle (a neutral stand-in), then what hangs under the pair (the control captions, the notes). The room is
+    /// 160 cells wide, 64 tall.
+    static func beside(_ status: SleepStatusResponse, finished: Bool, host: Host, window: Int) -> some View {
+        let cell: CGFloat = window == 1440 ? 3 : 2
+        let width = wordsWidth(window: window)
+        let model = page(status, justFinished: finished)
+        let context = model.roomContext(recentCycleCommit: host.room.recentCycleCommit, locale: en)
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: CicadaTheme.spacingXL) {
+                pinned(status, finished: finished, host: host, width: width, cell: cell)
+                Rectangle().fill(CicadaTheme.surfaceElevated)
+                    .frame(width: 160 * cell, height: CGFloat(RoomLattice.rows) * cell)
+                    .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadius))
+                    .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+            }
+            SleepControlRow(consolidateEnabled: model.consolidateEnabled, queuedCount: model.queuedCount, page: model,
+                            leading: true, part: .captions)
+            SleepRoomColumn(page: model, status: roomSentence(context), answers: [], room: host.room, leading: true,
+                            notesOnly: true)
+        }
+        .padding(CicadaTheme.spacingXL)
+        .frame(width: width + CicadaTheme.spacingXL + 160 * cell + CicadaTheme.spacingXL * 2, alignment: .leading)
+        .background(CicadaTheme.bgBase)
+    }
+
+    /// The narrow layout (below 720 pt of column): the room above the words, the same object stacked.
+    static func narrow(_ status: SleepStatusResponse, finished: Bool, host: Host) -> some View {
+        let model = page(status, justFinished: finished)
+        if finished { host.room.recentCycleCommit = "abc1234" }
+        let context = model.roomContext(recentCycleCommit: host.room.recentCycleCommit, locale: en)
+        return VStack(alignment: .leading, spacing: CicadaTheme.spacingMD) {
+            Rectangle().fill(CicadaTheme.surfaceElevated).frame(width: 320, height: 128)
+                .clipShape(CicadaTheme.shape(CicadaTheme.cornerRadius))
+                .ringed(in: CicadaTheme.shape(CicadaTheme.cornerRadius))
+            SleepRoomColumn(page: model, status: roomSentence(context), answers: [], room: host.room, leading: true)
+        }
+        .padding(CicadaTheme.spacingXL)
+        .frame(width: 600, alignment: .leading)
+        .background(CicadaTheme.bgBase)
+    }
+
+    // MARK: - The snapshots (for the person looking at the page)
 
     func test_writeTheRunStatesForComparison() async throws {
         guard let dir = ProcessInfo.processInfo.environment["CICADA_RUN_STRIP_SNAPSHOTS"], !dir.isEmpty else {
             throw XCTSkip("set CICADA_RUN_STRIP_SNAPSHOTS=<dir> to write the run states")
         }
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        let states: [(String, SleepStatusResponse, Bool, Bool)] = try [
-            ("reading-1-read", Self.running(stage: 1), false, false),
-            ("reading-1-read-failures", Self.running(stage: 1, failed: 2), false, false),
-            ("reading-2-sort", Self.running(stage: 2), false, false),
-            ("reading-3-decide", Self.running(stage: 3), false, false),
-            ("reading-4-notice", Self.running(stage: 4), false, false),
-            ("reading-5-file", Self.running(stage: 5), false, false),
-            ("paused-user", Self.paused("user"), false, false),
-            ("paused-plan-window", Self.paused("plan_window"), false, false),
-            ("paused-engine", Self.paused("engine"), false, false),
-            ("paused-restart", Self.paused("restart"), false, false),
-            ("failed", Self.failed(), false, false),
-            ("just-finished", Self.finished(), true, false),
-            ("cancelled", Self.cancelled(), false, false),
-            ("offline-stale", Self.running(stage: 3), false, true),
-        ]
-        // The page's column at the two windows the brief names: the rail (`ShellMetrics`) and the page gutters leave
-        // the room's column 760 pt at both, so the 1079 pt render is the live capture's geometry.
-        for (window, pageWidth) in [(1440, CGFloat(1280)), (1079, CGFloat(930))] {
-            for mode in [AppColorScheme.dark, .light] {
-                CicadaTheme.mode = mode
+        var states = try Self.runStates().map { ($0.0, $0.1, $0.2, false) }
+        states.append(("offline-stale", try Self.running(stage: 3), false, true))
+        states.append(("refused-night", try Self.refusedNight(), false, false))
+        states.append(("refused-night-gave-up", try Self.refusedNight(gaveUp: true), false, false))
+        states.append(("idle", try Self.finished(), false, false))
+        for mode in [AppColorScheme.dark, .light] {
+            CicadaTheme.mode = mode
+            let suffix = mode == .dark ? "dark" : "light"
+            for window in [1440, 1079] {
                 for (name, status, finished, stale) in states {
                     let host = try await Self.host()
                     host.sleep.status = status
-                    let page = Self.page(status, justFinished: finished)
                     if finished { host.room.recentCycleCommit = "abc1234" }
-                    let view = try Self.column(page, host: host)
-                        .saturation(stale ? SleepLiveness.staleSaturation : 1)
-                        .padding(.vertical, CicadaTheme.spacingXL)
-                        .frame(width: pageWidth)
-                        .background(CicadaTheme.bgBase)
-                    try Self.write(view, width: pageWidth, to: dir,
-                                   file: "\(name)-\(window)-\(mode == .dark ? "dark" : "light").png")
+                    let view = Self.environment(Self.beside(status, finished: finished, host: host, window: window)
+                        .saturation(stale ? SleepLiveness.staleSaturation : 1), host: host)
+                    let width = Self.wordsWidth(window: window) + CicadaTheme.spacingXL + 160 * (window == 1440 ? 3 : 2)
+                        + CicadaTheme.spacingXL * 2
+                    try Self.write(view, width: width, to: dir, file: "\(name)-\(window)-\(suffix).png")
                 }
+            }
+            for (name, status, finished, _) in states {
+                let host = try await Self.host()
+                host.sleep.status = status
+                try Self.write(Self.environment(Self.narrow(status, finished: finished, host: host), host: host),
+                               width: 600, to: dir, file: "\(name)-narrow-\(suffix).png")
             }
         }
     }
@@ -184,7 +484,7 @@ final class SleepRunStripTests: XCTestCase {
     }
 
     /// A run of 287 conversations in batches of 25, on batch 4 of 12, with the stage `stage` (1…5) in flight.
-    static func running(stage: Int, failed: Int = 0) throws -> SleepStatusResponse {
+    static func running(stage: Int, failed: Int = 0, firstRun: Bool = false, waiting: String? = nil) throws -> SleepStatusResponse {
         var status = try scenario("sleep-status-drain.json", "running")
         var drain = try XCTUnwrap(status["drain"] as? [String: Any])
         let ids = ["read", "sort", "decide", "notice", "file"]
@@ -197,7 +497,9 @@ final class SleepRunStripTests: XCTestCase {
         }
         drain["frozen"] = 287; drain["filed"] = 74; drain["batch"] = 4; drain["batches"] = 12
         drain["batchSize"] = 25; drain["committedBatches"] = 3; drain["calls"] = 222
-        drain["elapsedMs"] = 1_620_000; drain["firstRun"] = false
+        drain["elapsedMs"] = 1_620_000; drain["firstRun"] = firstRun
+        if let waiting { drain["waiting"] = waiting }
+        if firstRun { drain["committedBatches"] = 1; drain["ownerPage"] = ["beliefs": 31] }
         drain["batchState"] = ["index": 4, "of": 12, "total": 25, "read": stage == 1 ? 14 : 25, "reading": 0,
                                "failed": failed]
         drain["byOrigin"] = ["claude-code": ["frozen": 287, "filed": 74, "read": 0, "waiting": 213,
@@ -206,6 +508,14 @@ final class SleepRunStripTests: XCTestCase {
         status["stage"] = stage - 1
         status["queueByOrigin"] = ["claude-code": 287]
         status["readByOrigin"] = ["claude-code": 88]
+        return try decode(status)
+    }
+
+    /// The old single-pass shape: running, no drain, nothing countable.
+    static func singlePass() throws -> SleepStatusResponse {
+        var status = try scenario("sleep-status-drain.json", "running")
+        status["drain"] = NSNull()
+        status["stage"] = 1
         return try decode(status)
     }
 
@@ -229,8 +539,25 @@ final class SleepRunStripTests: XCTestCase {
         return try decode(status)
     }
 
-    static func finished() throws -> SleepStatusResponse {
-        try decode(scenario("sleep-status-drain.json", "finished"))
+    static func finished(indexWarning: String? = nil) throws -> SleepStatusResponse {
+        var status = try scenario("sleep-status-drain.json", "finished")
+        if let indexWarning { status["indexWarning"] = indexWarning }
+        return try decode(status)
+    }
+
+    /// 2026-11-26 — a scheduled run the write window refused before it read: idle, a queue waiting, no error, and the
+    /// backend's calm `notice` (synthetic times). `gaveUp` is the same night after every try was spent.
+    static func refusedNight(gaveUp: Bool = false) throws -> SleepStatusResponse {
+        var status = try scenario("sleep-status-drain.json", "finished")
+        status["drain"] = NSNull(); status["paused"] = NSNull(); status["error"] = NSNull()
+        status["notice"] = gaveUp
+            ? ["kind": "scheduled_run_refused", "text": "Last night's 03:00 run didn't start. It runs again at 03:00.",
+               "detail": "The scheduled run for Nov 24 at 03:00 did not start: something was still writing to your memory, so Sleep read nothing and used nothing. It tried 4 times and stopped; it will run at its next scheduled time, or you can start it yourself.",
+               "retryAt": NSNull(), "tries": 4, "maxTries": 4, "gaveUp": true] as [String: Any]
+            : ["kind": "scheduled_run_refused", "text": "Last night's 03:00 run hasn't started yet. Next try after 03:12.",
+               "detail": "The scheduled run for Nov 24 at 03:00 did not start: something was still writing to your memory, so Sleep read nothing and used nothing. It will try again after 03:12 (try 2 of 4).",
+               "retryAt": "2026-11-24T03:12:00+00:00", "tries": 1, "maxTries": 4, "gaveUp": false] as [String: Any]
+        return try decode(status)
     }
 
     static func failed() throws -> SleepStatusResponse {

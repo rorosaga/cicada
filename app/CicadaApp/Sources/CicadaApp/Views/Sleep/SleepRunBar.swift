@@ -59,9 +59,19 @@ enum RunBarText {
     }
 }
 
+/// The engine label's tooltip. While a run reads, a choice made since (here, in Settings, or by an agent) waits for the
+/// next start or Continue, and the label already names the new choice, so the tooltip says the run is not using it yet —
+/// the line that used to sit under the controls (2026-11-26; the engine menu's own run note says it too).
+enum EngineLabelHelp {
+    static func text(runKeepsEngine: Bool) -> String {
+        runKeepsEngine ? Copy.EngineMenu.runKeepsEngine : Copy.EngineMenu.moreInSettings
+    }
+}
+
 /// The engine, plain: its mark and name, opening Settings → Intelligence (as the label always did).
 struct RunBarEngine: View {
     @Environment(SleepEngineViewModel.self) private var engineVM
+    @Environment(SleepViewModel.self) private var sleepVM
     @Environment(AppRouter.self) private var router
     var short = false
 
@@ -73,7 +83,9 @@ struct RunBarEngine: View {
                               leading: AnyView(EngineMark(engine: response.preview?.manual.engine ?? "",
                                                           size: CicadaTheme.scaled(16),
                                                           model: response.preview?.manual.model)),
-                              size: .compact, help: Copy.EngineMenu.moreInSettings, quiet: true) {
+                              size: .compact,
+                              help: EngineLabelHelp.text(runKeepsEngine: sleepVM.isRunning && response.runKeepsEngine),
+                              quiet: true) {
                     router.openSettings(.intelligence, row: .engineChoice)
                 }
                 .accessibilityLabel(Copy.EngineMenu.buttonAccessibility(full))

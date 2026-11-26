@@ -479,11 +479,16 @@ def test_the_tries_are_four_spaced_and_end_in_a_plain_sentence(night):
     notice = sleep_catch_up.refusal_notice(n.memory)
     assert notice is not None and "did not start" in notice and "still writing" in notice
     assert "tried 4 times" in notice and "next scheduled time" in notice and "start it yourself" in notice
-    assert notice == n.state.error, "the run's own error is the same sentence the status serves"
+    assert n.state.error is None, "a refused night is a notice, never the run's error"
+    assert n.state.progress == notice, "the run's own progress line carries the full sentence"
     from api.routers import sleep as sleep_router
 
-    n.state.error = None                       # a restart forgets the in-memory error; the record does not
-    assert sleep_router._remembered_refusal(n.state, SimpleNamespace(memory_path=n.memory)) == notice
+    # A restart forgets the in-memory state; the record does not.
+    wire = sleep_router._remembered_refusal(n.state, SimpleNamespace(memory_path=n.memory))
+    assert wire["detail"] == notice and wire["gave_up"] is True and wire["retry_at"] is None
+    assert wire["tries"] == wire["max_tries"] == 4
+    assert wire["text"] == "Last night's 03:00 run didn't start. It runs again at 03:00."
+    assert len(wire["text"]) <= 90
 
 
 def test_while_tries_remain_the_sentence_says_when_the_next_one_is(night):
@@ -494,7 +499,14 @@ def test_while_tries_remain_the_sentence_says_when_the_next_one_is(night):
     assert "something was still writing" in notice and "read nothing" in notice
     assert f"It will try again after {(n.clock.at + sleep_catch_up.RETRY_AFTER[0]).strftime('%H:%M')} (try 2 of 4)" \
         in notice
-    assert n.state.error == notice and n.state.progress == notice
+    assert n.state.error is None, "nothing was read or broken: not an error"
+    assert n.state.progress == notice
+    wire = sleep_catch_up.refusal(n.memory)
+    assert wire["kind"] == "scheduled_run_refused" and wire["detail"] == notice and wire["gave_up"] is False
+    assert wire["text"] == (f"Last night's 03:00 run hasn't started yet. Next try after "
+                            f"{(n.clock.at + sleep_catch_up.RETRY_AFTER[0]).strftime('%H:%M')}.")
+    assert len(wire["text"]) <= 90 and wire["tries"] == 1 and wire["max_tries"] == 4
+    assert datetime.fromisoformat(wire["retry_at"]) == n.clock.at + sleep_catch_up.RETRY_AFTER[0]
 
 
 def test_a_retry_never_stacks_never_reads_over_a_pause_and_never_outlives_the_night(night, monkeypatch):
@@ -598,3 +610,30 @@ def test_a_wait_the_thread_pool_never_starts_is_a_refusal_not_a_hang(tmp_path, m
     finally:
         gate.set()
         sleep_cycle.get_sleep_state().writing = False
+
+
+def test_the_notice_names_the_run_by_when_it_was_and_never_says_last_night_for_an_old_one(night):
+    n = night
+    n.hold_writer()
+    _first_missed_probe_runs(n)
+    due = _local(2026, 11, 24, 3, 0)
+    cases = [
+        (due + timedelta(hours=5), "Last night's 03:00 run"),
+        (due + timedelta(hours=11), "Last night's 03:00 run"),
+        (due + timedelta(hours=19), "Today's 03:00 run"),
+        (due + timedelta(days=1, hours=5), "Yesterday's 03:00 run"),
+        (due + timedelta(days=3, hours=5), "The Nov 24 03:00 run"),
+    ]
+    for now, lead in cases:
+        wire = sleep_catch_up.refusal(n.memory, now=now)
+        assert wire["text"].startswith(lead + " "), (now, wire["text"])
+        assert len(wire["text"]) <= 90
+
+
+def test_a_run_that_starts_or_a_cleared_record_takes_the_notice_away(night):
+    n = night
+    n.hold_writer()
+    _first_missed_probe_runs(n)
+    assert sleep_catch_up.refusal(n.memory) is not None
+    sleep_catch_up.clear_refused(n.memory)
+    assert sleep_catch_up.refusal(n.memory) is None and sleep_catch_up.refusal_notice(n.memory) is None
