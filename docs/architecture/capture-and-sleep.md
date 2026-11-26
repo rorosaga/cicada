@@ -2380,7 +2380,7 @@ page now existing); the page prose kept the old fact beside the new. `episode_re
 - **Left (G104):** a transcript's replaced reply (Cursor's final reply for a generation) closes nothing; a held claim
   only the removed text said keeps its span `stale` in the pending store rather than being closed there. The prose,
   the section rows and the held spans are slice 2, below.
-- **A stale date beside the corrected one: measured, three fixes tried and dropped, still open (2026-11-24;
+- **A stale date beside the corrected one: measured, three fixes tried and dropped, a fourth built for the date shape (2026-11-24, 2026-11-25;
   `benchmarks/consolidation/revision_e2e.py`).** A claim the first read wrote from one line but dated (or named) from
   another keeps its span on the unchanged line, so the span test never marks it; and the re-read words the
   relationship under another predicate (`is-moving-to`, then `moves-to`), which is another slot, so `redated` never
@@ -2410,14 +2410,178 @@ page now existing); the page prose kept the old fact beside the new. `episode_re
   a day number, a month's first letters and a name's spelling collide with ordinary text in every language; (b) the old
   claim must never end with nothing in its place; (c) clearing a field in place is unsafe while a claim's id carries its
   day and a merge never restores one; (d) a rule about a name must read the page's aliases and substrings, never whole
-  tokens. **Not built, not measured (a reading of the three, 2026-11-24):** act where the re-read's claim meets the old
-  one, with a judgment that the two word the same relationship (as `value_alignment` does for a value said again in
-  other words), so the same-slot path that exists (`redated`, which held under all three reviews) moves the date; a
-  wrong judgment there costs a date, never the relationship. The stories and their runner are in the repo so the next
-  attempt starts from the measure: `revision_e2e_stories.json` (17 shapes) and `revision_e2e_review_stories.json` (the
-  ten shapes the reviews attacked; today's code gets nine right and leaves two dates current after an edit made and
-  undone in 2 of 4 runs). Also found and left: a held claim dropped because its span went leaves no record of why
-  (`pending_store.drop_held`), and a held name whose spelling is corrected loses a claim from an unchanged line.
+  tokens.
+  **The fourth, for the date shape only (2026-11-25, `revision_pairs`): act where the re-read's claim meets the old one,
+  on two readings.** A *pair* is an open page claim this one edited conversation alone says (`episode_revision._closable`;
+  never a value, a number, an event, a record, the person's own or an agent's, nor a capped transcript) and a claim of the
+  same revision's re-read with the same subject, object, context and speaker, ANOTHER predicate, and a start or end the
+  old one does not carry that the changed lines say (`says_day`, the test `redated` already makes of the new claim),
+  while no start or end of the old one that the new one lacks is still said by the conversation as it now stands
+  (2026-11-26, `revision_pairs.moved`: "8 December (she first planned 5 December)" says both days, so neither moved and
+  no pair is read; a text that keeps the old day as a former plan therefore leaves both claims open, as before this
+  rule, even where the readers would have been right). A claim that has since taken another claim's place by anything
+  but this conversation's own revision (the person's pick in the inbox, an ordinary update) is never a pair
+  (`revision_pairs.won_elsewhere`, the fifth review, below). The cheap tests run first and each day is read once per
+  revision (`revision_pairs.Said`; nothing is computed past either cap, and a stop is asked for before each re-read
+  claim is compared): on a page of 3,000 claims and a revision of 20 dated re-read claims the step took 39 s, now
+  0.1 s. Before Stage 2 opens the write window (pages read only), Sleep's small judge is shown each revision's pairs (at most 8
+  a revision, 12 revisions a batch) with the words each fact was recorded from, the edit and the conversation as it now
+  stands, and asked whether the two word the SAME relationship or two that can both hold; the cycle's main model is asked
+  the same of the pairs the first called the same. One call per reader per revision with pairs, none without; metered as
+  `revision_pair` (`sleep_spend.LINE_STAGES`), through `providers.resolve_llm_fn`. Only the answer `"same"` from both
+  counts; a "different", anything unreadable or a failed call leaves both claims as they were. After Stage 3 and
+  `settle`, `revision_pairs.apply` replaces the old claim the way the same-slot replacement does (`_close`: closed,
+  `superseded_by` the re-read's claim, which `supersedes` it; audit `revised` with `why: edited_same_relationship`,
+  kept by `telemetry.record_audit` and counted in the batch's Corrections record), every condition checked again then:
+  the old claim still open and still this conversation's alone (a conversation read the same night that says it keeps
+  it), the re-read's claim open on the same page, not merged into a closed claim, superseding nothing else, citing this
+  conversation and carrying the judged day; one re-read claim replaces at most one old claim. Nothing is cleared,
+  re-dated or written that the re-read did not write. Held claims are paired too since 2026-11-26 (below).
+  **The worst a wrong reading costs** (both readers always "same"): one claim of this conversation superseded by another
+  claim of this conversation about the same two things, carrying a day it now states — a move closed beside a visit to
+  the same city the edit put in (`test_revision_pairs`).
+  **Edited back (2026-11-25, `claim_reconciler._edited_back`): a claim closed only because this conversation corrected
+  itself, which a revision of the same conversation now states again, is current again.** Before, an edit undone ended
+  on the corrected day alone: the re-read restates the first claim exactly, its id carries its day, and it folded into
+  the closed claim (`_reread_twin`, "a re-read never undoes a close") — on the pair rule's path and on the same-slot
+  path (`redated`) alike. Now, when the restated claim's closed twin was closed as `superseded_by` a chain of claims that
+  rest on this one conversation alone (never the person's, an agent's, a record, an ending, an event, recovered
+  history), the chain ends in an open claim, the restatement is heard in that conversation only, and that conversation
+  is a revision read in this run that may close, the restatement is born under an id of its own (the closed claim's id
+  is taken; `_fresh_id`, the same on every run) and meets the open claim in the ordinary table. **The conditions as they
+  stand after the fourth review (2026-11-26)** — the restatement is born only when all hold, otherwise it folds into its
+  closed twin as before: (1) the chain above, this conversation's alone, ending in an open claim, **every closed link of
+  it, both ways, marked as closed by this conversation's own revision** (`closed_by_revision`, 2026-11-26, below); (2) the text says it
+  was edited back: the restatement is not a copy of that open claim (the same slot, object, start and end — a claim is
+  never superseded by a restatement of itself, on any route), and where the two carry other days, the restored day is
+  said by the changed lines and none of the open claim's days is still said by any line of the conversation
+  (`revision_pairs.moved`, the pair rule's own condition) — this strict test where the open claim sits in the
+  restatement's own slot and would give way at once; under another wording the restatement is only born beside it
+  (the fifth and sixth reviews, 2026-11-26, below); where the days are the same (a value), the open claim's own words
+  are gone (`revised`); (3) the re-read states it; (4) the open claim may give way by a rule that already exists —
+  the same-slot replacement (`redated`), the removed text's (`revised`) or the pair rule (`revision_pairs.meets`). On
+  the pair rule's path the reading comes after Stage 3, so the restatement is born before it: if both readers call the
+  two the same the open claim gives way; a "different", a failed call or a split reading leaves both days open, which
+  is exactly the end `origin/dev` reaches on the same text (a failed reading settles nothing). Accepted limits: a day
+  the date reader cannot find counts as not said, so a day still stated in words it does not read leaves the rule as it
+  was. **The fifth and sixth reviews (2026-11-26): the text test is chosen by what a refusal costs.** (a) *A true
+  undo was refused* (fifth): the undo test asked the whole conversation whether the edited day was still said; with
+  another line saying that day of something else ("My exam is on 8 December"), or the agent's reply to the edit kept,
+  the restored claim folded into its closed twin and, where the pair rule had made the correction, the edited day
+  stayed current alone — worse than before the pair rule, which left both open. A test of "this edit" instead (the
+  changed lines say the restored day and not the edited one, and the text taken out said the edited one) was broken by
+  the sixth review: an unrelated line about the 8th replaced by "She first planned 5 December" closed the current
+  claim in its own slot with no reading, and "5 December, not 8 December" was still refused. A day's words cannot be
+  tied to one relationship, so no test of the words tells a mention from an undo. What stands: **in the open claim's
+  own slot** (it would give way at once, with no reading) the strict test, whose refusal leaves what happened before
+  this rule; **under another wording, where the pair rule itself closed the twin**, the restatement is born whenever
+  the changed lines say its day and the same re-read does not state the open claim too (then the conversation says
+  both and nothing was undone), and nothing is closed except by the pair rule's own test and two readings — both open
+  is what there was before the pair rule, never the edited day alone. So a true undo beside another mention of the
+  edited day ends with both days open under another wording, and on the edited day in the same slot (as before this
+  rule); "8 December (she first planned 5 December)" read as both days changes nothing. (b) *A claim that has since won against another is not this
+  conversation's to replace.* The person picks the claim that took the correction's place over another conversation's
+  claim in the inbox; the pick leaves no word of theirs on the winner (only its confidence), so the edited-back rule
+  and the pair rule read it as this conversation's alone and replaced it on a later edit. Every close writes
+  `supersedes` on the claim that won, and only a revision's close carries the mark, so
+  `revision_pairs.won_elsewhere(claim, conversation, page)` is: its `supersedes` names a claim of the page whose close
+  this conversation's revision did not make. Such a claim is never offered as a pair (no reading is spent), never
+  replaced by `apply`, and never gives way to an edit back (in its own slot the restatement folds as before; reworded,
+  it is born beside it and both stay open). The same-slot rule (`redated`) is unchanged and can still replace such a
+  claim, as before this change. **F3 closed (2026-11-26): only a close the revision rules made is ever undone.** The fourth review found that
+  the person's pick in the inbox (`inbox_service`'s conflict answer closes the loser as `superseded_by` the winner),
+  Sleep's own settle through the same resolvers, or an agent's, between two claims resting on this one conversation,
+  read exactly like the conversation's own correction (the fields coincide), so a later edit restoring the other day
+  undid it. Now the revision rules mark their own closes (`closed_by_revision: <the conversation>`, written last by
+  `_close_by_revision` for the same-slot, removed-text and pair rules, and by `settle`'s withdrawal; dropped by any
+  later write to the close, `storage.md`), and `_edited_back` requires that mark naming this conversation on the closed
+  twin, on every closed link up to the open claim, and on every earlier link that names it back; one unmarked close
+  anywhere and the restatement folds into its twin, as before the rule. A bank written before the mark has none, so it
+  is never edited back (`origin/dev`'s end). `inbox_service` is unchanged; its close goes through `_close`, which
+  drops a mark. `test_a_pick_the_person_made_in_the_inbox_is_never_undone_by_an_edit_back` drives the real resolver.
+  Recorded, not changed: the same-slot rule (`redated`, as before this change) replaces a claim the person picked as
+  the *winner* when the same conversation is edited to a third day under the same wording; the pair rule and the
+  edited-back rule do not (`won_elsewhere`, above). Nothing is reopened in place: history reads A, then B, then A again, a chain with no loop
+  (`supersedes` points back at each step), the closed claims untouched. The departure rule (`_departed_on`) does not
+  read this conversation's own chain as a departure. The close is recorded where the correction's was (audit
+  `revised`, `why: edited_back`, in the ledger and the Corrections record). A close by another conversation, the
+  person, an agent, an ending or decay is never undone, and a re-read that is not such a revision undoes nothing.
+  **Measured (2026-11-25, plan, Sonnet main, Haiku judge, `--clock 2026-11-25`).** The 17 stories, 4 runs: a corrected
+  date wrong in 9 of 28 (before, 10 runs on the code without either rule: 29 of 70); a corrected name 8 of 8 (18 of 20);
+  a removed sentence 0 of 8 (2 of 20); the other three shapes 0 of 24 (0 of 60). The date gain is inside the spread:
+  of the 29 before, 1 had its stale claim on a page other than the owner's, the shape the pair rule reads; 24 were
+  claims held under a name with no page yet, which neither rule touches, and the rest were the owner's own claims about
+  helping with the move, which the re-read does not restate. The pair reading fired 3 times in 4 runs (one pair, two
+  calls, "same" twice, replaced each time). The ten review stories, 2 runs: 14 of 14 right on the seven shapes the run's
+  day does not touch; `date_words` and `date_language` read "never made" because their text writes an absolute date the
+  expectation dates from the run's day (rescored at the day they were written for, no model: 4 of 4 right); `undone`: both days current in both runs — its person had no page, the claims were held. Four
+  invented edited-back stories whose person has a page (A, B, A twice; A, B, A, B; A, B, C), 1 run: 4 of 4 right; the
+  rule fired 6 times (3 relationships, 3 dated values), the pair reading 4 times. The benchmark's edited conversation
+  (`U4`, 3 legs each, the same day): right in 1 of 3 before and 1 of 3 after; its person's page is made the night the
+  edit is read, so the old claim is a held claim released onto the page in the same pass and neither rule meets it;
+  every other measure within the spread (span rate 1.0). Left then: the held claim (and one released in the same pass)
+  whose relationship the re-read words under another predicate — the shape of the benchmark's `U4`, of 7 of 9 story
+  failures and of `undone`.
+  **The pair rule reaches a claim wherever it waits (2026-11-26).** `candidates` also reads the claims held under a name
+  with no page yet (`revision_pairs._held_pool`: as the store holds them before the pass; a held claim whose id its page
+  already holds is offered once, as the page's), under the same conditions and the same two readings; the verdict
+  remembers the line it waited on and the old claim as it was judged (subject, object, start, end). Where the old claim
+  is when the replacement is applied decides how: (1) *on a page* — `apply`, as above; (2) *released onto its page in
+  this same pass* (the name got its page tonight, the benchmark's `U4` shape) — `apply` closes the very claim object the
+  pass released from that line (`revision_pairs.Moved`, built in `claim_pipeline` from the claims `_releases` offered;
+  matched by identity, never a look-alike the page already held), its subject and object re-keyed as the release
+  re-keyed them (`pending_store.repointed`), exactly as a page claim is closed; (3) *still held* once the store has
+  settled (release, then hold) — `apply_held` takes it off that ONE line (`pending_store.replace_held`, under the
+  store's lock) only when the re-read's claim is held in the same line in its place: open, superseding nothing, the same
+  subject, predicate wording, object, context and speaker, the judged day, citing this conversation, one new claim for
+  one old; and only when the old claim is still what was judged and still this conversation's alone, read after this
+  pass's hold merged any other conversation that also says it. Nothing in a held claim is cleared or re-dated; the line
+  keeps no closed claims, so the old one leaves whole, as the same-slot rule's held claims do (`_move_held`); its record
+  is the ledger's `revised` row with `held` (and `why: edited_same_relationship`) and the batch's Corrections record,
+  neither of which a promotion deletes. A second run over the same state changes nothing, held, released or promoted
+  in between. An edit undone while the name has no page needs no rule of its own: the old claim left the line whole,
+  so the restored wording is a new claim that meets the correction by this rule or the same-slot one.
+  **Measured (2026-11-26, plan, Sonnet main, Haiku judge, `--clock 2026-11-26`).** The 17 stories, 4 runs: a corrected
+  date wrong in 5 of 28 (9 of 28 on the branch before this step, 29 of 70 on the code without either rule); a
+  corrected name 7 of 8; a removed sentence 2 of 8 (the same story, a value on another page, in two runs in which the
+  pair rule read nothing or something else; 2 of 20 before); the other three shapes 0 of 24. All 5 remaining date
+  failures are held claims the rule's own conditions leave alone: a value dated from the old day (values are never
+  paired), the re-read naming the object another way (a factory's name translated: another object), a re-read that
+  wrote the day only as a value, and a relationship to another person dated from the move line. The pair reading fired
+  in 3 of 4 runs, 6 pairs, 12 calls, "same" at both readings each time, 6 replaced (1 on a page or released, 5 held), no
+  story made wrong. The ten review stories, 2 runs: 20 of 20 right, `undone` included (both runs; no pair reading fired,
+  the re-read kept its wording and the same-slot rule acted). The benchmark's edited conversation (`U4`, 3 legs each,
+  the same day): before (`origin/dev`) both days current / right / right; after right / right / old day only (that
+  leg's re-read wrote no claim of the new day at all, so nothing could take the old one's place); no pair reading in
+  any leg (the re-read kept the first wording twice, the same-slot rule replaced it); every other measure within the
+  spread (span rate 0.99 to 1.0, others' words 7 of 7, pages right 9 of 9 after).
+  **Measured with the mark (2026-11-26, F3 closed; plan, Sonnet main, Haiku judge, `--clock 2026-11-26`).** The mark
+  only narrows the edited-back rule, which no two-night story reaches, so the stories should not move, and did not past
+  the spread. The 17 stories, 3 runs: a corrected date wrong in 3 of 21 (5 of 28 before this step, 29 of 70 on the code
+  without either rule), all three held claims out of the rule's reach as written above: the object named another way (a
+  factory's name translated), the new day written only on another name (the move as a page of its own), and the new day
+  written only as a value; a corrected name 4 of 6 (7 of 8); a removed sentence 2 of 6 (the same value story); the
+  other three shapes 0 of 18. The pair reading fired in 3 of 3 runs, 8 pairs, 14 calls, "same" at both readings each
+  time, 8 replaced (1 on a page, 7 held), no story made wrong. The ten review stories, 1 run: 10 of 10 right, `undone`
+  included. The four edited-back stories, 1 run: 3 of 4 right (4 of 4 before); the fourth's last re-read wrote the
+  restored day only as a value under a new name and no relationship at all, so there was nothing to bring back. Every
+  close in the other three chains carries the mark, and the rule fired 5 times (2 relationships, 3 dated values; 6
+  before, the difference being one chain the pair rule settled instead because the re-read reworded it).
+  **After the fifth review's fixes (2026-11-26, plan, 1 run each; the sixth review's change touches only the
+  edited-back rule's text test, covered by its engine-free tests and the three reviews' scripts).** The 17 stories: a
+  corrected date wrong in 2 of 7 (the new day written only as a value; the object named another way), 3 pairs read,
+  3 replaced; the four edited-back stories: 4 of 4. Over every run since the rule reached held claims: a corrected
+  date wrong in 10 of 56, against 29 of 70 without either rule. **On the key (the same day, 3 runs of the whole
+  benchmark, Sonnet main, Haiku judge, $2.34):** nothing worse — updates 13 / 14 / 13 of 14 (one value restated in
+  another language left both current, as in 31 of 175 stored runs before this change; one old value stale, also seen
+  before), the edited conversation `U4` right in 3 of 3, every other measure at its ceiling or inside the stored
+  spread, 0 integrity breaks, $0.78 a run. The pair reading ran 0 times in those three runs (the re-read kept the
+  first wording, where the same-slot rule acts), so **the benchmark shows no gain from this change, only no loss**:
+  the gain is what the two-night stories measure.
+  The stories and their runner are in the repo: `revision_e2e_stories.json` (17 shapes) and
+  `revision_e2e_review_stories.json` (the ten shapes the reviews attacked). Also found and left: a held claim dropped
+  because its span went leaves no record of why (`pending_store.drop_held`), and a held name whose spelling is corrected
+  loses a claim from an unchanged line.
 
 **A page's prose follows the revision (G104 slice 2, owner 2026-11-03: "Sleep regenerates a page's prose from its
 corrected claims when a revision closes one, limited to the pages a revision touched").** Measured before (the same
@@ -5274,7 +5438,9 @@ the page stood before the mention (`confidence_before_mention`, kept only until 
 moved — no rate, floor, cap or watermark rule changed. A claim id hashes its `valid_from`, so re-reading a conversation
 said between local and UTC midnight mints a new id for the same belief; Stage 3 recognises a re-read by what the claim
 says, not only its id (`claim_reconciler._reread_twin`: closed, not withdrawn, same slot and object, and every
-conversation it was heard in already cited), so a closed claim stays closed and an ending is never recorded twice. A claim's *said* day (`decay_policy.latest_said`, `mention_weeks`,
+conversation it was heard in already cited), so a closed claim stays closed and an ending is never recorded twice —
+except one closed only by its own conversation's correction, which a revision of that conversation states again
+(2026-11-25, `_edited_back`, "A stale date beside the corrected one"). A claim's *said* day (`decay_policy.latest_said`, `mention_weeks`,
 `inbox_tend._said`) still reads its episode ids' day: local for every id minted since 2026-10-22, at most one day early
 for a hook capture minted before it in the window between local and UTC midnight (left: it needs a header read per
 episode inside the decay pass; the trigger is a page seen fading a day early).
