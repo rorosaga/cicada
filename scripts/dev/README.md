@@ -65,9 +65,9 @@ and it is not our service.
 `api/tests`, `mcp`, the dependency files) or when it is frozen (below); a test-only or benchmark-only merge never restarts it.
 
 **A backend that answers nothing is frozen, not busy (2026-11-26).** A Sleep run once spun on the event loop for about
-13 hours with the process alive at 100% CPU. Its accept queue was full, so it **refused** connections at once, every tick
-read that as "nothing is listening", found nothing new on `dev` and said nothing, and the fix already on `dev` never
-landed. **Silence** is now: the service's own process (launchd's `pid =` for `com.cicada.backend`, the systemd unit's
+100 minutes, the process alive at 100% CPU, until it was restarted by hand. Its accept queue was full, so it **refused**
+connections at once; the ticks in that window read that as "nothing is listening", found nothing new on `dev` and said
+nothing, so nothing would ever have restarted it. **Silence** is now: the service's own process (launchd's `pid =` for `com.cicada.backend`, the systemd unit's
 `MainPID`; never a process-name match) is alive **and holds the port that was asked**, and the ask got no HTTP response
 (curl exit 28 timeout, 7 refused, 52 empty reply, 56 reset). The holder is read with `lsof -nP -a -p PID -iTCP:PORT
 -sTCP:LISTEN -t` (macOS, and Linux when `ss` cannot say) or `ss -H -ltnp 'sport = :PORT'` (Linux). A pid that does not

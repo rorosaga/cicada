@@ -568,8 +568,9 @@ def test_installer_on_a_mac_keeps_the_launchd_job(tmp_path):
 
 # --- a backend that answers NOTHING is frozen, not busy (2026-11-26) ---------------------------------------------
 #
-# A Sleep run spun on the event loop for ~14 hours; every tick read the timeout as "busy" and deferred, so the fix on
-# dev never landed. Silence is counted across ticks that really asked and got no answer at all (a timeout); the
+# A Sleep run spun on the event loop for about 100 minutes until a restart by hand; the frozen process refused or
+# timed out every ask, and nothing would have restarted it. Silence is counted across ticks that really asked and got
+# no HTTP response from the service's own process; the
 # rig's clock (`rig.now`) and a recording `sleep` stand in for real time, and the signal goes to a real process.
 
 MIN = 60

@@ -25,8 +25,9 @@
 # skips that wait.
 #
 # A backend that answers NOTHING is not a busy one (2026-11-26: the backend froze on an endless loop on its
-# event loop, the process alive at 100% CPU, for about 13 hours; with its accept queue full it REFUSED connections
-# at once, so every tick read "nothing is listening", found nothing new on dev, and exited without a word).
+# event loop, the process alive at 100% CPU, for about 100 minutes until it was restarted by hand; with its accept
+# queue full it REFUSED connections at once, so those ticks read "nothing is listening", found nothing new on dev,
+# and exited without a word).
 #
 # SILENCE is: the service's OWN process (launchd's `pid =` for com.cicada.backend, the systemd unit's MainPID;
 # never a name match) is alive AND is the one listening on the port we asked, AND the ask got no HTTP response
