@@ -837,3 +837,13 @@ def test_the_hook_puts_a_strong_save_ahead_of_a_topic_note_and_after_a_named_pag
         link, own = out.text.index("https://example.com/crdts"), out.text.index(note.text.splitlines()[0])
         assert (link < own) is saved_first
         assert out.tokens <= hook_recall.MAX_TOKENS
+
+
+def test_recall_drops_a_saved_pages_generated_lead_and_keeps_its_words():
+    from api.services import mcp_tools
+
+    assert mcp_tools._without_saved_lead("## Summary\nSaved url — A Recipe.\n\nMore words.") == \
+        "## Summary\nA Recipe.\n\nMore words."
+    assert mcp_tools._without_saved_lead("## Summary\nSaved url.") == ""
+    assert mcp_tools._without_saved_lead("## Summary\nSaved it for later because it explains X.") == \
+        "## Summary\nSaved it for later because it explains X.", "a sentence that starts with Saved is no lead"
