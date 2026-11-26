@@ -752,14 +752,15 @@ def test_the_run_is_off_with_its_switch_and_for_a_demo(bank, monkeypatch):
 
 def test_the_browser_window_refuses_non_public_hosts_and_debug_ports(monkeypatch):
     monkeypatch.setattr(read_browser.socket, "getaddrinfo", lambda host, port: [(2, 1, 6, "", ("93.184.216.34", 443))])
-    ok = read_browser.refused_reason
+    mine = ["example.com", "rebinding.example.com", "two-faced.example.com"]
+    ok = lambda url: read_browser.refused_reason(url, domains=mine)                          # noqa: E731
     assert ok("https://example.com/p") == ""
     for url in ("file:///etc/hosts", "javascript:alert(1)", "http://localhost/", "http://127.0.0.1/", "http://[::1]/", "http://10.0.0.5/",
                 "http://192.168.1.1/", "http://169.254.169.254/latest/", "http://intranet/", "http://2130706433/", "http://printer.local/",
                 "http://a.localhost/", "https://example.com:9222/json", "http://0.0.0.0/", "http://100.64.0.1/"):
         assert ok(url), url
     monkeypatch.setattr(read_browser.socket, "getaddrinfo", lambda host, port: [(2, 1, 6, "", ("10.1.2.3", 80))])
-    assert ok("https://rebinding.example.com/")                    # a public name that resolves to a private address
+    assert ok("https://rebinding.example.com/")                    # a connected name that resolves to a private address
     monkeypatch.setattr(read_browser.socket, "getaddrinfo", lambda host, port: [(2, 1, 6, "", ("93.184.216.34", 80)), (2, 1, 6, "", ("127.0.0.1", 80))])
     assert ok("https://two-faced.example.com/")                    # any private address among the answers
     monkeypatch.setenv("BU_CDP_URL", "http://127.0.0.1:9333")

@@ -24,8 +24,15 @@ and in what the session holds, never in the prompt alone; this module is the cod
 
 **What remains** (`mcp.md`, "What remains, said plainly"): which page is opened still carries up to log2(:data:`harness_browse.MAX_LINKS`) bits a followed
 open (:data:`MAX_FOLLOWED` a question, :data:`PER_RUN` sessions a run: 10.3 bits a run at most), through per-account view data the site shows
-the account's owner; a page built by its own script reads as what it declares about itself (title, description), not as its feed. Nothing the
-session read ever reaches an address.
+the account's owner; a page built by its own script reads as what it declares about itself (title, description), not as its feed. **What the
+connected site's own response headers do before the helper's pause cannot be stopped per tab** (a `103 Early Hints` preconnect or preload
+opens a connection or sends a GET; `Clear-Site-Data` clears that site's cookies): a header only the connected site's own server or its CDN can
+send, never a page author, the same as the person's own visit, carrying nothing the session read or chose beyond which allowed profile
+address was opened; written down, with the one design that would close it (a browser the helper starts itself, not signed in) and why it is
+not taken. **A redirect is never followed by the browser**: the place it names is judged by the rules of the address that was asked for (the
+same account, or only a spelling a site's own redirect normalises) and loaded only when it passes, so a `source` that moved to anything but
+the same profile is never read as one; **no name is looked up** for a host that is not a connected site's. Nothing the session read ever
+reaches an address.
 
 Nothing a private session read is ever put in this session's brief and nothing this session read is put in another's; what it
 returns goes only to Cicada's code as evidence items, checked like every other (`harness_agent.verify`, `harness_questions`).
@@ -34,7 +41,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shlex
 import shutil
 import subprocess
@@ -125,7 +131,7 @@ PROFILES: dict[str, Profile] = {
     "pinterest": Profile((r"/(?P<name>[a-z0-9_]{3,30})",), _PINTEREST_RESERVED, client_rendered=True),
     "substack": Profile((r"/@(?P<name>[A-Za-z0-9_.-]{2,40})", r"/about"), _SUBSTACK_RESERVED, host_named=True),
     "youtube": Profile((r"/@(?P<name>[A-Za-z0-9_.-]{3,30})(?:/about)?", r"/channel/UC[A-Za-z0-9_-]{22}(?:/about)?"), _YOUTUBE_RESERVED, client_rendered=True),
-    "goodreads": Profile((r"/author/show/\d{1,12}(?:\.(?P<name>[A-Za-z0-9_-]{1,60}))?",), _GOODREADS_RESERVED),
+    "goodreads": Profile((r"/author/show/(?P<id>\d{1,12})(?:\.(?P<name>[A-Za-z0-9_-]{1,60}))?",), _GOODREADS_RESERVED),
     "spotify": Profile((r"/artist/[A-Za-z0-9]{22}",), _COMMON_RESERVED, client_rendered=True),
     "linkedin": Profile((r"/in/(?P<name>[A-Za-z0-9-]{3,100})", r"/company/(?P<name>[A-Za-z0-9-]{2,100})(?:/about)?"), _COMMON_RESERVED + ("feed", "mynetwork"),
                         viewer_visible=True, client_rendered=True),
@@ -243,22 +249,14 @@ def source_reason(url: str) -> str:
     key = site_key_of(read_browser._host(url))
     if not key:
         return ""
-    parts = urllib.parse.urlsplit(url)
-    profile = PROFILES[key]
-    if parts.query or "?" in url:
-        keys = {k.lower() for k, _v in urllib.parse.parse_qsl(read_browser.decoded(parts.query), keep_blank_values=True)}
-        if not keys or not keys <= {p.lower() for p in profile.params}:
-            return "a query string the site's profile address does not use"
-    path = read_browser.decoded(parts.path).rstrip("/") or "/"
-    reserved = {r.lower() for r in profile.reserved}
-    if path.split("/")[1:2] and path.split("/")[1].lower() in reserved:
-        return "a feature of the site, not an account"
-    match = next((m for m in (re.fullmatch(p, path, re.I | re.A) for p in profile.patterns) if m), None)
-    if match is None:
-        return "not a profile or about page"
-    if "name" in match.groupdict() and (match.group("name") or "").lower() in reserved:
-        return "a feature of the site, not an account"
-    return ""
+    return read_browser.profile_reason(url, profile_rule(site_domains(key), PROFILES[key]))
+
+
+def profile_rule(domains, entry: Profile) -> dict:
+    """What the helper needs of a site's whole entry to judge any address of it by the rule a tracked source meets: every pattern, the reserved
+    words, whether the host names the account, the query keys a source may carry. One implementation (`read_browser.profile_reason`)."""
+    return {"domains": sorted(domains), "patterns": list(entry.patterns), "reserved": list(entry.reserved), "host_named": entry.host_named,
+            "params": list(entry.params)}
 
 
 def given_for(memory_path: Path, page_ids: tuple[str, ...], names: list[str], sites: dict[str, tuple[str, ...]], *,
@@ -303,13 +301,16 @@ def grant_dict(sites: dict[str, tuple[str, ...]], given: list[Given], *, harness
     one where viewing tells the person viewed, has none: nothing is followed); ``names`` are what the question is about."""
     per_site = []
     follow = []
+    profiles = []
     for site, domains in sites.items():
         entry = PROFILES.get(site)
         per_site.append({"site": site, "domains": sorted(domains)})
+        if entry is not None:
+            profiles.append(profile_rule(domains, entry))
         followable = [p for p in entry.patterns if "(?P<name>" in p or entry.host_named] if entry is not None else []
         if entry is not None and not entry.viewer_visible and followable:         # no name in the address, nothing to follow to
             follow.append({"domains": sorted(domains), "patterns": followable, "reserved": list(entry.reserved), "host_named": entry.host_named})
-    return {"v": 3, "domains": sorted({d for ds in sites.values() for d in ds}), "sites": per_site, "follow": follow,
+    return {"v": 4, "domains": sorted({d for ds in sites.values() for d in ds}), "sites": per_site, "follow": follow, "profiles": profiles,
             "given": [{"url": g.url, "origin": g.origin} for g in given], "max_opens": max_opens, "max_followed": MAX_FOLLOWED,
             "names": [" ".join(str(n).split())[:80] for n in (names or []) if str(n).strip()][:3],
             "harness": harness, "loopback_for_test": bool(loopback_for_test),

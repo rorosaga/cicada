@@ -280,7 +280,7 @@ class Rig:
         self.chrome: subprocess.Popen | None = None
         self.daemon_pid = 0
         #: Extra browser flags (CICADA_BATTERY_CHROME_FLAGS, e.g. --no-sandbox where the browser's own sandbox cannot start inside another).
-        self.extra = tuple(os.environ.get("CICADA_BATTERY_CHROME_FLAGS", "").split())
+        self.extra = (*os.environ.get("CICADA_BATTERY_CHROME_FLAGS", "").split(), "--ignore-certificate-errors")   # the Early Hints cases use a throw-away certificate on localhost
 
     def start(self, chrome: str, harness: str) -> None:
         self.chrome = subprocess.Popen([chrome, "--headless=new", f"--remote-debugging-port={self.port}", f"--user-data-dir={self.profile}",
@@ -627,10 +627,11 @@ async def main_browser(args) -> None:
         print(json.dumps({"forced_timeout": ft}), flush=True)
         lb = labels(sites, rig, work / "labels")
         print(json.dumps({"labels": lb}), flush=True)
-        table = vectors.install(sites)
+        table = vectors.install(sites, work / "h2")
         vectors.register_service_worker(rig, sites)                    # a service worker the site registered BEFORE any helper read, in the scratch profile
         vec_rows = vectors.run(sites, rig, work / "vec", table)
         print(json.dumps({"vectors": [{k: v for k, v in r.items() if k != "head"} for r in vec_rows]}), flush=True)
+        print(json.dumps({"helper_lookups": vectors.helper_lookups(work / "lookups")}), flush=True)
         for case in cases(sites):
             if args.only and case.name not in args.only.split(","):
                 continue
@@ -685,8 +686,9 @@ async def main_browser(args) -> None:
         if vec_rows:
             print(json.dumps({"vector_summary": vectors.summarize(vec_rows, dns)}), flush=True)
             for r in vec_rows:
-                if r["attacker_requests"] or r["attacker_connections"] or r["udp"] or dns.get(r["vector"]) or r["state_hits"] or r["tab_left"]:
-                    print("LEAK", json.dumps({**r, "dns": dns.get(r["vector"], 0)}), flush=True)
+                tag = "RESIDUAL" if r["cat"].startswith("residual") else "LEAK"
+                if r["attacker_requests"] or r["attacker_connections"] or r["udp"] or dns.get(r["vector"]) or r["state_hits"] or r["tab_left"] or r["private_hits"]:
+                    print(tag, json.dumps({**r, "dns": dns.get(r["vector"], 0)}), flush=True)
         sites.stop()
         shutil.rmtree(work, ignore_errors=True)
         print(json.dumps({"stopped": left}), flush=True)
