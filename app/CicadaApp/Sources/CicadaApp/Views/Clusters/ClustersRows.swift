@@ -19,6 +19,7 @@ struct ClustersListColumn: View {
     let focusDetail: () -> Void
     let escape: () -> Void
     let showEverything: () -> Void
+    var lists: ClusterListActions = .none
 
     @Environment(Store.self) private var store
 
@@ -119,6 +120,13 @@ struct ClustersListColumn: View {
         case .more(let type, let count):
             TextButton(title: Copy.Lists.showAll(count)) { showTab(type) }
                 .padding(.leading, CicadaTheme.scaled(2))
+        case .list(let list, let isOpen):
+            ClusterListLine(list: list, isOpen: isOpen,
+                            toggle: { Instant.run { lists.toggle(list.id) } },
+                            openPage: list.pageId.map { id in { lists.openPage(id) } })
+        case .moreMembers(let id, let count):
+            TextButton(title: Copy.Lists.showAll(count)) { lists.showAll(id) }
+                .padding(.leading, CicadaTheme.scaled(10))
         }
     }
 }

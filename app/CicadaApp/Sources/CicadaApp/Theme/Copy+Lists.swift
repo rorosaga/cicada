@@ -45,6 +45,12 @@ extension Copy {
         }
         static func entitiesBack(_ n: Int) -> String { "‹ \(entities(n))" }
         static func showAll(_ n: Int) -> String { "Show all \(UsageFormat.count(n)) ›" }
+        /// Owner 2026-11-25 (G246) — a list of saved things in Media: "42 videos", opened from its line.
+        static func listCount(_ n: Int, noun: String) -> String { "\(UsageFormat.count(n)) \(noun)" }
+        static func listLine(name: String, count: Int, noun: String, open: Bool) -> String {
+            "\(open ? "Close" : "Open") the list \(name), \(listCount(count, noun: noun))"
+        }
+        static let openSavedListPage = "Open the list's page"
         static func typesShown(_ on: Int, of all: Int) -> String { "\(UsageFormat.count(on)) of \(UsageFormat.count(all))" }
         static func labelCount(_ n: Int) -> String { n == 1 ? "1 label" : "\(UsageFormat.count(n)) labels" }
         static func labelsOn(_ n: Int) -> String { "\(UsageFormat.count(n)) on" }

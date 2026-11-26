@@ -103,8 +103,12 @@ extension Copy {
     static func gsRunning(read: Int, total: Int, locale: Locale = .autoupdatingCurrent) -> String {
         "Reading · Read \(UsageFormat.count(read, locale: locale)) of \(UsageFormat.count(total, locale: locale))"
     }
-    static func gsFinished(pages: Int, locale: Locale = .autoupdatingCurrent) -> String {
-        "Your memory has \(UsageFormat.count(pages, locale: locale)) pages now."
+    static func gsFinished(pages: Int, inLists: SavedInLists? = nil, locale: Locale = .autoupdatingCurrent) -> String {
+        let base = "Your memory has \(UsageFormat.count(pages, locale: locale)) pages now"
+        // Owner 2026-11-25 (G246): the saved items kept in lists are said once, apart from the rest.
+        guard let l = inLists else { return base + "." }
+        let lists = l.lists == 1 ? "1 list" : "\(UsageFormat.count(l.lists, locale: locale)) lists"
+        return base + ", \(UsageFormat.count(l.items, locale: locale)) saved in \(lists)."
     }
     static func gsCapped(read: Int, left: Int, locale: Locale = .autoupdatingCurrent) -> String {
         "Read \(UsageFormat.count(read, locale: locale)) this round. \(UsageFormat.count(left, locale: locale)) still waiting."
@@ -161,7 +165,7 @@ extension Copy {
         gsDone, gsAgentOn, gsAgentGone, gsFinishInIntegrations, gsChatHistory, gsChatDrop,
         gsReading, gsFinishedNoCount, gsWatchOnSleep, gsOpenGraph, gsTryAgain, gsScheduleQuestion, gsWhenIAsk,
         gsAfterImports, gsNightly, gsNotNow, gsAlsoFound, gsDismiss, gsShowChecklist, gsWhoReads,
-        gsWaiting(1_061), gsRunning(read: 1_061, total: 1_061), gsFinished(pages: 1_061),
+        gsWaiting(1_061), gsRunning(read: 1_061, total: 1_061), gsFinished(pages: 1_061, inLists: SavedInLists(items: 40, lists: 2)),
         gsCapped(read: 1_061, left: 1_061), gsKeepReading,
         welcomeHelloNoName, welcomeYourName, welcomeWhoReads, welcomeStarting, welcomeSetUpLater, welcomeClose,
         welcomeRemoveDrop, welcomeHello("Ada"), welcomeEditName, welcomeNameFromMac,
