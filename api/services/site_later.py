@@ -262,10 +262,3 @@ def settle(memory_path: Path, site: str, rows) -> list[tuple[str, list[dict]]]:
                 out.append((url, list(entry["answers"])))
     return out
 
-
-def forget(memory_path: Path) -> None:
-    """Drop everything held for a memory (the memory is being removed)."""
-    if not path().is_file():
-        return
-    with _locked() as data:
-        (data.get("banks") or {}).pop(Path(memory_path).name[:64], None)
