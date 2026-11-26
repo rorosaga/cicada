@@ -1058,11 +1058,15 @@ pause, `user_triggered=False`, ruling 4 untouched): at most **4 attempts** for o
 next one **10 min, then 30 min, then 90 min** after the last refusal, and none past **6 h** from the first, so it is one
 night's run and a stuck writer is never hammered. A run that opens the window clears the record (the retries end on a
 run that read, which also keeps the tried-once rule for one that then failed), and so do a pause and a queue with
-nothing readable. While a record stands, `GET /sleep/status` and `GET /status` serve `error` in words —
-`sleep_catch_up.refusal_notice`: the run did not start because something was still writing, nothing was read or used,
-and either when it will try again (try N of 4) or that it tried 4 times, will run at its next scheduled time and can be
-started by hand; the run's own `error`/`progress` carry the same sentence. The record is machine-local and survives a
-restart, so a morning with an idle Sleep still says it. A person's own click is unchanged (`WINDOW_BUSY`, never retried
+nothing readable. While a record stands, `GET /sleep/status` and `GET /status` serve a calm `notice` — never `error`
+(2026-11-26: nothing was read, used or broken, so it is not the error state; wire in `api.md`) — from
+`sleep_catch_up.refusal`: one line (`text`: "Last night's 03:00 run hasn't started yet. Next try after 03:12." while
+tries remain, "Last night's 03:00 run didn't start. It runs again at 03:00." after the last) and the full sentence
+(`detail`: something was still writing, nothing was read or used, try N of 4, or that it tried 4 times, will run at its
+next scheduled time and can be started by hand). The app shows only the line, where the page puts its quiet notes, with
+`detail` as its help and VoiceOver hint; the status chip, the worm, the stepper and Getting started never read it as a
+failure, and a real `error` wins. The run's own `progress` carries the full sentence; its `error` stays empty. The
+record is machine-local and survives a restart, so a morning with an idle Sleep still says it. A person's own click is unchanged (`WINDOW_BUSY`, never retried
 for them). `_open_window` also carries a wall-clock bound over the whole wait (`WAIT_MAX_S + WINDOW_START_SLACK_S`):
 `wait_for_writers` bounds its wait only from the moment its thread runs, and a default thread pool kept busy queued it
 for as long as the pool stayed busy — with the probe (APScheduler runs one at a time) held behind it. **The menu bar counts what waits for Sleep:** `GET /status` `episodes.readable`

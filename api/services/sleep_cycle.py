@@ -336,9 +336,10 @@ WINDOW_BUSY = ("A write was still in progress, so Sleep paused before reading yo
 
 def _note_scheduled_refusal(memory_path, catch_up_for: str | None) -> str | None:
     """A scheduled run the window refused before it read anything: record it where the probe retries it and the status
-    says it (`sleep_catch_up`, 2026-11-25), and return the sentence the page shows. ``None`` when the bank's schedule
-    has no due times to retry on (``after_import`` probes again by itself; ``manual`` has no scheduled run) — the
-    plain refusal stands. Never raises."""
+    says it as a calm notice (`sleep_catch_up`, 2026-11-25/26), and return its full sentence for the run's progress
+    line — never for ``error``: nothing was read or used. ``None`` when the bank's schedule has no due times to retry
+    on (``after_import`` probes again by itself; ``manual`` has no scheduled run) — the plain refusal stands. Never
+    raises."""
     try:
         from api.services import sleep_catch_up, sleep_scheduler
 
@@ -2506,7 +2507,8 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
             notice = None
             if not user_triggered and not tail_only and continue_from is None:
                 notice = _note_scheduled_refusal(memory_path, catch_up_for)
-            _state.error = notice or WINDOW_BUSY
+            # A recorded refusal is a notice the status derives (`sleep_catch_up.refusal`), not an error (2026-11-26).
+            _state.error = None if notice else WINDOW_BUSY
             _state.progress = notice or f"Paused: {WINDOW_BUSY}"
             logger.warning("Sleep did not start: a write admitted before it still held the bank")
         else:

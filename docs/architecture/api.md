@@ -925,6 +925,14 @@ updater's token file, log and Trash never resolve to the person's; and `SleepPro
 `GET /status` has no ETag (the app refetches it whenever the vector's `sleep` component moves). Its `sleep.writing`
 (G177) is `sleep_cycle.is_writing()` — the predicate behind every "Sleep is running" 409 — and the SSE `sleep` event and
 the `sleep` component carry it too, so the app's write controls follow a drain's write window, not `running`.
+**A refused scheduled night is a `notice`, never an `error` (2026-11-26).** `GET /sleep/status` and `GET /status`
+(`sleep.notice`) carry `notice: {kind, text, detail, retryAt, tries, maxTries, gaveUp} | null` beside `error`. `kind` is
+`scheduled_run_refused` today (a client that does not know a kind shows its `text`); `text` is the one line the page
+shows (at most about 90 characters, local times, "last night" only when true); `detail` is the full sentence (the line's
+help and VoiceOver hint); `retryAt` is the next try as an aware local ISO time, `null` once every try was spent
+(`gaveUp`). It is derived on read from `schedule.json`'s record (`sleep_catch_up.refusal`), absent while a run is live,
+and absent whenever `error` is set (a real error wins). The refusal never writes the run's `error`. The app decodes it
+leniently (an older backend sends none).
 `GET /sleep/status`'s paused run and the compact SSE paused block also carry `engineKind` (`transient | needs_fix`,
 null outside an engine pause); legacy engine records default to `needs_fix`. The paused `sleep` component hashes
 the kind and diagnosis, and its existing `VersionVector.swift` mapping to `.status` ships with the wire change.
