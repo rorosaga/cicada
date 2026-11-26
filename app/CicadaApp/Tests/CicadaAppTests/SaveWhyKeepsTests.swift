@@ -35,6 +35,21 @@ final class SaveWhyKeepsTests: XCTestCase {
         return SaveWhyCenter(prefs: prefs, api: api, presenter: presenter, uptime: { tick.next() })
     }
 
+    /// Found 2026-11-26 on the installed app: the question's bar never drew and the panel never left on its own. The
+    /// field takes SwiftUI's focus as soon as the panel is on screen, with no click and without the panel being key,
+    /// and the view sent that as the person clicking into it, which stops the untouched question's timer.
+    func testThePanelShowingIsNotThePersonClickingIntoItsField() async throws {
+        let controller = SaveWhyPanelController()
+        let center = center(KeepsFakeAPI(), presenter: controller)
+        await center.noticed(look([named()]), live: true)
+        let panel = try XCTUnwrap(controller.window)
+        defer { panel.orderOut(nil) }
+        for _ in 0..<60 { try await Task.sleep(for: .milliseconds(25)) }
+        XCTAssertFalse(panel.clickedInside)
+        XCTAssertEqual(center.state?.engaged, false, "nobody touched it")
+        XCTAssertNotNil(center.countdown, "so its timer runs and its bar shows")
+    }
+
     private func named(_ url: String? = nil) -> FreshBookmark {
         FreshBookmark(url: url ?? link, title: "Alpha post", origin: "chrome-bookmark", channel: channel,
                       addedAt: ISO8601DateFormatter().string(from: Date()))

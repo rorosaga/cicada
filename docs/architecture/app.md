@@ -1531,6 +1531,14 @@ still held until the file says Done or Remove, and a removal seen while the pane
 **The connect offer:** bringing another app forward no longer closes it (it used to, as Not now); only No, Not now,
 Yes, the ask-why question taking the notch, or the bar filling does. The pointer resting on the card holds it and the
 bar goes; leaving starts the bar again from empty (`ConnectSuggestPanelState.countdownFrom`).
+*The panel showing is not the person clicking into it (found 2026-11-26 on the installed app).* The field takes
+SwiftUI's focus by itself as soon as the panel is on screen, with no click and while the panel cannot be key. The view
+sent every focus as `engage`, so on a real window the question was "touched" the instant it showed: its timer stopped,
+its bar never drew, and it left only after a click elsewhere (which, before 2026-11-25, closed it at once — the "goes
+away on the first click" the owner reported). No offscreen render or fake presenter showed it; a test on the real
+`SaveWhyPanelController` does (`testThePanelShowingIsNotThePersonClickingIntoItsField`). Focus counts as being in the
+field only once the person has clicked inside the panel (`SaveWhyPanelView.clickedInside`, the panel's own
+`clickedInside`), and the field's bright ring follows `inField`, not the focus it took by itself.
 *Only the person closes a touched panel* ("I use Wispr Flow a lot for dictation … I selected the text box and was
 dictating and [the panel] went away"): dictation types nothing until it is done, so the field read empty and the
 question's own 12 s timer (`askTimeout`) dismissed it — and an unconfirmed one also met `pendingBound`. A tap, a word or
