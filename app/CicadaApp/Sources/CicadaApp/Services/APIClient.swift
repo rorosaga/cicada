@@ -4117,6 +4117,26 @@ actor APIClient {
         try await put("/settings/editors", body: ["trusted": [harness: trusted]])
     }
 
+    /// Ruling 84 (2026-11-26) — `GET /settings/agent-folders`: the folders Cicada's own agent may read, each with its state and
+    /// the reason in words. Per device, outside every bank; not a Store domain.
+    func fetchAgentReadFolders() async throws -> AgentReadFoldersResponse { try await get("/settings/agent-folders", timeout: 60) }
+
+    /// `PUT /settings/agent-folders`: one folder's switch. A refusal (a folder that stays closed) is a 409 whose `detail` is the sentence.
+    func setAgentReadFolder(_ id: String, on: Bool) async throws -> AgentReadFoldersResponse {
+        try await put("/settings/agent-folders", body: ["folder": id, "on": on])
+    }
+
+    /// `POST /settings/agent-folders`: add the folder the person picked. The backend resolves the path and refuses, in words
+    /// (400), what can never be read: outside the home, hidden, a link, Cicada's own, too large.
+    func addAgentReadFolder(path: String) async throws -> AgentReadFoldersResponse {
+        try await post("/settings/agent-folders", body: ["path": path])
+    }
+
+    /// `POST /settings/agent-folders/remove`: forget a folder the person added.
+    func removeAgentReadFolder(_ id: String) async throws -> AgentReadFoldersResponse {
+        try await post("/settings/agent-folders/remove", body: ["folder": id])
+    }
+
     /// `GET /reading/sites` — the sites Cicada's own reader could not read, with counts. Not a Store domain.
     func fetchReadingSites() async throws -> ReadingSitesResponse { try await get("/reading/sites") }
 

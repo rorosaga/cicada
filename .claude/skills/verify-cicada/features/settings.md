@@ -7,7 +7,7 @@ The in-app Settings panel: General, You, Privacy, Search & memory, Sleep, Integr
 - `settings-general` (background service, updates, Getting started).
 - `settings-you` (owner name, editors).
 - `settings-memory` (Search & memory: folders, search, fade pace).
-- `settings-privacy` (gates).
+- `settings-privacy` (gates; *Folders its agent may read*, ruling 84: the person's switches over the folders of the run's scratch home, `GET`/`PUT`/`POST /settings/agent-folders`, `$CV cli -- agent folders`; make the folders in `<run>/home` before opening the page; *Add a folder…* opens the system folder panel, so add one with `$CV api POST /settings/agent-folders` instead).
 - `settings-agents` (the CLI link, since B11).
 
 ## How to get to it (user POV)

@@ -233,8 +233,9 @@ _DEVICE_READABLE = frozenset({("GET", "/devices"), ("GET", "/devices/status")})
 #: G132 phase 2: a take-over is this computer's own act on the person's OK (never a device's); a move is not listed —
 #: the person's Sleep page on any of their full devices asks the home to move (`POST /sync/home/move`).
 #: G132 phase 3b: the relay setting, joining over the relay and the app's LAN finds are this computer's own acts.
+#: Ruling 84 (2026-11-26): which folders Cicada's own agent may read is the person's choice on this computer, never a device's.
 MASTER_ONLY_WRITE_PREFIXES = ("/remote", "/agent-api", "/sync/publish", "/sync/replica", "/sync/home/take-over",
-                              "/sync/relay", "/sync/discovered", "/sync/network")
+                              "/sync/relay", "/sync/discovered", "/sync/network", "/settings/agent-folders")
 _MASTER_ONLY_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH"})
 
 

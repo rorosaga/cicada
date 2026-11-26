@@ -10,6 +10,9 @@ every call as it is made (a search, an address, a file); after it, what it concl
 (``would_settle`` / ``would_note`` / ``left:<why>``), the evidence it cited, what was dropped before storage, what it scanned (files,
 bytes, folders, refusals) and the audit. Nothing is settled, noted or remembered.
 
+The folders listed are the person's own list (Settings → Privacy & data; `agent_folders`): what the rule proposes with their
+choices applied, each with its state and reason.
+
 --attended lets the private session read Documents, Desktop and Downloads (this shell's own permissions; a scheduled run
 never does). It uses the Claude plan: a metered key or another engine is refused. The signed-in browser is not part of this
 run (the next slice).
@@ -39,7 +42,7 @@ async def main() -> int:
     args = ap.parse_args()
 
     from api.config import Settings
-    from api.services import harness_questions as hq, markdown_parser, web_lookup
+    from api.services import agent_folders as af, harness_questions as hq, markdown_parser, web_lookup
 
     memory = Path(args.memory).resolve()
     settings = Settings(memory_path=memory)
@@ -56,6 +59,9 @@ async def main() -> int:
           f"({', '.join(Path(r).name for r in grant.roots) or 'none'}); not granted, by kind: "
           + (", ".join(f"{n} {why}" for why, n in sorted(grant.why_counts().items())) or "none")
           + f"; {grant.walked} entries walked, {len(grant.deny)} deny rules")
+    print("  the person's list of folders (Settings; their choices applied over the rule's), one line each:")
+    for line in af.describe(grant):
+        print(f"    {line}")
     if not args.work:
         return 0
     resolved, _label, why = await web_lookup.engine_for(settings, user_triggered=True)

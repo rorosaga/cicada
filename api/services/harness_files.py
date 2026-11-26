@@ -17,7 +17,8 @@ Three layers, none of them a prompt:
    extension-less file name, becomes a deny rule that is root independent (``Read(//**/*.json)``). A deny on ``Read`` also
    filters what ``Glob`` and ``Grep`` print (proved live), so a search over a folder never returns a line from a file that
    ``Read`` would refuse. Dot-files and dot-folders are denied wholesale (per granted folder), and the name rules (secret-shaped
-   files, and secret-shaped folders per granted folder) are a second layer on top. The walk is a snapshot: a file made in a granted folder after it, with an extension the walk did
+   files and folders) are a second layer on top, written per granted folder too (a name rule that holds wherever a file sits
+   matches the granted folder's own name, so a folder the person turned on that is called ``secrets`` could not be read at all). The walk is a snapshot: a file made in a granted folder after it, with an extension the walk did
    not see, would be readable; nothing in a read-only session can make one.
 3. **What is stored** (:func:`allowed_path`, :func:`looks_like_key`). A quote from a file is kept only when the file is of an
    allowed kind under a granted folder (or is one of the question's conversation copies), and nothing that looks like key
@@ -78,6 +79,11 @@ SECRET_FILES = (".env*", "*.env", "secret*", "credential*", "password*", "passwd
 SECRET_FOLDERS = ("secrets", "secret", "keys", "key", "credentials", "creds", "passwords", "private", "tokens", "certs", "certificates",
                   "wallet", "wallets", "vault", "keychain", "ssh", "gnupg")
 
+#: The kinds a notes folder is made of (the vault rule, :func:`notes_vault`).
+NOTE_KINDS = frozenset({"md", "markdown", "txt", "text", "org"})
+#: Hidden folders that hold keys or sign-ins; one in a folder named for a vault says it is no notes folder.
+KEY_DOTDIRS = frozenset({".ssh", ".aws", ".gnupg", ".gpg", ".kube", ".docker", ".azure", ".config", ".password-store"})
+
 MAX_ENTRIES = 40000        # per folder: past it the folder cannot be vouched for and is not granted
 MAX_DEPTH = 10
 MAX_DENY_EXTS = 400
@@ -112,19 +118,18 @@ def _pattern(text: str) -> str:
     return "".join(c if c.isalnum() or c in "._-+@=,()~" else "?" for c in text)
 
 
-def static_deny() -> tuple[str, ...]:
-    """Rules that hold wherever a file sits, root independent: the secret-shaped file names."""
-    return tuple(f"Read(//**/{pat})" for pat in SECRET_FILES)
-
-
 def root_deny(roots: tuple[str, ...]) -> tuple[str, ...]:
-    """Rules written per granted folder, for what is only meant inside it: any dot-file or dot-folder (config, keys, tokens, ``.git``)
-    and the secret-shaped folder names with everything under them. Never root independent: ``private`` is also the name of a Mac's
-    own ``/private``, and a rule on it would refuse every path that lives there."""
+    """Rules written per granted folder, for what is only meant inside it: any dot-file or dot-folder (config, keys, tokens, ``.git``),
+    the secret-shaped file names (``.env*``, ``secret*``, ``*.pem``, ``id_*``...) and the secret-shaped folder names with everything under
+    them. Never root independent: ``private`` is also the name of a Mac's own ``/private``, and a rule on it would refuse every path
+    that lives there; and a name rule matches the folder's own name too, so ``Read(//**/secret*)`` refused every file of a folder the
+    person turned on that is called ``secrets`` (proved live, 2026-11-26: a granted folder whose own name or whose parent's says
+    secrets read nothing). Scoped to the root, the rule judges only what is below it."""
     out: list[str] = []
     for root in roots:
         r = root.rstrip("/")
         out.append(f"Read(/{r}/**/.*)")
+        out += [f"Read(/{r}/**/{pat})" for pat in SECRET_FILES]
         for name in SECRET_FOLDERS:
             out += [f"Read(/{r}/**/{name})", f"Read(/{r}/**/{name}/**)"]
     return tuple(out)
@@ -138,6 +143,9 @@ class Census:
     entries: int = 0
     docs: int = 0
     programs: int = 0
+    files: int = 0                                      # visible files seen
+    notes: int = 0                                      # of them, markdown or plain-text notes
+    keylike: int = 0                                    # files or folders (hidden ones too) whose name or kind says keys, settings or secrets
     exts: set[str] = field(default_factory=set)         # extensions present that are not document kinds
     names: set[str] = field(default_factory=set)        # extension-less files present
     flags: set[str] = field(default_factory=set)        # git | tool_dir | manifest | bank | secret_dir
@@ -175,6 +183,7 @@ def census(root: str, *, max_entries: int | None = None, max_depth: int | None =
                     c.flags.add("git" if low == ".git" else "tool_dir")
                     continue
                 if name.startswith("."):
+                    c.keylike += low in KEY_DOTDIRS or secret_named(name)
                     continue                         # denied wholesale; never walked
                 if secret_named(name):
                     c.flags.add("secret_dir")
@@ -185,12 +194,17 @@ def census(root: str, *, max_entries: int | None = None, max_depth: int | None =
                 stack.append((e.path, depth + 1))
                 continue
             if name.startswith("."):
+                c.keylike += secret_file(name) or secret_named(name)
                 continue                             # denied wholesale
+            c.files += 1
+            if secret_file(name) or secret_named(name):
+                c.keylike += 1
             if low in MANIFESTS and depth <= 1:
                 c.flags.add("manifest")
             ext = low.rsplit(".", 1)[1] if "." in low.strip(".") else ""
             if ext in DOCUMENT_KINDS:
                 c.docs += 1
+                c.notes += ext in NOTE_KINDS
             elif ext:
                 c.exts.add(ext)
                 c.programs += ext in CODE_AND_CONFIG
@@ -199,9 +213,32 @@ def census(root: str, *, max_entries: int | None = None, max_depth: int | None =
     return c
 
 
+def vault_named(name: str) -> bool:
+    """Is a vault (or vaults) the only thing in the folder's name that says secrets? ``Notes Vault`` is; ``vault-keys`` and
+    ``passwords`` are not. Such a name is the one a notes app gives its folder, so it is judged by what the folder holds."""
+    squashed = re.sub(r"[^a-z0-9]", "", str(name).lower())
+    return (secret_named(name) and not ((_tokens(name) & SECRET_WORDS) - {"vault", "vaults"})
+            and not any(f in squashed for f in SECRET_FRAGMENTS))
+
+
+def notes_vault(name: str, cen: Census) -> bool:
+    """A folder named for a vault that holds notes: mostly Markdown or text, nothing key-shaped by the existing kinds (no secret-shaped
+    file or folder name, hidden ones included, no code or configuration file), and walked completely."""
+    return (vault_named(name) and not cen.truncated and cen.notes >= 1 and cen.notes * 2 >= cen.files and cen.keylike == 0
+            and cen.programs == 0 and "secret_dir" not in cen.flags)
+
+
+def hard_refusal(name: str, cen: Census) -> str:
+    """What no choice of the person's can open: Cicada's own folder, or one too large to walk completely (it could not be vouched for)."""
+    if cicada_named(name) or "bank" in cen.flags:
+        return "cicada"
+    return "too_large" if cen.truncated else ""
+
+
 def refusal_for(name: str, cen: Census) -> str:
-    """Why a folder is not granted, from its name and what the walk found: ``""`` when it is."""
-    if secret_named(name):
+    """Why a folder is not granted by default, from its name and what the walk found: ``""`` when it is, ``"notes_vault"`` when it
+    is a folder named for a vault that holds notes (granted, and said so)."""
+    if secret_named(name) and not notes_vault(name, cen):
         return "secrets"
     if cicada_named(name) or "bank" in cen.flags:
         return "cicada"
@@ -209,10 +246,57 @@ def refusal_for(name: str, cen: Census) -> str:
         return "tooling"
     if cen.truncated:
         return "too_large"
-    return ""
+    return "notes_vault" if secret_named(name) else ""
 
 
 # --------------------------------------------------------------------------- the grant
+
+
+#: A folder's state in the person's list. ``default``: granted by the rule; ``on`` / ``off``: the person's choice stands;
+#: ``refused``: the rule refuses it and the person has not chosen; ``protected``: macOS keeps it closed to a session the backend starts.
+STATES = ("default", "on", "off", "refused", "protected")
+#: The words beside each state and reason, one place for the app, the CLI and the dry run.
+REASONS = {
+    "default": "Notes and documents. Keys, settings and code are never read.",
+    "notes_vault": "Named for a vault, but it holds only notes, so it is on. Keys and settings are never read.",
+    "on": "Turned on by you. Only documents are read, never keys, settings or code.",
+    "off": "Turned off by you.",
+    "secrets": "Its name says secrets, so it is off. Turned on, only its documents are read, never key or settings files.",
+    "tooling": "It looks like code or tools, so it is off. Turned on, only its documents are read.",
+    "cicada": "Cicada's own files. Never read.",
+    "too_large": "Too large to check completely, so it stays closed.",
+    "too_varied": "Holds too many kinds of files to check, so it stays closed.",
+    "mount": "On another disk, so it stays closed.",
+    "protected": "macOS keeps this folder closed to a read Cicada starts by itself.",
+    "system": "The Mac's own folder, never read.",
+}
+
+
+@dataclass(frozen=True)
+class Folder:
+    """One row of the person's list: a folder of their home, its state, and ``why``, the rule's own verdict whatever the state."""
+    id: str                # the path below the home, "/"-separated: the row's identity everywhere
+    name: str
+    path: str
+    state: str
+    why: str = ""
+    added: bool = False    # the person added it by hand
+    locked: bool = False   # no choice can open it
+
+    @property
+    def granted(self) -> bool:
+        return self.state in ("default", "on")
+
+    @property
+    def default_on(self) -> bool:
+        """Would the rule grant it with no choice made?"""
+        return self.why in ("", "notes_vault") and not self.locked
+
+    @property
+    def reason(self) -> str:
+        if self.state in ("on", "off"):
+            return REASONS[self.state]
+        return REASONS.get(self.why or "default", "")
 
 
 @dataclass(frozen=True)
@@ -222,6 +306,7 @@ class Grant:
     deny: tuple[str, ...] = ()             # root-independent deny rules: the complement of the document kinds over the walk
     skipped: tuple[tuple[str, str], ...] = ()   # (folder name, why) for every candidate left out
     walked: int = 0
+    folders: tuple[Folder, ...] = ()       # the whole list with each folder's state (what Settings shows)
 
     def why_counts(self) -> dict[str, int]:
         out: dict[str, int] = {}
@@ -235,35 +320,59 @@ def _inside(path: str, parent: str) -> bool:
     return p == q or p.startswith(q.rstrip("/") + "/")
 
 
-def _vet(candidates: list[tuple[str, str]], refused: tuple[str, ...]) -> Grant:
+def _plan(cands: list[tuple[str, str, str, bool]], refused: tuple[str, ...], choices: dict | None = None) -> tuple[list[Folder], Grant]:
+    """Judge each candidate ``(id, name, path, added)`` and build the grant. A folder is walked unless its name already says secrets (a
+    verdict that needs no walk) and the person has not turned it on; a folder the person added or turned on is always walked, so
+    Cicada's own and a folder too large to walk stay closed whatever was chosen."""
+    choices = choices or {}
+    rows: list[Folder] = []
     roots: list[str] = []
     skipped: list[tuple[str, str]] = []
     exts: set[str] = set()
     names: set[str] = set()
     walked = 0
-    for name, path in candidates:
+    for fid, name, path, added in cands:
+        choice = choices.get(fid) if isinstance(choices.get(fid), dict) else {}
+        pick, added = choice.get("state"), added or bool(choice.get("added"))
+        base = Path(path).name          # the rules judge the folder's own name; the row shows its place below the home
         if any(_inside(path, r) for r in refused):
+            rows.append(Folder(fid, name, path, "refused", "cicada", added, True))
             skipped.append((name, "cicada"))
             continue
-        cen = census(path)
-        walked += cen.entries
-        why = refusal_for(name, cen)
-        if not why and (len(exts | cen.exts) > MAX_DENY_EXTS or len(names | cen.names) > MAX_DENY_NAMES):
-            why = "too_varied"
-        if why:
-            skipped.append((name, why))
-            continue
-        roots.append(path)
-        exts |= cen.exts
-        names |= cen.names
+        cen = None
+        if added or pick == "on" or not (secret_named(base) and not vault_named(base)):
+            cen = census(path)
+            walked += cen.entries
+        why = "secrets" if cen is None else refusal_for(base, cen)
+        hard = hard_refusal(base, cen) if cen is not None else ""
+        on = pick == "on" or (pick != "off" and (added or why in ("", "notes_vault")))
+        if not hard and on and cen is not None and (len(exts | cen.exts) > MAX_DENY_EXTS or len(names | cen.names) > MAX_DENY_NAMES):
+            hard = "too_varied"
+        if hard:
+            rows.append(Folder(fid, name, path, "refused", hard, added, True))
+            skipped.append((name, hard))
+        elif on:
+            rows.append(Folder(fid, name, path, "on" if (pick == "on" or added) else "default", why, added))
+            roots.append(path)
+            exts |= cen.exts
+            names |= cen.names
+        else:
+            rows.append(Folder(fid, name, path, "off" if pick == "off" else "refused", why, added))
+            skipped.append((name, "off" if pick == "off" else why))
     deny = [*(f"Read(//**/*.{_pattern(e)})" for e in sorted(exts)),
             *(f"Read(//**/{_pattern(n)})" for n in sorted(names))]
-    return Grant(tuple(roots), tuple(refused), tuple(deny), tuple(skipped), walked)
+    return rows, Grant(tuple(roots), tuple(refused), tuple(deny), tuple(skipped), walked, tuple(rows))
+
+
+def _vet(candidates: list[tuple[str, str]], refused: tuple[str, ...]) -> Grant:
+    return _plan([(name, name, path, False) for name, path in candidates], refused)[1]
 
 
 #: Folders a child of the backend cannot list (measured: a launchd child, no prior grant, lists the home and ordinary
 #: folders but not these) and whose first access would raise a prompt nobody is there to answer.
 PROTECTED = frozenset({"Documents", "Desktop", "Downloads", "Pictures", "Movies", "Music", "Library", "Public", "Applications"})
+#: Of those, the Mac's own: never the person's folders, never read even from their own shell, and not named to them as protected.
+SYSTEM_FOLDERS = frozenset({"Library", "Applications"})
 
 
 def _same_device(a: str, b: str) -> bool:
@@ -273,12 +382,35 @@ def _same_device(a: str, b: str) -> bool:
         return False
 
 
-def grant_for_home(home: Path, *, attended: bool, refused: tuple[str, ...] = ()) -> Grant:
-    """The person's own top-level folders a private session may read (see the module's first layer). Never a hidden folder, a link
-    (it may leave the home), a folder on another volume (a mount), ``Library`` or ``Applications``; unless the person started this
-    from their own shell (``attended``) never a protected one (a prompt nobody answers). The refusals are counted by kind."""
-    cands: list[tuple[str, str]] = []
-    skipped: list[tuple[str, str]] = []
+def location_problem(home: Path, path: str) -> str:
+    """Why ``path`` can never be a folder of the list, in a code (``""`` when the place is fine): not below the home, a hidden part,
+    ``Library`` or a protected folder, a link anywhere in it, not a folder, or on another disk. The home itself is no folder."""
+    lexical = os.path.normpath(path)
+    base = os.path.normpath(str(home))
+    if lexical == base or not lexical.startswith(base.rstrip(os.sep) + os.sep):
+        return "outside"
+    rel = lexical[len(base.rstrip(os.sep)) + 1:].split(os.sep)
+    if any(p.startswith(".") for p in rel):
+        return "hidden"
+    if rel[0] in PROTECTED:
+        return "protected"
+    if os.path.realpath(lexical) != os.path.join(os.path.realpath(base), *rel):
+        return "link"
+    if not os.path.isdir(lexical):
+        return "missing"
+    return "mount" if not _same_device(lexical, base) else ""
+
+
+def folder_list(home: Path, *, attended: bool = False, refused: tuple[str, ...] = (), choices: dict | None = None) -> Grant:
+    """The person's own folders a private session may read, and every folder the list shows (see the module's first layer). The
+    candidates are the top-level folders of the home and the folders the person added by hand (``choices``). Never a hidden folder, a
+    link (it may leave the home), a folder on another volume (a mount), ``Library`` or ``Applications``; unless the person started this
+    from their own shell (``attended``) never a protected one (a prompt nobody answers). The person's choice (``choices``: id to
+    ``{"state": "on"|"off", "added": bool}``) overrules the rule's soft refusals (a name that says secrets, a tooling folder) and never
+    the hard ones (Cicada's own, too large to walk, another disk, protected). The file rules never move."""
+    choices = choices or {}
+    cands: list[tuple[str, str, str, bool]] = []
+    pre: list[Folder] = []
     try:
         entries = sorted(os.scandir(home), key=lambda e: e.name)
     except OSError:
@@ -287,14 +419,26 @@ def grant_for_home(home: Path, *, attended: bool, refused: tuple[str, ...] = ())
         if e.name.startswith(".") or not e.is_dir(follow_symlinks=False):
             continue
         if e.name in PROTECTED and not (attended and e.name not in ("Library", "Applications")):
-            skipped.append((e.name, "protected"))
+            pre.append(Folder(e.name, e.name, e.path, "protected", "system" if e.name in SYSTEM_FOLDERS else "protected", False, True))
+        elif not _same_device(e.path, str(home)):
+            pre.append(Folder(e.name, e.name, e.path, "refused", "mount", False, True))
+        else:
+            cands.append((e.name, e.name, e.path, False))
+    tops = {c[0] for c in cands} | {f.id for f in pre}
+    for fid, choice in sorted(choices.items()):
+        if fid in tops or not isinstance(choice, dict) or not choice.get("added"):
             continue
-        if not _same_device(e.path, str(home)):
-            skipped.append((e.name, "mount"))
-            continue
-        cands.append((e.name, e.path))
-    g = _vet(cands, tuple(refused))
-    return Grant(g.roots, g.refused, g.deny, (*skipped, *g.skipped), g.walked)
+        path = os.path.join(str(home), *fid.split("/"))
+        if not location_problem(home, path):
+            cands.append((fid, fid, path, True))
+    rows, g = _plan(cands, tuple(refused), choices)
+    allrows = sorted([*pre, *rows], key=lambda f: (f.added, f.id.lower()))
+    return Grant(g.roots, g.refused, g.deny, (*((f.name, f.why) for f in pre), *g.skipped), g.walked, tuple(allrows))
+
+
+def grant_for_home(home: Path, *, attended: bool, refused: tuple[str, ...] = (), choices: dict | None = None) -> Grant:
+    """The folders a private session may read: :func:`folder_list`'s grant."""
+    return folder_list(home, attended=attended, refused=refused, choices=choices)
 
 
 def grant_for_roots(roots: tuple[str, ...], refused: tuple[str, ...] = ()) -> Grant:
