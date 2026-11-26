@@ -467,10 +467,10 @@ def test_forty_claims_dated_from_one_line_none_closed_without_a_reread_claim(tmp
 # --------------------------------------------------------------------------- #
 
 
-def _claim(cid, predicate, start, *, episodes=(EP,), **kw):
+def _claim(cid, predicate, start, *, episodes=(EP,), subject="lia-prueba", **kw):
     from api.services.claims import Claim, Evidence
 
-    return Claim(id=cid, text=f"Lia {predicate} Valencia", subject="lia-prueba", predicate=predicate,
+    return Claim(id=cid, text=f"Lia {predicate} Valencia", subject=subject, predicate=predicate,
                  object="valencia", valid_from=start, source_episodes=list(episodes),
                  evidence=[Evidence(episode=e, start=0, end=5, kind="user", hash="h") for e in episodes], **kw)
 
@@ -500,6 +500,8 @@ def test_apply_replaces_only_with_an_open_claim_that_carries_the_judged_day():
         ("another object", {}, {"object": "madrid"}),
         ("another predicate", {}, {"predicate": "visits"}),
         ("not this conversation", {"episodes": (OTHER,)}, {}),
+        ("about another subject", {"subject": "lia-otra"}, {}),
+        ("a judged day the changed lines do not say", {"start": "2026-12-07"}, {"valid_from": "2026-12-07"}),
     ]:
         old = _claim("old", "is-moving-to", "2026-12-05")
         new = _claim("new", "moves-to", new_kw.pop("start", "2026-12-08"), **new_kw)
@@ -1007,6 +1009,14 @@ def _new(**kw):
     # 6e and the verdict's own fingerprint: the claim judged, not one like it.
     ("the old claim's day moved since it was judged", lambda: {"Zed Unknown": [_old(start="2026-12-06"), _new()]},
      {}, True),
+    ("the old claim's end moved since it was judged",
+     lambda: {"Zed Unknown": [_old(expected_end="2026-12-20"), _new()]}, {}, True),
+    ("the old claim is now about another subject", lambda: {"Zed Unknown": [_old(subject="ana-x"), _new()]}, {}, True),
+    ("the old claim is not about the object judged", lambda: {"Zed Unknown": [_old(), _new()]},
+     {"old_object": "porto"}, True),
+    ("the new claim is about another subject", lambda: {"Zed Unknown": [_old(), _new(subject="ana-x")]}, {}, True),
+    ("the two are not about the same object", lambda: {"Zed Unknown": [_old(), _new(obj="porto")]},
+     {"object": "porto"}, True),
     ("the verdict names another line", lambda: {"Zed Unknown": [_old(), _new()]}, {"held": "Zed Other"}, True),
     ("a verdict on a page claim", lambda: {"Zed Unknown": [_old(), _new()]}, {"held": ""}, True),
     ("already replaced on its page this pass", lambda: {"Zed Unknown": [_old(), _new()]}, {"done": True}, True),
@@ -1085,3 +1095,21 @@ def test_apply_follows_a_released_claim_onto_the_page_its_name_was_matched_to():
     assert revision_pairs.apply({"zed-u": [old], "zed-v": [new]}, [_zverdict()], {EP: rev}, [],
                                 released=_moved(old, target="zed-u")) == {}
     assert old.valid_to is None
+
+
+def test_apply_follows_a_released_claim_held_as_another_pages_object():
+    # A claim held on the name's line as another page's OBJECT ("X helps Zed move to Lisbon" is X's claim): the release
+    # keeps its subject and points its object at the page (`pending_store.repointed`); the verdict follows it there.
+    rev = _zrev()
+    old = _zclaim("old", "is-moving-to", "2026-12-05", subject="xavi-o", obj="zed-u")
+    new = _zclaim("new", "moves-to", "2026-12-09", subject="xavi-o", obj="zed-u")
+    verdict = _zverdict(subject="xavi-o", object=ZED_PAGE, old_subject="xavi-o", old_object=ZED_PAGE)
+    assert revision_pairs.apply({"xavi-o": [old, new]}, [verdict], {EP: rev}, [],
+                                released=_moved(old, target="zed-u")) == {"old": EP}
+    assert (old.superseded_by, new.supersedes) == ("new", "old")
+
+
+def test_a_held_claim_its_page_already_holds_is_offered_once_as_the_pages_own(tmp_path):
+    memory, _ = _store(tmp_path, {"Zed Unknown": [_old(), _new()]})
+    pool = revision_pairs._held_pool(memory, {ZED_PAGE: [_old()]})   # noqa: SLF001 - the one rule
+    assert [(c.id, line) for c, line in pool[ZED_PAGE]] == [("new", "Zed Unknown")]
