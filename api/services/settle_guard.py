@@ -17,12 +17,19 @@ now goes back") would revert their files, which is worse than the defect it clos
   uncommitted in-scope paths (their bytes and modes are read), what the index held for a path staged before the settle,
   and HEAD. A path git calls clean holds what HEAD holds, so HEAD is the rest of the picture, read only on failure.
 * While the settle runs (:func:`activate` puts the mark in the context, so a worker thread the settle starts carries it,
-  and another writer's thread never does) each path it writes is **reported** by the writer, and what the settle left is
-  recorded as a git blob hash: the page writers' one funnel (``markdown_parser._replace``, which also takes the exact
-  pre-write picture of that path at its first write), the few writers that do not use it (the pending store, ``undo``'s
-  writes, a merge's removal and ``git mv``), the settle's own question and record (:func:`declare`), and, at the commit,
-  the paths the resolver reports for it (:func:`reported`, called by ``git_service``'s commit functions). A reported
-  path no writer saw is the settle's only if it differs from the picture; one that equals it was not written by it.
+  and another writer's thread never does) **every writer reports each path it writes, removes or renames**: it calls
+  :func:`writing` before (the exact bytes and mode the path holds then are its picture, taken once, at the settle's first
+  word about it) and :func:`wrote` after (what it left, as git's blob hash; ``None``: absent), or :func:`renamed` for a move.
+  The page writers' one funnel (``markdown_parser._replace`` and ``write_new``) does it for every page, ledger line, YAML
+  file and look record it writes; the writers that do not use it do it themselves (``claims_ledger.remove`` and ``move``,
+  ``merge_rejections``, ``same_name_doubts``, ``predicates.update_runtime_map``, ``pending_store.save``,
+  ``entity_picture``'s moves and removal, ``merge_closes.close``, ``entity_merge``'s removal of the loser,
+  ``role_people.rename``'s page move, ``inbox_service._git_move`` and ``_git_remove``, ``undo``'s writes), plus the settle's own
+  question and record (:func:`declare`). At the commit the paths the resolver names for it are reported too
+  (:func:`reported`, called by ``git_service``'s commit functions before they stage anything): such a path no writer saw is the
+  settle's only if it differs from the picture; one that equals it was not written by it. ``test_settle_guard_gate`` is the
+  standing check: it stops every branch of ``apply`` and ``undo`` at its commit and fails on any in-scope path that changed
+  and was reported by no writer.
 * :func:`put_back` is called when the settle did not commit. A path the settle wrote goes back to its pictured bytes
   **only if its bytes still equal what the settle left**; one that changed again since (another writer got there) is left
   alone and counted. A path the settle did not write is never touched, whatever its state: not another writer's
@@ -30,19 +37,30 @@ now goes back") would revert their files, which is worse than the defect it clos
   index entry set back to what it was (an earlier staged blob, or unstaged); nothing else in the index is touched. A
   restored file keeps the mode it has (the page writers keep a page's mode), or the mode it had when it is brought back.
 
-**The scope** is what a resolution can rewrite: ``entities/``, ``inbox/``, ``nudges/``, ``clarifications/`` and the few
-root files its resolvers own (``_redirects.yaml``, ``_merge_rejected.yaml``, ``_predicates.yaml``, ``graph_edges.yaml``,
-``pending_entities.jsonl``). ``episodes/``, ``sync_state.json``, ``_state.md``, the indexes and every other root file are
-never in a settle's set.
+**A page and its claims ledger are one unit** (:func:`partner_of`: ``entities/<id>.md`` and ``entities/<id>.claims.jsonl``;
+a page write moves claims between them). A partial restore of the two is worse than none: a page back without its ledger has
+lost claims. So when one of them is put back, the other goes back with it if, at restore time, it differs from what it held
+before the settle (the person's own uncommitted bytes when it was dirty, else HEAD's) although no writer reported it; that is
+logged as an unreported write (ids only) and its index entry is set back too. When either half was changed by another writer
+since the settle left it, both are left. Anything else unreported stays untouched, as before.
 
-**What it does not do.** A commit that landed is never undone here (a failure after it is the caller's, and a failure
-inside git after the commit ran leaves the tree as the commit has it: any path the moved HEAD changed is left as HEAD
-holds it). An edit git committed apart first (``commit_touched_sync``'s "kept apart" commit of a path that was uncommitted
-before the settle) is a real commit of the person's own bytes and stays. A write nobody reported and no commit named (a
-removal by a writer that does not say so, before an exception that skipped the commit) is not put back, because nothing
-says the settle did it. A path another writer wrote *between* the settle's own write and its commit is indistinguishable
-from the settle's and is put back only if its bytes still equal the settle's; the page lock closes that window for the
-writers that take it.
+**The scope** is what a resolution can rewrite: ``entities/``, ``inbox/``, ``nudges/``, ``clarifications/``, the person's
+uploaded pictures a merge moves or removes (``assets/pictures/``), the look records a merge repoints (``design/<id>.md``, never
+a screenshot) and the few root files its resolvers own (``_redirects.yaml``, ``_merge_rejected.yaml``,
+``_same_name_doubts.yaml``, ``_predicates.yaml``, ``graph_edges.yaml``, ``pending_entities.jsonl``). ``episodes/``,
+``sync_state.json``, ``_state.md``, the indexes and every other root file are never in a settle's set (the one thing a
+settle writes there, the episode that holds the person's own quoted words, is removed by the resolver itself when it fails).
+
+**A commit that landed is never undone here.** ``git_service``'s commit functions call :func:`landed` the moment git's
+``commit`` returns, and from then on the settle is a fact: nothing of it is put back whatever raises after (``apply``,
+``undo_committed`` and :func:`guarded` log the error by class, never its message, and report that the settle landed; a stop, a
+``BaseException`` that is not an ``Exception``, still propagates). When only an earlier commit moved HEAD (the "kept apart"
+commit of an unsaved edit of the person's on a page the settle also writes: a real commit of their own bytes, which stays), a path
+whose bytes equal what HEAD now holds is left alone, and only a path that differs from HEAD and from the picture goes back to its
+picture. A path another writer wrote *between* the settle's own write and its commit is indistinguishable from the settle's and
+is put back only if its bytes still equal the settle's; the page lock closes that window for the writers that take it. A writer
+that does not report is a hole the gate names; the pair rule above is what keeps such a hole from making the restore worse than
+none for the one case that has been found, the ledger.
 """
 from __future__ import annotations
 
