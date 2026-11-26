@@ -1261,6 +1261,24 @@ async def _question_revisit_safely(memory_path: Path, settings: Settings, *, use
                     + (f", skipped {sum(report.skipped.values())}" if report.skipped else ""))
 
 
+async def _which_one_read_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
+    """Ruling 83 (2026-11-26, `which_one_reader`): a mention that could be two or more known pages, asked as "were you talking about A
+    or B?", is filed under the one its own conversation points to when the main model reads it twice and the code's checks hold —
+    one undoable Sleep settle a question ("Settled by Sleep"). No such question: no engine and no commit. Counts only. Never raises."""
+    from api.services import which_one_reader
+
+    if not (memory_path / ".git").exists():
+        return
+    try:
+        report = await which_one_reader.run_tail(memory_path, settings, user_triggered=user_triggered)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Which-one read failed: {type(exc).__name__}")
+        return
+    if report.read or report.settled:
+        logger.info(f"Which-one read: {report.read} question(s) read, {report.settled} filed"
+                    + (f", skipped {sum(report.skipped.values())}" if report.skipped else ""))
+
+
 async def _described_landing_safely(memory_path: Path, settings: Settings, *, user_triggered: bool) -> None:
     """G148 (2026-11-25, `described_landing`): what the person said in a sentence naming one of their pages, about a part of it,
     held under a label nobody said, is written on that page — code gates first, then the main model twice — one undoable
@@ -2059,6 +2077,9 @@ async def _run_engine_independent_tail(
         await _arrival_join_safely(memory_path, settings, user_triggered=user_triggered, no_model=no_model)
         # Vision item 10: "still?" and same-person questions for the catch-up, one shared budget per drain.
         await _catchup_questions_safely(memory_path)
+        # Ruling 83 (2026-11-26): the question above that the conversation itself answers is filed, not asked (needs the model).
+        if not no_model:
+            await _which_one_read_safely(memory_path, settings, user_triggered=user_triggered)
         # G61 S3-a (D8): exact-match source -> its own page links, before any poll's `git add -A`.
         await _link_sources_safely(memory_path)
         # LinkedIn connections kept outside the bank, matched against tonight's pages — before any poll's `git add -A`.

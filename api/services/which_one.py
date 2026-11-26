@@ -230,6 +230,37 @@ def usable(memory_path, mention: str, candidates: list[str]) -> list[str]:
     return out[:MAX_CANDIDATES]
 
 
+def candidates_for(memory_path, mention: str, pointed: list[str] | None = None) -> list[str]:
+    """The pages ``mention`` could be and a question may still offer (:func:`answering` then :func:`usable`), the ones the
+    caller already points at first. ``[]`` unless two or more are left: below that the question is a pairwise one."""
+    from api.services.id_utils import sanitize_id
+
+    mention_id = sanitize_id(mention)
+    named = [str(p) for p in (pointed or []) if str(p).strip()]
+    found = answering(Path(memory_path), mention, exclude={mention_id}, pointed=set(named))
+    ids = usable(memory_path, mention, [*named, *found])
+    return ids if len(ids) >= 2 else []
+
+
+def fields(memory_path, mention: str, ids: list[str]) -> dict:
+    """What makes a ``merge_suggestion`` this question (ruling 83): the candidates, the words, the marker. One shape for the
+    one door (:func:`raise_question`) and for a lane whose own writer creates the question (`ClarificationManager.create`,
+    Stage 2), so no lane writes a pairwise question about a mention that could be several pages."""
+    names = [" ".join(str((bank_index.file(Path(memory_path), "entities", f"{p}.md").frontmatter or {}).get("name") or p).split())
+             for p in ids]
+    said = f"Were you talking about {_or(names)}?"
+    return {"title": said if len(said) <= MAX_QUESTION else f"Which one did you mean by {mention}?",
+            "uncertainty_type": f"Possible duplicate of {names[0]}", "merge_target_hint": ids[0],
+            "same_title": list(ids), "detected": DETECTED}
+
+
+def open_question(memory_path, mention: str) -> Path | None:
+    """The open question about ``mention``, if any (one per mention, whoever raised it)."""
+    from api.services.id_utils import sanitize_id
+
+    return _open_for(Path(memory_path), sanitize_id(mention))
+
+
 def raise_question(memory_path, mention: str, source_episode: str, candidates: list[str] | None = None, *,
                    source_context: str = "", source_episode_timestamp: str | None = None,
                    today: date | None = None) -> str | None:
@@ -251,18 +282,13 @@ def raise_question(memory_path, mention: str, source_episode: str, candidates: l
     if len(ids) < 2 or _open_for(memory_path, mention_id) is not None:
         return None
     day = (today or date.today()).isoformat()
-    names = [" ".join(str((bank_index.file(memory_path, "entities", f"{p}.md").frontmatter or {}).get("name") or p).split())
-             for p in ids]
     inbox = _inbox(memory_path)
     path = inbox / f"inbox-{inbox_service.next_inbox_num(inbox):03d}.md"
     frontmatter = {
         "kind": "merge_suggestion", "required_input": "merge", "status": "pending", "priority": 0.5,
-        "entity_id": mention_id, "entity_name": mention,
-        "title": f"Were you talking about {_or(names)}?" if len(f"Were you talking about {_or(names)}?") <= MAX_QUESTION
-        else f"Which one did you mean by {mention}?",
-        "uncertainty_type": f"Possible duplicate of {names[0]}", "suggested_classification": "",
+        "entity_id": mention_id, "entity_name": mention, "suggested_classification": "",
         "suggested_confidence": 0.5, "created_date": day, "source_episode": str(source_episode or ""),
-        "merge_target_hint": ids[0], "same_title": ids, "detected": DETECTED,
+        **fields(memory_path, mention, ids),
     }
     if source_episode_timestamp:
         frontmatter["source_episode_timestamp"] = str(source_episode_timestamp)

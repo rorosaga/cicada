@@ -140,6 +140,8 @@ RULES: dict[str, str] = {
     "alias_doubt": "Sleep could not tell whether they are one thing; nothing was changed",
     # Ruling 83 (`which_one`): a pairwise question about a mention that could be several pages, folded into the one question.
     "which_one_folded": "Asked once, as one question with every page the name could be on it",
+    # Ruling 83 (`which_one_reader`): the conversation where the name was said says which one it was; the main model read it twice.
+    "which_one_read": "Read where you said it: the words around the name say which one you meant",
     # 2026-11-24 (`question_revisit`, ruling 82): an open question read again, by the main model, against the whole record.
     "revisit_one": "Read again against everything on record: it says they are one person",
     # `name_revisit` (ruling 82): a name with no page, read again against the page it was asked about.
@@ -2219,6 +2221,12 @@ def still_holds(memory_path: Path, d: Decision) -> bool:
         from api.services import question_revisit
 
         return question_revisit.still_holds(memory_path, d)
+    if d.rule == "which_one_read":
+        # Ruling 83 (2026-11-26): the conversation where the name was said, read twice by the main model; the same question, the
+        # same conversations and the picked page still a candidate.
+        from api.services import which_one_reader
+
+        return which_one_reader.still_holds(memory_path, d)
     if d.rule in ("revisit_same", "revisit_apart", "target_faded", "name_not_said"):
         # Ruling 82 (2026-11-24): the same, for a name with no page read against the page it was asked about.
         from api.services import name_revisit

@@ -140,6 +140,21 @@ class ClarificationManager:
             # through another of the pages that share its name is the same question.
             open_path = next((p for p in (find_open(self.memory_path, kind, sanitize_id(entity_name), str(pid))
                                           for pid in same_title if str(pid) != second) if p is not None), None)
+        which: list[str] = []
+        if (is_duplicate and not (same_title and len(same_title) >= 2)
+                and not (isinstance(heard_in, dict) and heard_in.get("mention") and heard_in.get("page"))
+                and resolve_entity_file(self.memory_path, sanitize_id(entity_name)) is None):
+            # Ruling 83 (2026-11-26): a mention that could be two or more known pages is asked once, as "were you talking about
+            # A or B?" — born so, never as one pairwise question the nightly rewrite (`which_one.tend`) has to convert. Only for a
+            # held mention with no page of its own (as `which_one_reader.case_for` takes it): a question about two PAGES (a
+            # nickname's page against a full name's, `role_people.ask_same`) is the pairwise question it always was.
+            from api.services import which_one
+
+            which = which_one.candidates_for(self.memory_path, entity_name, [second] if second else [])
+            if second and second not in which:
+                which = []   # the page the question is about is not one it may offer (faded, not on disk yet): it keeps its form
+            if which and open_path is None:
+                open_path = which_one.open_question(self.memory_path, entity_name)   # the one open is the question
         if open_path is None and why_asked and not is_duplicate:
             # G239: one question a name, whatever the mention's own wording made of its type.
             open_path = self._open_question(sanitize_id(entity_name))
@@ -198,6 +213,10 @@ class ClarificationManager:
                     from api.services import same_name
 
                     frontmatter["title"] = f"Is this {same_name.label(self.memory_path, target_id, entity_name)}?"
+        if which:
+            from api.services import which_one
+
+            frontmatter.update(which_one.fields(self.memory_path, entity_name, which))
         if source_episode_timestamp:
             frontmatter["source_episode_timestamp"] = str(source_episode_timestamp)
         if why_asked and not is_duplicate:
