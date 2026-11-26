@@ -22,15 +22,6 @@ final class SleepDetailsTests: XCTestCase {
         XCTAssertTrue(lastCycleSectionIsVisible(pageError: nil, cancelled: false, capped: false, indexWarning: "w"))
     }
 
-    /// R-Z6 — the strip is the running instrument and the frozen record of a
-    /// cancel or failure (P15); an idle, successful page has nothing for it to say.
-    func test_theStripShowsOnlyWhileRunningOrFrozen() {
-        XCTAssertFalse(stageStripIsVisible(isRunning: false, cancelled: false, failed: false))
-        XCTAssertTrue(stageStripIsVisible(isRunning: true, cancelled: false, failed: false))
-        XCTAssertTrue(stageStripIsVisible(isRunning: false, cancelled: true, failed: false))
-        XCTAssertTrue(stageStripIsVisible(isRunning: false, cancelled: false, failed: true))
-    }
-
     func test_everySectionHasItsOwnAnchor() {
         let ids = DetailsSection.allCases.map(\.anchorID)
         XCTAssertEqual(ids, ["details.lastCycle", "details.waiting", "details.readout", "details.pastNights"])

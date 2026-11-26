@@ -388,6 +388,9 @@ ROWS: tuple[Row, ...] = (
                                    "kept aside. Refused while yours works.", via="backend", mutates=True, person=True),
     _app(("settings", "owner"), "Who the person is (--name, --handle, --email change it).",
          (_f("name"), _f("handle"), _f("email")), via="backend", mutates=True, person=True),
+    # Ruling 84 (2026-11-26): the folders Cicada's own agent may read. Readable here; the person's switches are the app's.
+    _app(("agent", "folders"), "The folders Cicada's own agent may read, each on or off and why (changed in the app's "
+                               "Settings, never from a shell).", via="backend"),
     _app(("engine", "list"), "The engines and plans Cicada can read with, whether each is ready, and what runs "
                              "Sleep you start and scheduled Sleep.", via="backend"),
     # Ruling 4b (owner, 2026-10-16): sign in to a plan on THIS machine through its own CLI's sign-in.

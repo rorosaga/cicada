@@ -11,7 +11,7 @@ import SwiftUI
 /// **The five stage rows are `SleepStages.all` (G125 v3 Task 5, P16).** They
 /// used to be typed here; the strip on the page needed the same five, and two
 /// hand-typed lists is how a pipeline acquires a second description. The copy
-/// is unchanged — `SleepStageStripTests` pins all five titles, details and SF
+/// is unchanged — `SleepStagesTests` pins all five titles, details and SF
 /// Symbols as literals so this hoist cannot silently reword anything.
 /// `capture` stays here, and only here: it is what happens BEFORE a cycle, not
 /// a stage of one.

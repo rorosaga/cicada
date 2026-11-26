@@ -171,7 +171,7 @@ def settings_for(policy: Policy) -> dict:
     allow = [_rule("Read", root) for root in roots]
     deny = [*never, "WebSearch", "WebFetch"]
     deny += [_rule("Read", path) for path in spellings(policy.refused)]
-    deny += [*hf.static_deny(), *hf.root_deny(roots), *policy.deny]
+    deny += [*hf.root_deny(roots), *policy.deny]
     return {"permissions": {"allow": allow, "deny": list(dict.fromkeys(deny))}}
 
 

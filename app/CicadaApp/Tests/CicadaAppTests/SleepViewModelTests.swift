@@ -200,6 +200,38 @@ final class SleepViewModelTests: XCTestCase {
         return Store(cache: tempCache(), api: api)
     }
 
+    /// A run the app did not start (its schedule, an agent, the CLI) while the Sleep page is open: once the Store says
+    /// a cycle is running the page's model follows it with the poll loop, so the progress moves between batch commits.
+    /// One loop only, and nothing when no cycle runs.
+    func test_aRunStartedElsewhereIsFollowedOnceTheStoreSaysRunning() async throws {
+        let store = runningStore()
+        await store.refresh([.status])
+        var calls = 0
+        let fetch: () async throws -> SleepStatusResponse = {
+            calls += 1
+            return try self.sleepStatus(status: "running", stage: 2)
+        }
+        let vm = offlineVM(store: store, fetchSleepStatus: fetch)
+        XCTAssertNil(vm.status)
+
+        vm.followRunIfRunning()
+        vm.followRunIfRunning()   // a second Store change must not start a second loop
+        try await Task.sleep(for: .seconds(2.5))
+
+        XCTAssertEqual(vm.status?.status, "running", "the page's own status follows the run")
+        XCTAssertLessThanOrEqual(calls, 3, "one loop at one poll a second, not two")
+        XCTAssertGreaterThanOrEqual(calls, 1)
+
+        var idleCalls = 0
+        let idle = offlineVM(store: idleStore(), fetchSleepStatus: {
+            idleCalls += 1
+            return try self.sleepStatus(status: "idle", stage: 5)
+        })
+        idle.followRunIfRunning()
+        try await Task.sleep(for: .seconds(1.5))
+        XCTAssertEqual(idleCalls, 0, "no cycle running: nothing is polled")
+    }
+
     /// Review fix: a loop closing out must clear `pollTask` only if it is still
     /// *its own* task. The interleaving: the user hits Run again exactly while
     /// the finishing loop is inside its close-out `load()`. Nilling the newer

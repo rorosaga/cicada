@@ -1286,6 +1286,15 @@ def cmd_settings_owner(boot, args) -> Result:
     return Result(text=f"You are: {saved.get('name')}", data=saved, warnings=_warn(boot))
 
 
+def cmd_agent_folders(boot, args) -> Result:
+    data = call(boot, "GET", "/settings/agent-folders")
+    rows = data.get("folders") or []
+    mark = {"default": "on (default)", "on": "on (you)", "off": "off (you)", "refused": "off", "protected": "closed"}
+    text = "\n".join(f"{f.get('name')}{' (added)' if f.get('added') else ''}: {mark.get(f.get('state'), f.get('state'))}. "
+                     f"{f.get('reason') or ''}" for f in rows)
+    return Result(text=text or "No folders.", data=data, warnings=_warn(boot))
+
+
 def _engine_state(c: dict) -> str:
     """One engine's readiness in words (owner decision 2, 2026-10-16): a key card with no key says so, never
     "available"; a plan says whether it is signed in on the machine Sleep runs on."""
@@ -1924,7 +1933,7 @@ COMMANDS = {
     "connector disconnect": cmd_connector_disconnect, "connector sync": cmd_connector_sync,
     "funnel status": cmd_funnel_status, "funnel on": cmd_funnel_on, "funnel off": cmd_funnel_off,
     "github connect": cmd_github_connect, "github repos": cmd_github_repos, "github project": cmd_github_project,
-    "numbers switch": cmd_numbers_switch, "numbers new-vault": cmd_numbers_new_vault, "settings owner": cmd_settings_owner, "engine list": cmd_engine_list, "engine connect": cmd_engine_connect,
+    "numbers switch": cmd_numbers_switch, "numbers new-vault": cmd_numbers_new_vault, "settings owner": cmd_settings_owner, "agent folders": cmd_agent_folders, "engine list": cmd_engine_list, "engine connect": cmd_engine_connect,
     "picture set": cmd_picture_set, "picture initials": cmd_picture_initials, "picture clear": cmd_picture_clear,
     "bank list": cmd_bank_list, "bank use": cmd_bank_use, "bank create": cmd_bank_create,
     "bank rename": cmd_bank_rename, "bank delete": cmd_bank_delete,

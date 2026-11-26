@@ -993,8 +993,11 @@ def refused_paths(memory_path: Path) -> tuple[str, ...]:
 
 
 def home_grant(memory_path: Path, *, attended: bool, home: Path | None = None) -> hf.Grant:
-    """What a private session may read of the person's own folders (`harness_files.grant_for_home`), the bank and Cicada's home refused."""
-    return hf.grant_for_home(home or Path.home(), attended=attended, refused=refused_paths(memory_path))
+    """What a private session may read of the person's own folders (`harness_files.grant_for_home`), the bank and Cicada's home refused,
+    the person's own choice of folders (`agent_folders`, read on every call) applied over what the rule proposes."""
+    from api.services import agent_folders
+
+    return hf.grant_for_home(home or Path.home(), attended=attended, refused=refused_paths(memory_path), choices=agent_folders.load())
 
 
 def _policy(compartment: str, *, grant: hf.Grant, files_dir: str, domains: tuple[str, ...], browse: str = "") -> ha.Policy:

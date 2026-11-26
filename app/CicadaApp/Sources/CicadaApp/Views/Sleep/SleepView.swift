@@ -335,11 +335,15 @@ struct SleepView: View {
                 await sleepVM.load()
                 await sleepVM.loadQueue()
                 if let id = detailRunId { await sleepVM.loadRunDetail(id, freshness: detailRunFreshness) }
-            } else if SleepPageRefresh.shouldRefetch(running: store.status.value?.sleep.status == "running",
-                                                     last: lastRefetch, now: Date()) {
-                lastRefetch = Date()
-                await sleepVM.refreshStatus()
-                await sleepVM.loadHistory()
+            } else {
+                // A run that started while the page was open (its schedule, an agent, the CLI): follow it at once.
+                sleepVM.followRunIfRunning()
+                if SleepPageRefresh.shouldRefetch(running: store.status.value?.sleep.status == "running",
+                                                  last: lastRefetch, now: Date()) {
+                    lastRefetch = Date()
+                    await sleepVM.refreshStatus()
+                    await sleepVM.loadHistory()
+                }
             }
             // R-HS12 — every visit, unconditionally: the chooser's response may have been loaded
             // long before (Home's Getting started loads it at launch), and the page reads it FIRST,
@@ -1113,7 +1117,7 @@ struct SleepView: View {
         .clipShape(Capsule())
         .help(Copy.notConnectedExplainer)
         // Collapse FIRST, then label — the folder's house pattern
-        // (`SleepHero`, `BookPile` and `SleepStageStrip` all do this). Without it SwiftUI propagates the
+        // (`SleepHero` and `BookPile` both do this). Without it SwiftUI propagates the
         // container's label to each child and VoiceOver reads the whole
         // sentence twice, once for the glyph and once for the text.
         .accessibilityElement(children: .ignore)
@@ -1136,10 +1140,9 @@ struct SleepView: View {
     /// running → idle never reflows the art: the mood changes the worm's
     /// frames, never the room's geometry.
     ///
-    /// Track Z Z2 (R-Z5): the worm speaks in one fixed slot directly under it — the display-face sentence — then
-    /// the one control and the whisper line, all centred on the room. The strip stays, but only with news, and at
-    /// the block's last row (Z-P9) so neither the sentence nor the control the person just pressed moves when it
-    /// appears.
+    /// Track Z Z2 (R-Z5): the worm speaks in one fixed slot beside it — the status, or a run's one object — then the
+    /// one control. The stage strip retired on 2026-11-26: a run is a word, a count and a bar in that slot, so neither
+    /// the sentence nor the control the person just pressed moves when a run starts.
     private func roomBlock(_ page: SleepPageModel, columnWidth: CGFloat) -> some View {
         // One reading feeds the status line AND the answers (Task 6), so the
         // worm can never answer from a different snapshot than it states.
@@ -1186,7 +1189,7 @@ struct SleepView: View {
             if beside {
                 // The owner asked for it (2026-11-06): the title, the headline and the buttons are one block exactly
                 // as tall as the room (`fillHeight`), so their top and bottom edges are the room's whatever the
-                // state; the run's instrument runs under the pair at full width.
+                // state; a run's one object lives in that block (2026-11-26), so nothing under the pair moves.
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(alignment: .top, spacing: CicadaTheme.spacingXL) {
                         words.frame(maxWidth: .infinity, alignment: .leading)
@@ -1195,7 +1198,6 @@ struct SleepView: View {
                     SleepControlRow(consolidateEnabled: page.consolidateEnabled, queuedCount: page.queuedCount,
                                     page: page, leading: true, part: .captions)
                     column(notesOnly: true)
-                    RunInstrument(page: page, justFinished: room.recentCycleCommit != nil)
                 }
             } else {
                 corner

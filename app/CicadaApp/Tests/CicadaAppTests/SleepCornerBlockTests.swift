@@ -3,9 +3,10 @@ import SwiftUI
 import XCTest
 @testable import CicadaApp
 
-/// ROR-118 round 6 - the words beside the study room (title, headline, lamp line, buttons) are one block exactly as
-/// tall as the room, so the pair reads as one balanced row in every state: the free height is shared by two springs
-/// rather than left as a gap under the buttons, and the run's instrument is drawn by the page, under both.
+/// ROR-118 round 6 - the words beside the study room (title, status slot, run bar) are one block exactly as tall as the
+/// room, so the pair reads as one balanced row in every state: the free height is shared by two springs rather than
+/// left as a gap under the buttons. Since 2026-11-26 a run's one object lives in that block's status slot, so nothing
+/// about a run hangs under the pair.
 @MainActor
 final class SleepCornerBlockTests: XCTestCase {
     override func setUp() {
@@ -22,7 +23,10 @@ final class SleepCornerBlockTests: XCTestCase {
             ("idle", SleepRunStripTests.finished(), false),
             ("empty", SleepRunStripTests.empty(), false),
             ("running-1", SleepRunStripTests.running(stage: 1), false),
+            ("running-1-failures", SleepRunStripTests.running(stage: 1, failed: 2), false),
             ("running-5", SleepRunStripTests.running(stage: 5), false),
+            ("running-single-pass", SleepRunStripTests.singlePass(), false),
+            ("refused-night", SleepRunStripTests.refusedNight(), false),
             ("paused-user", SleepRunStripTests.paused("user"), false),
             ("paused-plan-window", SleepRunStripTests.paused("plan_window"), false),
             ("stopped", SleepRunStripTests.cancelled(), false),

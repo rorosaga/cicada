@@ -3413,12 +3413,28 @@ class CheckCensus(CamelModel):
 # --- Status aggregate (menu-bar / tamagotchi) ---
 
 
+class SleepNotice(CamelModel):
+    """A thing the Sleep page should say calmly that is not a failure (2026-11-26): today only a scheduled run the write
+    window refused before it read anything (`sleep_catch_up.refusal`). Nothing was read, used or broken, so it is never
+    in `error`. `text` is the one line the page shows; `detail` is the full sentence (its help and VoiceOver hint)."""
+    kind: str
+    text: str
+    detail: str
+    # When the next try is (an aware local ISO time), `None` once every try was spent.
+    retry_at: Optional[str] = None
+    tries: int = 0
+    max_tries: int = 0
+    gave_up: bool = False
+
+
 class StatusSleep(CamelModel):
     status: str
     stage: int = 0
     total_stages: int = 5
     cycle_id: Optional[str] = None
     error: Optional[str] = None
+    # A calm notice that is not an error (2026-11-26); absent while a run is live and when `error` is set.
+    notice: Optional[SleepNotice] = None
     # G177 — Sleep holds the bank's pages right now (`sleep_cycle.is_writing`). The app's write controls key off
     # this, not `status`: a person-started drain is `running` for hours but accepts writes between its batches.
     writing: bool = False
@@ -3715,6 +3731,9 @@ class SleepStatusResponse(CamelModel):
     started_at: Optional[str] = None
     progress: Optional[str] = None
     error: Optional[str] = None
+    # A calm notice that is not an error (2026-11-26): a scheduled run the write window refused before it read.
+    # Absent while a run is live and whenever `error` is set (a real error wins).
+    notice: Optional[SleepNotice] = None
     # Non-fatal warnings raised during the cycle (e.g. LEANN episode index
     # rebuild failed). The cycle still committed the main entity writes —
     # this is for "completed with warnings" state the Sleep page can surface
@@ -4729,6 +4748,39 @@ class PageEditorsResponse(CamelModel):
 class PageEditorsUpdate(CamelModel):
     """A patch: ``{harness: true}`` adds one, ``{harness: false}`` removes it."""
     trusted: dict[str, bool] = Field(default_factory=dict)
+
+
+# --- ruling 84 (2026-11-26): the folders Cicada's own agent may read, the person's choice ---
+
+
+class AgentFolder(CamelModel):
+    """One row of the list: a folder of the person's home by name (never its path), its state (``default``, ``on``, ``off``,
+    ``refused``, ``protected``), the rule's own verdict (``why``), whether a choice can change it, and the reason in words."""
+    id: str
+    name: str
+    state: str
+    why: str = ""
+    granted: bool = False
+    locked: bool = False
+    added: bool = False
+    reason: str = ""
+
+
+class AgentFoldersResponse(CamelModel):
+    folders: list[AgentFolder] = Field(default_factory=list)
+
+
+class AgentFolderChange(CamelModel):
+    folder: str = Field(..., max_length=1024)
+    on: bool = True
+
+
+class AgentFolderAdd(CamelModel):
+    path: str = Field(..., max_length=4096)
+
+
+class AgentFolderRemove(CamelModel):
+    folder: str = Field(..., max_length=1024)
 
 
 class BlameCommit(CamelModel):

@@ -270,14 +270,10 @@ enum Copy {
         + "housekeeping checks (logos, connectors) can still run right after, "
         + "so \"Cancelling…\" may stay up a few seconds longer than expected."
 
-    /// The control row's one-line caption while a cycle runs (Track Z §4.1
-    /// sketch B); the long explainer stays the button's tooltip.
-    static let cancelCaption = "Stops at the next safe point — nothing is lost."
-    /// The same two lines for a person-started run that reads everything waiting, in batches (G163).
-    /// Cancel does NOT stop "after this batch": a batch that has not begun filing is dropped and its
+    /// The same for a person-started run that reads everything waiting, in batches (G163), and the Cancel button's
+    /// tooltip. Cancel does NOT stop "after this batch": a batch that has not begun filing is dropped and its
     /// reads are paid again, so the copy says what is kept (earlier batches) and what is not (the batch
-    /// still reading), never "nothing is lost".
-    static let cancelDrainCaption = "Earlier batches stay filed; the one still reading is dropped."
+    /// still reading), never "nothing is lost". (The one-line captions under the controls retired 2026-11-26.)
     static let cancelDrainExplainer =
         "Stops at the next safe point — never mid-write. Batches already filed stay filed and the rest stay "
         + "queued for the next Consolidate. A batch that has not started filing is dropped, so its reading "

@@ -62,14 +62,12 @@ final class SleepDrainStopTests: XCTestCase {
 
     // MARK: A plan pause is not a finish
 
-    func test_aPlanPauseFreezesTheStripAndDoesNotChewOrCheer() throws {
+    func test_aPlanPauseSaysWhereItStoppedAndDoesNotChewOrCheer() throws {
         let status = try scenario("plan_limit")
         let model = page(status)
         XCTAssertFalse(model.cancelled)
         XCTAssertTrue(model.stoppedEarly)
-        XCTAssertTrue(stageStripIsVisible(isRunning: model.isRunning, cancelled: model.stoppedEarly,
-                                          failed: model.cycleError != nil))
-        XCTAssertFalse(model.pips.contains(.pending), "stages that never ran are skipped, not pending")
+        XCTAssertEqual(RunLine.from(model)?.kind, .stopped, "the run object says it stopped")
         XCTAssertFalse(isRealCompletion(old: "running", new: "idle", cancelled: false, error: nil,
                                         drainStop: status.drain?.stop?.reason))
         XCTAssertNotEqual(deriveSleepPageMood(status: status, debt: nil, justFinishedAt: Date(), now: Date()),
@@ -170,13 +168,12 @@ final class SleepDrainStopTests: XCTestCase {
         XCTAssertEqual(stopped[1].title, "Where it stopped")
     }
 
-    func test_aCancelledStripDoesNotStayFrozenPastTheBackendsWindow() throws {
+    func test_aCancelledRunObjectDoesNotStayPastTheBackendsWindow() throws {
         let status = try scenarioWithoutCancelFlag("cancelled")
         let model = page(status)
         XCTAssertFalse(model.cancelled)
         XCTAssertFalse(model.stoppedEarly)
-        XCTAssertFalse(stageStripIsVisible(isRunning: model.isRunning, cancelled: model.stoppedEarly,
-                                           failed: model.cycleError != nil))
+        XCTAssertNil(RunLine.from(model))
     }
 
     func test_aPlanPauseRetiresWhenItsResetTimePasses() throws {

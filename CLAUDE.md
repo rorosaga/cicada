@@ -455,8 +455,8 @@ when a *rail* changes (an invariant, a ruling, a boundary), in one or two lines 
   never meet**: private (files, masked conversation copies; no web, no shell, never the bank), web (search, fetch; no file
   tool) and signed-in (the person's own browser: only connected sites, given addresses or allow-pattern profile links, no request leaves the site, one
   launcher command, only while their browser runs; `CICADA_HARNESS_SIGNED_IN` turns it off alone). It finds, **Cicada's code writes**: located evidence read by sentence, one
-  `found_by_agent` settle, undoable, no session words stored; only document kinds in folders granted by what they are,
-  nothing key-shaped stored (`harness_files`, `mcp.md`).
+  `found_by_agent` settle, undoable, no session words stored; only document kinds in folders they turned on (proposed by what they are, never
+  Cicada's own), nothing key-shaped stored (`harness_files`, `mcp.md`).
 - **Reading with the person's own agent (G166):** Cicada's backend never spawns a browser and never signs in to a site; it only asks
   (only ruling 47's tier 2 — an official API the person connects — signs in, never as a browser session, `network.md`). Only a
   link the person asked about, or a wall page of a site they allowed, can be recorded — and (G71) the
