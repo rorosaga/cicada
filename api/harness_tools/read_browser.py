@@ -20,21 +20,28 @@ has no tool that writes a file, and a command that sets a variable first is not 
   and its tab closed. Nothing is followed across hosts.
 * **Only addresses that are given, never built.** ``open`` takes (a) an address Cicada's code put in the grant for this question (a
   source the page already tracks, a site's own search page for the question's own name) or (b) an address that appeared as a link
-  on a page this same run already opened, on that same host, **and whose decoded path matches the site's allow pattern** for a
+  on a page this same run already opened, on that same host, **whose decoded path matches the site's allow pattern** for a
   public profile or about page of an account (the grant's ``follow`` rules, written from `harness_browse.PROFILES`; a site with no
-  rule follows no link at all): no query string, no percent-encoding, no fragment, at most :data:`MAX_LINKS` offered and the
-  grant's ``max_followed`` opened, each one naming the question's own name. A link is never judged by guessing from its words alone
-  (that is only the second layer); it is judged by what it is allowed to be. The address the browser is sent to is the one the
-  grant or the page gave, never the session's spelling of it.
-* **No request leaves the connected sites, at any hop.** The page is loaded with the browser's own request interception (CDP
-  ``Fetch``) on the helper's session: every request of the tab, of a subframe, a popup or a worker, at every redirect hop, is paused
-  and failed **before it is sent** unless its host is one of the grant's domains (or, for a script, style, font or XHR, one of the
-  site's own static hosts). So a redirector, a meta refresh, a script's ``location =``, a form auto-submit, a ``window.open``, a
-  prefetch, an image or a download aimed anywhere else sends nothing.
-* **Reading only.** It navigates and reads text. It never clicks, types, presses a key, fills or submits a form, scrolls a feed for
-  more, accepts a dialog, uploads or starts a download. An address that looks like an action (logout, unsubscribe, follow,
-  confirm, delete, accept, pay, download...), a private area (mail, messages, settings...) or a file download is refused,
-  whichever way it came. A page that asks for a password is reported ``NEEDS A LOGIN`` and left: no credential is ever typed.
+  rule follows no link at all): no query string, no percent-encoding, no fragment, at most :data:`MAX_LINKS` offered and the grant's
+  ``max_followed`` opened, **each one carrying the question's own name in the address itself** (the handle or slug the pattern names,
+  folded; never in the link's text, which the page writes; an address with no name in it, a numeric id, is never followed from a
+  page). The first segment and the name are not a feature of the site or one of the person's own areas (messages, chat, an assistant,
+  notifications, settings, bookmarks, lists, explore, home, search: one list per site, longer than it should need). A link is never
+  judged by guessing from its words alone (that is only the second layer); it is judged by what it is allowed to be. The address the
+  browser is sent to is the one the grant or the page gave, never the session's spelling of it.
+* **A page is read, never loaded.** The browser's own request interception (CDP ``Fetch`` on the helper's tab session) pauses every request
+  and every document answer. The one document asked for (a GET on a connected host, whose redirects are each judged before the browser
+  follows them) is let through to the network; its answer is read here (capped, on a clock, decoded from whatever encoding it uses),
+  its text, title and links are parsed from the markup with no script and no style sheet, and the request is **aborted**: nothing the
+  site sent is ever loaded, rendered or run in the tab, so a ``<link rel=preconnect|prerender|dns-prefetch>``, a ``Link:`` header, a meta
+  refresh, a script, a worker (a service worker the site registered earlier is bypassed), WebRTC, a WebSocket, an image, a frame, a form,
+  a prefetch or a ping has nothing to start from. Every other request, of any type, any method or any host, is failed before it is sent;
+  a non-HTML answer (a PDF, JSON, a download) is refused. What a page declares about itself (its title and description) is shown too,
+  which is most of what a page built by its own script offers.
+* **Reading only.** It never clicks, types, presses a key, fills or submits a form, scrolls a feed for more, accepts a dialog, uploads or
+  starts a download. An address that looks like an action (logout, unsubscribe, follow, confirm, delete, accept, pay, download...), a
+  private area (mail, messages, settings...) or a file download is refused, whichever way it came, **over its path and its query**,
+  also at every redirect hop. A page that asks for a password is reported ``NEEDS A LOGIN`` and left: no credential is ever typed.
 * **A bounded number of opens** per question (the grant's ``max_opens``), counting every attempt.
 * **Its own tabs.** ``open`` creates a tab (it never reuses one, even a blank one, as the harness's own ``new_tab`` would) and records its
   id **before** anything that can time out; the page's text is read once, the tab is closed at once, and ``text`` windows the stored
@@ -94,9 +101,9 @@ DOWNLOAD_EXTENSIONS = frozenset({
     "docx", "ppt", "pptx", "odt", "mp3", "mp4", "m4a", "mov", "avi", "mkv", "wav", "flac", "ics", "vcf", "bin", "torrent"})
 #: Path pieces that mean "sign in", so the page is a login wall whatever it looks like.
 LOGIN_TOKENS = frozenset({"login", "signin", "authwall", "checkpoint", "uas", "sso", "challenge"})
-#: What a request that is not one of the grant's own hosts may still be: a site's own static host's script, style, font or XHR. Never an
-#: image, a media file, a document, a frame, a prefetch, a ping or a download (a page is read for its text, which needs none of them).
-ASSET_TYPES = ("Stylesheet", "Script", "Font", "XHR", "Fetch", "Preflight")
+#: The most of a document's answer that is read (the rest is dropped, said in the result). A document is **read, never loaded**: its markup is
+#: parsed here for text, title and links with no script, no style sheet and no subresource, and the request is then aborted (see `_LOAD`).
+MAX_BODY = 1_000_000
 
 # Fixed code the harness executes. Its only inputs are JSON strings: an address, a tab id and the policy (hosts and a pattern). The tab is
 # made with the browser's own ``Target.createTarget`` (its own call, so the id is recorded before anything can time out) and driven
@@ -111,10 +118,11 @@ print("@@" + json.dumps({"stage": "created", "target": tid}), flush=True)
 # the tab makes (its frames included, as far as the browser reports them on that session), at every redirect hop, is paused and either
 # continued or failed before it is sent. The page's text is read once, the tab is closed, and nothing is left to move.
 _LOAD = r"""
-import json, re, time, urllib.parse
+import base64, codecs, html, json, re, time, urllib.parse
+from html.parser import HTMLParser
 url, tid, policy = json.loads(__URL__), json.loads(__TARGET__), json.loads(__POLICY__)
-hosts, assets, loop = policy["domains"], policy["assets"], bool(policy["loopback"])
-asset_types = set(policy["asset_types"])
+hosts, loop = policy["domains"], bool(policy["loopback"])
+MAX_BODY, BODY_SECONDS = int(policy.get("max_body") or 1000000), 8.0
 action = re.compile(policy["action"], re.I) if policy.get("action") else None
 def on(h, lst):
     return any(h == d or h.endswith("." + d) for d in lst if d)
@@ -125,8 +133,17 @@ def decoded(t):
             break
         t = d
     return t
+def looks_like_action(parts):
+    # the path AND the query, decoded to a fixed point: a way out, a private area, or another address carried in the query
+    whole = decoded(parts.path + ("?" + parts.query if parts.query else "")).lower()
+    if action and action.search(whole):
+        return True
+    return bool(parts.query and re.search(r"https?:|(?:^|[=&])//", decoded(parts.query), re.I))
 def allowed(p):
-    u = (p.get("request") or {}).get("url") or ""
+    # The one thing a text read needs from the network: a GET of a document of the connected site (and of its redirects, each judged the same
+    # way). Nothing else is ever let through: not an image, a style, a font, a script, a frame, an XHR, a ping, another method, another host.
+    r = p.get("request") or {}
+    u = r.get("url") or ""
     typ = p.get("resourceType") or ""
     try:
         parts = urllib.parse.urlsplit(u)
@@ -137,50 +154,232 @@ def allowed(p):
         return True
     if parts.scheme not in ("http", "https") or parts.username or parts.password:
         return False
+    if str(r.get("method") or "GET").upper() != "GET" or r.get("hasPostData") or typ != "Document":
+        return False
     h = (parts.hostname or "").lower().rstrip(".")
     if not loop and port not in (None, 80, 443):
         return False
-    if on(h, hosts):
-        if typ == "Document" and u != url and action and action.search(decoded(parts.path).lower()):
-            return False
-        return True
-    return on(h, assets) and typ in asset_types
+    if not on(h, hosts):
+        return False
+    if u != url and looks_like_action(parts):
+        return False
+    return True
+Q, S = chr(34), chr(39)
+_NAME = r"[a-zA-Z_:][-a-zA-Z0-9_:.]*"
+def decode_body(raw, ctype):
+    # The text the page sent, as characters, whatever its encoding (a BOM, the header's charset, a meta prescan, else UTF-8 and then
+    # windows-1252).
+    enc = None
+    if raw[:3] == b"\xef\xbb\xbf":
+        enc, raw = "utf-8", raw[3:]
+    elif raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        enc = "utf-16"
+    if enc is None:
+        label = ""
+        m = re.search(r"charset\s*=\s*[\"']?([-\w.:]+)", ctype or "", re.I)
+        if m:
+            label = m.group(1)
+        else:
+            mb = re.search(rb"<meta[^>]+charset\s*=\s*[\"']?([-\w.:]+)", raw[:2048], re.I)
+            label = mb.group(1).decode("latin-1") if mb else ""
+        try:
+            enc = codecs.lookup(label).name if label else None
+        except LookupError:
+            enc = None
+    for candidate in ([enc] if enc else []) + ["utf-8", "cp1252"]:
+        try:
+            return raw.decode(candidate)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode("utf-8", "replace")
+def declared(text):
+    # What the page says about itself in its head (a link preview): read from the raw markup, shown as text, never run.
+    out = []
+    for tag in re.findall(r"<meta\b[^>]*>", text[:300000], re.I):
+        attrs = {k.lower(): (v1 or v2 or v3) for k, v1, v2, v3 in re.findall("(" + _NAME + r")\s*=\s*(?:" + Q + "([^" + Q + "]*)" + Q + "|" + S + "([^" + S + "]*)" + S + "|([^\\s" + Q + S + ">]+))", tag)}
+        key = (attrs.get("name") or attrs.get("property") or "").lower()
+        if key in ("description", "og:title", "og:description", "og:site_name", "twitter:title", "twitter:description") and attrs.get("content"):
+            line = key + ": " + " ".join(html.unescape(attrs["content"]).split())[:400]
+            if line not in out:
+                out.append(line)
+    return out[:8]
+SKIP = {"script", "style", "template", "iframe", "object", "embed", "canvas", "svg", "select", "datalist", "audio", "video", "map"}
+BLOCK = {"p", "div", "br", "li", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "table", "section", "article", "header", "footer", "nav", "main",
+         "aside", "blockquote", "pre", "form", "hr", "dd", "dt", "dl", "address", "figure", "figcaption", "details", "summary", "fieldset", "body", "html"}
+VOID = {"br", "hr", "img", "input", "meta", "link", "base", "area", "col", "embed", "source", "track", "wbr", "param"}
+class Reader(HTMLParser):
+    # The text, the title and the links of a page, read from its markup the way a person would see it with no script and no style sheet: a
+    # script, a style, a template, a frame and a hidden subtree say nothing. The page is never rendered, so nothing in it ever runs or loads.
+    def __init__(self, base):
+        super().__init__(convert_charrefs=True)
+        self.base, self.out, self.title, self.links, self.password = base, [], "", [], False
+        self.skip, self.in_title, self.anchor = [], False, None
+    def handle_starttag(self, tag, attrs):
+        a = {k.lower(): (v or "") for k, v in attrs}
+        if tag in VOID:
+            if tag == "input" and a.get("type", "").lower() == "password":
+                self.password = True
+            if tag == "br":
+                self.out.append("\n")
+            return
+        hidden = "hidden" in a or a.get("aria-hidden", "").lower() == "true" or bool(re.search(r"display\s*:\s*none|visibility\s*:\s*hidden", a.get("style", ""), re.I))
+        if self.skip:
+            self.skip.append(tag)
+            return
+        if tag in SKIP or hidden:
+            self.skip.append(tag)
+            return
+        if tag == "title":
+            self.in_title = True
+        if tag in BLOCK:
+            self.out.append("\n")
+        elif tag in ("td", "th"):
+            self.out.append("\t")
+        if tag == "a" and a.get("href") and len(self.links) < 800:
+            self.anchor = [a["href"].strip(), []]
+    def handle_endtag(self, tag):
+        if self.skip:
+            if tag == self.skip[-1] or tag in self.skip:
+                while self.skip and self.skip.pop() != tag:
+                    pass
+            return
+        if tag == "title":
+            self.in_title = False
+        if tag in BLOCK:
+            self.out.append("\n")
+        if tag == "a" and self.anchor:
+            href, words = self.anchor
+            self.anchor = None
+            try:
+                full = urllib.parse.urljoin(self.base, href)
+            except ValueError:
+                return
+            if full.lower().startswith(("http://", "https://")):
+                self.links.append({"h": full.split("#", 1)[0], "t": " ".join("".join(words).split())[:80]})
+    def handle_data(self, data):
+        if self.skip:
+            return
+        if self.in_title:
+            self.title += data
+            return
+        self.out.append(data)
+        if self.anchor:
+            self.anchor[1].append(data)
+def read_page(text, base):
+    r = Reader(base)
+    r.feed(text)
+    r.close()
+    lines = [" ".join(ln.replace("\t", " | ").split()).strip(" |") for ln in "".join(r.out).split("\n")]
+    body = re.sub(r"\n{2,}", "\n", "\n".join(lines)).strip()
+    return {"title": " ".join(r.title.split())[:300], "text": body, "links": r.links, "password": r.password}
+def refuse_why(p):
+    # Why a document answer is never read ("" when it may be): not a page, or a download.
+    h = {x["name"].lower(): x["value"] for x in (p.get("responseHeaders") or [])}
+    if not (h.get("content-type") or "").lower().lstrip().startswith("text/html"):
+        return "not a web page"
+    if "attachment" in (h.get("content-disposition") or "").lower():
+        return "a download"
+    if int(p.get("responseStatusCode") or 0) in (204, 205, 304):
+        return "no page"
+    return ""
+def redirect_ok(p):
+    for x in p.get("responseHeaders") or []:
+        if x["name"].lower() == "location":
+            target = urllib.parse.urljoin((p.get("request") or {}).get("url") or "", x["value"])
+            return allowed({"request": {"url": target, "method": "GET"}, "resourceType": "Document"})
+    return True
 blocked = []
+refused = []
 sessions = set()
-pattern = [{"urlPattern": "*"}]
+main = []
+result = {}
+pattern = [{"urlPattern": "*", "requestStage": "Request"}, {"urlPattern": "*", "resourceType": "Document", "requestStage": "Response"}]
 def guard(s):
     # Only the tab's own session. `Target.*` calls go to the browser through the harness (it strips the session), so `Target.setAutoAttach`
     # would apply to EVERY new tab of the browser, the person's included, and hold each one waiting for a debugger: never used.
+    # Every request is paused before it is sent; a document's answer is paused too: it is read and the request is then aborted, so the
+    # tab never loads, renders or runs anything the site sent.
     cdp("Fetch.enable", session_id=s, patterns=pattern)
     cdp("Page.enable", session_id=s)
+    cdp("Network.enable", session_id=s)
+    cdp("Network.setBypassServiceWorker", session_id=s, bypass=True)         # a service worker the site registered earlier answers nothing
     try:
         cdp("Page.setPrerenderingAllowed", session_id=s, isAllowed=False)
     except Exception:
         pass
-    # The Fetch domain does not see a WebSocket's handshake (nor Network.setBlockedURLs: tried): the page's own scripts get no WebSocket
-    # and no window.open (a page's scripts are the site's own; this keeps one from opening a socket or a window the person's browser
-    # would show). Not a boundary against script an attacker wrote: see the residuals in `harness_browse`.
+    # A page never runs here (it is read, not loaded); this is the second layer for anything that is, in every frame.
     cdp("Page.addScriptToEvaluateOnNewDocument", session_id=s,
-        source="(()=>{const no=function(){throw new Error('blocked')};for(const k of ['WebSocket','WebTransport']){try{Object.defineProperty(window,k,{value:no,configurable:false})}catch(e){}}try{Object.defineProperty(window,'open',{value:()=>null,configurable:false})}catch(e){}})()")
+        source="(()=>{const no=function(){throw new Error('blocked')};for(const k of ['WebSocket','WebTransport','RTCPeerConnection','webkitRTCPeerConnection','RTCDataChannel','EventSource']){try{Object.defineProperty(window,k,{value:no,configurable:false})}catch(e){}}try{Object.defineProperty(window,'open',{value:()=>null,configurable:false})}catch(e){}})()")
     sessions.add(s)
+def fail(s, rid, why=None, p=None, reason="BlockedByClient"):
+    cdp("Fetch.failRequest", session_id=s, requestId=rid, errorReason=reason)
+    h = (urllib.parse.urlsplit(((p or {}).get("request") or {}).get("url") or "").hostname or "?")[:60]
+    blocked.append([h, (p or {}).get("resourceType") or ""])
+    if why:
+        refused.append(why)
+def serve(s, rid, p):
+    # A document's answer, read (capped, on a clock) and parsed here; the request is then aborted, so nothing is ever loaded into the tab.
+    why = refuse_why(p)
+    if why:
+        return fail(s, rid, why, p)
+    stream = cdp("Fetch.takeResponseBodyAsStream", session_id=s, requestId=rid)["stream"]
+    raw, end, over = b"", time.time() + BODY_SECONDS, False
+    try:
+        while True:
+            left = end - time.time()
+            if left <= 0:
+                return fail(s, rid, "too slow", p)
+            r = cdp("IO.read", session_id=s, handle=stream, size=65536, _response_timeout=left)
+            raw += base64.b64decode(r["data"]) if r.get("base64Encoded") else (r.get("data") or "").encode("utf-8")
+            if r.get("eof"):
+                break
+            if len(raw) >= MAX_BODY:
+                over = True
+                break
+        text = decode_body(raw[:MAX_BODY], next((x["value"] for x in (p.get("responseHeaders") or []) if x["name"].lower() == "content-type"), ""))
+        page = read_page(text, (p.get("request") or {}).get("url") or url)
+        page["url"], page["declared"] = (p.get("request") or {}).get("url") or url, declared(text)
+        result.update(page)
+        if over:
+            refused.append("long")
+        cdp("Fetch.failRequest", session_id=s, requestId=rid, errorReason="Aborted")
+    finally:
+        try:
+            cdp("IO.close", session_id=s, handle=stream)
+        except Exception:
+            pass
 def pump():
     for e in drain_events():
         m, p, s = e.get("method"), e.get("params") or {}, e.get("session_id")
+        if m != "Fetch.requestPaused" or s not in sessions:
+            continue
+        rid = p.get("requestId")
         try:
-            if m == "Fetch.requestPaused" and s in sessions:
-                if allowed(p):
-                    cdp("Fetch.continueRequest", session_id=s, requestId=p["requestId"])
+            if p.get("responseStatusCode") is not None or p.get("responseErrorReason"):
+                code = int(p.get("responseStatusCode") or 0)
+                if code in (301, 302, 303, 307, 308) and any(x["name"].lower() == "location" for x in p.get("responseHeaders") or []):
+                    cdp("Fetch.continueResponse", session_id=s, requestId=rid) if redirect_ok(p) else fail(s, rid, None, p)
                 else:
-                    cdp("Fetch.failRequest", session_id=s, requestId=p["requestId"], errorReason="BlockedByClient")
-                    h = (urllib.parse.urlsplit((p.get("request") or {}).get("url") or "").hostname or "?")[:60]
-                    blocked.append([h, p.get("resourceType") or ""])
-        except Exception:
-            pass
-def ev(expression):
-    r = cdp("Runtime.evaluate", session_id=sid, expression=expression, returnByValue=True, _response_timeout=3)
-    return (r.get("result") or {}).get("value")
+                    serve(s, rid, p)            # anything else, a redirect with no place to go included, is a page the browser would show
+            else:
+                if p.get("resourceType") == "Document":
+                    if not main:
+                        main.append(p.get("frameId"))
+                    framed = p.get("frameId") != main[0]
+                else:
+                    framed = False
+                if allowed(p) and not framed:
+                    cdp("Fetch.continueRequest", session_id=s, requestId=rid)
+                else:
+                    fail(s, rid, None, p)
+        except Exception as exc:
+            try:
+                fail(s, rid, "an answer that could not be read", p)
+                blocked.append(["error", type(exc).__name__])
+            except Exception:
+                pass
 sid = cdp("Target.attachToTarget", targetId=tid, flatten=True)["sessionId"]
-payload, dialog, closed, now = {}, False, False, ""
+closed = False
 try:
     guard(sid)
     try:
@@ -191,28 +390,10 @@ try:
         cdp("Page.navigate", session_id=sid, url=url, _response_timeout=0.5)
     except Exception:
         pass                       # the request is paused until the loop below answers it: Page.navigate answers after that
-    deadline, settled = time.time() + 15, None
-    while time.time() < deadline:
+    deadline = time.time() + 15
+    while time.time() < deadline and not result and not refused and not blocked:
         pump()
-        try:
-            now = str(ev("document.readyState + '|' + location.href"))
-        except Exception:
-            now = ""
-        if now.startswith("complete|") and not now.startswith("complete|about:blank"):
-            settled = settled or time.time() + 1.5     # a meta refresh or a script's `location =` gets its chance to be blocked
-            if time.time() >= settled:
-                break
-        time.sleep(0.05)
-    pump()
-    try:
-        payload = json.loads(ev('''JSON.stringify({
-  url: location.href, title: document.title,
-  password: !!document.querySelector('input[type=password]'),
-  text: (document.body && document.body.innerText || ''),
-  links: Array.from(document.querySelectorAll('a[href]')).slice(0, 800).map(a => ({h: a.href, t: ((a.innerText || a.getAttribute('aria-label') || '') + '').trim().slice(0, 80)})),
-})''') or "{}")
-    except Exception:
-        dialog = True
+        time.sleep(0.03)
     pump()
 finally:
     try:
@@ -220,9 +401,10 @@ finally:
         closed = True
     except Exception:
         pass
-print("@@" + json.dumps({"target": tid, "url": payload.get("url"), "title": payload.get("title"), "dialog": dialog, "closed": closed,
-                          "password": bool(payload.get("password")), "text": payload.get("text", ""), "links": payload.get("links", []),
-                          "blocked": blocked[:20], "blocked_n": len(blocked), "last": now[:200]}))
+print("@@" + json.dumps({"target": tid, "url": result.get("url"), "title": result.get("title"), "dialog": False, "closed": closed,
+                          "password": bool(result.get("password")), "text": result.get("text", ""), "links": result.get("links", []),
+                          "declared": result.get("declared", []), "refused": refused[:3],
+                          "blocked": blocked[:20], "blocked_n": len(blocked), "last": ""}))
 """
 _CLOSE = r"""
 import json
@@ -275,6 +457,9 @@ def decoded(text: str) -> str:
     return text
 
 
+#: Why the browser did not serve a document's answer to the tab (said in words; the answer itself is never shown).
+_NOT_SERVED = {"not a web page": "it is not a web page", "a download": "it is a download", "no page": "it has no page", "too slow": "it answered too slowly",
+               "an answer that could not be read": "its answer could not be read"}
 _REFUSED_ACTION = "that address looks like an action or a private area, not a page to read"
 
 
@@ -328,11 +513,24 @@ def follow_rule(host: str, grant: dict) -> dict | None:
     return None
 
 
+def _name_of(match: re.Match, href: str, rule: dict) -> str:
+    """The part of a followed address that names the account: the pattern's ``name`` group (the handle or slug segment) or, for a pattern
+    with none on a site whose rule says so (``host_named``: an organisation's own subdomain), the host's first label. ``""`` when the
+    address carries no name to check (a numeric id): such an address is never followed from a page."""
+    if "name" in match.groupdict():
+        return match.group("name") or ""
+    if rule.get("host_named"):
+        return (_host(href).split(".") or [""])[0]
+    return ""
+
+
 def follow_reason(href: str, grant: dict) -> str:
     """Why a link of an opened page is never followed (``""`` when it may be). **What a followed link may be is decided by what it is
     allowed to be, not by guessing what it looks like:** the site's rule (`harness_browse.PROFILES`) says which decoded paths are a
     public profile or about page; the path has no percent-encoding, no parameters, no empty or dot segment; the address has no query
-    string (the rule names none), no user or password; and the action-word test is a second layer over it."""
+    string (the rule names none), no user or password; **the question's own name is in the address itself** (the handle or slug segment
+    the rule's pattern names, folded; never the link's text, which the page writes), and an address that carries no name (a numeric id)
+    is not followed at all; the action-word test is a second layer over it."""
     parts = urllib.parse.urlsplit(href)
     rule = follow_rule(_host(href), grant)
     if rule is None:
@@ -346,10 +544,17 @@ def follow_reason(href: str, grant: dict) -> str:
     if "//" in path.rstrip("/") or any(seg in ("", ".", "..") for seg in segments) or len(path) > 120:
         return "a followed link has a plain path"
     shown = path.rstrip("/") or "/"
-    if segments[0].lower() in {str(r).lower() for r in rule.get("reserved") or []}:
+    reserved = {str(r).lower() for r in rule.get("reserved") or []}
+    if segments[0].lower() in reserved:
         return "that is a feature of the site, not an account"
-    if not any(re.fullmatch(p, shown, re.I | re.A) for p in rule.get("patterns") or []):
+    match = next((m for m in (re.fullmatch(p, shown, re.I | re.A) for p in rule.get("patterns") or []) if m), None)
+    if match is None:
         return "that is not a public profile or about page of an account"
+    named = _name_of(match, href, rule)
+    if named.lower() in reserved:
+        return "that is a feature of the site, not an account"
+    if not names_it(named, grant.get("names")):
+        return "that address does not name what the question is about"
     return _REFUSED_ACTION if action_reason(href) else ""
 
 
@@ -509,21 +714,18 @@ def _compact(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", urllib.parse.unquote(text).lower())
 
 
-def names_it(href: str, label: str, names) -> bool:
-    """Does the link name what the question is about (a name of the question, compact, in the link's text or its path)? With no name in
-    the grant every link passes (the rule's pattern still applies). The session has no use for a profile that is not the one asked
-    about, so a page with many accounts offers only the ones named, which also keeps the choice small."""
+def names_it(named: str, names) -> bool:
+    """Does the address's own name segment (a handle or a slug, **never the link's text**) hold a name of the question, folded (lower-case
+    letters and digits only)? With no name of the question, nothing is followed: there is nothing to name."""
     wanted = [c for c in (_compact(str(n)) for n in names or []) if len(c) >= 3]
-    if not wanted:
-        return True
-    shown = _compact(label) + "|" + _compact(urllib.parse.urlsplit(href).path)
-    return any(w in shown for w in wanted)
+    shown = _compact(named)
+    return bool(shown) and any(w in shown for w in wanted)
 
 
 def usable_links(links, page_url: str, grant: dict) -> list[tuple[str, str]]:
     """``[(address, its text)]``: the links of a page that stay on that page's own host and that the site's allow rule says may be
     followed (a public profile or about page of an account, no query, nothing encoded), that are not an action or a private area, and
-    that name what the question is about. A site with no rule (or one where viewing tells the person viewed) offers none. At most
+    whose address names what the question is about (the label is shown, never judged). A site with no rule (or one where viewing tells the person viewed) offers none. At most
     :data:`MAX_LINKS`, each path once."""
     if follow_rule(_host(page_url), grant) is None:
         return []
@@ -534,8 +736,7 @@ def usable_links(links, page_url: str, grant: dict) -> list[tuple[str, str]]:
             continue
         href = item["h"].split("#", 1)[0]
         label = " ".join(str(item.get("t") or "").split())[:80]
-        if (not same_origin(href, page_url) or follow_reason(href, grant) or action_reason(href)
-                or not names_it(href, label, grant.get("names"))):
+        if not same_origin(href, page_url) or follow_reason(href, grant) or action_reason(href):
             continue
         key = normalize(href).lower()
         if key in seen:
@@ -565,11 +766,11 @@ def _how(url: str, grant: dict, state: dict) -> tuple[str, str, str]:
 
 
 def family_of(host: str, grant: dict) -> dict:
-    """``{"domains", "assets"}`` of the connected site this host is on: a page may only reach its own site, never another connected one."""
+    """``{"domains"}`` of the connected site this host is on: a page may only reach its own site, never another connected one."""
     for site in grant.get("sites") or []:
         if isinstance(site, dict) and on_domain(host, site.get("domains") or []):
-            return {"domains": list(site.get("domains") or []), "assets": [a for a in site.get("assets") or [] if isinstance(a, str)]}
-    return {"domains": list(grant.get("domains") or []), "assets": []}
+            return {"domains": list(site.get("domains") or [])}
+    return {"domains": list(grant.get("domains") or [])}
 
 
 def _record_blocked(state: dict, payload: dict) -> None:
@@ -620,8 +821,7 @@ def open_page(url: str) -> tuple[int, str]:
             _close_all(state, grant, only=[target])
         return 1, f"unavailable: {why or 'the browser could not open a tab'}"
     family = family_of(host, grant)
-    policy = {"domains": family["domains"], "assets": family["assets"], "loopback": test, "asset_types": list(ASSET_TYPES),
-              "action": action_pattern()}
+    policy = {"domains": family["domains"], "loopback": test, "max_body": MAX_BODY, "action": action_pattern()}
     payload, why = _run(_LOAD.replace("__URL__", json.dumps(json.dumps(canon))).replace("__TARGET__", json.dumps(json.dumps(target)))
                         .replace("__POLICY__", json.dumps(json.dumps(policy))), grant)
     if payload is None or why:
@@ -638,13 +838,20 @@ def open_page(url: str) -> tuple[int, str]:
         _save_state(state)
         _close_all(state, grant, only=[target])
         return 0, "LEFT: the page did not answer (it may have opened a dialog). It is left as it is; nothing is accepted or typed."
+    why_not = [str(x)[:40] for x in payload.get("refused") or [] if isinstance(x, str) and x in _NOT_SERVED]
+    if why_not and not (payload.get("url") or "").startswith("http"):
+        _save_state(state)
+        _close_all(state, grant, only=[target])
+        return 0, f"LEFT: that address is not a page that is read ({_NOT_SERVED[why_not[0]]}). Nothing of it is shown."
     if not on_domain(final_host, family["domains"]) or refused_reason(final, loopback_for_test=test):
         _save_state(state)
         _close_all(state, grant, only=[target])
         where = final_host or "another place"
         return 0, (f"left the site: that address led to {where}, which is not the site the person connected. "
                    f"{stopped} request(s) to other places were stopped before they were sent. Its text is not shown.")
-    text = str(payload.get("text") or "")[:MAX_STORED_TEXT]
+    said = [str(x) for x in payload.get("declared") or [] if isinstance(x, str)][:8]
+    text = (("What the page says about itself:\n" + "\n".join(said) + "\n\n") if said else "") + str(payload.get("text") or "")
+    text = text[:MAX_STORED_TEXT]
     stuck = payload.get("password") or login_wall(final)
     links = usable_links(payload.get("links"), final, grant)
     state["links"] = {**state.get("links", {}), **{normalize(h): h for h, _t in links}}

@@ -14,9 +14,9 @@ and in what the session holds, never in the prompt alone; this module is the cod
   question's own name, built here from a per-site template. The helper adds the links of a page this run opened, on that page's
   own host, **only when the decoded path matches the site's allow pattern** (:data:`PROFILES`: a public profile or about page of an
   account; a site with no entry, and a site where viewing tells the person viewed, follows none). The session never makes an address.
-* **No request leaves the site** (the helper's browser-side interception, `read_browser`): the grant carries each connected site's
-  domains and its own static hosts (:data:`PROFILES`); every request the tab makes, at every hop, to anything else is failed before it
-  is sent.
+* **No request leaves the site, and a page is read, never loaded** (the helper's browser-side interception, `read_browser`): the one document
+  asked for is read and parsed for text, title and links and its request aborted; every other request of any kind is failed before it is
+  sent, so nothing the site sent loads, renders or runs in the tab. The grant carries each connected site's domains and nothing else.
 * **A bounded number of opens** per question (:data:`MAX_OPENS`) and a few sessions per run (:data:`PER_RUN`).
 * **Only when the person's own browser is already reachable** (:func:`daemon_ready`): the helper never starts a browser, so with no
   daemon the compartment is skipped, in words, and the question is worked without it. What would make it dependable is the app
@@ -24,8 +24,8 @@ and in what the session holds, never in the prompt alone; this module is the cod
 
 **What remains** (`mcp.md`, "What remains, said plainly"): which page is opened still carries up to log2(:data:`harness_browse.MAX_LINKS`) bits a followed
 open (:data:`MAX_FOLLOWED` a question, :data:`PER_RUN` sessions a run: 10.3 bits a run at most), through per-account view data the site shows
-the account's owner; a `<link rel=prerender>` or a preconnect in raw HTML on the site's own page is made by the browser outside the tab's
-loader. Nothing the session read ever reaches an address.
+the account's owner; a page built by its own script reads as what it declares about itself (title, description), not as its feed. Nothing the
+session read ever reaches an address.
 
 Nothing a private session read is ever put in this session's brief and nothing this session read is put in another's; what it
 returns goes only to Cicada's code as evidence items, checked like every other (`harness_agent.verify`, `harness_questions`).
@@ -66,44 +66,72 @@ SEARCH = {
 @dataclass(frozen=True)
 class Profile:
     """What this compartment is FOR on one site: answering "who or what is this account or organisation" from its public profile or about
-    page. ``patterns`` are regular expressions over the decoded path (no query, nothing encoded: `read_browser.follow_reason`); a link of
-    a page the run opened is followed only when its path fully matches one and its first segment is not in ``reserved`` (a feature of the
-    site that looks like an account name). ``viewer_visible`` marks a site where merely viewing a profile or a story tells the person
-    viewed (or counts toward a list they see): **nothing there is followed, and a profile opens only as an address the person's own page
-    already tracks as a source**. ``assets`` are the site's own static hosts, the only other hosts a script, style, font or XHR may
-    reach. The person's own private areas (messages, bookmarks, history, feeds, notifications, settings, stories) are refused by the
-    helper's second layer whatever the table says; this compartment never reads the person's lists (ruling 30; saves are another reader's)."""
+    page. ``patterns`` are regular expressions over the decoded path (no query, nothing encoded: `read_browser.follow_reason`); a path
+    that fully matches one is a profile or about page of an account. **A pattern that carries the account's name in its address names that
+    segment** ``(?P<name>...)`` (the handle or the slug): a link of an opened page is followed only through such a pattern, only when the
+    question's own name is in that segment (folded) and never because of the link's text, which the page writes; a pattern with no name in
+    it (a numeric id: ``/artist/<id>``) is a profile a tracked source may be, **never one a page's link may lead to**, unless ``host_named``
+    says the name is the host's first label (an organisation's own subdomain). A first segment (or a name) in ``reserved`` is a feature of
+    the site that looks like an account name: the second layer under the patterns, one list per site, which is longer than anything it
+    ought to need. ``params`` are the only query keys a tracked source of this site may carry (none: a source with a query is not given).
+    ``viewer_visible`` marks a site where merely viewing a profile or a story tells the person viewed (or counts toward a list they see):
+    **nothing there is followed, and a profile opens only as an address the person's own page already tracks as a source**.
+    ``client_rendered`` marks a site whose page is built by its own script: the page is read here with no script (by its text
+    and by what it declares about itself, its title and description), so what is read there is the declared preview, not the rendered feed.
+    The person's own private areas
+    (messages, chat, bookmarks, lists, an assistant, history, feeds, notifications, settings, stories, explore, home, search) are refused by
+    the helper's second layer whatever the table says; this compartment never reads the person's lists (ruling 30; saves are another reader's)."""
     patterns: tuple[str, ...]
     reserved: tuple[str, ...] = ()
     viewer_visible: bool = False
-    assets: tuple[str, ...] = ()
+    host_named: bool = False
+    client_rendered: bool = False
+    params: tuple[str, ...] = ()
 
 
-_X_RESERVED = ("home", "explore", "search", "notifications", "messages", "i", "settings", "compose", "login", "logout", "signup", "tos",
-               "privacy", "bookmarks", "lists", "communities", "jobs", "premium", "hashtag", "intent", "share", "account", "following",
-               "followers", "verified", "about", "download", "oauth", "flow", "help", "rules", "business")
+#: The person's own areas and the features of a site that look like an account name, in the first path segment, for every site: a layer under
+#: each site's own list (a site lists more below).
+_COMMON_RESERVED = (
+    "home", "explore", "search", "notifications", "notification", "messages", "message", "messaging", "chat", "chats", "inbox", "dm", "dms",
+    "direct", "conversations", "conversation", "settings", "setting", "preferences", "prefs", "account", "accounts", "bookmarks", "bookmark",
+    "saved", "lists", "list", "likes", "history", "library", "feed", "feeds", "stories", "story", "reels", "following", "followers", "friends",
+    "assistant", "assistants", "grok", "ai", "copilot", "bot", "compose", "create", "new", "submit", "upload", "drafts", "activity", "login",
+    "logout", "signin", "signup", "register", "oauth", "intent", "share", "help", "support", "about", "tos", "privacy", "legal", "ads", "business",
+    "premium", "jobs", "communities", "i", "me", "my", "mynetwork", "watchlater", "playlist", "playlists", "subscriptions", "purchases",
+    "wallet", "billing", "admin", "api", "static", "download", "downloads", "flow", "hashtag", "topics", "trending", "foryou", "live", "shop",
+    "watch", "videos", "marketplace", "groups", "events", "gaming", "pages", "pin", "ideas", "today", "verified", "rules")
+_X_RESERVED = _COMMON_RESERVED + ("lists", "i", "who_to_follow", "connect_people", "display", "creators", "subscriptions", "monetization",
+                                  "safety", "directory", "media_studio", "tweet", "status", "analytics", "topics", "moments")
+_REDDIT_RESERVED = _COMMON_RESERVED + ("all", "popular", "friends", "mod", "random", "randnsfw", "prefs", "wiki", "coins",
+                                       "avatar", "settings", "chat", "message", "submit", "saved", "upvoted", "downvoted", "hidden", "submitted",
+                                       "overview", "comments", "gilded")
+_PINTEREST_RESERVED = _COMMON_RESERVED + ("news_hub", "_", "pin-builder", "idea-pin-builder", "homefeed", "resource", "offsite", "boards",
+                                          "following", "shopping", "settings", "business")
+_SUBSTACK_RESERVED = tuple(w for w in _COMMON_RESERVED if w != "about") + ("sign-in", "subscribe", "dashboard", "publish", "notes", "chat", "inbox", "settings", "activity")
+_YOUTUBE_RESERVED = _COMMON_RESERVED + ("feed", "playlist", "results", "shorts", "reporthistory", "account", "premium", "gaming", "live")
+_GOODREADS_RESERVED = _COMMON_RESERVED + ("user", "review", "shelf", "friend", "quotes", "book", "group", "notifications", "message", "friends")
+_META_RESERVED = _COMMON_RESERVED + ("policies", "recover", "dialog", "adsmanager", "fundraisers", "memories", "reel", "profile.php", "tv", "p",
+                                     "accounts", "legal", "stories", "reels", "explore", "direct")
 #: Per-site allow patterns, beside the per-site search templates. A site with no entry follows no link at all. Marked **viewer_visible**
 #: and why: LinkedIn (a profile view is shown to the viewed person and counts toward their "who viewed"), Instagram and Facebook (a
 #: story view is listed to the person whose story it is, and a profile open can start one), TikTok (profile views are a list its
-#: owner may see). The static hosts are unmeasured against the live sites: one that is wrong only means a script from it is not loaded and
-#: the page is read as it renders, or left.
+#: owner may see). **No link is followed where the address carries no name** (Spotify's `/artist/<id>`, YouTube's `/channel/UC...`, a
+#: Goodreads author with no slug): such a profile is read only as a source the page already tracks. ``client_rendered`` is what each
+#: site is known to be (its body built by script, so a no-script read shows its declared title and description); it is a note, not
+#: measured live: the live sites are never opened here.
 PROFILES: dict[str, Profile] = {
-    "x": Profile((r"/[A-Za-z0-9_]{1,15}",), _X_RESERVED, assets=("abs.twimg.com",)),
-    "reddit": Profile((r"/(?:user|u)/[A-Za-z0-9_-]{3,20}", r"/r/[A-Za-z0-9_]{2,21}"), assets=("redditstatic.com",)),
-    "pinterest": Profile((r"/[a-z0-9_]{3,30}",), ("search", "pin", "ideas", "today", "settings", "business", "login", "logout", "news_hub",
-                                                  "explore", "shop", "videos", "watch", "about", "help", "_"), assets=("s.pinimg.com",)),
-    "substack": Profile((r"/@[A-Za-z0-9_.-]{2,40}", r"/about", r"/"), assets=("substackcdn.com",)),
-    "youtube": Profile((r"/@[A-Za-z0-9_.-]{3,30}(?:/about)?", r"/channel/UC[A-Za-z0-9_-]{22}(?:/about)?"),
-                       assets=("gstatic.com", "ytimg.com")),
-    "goodreads": Profile((r"/author/show/\d{1,12}(?:\.[A-Za-z0-9_-]{1,60})?",), assets=("gr-assets.com",)),
-    "spotify": Profile((r"/artist/[A-Za-z0-9]{22}",), assets=("scdn.co",)),
-    "linkedin": Profile((r"/in/[A-Za-z0-9-]{3,100}", r"/company/[A-Za-z0-9-]{2,100}(?:/about)?"), viewer_visible=True, assets=("licdn.com",)),
-    "instagram": Profile((r"/[A-Za-z0-9._]{1,30}",), ("explore", "accounts", "direct", "stories", "reels", "p", "tv", "about", "legal"),
-                         viewer_visible=True, assets=("cdninstagram.com",)),
-    "facebook": Profile((r"/[A-Za-z0-9.]{5,50}",), ("watch", "marketplace", "groups", "pages", "events", "gaming", "login", "help", "stories",
-                                                    "messages", "friends", "bookmarks", "settings", "policies"), viewer_visible=True,
-                        assets=("fbcdn.net",)),
-    "tiktok": Profile((r"/@[A-Za-z0-9_.]{2,24}",), viewer_visible=True, assets=("ttwstatic.com",)),
+    "x": Profile((r"/(?P<name>[A-Za-z0-9_]{1,15})",), _X_RESERVED, client_rendered=True),
+    "reddit": Profile((r"/(?:user|u)/(?P<name>[A-Za-z0-9_-]{3,20})", r"/r/(?P<name>[A-Za-z0-9_]{2,21})"), _REDDIT_RESERVED, client_rendered=True),
+    "pinterest": Profile((r"/(?P<name>[a-z0-9_]{3,30})",), _PINTEREST_RESERVED, client_rendered=True),
+    "substack": Profile((r"/@(?P<name>[A-Za-z0-9_.-]{2,40})", r"/about"), _SUBSTACK_RESERVED, host_named=True),
+    "youtube": Profile((r"/@(?P<name>[A-Za-z0-9_.-]{3,30})(?:/about)?", r"/channel/UC[A-Za-z0-9_-]{22}(?:/about)?"), _YOUTUBE_RESERVED, client_rendered=True),
+    "goodreads": Profile((r"/author/show/\d{1,12}(?:\.(?P<name>[A-Za-z0-9_-]{1,60}))?",), _GOODREADS_RESERVED),
+    "spotify": Profile((r"/artist/[A-Za-z0-9]{22}",), _COMMON_RESERVED, client_rendered=True),
+    "linkedin": Profile((r"/in/(?P<name>[A-Za-z0-9-]{3,100})", r"/company/(?P<name>[A-Za-z0-9-]{2,100})(?:/about)?"), _COMMON_RESERVED + ("feed", "mynetwork"),
+                        viewer_visible=True, client_rendered=True),
+    "instagram": Profile((r"/(?P<name>[A-Za-z0-9._]{1,30})",), _META_RESERVED, viewer_visible=True, client_rendered=True),
+    "facebook": Profile((r"/(?P<name>[A-Za-z0-9.]{5,50})",), _META_RESERVED, viewer_visible=True, client_rendered=True),
+    "tiktok": Profile((r"/@(?P<name>[A-Za-z0-9_.]{2,24})",), _COMMON_RESERVED, viewer_visible=True, client_rendered=True),
 }
 #: A site where viewing tells the person viewed: kept as the names of such sites (the same set, derived).
 NO_FOLLOW = tuple(sorted(k for k, v in PROFILES.items() if v.viewer_visible))
@@ -207,20 +235,29 @@ def site_key_of(host: str) -> str:
 def source_reason(url: str) -> str:
     """Why a tracked source is not given to the session (``""`` when it is): not an address the person's own browser should open for
     this compartment. Never an action or a private area (the helper's second layer, decoded), and on a site with an entry in
-    :data:`PROFILES` only a public profile or about page of an account (the same patterns a followed link must match): a post, a feed,
-    a list or an address of the person's own areas is another reader's, not this one's."""
+    :data:`PROFILES` only a public profile or about page of an account (the same patterns a followed link must match, the first segment and
+    the name segment not a feature of the site): a post, a feed, a list or an address of the person's own areas is another reader's, not
+    this one's. **A source with a query string is not given** unless the site's entry names the parameter (``Profile.params``)."""
     if read_browser.action_reason(url):
         return "an action or a private area"
     key = site_key_of(read_browser._host(url))
     if not key:
         return ""
     parts = urllib.parse.urlsplit(url)
-    path = read_browser.decoded(parts.path).rstrip("/") or "/"
     profile = PROFILES[key]
-    if path.split("/")[1:2] and path.split("/")[1].lower() in {r.lower() for r in profile.reserved}:
+    if parts.query or "?" in url:
+        keys = {k.lower() for k, _v in urllib.parse.parse_qsl(read_browser.decoded(parts.query), keep_blank_values=True)}
+        if not keys or not keys <= {p.lower() for p in profile.params}:
+            return "a query string the site's profile address does not use"
+    path = read_browser.decoded(parts.path).rstrip("/") or "/"
+    reserved = {r.lower() for r in profile.reserved}
+    if path.split("/")[1:2] and path.split("/")[1].lower() in reserved:
         return "a feature of the site, not an account"
-    if not any(re.fullmatch(p, path, re.I | re.A) for p in profile.patterns):
+    match = next((m for m in (re.fullmatch(p, path, re.I | re.A) for p in profile.patterns) if m), None)
+    if match is None:
         return "not a profile or about page"
+    if "name" in match.groupdict() and (match.group("name") or "").lower() in reserved:
+        return "a feature of the site, not an account"
     return ""
 
 
@@ -261,17 +298,18 @@ def grant_dict(sites: dict[str, tuple[str, ...]], given: list[Given], *, harness
                max_opens: int = MAX_OPENS, loopback_for_test: bool = False, names: list[str] | None = None, timeout_s: float | None = None) -> dict:
     """What the helper is granted for one question: written by this code only, read by the helper only. ``loopback_for_test`` (and the
     shorter ``timeout_s`` it alone honours) is for Cicada's own tests and battery (pages on localhost); nothing a setting or a request
-    says reaches it. ``sites`` lists each connected site's domains and its own static hosts; ``follow`` carries, for each connected site
+    says reaches it. ``sites`` lists each connected site's domains; ``follow`` carries, for each connected site
     whose entry in :data:`PROFILES` allows following, the patterns a followed link's decoded path must match (a site with no entry, or
     one where viewing tells the person viewed, has none: nothing is followed); ``names`` are what the question is about."""
     per_site = []
     follow = []
     for site, domains in sites.items():
         entry = PROFILES.get(site)
-        per_site.append({"site": site, "domains": sorted(domains), "assets": list(entry.assets) if entry else []})
-        if entry is not None and not entry.viewer_visible:
-            follow.append({"domains": sorted(domains), "patterns": list(entry.patterns), "reserved": list(entry.reserved)})
-    return {"v": 2, "domains": sorted({d for ds in sites.values() for d in ds}), "sites": per_site, "follow": follow,
+        per_site.append({"site": site, "domains": sorted(domains)})
+        followable = [p for p in entry.patterns if "(?P<name>" in p or entry.host_named] if entry is not None else []
+        if entry is not None and not entry.viewer_visible and followable:         # no name in the address, nothing to follow to
+            follow.append({"domains": sorted(domains), "patterns": followable, "reserved": list(entry.reserved), "host_named": entry.host_named})
+    return {"v": 3, "domains": sorted({d for ds in sites.values() for d in ds}), "sites": per_site, "follow": follow,
             "given": [{"url": g.url, "origin": g.origin} for g in given], "max_opens": max_opens, "max_followed": MAX_FOLLOWED,
             "names": [" ".join(str(n).split())[:80] for n in (names or []) if str(n).strip()][:3],
             "harness": harness, "loopback_for_test": bool(loopback_for_test),

