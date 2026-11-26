@@ -338,7 +338,7 @@ final class SleepRunStripTests: XCTestCase {
 
     // MARK: - Rails
 
-    /// DR-5: the run object has no accent but its links (`accentText`); the bar is ink. DR-60: no `TimelineView`. The
+    /// DR-5: the run object has no accent but its links (`accentText`); the bar is ink. No `TimelineView` (the layer rule in `app.md`). The
     /// page's one primary stays the control row's alone.
     func test_theObjectKeepsTheRails() throws {
         let file = try XCTUnwrap(SleepNumbersLintTests.sleepSources().first { $0.lastPathComponent == "SleepRunObject.swift" })
