@@ -45,11 +45,16 @@ def _state(bank: Path) -> tuple:
             _git(bank, "diff", "--cached", "--name-only"))
 
 
-def _dirty(bank: Path, *pages: str) -> None:
-    """Edits the person had not saved yet: a page the settle never reads, a new file, and (``pages``) pages the settle writes."""
+def _dirty(bank: Path, *pages: str, spare: tuple[str, ...] | list[str] = ()) -> None:
+    """Edits the person had not saved yet: a page the settle never writes, a new file, and (``pages``) pages the settle writes.
+
+    ``spare`` names the pages the settle writes that must stay clean here. The untouched page is chosen by name, never by the
+    folder's own listing order: that order differs between file systems, and on one of them the first page listed was the
+    page the settle writes, so its unsaved edit was committed apart and the commit moved."""
     other = bank / "entities" / "owner-example.md"
     if not other.exists():
-        other = next((bank / "entities").glob("*.md"))
+        taken = {Path(rel).name for rel in (*pages, *spare)}
+        other = next(page for page in sorted((bank / "entities").glob("*.md")) if page.name not in taken)
     other.write_bytes(other.read_bytes() + b"\nAn unsaved edit that is not the settle's.\n")
     (bank / "entities" / "unsaved-new-page.md").write_bytes(b"---\nname: Unsaved\n---\nNot committed yet.\n")
     for rel in pages:
@@ -212,7 +217,7 @@ def test_a_settle_whose_commit_fails_leaves_every_file_as_it_was(family, how, re
     settle, written, _paths = FAMILIES[family](bank)
     # A real refusal comes after the "kept apart" commit of an unsaved edit on a page the settle writes (own test below); here
     # that edit is on the stub's side only, so "nothing committed" means HEAD does not move at all.
-    _dirty(bank, *(written if how == "stub" else ()))
+    _dirty(bank, *(written if how == "stub" else ()), spare=written)
     before = _state(bank)
     _refuse(how, bank, monkeypatch)
     assert not settle(), "the settle did not happen"
@@ -224,7 +229,7 @@ def test_a_settle_whose_commit_fails_leaves_every_file_as_it_was(family, how, re
 
 def test_a_filing_from_the_pending_store_whose_commit_fails_leaves_every_file_as_it_was(tmp_path, monkeypatch, how):
     bank, path = wo._world(tmp_path, monkeypatch, conversations={wo.EP1: "user: My brother Nick is visiting.\nassistant: Nice."})
-    _dirty(bank, *(["entities/nick-brother.md"] if how == "stub" else []))
+    _dirty(bank, *(["entities/nick-brother.md"] if how == "stub" else []), spare=["entities/nick-brother.md"])
     before = _state(bank)
     _refuse(how, bank, monkeypatch)
     ask = wo.scripted(name="Nick Rowe", sentence="My brother Nick is visiting.")
