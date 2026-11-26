@@ -81,12 +81,16 @@ def close(memory_path: Path, loser_id: str, winner_id: str, *, loser_ends: set[s
           winner_ends: set[str] | None = None) -> list[str]:
     """Remove every open question the merge answers; the memory-relative paths removed. Call before the loser's page
     is deleted (its title names the question) — ``loser_ends`` / ``winner_ends`` may carry the ids read earlier."""
+    from api.services import settle_guard   # inside a Sleep settle each question removed is reported to it
+
     paths = open_questions(memory_path, loser_id, winner_id, a_ends=loser_ends, b_ends=winner_ends)
     for rel in paths:
+        settle_guard.writing(Path(memory_path) / rel)
         try:
             (Path(memory_path) / rel).unlink()
         except FileNotFoundError:
             continue
+        settle_guard.wrote(Path(memory_path) / rel, None)
     if paths:
         logger.info(f"merge_closes: {loser_id} into {winner_id} closed {len(paths)} question(s)")
     return paths

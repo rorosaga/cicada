@@ -379,11 +379,15 @@ def save(memory_path: Path, entries: list[PendingEntity]) -> None:
     path = store_path(memory_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     text = "\n".join(json.dumps(e.to_dict()) for e in entries) + "\n" if entries else ""
+    from api.services import settle_guard
+
+    settle_guard.writing(path)   # inside a Sleep settle: what the file holds now is its picture (a no-op anywhere else)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".pending_entities-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(text)
         os.replace(tmp, path)
+        settle_guard.wrote(path, text.encode("utf-8"))
     except BaseException:
         try:
             os.unlink(tmp)

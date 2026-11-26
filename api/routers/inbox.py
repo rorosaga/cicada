@@ -202,7 +202,7 @@ async def _undo_sleep_settle(item_id: str, settings: Settings) -> dict:
     """Ruling 29 — "Settled by Sleep" undo: Sleep's commit for this question is taken back (three-way, onto each page
     as it is now; refused whole, nothing written, when something since overlaps it) and the question returns, marked
     so Sleep never settles it again. Committed as the person's (``Sleep's settle undone <date>``)."""
-    from api.services import git_service, inbox_tend, page_lock, state_dictionary, web_settle, write_admission
+    from api.services import git_service, inbox_tend, state_dictionary, write_admission
     from api.services.sleep_refusal import SleepWriting
 
     memory_path = settings.memory_path
@@ -210,12 +210,10 @@ async def _undo_sleep_settle(item_id: str, settings: Settings) -> dict:
     out: dict = {}
 
     def work() -> str:
-        with page_lock.page_lock(memory_path):
-            target, paths, lines, rec = inbox_tend.undo(memory_path, item_id)
-            web_settle.commit_sync(memory_path, web_settle.commit_message("Sleep's settle undone", lines,
-                                                                          authors=["user"]), paths, before=before)
-            out["rec"] = rec
-            return target
+        # The undo and its commit are one write: every file is put back exactly if the commit does not land.
+        target, rec = inbox_tend.undo_committed(memory_path, item_id, before=before)
+        out["rec"] = rec
+        return target
 
     try:
         target = await write_admission.run_admitted(

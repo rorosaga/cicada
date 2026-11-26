@@ -54,7 +54,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import os
 import re
 from dataclasses import dataclass, field
 from datetime import date
@@ -63,7 +62,7 @@ from typing import Callable
 
 from loguru import logger
 
-from api.services import (bank_index, described_landing as dl, engine_errors, evidence, git_service, inbox_tend,
+from api.services import (bank_index, described_landing as dl, engine_errors, evidence, inbox_tend,
                           markdown_parser, pending_store, question_revisit as qr, same_name, which_one, which_one_tie as tie_of)
 from api.services.id_utils import resolve_entity_file, sanitize_id
 from api.services.which_one_tie import Tell
@@ -575,39 +574,6 @@ def _save_seen(memory_path: Path, data: dict[str, dict]) -> None:
         pass
 
 
-# --------------------------------------------------------------------------- a filing that did not commit leaves nothing behind
-
-
-def put_back(memory_path: Path, before: dict[str, bytes | None]) -> None:
-    """Undo a filing that did not commit: every path that is uncommitted now and was not before the filing goes back to what the last
-    commit holds (a new file is removed, its staging with it), and a path that was already uncommitted gets its own bytes back
-    (``before`` is `git_service.snapshot_dirty_sync`). The resolver writes the pages, the held line, the settled record and removes
-    the question before its commit; one that then fails must not leave the question gone and the pages changed. Never raises."""
-    memory_path = Path(memory_path)
-    try:
-        dirty = git_service.dirty_paths_sync(memory_path)
-    except git_service.GitError:
-        return
-    for rel in sorted(dirty):
-        target = memory_path / rel
-        try:
-            if rel in before:
-                if before[rel] is None:
-                    target.unlink(missing_ok=True)
-                else:
-                    target.write_bytes(before[rel])
-                continue
-            git_service.run_git_write_sync(memory_path, "reset", "-q", "HEAD", "--", rel)
-            try:
-                git_service.run_git_write_sync(memory_path, "checkout", "--", rel)
-            except git_service.GitError:
-                target.unlink(missing_ok=True)   # never committed: it was this filing's own file
-        except (OSError, git_service.GitError):
-            logger.debug("Which-one filing: a path could not be put back")
-    bank_index.invalidate(memory_path)
-    markdown_parser.invalidate_pages(os.path.realpath(memory_path))
-
-
 # --------------------------------------------------------------------------- the tail step
 
 
@@ -705,18 +671,11 @@ async def tend(memory_path: Path, settings, ask: Callable | None, *, today: date
                 report.settled += 1
                 note(item_id, f"would_file:{pick}", ids=case.ids, rule=RULE, eyes={"mention": case.mention, "page": names.get(pick, "")})
                 continue
-            before = await asyncio.to_thread(git_service.snapshot_dirty_sync, memory_path)
-            if before is None:
-                remember(item_id, mark, "not_applied", 1)   # the tree cannot be read: a failed filing could not be put back
-                note(item_id, "left:not_applied", ids=case.ids)
-                continue
-            try:
+            try:   # a filing that does not commit has put every file back itself (`settle_guard`, inside `apply`)
                 ok = await inbox_tend.apply(memory_path, settings, d)
             except Exception as exc:  # noqa: BLE001 - one filing that will not settle never stops the others
                 logger.info(f"Which-one read not applied: {type(exc).__name__}")
                 ok = False
-            if not ok:
-                await asyncio.to_thread(put_back, memory_path, before)
             if ok:
                 report.settled += 1
                 report.paths.append(f"inbox/settled/{d.item_id}.md")
