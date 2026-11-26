@@ -98,7 +98,7 @@ def test_a_list_is_one_bubble_and_every_page_stays_a_node(bank):
     bubbles = {b.key: b for b in g.bubbles}
     assert set(bubbles) == {"youtube-playlists", "x-bookmarks"}   # folders are no bubble; x-likes is under the floor
     yt = bubbles["youtube-playlists"]
-    assert yt.id == "list:youtube-playlists" and yt.count == 10 and yt.kind_noun == "videos"
+    assert yt.id == "list:youtube-playlists" and yt.count == 11 and yt.kind_noun == "videos"   # ten inside and the earned one: what the list holds
     assert yt.mark == "youtube-playlist" and yt.page_id is None
     assert yt.members == VIDEOS                            # the list's own order (newest first)
 

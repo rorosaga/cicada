@@ -135,7 +135,8 @@ def build(memory_path: Path, node_ids: set[str]) -> list[GraphBubble]:
         out.append(GraphBubble(
             id=bubble_id(top), key=top, name=str(getattr(info, "name", "") or top),
             site=getattr(info, "site", None), mark=getattr(info, "mark", None),
-            kind_noun=getattr(info, "kind_noun", None) or "pages", count=len(ids),
+            # What the list holds, as its page says it: the pages inside and the earned ones drawn outside, joined to it.
+            kind_noun=getattr(info, "kind_noun", None) or "pages", count=len(ids) + len(outside),
             page_id=page,
             members=ids, folders=folders, outside=sorted(outside)))
     out.sort(key=lambda b: (-b.count, b.id))
@@ -151,7 +152,8 @@ def filtered(bubbles: list[GraphBubble], node_ids: set[str]) -> list[GraphBubble
             continue
         keep = set(ids)
         folders = [f.model_copy(update={"members": [p for p in f.members if p in keep]}) for f in b.folders]
+        outside = [p for p in b.outside if p in node_ids]
         out.append(b.model_copy(update={
-            "members": ids, "count": len(ids), "folders": [f for f in folders if f.members],
-            "outside": [p for p in b.outside if p in node_ids]}))
+            "members": ids, "count": len(ids) + len(outside), "folders": [f for f in folders if f.members],
+            "outside": outside}))
     return out
