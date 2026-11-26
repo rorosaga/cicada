@@ -191,15 +191,13 @@ class Said:
     """Which days one revision states, each day read once (2026-11-26, review 4: the reader ran over the whole changed
     text twice for every old and new claim compared). ``changed``: the changed lines say it (`episode_revision.says_day`
     over `_changed_text`, the test `redated` makes of the new claim); ``body``: the conversation as it now stands says
-    it anywhere; ``removed``: the text this edit took out said it (the read version's lines that are gone or replaced)."""
+    it anywhere."""
 
     def __init__(self, rev: er.Revision):
         self.rev = rev
         self._text: str | None = None
-        self._gone: str | None = None
         self._changed: dict[str, bool] = {}
         self._body: dict[str, bool] = {}
-        self._removed: dict[str, bool] = {}
 
     def changed(self, day: str) -> bool:
         if day not in self._changed:
@@ -213,13 +211,6 @@ class Said:
             self._body[day] = er.says_day(self.rev.body, day)
         return self._body[day]
 
-    def removed(self, day: str) -> bool:
-        if day not in self._removed:
-            if self._gone is None:
-                self._gone = "\n".join(self.rev.prior[lo:hi] for lo, hi in self.rev.removed)
-            self._removed[day] = er.says_day(self._gone, day)
-        return self._removed[day]
-
 
 def _places(c: Claim) -> tuple[str, str]:
     return _day(c.valid_from), _day(c.expected_end)
@@ -230,27 +221,34 @@ def _new_days(n: Claim, said: Said) -> tuple[str, ...]:
     return tuple(d for d in _places(n) if d and said.changed(d))
 
 
-def moved(o: Claim, n: Claim, said: Said, days: tuple[str, ...] | None = None, *, back: bool = False) -> bool:
-    """The day moved from ``o`` to ``n`` in this revision's text: ``n`` carries a start or end the changed lines say that
-    ``o`` does not carry in that place, and no start or end of ``o`` that ``n`` does not carry is still said by the
-    conversation as it now stands (2026-11-26, review 4: "8 December (she first planned 5 December)" says both days, so
-    neither has moved). A day the reader cannot find is not said (an accepted limit: then the claims stay as they are
-    only if the reader does find it). ``days``: :func:`_new_days`, when already read.
-
-    ``back`` (the reconciler's edited-back rule, review 5, 2026-11-26): the test of an edit that is UNDONE, where a
-    refusal is not the safe side (the restored claim would fold into its closed twin and the edited day stay current
-    alone). The whole conversation is not asked — another line may say that day of something else ("My exam is on 8
-    December"), or an agent's reply echo it. Asked instead of the edit itself: the days of ``o`` that ``n`` does not
-    carry are said by none of the changed lines, and the text this edit took out said one of them."""
+def restates(o: Claim, n: Claim, said: Said, days: tuple[str, ...] | None = None) -> bool:
+    """``n`` carries a start or end the changed lines say that ``o`` does not carry in that place. ``days``:
+    :func:`_new_days`, when already read."""
     days = _new_days(n, said) if days is None else days
     new_from, new_end = _places(n)
     old_from, old_end = _places(o)
-    if not any((d == new_from and d != old_from) or (d == new_end and d != old_end) for d in days):
+    return any((d == new_from and d != old_from) or (d == new_end and d != old_end) for d in days)
+
+
+def moved(o: Claim, n: Claim, said: Said, days: tuple[str, ...] | None = None) -> bool:
+    """The day moved from ``o`` to ``n`` in this revision's text: ``n`` carries a start or end the changed lines say that
+    ``o`` does not carry in that place (:func:`restates`), and no start or end of ``o`` that ``n`` does not carry is
+    still said by the conversation as it now stands (2026-11-26, review 4: "8 December (she first planned 5 December)"
+    says both days, so neither has moved). A day the reader cannot find is not said (an accepted limit: then the claims
+    stay as they are only if the reader does find it). The whole conversation is asked, any line of it: a day's words
+    cannot be tied to one relationship (reviews 5 and 6 each broke a narrower test of "this edit"), so this test is
+    used only where a refusal leaves things as they were before these rules."""
+    if not restates(o, n, said, days):
         return False
-    gone = [old for old, new in ((old_from, new_from), (old_end, new_end)) if old and old != new]
-    if back:
-        return not any(said.changed(d) for d in gone) and any(said.removed(d) for d in gone)
-    return not any(said.body(d) for d in gone)
+    new_from, new_end = _places(n)
+    old_from, old_end = _places(o)
+    return not any(old and old != new and said.body(old) for old, new in ((old_from, new_from), (old_end, new_end)))
+
+
+def reworded(o: Claim, n: Claim, episode: str) -> bool:
+    """``o`` and ``n`` are the two halves a pair is made of, the text aside: the same things under another predicate,
+    ``o`` open and ``episode``'s alone."""
+    return _same_things(o, n) and _pairable_old(o, episode)
 
 
 def _same_things(o: Claim, n: Claim) -> bool:
@@ -261,14 +259,14 @@ def _same_things(o: Claim, n: Claim) -> bool:
 
 
 def meets(o: Claim, n: Claim, rev: er.Revision, said: Said | None = None,
-          days: tuple[str, ...] | None = None, *, back: bool = False) -> bool:
+          days: tuple[str, ...] | None = None) -> bool:
     """Is ``o`` (on a page) the pair of ``n`` (a claim of ``rev``'s re-read)? See the module: the same things under
     another predicate, ``o`` open and this one conversation's alone, and the day moved from ``o`` to ``n``
     (:func:`moved`). The one test :func:`candidates` and the reconciler's edited-back rule share. Cheapest tests first;
     the text is read only for a pair that passes them, each day once per ``said``."""
-    if not _same_things(o, n) or not _pairable_old(o, rev.episode_id):
+    if not reworded(o, n, rev.episode_id):
         return False
-    return moved(o, n, said or Said(rev), days, back=back)
+    return moved(o, n, said or Said(rev), days)
 
 
 def _resolver(memory_path: Path, ep: str, settings) -> Callable[[str], str]:

@@ -1023,15 +1023,40 @@ def test_a_restatement_of_the_open_claim_folds_in_and_closes_nothing():
 
 
 @pytest.mark.parametrize("route", ["same slot", "pair"])
-def test_no_edit_back_while_the_tails_day_is_still_said(route):
-    # F2b engine-free: the restored day is said by the changed lines, but so is the day that took its place.
+def test_no_claim_gives_way_while_its_day_is_still_said(route):
+    # F2b engine-free: the restored day is said by the changed lines, but so is the day that took its place. In the
+    # same slot the restatement folds (a birth would close the open claim at once). Under another wording, when the
+    # re-read states only the old day, it is born BESIDE the open claim, which nothing here closes: both open, what
+    # there was before the pair rule (review 6: no test of the words tells "8 December (she first planned 5
+    # December)" from "5 December, not 8 December", and refusing the second leaves the edited day current alone).
     from api.services import episode_revision
 
     rev = episode_revision.build({"id": EP, "content": BOTH, "source": "note"}, MOVED)
     a, b = _chain(**({} if route == "same slot" else {"predicate": "moves-to"}))
     page, _n, audit = _reconcile([a, b], rev=rev, redated=("clm_b",) if route == "same slot" else ())
-    assert {c.id for c in page} == {"clm_a", "clm_b"} and b.valid_to is None
-    assert not any(e.get("action") == "revision_edited_back" for e in audit)
+    assert b.valid_to is None and b.superseded_by is None
+    assert not any(e.get("action") == "revised" for e in audit)
+    assert _undone(page) == (route == "pair")
+
+
+def test_a_reworded_restatement_is_not_born_when_the_same_re_read_states_the_open_claim_too():
+    # The re-read of "8 December (she first planned 5 December)" writes both days: the conversation still says the
+    # one that is current, so nothing was undone and the first plan stays closed.
+    from types import SimpleNamespace
+
+    from api.services import episode_revision
+    from api.services.claim_reconciler import reconcile_stage3
+
+    rev = episode_revision.build({"id": EP, "content": BOTH, "source": "note"}, MOVED)
+    a, b = _chain(predicate="moves-to")
+    settings = SimpleNamespace(memory_path=None, litellm_model="fake", archive_threshold=0.2, decay_nudge_threshold=0.4)
+    for order in ([_restated(), _claim("clm_b", "moves-to", "2026-12-08")],
+                  [_claim("clm_b", "moves-to", "2026-12-08"), _restated()]):
+        a, b = _chain(predicate="moves-to")
+        out, _n, audit = reconcile_stage3(order, {"lia-prueba": [a, b]}, settings, now_date="2026-11-25", decay=False,
+                                          cardinality_fn=lambda p: False, revising={EP: rev})
+        assert {c.id for c in out["lia-prueba"]} == {"clm_a", "clm_b"} and b.valid_to is None
+        assert not any(e.get("action") == "revision_edited_back" for e in audit)
 
 
 def test_a_pair_is_only_where_the_old_day_is_no_longer_said():
@@ -1059,81 +1084,154 @@ def _undo_rev(extra):
 
 @pytest.mark.parametrize("extra", [EXAM, ECHO])
 @pytest.mark.parametrize("route", ["same slot", "pair"])
-def test_an_edit_undone_is_edited_back_though_another_line_still_says_the_edited_day(route, extra):
-    # Review 5 (C reversed): the undo test asked the whole conversation for the edited day, another line said it, the
-    # restored claim folded into its closed twin and the edited day stayed current alone, worse than before the pair
-    # rule. The test is of the edit: its changed lines say the restored day and not the edited one, and it took the
-    # edited one out.
+def test_an_undo_beside_another_mention_of_the_edited_day_ends_as_it_did_before_these_rules(route, extra):
+    # Review 5 (C reversed): a true undo, while another line still says the edited day (another fact of that day, the
+    # agent's reply to the edit). Under another wording the restored claim used to fold into its closed twin and the
+    # edited day stayed current ALONE, worse than before the pair rule: now it is born beside it. In the same slot
+    # nothing was ever better: the restatement folds, as before this rule (review 6: a looser test there let an
+    # unrelated edit close the current claim).
     a, b = _chain(**({} if route == "same slot" else {"predicate": "moves-to"}))
     page, _n, audit = _reconcile([a, b], rev=_undo_rev(extra), redated=("clm_b",) if route == "same slot" else ())
-    assert _undone(page)
-    assert any(e.get("action") == "revision_edited_back" for e in audit)
-    # The same slot gives way by its own rule; under another wording only two readings may close it (after Stage 3).
-    assert (b.valid_to is not None) == (route == "same slot")
+    assert b.valid_to is None and not any(e.get("action") == "revised" for e in audit)
+    assert _undone(page) == (route == "pair")
 
 
 @pytest.mark.parametrize("route", ["same slot", "pair"])
+def test_an_unrelated_line_replaced_by_a_mention_of_the_first_plan_closes_nothing(route):
+    # Review 6 (A1): "She leaves on 8 December" untouched; the line about an exam on the 8th replaced by "She first
+    # planned 5 December"; the re-read (wrongly) reads that as the move. The edit took out a line that said the 8th
+    # and added one that says the 5th, and it is no undo.
+    from api.services import episode_revision
+
+    rev = episode_revision.build(
+        {"id": EP, "content": MOVED + "\nuser: She first planned 5 December.", "source": "note"}, MOVED + EXAM)
+    a, b = _chain(**({} if route == "same slot" else {"predicate": "moves-to"}))
+    page, _n, audit = _reconcile([a, b], rev=rev, redated=("clm_b",) if route == "same slot" else ())
+    assert b.valid_to is None and not any(e.get("action") == "revised" for e in audit)
+    assert _undone(page) == (route == "pair")       # reworded: born beside it, as before the pair rule
+
+
+def test_a_reworded_restatement_is_born_only_when_the_changed_lines_say_its_day():
+    # The edit touched another line; the re-read states the first claim again, whose day no changed line says.
+    from api.services import episode_revision
+
+    rev = episode_revision.build(
+        {"id": EP, "content": MOVED.replace("plays the piano", "plays the harp"), "source": "note"}, MOVED)
+    a, b = _chain(predicate="moves-to")
+    page, _n, audit = _reconcile([a, b], rev=rev, redated=())
+    assert {c.id for c in page} == {"clm_a", "clm_b"}
+    assert not any(e.get("action") == "revision_edited_back" for e in audit)
+
+
+def test_a_restatement_closed_in_its_own_slot_is_not_born_beside_a_later_rewording_while_that_day_is_said():
+    # A mixed chain: A closed by B in its own slot (the close that was made before the pair rule too), B closed by a
+    # reworded C. Before the pair rule A was closed, so a restatement of A is held to the strict test: while the
+    # conversation still says C's day, nothing is born.
+    from api.services import episode_revision
+
+    nine = MOVED.replace("8 December", "9 December")
+    rev = episode_revision.build(
+        {"id": EP, "content": nine.replace("9 December,", "9 December (she first planned 5 December),"),
+         "source": "note"}, nine)
+    a = _claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08", superseded_by="clm_b",
+               closed_by_revision=EP)
+    b = _claim("clm_b", "is-moving-to", "2026-12-08", valid_to="2026-12-09", superseded_by="clm_c", supersedes="clm_a",
+               closed_by_revision=EP)
+    c = _claim("clm_c", "moves-to", "2026-12-09", supersedes="clm_b")
+    page, _n, audit = _reconcile([a, b, c], rev=rev, redated=())
+    assert {x.id for x in page} == {"clm_a", "clm_b", "clm_c"} and c.valid_to is None
+    assert not any(e.get("action") == "revision_edited_back" for e in audit)
+
+
+def test_a_restatement_closed_in_its_own_slot_is_born_beside_a_later_rewording_once_that_day_is_gone():
+    # The same mixed chain, the text restored to the first day: no line says C's day any more, so the strict test
+    # passes and the restatement is born beside C (only two readings may then close C).
+    from api.services import episode_revision
+
+    nine = MOVED.replace("8 December", "9 December")
+    rev = episode_revision.build({"id": EP, "content": LIA, "source": "note"}, nine)
+    a = _claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08", superseded_by="clm_b",
+               closed_by_revision=EP)
+    b = _claim("clm_b", "is-moving-to", "2026-12-08", valid_to="2026-12-09", superseded_by="clm_c", supersedes="clm_a",
+               closed_by_revision=EP)
+    c = _claim("clm_c", "moves-to", "2026-12-09", supersedes="clm_b")
+    page, _n, audit = _reconcile([a, b, c], rev=rev, redated=())
+    assert _undone(page) and c.valid_to is None
+    assert any(e.get("action") == "revision_edited_back" for e in audit)
+
+
+@pytest.mark.parametrize("label,tail_kw", [
+    ("said in another context", {"context": "work"}),
+    ("another speaker's", {"observer": "external:bob-example"}),
+])
+def test_a_restatement_is_born_only_beside_a_rewording_of_the_same_relationship(label, tail_kw):
+    # The open claim at the end of the chain is not a rewording of the restated one (the pair rule's own shape:
+    # the same things, context and speaker under another predicate): nothing is born beside it.
+    a, b = _chain(predicate="moves-to", **tail_kw)
+    page, _n, audit = _reconcile([a, b], redated=())
+    assert {c.id for c in page} == {"clm_a", "clm_b"}, label
+    assert not any(e.get("action") == "revision_edited_back" for e in audit), label
+
+
+@pytest.mark.parametrize("route", ["same slot", "removed text", "pair"])
 def test_an_edit_back_never_closes_a_claim_that_has_since_won_against_another(route):
     # Review 5 (B), the edited-back rule: B took A's place by this conversation's correction, then the person picked B
     # over another conversation's claim. The conversation is edited back to A's day. B stays open on both routes: in
     # its own slot the restatement folds into the closed A, as before this rule; reworded, it is born beside B.
-    a, b = _chain(**({} if route == "same slot" else {"predicate": "moves-to"}))
+    a, b = _chain(**({"predicate": "moves-to"} if route == "pair" else {}))
     lost = _lost("clm_b")
     b.supersedes = "lost"
-    page, _n, audit = _reconcile([a, b, lost], redated=("clm_b",) if route == "same slot" else ())
+    page, _n, audit = _reconcile([a, b, lost], redated=("clm_b",) if route == "same slot" else (),
+                                 revised=("clm_b",) if route == "removed text" else ())
     assert b.valid_to is None and b.superseded_by is None
     assert _undone(page) == (route == "pair")
     assert not any(e.get("action") == "revised" for e in audit)
 
 
 @pytest.mark.parametrize("route", ["same slot", "pair"])
-def test_the_old_day_said_again_in_a_new_line_is_no_edit_back(route):
-    # Nothing this edit took out said the day that is current: a line added about the first plan is a mention.
+def test_the_old_day_said_again_in_a_new_line_closes_nothing(route):
     from api.services import episode_revision
 
     rev = episode_revision.build(
         {"id": EP, "content": MOVED + "\nuser: She first planned 5 December.", "source": "note"}, MOVED)
     a, b = _chain(**({} if route == "same slot" else {"predicate": "moves-to"}))
     page, _n, audit = _reconcile([a, b], rev=rev, redated=("clm_b",) if route == "same slot" else ())
-    assert {c.id for c in page} == {"clm_a", "clm_b"} and b.valid_to is None
-    assert not any(e.get("action") == "revision_edited_back" for e in audit)
+    assert b.valid_to is None and not any(e.get("action") == "revised" for e in audit)
+    assert _undone(page) == (route == "pair")
 
 
-def test_the_pair_asks_the_whole_conversation_and_the_undo_asks_the_edit():
+def test_a_day_moved_only_when_no_line_of_the_conversation_still_says_the_old_one():
     from api.services import episode_revision
 
     old = _claim("clm_a", "is-moving-to", "2026-12-05")
     new = _claim("clm_b", "moves-to", "2026-12-08")
-    # A pair (refusing leaves both claims as they were): the old day on any line of the text, an unchanged one too.
+    # The old day on an UNCHANGED line (review 5, Q01: every earlier test had both days in the changed line).
     kept = episode_revision.build({"id": EP, "content": MOVED + EXAM_OLD, "source": "note"}, LIA + EXAM_OLD)
-    assert not revision_pairs.meets(old, new, kept)
-    # An undo (refusing would leave the edited day alone): only the edit is asked.
-    tail = _claim("clm_b", "moves-to", "2026-12-08")
-    back = _claim("clm_x", "is-moving-to", "2026-12-05")
-    undo = _undo_rev(EXAM)
-    assert not revision_pairs.meets(tail, back, undo)
-    assert revision_pairs.meets(tail, back, undo, back=True)
-    said = revision_pairs.Said(undo)
-    assert said.removed("2026-12-08") and not said.removed("2026-12-05") and said.body("2026-12-08")
-    both = episode_revision.build({"id": EP, "content": BOTH, "source": "note"}, MOVED)
-    assert not revision_pairs.meets(tail, back, both, back=True)        # the changed line still says the edited day
-    mention = episode_revision.build(
-        {"id": EP, "content": MOVED + "\nuser: She first planned 5 December.", "source": "note"}, MOVED)
-    assert not revision_pairs.meets(tail, back, mention, back=True)     # the edit took the edited day out of nowhere
+    assert revision_pairs.restates(old, new, revision_pairs.Said(kept))
+    assert not revision_pairs.moved(old, new, revision_pairs.Said(kept)) and not revision_pairs.meets(old, new, kept)
+    assert revision_pairs.meets(old, new, _rev())
+    # An end that moved is a day that moved (review 6, R13).
+    old_end = _claim("clm_a", "works-at", "2026-11-07", expected_end="2026-12-05")
+    new_end = _claim("clm_b", "is-employed-at", "2026-11-07", expected_end="2026-12-08")
+    assert revision_pairs.meets(old_end, new_end, _rev())
+    assert not revision_pairs.meets(old_end, new_end, kept)
 
 
 @pytest.mark.parametrize("extra", [EXAM, ECHO])
-def test_a_true_undo_beside_another_mention_of_the_edited_day_is_never_left_on_it_alone(tmp_path, monkeypatch, extra):
-    # Review 5, end to end. Same wording: the restored day alone. Reworded: the pair's own test still asks the whole
-    # conversation, so no reading is made and both days are open — what happened before the pair rule existed, and
-    # never the edited day alone.
-    same = lia(reread="is moving to")
-    memory, readers = story(tmp_path, monkeypatch, [(LIA + extra, same), (MOVED + extra, same), (LIA + extra, same)])
-    assert _open_days(memory) == ["2026-12-05"] and readers.small_calls == []
-    other = tmp_path / "reworded"
-    other.mkdir()
-    memory, readers = story(other, monkeypatch,
+def test_a_reworded_correction_undone_beside_another_mention_of_its_day_leaves_both_open(tmp_path, monkeypatch, extra):
+    # Review 5, end to end: no reading is made (the pair's test asks the whole conversation), and both days are open,
+    # which is what happened before the pair rule. Never the edited day alone.
+    memory, readers = story(tmp_path, monkeypatch,
                             [(LIA + extra, lia()), (MOVED + extra, lia()), (LIA + extra, lia(reread="is moving to"))])
+    assert _open_days(memory) == ["2026-12-05", "2026-12-08"]
+    assert len(readers.small_calls) == 1          # night 2's pair only
+
+
+def test_a_reworded_correction_undone_in_words_that_name_the_edited_day_leaves_both_open(tmp_path, monkeypatch):
+    # Review 6 (the reverse of A): "She leaves on 5 December, not 8 December". The changed line says both days, as a
+    # mention of a first plan does; the restored claim is born all the same, and nothing is closed without a reading.
+    back = LIA.replace("5 December,", "5 December, not 8 December,")
+    memory, _r = story(tmp_path, monkeypatch, [(LIA, lia()), (MOVED, lia()), (back, lia(reread="is moving to"))])
     assert _open_days(memory) == ["2026-12-05", "2026-12-08"]
 
 

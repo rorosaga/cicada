@@ -2454,23 +2454,32 @@ page now existing); the page prose kept the old fact beside the new. `episode_re
   it, both ways, marked as closed by this conversation's own revision** (`closed_by_revision`, 2026-11-26, below); (2) the text says it
   was edited back: the restatement is not a copy of that open claim (the same slot, object, start and end — a claim is
   never superseded by a restatement of itself, on any route), and where the two carry other days, the restored day is
-  said by the changed lines, none of the open claim's days is said by them, and the text this edit took out said one
-  of the open claim's days (`revision_pairs.moved(back=True)`: the day moved back *in this edit*; the fifth review,
-  2026-11-26, below); where the days are the same (a value), the open claim's own words are gone (`revised`); (3) the re-read states it; (4) the open claim may give way by a rule that already exists —
+  said by the changed lines and none of the open claim's days is still said by any line of the conversation
+  (`revision_pairs.moved`, the pair rule's own condition) — this strict test where the open claim sits in the
+  restatement's own slot and would give way at once; under another wording the restatement is only born beside it
+  (the fifth and sixth reviews, 2026-11-26, below); where the days are the same (a value), the open claim's own words
+  are gone (`revised`); (3) the re-read states it; (4) the open claim may give way by a rule that already exists —
   the same-slot replacement (`redated`), the removed text's (`revised`) or the pair rule (`revision_pairs.meets`). On
   the pair rule's path the reading comes after Stage 3, so the restatement is born before it: if both readers call the
   two the same the open claim gives way; a "different", a failed call or a split reading leaves both days open, which
   is exactly the end `origin/dev` reaches on the same text (a failed reading settles nothing). Accepted limits: a day
   the date reader cannot find counts as not said, so a day still stated in words it does not read leaves the rule as it
-  was. **The fifth review (2026-11-26), two findings, both closed.** (a) *A true undo was refused.* The undo test had
-  asked the whole conversation whether the edited day was still said (the pair rule's own condition, right there: a
-  pair refused leaves both claims as they were). For an undo a refusal is not the safe side: with another line saying
-  that day of something else ("My exam is on 8 December"), or the agent's reply to the edit kept, the restored claim
-  folded into its closed twin and the edited day stayed current alone, worse than before the pair rule. The undo now
-  asks the edit itself (above). In the same slot the restored day then stands alone; under another wording the pair's
-  own test still asks the whole conversation, so no reading is made and both days stay open, which is what happened
-  before the pair rule: never the edited day alone. A line *added* that mentions the old day, with nothing taken out
-  that said the current one, is still no edit back. (b) *A claim that has since won against another is not this
+  was. **The fifth and sixth reviews (2026-11-26): the text test is chosen by what a refusal costs.** (a) *A true
+  undo was refused* (fifth): the undo test asked the whole conversation whether the edited day was still said; with
+  another line saying that day of something else ("My exam is on 8 December"), or the agent's reply to the edit kept,
+  the restored claim folded into its closed twin and, where the pair rule had made the correction, the edited day
+  stayed current alone — worse than before the pair rule, which left both open. A test of "this edit" instead (the
+  changed lines say the restored day and not the edited one, and the text taken out said the edited one) was broken by
+  the sixth review: an unrelated line about the 8th replaced by "She first planned 5 December" closed the current
+  claim in its own slot with no reading, and "5 December, not 8 December" was still refused. A day's words cannot be
+  tied to one relationship, so no test of the words tells a mention from an undo. What stands: **in the open claim's
+  own slot** (it would give way at once, with no reading) the strict test, whose refusal leaves what happened before
+  this rule; **under another wording, where the pair rule itself closed the twin**, the restatement is born whenever
+  the changed lines say its day and the same re-read does not state the open claim too (then the conversation says
+  both and nothing was undone), and nothing is closed except by the pair rule's own test and two readings — both open
+  is what there was before the pair rule, never the edited day alone. So a true undo beside another mention of the
+  edited day ends with both days open under another wording, and on the edited day in the same slot (as before this
+  rule); "8 December (she first planned 5 December)" read as both days changes nothing. (b) *A claim that has since won against another is not this
   conversation's to replace.* The person picks the claim that took the correction's place over another conversation's
   claim in the inbox; the pick leaves no word of theirs on the winner (only its confidence), so the edited-back rule
   and the pair rule read it as this conversation's alone and replaced it on a later edit. Every close writes

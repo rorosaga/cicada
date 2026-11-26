@@ -584,7 +584,8 @@ def _corrected_by(c: Claim, ep: str) -> bool:
 
 
 def _edited_back(new: Claim, twin: Claim, slot: list[Claim], revising: dict, revised: dict[str, str] | None,
-                 redated: dict[str, str] | None) -> tuple[Claim, frozenset[str]] | None:
+                 redated: dict[str, str] | None,
+                 said_now: frozenset[str] = frozenset()) -> tuple[Claim, frozenset[str]] | None:
     """The open claim ``new`` may take the place of, and the closed claims of the chain before it, when ``twin`` (the closed claim ``new`` re-reads) was closed only
     because this same conversation corrected itself and the conversation now says it again (G104, 2026-11-25), else
     ``None`` — and then "a re-read never undoes a close" holds as before. All of:
@@ -598,17 +599,20 @@ def _edited_back(new: Claim, twin: Claim, slot: list[Claim], revising: dict, rev
        inbox settle, an agent, a withdrawal or ending record, decay (closed with no successor), an ordinary update, or
        any close written before the mark existed breaks the chain: nothing is undone. So does such a close before
        ``twin`` (a claim ``twin`` superseded, whose ``superseded_by`` names it back): every closed link, both ways.
-    3. The text says it was edited back (2026-11-26, review 4): ``new`` is not a restatement of that open claim (the
-       same slot, object, start and end: it never takes its own place), and where the two carry other days, the day
-       moved back in this edit (`revision_pairs.moved(back=True)`): ``new``'s is said by the changed lines, none of
-       the open claim's is said by them, and the text the edit took out said one of the open claim's (review 5: the
-       whole conversation is not asked — another line may say that day of something else, and refusing here would
-       leave the edited day current alone). Where the days are the same (a value), the open claim's own words are
-       gone (``revised``, below).
-    4. That open claim may give way by a rule that already exists, never a third: the same-slot replacement
-       (``redated``), the removed text's (``revised``), or the pair rule (`revision_pairs.meets`). The pair rule's
-       reading comes after Stage 3: ``new`` is born open before it, and the open claim gives way only if both readers
-       call the two the same; otherwise both stay open, as they would have before this rule (review 4, F1).
+    3. The text says so, tested by what a refusal costs (reviews 4 to 6, 2026-11-26). **In the open claim's own slot**
+       it gives way at once with no reading (``redated``, ``revised``), and a refusal leaves what happened before this
+       rule, so the test is strict: ``new`` is not a restatement of that open claim (the same object, start and end: a
+       claim never takes its own place), and where the two carry other days the day moved back
+       (`revision_pairs.moved`): ``new``'s is said by the changed lines and none of the open claim's is still said by
+       any line of the conversation; where the days are the same (a value), the open claim's own words are gone
+       (``revised``). An open claim that has since won against another (`revision_pairs.won_elsewhere`: the person's
+       pick) is not replaced. **Under another wording** nothing here closes the open claim: ``new`` is born beside it
+       and only the pair rule may close it, on its own test and two readings after Stage 3. Where the pair rule itself
+       closed ``twin`` (its successor is worded otherwise), ``new`` is born whenever the changed lines say its day
+       and this same re-read does not state the open claim too (``said_now``: then the conversation says both days
+       and nothing was undone): before the pair rule ``twin`` was open and this was the same claim said again, so
+       both open is what there was, and refusing would leave the edited day current alone. Otherwise (a same-slot
+       close, then a reworded claim) the strict test above.
     """
     eps = set(new.source_episodes or [])
     if len(eps) != 1 or not revising:
@@ -647,25 +651,41 @@ def _edited_back(new: Claim, twin: Claim, slot: list[Claim], revising: dict, rev
     chain = frozenset(seen)
     from api.services import revision_pairs
 
+    said = revision_pairs.Said(rev)
     days_new = (str(new.valid_from or "")[:10], str(new.expected_end or "")[:10])
     days_tail = (str(tail.valid_from or "")[:10], str(tail.expected_end or "")[:10])
+    if K(tail) != K(new):
+        # Under another wording nothing here closes the open claim: only the pair rule may, on its own test of the
+        # whole conversation and two readings, after Stage 3 (`revision_pairs.candidates`, `apply`).
+        if not revision_pairs.reworded(tail, new, ep):
+            return None
+        after = by_id.get(twin.superseded_by or "")
+        if after is not None and K(after) != K(twin):
+            # The pair rule closed ``twin``; before that rule it stayed open and this restatement was simply the same
+            # claim again. So it is born whenever the changed lines say its day, and both are open until two readings
+            # say otherwise: what happened before the rule, never the edited day alone (reviews 5 and 6: every
+            # narrower test of the text refused a true undo, or let a mention through, on some wording of the edit).
+            # Unless this same re-read states the open claim too (``said_now``: its id among the claims the
+            # revisions read now): then the conversation still says both, and nothing was undone.
+            return (tail, chain) if tail.id not in said_now and revision_pairs.restates(tail, new, said) else None
+        return (tail, chain) if revision_pairs.moved(tail, new, said) else None
+    # The same slot: the open claim gives way at once, with no reading (`redated`, `revised`), and refusing leaves
+    # what happened before this rule (the restatement folds into its closed twin). So the strict test.
     if days_new == days_tail:
-        if K(tail) == K(new) and same_object(tail, new):
+        if same_object(tail, new):
             return None   # a restatement of the claim that is current never takes its place (review 4, F2a)
-    elif not revision_pairs.moved(tail, new, revision_pairs.Said(rev), back=True):
-        # The day did not move back: the restored one is not said by the changed lines, the tail's still is, or this
-        # edit took the tail's out of nowhere (F2b; review 5: asked of the edit, never of the whole conversation).
-        return None
+    elif not revision_pairs.moved(tail, new, said):
+        return None       # the day did not move back: the tail's is still said somewhere, or the restored one is not
     # Review 5: the open claim may since have won against another claim (the person's pick in the inbox, an ordinary
-    # update). Then it is not this conversation's to replace. In its own slot the restatement folds as before, which
-    # is what happened before this rule; under another wording it is born beside it and the pair rule refuses the close
-    # (`revision_pairs.apply`), so both stay open — in each case what happened before this change.
-    standing = revision_pairs.won_elsewhere(tail, ep, slot)
-    if (redated or {}).get(tail.id) == ep and K(tail) == K(new) and same_object(tail, new):
-        return None if standing else (tail, chain)
-    if (revised or {}).get(tail.id) == ep and K(tail) == K(new):
-        return None if standing else (tail, chain)
-    return (tail, chain) if revision_pairs.meets(tail, new, rev, back=True) else None
+    # update). Then it is not this conversation's to replace: the restatement folds as before this rule. (Under
+    # another wording, above, it is born beside it and `revision_pairs.apply` refuses the close.)
+    if revision_pairs.won_elsewhere(tail, ep, slot):
+        return None
+    if (redated or {}).get(tail.id) == ep and same_object(tail, new):
+        return tail, chain
+    if (revised or {}).get(tail.id) == ep:
+        return tail, chain
+    return None
 
 
 def _revised_entry(old: Claim, new: Claim) -> dict:
@@ -872,7 +892,8 @@ def _says_any(text: str, labels: set[str]) -> bool:
 def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinality_fn: CardinalityFn,
                  nudges: list[dict], audit: list[dict], untimed=frozenset(), over: set[str] = frozenset(),
                  canonical: str | None = None, revised: dict[str, str] | None = None,
-                 redated: dict[str, str] | None = None, revising: dict | None = None) -> Claim | None:
+                 redated: dict[str, str] | None = None, revising: dict | None = None,
+                 said_now: frozenset[str] = frozenset()) -> Claim | None:
     """One non-event incoming claim against its subject's slot (the K table).
     Returns the claim the page keeps for it — ``new``, or the existing claim a
     restatement reinforced — or ``None`` when it is not stored (a conflict to
@@ -899,7 +920,7 @@ def _place_claim(new: Claim, slot: list[Claim], settings, today: str, cardinalit
     mine: frozenset[str] = frozenset()
     twin = _reread_twin(new, slot)
     if twin is not None:
-        back = _edited_back(new, twin, slot, revising or {}, revised, redated)
+        back = _edited_back(new, twin, slot, revising or {}, revised, redated, said_now)
         if back is None:
             _merge_episodes(twin, new)
             return twin
@@ -1415,6 +1436,9 @@ def reconcile_stage3(
     # for a claim somebody else's observer holds, so a pass with none pays nothing.
     saves = saves_bounded.for_bank(memory_path) if memory_path else None
     from_saves: set[str] = set()   # the subjects a save-only claim was placed on this pass
+    # G104 (review 6): the claims the revisions read now state, by id, before any is placed (`_edited_back`).
+    said_now = (frozenset(c.id for c in incoming_claims if set(c.source_episodes or []) & set(revising))
+                if revising else frozenset())
     for new in incoming_claims:
         sub = new.subject
         referenced_subjects.add(sub)
@@ -1474,7 +1498,7 @@ def reconcile_stage3(
         canonical = (ended_by(new.predicate) if ended_by else None) or new.predicate
         over = getattr(endings_fn, "over", {}).get(canonical, frozenset())
         kept = _place_claim(new, slot, settings, today, cardinality_fn, nudges, audit, untimed, over, canonical,
-                            revised=revised, redated=redated, revising=revising)
+                            revised=revised, redated=redated, revising=revising, said_now=said_now)
         if (revised and kept is not None and kept is not new and kept.id in revised
                 and revised[kept.id] in (new.source_episodes or [])):
             # G104: the revision said a marked claim again — whatever its evidence (an unlocatable quote is a
