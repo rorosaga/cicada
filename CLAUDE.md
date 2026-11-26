@@ -454,8 +454,8 @@ when a *rail* changes (an invariant, a ruling, a boundary), in one or two lines 
   Claude plan, after the cycle and outside Sleep's window, works a few open questions read-only in **two compartments that
   never meet**: private (files and masked conversation copies; no web, no shell, never the bank) and web (search, fetch; no
   file tool). It finds, **Cicada's code writes**: located evidence read by sentence, one `found_by_agent` settle, undoable,
-  no session words stored; only document kinds in folders granted by what they are (never secrets, tooling or Cicada's
-  own), nothing key-shaped stored (`harness_files`, `mcp.md`).
+  no session words stored; only document kinds in folders they turned on (proposed by what they are, never
+  Cicada's own), nothing key-shaped stored (`harness_files`, `mcp.md`).
 - **Reading with the person's own agent (G166):** Cicada's backend never spawns a browser and never signs in to a site; it only asks
   (only ruling 47's tier 2 — an official API the person connects — signs in, never as a browser session, `network.md`). Only a
   link the person asked about, or a wall page of a site they allowed, can be recorded — and (2026-10-16, G71) the

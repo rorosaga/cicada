@@ -18,7 +18,7 @@ final class SettingsAnchorsTests: XCTestCase {
         .devices: ["Views/Settings/DevicesSettingsView.swift", "Views/Settings/MemoryCopySetting.swift",
                    "Views/Settings/RelaySection.swift"],
         .privacy: ["Views/Settings/PrivacyView.swift", "Views/Settings/SearchFilesView.swift",
-                   "Views/Settings/FadePaceCard.swift"],
+                   "Views/Settings/FadePaceCard.swift", "Views/Settings/AgentReadFoldersGroup.swift"],
     ]
 
     /// The anchors whose raw value is not their Swift name.

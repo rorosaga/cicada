@@ -4731,6 +4731,39 @@ class PageEditorsUpdate(CamelModel):
     trusted: dict[str, bool] = Field(default_factory=dict)
 
 
+# --- ruling 84 (2026-11-26): the folders Cicada's own agent may read, the person's choice ---
+
+
+class AgentFolder(CamelModel):
+    """One row of the list: a folder of the person's home by name (never its path), its state (``default``, ``on``, ``off``,
+    ``refused``, ``protected``), the rule's own verdict (``why``), whether a choice can change it, and the reason in words."""
+    id: str
+    name: str
+    state: str
+    why: str = ""
+    granted: bool = False
+    locked: bool = False
+    added: bool = False
+    reason: str = ""
+
+
+class AgentFoldersResponse(CamelModel):
+    folders: list[AgentFolder] = Field(default_factory=list)
+
+
+class AgentFolderChange(CamelModel):
+    folder: str = Field(..., max_length=1024)
+    on: bool = True
+
+
+class AgentFolderAdd(CamelModel):
+    path: str = Field(..., max_length=4096)
+
+
+class AgentFolderRemove(CamelModel):
+    folder: str = Field(..., max_length=1024)
+
+
 class BlameCommit(CamelModel):
     hash: str
     date: str
