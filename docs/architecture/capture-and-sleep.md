@@ -2419,7 +2419,9 @@ page now existing); the page prose kept the old fact beside the new. `episode_re
   while no start or end of the old one that the new one lacks is still said by the conversation as it now stands
   (2026-11-26, `revision_pairs.moved`: "8 December (she first planned 5 December)" says both days, so neither moved and
   no pair is read; a text that keeps the old day as a former plan therefore leaves both claims open, as before this
-  rule, even where the readers would have been right). The cheap tests run first and each day is read once per
+  rule, even where the readers would have been right). A claim that has since taken another claim's place by anything
+  but this conversation's own revision (the person's pick in the inbox, an ordinary update) is never a pair
+  (`revision_pairs.won_elsewhere`, the fifth review, below). The cheap tests run first and each day is read once per
   revision (`revision_pairs.Said`; nothing is computed past either cap, and a stop is asked for before each re-read
   claim is compared): on a page of 3,000 claims and a revision of 20 dated re-read claims the step took 39 s, now
   0.1 s. Before Stage 2 opens the write window (pages read only), Sleep's small judge is shown each revision's pairs (at most 8
@@ -2452,16 +2454,32 @@ page now existing); the page prose kept the old fact beside the new. `episode_re
   it, both ways, marked as closed by this conversation's own revision** (`closed_by_revision`, 2026-11-26, below); (2) the text says it
   was edited back: the restatement is not a copy of that open claim (the same slot, object, start and end — a claim is
   never superseded by a restatement of itself, on any route), and where the two carry other days, the restored day is
-  said by the changed lines and none of the open claim's days is still said by the conversation as it now stands
-  (`revision_pairs.moved`, the pair rule's own condition); where the days are the same (a value), the open claim's own
-  words are gone (`revised`); (3) the re-read states it; (4) the open claim may give way by a rule that already exists —
+  said by the changed lines, none of the open claim's days is said by them, and the text this edit took out said one
+  of the open claim's days (`revision_pairs.moved(back=True)`: the day moved back *in this edit*; the fifth review,
+  2026-11-27, below); where the days are the same (a value), the open claim's own words are gone (`revised`); (3) the re-read states it; (4) the open claim may give way by a rule that already exists —
   the same-slot replacement (`redated`), the removed text's (`revised`) or the pair rule (`revision_pairs.meets`). On
   the pair rule's path the reading comes after Stage 3, so the restatement is born before it: if both readers call the
   two the same the open claim gives way; a "different", a failed call or a split reading leaves both days open, which
   is exactly the end `origin/dev` reaches on the same text (a failed reading settles nothing). Accepted limits: a day
   the date reader cannot find counts as not said, so a day still stated in words it does not read leaves the rule as it
-  was; and a day still said for another reason (another fact on the same day) keeps the correction, as `origin/dev`
-  does. **F3 closed (2026-11-26): only a close the revision rules made is ever undone.** The fourth review found that
+  was. **The fifth review (2026-11-27), two findings, both closed.** (a) *A true undo was refused.* The undo test had
+  asked the whole conversation whether the edited day was still said (the pair rule's own condition, right there: a
+  pair refused leaves both claims as they were). For an undo a refusal is not the safe side: with another line saying
+  that day of something else ("My exam is on 8 December"), or the agent's reply to the edit kept, the restored claim
+  folded into its closed twin and the edited day stayed current alone, worse than before the pair rule. The undo now
+  asks the edit itself (above). In the same slot the restored day then stands alone; under another wording the pair's
+  own test still asks the whole conversation, so no reading is made and both days stay open, which is what happened
+  before the pair rule: never the edited day alone. A line *added* that mentions the old day, with nothing taken out
+  that said the current one, is still no edit back. (b) *A claim that has since won against another is not this
+  conversation's to replace.* The person picks the claim that took the correction's place over another conversation's
+  claim in the inbox; the pick leaves no word of theirs on the winner (only its confidence), so the edited-back rule
+  and the pair rule read it as this conversation's alone and replaced it on a later edit. Every close writes
+  `supersedes` on the claim that won, and only a revision's close carries the mark, so
+  `revision_pairs.won_elsewhere(claim, conversation, page)` is: its `supersedes` names a claim of the page whose close
+  this conversation's revision did not make. Such a claim is never offered as a pair (no reading is spent), never
+  replaced by `apply`, and never gives way to an edit back (in its own slot the restatement folds as before; reworded,
+  it is born beside it and both stay open). The same-slot rule (`redated`) is unchanged and can still replace such a
+  claim, as before this change. **F3 closed (2026-11-26): only a close the revision rules made is ever undone.** The fourth review found that
   the person's pick in the inbox (`inbox_service`'s conflict answer closes the loser as `superseded_by` the winner),
   Sleep's own settle through the same resolvers, or an agent's, between two claims resting on this one conversation,
   read exactly like the conversation's own correction (the fields coincide), so a later edit restoring the other day
@@ -2472,10 +2490,9 @@ page now existing); the page prose kept the old fact beside the new. `episode_re
   anywhere and the restatement folds into its twin, as before the rule. A bank written before the mark has none, so it
   is never edited back (`origin/dev`'s end). `inbox_service` is unchanged; its close goes through `_close`, which
   drops a mark. `test_a_pick_the_person_made_in_the_inbox_is_never_undone_by_an_edit_back` drives the real resolver.
-  Recorded, not changed: on `origin/dev` the same-slot rule already replaces a claim the person picked as the
-  *winner* when the same conversation is edited to a third day under the same wording; on this branch the pair rule
-  does the same under another wording, after two "same" readings (`origin/dev` leaves both open there); the edited-back
-  rule never brings back a picked winner, since the pick's close carries no mark. Nothing is reopened in place: history reads A, then B, then A again, a chain with no loop
+  Recorded, not changed: the same-slot rule (`redated`, as before this change) replaces a claim the person picked as
+  the *winner* when the same conversation is edited to a third day under the same wording; the pair rule and the
+  edited-back rule do not (`won_elsewhere`, above). Nothing is reopened in place: history reads A, then B, then A again, a chain with no loop
   (`supersedes` points back at each step), the closed claims untouched. The departure rule (`_departed_on`) does not
   read this conversation's own chain as a departure. The close is recorded where the correction's was (audit
   `revised`, `why: edited_back`, in the ledger and the Corrections record). A close by another conversation, the

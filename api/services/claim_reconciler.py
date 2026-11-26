@@ -600,9 +600,11 @@ def _edited_back(new: Claim, twin: Claim, slot: list[Claim], revising: dict, rev
        ``twin`` (a claim ``twin`` superseded, whose ``superseded_by`` names it back): every closed link, both ways.
     3. The text says it was edited back (2026-11-26, review 4): ``new`` is not a restatement of that open claim (the
        same slot, object, start and end: it never takes its own place), and where the two carry other days, the day
-       moved back (`revision_pairs.moved`): ``new``'s is said by the changed lines and none of the open claim's is still
-       said by the conversation as it now stands. Where the days are the same (a value), the open claim's own words
-       are gone (``revised``, below).
+       moved back in this edit (`revision_pairs.moved(back=True)`): ``new``'s is said by the changed lines, none of
+       the open claim's is said by them, and the text the edit took out said one of the open claim's (review 5: the
+       whole conversation is not asked — another line may say that day of something else, and refusing here would
+       leave the edited day current alone). Where the days are the same (a value), the open claim's own words are
+       gone (``revised``, below).
     4. That open claim may give way by a rule that already exists, never a third: the same-slot replacement
        (``redated``), the removed text's (``revised``), or the pair rule (`revision_pairs.meets`). The pair rule's
        reading comes after Stage 3: ``new`` is born open before it, and the open claim gives way only if both readers
@@ -650,13 +652,20 @@ def _edited_back(new: Claim, twin: Claim, slot: list[Claim], revising: dict, rev
     if days_new == days_tail:
         if K(tail) == K(new) and same_object(tail, new):
             return None   # a restatement of the claim that is current never takes its place (review 4, F2a)
-    elif not revision_pairs.moved(tail, new, revision_pairs.Said(rev)):
-        return None       # the day did not move back: the tail's is still said, or the restored one is not (F2b)
+    elif not revision_pairs.moved(tail, new, revision_pairs.Said(rev), back=True):
+        # The day did not move back: the restored one is not said by the changed lines, the tail's still is, or this
+        # edit took the tail's out of nowhere (F2b; review 5: asked of the edit, never of the whole conversation).
+        return None
+    # Review 5: the open claim may since have won against another claim (the person's pick in the inbox, an ordinary
+    # update). Then it is not this conversation's to replace. In its own slot the restatement folds as before, which
+    # is what happened before this rule; under another wording it is born beside it and the pair rule refuses the close
+    # (`revision_pairs.apply`), so both stay open — in each case what happened before this change.
+    standing = revision_pairs.won_elsewhere(tail, ep, slot)
     if (redated or {}).get(tail.id) == ep and K(tail) == K(new) and same_object(tail, new):
-        return tail, chain
+        return None if standing else (tail, chain)
     if (revised or {}).get(tail.id) == ep and K(tail) == K(new):
-        return tail, chain
-    return (tail, chain) if revision_pairs.meets(tail, new, rev) else None
+        return None if standing else (tail, chain)
+    return (tail, chain) if revision_pairs.meets(tail, new, rev, back=True) else None
 
 
 def _revised_entry(old: Claim, new: Claim) -> dict:

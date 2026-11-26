@@ -174,17 +174,32 @@ def _pairable_old(c: Claim, ep: str) -> bool:
             and not phone_numbers.is_number_claim(c) and _support(c) == {ep})
 
 
+def won_elsewhere(c: Claim, ep: str, page) -> bool:
+    """``c`` has since taken the place of another claim of its page by anything but ``ep``'s own revision: the person's
+    pick in the inbox, Sleep's settle, an ordinary update (review 5, 2026-11-27). Such a claim stands on more than this
+    conversation's word, though nothing else on it says so (a pick only raises its confidence): the rules of this
+    module and the edited-back rule leave it as it is. Read from ``supersedes``, which every close writes on the claim
+    that won, and the mark only a revision's close carries (``Claim.closed_by_revision``). A link that names no claim
+    of ``page`` (a held line keeps none) says nothing."""
+    if not c.supersedes:
+        return False
+    prev = next((p for p in page if p.id == c.supersedes), None)
+    return prev is not None and prev.closed_by_revision != ep
+
+
 class Said:
     """Which days one revision states, each day read once (2026-11-26, review 4: the reader ran over the whole changed
     text twice for every old and new claim compared). ``changed``: the changed lines say it (`episode_revision.says_day`
     over `_changed_text`, the test `redated` makes of the new claim); ``body``: the conversation as it now stands says
-    it anywhere."""
+    it anywhere; ``removed``: the text this edit took out said it (the read version's lines that are gone or replaced)."""
 
     def __init__(self, rev: er.Revision):
         self.rev = rev
         self._text: str | None = None
+        self._gone: str | None = None
         self._changed: dict[str, bool] = {}
         self._body: dict[str, bool] = {}
+        self._removed: dict[str, bool] = {}
 
     def changed(self, day: str) -> bool:
         if day not in self._changed:
@@ -198,6 +213,13 @@ class Said:
             self._body[day] = er.says_day(self.rev.body, day)
         return self._body[day]
 
+    def removed(self, day: str) -> bool:
+        if day not in self._removed:
+            if self._gone is None:
+                self._gone = "\n".join(self.rev.prior[lo:hi] for lo, hi in self.rev.removed)
+            self._removed[day] = er.says_day(self._gone, day)
+        return self._removed[day]
+
 
 def _places(c: Claim) -> tuple[str, str]:
     return _day(c.valid_from), _day(c.expected_end)
@@ -208,18 +230,27 @@ def _new_days(n: Claim, said: Said) -> tuple[str, ...]:
     return tuple(d for d in _places(n) if d and said.changed(d))
 
 
-def moved(o: Claim, n: Claim, said: Said, days: tuple[str, ...] | None = None) -> bool:
+def moved(o: Claim, n: Claim, said: Said, days: tuple[str, ...] | None = None, *, back: bool = False) -> bool:
     """The day moved from ``o`` to ``n`` in this revision's text: ``n`` carries a start or end the changed lines say that
     ``o`` does not carry in that place, and no start or end of ``o`` that ``n`` does not carry is still said by the
     conversation as it now stands (2026-11-26, review 4: "8 December (she first planned 5 December)" says both days, so
     neither has moved). A day the reader cannot find is not said (an accepted limit: then the claims stay as they are
-    only if the reader does find it). ``days``: :func:`_new_days`, when already read."""
+    only if the reader does find it). ``days``: :func:`_new_days`, when already read.
+
+    ``back`` (the reconciler's edited-back rule, review 5, 2026-11-27): the test of an edit that is UNDONE, where a
+    refusal is not the safe side (the restored claim would fold into its closed twin and the edited day stay current
+    alone). The whole conversation is not asked — another line may say that day of something else ("My exam is on 8
+    December"), or an agent's reply echo it. Asked instead of the edit itself: the days of ``o`` that ``n`` does not
+    carry are said by none of the changed lines, and the text this edit took out said one of them."""
     days = _new_days(n, said) if days is None else days
     new_from, new_end = _places(n)
     old_from, old_end = _places(o)
     if not any((d == new_from and d != old_from) or (d == new_end and d != old_end) for d in days):
         return False
-    return not any(old and old != new and said.body(old) for old, new in ((old_from, new_from), (old_end, new_end)))
+    gone = [old for old, new in ((old_from, new_from), (old_end, new_end)) if old and old != new]
+    if back:
+        return not any(said.changed(d) for d in gone) and any(said.removed(d) for d in gone)
+    return not any(said.body(d) for d in gone)
 
 
 def _same_things(o: Claim, n: Claim) -> bool:
@@ -230,14 +261,14 @@ def _same_things(o: Claim, n: Claim) -> bool:
 
 
 def meets(o: Claim, n: Claim, rev: er.Revision, said: Said | None = None,
-          days: tuple[str, ...] | None = None) -> bool:
+          days: tuple[str, ...] | None = None, *, back: bool = False) -> bool:
     """Is ``o`` (on a page) the pair of ``n`` (a claim of ``rev``'s re-read)? See the module: the same things under
     another predicate, ``o`` open and this one conversation's alone, and the day moved from ``o`` to ``n``
     (:func:`moved`). The one test :func:`candidates` and the reconciler's edited-back rule share. Cheapest tests first;
     the text is read only for a pair that passes them, each day once per ``said``."""
     if not _same_things(o, n) or not _pairable_old(o, rev.episode_id):
         return False
-    return moved(o, n, said or Said(rev), days)
+    return moved(o, n, said or Said(rev), days, back=back)
 
 
 def _resolver(memory_path: Path, ep: str, settings) -> Callable[[str], str]:
@@ -325,7 +356,7 @@ def _collect(memory_path: Path, revisions: dict[str, er.Revision], extracted: li
             if found >= MAX_PAIRS or (cancelled is not None and cancelled()):
                 break
             for o, line in [(o, "") for o in existing.get(n.subject, [])] + held.get(n.subject, []):
-                if meets(o, n, rev, said, days):
+                if meets(o, n, rev, said, days) and not won_elsewhere(o, ep, existing.get(n.subject, [])):
                     found += 1
                     out.append(Pair(f"p{found}", rev, o, n, days, held=line))
                     if found >= MAX_PAIRS:
@@ -492,7 +523,7 @@ def apply(reconciled: dict[str, list[Claim]], verdicts: list[Verdict], revisions
             old_s, old_o, new_s, new_o = _where(v, None)
             slot = reconciled.get(v.subject) or []
             old = next((c for c in slot if c.id == v.old_id), None)
-        if old is None or not _was(old, v, old_s, old_o):
+        if old is None or not _was(old, v, old_s, old_o) or won_elsewhere(old, v.episode, slot):
             _kept(old, v, audit)
             continue
         text = er._changed_text(rev)  # noqa: SLF001

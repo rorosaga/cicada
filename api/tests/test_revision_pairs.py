@@ -515,6 +515,31 @@ def test_apply_replaces_only_with_an_open_claim_that_carries_the_judged_day():
     assert audit == [{"action": "revised", "closed": "old", "by": "new", "why": revision_pairs.WHY}]
 
 
+def _lost(to, *, mark=None):
+    """A claim of another conversation that ``to`` took the place of: by the person's pick (no mark), or, with ``mark``,
+    by that conversation's own revision."""
+    return _claim("lost", "relocates-to", "2026-12-10", episodes=(OTHER,), valid_to="2026-12-10", superseded_by=to,
+                  **({"closed_by_revision": mark} if mark else {}))
+
+
+def test_apply_never_replaces_a_claim_that_has_since_won_against_another():
+    # Review 5 (B): the person picked the old claim over another conversation's in the inbox. The pick leaves no word
+    # of theirs on the winner, only the loser's close naming it, and that is enough: it is not this conversation's to
+    # replace. A claim whose only win is this conversation's own marked correction is.
+    rev = _rev()
+    for label, lost, closes in [
+        ("the person's pick (no mark)", _lost("old"), False),
+        ("another conversation's own revision", _lost("old", mark=OTHER), False),
+        ("this conversation's own earlier correction", _lost("old", mark=EP), True),
+    ]:
+        old = _claim("old", "is-moving-to", "2026-12-05", supersedes="lost")
+        new = _claim("new", "moves-to", "2026-12-08")
+        out = revision_pairs.apply({"lia-prueba": [lost, old, new]}, [_verdict()], {EP: rev}, [])
+        assert (out == {"old": EP}) == closes, label
+        assert (old.valid_to is not None) == closes, label
+    assert revision_pairs.won_elsewhere(_claim("old", "is-moving-to", "2026-12-05", supersedes="lost"), EP, []) is False
+
+
 def test_apply_never_closes_what_another_conversation_or_the_person_also_holds():
     rev = _rev()
     for label, old in [
@@ -1021,6 +1046,97 @@ def test_a_pair_is_only_where_the_old_day_is_no_longer_said():
     assert not revision_pairs.meets(old, new, both_rev)
 
 
+EXAM = "\nuser: My exam is on 8 December."          # another fact of the edited day, on a line no edit touches
+ECHO = "\nassistant: Noted, 8 December then."       # the agent's reply to the edit, kept when the person undoes it
+EXAM_OLD = "\nuser: My exam is on 5 December."
+
+
+def _undo_rev(extra):
+    from api.services import episode_revision
+
+    return episode_revision.build({"id": EP, "content": LIA + extra, "source": "note"}, MOVED + extra)
+
+
+@pytest.mark.parametrize("extra", [EXAM, ECHO])
+@pytest.mark.parametrize("route", ["same slot", "pair"])
+def test_an_edit_undone_is_edited_back_though_another_line_still_says_the_edited_day(route, extra):
+    # Review 5 (C reversed): the undo test asked the whole conversation for the edited day, another line said it, the
+    # restored claim folded into its closed twin and the edited day stayed current alone, worse than before the pair
+    # rule. The test is of the edit: its changed lines say the restored day and not the edited one, and it took the
+    # edited one out.
+    a, b = _chain(**({} if route == "same slot" else {"predicate": "moves-to"}))
+    page, _n, audit = _reconcile([a, b], rev=_undo_rev(extra), redated=("clm_b",) if route == "same slot" else ())
+    assert _undone(page)
+    assert any(e.get("action") == "revision_edited_back" for e in audit)
+    # The same slot gives way by its own rule; under another wording only two readings may close it (after Stage 3).
+    assert (b.valid_to is not None) == (route == "same slot")
+
+
+@pytest.mark.parametrize("route", ["same slot", "pair"])
+def test_an_edit_back_never_closes_a_claim_that_has_since_won_against_another(route):
+    # Review 5 (B), the edited-back rule: B took A's place by this conversation's correction, then the person picked B
+    # over another conversation's claim. The conversation is edited back to A's day. B stays open on both routes: in
+    # its own slot the restatement folds into the closed A, as before this rule; reworded, it is born beside B.
+    a, b = _chain(**({} if route == "same slot" else {"predicate": "moves-to"}))
+    lost = _lost("clm_b")
+    b.supersedes = "lost"
+    page, _n, audit = _reconcile([a, b, lost], redated=("clm_b",) if route == "same slot" else ())
+    assert b.valid_to is None and b.superseded_by is None
+    assert _undone(page) == (route == "pair")
+    assert not any(e.get("action") == "revised" for e in audit)
+
+
+@pytest.mark.parametrize("route", ["same slot", "pair"])
+def test_the_old_day_said_again_in_a_new_line_is_no_edit_back(route):
+    # Nothing this edit took out said the day that is current: a line added about the first plan is a mention.
+    from api.services import episode_revision
+
+    rev = episode_revision.build(
+        {"id": EP, "content": MOVED + "\nuser: She first planned 5 December.", "source": "note"}, MOVED)
+    a, b = _chain(**({} if route == "same slot" else {"predicate": "moves-to"}))
+    page, _n, audit = _reconcile([a, b], rev=rev, redated=("clm_b",) if route == "same slot" else ())
+    assert {c.id for c in page} == {"clm_a", "clm_b"} and b.valid_to is None
+    assert not any(e.get("action") == "revision_edited_back" for e in audit)
+
+
+def test_the_pair_asks_the_whole_conversation_and_the_undo_asks_the_edit():
+    from api.services import episode_revision
+
+    old = _claim("clm_a", "is-moving-to", "2026-12-05")
+    new = _claim("clm_b", "moves-to", "2026-12-08")
+    # A pair (refusing leaves both claims as they were): the old day on any line of the text, an unchanged one too.
+    kept = episode_revision.build({"id": EP, "content": MOVED + EXAM_OLD, "source": "note"}, LIA + EXAM_OLD)
+    assert not revision_pairs.meets(old, new, kept)
+    # An undo (refusing would leave the edited day alone): only the edit is asked.
+    tail = _claim("clm_b", "moves-to", "2026-12-08")
+    back = _claim("clm_x", "is-moving-to", "2026-12-05")
+    undo = _undo_rev(EXAM)
+    assert not revision_pairs.meets(tail, back, undo)
+    assert revision_pairs.meets(tail, back, undo, back=True)
+    said = revision_pairs.Said(undo)
+    assert said.removed("2026-12-08") and not said.removed("2026-12-05") and said.body("2026-12-08")
+    both = episode_revision.build({"id": EP, "content": BOTH, "source": "note"}, MOVED)
+    assert not revision_pairs.meets(tail, back, both, back=True)        # the changed line still says the edited day
+    mention = episode_revision.build(
+        {"id": EP, "content": MOVED + "\nuser: She first planned 5 December.", "source": "note"}, MOVED)
+    assert not revision_pairs.meets(tail, back, mention, back=True)     # the edit took the edited day out of nowhere
+
+
+@pytest.mark.parametrize("extra", [EXAM, ECHO])
+def test_a_true_undo_beside_another_mention_of_the_edited_day_is_never_left_on_it_alone(tmp_path, monkeypatch, extra):
+    # Review 5, end to end. Same wording: the restored day alone. Reworded: the pair's own test still asks the whole
+    # conversation, so no reading is made and both days are open — what happened before the pair rule existed, and
+    # never the edited day alone.
+    same = lia(reread="is moving to")
+    memory, readers = story(tmp_path, monkeypatch, [(LIA + extra, same), (MOVED + extra, same), (LIA + extra, same)])
+    assert _open_days(memory) == ["2026-12-05"] and readers.small_calls == []
+    other = tmp_path / "reworded"
+    other.mkdir()
+    memory, readers = story(other, monkeypatch,
+                            [(LIA + extra, lia()), (MOVED + extra, lia()), (LIA + extra, lia(reread="is moving to"))])
+    assert _open_days(memory) == ["2026-12-05", "2026-12-08"]
+
+
 @pytest.mark.parametrize("label,change", [
     ("another context", lambda o: setattr(o, "context", "work")),          # review 4, M18
     ("another speaker", lambda o: setattr(o, "observer", "external:bob-example")),   # review 4, M19
@@ -1072,6 +1188,27 @@ def test_an_edit_undone_while_another_conversation_says_the_restored_day_ends_on
     says = "user: Lia Prueba moves to Valencia.\nuser: She leaves on 5 December.\nuser: Fin."
     memory, _r = story(tmp_path, monkeypatch, [(LIA, same), (MOVED, same), (LIA, same)], others={1: says})
     assert _open_days(memory) == ["2026-12-05"]
+
+
+@pytest.mark.parametrize("label,mark,pairs", [
+    ("the person's pick (no mark on the loser's close)", None, 0),
+    ("this conversation's own earlier correction", EP, 1),
+])
+def test_a_claim_that_has_since_won_against_another_is_never_read_as_a_pair(tmp_path, label, mark, pairs):
+    # Review 5 (B): no reading is spent on a claim the rules will not replace.
+    from api.services.claims import write_claims
+
+    memory = _bank(tmp_path)
+    old = _claim("old", "is-moving-to", "2026-12-05", supersedes="lost")
+    markdown_parser.write(memory / "entities" / "lia-prueba.md",
+                          {"name": "Lia Prueba", "type": "person", "status": "active", "confidence": 0.9,
+                           "source_episodes": [EP]},
+                          write_claims("## Summary\nX.\n", [_lost("old", mark=mark), old]))
+    extracted = [{"episode_id": EP, "episode_timestamp": "2026-11-07T10:00:00Z", "entities": [], "values": [],
+                  "relationships": [{"source": "Lia Prueba", "target": "Valencia", "label": "moves to",
+                                     "starts": "2026-12-08", "evidence_quote": "Lia Prueba moves to Valencia"}]}]
+    found = revision_pairs.candidates(memory, {EP: _rev()}, extracted)
+    assert len(found) == pairs, label
 
 
 def _large_page(tmp_path, n_claims=300, n_rels=20, lines=60):
