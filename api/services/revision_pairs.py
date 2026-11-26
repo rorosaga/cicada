@@ -176,7 +176,7 @@ def _pairable_old(c: Claim, ep: str) -> bool:
 
 def won_elsewhere(c: Claim, ep: str, page) -> bool:
     """``c`` has since taken the place of another claim of its page by anything but ``ep``'s own revision: the person's
-    pick in the inbox, Sleep's settle, an ordinary update (review 5, 2026-11-27). Such a claim stands on more than this
+    pick in the inbox, Sleep's settle, an ordinary update (review 5, 2026-11-26). Such a claim stands on more than this
     conversation's word, though nothing else on it says so (a pick only raises its confidence): the rules of this
     module and the edited-back rule leave it as it is. Read from ``supersedes``, which every close writes on the claim
     that won, and the mark only a revision's close carries (``Claim.closed_by_revision``). A link that names no claim
@@ -237,7 +237,7 @@ def moved(o: Claim, n: Claim, said: Said, days: tuple[str, ...] | None = None, *
     neither has moved). A day the reader cannot find is not said (an accepted limit: then the claims stay as they are
     only if the reader does find it). ``days``: :func:`_new_days`, when already read.
 
-    ``back`` (the reconciler's edited-back rule, review 5, 2026-11-27): the test of an edit that is UNDONE, where a
+    ``back`` (the reconciler's edited-back rule, review 5, 2026-11-26): the test of an edit that is UNDONE, where a
     refusal is not the safe side (the restored claim would fold into its closed twin and the edited day stay current
     alone). The whole conversation is not asked — another line may say that day of something else ("My exam is on 8
     December"), or an agent's reply echo it. Asked instead of the edit itself: the days of ``o`` that ``n`` does not

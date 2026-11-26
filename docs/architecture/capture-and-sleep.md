@@ -2456,13 +2456,13 @@ page now existing); the page prose kept the old fact beside the new. `episode_re
   never superseded by a restatement of itself, on any route), and where the two carry other days, the restored day is
   said by the changed lines, none of the open claim's days is said by them, and the text this edit took out said one
   of the open claim's days (`revision_pairs.moved(back=True)`: the day moved back *in this edit*; the fifth review,
-  2026-11-27, below); where the days are the same (a value), the open claim's own words are gone (`revised`); (3) the re-read states it; (4) the open claim may give way by a rule that already exists —
+  2026-11-26, below); where the days are the same (a value), the open claim's own words are gone (`revised`); (3) the re-read states it; (4) the open claim may give way by a rule that already exists —
   the same-slot replacement (`redated`), the removed text's (`revised`) or the pair rule (`revision_pairs.meets`). On
   the pair rule's path the reading comes after Stage 3, so the restatement is born before it: if both readers call the
   two the same the open claim gives way; a "different", a failed call or a split reading leaves both days open, which
   is exactly the end `origin/dev` reaches on the same text (a failed reading settles nothing). Accepted limits: a day
   the date reader cannot find counts as not said, so a day still stated in words it does not read leaves the rule as it
-  was. **The fifth review (2026-11-27), two findings, both closed.** (a) *A true undo was refused.* The undo test had
+  was. **The fifth review (2026-11-26), two findings, both closed.** (a) *A true undo was refused.* The undo test had
   asked the whole conversation whether the edited day was still said (the pair rule's own condition, right there: a
   pair refused leaves both claims as they were). For an undo a refusal is not the safe side: with another line saying
   that day of something else ("My exam is on 8 December"), or the agent's reply to the edit kept, the restored claim
