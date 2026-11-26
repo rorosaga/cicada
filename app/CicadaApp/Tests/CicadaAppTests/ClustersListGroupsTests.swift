@@ -27,28 +27,28 @@ final class ClustersListGroupsTests: XCTestCase {
     func testAListsMembersLeaveTheRowsAndAnEarnedOrLoosePageStays() {
         let all = (1...8).map { media("m\($0)") } + [media("earned"), media("loose")]
         let list = bubble("pl", members: (1...8).map { "m\($0)" }, outside: ["earned"])
-        let media = groups(all, [list]).first { $0.type == .media }
-        XCTAssertEqual(media?.lists.map(\.id), ["pl"])
-        XCTAssertEqual(media?.lists.first?.members.count, 8)
-        XCTAssertEqual(Set(media?.entities.map(\.id) ?? []), ["earned", "loose"])
-        XCTAssertEqual(media?.count, 3, "a list is one entry, beside the two pages")
+        let group = groups(all, [list]).first { $0.type == .media }
+        XCTAssertEqual(group?.lists.map(\.id), ["pl"])
+        XCTAssertEqual(group?.lists.first?.members.count, 8)
+        XCTAssertEqual(Set(group?.entities.map(\.id) ?? []), ["earned", "loose"])
+        XCTAssertEqual(group?.count, 3, "a list is one entry, beside the two pages")
     }
 
     func testAListsOwnPageIsItsLineNeverASecondRow() {
         let all = (1...6).map { media("m\($0)") } + [media("listpage", kind: "list")]
-        let media = groups(all, [bubble("pl", members: (1...6).map { "m\($0)" }, pageId: "listpage")])
+        let group = groups(all, [bubble("pl", members: (1...6).map { "m\($0)" }, pageId: "listpage")])
             .first { $0.type == .media }
-        XCTAssertEqual(media?.entities.count, 0)
-        XCTAssertEqual(media?.lists.first?.pageId, "listpage")
+        XCTAssertEqual(group?.entities.count, 0)
+        XCTAssertEqual(group?.lists.first?.pageId, "listpage")
     }
 
     /// Review of #935: a list the View menu leaves no member of draws no line, so its own page is a row again, never lost.
     func testAnEmptiedListsOwnPageIsARowAgain() {
         let all = (1...6).map { media("v\($0)", kind: "video") } + [media("listpage", kind: "list")]
-        let media = groups(all, [bubble("pl", members: (1...6).map { "v\($0)" }, pageId: "listpage")],
+        let group = groups(all, [bubble("pl", members: (1...6).map { "v\($0)" }, pageId: "listpage")],
                            kinds: ["list"]).first { $0.type == .media }
-        XCTAssertTrue(media?.lists.isEmpty ?? false)
-        XCTAssertEqual(media?.entities.map(\.id), ["listpage"])
+        XCTAssertTrue(group?.lists.isEmpty ?? false)
+        XCTAssertEqual(group?.entities.map(\.id), ["listpage"])
     }
 
     func testNoBubblesLeavesTheGroupsAsTheyWere() {
