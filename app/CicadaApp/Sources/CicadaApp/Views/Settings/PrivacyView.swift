@@ -81,6 +81,8 @@ struct PrivacyView: View {
             }
             // D6: Search & memory's one row — search runs on this Mac, and the sharper-model download.
             SearchFilesView()
+            // Ruling 84 (2026-11-26): the folders Cicada's own agent may read — its own group, the person's switches.
+            AgentReadFoldersGroup()
             // Owner 2026-11-03: onboarding's Permissions rows, reachable later — the same component, live.
             SettingsGroupCard {
                 SettingsRow(.permissions, title: Copy.MacPermissions.settingsTitle) { EmptyView() } below: {

@@ -80,10 +80,12 @@ def test_a_private_grant_is_read_rules_only_and_the_kinds_that_are_not_documents
     deny = set(cfg["deny"])
     r = str(root)
     for rule in ("Read(//**/*.json)", "Read(//**/*.yaml)", "Read(//**/*.py)", "Read(//**/*.pem)", "Read(//**/kubeconfig)",
-                 "Read(//**/.env*)", "Read(//**/id_*)", "Read(//**/credential*)", "Read(//**/*.key)",
+                 f"Read(/{r}/**/.env*)", f"Read(/{r}/**/id_*)", f"Read(/{r}/**/credential*)", f"Read(/{r}/**/*.key)",
                  f"Read(/{r}/**/.*)", f"Read(/{r}/**/secrets)", f"Read(/{r}/**/secrets/**)", f"Read(/{r}/**/credentials/**)"):
         assert rule in deny, rule
     assert "Read(//**/private)" not in deny and "Read(//**/.*)" not in deny    # a folder word is only ever meant inside a granted folder
+    # the secret-shaped file names are scoped to the granted folder too: a rule that holds wherever a file sits matches the folder's own name
+    assert not {"Read(//**/.env*)", "Read(//**/id_*)", "Read(//**/credential*)", "Read(//**/secret*)"} & deny
     assert "Read(//**/*.md)" not in deny and "Read(//**/*.txt)" not in deny          # document kinds are not denied
     assert not any(r.startswith(("Glob(", "Grep(")) for r in cfg["allow"] + cfg["deny"] if r not in ha.NEVER)
     assert any(str((tmp_path / "bank").resolve()) in r for r in cfg["deny"])             # the refused path
@@ -128,7 +130,7 @@ def test_a_synthetic_home_with_one_of_each_kind_of_folder_grants_documents_and_n
                              "private")} == {"secrets"}
     assert {why[n] for n in ("go", "webapp", "scripts", "node-app")} == {"tooling"}
     assert {why[n] for n in ("cicada-bench", "engine-scratch", "oldbank")} == {"cicada"}
-    assert why["Library"] == why["Documents"] == "protected" and why["mounted"] == "mount"
+    assert why["Library"] == "system" and why["Documents"] == "protected" and why["mounted"] == "mount"
     assert ".ssh" not in why and "link" not in why                                     # hidden folders and links are never candidates
     attended = hf.grant_for_home(home, attended=True, refused=())
     assert "Documents" in {Path(r).name for r in attended.roots} and "Library" not in {Path(r).name for r in attended.roots}

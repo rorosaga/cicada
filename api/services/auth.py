@@ -222,7 +222,10 @@ def get_token() -> str:
 #: Paths only the master token may use (G181 phase 2, owner ruling 1): issuing and revoking device tokens is an act of
 #: the person on the server, never of a device. Reading the list is not (G181 phase 3): a device's app shows the
 #: person which of their devices reach this server (ids, names and times only), and still cannot add or revoke one.
-MASTER_ONLY_PREFIXES = ("/devices",)
+#: Ruling 84 (2026-11-26): the folders Cicada's own agent may read are this computer's, and their names say what is on its disk, so
+#: the list is the server's own token alone for reading as well as for changing (the CLI on this computer holds it; another device's
+#: Settings answers that this is the server's).
+MASTER_ONLY_PREFIXES = ("/devices", "/settings/agent-folders")
 #: G212: a device's app also reads the devices' status (names, connected, how, queue) — reading, never minting.
 _DEVICE_READABLE = frozenset({("GET", "/devices"), ("GET", "/devices/status")})
 #: Writes only the master token may make under these prefixes: minting, rotating or turning on a G135 remote
