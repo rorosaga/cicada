@@ -221,7 +221,10 @@ tier (dpr 1 and 2), discs 5–10 % of the fitted view on the bank shape, no over
 Clark–Evans ≤ 1.3, the owner's page ≤ 0.25 giant radii off the middle, and the #285/#287 settle guarantees.
 
 **The graph rests when nobody can see it (audit 2026-10-02 A07–A09).** `GraphPage` stays mounted under
-every tab, so it tells the page whether it is on screen: `GraphView(isActive:)` is the Graph tab
+every tab, and nothing above its web view may switch view branches on a flag: `publishesPageFind` once did
+(an `if`/`else` on `enabled`), and every ⌘K, find, Settings or tab change built a new web view (a cold layout,
+the zoom lost, the palette's reveal landing on an unloaded page); it now publishes `nil` instead
+(`PageFindIdentityTests`). It tells the page whether it is on screen: `GraphView(isActive:)` is the Graph tab
 selected *and* its window visible (`WindowVisibilityReader`: occluded, minimized or hidden reads
 false), pushed once per change as `setGraphActive(bool)`. Inactive, `graph.js` cancels its queued
 frame and pulse timer, ends any drag, and stops the d3 timer — a data push lays out later rather than
