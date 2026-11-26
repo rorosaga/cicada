@@ -34,6 +34,13 @@ def _observer_kind(observer: str, on_owner_page: bool) -> str:
     return "other"
 
 
+def _day(raw) -> str | None:
+    from api.services import episode_ids
+
+    d = episode_ids.local_day(raw)
+    return d.isoformat() if d else None
+
+
 def build(bank: Path, day: str) -> dict:
     from api.services import bank_index, claims as claims_module, history_index, markdown_parser
 
@@ -45,8 +52,9 @@ def build(bank: Path, day: str) -> dict:
         if state is None or state == "record":
             continue
         released = fm.get(history_index.TURN_KEY) == day
-        saved_that_day = str(fm.get("received_at") or fm.get("timestamp") or "")[:10] == day
-        talked = str((fm.get(history_index.WOKEN_KEY) or {}).get("at") or "")[:10] == day
+        # A stamp is UTC; the night is the person's local day, so a save made after local midnight is that day's.
+        saved_that_day = _day(fm.get("received_at") or fm.get("timestamp")) == day
+        talked = _day((fm.get(history_index.WOKEN_KEY) or {}).get("at")) == day
         if not (released or (saved_that_day and state != "pile") or talked):   # a pile save not released has no night
             continue
         ep_id = str(fm.get("id") or f.stem)

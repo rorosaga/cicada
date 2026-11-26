@@ -775,7 +775,9 @@ of any outcome clears it); then the list read longest ago, a list never read bef
 key in table order no longer always wins. A check never lifts a pause and never passes the day's bound. A list with a
 `base` site shares that site's pause (`saved_lists.pause_key`, kept under the site's own key, so no entry is made for the
 base list and `list_defaults.read_before` never sees it read). YouTube's lists (every one due, the same order) and
-Substack's (one) follow the same order. `cicada_reading_queue` (stdio only) appends its
+Substack's (one) follow the same order; one site's list at a time holds across `saved_lists` and `substack_lists` —
+each `due` asks the other table's `candidate` and yields when it ranks first (2026-11-26: Substack used to wait for every
+other site, and with six on a 20-hour cadence one nearly always was, so Saved went unread for three weeks). `cicada_reading_queue` (stdio only) appends its
 lines — the page, what to read (each post's link, author and the words it shows), only the list (never the feed or
 messages), never click anything that changes it (no unsave, like, follow or reply), never sign in — and
 `reading_queue.counts` counts a due list as one of the person's asks. **`cicada_record_saved_list(platform, outcome,
@@ -900,8 +902,8 @@ else, below).
   retry; page text is data. It is one line with no quotation mark so a shell holds it as one word, and carries none of the
   person's flags (a model, a tool list, a permission setting are theirs). **`cicada_reading_queue(unattended=true)`** is
   what the prompt calls: only the browser lists, by each source's own unattended rule (`saved_lists.due(unattended=True)`
-  above; a YouTube or Substack list never read before waits for the person, its first read going deeper; Substack still waits
-  for a saved list that is due), never a link, an ask, a wall page or a source to check; the reply carries the rules in
+  above; a YouTube or Substack list never read before waits for the person, its first read going deeper; Substack takes its
+  turn with the saved lists by the same order), never a link, an ask, a wall page or a source to check; the reply carries the rules in
   a first line, and "Nothing is due ... Stop" when nothing is, which is the agent's cue to end the run. Nothing is
   enforced: the copy in the app and here says that it runs the person's AI app with its normal tools with nobody watching,
   that it reads other people's posts while signed in as them, that a separate browser profile signed in only to the sites
@@ -1006,7 +1008,8 @@ for it names the shelves Read, Currently Reading and Want to Read and the same n
 of read stuff, saved stuff, etc.").** Substack gives a reader no API, no OAuth app programme, no reader export and no
 Mac app (the research and its sources are in `network.md`, ruling 47's table), so the saved lists' shape is the way in:
 the person's own agent, in their own signed-in browser, on their standing ask. Three lists (`substack_lists.LISTS`):
-**Saved** (`https://substack.com/inbox` → Saved), **History** (`https://substack.com/home` → the clock icon) and
+**Saved** (`https://substack.com/inbox/saved`, the inbox's Saved tab), **History** (`https://substack.com/inbox/history`,
+its History tab; both addresses seen in the person's signed-in reader 2026-11-26) and
 **Subscriptions** (the account menu → Subscriptions). Cicada never spawns a browser, never signs in and never fetches a
 Substack page; the private reader endpoints with the person's cookie are scraping behind authentication and stay out.
 **Consent:** agent reading on (its sheet acknowledged) AND the person turned that list on (`reading.json`
@@ -1015,8 +1018,8 @@ Substack page; the private reader endpoints with the person's cookie are scrapin
 outcome and count, and the one pause). **Off until the person turns it on**: no memory shows a Substack account before
 a read, so owner 2026-10-26's on-by-default (for accounts the memory shows) cannot apply. Each switch is a standing ask
 for exactly that page, never a site grant. **The offer** (`substack_lists.py`; `$CICADA_HOME/substack_lists.json`, ids,
-enums, counts and times only, `flock`ed): G206's bounds, shared — a Substack list is due only when no X, Instagram or
-LinkedIn list is (one site's list at a time), one Substack list at a time, Saved and History after 20 hours,
+enums, counts and times only, `flock`ed): G206's bounds, shared — one site's list at a time across these and the saved lists (whichever ranks first by
+the shared order: asked first, then read longest ago, the saved lists first in a tie), one Substack list at a time, Saved and History after 20 hours,
 Subscriptions after 7 days, and every recorded read spends the same 10 reads a UTC day per bank
 (`saved_lists.count_read`). `cicada_reading_queue` (stdio only) appends its lines — the page, what to read, never a
 post's full text, the inbox or messages, never click anything that changes it (no unsave, like, restack, subscribe,
