@@ -577,9 +577,19 @@ def _edited_back(new: Claim, twin: Claim, slot: list[Claim], revising: dict, rev
        (:func:`_only_this_conversation`); the chain ends in an OPEN claim (the one that took its place). A close by
        another conversation's claim, the person, an agent, a withdrawal or ending record, or decay (closed with no
        successor) breaks the chain: nothing is undone.
-    3. That open claim gives way by a rule that already exists, never a third: the same-slot replacement (``redated``),
-       the removed text's (``revised``), or the pair rule (`revision_pairs.meets`: another predicate, the same two
-       things, a day the changed lines say, read twice after Stage 3).
+    3. The text says it was edited back (2026-11-26, review 4): ``new`` is not a restatement of that open claim (the
+       same slot, object, start and end: it never takes its own place), and where the two carry other days, the day
+       moved back (`revision_pairs.moved`): ``new``'s is said by the changed lines and none of the open claim's is still
+       said by the conversation as it now stands. Where the days are the same (a value), the open claim's own words
+       are gone (``revised``, below).
+    4. That open claim may give way by a rule that already exists, never a third: the same-slot replacement
+       (``redated``), the removed text's (``revised``), or the pair rule (`revision_pairs.meets`). The pair rule's
+       reading comes after Stage 3: ``new`` is born open before it, and the open claim gives way only if both readers
+       call the two the same; otherwise both stay open, as they would have before this rule (review 4, F1).
+
+    Accepted limit: nothing in the bank records which closes the revision rules made, so a close by the person's pick
+    in the inbox (or Sleep's settle, or an agent's resolution through the same resolvers) between two claims that rest
+    on this conversation alone reads as this conversation's correction (review 4, F3: reported, not fixed here).
     """
     eps = set(new.source_episodes or [])
     if len(eps) != 1 or not revising:
@@ -611,13 +621,20 @@ def _edited_back(new: Claim, twin: Claim, slot: list[Claim], revising: dict, rev
         seen.add(prev.id)
         link = prev
     chain = frozenset(seen)
+    from api.services import revision_pairs
+
+    days_new = (str(new.valid_from or "")[:10], str(new.expected_end or "")[:10])
+    days_tail = (str(tail.valid_from or "")[:10], str(tail.expected_end or "")[:10])
+    if days_new == days_tail:
+        if K(tail) == K(new) and same_object(tail, new):
+            return None   # a restatement of the claim that is current never takes its place (review 4, F2a)
+    elif not revision_pairs.moved(tail, new, revision_pairs.Said(rev)):
+        return None       # the day did not move back: the tail's is still said, or the restored one is not (F2b)
     if (redated or {}).get(tail.id) == ep and K(tail) == K(new) and same_object(tail, new):
         return tail, chain
     if (revised or {}).get(tail.id) == ep and K(tail) == K(new):
         return tail, chain
-    from api.services import revision_pairs
-
-    return (tail, chain) if K(tail) != K(new) and revision_pairs.meets(tail, new, rev) else None
+    return (tail, chain) if revision_pairs.meets(tail, new, rev) else None
 
 
 def _revised_entry(old: Claim, new: Claim) -> dict:

@@ -153,6 +153,7 @@ class Reading:
     calls: int = 0
     first_same: int = 0
     failed: int = 0
+    #: Revisions with dated re-read claims left past :data:`MAX_REVISIONS` (never compared).
     capped: int = 0
 
 
@@ -171,31 +172,70 @@ def _pairable_old(c: Claim, ep: str) -> bool:
             and not phone_numbers.is_number_claim(c) and _support(c) == {ep})
 
 
-def _new_days(n: Claim, rev: er.Revision) -> tuple[str, ...]:
+class Said:
+    """Which days one revision states, each day read once (2026-11-26, review 4: the reader ran over the whole changed
+    text twice for every old and new claim compared). ``changed``: the changed lines say it (`episode_revision.says_day`
+    over `_changed_text`, the test `redated` makes of the new claim); ``body``: the conversation as it now stands says
+    it anywhere."""
+
+    def __init__(self, rev: er.Revision):
+        self.rev = rev
+        self._text: str | None = None
+        self._changed: dict[str, bool] = {}
+        self._body: dict[str, bool] = {}
+
+    def changed(self, day: str) -> bool:
+        if day not in self._changed:
+            if self._text is None:
+                self._text = er._changed_text(self.rev)  # noqa: SLF001 - the changed lines, one definition
+            self._changed[day] = er.says_day(self._text, day)
+        return self._changed[day]
+
+    def body(self, day: str) -> bool:
+        if day not in self._body:
+            self._body[day] = er.says_day(self.rev.body, day)
+        return self._body[day]
+
+
+def _places(c: Claim) -> tuple[str, str]:
+    return _day(c.valid_from), _day(c.expected_end)
+
+
+def _new_days(n: Claim, said: Said) -> tuple[str, ...]:
     """The days the re-read's claim carries that the changed lines say (start, end)."""
-    text = er._changed_text(rev)  # noqa: SLF001 - the changed lines, one definition
-    return tuple(d for d in (_day(n.valid_from), _day(n.expected_end)) if d and er.says_day(text, d))
+    return tuple(d for d in _places(n) if d and said.changed(d))
 
 
-def _differs(o: Claim, n: Claim, days: tuple[str, ...]) -> bool:
-    """A start or end of ``n`` the changed lines say, which ``o`` does not carry in that place."""
-    return any((d == _day(n.valid_from) and d != _day(o.valid_from))
-               or (d == _day(n.expected_end) and d != _day(o.expected_end)) for d in days)
+def moved(o: Claim, n: Claim, said: Said, days: tuple[str, ...] | None = None) -> bool:
+    """The day moved from ``o`` to ``n`` in this revision's text: ``n`` carries a start or end the changed lines say that
+    ``o`` does not carry in that place, and no start or end of ``o`` that ``n`` does not carry is still said by the
+    conversation as it now stands (2026-11-26, review 4: "8 December (she first planned 5 December)" says both days, so
+    neither has moved). A day the reader cannot find is not said (an accepted limit: then the claims stay as they are
+    only if the reader does find it). ``days``: :func:`_new_days`, when already read."""
+    days = _new_days(n, said) if days is None else days
+    new_from, new_end = _places(n)
+    old_from, old_end = _places(o)
+    if not any((d == new_from and d != old_from) or (d == new_end and d != old_end) for d in days):
+        return False
+    return not any(old and old != new and said.body(old) for old, new in ((old_from, new_from), (old_end, new_end)))
 
 
 def _same_things(o: Claim, n: Claim) -> bool:
     from api.services.claim_reconciler import same_object, slot_observer
 
-    return (o.subject == n.subject and same_object(o, n) and o.context == n.context
-            and slot_observer(o) == slot_observer(n) and o.predicate != n.predicate)
+    return (o.subject == n.subject and o.predicate != n.predicate and o.context == n.context
+            and same_object(o, n) and slot_observer(o) == slot_observer(n))
 
 
-def meets(o: Claim, n: Claim, rev: er.Revision) -> bool:
-    """Is ``o`` (on a page) the pair of ``n`` (a claim of ``rev``'s re-read)? See the module: ``o`` open and this one
-    conversation's alone, the same things under another predicate, and a day of ``n`` the changed lines say that ``o``
-    does not carry. The one test :func:`candidates` and the reconciler's edited-back rule share."""
-    days = _new_days(n, rev)
-    return bool(days) and _pairable_old(o, rev.episode_id) and _same_things(o, n) and _differs(o, n, days)
+def meets(o: Claim, n: Claim, rev: er.Revision, said: Said | None = None,
+          days: tuple[str, ...] | None = None) -> bool:
+    """Is ``o`` (on a page) the pair of ``n`` (a claim of ``rev``'s re-read)? See the module: the same things under
+    another predicate, ``o`` open and this one conversation's alone, and the day moved from ``o`` to ``n``
+    (:func:`moved`). The one test :func:`candidates` and the reconciler's edited-back rule share. Cheapest tests first;
+    the text is read only for a pair that passes them, each day once per ``said``."""
+    if not _same_things(o, n) or not _pairable_old(o, rev.episode_id):
+        return False
+    return moved(o, n, said or Said(rev), days)
 
 
 def _resolver(memory_path: Path, ep: str, settings) -> Callable[[str], str]:
@@ -239,45 +279,57 @@ def _held_pool(memory_path: Path, existing: dict[str, list[Claim]]) -> dict[str,
 
 
 def candidates(memory_path: Path, revisions: dict[str, er.Revision], extracted: list[dict],
-               settings=None) -> list[Pair]:
+               settings=None, cancelled: Callable[[], bool] | None = None) -> list[Pair]:
     """The pairs of this batch's revisions (see the module). Pure reads: the claims on pages and the claims held under
-    a name with no page yet (`pending_store`), wherever the old claim waits."""
+    a name with no page yet (`pending_store`), wherever the old claim waits. At most :data:`MAX_PAIRS` a revision and
+    :data:`MAX_REVISIONS` revisions with pairs: nothing past either is computed. ``cancelled`` is asked before each
+    re-read claim is compared (a stop never waits for a large page)."""
+    return _collect(memory_path, revisions, extracted, settings, cancelled)[0]
+
+
+def _collect(memory_path: Path, revisions: dict[str, er.Revision], extracted: list[dict], settings,
+             cancelled: Callable[[], bool] | None) -> tuple[list[Pair], int]:
+    """:func:`candidates`, and how many revisions with dated re-read claims were left past :data:`MAX_REVISIONS`."""
     from api.services.claim_pipeline import _load_existing_claims_by_subject
     from api.services.entity_extractor import entities_to_claims
 
     memory_path = Path(memory_path)
-    news: list[tuple[er.Revision, Claim, tuple[str, ...]]] = []
+    news: dict[str, tuple[er.Revision, Said, list[tuple[Claim, tuple[str, ...]]]]] = {}
     for item in extracted:
         ep = str(item.get("episode_id") or "")
         rev = revisions.get(ep)
         if rev is None or not rev.closes or not rev.changed or rev.book or not item.get("relationships"):
             continue
+        _rev, said, mine = news.setdefault(ep, (rev, Said(rev), []))
         only_rels = {**item, "entities": [], "values": []}
         for n in entities_to_claims([only_rels], memory_path, resolve_id=_resolver(memory_path, ep, settings)):
             if is_event(n) or is_record(n) or n.valid_to is not None or set(n.source_episodes or []) != {ep}:
                 continue
-            days = _new_days(n, rev)
+            days = _new_days(n, said)
             if days:
-                news.append((rev, n, days))
+                mine.append((n, days))
+    news = {ep: entry for ep, entry in news.items() if entry[2]}
     if not news:
-        return []
+        return [], 0
     existing = _load_existing_claims_by_subject(memory_path)
     held = _held_pool(memory_path, existing)
     out: list[Pair] = []
-    per_rev: dict[str, int] = {}
-    for rev, n, days in news:
-        waiting = [(o, "") for o in existing.get(n.subject, [])] + held.get(n.subject, [])
-        for o, line in waiting:
-            if not meets(o, n, rev):
-                continue
-            count = per_rev.get(rev.episode_id, 0)
-            per_rev[rev.episode_id] = count + 1
-            if count < MAX_PAIRS:
-                out.append(Pair("", rev, o, n, days, held=line))
-    for ep in per_rev:
-        for i, p in enumerate((p for p in out if p.rev.episode_id == ep), 1):
-            p.key = f"p{i}"
-    return out
+    with_pairs = 0
+    for n_rev, (ep, (rev, said, mine)) in enumerate(news.items()):
+        if with_pairs >= MAX_REVISIONS:
+            return out, len(news) - n_rev
+        found = 0
+        for n, days in mine:
+            if found >= MAX_PAIRS or (cancelled is not None and cancelled()):
+                break
+            for o, line in [(o, "") for o in existing.get(n.subject, [])] + held.get(n.subject, []):
+                if meets(o, n, rev, said, days):
+                    found += 1
+                    out.append(Pair(f"p{found}", rev, o, n, days, held=line))
+                    if found >= MAX_PAIRS:
+                        break
+        with_pairs += bool(found)
+    return out, 0
 
 
 def _words(c: Claim, rev: er.Revision) -> str:
@@ -337,17 +389,14 @@ def read(memory_path: Path, revisions: dict[str, er.Revision], extracted: list[d
     if small is None or main is None or not revisions:
         return out
     try:
-        pairs = candidates(Path(memory_path), revisions, extracted, settings)
+        pairs, out.capped = _collect(Path(memory_path), revisions, extracted, settings, cancelled)
     except Exception as exc:  # noqa: BLE001 - a miss is no reading
         logger.warning(f"Revision pairs: candidates unavailable ({type(exc).__name__})")
         return out
     by_ep: dict[str, list[Pair]] = {}
     for p in pairs:
         by_ep.setdefault(p.rev.episode_id, []).append(p)
-    for n_rev, (ep, group) in enumerate(by_ep.items()):
-        if n_rev >= MAX_REVISIONS:
-            out.capped += len(group)
-            continue
+    for ep, group in by_ep.items():
         if cancelled is not None and cancelled():
             break
         out.pairs += len(group)

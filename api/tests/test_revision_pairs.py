@@ -822,7 +822,7 @@ def _restated():
     return _claim("clm_a", "is-moving-to", "2026-12-05")
 
 
-def _reconcile(slot, *, revising=True, redated=("clm_b",), revised=(), new=None):
+def _reconcile(slot, *, revising=True, redated=("clm_b",), revised=(), new=None, rev=None):
     from types import SimpleNamespace
 
     from api.services.claim_reconciler import reconcile_stage3
@@ -833,7 +833,7 @@ def _reconcile(slot, *, revising=True, redated=("clm_b",), revised=(), new=None)
         [new], {"lia-prueba": list(slot)}, settings, now_date="2026-11-25", decay=False,
         cardinality_fn=lambda p: False,
         redated={i: EP for i in redated} or None, revised={i: EP for i in revised} or None,
-        revising={EP: _restore_rev()} if revising else None)
+        revising={EP: rev or _restore_rev()} if revising else None)
     return out["lia-prueba"], nudges, audit
 
 
@@ -888,6 +888,15 @@ def test_edited_back_under_another_predicate_leaves_the_correction_to_the_pair_r
                         _claim("clm_c", "is-moving-to", "2026-12-09", supersedes="clm_b", episodes=(OTHER,))),
                   redated=("clm_c",))),
     ("the correction gives way by no rule that exists (no third)", lambda: dict(slot=_chain(), redated=())),
+    # review 4, M23: a record in the chain (planted: a writer's record is born closed and never superseded).
+    ("a withdrawal record in the chain",
+     lambda: dict(slot=(_claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08", superseded_by="clm_b"),
+                        _claim("clm_b", "is-moving-to", "2026-12-08", valid_to="2026-12-08", supersedes="clm_a",
+                               superseded_by="clm_r"),
+                        _claim("clm_r", "retracts", "2026-12-08", valid_to="2026-12-08", supersedes="clm_b",
+                               superseded_by="clm_c"),
+                        _claim("clm_c", "is-moving-to", "2026-12-09", supersedes="clm_r")),
+                  redated=("clm_c",))),
     ("a pair the rule cannot meet (no day the changed lines say)",
      lambda: dict(slot=_chain(predicate="moves-to"), redated=(),
                   new=_claim("clm_a", "is-moving-to", "2026-12-05"))),
@@ -906,6 +915,254 @@ def test_a_close_this_conversation_did_not_make_alone_is_never_undone(label, mak
     assert {c.id for c in page} == {c.id for c in slot}, label            # nothing born: the restatement folded in
     assert not any(a.get("action") == "revision_edited_back" for a in audit), label
     assert not nudges, label
+
+
+def test_a_link_the_chain_does_not_hold_both_ways_is_not_this_conversations_history():
+    # review 4, M16 (planted): the closed claim names an earlier one it superseded, but that one says another claim
+    # superseded it. It is not this conversation's own correction, so it reads as what it is: here a belief that held
+    # and ended (a departure on 20 December), and the restatement is history, born closed; the correction stays.
+    a = _claim("clm_a", "is-moving-to", "2026-12-05", valid_to="2026-12-08", superseded_by="clm_b", supersedes="clm_x")
+    x = _claim("clm_x", "is-moving-to", "2026-12-01", valid_to="2026-12-20", superseded_by="clm_z")
+    b = _claim("clm_b", "is-moving-to", "2026-12-08", supersedes="clm_a")
+    page, _n, audit = _reconcile([a, x, b])
+    assert b.valid_to is None and not _undone(page)
+    assert any(e.get("action") == "after_departure" for e in audit)
+
+
+# ---- review 4 (2026-11-26): what the text must say before anything is edited back ----
+
+#: Night 3 keeps the corrected day and mentions the first one: nothing was edited back.
+BOTH = MOVED.replace("She leaves on 8 December,", "She leaves on 8 December (she first planned 5 December),")
+
+
+def _both_days(night2):
+    """The re-read of :data:`BOTH` writes both days: the corrected one under night 2's wording, the first plan as it
+    was first worded."""
+    def answer(chunk):
+        out = lia(reread=night2)(chunk)
+        first = re.search(r"first planned (\d+) December", chunk)
+        if "[Revision:" in chunk and first:
+            out["relationships"].append({"source": "Lia Prueba", "target": "Valencia", "label": "is moving to",
+                                         "starts": f"2026-12-{int(first[1]):02d}",
+                                         "evidence_quote": "Lia Prueba moves to Valencia"})
+        return out
+    return answer
+
+
+def _unchanged_by_night_three(tmp_path, monkeypatch, night2, third):
+    memory, readers = story(tmp_path, monkeypatch, [(LIA, lia(reread=night2)), (MOVED, lia(reread=night2))])
+    after_two, calls = _moves(memory), (len(readers.small_calls), len(readers.main_calls))
+    _revise(memory, EP, MOVED, BOTH)
+    _run(memory, monkeypatch, third)
+    _commit(memory, "Sleep cycle")
+    return memory, readers, after_two, calls
+
+
+@pytest.mark.parametrize("night2", ["is moving to", "moves to"])
+def test_the_old_day_only_mentioned_again_changes_nothing(tmp_path, monkeypatch, night2):
+    # F2a/F2b: the restatement of the current claim never takes its place (it would close a claim with a copy of
+    # itself), and the first day said again beside the corrected one is not the edit undone. Readers always "same".
+    memory, readers, after_two, calls = _unchanged_by_night_three(tmp_path, monkeypatch, night2, _both_days(night2))
+    assert _open_days(memory) == ["2026-12-08"]
+    assert _moves(memory) == after_two                       # every claim as night 2 left it
+    assert (len(readers.small_calls), len(readers.main_calls)) == calls   # no pair: the old day is still said
+
+
+def test_only_the_old_day_re_read_while_the_text_keeps_the_new_one_changes_nothing(tmp_path, monkeypatch):
+    # F2b, the same-slot path: the re-read (wrongly) writes only the first plan's day; no model is asked.
+    def only_old(chunk):
+        out = lia(reread="is moving to")(chunk)
+        if "first planned" in chunk:
+            for r in out["relationships"]:
+                r["starts"] = "2026-12-05"
+        return out
+
+    memory, _r, after_two, _c = _unchanged_by_night_three(tmp_path, monkeypatch, "is moving to", only_old)
+    assert _open_days(memory) == ["2026-12-08"] and _moves(memory) == after_two
+
+
+def test_a_restatement_of_the_open_claim_folds_in_and_closes_nothing():
+    # F2a engine-free: on a restore that does say 5 December, the restated CORRECTION (12-08, the open claim's own id
+    # and content) is still no reason to close it; only the restated first claim can be.
+    a, b = _chain()
+    page, _n, audit = _reconcile([a, b], new=_claim("clm_b", "is-moving-to", "2026-12-08"))
+    assert {c.id for c in page} == {"clm_a", "clm_b"} and b.valid_to is None
+    assert not any(e.get("action") == "revision_edited_back" for e in audit)
+
+
+@pytest.mark.parametrize("route", ["same slot", "pair"])
+def test_no_edit_back_while_the_tails_day_is_still_said(route):
+    # F2b engine-free: the restored day is said by the changed lines, but so is the day that took its place.
+    from api.services import episode_revision
+
+    rev = episode_revision.build({"id": EP, "content": BOTH, "source": "note"}, MOVED)
+    a, b = _chain(**({} if route == "same slot" else {"predicate": "moves-to"}))
+    page, _n, audit = _reconcile([a, b], rev=rev, redated=("clm_b",) if route == "same slot" else ())
+    assert {c.id for c in page} == {"clm_a", "clm_b"} and b.valid_to is None
+    assert not any(e.get("action") == "revision_edited_back" for e in audit)
+
+
+def test_a_pair_is_only_where_the_old_day_is_no_longer_said():
+    # `meets` carries the same condition: the old claim's day still in the text means the day did not move.
+    from api.services import episode_revision
+
+    old = _claim("clm_a", "is-moving-to", "2026-12-05")
+    new = _claim("clm_b", "moves-to", "2026-12-08")
+    moved_rev = episode_revision.build({"id": EP, "content": MOVED, "source": "note"}, LIA)
+    both_rev = episode_revision.build({"id": EP, "content": BOTH, "source": "note"}, LIA)
+    assert revision_pairs.meets(old, new, moved_rev)
+    assert not revision_pairs.meets(old, new, both_rev)
+
+
+@pytest.mark.parametrize("label,change", [
+    ("another context", lambda o: setattr(o, "context", "work")),          # review 4, M18
+    ("another speaker", lambda o: setattr(o, "observer", "external:bob-example")),   # review 4, M19
+])
+def test_a_pair_is_only_the_same_context_and_speaker(label, change):
+    old = _claim("clm_a", "is-moving-to", "2026-12-05")
+    new = _claim("clm_b", "moves-to", "2026-12-08")
+    assert revision_pairs.meets(old, new, _rev()), label
+    change(old)
+    assert not revision_pairs.meets(old, new, _rev()), label
+
+
+def test_a_day_only_the_unchanged_lines_say_is_no_pair():
+    # review 4, M21: the new claim's day must be said by the CHANGED lines; here the edit touched another line.
+    from api.services import episode_revision
+
+    prior = MOVED
+    body = MOVED.replace("plays the piano", "plays the harp")
+    rev = episode_revision.build({"id": EP, "content": body, "source": "note"}, prior)
+    assert "8 December" in body and not revision_pairs.Said(rev).changed("2026-12-08")
+    assert not revision_pairs.meets(_claim("clm_a", "is-moving-to", "2026-12-05"),
+                                    _claim("clm_b", "moves-to", "2026-12-08"), rev)
+
+
+@pytest.mark.parametrize("third", ["different", "raise", "small same, main different"])
+def test_an_edit_back_the_readers_do_not_call_the_same_leaves_both_open_as_before(tmp_path, monkeypatch, third):
+    # F1 (the coordinator's decision): the restatement is born on the text alone (this conversation's correction, the
+    # restored day said by the changed lines, the correction's day no longer said); whether the correction then gives
+    # way is the pair rule's reading. A "different", a failed call or a split reading: both days open, exactly as
+    # origin/dev ends (which folds nothing in and closes nothing).
+    small, main = {"different": (always("different"), always("different")), "raise": (raising, raising),
+                   "small same, main different": (always("same"), always("different"))}[third]
+    memory, readers = story(tmp_path, monkeypatch, [(LIA, lia()), (MOVED, lia())])
+    calls = len(readers.small_calls)
+    readers._small, readers._main = small, main
+    _revise(memory, EP, MOVED, LIA)
+    _run(memory, monkeypatch, lia(reread="is moving to"))
+    _commit(memory, "Sleep cycle")
+    assert len(readers.small_calls) == calls + 1, "night 3's pair was read"
+    assert _open_days(memory) == ["2026-12-05", "2026-12-08"]
+    opened = {p: s for p, s, is_open, _x, _i in _moves(memory) if is_open}
+    assert opened == {"is-moving-to": "2026-12-05", "moves-to": "2026-12-08"}
+
+
+def test_an_edit_undone_while_another_conversation_says_the_restored_day_ends_on_it(tmp_path, monkeypatch):
+    # Review 4 F5, kept: A, B, A on the same slot while another conversation read the same night says 5 December
+    # (origin/dev ends on 8 December, the day neither conversation now says).
+    same = lia(reread="is moving to")
+    says = "user: Lia Prueba moves to Valencia.\nuser: She leaves on 5 December.\nuser: Fin."
+    memory, _r = story(tmp_path, monkeypatch, [(LIA, same), (MOVED, same), (LIA, same)], others={1: says})
+    assert _open_days(memory) == ["2026-12-05"]
+
+
+def _large_page(tmp_path, n_claims=300, n_rels=20, lines=60):
+    """A page of ``n_claims`` claims of this conversation and a revision whose re-read writes ``n_rels`` dated claims,
+    each about one of the page's objects under another predicate (review 4's `cost.py`, smaller)."""
+    from api.services import episode_revision
+    from api.services.claims import Claim, write_claims
+
+    memory = _bank(tmp_path)
+    claims = [Claim(id=f"clm_2026-12-01_{i:08x}", text="x", subject="lia-prueba", predicate="visits",
+                    object=f"place{i}", valid_from="2026-12-01", source_episodes=[EP]) for i in range(n_claims)]
+    markdown_parser.write(memory / "entities" / "lia-prueba.md",
+                          {"name": "Lia Prueba", "type": "person", "status": "active", "confidence": 0.9,
+                           "source_episodes": [EP]}, write_claims("## Summary\nX.\n", claims))
+    prior = "\n".join(f"user: line {i} about place{i % n_rels} on 3 December." for i in range(lines))
+    body = "\n".join(f"user: line {i} about place{i % n_rels} on {4 + i % 20} December." for i in range(lines))
+    rev = episode_revision.build({"id": EP, "content": body, "source": "note"}, prior)
+    rels = [{"source": "Lia Prueba", "target": f"Place{i}", "label": "goes to", "starts": f"2026-12-{4 + i % 20:02d}",
+             "evidence_quote": f"line {i}"} for i in range(n_rels)]
+    extracted = [{"episode_id": EP, "episode_timestamp": "2026-11-07T10:00:00Z", "entities": [], "values": [],
+                  "relationships": rels}]
+    return memory, {EP: rev}, extracted
+
+
+def _count(monkeypatch):
+    """Counts every call of the date reader and of the old claim's test past the cheap ones."""
+    from api.services import episode_revision
+
+    seen = {"days": [], "old": []}
+    real_says, real_old = episode_revision.says_day, revision_pairs._pairable_old
+    monkeypatch.setattr(episode_revision, "says_day", lambda text, day: seen["days"].append(day) or real_says(text, day))
+    monkeypatch.setattr(revision_pairs, "_pairable_old", lambda c, ep: seen["old"].append(c.id) or real_old(c, ep))
+    return seen
+
+
+def test_each_day_is_read_once_per_revision_and_nothing_past_the_cap(tmp_path, monkeypatch):
+    # Review 4, F4: `meets` read the whole changed text twice for every old and new claim compared (7.6 s at 500
+    # claims on the page, 39.8 s at 3,000). Counted, never timed.
+    memory, revs, extracted = _large_page(tmp_path)
+    seen = _count(monkeypatch)
+    pairs = revision_pairs.candidates(memory, revs, extracted)
+    assert len(pairs) == revision_pairs.MAX_PAIRS
+    days = seen["days"]
+    assert len(days) <= 2 * len(set(days)), "a day read more than once for one text (the changed lines, the body)"
+    assert len(days) <= 21                          # 20 days the re-read writes and the page's one, never per pair
+    assert len(seen["old"]) == revision_pairs.MAX_PAIRS, "only pairs pass the cheap tests; nothing past the cap"
+
+
+def test_a_revision_past_the_cap_is_never_compared(tmp_path, monkeypatch):
+    memory, revs, extracted = _large_page(tmp_path)
+    monkeypatch.setattr(revision_pairs, "MAX_REVISIONS", 0)
+    seen = _count(monkeypatch)
+    reading = revision_pairs.read(memory, revs, extracted, lambda p: {}, lambda p: {})
+    assert (reading.pairs, reading.capped, seen["old"]) == (0, 1, [])
+
+
+def test_a_stop_asked_for_compares_nothing(tmp_path, monkeypatch):
+    memory, revs, extracted = _large_page(tmp_path)
+    seen = _count(monkeypatch)
+    assert revision_pairs.candidates(memory, revs, extracted, cancelled=lambda: True) == []
+    assert seen["old"] == []
+
+
+@pytest.mark.parametrize("label,change", [
+    ("a capped transcript's revision", {"closes": False}),
+    ("a book's record", {"book": True}),
+    ("nothing changed", {"changed": ()}),
+])
+def test_a_revision_that_may_close_nothing_is_never_read(tmp_path, monkeypatch, label, change):
+    # Review 4, M14: no reading at all, not even the date reader, for a revision that may not close a claim.
+    import dataclasses
+
+    memory, revs, extracted = _large_page(tmp_path)
+    assert revision_pairs.candidates(memory, revs, extracted), "the unchanged revision has pairs"
+    seen = _count(monkeypatch)
+    revs = {ep: dataclasses.replace(rev, **change) for ep, rev in revs.items()}
+    calls = []
+    reading = revision_pairs.read(memory, revs, extracted, lambda p: calls.append(p) or {}, lambda p: calls.append(p) or {})
+    assert (reading.pairs, calls, seen["days"], seen["old"]) == (0, [], [], []), label
+
+
+def test_a_value_edited_back_is_current_again_by_the_removed_texts_rule(tmp_path, monkeypatch):
+    # review 4, M08: the `revised` route — piano, then guitar (the piano's words removed), then piano again. The guitar's
+    # words are gone, so it gives way; without the route the restored value folds into the closed one and the guitar is
+    # withdrawn as removed text: nothing would be current.
+    guitar = LIA.replace("plays the piano", "plays the guitar")
+
+    def instrument(chunk):
+        out = lia(reread="is moving to")(chunk)
+        played = re.search(r"plays the (\w+)", chunk)
+        out["values"] = [{"entity": "Lia Prueba", "attribute": "instrument", "value": played[1],
+                          "evidence_quote": f"Lia Prueba plays the {played[1]}"}] if played else []
+        return out
+
+    memory, _r = story(tmp_path, monkeypatch, [(LIA, instrument), (guitar, instrument), (LIA, instrument)])
+    values = [c for c in _claims_of(memory, "lia-prueba") if "instrument" in c.predicate and not is_record(c)]
+    assert sorted(str(c.object) for c in values if c.valid_to is None) == ["piano"]
+    assert any(str(c.object) == "guitar" and c.valid_to and not is_record(c) for c in values)
 
 
 # --------------------------------------------------------------------------- #
