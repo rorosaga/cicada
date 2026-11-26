@@ -494,6 +494,10 @@ ROUTES: dict[str, tuple[str, str | None]] = {
     "POST /banks/{name}/import": (PER_WRITE, "api.services.provider_projects.after_import"),
     "PUT /settings/owner": (ADMITTED, None),
     "PUT /settings/editors": (OUTSIDE, None),         # G198: $CICADA_HOME/editors.json, never the bank
+    # Ruling 84 (2026-11-26): $CICADA_HOME/agent_folders.json, never the bank
+    "PUT /settings/agent-folders": (OUTSIDE, None),
+    "POST /settings/agent-folders": (OUTSIDE, None),
+    "POST /settings/agent-folders/remove": (OUTSIDE, None),
     "POST /sources/folders": (ADMITTED, None),
     "POST /sources/keep-as-page": (ADMITTED, None),   # G246: the one stamp on a post's save, committed alone as the person
     "PUT /sources/folders/{folder_id}": (HELD, None),

@@ -111,7 +111,17 @@ Agents page, ⌘9, `AppTab.agents`, appended so no shortcut moved — DR-22).
   fade card shows only while it holds a suggestion or a chosen pace. Watched folders are sources (`WatchedFoldersGroup`
   is kept whole for the Sources page). Under *Agent conversations*, *Your agents' notes* (ruling 43, `.agentNotes`) is
   the memory's one switch for the agents' own memory notes (`GET`/`PUT /capture/agent-memory/settings`), on by
-  default, optimistic with rollback; disabled until the backend answers (`capture-and-sleep.md`).
+  default, optimistic with rollback; disabled until the backend answers (`capture-and-sleep.md`). Under *Search &
+  memory*, **Folders its agent may read** (`AgentReadFoldersGroup`, ruling 84, owner 2026-11-26, `.agentReadFolders`):
+  one row per folder of the home (name, the backend's reason as secondary text, the system switch), then *Add a folder…*
+  through the system folder panel, which sends only the path (the app never reads the folder; the backend resolves it and
+  refuses what can never be read, in words: `GET`/`PUT`/`POST /settings/agent-folders` (the server's own token only; a refused add is a 409 with its sentence), `mcp.md`). A folder that stays closed
+  (Cicada's own, too large to check) shows its switch off and unavailable with the reason (DR-41); the folders macOS
+  protects are one sentence under the list, never rows; a folder the person added has *Remove from the list* in its
+  menu. Per device, optimistic with rollback and the backend's own sentence on a refusal, not a Store domain. The
+  agent has no switch of its own in the app yet (`harness_agent` is an environment setting), so this group sits with the
+  other privacy rows beside *Search & memory*, the place a person looks for what Cicada reads. DR-34, DR-38, DR-40,
+  DR-41, DR-60; no departure.
 - **Reading in your browser** (fix round 2026-10-22): Reading the web's switches — the master switch (on by default
   behind the versioned first-use sheet), the signed-in session (ruling 25), the YouTube lists, Never explore, how the
   agent reads and watches, the sites — in one sheet from the Sources page's header (`ReadingInBrowserSheet`); the

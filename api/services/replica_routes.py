@@ -302,6 +302,10 @@ ROUTES: dict[str, str] = {
     "POST /entities/{entity_id}/restore-correction": FORWARD,   # G104 slice 3: the home's page put back
     "PUT /memory/decay-tuning": FORWARD,
     "PUT /settings/owner": FORWARD,
+    # Ruling 84: the folders the agent may read are folders of the home's own disk, and the agent runs there: a copy never picks them.
+    "PUT /settings/agent-folders": REFUSE,
+    "POST /settings/agent-folders": REFUSE,
+    "POST /settings/agent-folders/remove": REFUSE,
     "PUT /sources/connectors/{connector_id}/credentials": REFUSE,   # never sent across: the home's sign-ins
     "PUT /sources/connectors/{connector_id}/scope": REFUSE,   # what a sign-in may read: the home's, like the sign-in
     "PUT /sources/google-books": REFUSE,      # 2026-11-08: the person's own Google Books key is a secret on the home (lookups run there); never sent across
