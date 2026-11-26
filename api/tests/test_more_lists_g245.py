@@ -630,7 +630,7 @@ def test_the_x_reposts_and_following_words_do_not_hang_on_a_tab_name_or_an_addre
     server, memory = reading
     _only("x-reposts")
     out = _queue(server)
-    assert "their own profile" in out and "on the tab that shows their posts" in out
+    assert "their own profile" in out and "on its Reposts tab" in out and "the tab that shows their posts" in out
     assert "never their own posts" in out and "never anyone else's profile" in out
     lines = " ".join(saved_lists._accounts_lines(memory, saved_lists.PLATFORMS["x-following"], True))
     assert "the person's own profile, then its Following list" in lines and "never an account's profile" in lines

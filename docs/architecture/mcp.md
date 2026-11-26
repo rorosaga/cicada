@@ -828,7 +828,9 @@ else, below).
   "now on this list too"), never a second page. A grid of pictures shows no words: the item is kept with its link and author only.
   A site's notch route never notices a second list (`site_saves.target` skips a base key).
 * **X reposts are a list of their own, read from the person's own timeline (owner 2026-11-24, "Should reposts be kept as
-  their own list?" "1. yes?"; the amendment is the docs PR's ruling).** `x-reposts` (base `x`, origin `x-reposts`, label
+  their own list?" "1. yes?"; the amendment is the docs PR's ruling).** **Since 2026-11-26 X's own profile has a Reposts tab** that holds only the
+  person's reposts, each marked "You reposted"; the table's words (`saved_lists.PLATFORMS["x-reposts"].how`) send the agent
+  there first and to the posts tab only when there is none. `x-reposts` (base `x`, origin `x-reposts`, label
   `Reposts`): off until turned on (never in `DEFAULT_ON_SAVED_LISTS`), index-only (`x-reposts` is in
   `history_index.LIST_ORIGINS`; a gate test walks every `PLATFORMS` entry), a stream `x.reposts` of kind `reposted` on X's
   page (a tab like Likes), and a post that is also bookmarked or liked stays one page whose marks read

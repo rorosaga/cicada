@@ -139,8 +139,9 @@ PLATFORMS: dict[str, Platform] = {
                         "choose its Likes tab; failing that, the person's own profile, then its Likes tab. Read that tab "
                         "and no other",
                         "x-likes", "Likes", "x.com", "to read your likes", ("x.com", "twitter.com"), base="x"),
-    # G245 (owner 2026-11-24, "Should reposts be kept as their own list?": "1. yes?"): the posts the person reposted. X has
-    # no page that holds only those: they are rows of the person's OWN profile timeline, between their own posts, so this is
+    # G245 (owner 2026-11-24, "Should reposts be kept as their own list?": "1. yes?"): the posts the person reposted. When
+    # measured on 2026-11-24 X had no page that held only those; on 2026-11-26 the person's own profile showed a Reposts
+    # tab that does (each row "You reposted"), so the words send the agent there first. Read either way, it is still
     # the one list that reads a timeline (ruling 79 amends "never a feed or timeline" for that page and those rows alone).
     # A timeline has no end: the first read stops at ``max_screens`` and never claims the end; a row the person wrote
     # themselves is dropped by their handle (``mcp_tools.record_saved_list``). Files under its own origin and label, which
@@ -149,8 +150,9 @@ PLATFORMS: dict[str, Platform] = {
     # key in ``reading_settings.SAVED_LISTS`` and the tool's enum); what was kept stays kept.
     "x-reposts": Platform(
         "x-reposts", "X", "Reposts", "https://x.com/",
-        " (the person's own profile, on the tab that shows their posts, called Posts when measured: it mixes their own "
-        "posts with the posts they reposted)", "x-reposts",
+        " (the person's own profile, on its Reposts tab, which holds only the posts they reposted, each marked \"You "
+        "reposted\" (seen 2026-11-26); if the profile shows no such tab, the tab that shows their posts, where reposts sit "
+        "between their own)", "x-reposts",
         "Reposts", "x.com", "to read your reposts", ("x.com", "twitter.com"), base="x",
         reads="the original post's author as the page shows it, and the words the post shows",
         cadence=timedelta(days=3), max_screens=folder_pass.FIRST_READ_SCREENS),
@@ -878,7 +880,8 @@ def _timeline_lines(memory_path: Path, p: Platform, can_record: bool) -> list[st
     the one kind of row a read may take from a timeline: only what the page marks as the person's own repost, and nothing
     of their own posts, replies, quotes, anyone else's profile, their feed or messages (ruling 79)."""
     profile = last(memory_path, p.key).get("profile_url")
-    where = (f"{profile} (their own profile)" if profile else f"{p.url}{p.how}")
+    # The table's words say which tab (X's own Reposts tab since 2026-11-26), so no address or tab name lives here.
+    where = f"{profile}{p.how}" if profile else f"{p.url}{p.how}"
     tail = (f"Record it with `cicada_record_saved_list(platform, outcome, items=[{{url, author, text}}], handle, "
             f"profile_url, via)` (platform `{p.key}`); always send the person's own `handle` (one word, as the page shows "
             "it) and `profile_url`: without their handle Cicada cannot tell a repost from their own post and keeps "
@@ -887,7 +890,7 @@ def _timeline_lines(memory_path: Path, p: Platform, can_record: bool) -> list[st
             f"If {p.name} asks you to sign in, do not sign in or type credentials: stop and tell the person.")
     return [f"The person asked their agent to keep their {p.name} {p.label.lower()} current in Cicada. Open their own "
             "profile in their own signed-in browser session. This is the one page where a timeline may be read, and only "
-            "for the rows the page marks as the person's own repost (\"<name> reposted\"): never their own posts, "
+            "for the rows the page marks as the person's own repost (\"You reposted\", or \"<name> reposted\"): never their own posts, "
             "replies, quotes or pinned post, never anyone else's profile, their feed or messages, and never click "
             "anything that changes anything (no unrepost, like, follow or reply).",
             f"- The person's {p.name} {p.label}: {where} — for each reposted row, its link (the ORIGINAL post's, not "
