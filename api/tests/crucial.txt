@@ -248,6 +248,8 @@ test_spend_limit.py::test_an_unpriced_model_stops_before_any_call_is_made
 # 2026-11-27: a part of the limit is the question steps', held to the whole figure; the bound does not move
 test_question_steps_under_limit.py::test_a_night_that_would_use_the_whole_figure_reads_to_the_reading_part_and_the_questions_spend_the_rest
 test_question_steps_under_limit.py::test_a_question_step_call_past_the_line_is_never_sent
+test_which_one_reader.py::test_sleeps_own_entry_point_reads_and_files_and_never_stops_on_an_error
+test_no_await_in_generator_gate.py
 
 ## Inventories a new route or writer must join, and no owner name in shipped code (each went red unnoticed, 2026-11-06)
 test_write_admission_sites.py::test_every_writing_route_is_classified

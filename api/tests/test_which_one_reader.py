@@ -225,12 +225,30 @@ def test_a_mention_that_shares_its_id_with_a_page_is_the_persons_call(tmp_path, 
     assert _run(bank, path, scripted(name="Nick Rowe", sentence="My brother Nick is visiting.", calls=calls)).read == 0 and not calls
 
 
+def test_sleeps_own_entry_point_reads_and_files_and_never_stops_on_an_error(tmp_path, monkeypatch):
+    """The tail calls `run_tail`, not `tend`: on the first real night it stopped on a TypeError before any read (2026-11-27), and
+    every test that went through it asserted only that nothing was read."""
+    bank, path = _world(tmp_path, monkeypatch, conversations={EP1: "user: My brother Nick is visiting.\nassistant: Nice."})
+    calls: list = []
+    ask = scripted(name="Nick Rowe", sentence="My brother Nick is visiting.", calls=calls)
+    report = asyncio.run(wr.run_tail(bank, _Settings(bank), user_triggered=True, ask=ask, today=TODAY, model="haiku"))
+    assert "error" not in report.skipped
+    assert len(calls) == 2 and report.read == 1 and report.settled == 1
+
+
 def test_nothing_held_is_nothing_to_file(tmp_path, monkeypatch):
     bank, path = _world(tmp_path, monkeypatch, conversations={EP1: "user: My brother Nick is visiting.\nassistant: Nice."})
+    from api.services import which_one_file
+
     pending_store.drop_held(bank, ["clm_held_1"])
-    pending_store.upsert(bank, pending_store.PendingEntity(name="Nick", type="person", description="", source_episode=EP1,
-                                                           confidence=0.7, tags=[], history_entries=[]))
-    assert asyncio.run(wr.run_tail(bank, _Settings(bank), user_triggered=True, ask=None)).read == 0
+    which_one_file.edit_line(bank, "Nick", lambda line: setattr(line, "description", "") or True)   # an upsert keeps the old words
+    assert wr.case_for(bank, path, dict(markdown_parser.parse(path).frontmatter), today=TODAY.isoformat()) == "nothing_held"
+
+    async def never(*a, **k):
+        raise AssertionError("no model is asked")
+
+    report = asyncio.run(wr.run_tail(bank, _Settings(bank), user_triggered=True, ask=never, today=TODAY))
+    assert report.read == 0 and "error" not in report.skipped
 
 
 def test_a_candidate_the_person_said_the_mention_is_not_is_never_offered(tmp_path, monkeypatch):

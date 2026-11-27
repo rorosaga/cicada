@@ -838,9 +838,12 @@ async def run_tail(memory_path: Path, settings, *, user_triggered: bool, ask: Ca
         report.settled += again.settled
         report.paths += again.paths
         rows = await asyncio.to_thread(eligible, memory_path, today.isoformat())
-        if not any(not isinstance(await asyncio.to_thread(case_for, memory_path, p, fm, today=today.isoformat()), str)
-                   for p, fm in rows[:MAX_LOOKS]):
+        for p, fm in rows[:MAX_LOOKS]:   # a loop, never `any(await … for …)`: that is an async generator, a TypeError every night
+            if not isinstance(await asyncio.to_thread(case_for, memory_path, p, fm, today=today.isoformat()), str):
+                break
+        else:
             return report
+        engine = None   # a reader handed in (a test, a dry run) names no engine of ours
         if ask is None:
             strong, why = await same_name_tend.main_engine(settings, user_triggered=user_triggered)
             if strong is None:
