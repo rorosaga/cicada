@@ -3616,7 +3616,30 @@ what is spent and what is out leave room, and past the line it raises `SpendLimi
 to wait, nobody's failure; one caught part way through its chunks is read again next time. Every other stage files what was
 read and is never refused. `batch_size` sizes each batch to the allowance left, at the last batch's cost per conversation, or
 at first at the most one read may write. A run past the line skips the tail's paid steps even with nothing left to read;
-link backfill runs in `sleep:<cycle>-links` on a drain, so its spend counts. A charged call whose cost cannot be read stops the
+link backfill runs in `sleep:<cycle>-links` on a drain, so its spend counts.
+**A part of the figure is the question steps' (2026-11-27, `QUESTIONS_SHARE` = 15%; the coordinator's reading under the owner's
+standing word of 2026-11-26).** Before it, a run that stopped on the line skipped the tail's question steps (the same-name
+review, the full-name and typo joins, the second look at open questions, the described landing, the which-one reader) with the
+rest of the paid tail, so on an install whose arrivals outrun the allowance they never ran; and on every run on a key those
+steps' calls ran **outside** the guard (they opened no drain scope, and their `disambiguation` label is the batches' own
+filing, never refused). Now: while the drain reads, the line is the figure less that part and less the dearest call so far
+(`SpendGuard._line`; batches are sized to it), so the last read stays out of it. The part is kept only while the steps have
+something to read: the first time reading reaches its line, `question_steps.has_work` (each step's own engine-free filter;
+questions raised during the run count) is asked once (`_ask_reserve`); with nothing, reading goes on to the whole figure
+(a night with no open question of their kinds reads exactly as before). When reading stops on the reading line,
+`_drain` calls `end_reading` (the line is the whole figure again) and returns `_StageOutcome.questions`; the tail then runs
+the question steps, **in today's order** (so before the catch-up proposer, as on a full night; the which-one reader after it, as
+before), inside `_question_line`: a scope `sleep:<cycle>-questions` registered to the drain, so their calls are counted into
+the run and, by scope (`sleep_spend.QUESTIONS_SCOPE`, read by `providers._spend_line`), admitted or refused against the whole
+figure whatever stage label they carry. The same scope holds them on a run that read everything under the line. Every other
+step that asks a model (In short, the web check and light context, link backfill, a recording's read, the books' read) stays
+skipped as at any limit; a stop on a plan's limit, a Pause and a Cancel are unchanged. A refused call is an `EngineExhausted`
+(`SpendLimitReached`), which each step already handles as a plan limit is: what it read stands and what it did not read
+stays for the next allowance (a Continue is a new allowance; the steps' own marks stop them reading again what they read).
+The run's record says it in counts (`questions_room`, `question_steps: {calls, settled}`, `sleep_runs.note_question_steps`)
+and the log says "reading stopped to leave room for the question steps" and what they used; the pause sentence is unchanged.
+**The bound is unchanged:** the figure plus the one call a line may be passed by (a question call is a few cents), because
+the steps' calls are admitted only below the whole figure. A charged call whose cost cannot be read stops the
 run like a model with no price (fail closed), before any read when the models are known at the start (`guard_for`), else at the
 first unpriced call. A Continue is a new allowance; a scheduled run waits for that click, while one paused on `restart`,
 `engine` or `busy` is replaced with a fresh allowance. **Only runs are covered:** Ask, the inbox's tidy and catch-up, a click's

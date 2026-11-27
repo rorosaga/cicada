@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import inspect
 import math
 import time
@@ -11,7 +12,7 @@ from loguru import logger
 
 from api.config import Settings
 from api.services import authorship, bank_index, episode_ids, episode_revision, episode_scrub, evidence, git_service, machine_state, markdown_parser
-from api.services import corrections_record, grouped_save_read, sleep_drain, sleep_reserve, sleep_spend, source_edits
+from api.services import corrections_record, grouped_save_read, question_steps, sleep_drain, sleep_reserve, sleep_spend, source_edits
 
 
 @dataclass
@@ -856,6 +857,9 @@ class _StageOutcome:
     breaker_resets_at: int | None = None
     breaker_kind: str | None = None
     skip_links: bool = False
+    # 2026-11-27: the drain stopped reading at its reading line on a key, leaving the question steps their part of the figure:
+    # they run in the tail although ``skip_links`` is set, each call held to the whole figure (`sleep_spend.QUESTIONS_SHARE`).
+    questions: bool = False
     # Ruling 80: the released saves a night that ended at a line the person set had not reached (back to the pile in the tail).
     unread_saves: list = field(default_factory=list)
     # Sleep page v5 — what happened to each conversation of a drain's batch.
@@ -1202,6 +1206,7 @@ async def _same_name_review_safely(memory_path: Path, settings: Settings, *, use
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"Same-name review failed: {type(exc).__name__}")
         return
+    _count_question_settled(report.split + report.merged)
     logger.info(f"Same-name review: {report.looked} looked at, {report.split} page(s) split, {report.merged} joined, "
                 f"{report.apart} kept apart, {report.asked} asked" + (f", skipped {report.skipped}" if report.skipped else ""))
 
@@ -1219,6 +1224,7 @@ async def _full_name_join_safely(memory_path: Path, settings: Settings, *, user_
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"Full-name join failed: {type(exc).__name__}")
         return
+    _count_question_settled(report.joined)
     if report.looked or report.joined:
         logger.info(f"Full-name join: {report.looked} read, {report.joined} joined"
                     + (f", skipped {report.skipped}" if report.skipped else ""))
@@ -1237,6 +1243,7 @@ async def _typo_join_safely(memory_path: Path, settings: Settings, *, user_trigg
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"Typo join failed: {type(exc).__name__}")
         return
+    _count_question_settled(report.joined)
     if report.looked or report.joined:
         logger.info(f"Typo join: {report.looked} read, {report.joined} joined"
                     + (f", skipped {report.skipped}" if report.skipped else ""))
@@ -1257,6 +1264,7 @@ async def _question_revisit_safely(memory_path: Path, settings: Settings, *, use
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"Question revisit failed: {type(exc).__name__}")
         return
+    _count_question_settled(report.settled)
     if report.read or report.settled:
         logger.info(f"Question revisit: {report.looked} looked at, {report.read} read, {report.settled} settled"
                     + (f", skipped {sum(report.skipped.values())}" if report.skipped else ""))
@@ -1275,6 +1283,7 @@ async def _which_one_read_safely(memory_path: Path, settings: Settings, *, user_
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"Which-one read failed: {type(exc).__name__}")
         return
+    _count_question_settled(report.settled)
     if report.read or report.settled:
         logger.info(f"Which-one read: {report.read} question(s) read, {report.settled} filed"
                     + (f", skipped {sum(report.skipped.values())}" if report.skipped else ""))
@@ -1293,6 +1302,7 @@ async def _described_landing_safely(memory_path: Path, settings: Settings, *, us
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"Described landing failed: {type(exc).__name__}")
         return
+    _count_question_settled(report.landed)
     if report.read or report.landed:
         logger.info(f"Described landing: {report.read} pair(s) read, {report.landed} fact(s) landed on {report.pages} page(s)"
                     + (f", skipped {sum(report.skipped.values())}" if report.skipped else ""))
@@ -1966,9 +1976,56 @@ async def _sensitive_review_safely(memory_path: Path) -> None:
         logger.warning(f"Sensitive review skipped: {type(exc).__name__}")
 
 
+@contextlib.asynccontextmanager
+async def _question_line():
+    """The tail's question steps on a run with a spending limit: their calls are the run's (counted into it) and held to
+    its whole figure, whatever stage label they carry (`sleep_spend.QUESTIONS_SCOPE`). Without a limit, or outside a drain,
+    nothing changes: the steps run in whatever scope they ran in."""
+    from api.services import agent_engine, web_lookup
+
+    drain, cycle_id = _state.drain, _state.cycle_id
+    if drain is None or getattr(drain, "spend", None) is None or not cycle_id:
+        yield
+        return
+    batch_id = f"{cycle_id}{sleep_spend.QUESTIONS_SCOPE}"
+    calls = drain.calls
+    sleep_drain.register_batch(batch_id, drain)
+    try:
+        with agent_engine.use_scope(web_lookup.scope_name(batch_id)):
+            yield
+    finally:
+        sleep_drain.unregister_batch(batch_id)
+        used = drain.question_steps if isinstance(drain.question_steps, dict) else {"calls": 0, "settled": 0}
+        drain.question_steps = {**used, "calls": used["calls"] + max(0, drain.calls - calls)}
+
+
+def _count_question_settled(n: int) -> None:
+    """A question step settled ``n`` things on a run with a spending limit (counts only; `_question_line`)."""
+    drain = _state.drain
+    if n and drain is not None and getattr(drain, "spend", None) is not None:
+        used = drain.question_steps if isinstance(drain.question_steps, dict) else {"calls": 0, "settled": 0}
+        drain.question_steps = {**used, "settled": used["settled"] + int(n)}
+
+
+async def _note_question_steps(memory_path: Path) -> None:
+    """What the question steps used, said in counts in the log and on the run's record, when reading stopped to leave them room."""
+    drain = _state.drain
+    used = getattr(drain, "question_steps", None)
+    if drain is None or not isinstance(used, dict) or not getattr(drain, "questions_run", False):
+        return
+    logger.info(f"Question steps under the spending limit: {used['calls']} call(s), {used['settled']} settled")
+    try:
+        from api.services import sleep_runs
+
+        await asyncio.to_thread(sleep_runs.note_question_steps, memory_path, drain.drain_id,
+                                calls=used["calls"], settled=used["settled"])
+    except Exception as exc:  # noqa: BLE001 - a summary for Past nights, never worth failing a run
+        logger.warning(f"run summary not written: {type(exc).__name__}")
+
+
 async def _run_engine_independent_tail(
     memory_path: Path, settings: Settings, outcome: _StageOutcome, *, user_triggered: bool = True,
-    skip_links: bool = False, engine_free: bool = False,
+    skip_links: bool = False, engine_free: bool = False, questions: bool = False,
 ) -> None:
     """The work that never needed an LLM — on EVERY exit path.
 
@@ -2040,6 +2097,9 @@ async def _run_engine_independent_tail(
     expiry, the state refresh, the polls and the rest of the engine-free work run.
     """
     no_model = skip_links or engine_free
+    # 2026-11-27: a run that stopped reading at its reading line on a key still runs the question steps, on their part of the
+    # limit (``questions``); every other step that asks a model stays skipped, as at any limit.
+    ask_questions = questions or not no_model
     why = "the run stopped at its limit" if skip_links else "nothing was read, so no engine started"
     # Ruling 80 (G246): first, so what it writes is committed before anything below sweeps the tree.
     await _return_unread_saves_safely(memory_path, outcome.unread_saves)
@@ -2059,28 +2119,33 @@ async def _run_engine_independent_tail(
         await _arrival_refusals_safely(memory_path)
         # 2026-11-23: the people who share a first name that tonight's batches flagged, looked at again — before the
         # catch-up proposers (a pair joined here is never asked about there) and any poll's `git add -A`.
-        if no_model:
+        if not ask_questions:
             logger.info(f"Same-name review skipped: {why}")
         else:
-            await _same_name_review_safely(memory_path, settings, user_triggered=user_triggered)
-            # Ruling 74b (2026-11-24): a name held in full that the person's own words name as one with a short-name page.
-            await _full_name_join_safely(memory_path, settings, user_triggered=user_triggered)
-            # Ruling 74c (2026-11-24): a name that is plainly one person's page written two ways.
-            await _typo_join_safely(memory_path, settings, user_triggered=user_triggered)
-            # Ruling 82 (2026-11-24): what those lanes left open, read again by the main model against the whole record.
-            await _question_revisit_safely(memory_path, settings, user_triggered=user_triggered)
-            # G148 (2026-11-25): a fact said about a part of a page, held under a label nobody said, lands on that page.
-            await _described_landing_safely(memory_path, settings, user_triggered=user_triggered)
+            async with _question_line():
+                await _same_name_review_safely(memory_path, settings, user_triggered=user_triggered)
+                # Ruling 74b (2026-11-24): a name held in full that the person's own words name as one with a short-name page.
+                await _full_name_join_safely(memory_path, settings, user_triggered=user_triggered)
+                # Ruling 74c (2026-11-24): a name that is plainly one person's page written two ways.
+                await _typo_join_safely(memory_path, settings, user_triggered=user_triggered)
+                # Ruling 82 (2026-11-24): what those lanes left open, read again by the main model against the whole record.
+                await _question_revisit_safely(memory_path, settings, user_triggered=user_triggered)
+                # G148 (2026-11-25): a fact said about a part of a page, held under a label nobody said, lands on that page.
+                await _described_landing_safely(memory_path, settings, user_triggered=user_triggered)
         # G21 (2026-11-24): two pages that go by one name; the engine-free half runs with no model too.
-        await _alias_collisions_safely(memory_path, settings, user_triggered=user_triggered, no_model=no_model)
+        async with _question_line():   # its model half (a night under the line) is held to the figure like the steps above
+            await _alias_collisions_safely(memory_path, settings, user_triggered=user_triggered, no_model=no_model)
         # G245 (owner 2026-11-24): a first-name page and the person who newly appeared the same week — decided and reported
         # here (`arrival_join.LIVE` false writes nothing); a write is its own commit, before the rematches attach.
-        await _arrival_join_safely(memory_path, settings, user_triggered=user_triggered, no_model=no_model)
+        async with _question_line():
+            await _arrival_join_safely(memory_path, settings, user_triggered=user_triggered, no_model=no_model)
         # Vision item 10: "still?" and same-person questions for the catch-up, one shared budget per drain.
         await _catchup_questions_safely(memory_path)
         # Ruling 83 (2026-11-26): the question above that the conversation itself answers is filed, not asked (needs the model).
-        if not no_model:
-            await _which_one_read_safely(memory_path, settings, user_triggered=user_triggered)
+        if ask_questions:
+            async with _question_line():
+                await _which_one_read_safely(memory_path, settings, user_triggered=user_triggered)
+            await _note_question_steps(memory_path)
         # G61 S3-a (D8): exact-match source -> its own page links, before any poll's `git add -A`.
         await _link_sources_safely(memory_path)
         # LinkedIn connections kept outside the bank, matched against tonight's pages — before any poll's `git add -A`.
@@ -2574,6 +2639,7 @@ async def run(settings: Settings, cycle_id: str, *, user_triggered: bool = True,
                     # stays the plain one otherwise, exactly as before.
                     **({"skip_links": True} if outcome.skip_links else {}),
                     **({"engine_free": True} if engine_free else {}),
+                    **({"questions": True} if outcome.questions else {}),
                 )
         finally:
             keep_awake.release(cycle_id)  # G243: after the tail, on every exit path; it also dies with this process
@@ -2965,6 +3031,10 @@ async def _drain(
     if engine_lbl == "litellm":   # ROR-102: a key's run stops at the person's figure
         ds.spend = sleep_spend.guard_for(
             resolved[0], opts.spend_limit_usd, also=(ds.light_model,) if ds.light_model else ())
+        if ds.spend is not None:
+            # The question steps' part of it is kept back only while they have something to read, asked when reading
+            # reaches its own line (questions arise during a run), by their own engine-free filters.
+            ds.spend.reserve_check = lambda: question_steps.has_work(memory_path)
     _write_run_record(ds, memory_path, phase="running", engine_label=engine_lbl)
     _record_leg(ds, memory_path, "running")
     try:
@@ -3178,6 +3248,22 @@ async def _drain(
         _fold(last, [], decays=True, links=True)
         stop = last.stop
 
+    questions = False
+    if ds.spend is not None:
+        # Reading is over: the tail's calls are held to the whole figure. A run that stopped at the reading line left the
+        # question steps their part of it (they run, although the rest of the paid tail stays skipped).
+        # (Or a night that reached it with only background saves left, which ends finished, the saves back in the pile.)
+        questions = bool(ds.spend.reserve_usd > 0 and not ds.spend.no_price and ds.spend.is_reached() and (
+            (stop is not None and stop.reason == "reserve" and stop.limit == sleep_spend.LIMIT)
+            or (stop is None and ds.returned_saves)))
+        ds.spend.end_reading()
+        if questions and not ds.spend.is_reached():
+            ds.questions_run = True
+            logger.info(f"Drain {ds.drain_id}: reading stopped to leave room for the question steps "
+                        f"({sum(1 for i in ids if i not in ds.settled)} conversation(s) wait for a Continue)")
+        else:
+            questions = False
+
     try:
         now_waiting = await asyncio.to_thread(sleep_progress.unprocessed_ids, memory_path)
         parked_end = await asyncio.to_thread(sleep_parked.ids, memory_path)
@@ -3216,7 +3302,7 @@ async def _drain(
         # A run past the spending limit with nothing left to read ends as a finished run; its tail still stops.
         skip_links=bool((stop is not None and stop.reason in ("plan_limit", "reserve"))
                         or (ds.spend is not None and ds.spend.is_reached()) or bool(ds.returned_saves)),
-        unread_saves=list(ds.returned_saves),
+        unread_saves=list(ds.returned_saves), questions=questions,
     )
 
 

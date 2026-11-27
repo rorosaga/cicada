@@ -105,6 +105,10 @@ def record_leg(memory_path: Path, ds, *, state: str, stop=None, reason: str | No
         "replaced_ids": replaced,
         "corrections": corrections,
         "corrections_base": base,
+        # 2026-11-27 (`sleep_spend.QUESTIONS_SHARE`): reading stopped at its line to leave the question steps room, and what
+        # they used in the tail, in counts (`note_question_steps`). Absent on a run that never did.
+        **({"questions_room": True} if getattr(ds, "questions_run", False) or prev.get("questions_room") else {}),
+        **({"question_steps": prev["question_steps"]} if isinstance(prev.get("question_steps"), dict) else {}),
     }
     data["runs"][ds.drain_id] = summary
     if ds.drain_id in data["order"]:
@@ -112,6 +116,19 @@ def record_leg(memory_path: Path, ds, *, state: str, stop=None, reason: str | No
     data["order"].append(ds.drain_id)
     _save(memory_path, data)
     return summary
+
+
+def note_question_steps(memory_path: Path, run_id: str, *, calls: int, settled: int) -> None:
+    """What the tail's question steps used after reading stopped to leave them room: counts, summed over a run's legs.
+    Never raises past the caller's guard."""
+    data = load(memory_path)
+    run = data["runs"].get(run_id)
+    if not run:
+        return
+    prev = run.get("question_steps") if isinstance(run.get("question_steps"), dict) else {}
+    run["question_steps"] = {"calls": int(prev.get("calls") or 0) + int(calls),
+                             "settled": int(prev.get("settled") or 0) + int(settled)}
+    _save(memory_path, data)
 
 
 def close_open_pause(memory_path: Path, run_id: str) -> None:

@@ -501,9 +501,13 @@ def resolve_llm_fn(
         """The limit this call answers to: a read or a paid step of a drain on a key with one, else ``None``."""
         from api.services import sleep_drain
 
-        if billing != "usage" or stage not in sleep_spend.LINE_STAGES:
+        if billing != "usage":
             return None
-        return getattr(sleep_drain.drain_for(agent_engine_cycle_id()), "spend", None)
+        cycle_id = agent_engine_cycle_id()
+        # The tail's question steps carry labels the batches' filing shares (never refused there): their scope is held instead.
+        if stage not in sleep_spend.LINE_STAGES and not str(cycle_id or "").endswith(sleep_spend.QUESTIONS_SCOPE):
+            return None
+        return getattr(sleep_drain.drain_for(cycle_id), "spend", None)
 
     def _emit(resp, started: float, ok: bool, *, model_used: str | None = None,
               equiv_override: float | None = None, refs: dict | None = None) -> None:

@@ -28,6 +28,14 @@ The owner, 2026-11-04: "from cicada you can put a limit on spending." It amends 
   figure), both models need a known price before the run starts, and a line reached with only such saves left ends the run
   rather than pausing it. The first lighter batch is sized by what the dearer model cost each, so it never holds more than
   the allowance buys; it is then sized by its own.
+* **A part of the figure is the question steps' (2026-11-27, `QUESTIONS_SHARE`).** While reading, the line is the figure
+  less that part and less the dearest call so far (so the last read stays out of it), so a night that would have read to the
+  figure stops a little sooner; the tail's question steps (the
+  same-name review, the two joins, the second look at open questions, the described landing, the which-one reader) then
+  spend the rest, each call admitted or refused against the whole figure (`end_reading`, `QUESTIONS_SCOPE`). The part is
+  kept only while those steps have something to read: when the reading line is reached and they have none
+  (`release_reserve`), reading goes on to the whole figure. The bound is unchanged: the figure plus the one call a line
+  may be passed by.
 * **Metered engines only.** A plan's limits are the plan's, and a local model costs nothing.
 """
 from __future__ import annotations
@@ -35,6 +43,7 @@ from __future__ import annotations
 import contextlib
 import threading
 import time
+from typing import Callable
 
 from api.services import engine_errors
 
@@ -52,6 +61,11 @@ LINE_STAGES = frozenset({"extraction", "enrichment", "in_short", "media_read", "
 #: What one read may write at most (``anthropic_engine.DEFAULT_MAX_TOKENS``): the first batch's price, before any is known.
 READ_OUTPUT_TOKENS = 64_000
 POLL_S = 0.05
+#: The part of a run's figure kept back from reading for the tail's question steps (measured, TODO ruling 63 (g)).
+QUESTIONS_SHARE = 0.15
+#: A call made under a scope ending so (``sleep_cycle._question_line``) is held to the run's figure whatever its stage label:
+#: the question steps' calls carry the labels the batches' own filing uses, which are never refused.
+QUESTIONS_SCOPE = "-questions"
 
 
 class SpendGuard:
@@ -62,6 +76,11 @@ class SpendGuard:
         self.spent_usd = 0.0
         self.no_price = False
         self.read_cap_usd = read_cap_usd
+        self.reserve_usd = 0.0            # the question steps' part of the figure, while reading goes on (``end_reading``)
+        self.reserve_check: Callable[[], bool] | None = None   # do they have anything to read? (None: assume so)
+        self._reading = True
+        self._asked = False
+        self._ask_lock = threading.Lock()
         self._lock = threading.Lock()
         self._out = 0                     # calls sent and not yet answered
         self._dearest: float | None = None
@@ -76,14 +95,57 @@ class SpendGuard:
                 self.spent_usd += float(cost_usd)
                 self._dearest = max(self._dearest or 0.0, float(cost_usd))
 
+    def _line(self) -> float:
+        """The figure a call is held to now: after reading, all of it. While the drain reads and a part is kept back, less that
+        part and less the dearest call so far, so the last read never crosses into the question steps' part (the line a read
+        may pass by one call is the whole figure's, which they hold to after)."""
+        if not self._reading:
+            return self.limit_usd
+        return self.limit_usd - self.reserve_usd - (self._dearest or 0.0 if self.reserve_usd > 0 else 0.0)
+
+    def end_reading(self) -> None:
+        """The drain has stopped reading: the line becomes the whole figure, for the tail's calls."""
+        with self._lock:
+            self._reading = False
+
+    def _ask_reserve(self) -> None:
+        """Reading has used its own part of the figure while a part is kept back: do the question steps have anything to
+        read? Asked once, by their engine-free filters, outside ``_lock`` (they read files); with nothing, the part is given
+        back and reading goes on to the whole figure. Whoever reaches the line first asks, the others wait for the answer."""
+        with self._ask_lock:
+            with self._lock:
+                if (self._asked or not self._reading or self.reserve_usd <= 0 or self.no_price
+                        or self.spent_usd < self._line()):
+                    return
+            try:
+                work = True if self.reserve_check is None else bool(self.reserve_check())
+            except Exception:  # noqa: BLE001 - a filter that cannot answer is no work, never a reason to hold reading back
+                work = False
+            with self._lock:
+                self._asked = True
+                if not work:
+                    self.reserve_usd = 0.0
+
+    def release_reserve(self) -> None:
+        """The question steps have nothing to read: reading may use the whole figure."""
+        with self._lock:
+            self.reserve_usd = 0.0
+
+    @property
+    def reserving(self) -> bool:
+        with self._lock:
+            return self._reading and self.reserve_usd > 0
+
     def try_admit(self) -> bool:
         """May one more call go out now? ``True`` holds its place until ``release``; ``False`` means wait, since what is
         spent and what is out leave no room to say yet (the run's first call goes alone, to learn the price). Past the
         line it raises: the call is never sent."""
+        self._ask_reserve()
         with self._lock:
-            if self.no_price or self.spent_usd >= self.limit_usd:
+            line = self._line()
+            if self.no_price or self.spent_usd >= line:
                 raise engine_errors.SpendLimitReached(self.sentence)
-            if self._out and (self._dearest is None or self.spent_usd + self._out * self._dearest >= self.limit_usd):
+            if self._out and (self._dearest is None or self.spent_usd + self._out * self._dearest >= line):
                 return False
             self._out += 1
             return True
@@ -104,15 +166,16 @@ class SpendGuard:
         """How many conversations the allowance left buys, at what the last batch's cost each, or before any is known at
         the most one read can write. Never more than the person's batch, never none (the line is what stops a run)."""
         with self._lock:
-            each, left = self._per_conversation or self.read_cap_usd, self.limit_usd - self.spent_usd
+            each, left = self._per_conversation or self.read_cap_usd, self._line() - self.spent_usd
         return min(size, max(1, int(left / each))) if each else size
 
     def observe_snapshot(self, snap) -> None:
         """A plan window's snapshot: nothing to a key (``ReserveGuard``'s other half)."""
 
     def is_reached(self) -> bool:
+        self._ask_reserve()
         with self._lock:
-            return self.no_price or self.spent_usd >= self.limit_usd
+            return self.no_price or self.spent_usd >= self._line()
 
     def stop_values(self) -> tuple[int | None, str]:
         return None, LIMIT
@@ -162,6 +225,7 @@ def guard_for(resolved, limit_usd: float | None, *, also: tuple[str, ...] = ()) 
     if not limit_usd or not main or telemetry.connection_for_model(main)[1] != "usage":
         return None
     guard = SpendGuard(limit_usd)
+    guard.reserve_usd = float(limit_usd) * QUESTIONS_SHARE
     with contextlib.suppress(Exception):   # no first estimate only makes the first batch the person's own
         guard.read_cap_usd = _cost(main, 0, READ_OUTPUT_TOKENS)
     models = {main, str(getattr(resolved, "effective_consolidation_model", "") or ""),

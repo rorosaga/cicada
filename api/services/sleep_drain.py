@@ -178,6 +178,10 @@ class DrainState:
     engine_shown: str | None = None                       # its model as the Sleep page shows one (`engine_select.shown_model`)
     guard: object | None = None                           # sleep_reserve.ReserveGuard, when a line is set
     spend: object | None = None                           # sleep_spend.SpendGuard, on a key with a limit
+    #: 2026-11-27: reading stopped at its line to leave the question steps their part of the limit (`sleep_spend.QUESTIONS_SHARE`),
+    #: and what those steps used in the tail, in counts: ``{"calls", "settled"}``.
+    questions_run: bool = False
+    question_steps: dict | None = None
     ended_mono: float | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
