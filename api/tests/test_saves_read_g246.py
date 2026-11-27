@@ -33,6 +33,13 @@ WORDS = "A page about the thing it is titled"
 
 
 @pytest.fixture(autouse=True)
+def _one_day(monkeypatch):
+    """The pile's day is read once per test: ``TODAY``. A run crossing midnight compared a day taken before it with one
+    the code read after (CI at 00:00:06 UTC, 2026-11-27)."""
+    monkeypatch.setattr(history_index, "_local_today", lambda: TODAY)
+
+
+@pytest.fixture(autouse=True)
 def _fresh():
     bank_index.invalidate()
     s = sleep_cycle.get_sleep_state()
