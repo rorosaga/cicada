@@ -747,6 +747,33 @@ def test_the_run_is_off_with_its_switch_and_for_a_demo(bank, monkeypatch):
     assert hq.start_run(bank, Off(bank), user_triggered=True) is False
 
 
+def test_the_agent_runs_on_the_plan_beside_a_key_and_never_on_the_key(monkeypatch):
+    """Ruling 84: a person whose Sleep reads with a key still has the agent, on their Claude Code sign-in; a key engine is
+    never handed to a session, and the schedule switch's off holds beside a key as it does on the plan."""
+    from api.services import engine_select, web_lookup
+
+    asked = []
+
+    async def sleep_engine(why):
+        return (None if why != "plan" else "sleep-on-plan"), "litellm", why
+
+    async def beside(settings, registry, *, user_triggered):
+        asked.append(user_triggered)
+        return ("plan-beside", "plan") if signed_in else (None, "not_signed_in")
+
+    monkeypatch.setattr(web_lookup, "_registry", lambda settings: None)
+    monkeypatch.setattr(engine_select, "claude_plan_beside", beside)
+    monkeypatch.setattr(engine_select, "engine_label", lambda resolved: "claude-cli")
+    for why, signed_in, want in (("metered", True, ("plan-beside", "claude-cli", "plan")),
+                                 ("no_search_tool", True, ("plan-beside", "claude-cli", "plan")),
+                                 ("metered", False, (None, "litellm", "not_signed_in")),
+                                 ("scheduled_plan", True, (None, "litellm", "scheduled_plan")),
+                                 ("plan", False, ("sleep-on-plan", "litellm", "plan"))):
+        monkeypatch.setattr(web_lookup, "engine_for", lambda settings, *, user_triggered, why=why: sleep_engine(why))
+        assert run(hq.session_engine(object(), user_triggered=False)) == want
+    assert asked == [False, False, False]      # asked only when Sleep's own engine is not the plan, and never past the switch
+
+
 # --------------------------------------------------------------------------- the read-only browser
 
 

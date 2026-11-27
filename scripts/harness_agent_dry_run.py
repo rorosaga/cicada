@@ -14,7 +14,8 @@ The folders listed are the person's own list (Settings → Privacy & data; `agen
 choices applied, each with its state and reason.
 
 --attended lets the private session read Documents, Desktop and Downloads (this shell's own permissions; a scheduled run
-never does). It uses the Claude plan: a metered key or another engine is refused. The signed-in browser is the third compartment: it
+never does). It uses the person's Claude plan, whatever engine Sleep reads with, and never a key; the first line printed says whether a
+scheduled run on this machine's settings would start it. The signed-in browser is the third compartment: it
 is listed (and used by --work) only when the person connected a site for reading and their own browser-harness daemon is already
 running; this script never starts a browser, and says in words when it skipped the compartment.
 
@@ -43,10 +44,13 @@ async def main() -> int:
     args = ap.parse_args()
 
     from api.config import Settings
-    from api.services import agent_folders as af, harness_questions as hq, markdown_parser, web_lookup
+    from api.services import agent_folders as af, harness_questions as hq, markdown_parser
 
     memory = Path(args.memory).resolve()
     settings = Settings(memory_path=memory)
+    on_plan, _label, why = await hq.session_engine(settings, user_triggered=False)
+    print("after a scheduled Sleep on this machine's settings: " + ("it runs, on the Claude plan" if on_plan is not None
+                                                                   else f"it does NOT run ({why})"))
     rows = await asyncio.to_thread(hq.candidates, memory)
     grant = await asyncio.to_thread(hq.home_grant, memory, attended=args.attended)
     browse = hq.Browse()
@@ -72,8 +76,8 @@ async def main() -> int:
         print(f"    {line}")
     if not args.work:
         return 0
-    resolved, _label, why = await web_lookup.engine_for(settings, user_triggered=True)
-    if resolved is None or why != "plan":
+    resolved, _label, why = await hq.session_engine(settings, user_triggered=True)
+    if resolved is None:
         print(f"not run: the agent runs on a signed-in Claude plan only ({why})")
         return 1
     from api.services import same_name_tend
