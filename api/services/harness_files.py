@@ -263,6 +263,14 @@ def _notes_only(name: str, cen: Census) -> bool:
             and cen.programs == 0 and "secret_dir" not in cen.flags)
 
 
+def _documents_under_git(cen: Census) -> bool:
+    """A repository that holds documents and no code: notes kept under git (a notes app's own sync, a folder of writing). The
+    ``.git`` folder alone does not make a folder code; a program or configuration file beside it, a manifest or a tool folder
+    does. What is under ``.git`` is hidden and never read either way. Found on a real Mac, 2026-11-27: a folder of three notes
+    was offered off as "code or tools" for its ``.git`` alone."""
+    return cen.programs == 0 and cen.docs >= 1 and cen.docs * 2 >= cen.files
+
+
 def notes_vault(name: str, cen: Census) -> bool:
     """A folder named for a vault that holds notes: mostly Markdown or text, nothing key-shaped by the existing kinds (no secret-shaped
     file or folder name, hidden ones included, no code or configuration file), no link that leads out of it (a link may point at a key
@@ -284,7 +292,8 @@ def refusal_for(name: str, cen: Census) -> str:
         return "vault_link" if cen.links_out and _notes_only(name, cen) else "secrets"
     if cicada_named(name) or "bank" in cen.flags:
         return "cicada"
-    if (fold(name) in TOOL_FOLDERS or cen.flags & {"git", "tool_dir", "manifest"} or cen.programs > cen.docs):
+    if (fold(name) in TOOL_FOLDERS or cen.flags & {"tool_dir", "manifest"} or cen.programs > cen.docs
+            or ("git" in cen.flags and not _documents_under_git(cen))):
         return "tooling"
     if cen.truncated:
         return "too_large"

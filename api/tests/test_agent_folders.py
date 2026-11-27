@@ -78,6 +78,24 @@ def test_a_vault_of_notes_is_on_by_default_and_every_other_secret_name_stays_off
     assert "Read(//**/*.png)" in g.deny and "Read(//**/*.pdf)" not in g.deny
 
 
+def test_notes_kept_under_git_are_notes_and_a_repository_with_code_is_still_code(home, bank):
+    """Found on a real Mac (2026-11-27): a vault of three notes was offered off as "code or tools" for its ``.git`` alone. Notes
+    kept under git are notes; what is under ``.git`` stays hidden and denied; a program beside the notes still makes it code."""
+    _put(home, {"vault/a.md": "x", "vault/b.md": "x", "vault/sub/c.md": "x", "vault/.git/HEAD": "ref", "vault/.git/config": "[remote]",
+                "Journal/2026.md": "x", "Journal/.git/HEAD": "ref",
+                "site/README.md": "x", "site/build.py": "x", "site/.git/HEAD": "ref",
+                "empty-repo/.git/HEAD": "ref",
+                "pkg/notes.md": "x", "pkg/package.json": "{}", "pkg/.git/HEAD": "ref"})
+    g = af.listing(bank, home=home)
+    rows = _by_id(g)
+    assert rows["vault"].state == "default" and rows["vault"].why == "notes_vault" and rows["vault"].granted
+    assert rows["Journal"].state == "default" and rows["Journal"].why == "" and rows["Journal"].granted
+    for name in ("site", "empty-repo", "pkg"):
+        assert rows[name].why == "tooling" and not rows[name].granted, name
+    assert hf.allowed_path(str(home / "vault" / "a.md"), g.roots, refused=g.refused)
+    assert not hf.allowed_path(str(home / "vault" / ".git" / "config"), g.roots, refused=g.refused), "what is under .git is never read"
+
+
 @pytest.mark.parametrize("extra", [
     {"deploy.pem": "x"}, {"id_rsa": "x"}, {".env": "A=1"}, {"credentials.md": "x"}, {"cloud.json": "{}"}, {"settings.yaml": "a: 1"},
     {"keepass.kdbx": "x"}, {".ssh/config": "x"}, {".aws/config": "x"}, {"sub/secrets/a.md": "x"}, {"run.py": "x"}])
