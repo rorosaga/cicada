@@ -145,18 +145,66 @@ def test_the_part_is_kept_only_if_the_steps_have_something_to_read_asked_once_wh
     _spend(guard, 4.0)
     assert not guard.is_reached() and asked == [], "not asked while reading is under its own line"
     _spend(guard, 0.3)
+    guard.settle_reserve()
     assert not guard.is_reached() and asked == [1], "nothing for them: reading goes on to the whole figure"
     assert guard.try_admit() and asked == [1] and not guard.reserving
     kept = sleep_spend.SpendGuard(5.0)
     kept.reserve_usd = 0.75
     kept.reserve_check = lambda: asked.append(2) or True
     _spend(kept, 4.3)
+    kept.settle_reserve()
     assert kept.is_reached() and kept.is_reached() and asked == [1, 2], "something to read: kept, asked once"
     broken = sleep_spend.SpendGuard(5.0)
     broken.reserve_usd = 0.75
     broken.reserve_check = lambda: 1 / 0
     _spend(broken, 4.3)
+    broken.settle_reserve()
     assert not broken.is_reached(), "a filter that cannot answer is no work, never a reason to hold reading back"
+
+
+def test_the_question_is_answered_on_a_thread_of_its_own_and_a_call_at_the_line_waits_for_it(monkeypatch):
+    """Review 2026-11-27: the filters read the whole bank, and the guard is reached from the event loop. Nothing that asks the
+    guard waits on them: a call at the reading line is told "not yet" (never sent, never refused on a guess) until the answer
+    comes, and an answer that does not come in time is "nothing to read"."""
+    import threading
+
+    asking, go, asked_on = threading.Event(), threading.Event(), []
+
+    def slow(work):
+        def check():
+            asked_on.append(threading.current_thread().name)
+            asking.set()
+            go.wait(5)
+            return work
+        return check
+
+    for work in (True, False):
+        asking.clear(), go.clear()
+        guard = sleep_spend.SpendGuard(5.0)
+        guard.reserve_usd, guard.reserve_check = 0.75, slow(work)
+        _spend(guard, 4.3)
+        assert guard.try_admit() is False and asking.wait(5), "not yet: the answer is being worked out elsewhere"
+        assert guard.try_admit() is False and guard.is_reached(), "still not yet, and nothing here waited on the filters"
+        go.set()
+        guard.settle_reserve()
+        if work:
+            with pytest.raises(engine_errors.SpendLimitReached):
+                guard.try_admit()
+        else:
+            assert guard.try_admit() is True and not guard.is_reached()
+    assert asked_on == ["cicada-question-share"] * 2 and threading.current_thread().name not in asked_on
+
+    # No answer within the cap: the part goes back to reading, and a late answer changes nothing.
+    asking.clear(), go.clear()
+    monkeypatch.setattr(sleep_spend, "ASK_CAP_S", 0.05)
+    late = sleep_spend.SpendGuard(5.0)
+    late.reserve_usd, late.reserve_check = 0.75, slow(True)
+    _spend(late, 4.3)
+    late.settle_reserve()
+    assert not late.is_reached() and late.try_admit() is True and late.reserve_usd == 0
+    go.set()
+    asking.wait(5)
+    assert late.reserve_usd == 0 and not late.is_reached()
 
 
 def test_a_batch_is_sized_to_the_reading_part_and_released_it_is_the_whole_figure():

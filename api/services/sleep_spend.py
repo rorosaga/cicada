@@ -66,6 +66,9 @@ QUESTIONS_SHARE = 0.15
 #: A call made under a scope ending so (``sleep_cycle._question_line``) is held to the run's figure whatever its stage label:
 #: the question steps' calls carry the labels the batches' own filing uses, which are never refused.
 QUESTIONS_SCOPE = "-questions"
+#: How long reading waits for the answer to "do the question steps have anything to read?" before going on without it (the
+#: part is then given back to reading: a filter that cannot answer in time is no reason to hold reading back).
+ASK_CAP_S = 20.0
 
 
 class SpendGuard:
@@ -80,7 +83,9 @@ class SpendGuard:
         self.reserve_check: Callable[[], bool] | None = None   # do they have anything to read? (None: assume so)
         self._reading = True
         self._asked = False
-        self._ask_lock = threading.Lock()
+        self._asking = False              # the answer is being worked out on its own thread (``_start_ask``)
+        self._ask_started = 0.0
+        self._answered = threading.Event()
         self._lock = threading.Lock()
         self._out = 0                     # calls sent and not yet answered
         self._dearest: float | None = None
@@ -108,23 +113,57 @@ class SpendGuard:
         with self._lock:
             self._reading = False
 
-    def _ask_reserve(self) -> None:
+    def _start_ask(self) -> None:
         """Reading has used its own part of the figure while a part is kept back: do the question steps have anything to
-        read? Asked once, by their engine-free filters, outside ``_lock`` (they read files); with nothing, the part is given
-        back and reading goes on to the whole figure. Whoever reaches the line first asks, the others wait for the answer."""
-        with self._ask_lock:
-            with self._lock:
-                if (self._asked or not self._reading or self.reserve_usd <= 0 or self.no_price
-                        or self.spent_usd < self._line()):
-                    return
+        read? Asked once, by their engine-free filters, on a thread of its own: they read the whole bank, and this is reached
+        from the event loop (the drain's loop, a call waiting for room), which must never wait on them. Until the answer comes
+        a call at the line waits (``try_admit`` says "not yet") and is neither sent nor refused; with nothing to read the part
+        is given back and reading goes on to the whole figure. No answer within ``ASK_CAP_S`` counts as nothing to read."""
+        with self._lock:
+            if (self._asked or self._asking or not self._reading or self.reserve_usd <= 0 or self.no_price
+                    or self.spent_usd < self._line()):
+                return
+            check = self.reserve_check
+            if check is None:             # nobody to ask: the part stays kept
+                self._asked = True
+                self._answered.set()
+                return
+            self._asking, self._ask_started = True, time.monotonic()
+
+        def ask() -> None:
             try:
-                work = True if self.reserve_check is None else bool(self.reserve_check())
+                work = bool(check())
             except Exception:  # noqa: BLE001 - a filter that cannot answer is no work, never a reason to hold reading back
                 work = False
+            self._answer(work)
+
+        threading.Thread(target=ask, name="cicada-question-share", daemon=True).start()
+
+    def _answer(self, work: bool) -> None:
+        with self._lock:
+            if self._asked:               # the cap answered first: a late answer changes nothing
+                return
+            self._asked, self._asking = True, False
+            if not work:
+                self.reserve_usd = 0.0
+        self._answered.set()
+
+    def _expire_ask(self) -> None:
+        """Under ``_lock``: an answer that has not come within the cap is "nothing to read"."""
+        if self._asking and time.monotonic() - self._ask_started >= ASK_CAP_S:
+            self._asked, self._asking, self.reserve_usd = True, False, 0.0
+            self._answered.set()
+
+    def settle_reserve(self) -> None:
+        """Ask if it is time and wait for the answer, at most ``ASK_CAP_S``. Blocking: for a caller off the event loop that
+        needs ``is_reached`` to be the final word (the drain, before a batch and when reading ends)."""
+        self._start_ask()
+        with self._lock:
+            asking, left = self._asking, ASK_CAP_S - (time.monotonic() - self._ask_started)
+        if asking:
+            self._answered.wait(max(0.0, left))
             with self._lock:
-                self._asked = True
-                if not work:
-                    self.reserve_usd = 0.0
+                self._expire_ask()
 
     def release_reserve(self) -> None:
         """The question steps have nothing to read: reading may use the whole figure."""
@@ -140,10 +179,15 @@ class SpendGuard:
         """May one more call go out now? ``True`` holds its place until ``release``; ``False`` means wait, since what is
         spent and what is out leave no room to say yet (the run's first call goes alone, to learn the price). Past the
         line it raises: the call is never sent."""
-        self._ask_reserve()
+        self._start_ask()
         with self._lock:
+            self._expire_ask()
             line = self._line()
-            if self.no_price or self.spent_usd >= line:
+            if self.no_price:
+                raise engine_errors.SpendLimitReached(self.sentence)
+            if self.spent_usd >= line:
+                if self._asking:          # whether this is the line is being answered: wait, never refuse on a guess
+                    return False
                 raise engine_errors.SpendLimitReached(self.sentence)
             if self._out and (self._dearest is None or self.spent_usd + self._out * self._dearest >= line):
                 return False
@@ -173,8 +217,11 @@ class SpendGuard:
         """A plan window's snapshot: nothing to a key (``ReserveGuard``'s other half)."""
 
     def is_reached(self) -> bool:
-        self._ask_reserve()
+        """Never waits. While the question steps' answer is on its way a run at its reading line reads as reached; a caller
+        that needs the final word calls ``settle_reserve`` first, off the event loop."""
+        self._start_ask()
         with self._lock:
+            self._expire_ask()
             return self.no_price or self.spent_usd >= self._line()
 
     def stop_values(self) -> tuple[int | None, str]:

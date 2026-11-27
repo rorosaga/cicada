@@ -3126,6 +3126,10 @@ async def _drain(
             stop = sleep_drain.DrainStop("cancelled")
             break
         line = ds.guard or ds.spend
+        if ds.spend is not None:
+            # At the reading line the question steps' filters are asked whether the part kept for them is needed: they read
+            # the whole bank, so the wait is off the event loop (bounded, `sleep_spend.ASK_CAP_S`).
+            await asyncio.to_thread(ds.spend.settle_reserve)
         if line is not None and line.is_reached():
             stop = _line_stop(line)
             if _only_background_left(ds, ids, waiting):
@@ -3250,6 +3254,7 @@ async def _drain(
 
     questions = False
     if ds.spend is not None:
+        await asyncio.to_thread(ds.spend.settle_reserve)   # the final word on the part kept back, off the event loop
         # Reading is over: the tail's calls are held to the whole figure. A run that stopped at the reading line left the
         # question steps their part of it (they run, although the rest of the paid tail stays skipped).
         # (Or a night that reached it with only background saves left, which ends finished, the saves back in the pile.)
@@ -3951,6 +3956,9 @@ async def _run_stages(
                 continue
             unread_content[i] = live.failed.get(i, "other")   # no hook fired (a stub): unknown, content-class
         pause_class, pause_sentence = live.pause_class, live.pause_sentence
+    if hasattr(guard, "settle_reserve"):
+        # A read that reached the reading line asked whether the question steps need their part: the final word, off the loop.
+        await asyncio.to_thread(guard.settle_reserve)
     if guard is not None and guard.is_reached() and not decay_only:
         reserve_stop = _line_stop(guard)
 

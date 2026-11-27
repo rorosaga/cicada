@@ -3625,7 +3625,8 @@ steps' calls ran **outside** the guard (they opened no drain scope, and their `d
 filing, never refused). Now: while the drain reads, the line is the figure less that part and less the dearest call so far
 (`SpendGuard._line`; batches are sized to it), so the last read stays out of it. The part is kept only while the steps have
 something to read: the first time reading reaches its line, `question_steps.has_work` (each step's own engine-free filter;
-questions raised during the run count) is asked once (`_ask_reserve`); with nothing, reading goes on to the whole figure
+questions raised during the run count) is asked once, on a thread of its own (`_start_ask`: the filters read the whole bank and the guard is reached from the event loop; a call at the
+line waits for the answer, the drain waits off the loop in `settle_reserve`, and no answer within `ASK_CAP_S` counts as nothing to read); with nothing, reading goes on to the whole figure
 (a night with no open question of their kinds reads exactly as before). When reading stops on the reading line,
 `_drain` calls `end_reading` (the line is the whole figure again) and returns `_StageOutcome.questions`; the tail then runs
 the question steps, **in today's order** (so before the catch-up proposer, as on a full night; the which-one reader after it, as
