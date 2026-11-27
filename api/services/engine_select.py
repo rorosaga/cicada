@@ -576,6 +576,29 @@ async def _connected(registry, connection_id: str) -> bool | None:
     return bool(getattr(status, "connected", False))
 
 
+async def claude_plan_beside(settings, registry=None, *, user_triggered: bool) -> tuple[object | None, str]:
+    """The person's Claude plan as a session of its own, whatever engine Sleep reads with (ruling 84: Cicada's own agent
+    is a Claude Code session, never one of Sleep's reads, so a person whose Sleep reads with a key still has it).
+    ``(a settings copy on the plan, "plan")`` when Claude Code is signed in here and, on a scheduled run, the person's
+    "Scheduled runs may use my plan" switch is on (ruling 4b); else ``(None, why)``: ``pinned`` (an operator's explicit
+    ``CICADA_LLM_MODE`` names another engine, and their word stands), ``scheduled_plan``, ``not_signed_in``.
+    Cache-first and bounded (``probe_claude_cheaply``); nothing is sent, and no key is reached or spent."""
+    if not hasattr(settings, "model_copy"):
+        return None, "no_engine"
+    pinned = "llm_mode" in getattr(settings, "model_fields_set", ())
+    if pinned and (getattr(settings, "llm_mode", None) or "").strip().lower() != "agent":
+        return None, "pinned"
+    if registry is None:
+        from api.services.connections.registry import get_registry
+
+        registry = get_registry(settings)
+    if not user_triggered and not scheduled_plan_allowed(registry):
+        return None, "scheduled_plan"
+    if not await _connected(registry, CLAUDE_CONNECTION_ID):
+        return None, "not_signed_in"
+    return settings.model_copy(update={"llm_mode": "agent"}), "plan"
+
+
 def scheduled_plan_pin(settings) -> bool:
     """True when an explicit ``CICADA_LLM_MODE=agent|codex`` dotfile pin — the one case
     ``resolve_llm_mode`` hands a scheduled run a plan — decides the scheduled engine. The

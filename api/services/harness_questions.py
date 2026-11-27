@@ -1185,13 +1185,31 @@ async def work_one(memory_path: Path, settings, path: Path, fm: dict, model: str
     return out
 
 
+async def session_engine(settings, *, user_triggered: bool) -> tuple[object | None, str | None, str]:
+    """``(settings on the Claude plan, engine label, "plan")``, or ``(None, label, why)``. The agent's sessions are Claude Code
+    sessions on the person's plan: Sleep's own engine when that is the Claude plan, else their Claude Code sign-in beside
+    whatever Sleep reads with (a key, another plan, a local model), since the agent is not one of Sleep's reads. Never a
+    key; a scheduled run only through the person's "Scheduled runs may use my plan" switch (ruling 4b)."""
+    from api.services import engine_select, web_lookup
+
+    resolved, label, why = await web_lookup.engine_for(settings, user_triggered=user_triggered)
+    if resolved is not None and why == "plan":
+        return resolved, label, why
+    if why == "scheduled_plan":
+        return None, label, why
+    beside, why = await engine_select.claude_plan_beside(settings, web_lookup._registry(settings), user_triggered=user_triggered)
+    if beside is None:
+        return None, label, why
+    return beside, engine_select.engine_label(beside), "plan"
+
+
 async def run_tail(memory_path: Path, settings, *, user_triggered: bool, today: date | None = None, per_run: int = PER_RUN,
                    runner=None, env: dict | None = None, roots: tuple[str, ...] | None = None,
                    browse: Browse | None = None) -> Report:
     """Work a few open questions, one or two sessions each. Never raises; a plan limit or a missing tool is a skip, in words.
     The signed-in compartment (``browse``, the person's own settings by default) runs only when the person connected a site and their own
     browser already answers; otherwise the questions are worked without it and the audit says so."""
-    from api.services import agent_engine, demo_guard, same_name_tend, web_lookup, write_admission
+    from api.services import agent_engine, demo_guard, same_name_tend, write_admission
 
     memory_path = Path(memory_path)
     report = Report()
@@ -1204,9 +1222,9 @@ async def run_tail(memory_path: Path, settings, *, user_triggered: bool, today: 
         rows = await asyncio.to_thread(candidates, memory_path, today=today)
         if not rows:
             return report
-        resolved, label, why = await web_lookup.engine_for(settings, user_triggered=user_triggered)
-        if resolved is None or why != "plan":
-            report.skip(f"engine:{why}")   # only the Claude plan: ruling 4's switch is inside `engine_for`
+        resolved, label, why = await session_engine(settings, user_triggered=user_triggered)
+        if resolved is None:
+            report.skip(f"engine:{why}")   # only the Claude plan, and on a schedule only through ruling 4's switch
             return report
         model = str(getattr(same_name_tend.main_tier(resolved), "agent_model", "") or "") or "sonnet"
         grant = (await asyncio.to_thread(hf.grant_for_roots, roots, refused_paths(memory_path)) if roots is not None

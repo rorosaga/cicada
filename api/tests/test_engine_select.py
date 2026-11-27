@@ -700,3 +700,23 @@ def test_a_new_install_never_adopts_a_local_model_started_later():
     assert "mode" not in reg.prefs()["sleep-engine"]
     assert engine_select.configured_mode(Settings(), reg) == "auto"
     assert asyncio.run(engine_select.resolve_llm_mode(Settings(), reg, user_triggered=True))[0] == "auto"
+
+
+def test_the_claude_plan_beside_a_key_is_reached_only_signed_in_and_through_the_schedule_switch():
+    """Ruling 84: Cicada's own agent is a Claude Code session, so a person whose Sleep reads with a key still has it, on
+    their plan. Never under an operator's pin of another engine, never signed out, and on a schedule only through 4b."""
+    key = {"sleep-engine": {"mode": "byok", "model": "anthropic/some-model"}}
+
+    def beside(settings, registry, *, user_triggered=False):
+        return asyncio.run(engine_select.claude_plan_beside(settings, registry, user_triggered=user_triggered))
+
+    got, why = beside(Settings(), _FakeRegistry(prefs=key, connected={"claude-plan", "byok-anthropic"}))
+    assert why == "plan" and got.llm_mode == "agent" and engine_select.engine_label(got) == "claude-cli"
+    assert beside(Settings(), _FakeRegistry(prefs=key, connected={"byok-anthropic"})) == (None, "not_signed_in")
+    off = {**key, **PLAN_OFF}
+    assert beside(Settings(), _FakeRegistry(prefs=off, connected={"claude-plan"})) == (None, "scheduled_plan")
+    assert beside(Settings(), _FakeRegistry(prefs=off, connected={"claude-plan"}), user_triggered=True)[1] == "plan"
+    # An operator's explicit pin of another engine stands; the plan is not even asked about.
+    asked = _Probes(connected={"claude-plan"})
+    assert beside(Settings(llm_mode="byok"), asked) == (None, "pinned") and asked.asked == []
+    assert beside(Settings(llm_mode="agent"), _FakeRegistry(connected={"claude-plan"}))[1] == "plan"

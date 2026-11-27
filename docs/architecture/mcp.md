@@ -2571,6 +2571,12 @@ open questions a run, in `question_order`: a `conflict` (which of its values a d
 (never `asks: name`, a speaker, a source or "still?"), and a `merge_suggestion` between two person pages (never the owner's, never a pair kept apart). A
 conflict one of whose values rests on the person's own words is left (ruling 44).
 
+**Which plan it runs on (`harness_questions.session_engine`).** Its sessions are Claude Code sessions on the person's own plan, never one of
+Sleep's reads: Sleep's engine when that is the Claude plan, else the person's Claude Code sign-in on this machine whatever Sleep reads with (a key,
+another plan, a local model; `engine_select.claude_plan_beside`, cache-first and bounded). Never a key. A scheduled run reaches the plan only
+through "Scheduled runs may use my plan" (ruling 4b), and an operator's explicit `CICADA_LLM_MODE` pin of another engine stands. Not signed in, the
+switch off or such a pin: the run is skipped with its reason (`engine:<why>`), and the dry run's first line says which.
+
 **Compartments that never meet** (two, and a third for the signed-in browser, below). Each is one `claude -p` session (`harness_agent.build_argv`): safe mode, `--permission-mode dontAsk
 --permission-prompts none`, `--json-schema` for the answer, the rules in a settings file. `harness_questions.plan_for` picks the order: private, then web
 (a conflict only when ruling 27's test calls the thing public; a clarification always; a pair never), then the signed-in browser last, only when it can run.
