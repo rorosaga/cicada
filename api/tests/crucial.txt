@@ -245,6 +245,9 @@ test_engine_parity.py::test_a_leg_leaves_the_process_environment_as_it_found_it
 test_anthropic_engine.py::test_a_call_that_failed_after_the_provider_answered_reaches_the_ledger_with_its_cost
 test_spend_limit.py::test_a_run_past_the_limit_is_a_pause_in_words_and_keeps_what_it_read
 test_spend_limit.py::test_an_unpriced_model_stops_before_any_call_is_made
+# 2026-11-27: a part of the limit is the question steps', held to the whole figure; the bound does not move
+test_question_steps_under_limit.py::test_a_night_that_would_use_the_whole_figure_reads_to_the_reading_part_and_the_questions_spend_the_rest
+test_question_steps_under_limit.py::test_a_question_step_call_past_the_line_is_never_sent
 
 ## Inventories a new route or writer must join, and no owner name in shipped code (each went red unnoticed, 2026-11-06)
 test_write_admission_sites.py::test_every_writing_route_is_classified

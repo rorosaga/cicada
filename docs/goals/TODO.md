@@ -4825,6 +4825,19 @@ A whole row moves to DONE only after its remaining implementation and required a
     failed call's spend included; a charged call whose cost cannot be read stops the run, like no price. **A model with no known price stops the run, before any read when it is known up front, else at the first
     unpriced call; tokens are not counted against a dollar figure and no price is guessed.** Choosing that was the point
     of the review: a limit that silently stops holding on a new model is worse than a pause that says why.
+    **The question steps' part (2026-11-27; the coordinator's reading under the owner's standing word of 2026-11-26 to go with the
+    recommendation and note it; `sleep_spend.QUESTIONS_SHARE`).** The night of 2026-11-27 read 27 of 328 conversations and stopped
+    on the line, so the tail skipped every step that asks a model, the same-name review, the two joins, the second look at open
+    questions (ruling 82), the described landing and the which-one reader (ruling 83) included; about 50 sessions a day arrive,
+    so on that install they never ran while 701 questions were open. Now 15% of the figure is kept back from reading, **only
+    while those steps have something to read** (asked when reading reaches its line), and the steps run after reading stops,
+    every call held to the whole figure; the bound above is unchanged. **Measured** (plan, Haiku, the batteries' invented banks,
+    token counts from the ledger; priced at the repo's table for a mid-tier model, input at the full rate): one bounded pass of
+    the six steps is about 95 calls, $0.69 at Sonnet 5.5 (typical, by each step's own per-run bound; $1.11 if every look took its
+    most reads), so 15% of $5 ($0.75) is one typical pass and 15% of $1 ($0.15) about a fifth of one: the first two steps. Also
+    found: those steps' calls ran **outside** the guard before (no drain scope, and the batches' filing label), so a run that read
+    everything under the line could still spend past it in the tail; they are held now. Revisit on a measured change of a step's
+    per-run bound or the price of the main model.
     (h) **A failed call is still a paid one.** A call that failed after the provider started answering (cut off, refused,
     the connection lost mid-stream) reaches the ledger with what it reported (`_paid`), and Past reads and the limit read
     that; a request refused before an answer costs nothing. A connection lost inside an open stream is the engine's,
